@@ -188,7 +188,7 @@ class Chat:
                 })
 
         responses: list[ChatOutput] = await asyncio.gather(*[
-            self.chat_with_context_chunks(messages, model)
+            self.chat_with_context_chunks(messages, model, client)
             for messages in all_messages
         ])
 
@@ -238,10 +238,11 @@ class Chat:
         self,
         messages: list[dict[str, str]],
         model: ChatModel,
+        chat_client: AsyncOpenAI,
     ) -> ChatOutput:
         r"""Chat with context chunks.
         """
-        response = await self.chat_client.responses.parse(
+        response = await chat_client.responses.parse(
             model=model,
             input=messages,
             text_format=ChatOutput,

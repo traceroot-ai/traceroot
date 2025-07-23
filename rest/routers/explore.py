@@ -473,7 +473,6 @@ class ExploreRouter:
             is_github_issue = github_related.is_github_issue
             is_github_pr = github_related.is_github_pr
             print("is_github_pr: ", is_github_pr)
-            print("is_github_issue: ", is_github_issue)
 
         keys = (start_time, end_time, service_name, log_group_name)
         cached_traces: list[Trace] | None = await self.cache.get(keys)
