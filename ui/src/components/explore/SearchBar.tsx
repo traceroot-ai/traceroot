@@ -3,6 +3,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { IoMdClose} from "react-icons/io";
 import { IoIosSearch } from "react-icons/io";
+import { TbCategory } from "react-icons/tb";
+import { LuSquareEqual } from "react-icons/lu";
 
 export interface SearchCriterion {
   id: string;
@@ -109,11 +111,11 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
   };
 
   return (
-    <div ref={searchBarRef} className="relative flex items-start gap-2">
+    <div ref={searchBarRef} className="relative flex items-start gap-2 justify-start">
       <div 
-        className={`flex flex-col gap-2 px-4 py-1 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 ${
+        className={`flex flex-col gap-2 px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 ${
           isExpanded ? 'ring-2 ring-green-500' : 'hover:border-gray-400 dark:hover:border-gray-500'
-        } transition-all duration-200 min-h-[2rem] max-h-[12rem] ${criteria.length === 0 ? 'justify-center' : ''} flex-1`}
+        } transition-all duration-200 min-h-[2rem] max-h-[10rem] ${criteria.length === 0 ? 'justify-center' : ''} w-auto max-w-md`}
         onClick={() => setIsExpanded(true)}
       >
         {/* Search criteria blocks */}
@@ -150,7 +152,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
 
         {/* Main search input row */}
         <div className="flex flex-wrap items-center justify-start gap-2 min-h-[2rem]">
-          <IoIosSearch className="w-4 h-4 text-black flex-shrink-0" />
+          <IoIosSearch className="w-4 h-4 text-gray-500 flex-shrink-0" />
 
           {/* Category selector */}
           <div className="relative flex-shrink-0">
@@ -169,13 +171,13 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
               }}
             >
               <span className="hidden md:inline">
-                {currentCriterion.category ? getCategoryLabel(currentCriterion.category) : 'category'}
+                {currentCriterion.category ? getCategoryLabel(currentCriterion.category) : <TbCategory className="w-4 h-4" />}
               </span>
               <span className="hidden sm:inline md:hidden">
-                {currentCriterion.category ? getCategoryLabel(currentCriterion.category).substring(0, 8) : 'category'}
+                {currentCriterion.category ? getCategoryLabel(currentCriterion.category).substring(0, 8) : <TbCategory className="w-4 h-4" />}
               </span>
               <span className="sm:hidden">
-                {currentCriterion.category ? getCategoryLabel(currentCriterion.category).substring(0, 3) : 'cat'}
+                {currentCriterion.category ? getCategoryLabel(currentCriterion.category).substring(0, 3) : <TbCategory className="w-4 h-4" />}
               </span>
             </button>
             
@@ -215,13 +217,13 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
               }}
             >
               <span className="hidden md:inline">
-                {currentCriterion.operation ? getOperationLabel(currentCriterion.operation) : 'operation'}
+                {currentCriterion.operation ? getOperationLabel(currentCriterion.operation) : <LuSquareEqual className="w-4 h-4" />}
               </span>
               <span className="hidden sm:inline md:hidden">
-                {currentCriterion.operation ? getOperationLabel(currentCriterion.operation) : 'Op'}
+                {currentCriterion.operation ? getOperationLabel(currentCriterion.operation) : <LuSquareEqual className="w-4 h-4" />}
               </span>
               <span className="sm:hidden">
-                {currentCriterion.operation ? getOperationLabel(currentCriterion.operation) : 'Op'}
+                {currentCriterion.operation ? getOperationLabel(currentCriterion.operation) : <LuSquareEqual className="w-4 h-4" />}
               </span>
             </button>
             
@@ -290,8 +292,8 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Enter value..."
-            className="flex-1 min-w-[80px] px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-xs"
+            placeholder=""
+            className="w-45 min-w-[80px] px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-xs"
           />
           
           {/* cross button */}

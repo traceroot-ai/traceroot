@@ -230,6 +230,7 @@ class ExploreRouter:
             ref,
             line_num,
             github_token,
+            line_context_len=4,
         )
 
     async def list_traces(

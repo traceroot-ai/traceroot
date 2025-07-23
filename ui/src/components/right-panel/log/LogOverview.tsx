@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { format, formatDistanceToNow } from 'date-fns';
-import { IoWarningOutline } from "react-icons/io5";
+import { IoWarningOutline, IoTimeOutline, IoPlayOutline, IoStopOutline, IoStatsChartOutline } from "react-icons/io5";
 
 interface LogOverviewProps {
   // Single trace props
@@ -40,34 +40,60 @@ export default function LogOverview({
       const duration = formatDistanceToNow(traceQueryStartTime, { addSuffix: false });
 
       return (
-        <div className="space-y-1">
-          <div className="flex items-center space-x-2 mt-5 mb-5">
-            <div className="flex-1">
-              <div className="font-mono text-xs text-gray-500 dark:text-gray-400">
-                Start Time
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Start Time */}
+            <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl p-4 group hover:shadow-md transition-all duration-200">
+              <div className="flex items-center space-x-3 mb-2">
+                <div className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg">
+                  <IoPlayOutline className="text-gray-800 dark:text-gray-300" size={18} />
+                </div>
+                <div className="text-md font-mono font-semibold text-gray-700 dark:text-gray-300">
+                  Start Time
+                </div>
               </div>
-              <div className="text-md font-medium text-gray-900 dark:text-gray-100 mt-0.5">
+              <div className="text-sm font-mono font-medium text-gray-700 dark:text-gray-100 leading-relaxed">
                 {startFormatted}
               </div>
             </div>
-            <div className="flex items-center">
-              <div className="h-px w-8 bg-gray-300 dark:bg-gray-600"></div>
-              <div className="mx-2 text-xs text-gray-500 dark:text-gray-400">
+
+            {/* Duration */}
+            <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl p-4 group hover:shadow-md transition-all duration-200">
+              <div className="flex items-center space-x-3 mb-2">
+                <div className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg">
+                  <IoTimeOutline className="text-gray-800 dark:text-gray-300" size={18} />
+                </div>
+                <div className="text-md font-mono font-semibold text-gray-700 dark:text-gray-300">
+                  Duration
+                </div>
+              </div>
+              <div className="text-sm font-mono font-medium text-gray-700 dark:text-gray-100 leading-relaxed">
                 {duration}
               </div>
-              <div className="h-px w-8 bg-gray-300 dark:bg-gray-600"></div>
             </div>
-            <div className="flex-1 text-right">
-              <div className="font-mono text-xs text-gray-500 dark:text-gray-400">
-                End Time
+
+            {/* End Time */}
+            <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl p-4 group hover:shadow-md transition-all duration-200">
+              <div className="flex items-center space-x-3 mb-2">
+                <div className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg">
+                  <IoStopOutline className="text-gray-800 dark:text-gray-300" size={18} />
+                </div>
+                <div className="text-md font-mono font-semibold text-gray-700 dark:text-gray-300">
+                  End Time
+                </div>
               </div>
-              <div className="text-md font-medium text-gray-900 dark:text-gray-100 mt-0.5">
+              <div className="text-sm font-mono font-medium text-gray-700 dark:text-gray-100 leading-relaxed">
                 {endFormatted}
               </div>
             </div>
           </div>
-          <div className="mt-5 text-xs text-gray-500 dark:text-gray-400 italic text-center">
-            Last updated {timeAgo}
+          
+          {/* Last Updated */}
+          <div className="text-center">
+            <div className="inline-flex items-center space-x-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-full text-xs text-gray-700 dark:text-gray-300">
+              <IoTimeOutline size={12} />
+              <span>Last updated {timeAgo}</span>
+            </div>
           </div>
         </div>
       );
@@ -84,60 +110,109 @@ export default function LogOverview({
       const duration = formatDistanceToNow(earliestStart, { addSuffix: false });
 
       return (
-        <div className="space-y-1">
-          <div className="flex items-center space-x-2 mt-4">
-            <div className="flex-1">
-              <div className="text-xs text-gray-500 dark:text-gray-400">
-                Earliest Trace Start
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Earliest Start */}
+            <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl p-4 group hover:shadow-md transition-all duration-200">
+              <div className="flex items-center space-x-3 mb-2">
+                <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                  <IoPlayOutline className="text-gray-700 dark:text-gray-300" size={18} />
+                </div>
+                <div className="text-md font-mono font-semibold text-gray-700 dark:text-gray-300">
+                  Earliest Start
+                </div>
               </div>
-              <div className="text-md font-medium text-gray-900 dark:text-gray-100 mt-1">
+              <div className="text-base font-mono font-medium text-gray-900 dark:text-gray-100 leading-relaxed">
                 {startFormatted}
               </div>
             </div>
-            <div className="flex items-center">
-              <div className="h-px w-8 bg-gray-300 dark:bg-gray-600"></div>
-              <div className="mx-2 text-xs text-gray-500 dark:text-gray-400">
+
+            {/* Total Duration */}
+            <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl p-4 group hover:shadow-md transition-all duration-200">
+              <div className="flex items-center space-x-3 mb-2">
+                <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                  <IoTimeOutline className="text-gray-700 dark:text-gray-300" size={18} />
+                </div>
+                <div className="text-md font-mono font-semibold text-gray-700 dark:text-gray-300">
+                  Total Duration
+                </div>
+              </div>
+              <div className="text-base font-mono font-medium text-gray-900 dark:text-gray-100 leading-relaxed">
                 {duration}
               </div>
-              <div className="h-px w-8 bg-gray-300 dark:bg-gray-600"></div>
             </div>
-            <div className="flex-1 text-right">
-              <div className="text-xs text-gray-500 dark:text-gray-400">
-                Latest Trace End
+
+            {/* Latest End */}
+            <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl p-4 group hover:shadow-md transition-all duration-200">
+              <div className="flex items-center space-x-3 mb-2">
+                <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                  <IoStopOutline className="text-gray-700 dark:text-gray-300" size={18} />
+                </div>
+                <div className="text-md font-mono font-semibold text-gray-700 dark:text-gray-300">
+                  Latest End
+                </div>
               </div>
-              <div className="text-md font-medium text-gray-900 dark:text-gray-100 mt-1">
+              <div className="text-base font-mono font-medium text-gray-900 dark:text-gray-100 leading-relaxed">
                 {endFormatted}
               </div>
             </div>
           </div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 italic text-center">
-            Last updated {timeAgo}
-          </div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 text-center mt-2">
-            Showing {traceIDs.length} traces
+          
+          {/* Stats and Last Updated */}
+                     <div className="flex flex-col sm:flex-row items-center justify-center space-y-2 sm:space-y-0 sm:space-x-4">
+             <div className="inline-flex items-center space-x-2 px-3 py-1.5 bg-gray-200 dark:bg-gray-700 rounded-full text-xs text-gray-700 dark:text-gray-300">
+               <IoStatsChartOutline size={12} />
+               <span>{traceIDs.length} traces</span>
+             </div>
+            <div className="inline-flex items-center space-x-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-full text-xs text-gray-700 dark:text-gray-300">
+              <IoTimeOutline size={12} />
+              <span>Last updated {timeAgo}</span>
+            </div>
           </div>
         </div>
       );
     }
 
-    return null;
+    return (
+      <div className="text-center py-8">
+        <div className="inline-flex items-center justify-center space-x-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-full text-sm text-gray-700 dark:text-gray-300">
+          <IoTimeOutline size={16} />
+          <span>No time range data available</span>
+        </div>
+      </div>
+    );
   };
 
   return (
-    <div className="space-y-4 w-full p-4">
-      <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 w-full">
-        <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
-          <div className="p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-            <p className="text-xl font-mono font-semibold text-gray-900 dark:text-gray-100 mb-3 flex items-center justify-center">Query Time Range</p>
-            {formatTimeRange()}
-          </div>
+    <div className="space-y-6 w-full p-4">
+      {/* Query Time Range Card */}
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden">
+        {/* Header */}
+          <div className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 border-b border-gray-200 dark:border-gray-700 px-6 py-2">
+           <div className="flex items-center justify-center space-x-3">
+             <div className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg">
+               <IoTimeOutline className="text-gray-800 dark:text-gray-300" size={22} />
+             </div>
+             <h2 className="text-lg font-mono font-semibold tracking-wide text-gray-800 dark:text-gray-100">
+               Query Time Range
+             </h2>
+           </div>
+         </div>
+        
+        {/* Content */}
+        <div className="p-6">
+          {formatTimeRange()}
         </div>
       </div>
-      <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-center items-center justify-center">
-        <p className="text-gray-600 dark:text-gray-300 flex items-center text-center justify-center gap-2">
-          <IoWarningOutline className="text-gray-500" size={20} />
-          Select a trace from the list to view its detailed logs
-        </p>
+
+      {/* Instructions Card */}
+      <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded-xl p-4">
+        <div className="flex items-center justify-center space-x-3 text-amber-700 dark:text-amber-300">
+          <IoWarningOutline size={20} />
+          <p className="text-sm font-medium">
+            Select a log from the list to view its details
+          </p>
+        </div>
       </div>
     </div>
   );
