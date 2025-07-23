@@ -432,6 +432,7 @@ class ExploreRouter:
                 time=orig_time,
                 message=("OpenAI token is not found, please "
                          "add it in the settings page."),
+                reference=[],
                 message_type=MessageType.ASSISTANT,
                 chat_id=chat_id,
             )
