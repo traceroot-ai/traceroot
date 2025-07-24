@@ -34,5 +34,5 @@ jobs:
 
       - name: Run pre-commit
         run: |
-          pre-commit run --all-files
+          SKIP=no-commit-to-branch pre-commit run --all-files
         shell: bash

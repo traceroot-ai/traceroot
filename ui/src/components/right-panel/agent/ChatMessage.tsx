@@ -144,6 +144,26 @@ const renderMarkdown = (text: string, messageId: string, references?: Reference[
         );
       }
     },
+    // Standard markdown link pattern - [text](url)
+    {
+      regex: /\[([^\]]+)\]\(([^)]+)\)/g,
+      component: (match: string, ...args: string[]) => {
+        const [linkText, url] = args;
+
+        return (
+          <a
+            key={currentIndex++}
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-black dark:text-white hover:text-gray-600 dark:hover:text-gray-300 underline font-medium transition-colors"
+            title={linkText}
+          >
+            {linkText}
+          </a>
+        );
+      }
+    },
     // Reference numbers pattern - must come before log level patterns
     { regex: /\[(\d+)\]/g, component: (match: string, ...args: string[]) => {
         const refNumber = parseInt(args[0]);
