@@ -208,10 +208,6 @@ If you find TraceRoot useful in your research, please consider citing:
 [company-whatsapp-url]: https://chat.whatsapp.com/GzBii194psf925AEBztMir
 [company-x-image]: https://img.shields.io/twitter/follow/TracerootAI?style=social
 [company-x-url]: https://x.com/TracerootAI
-[zecheng-x-image]: https://img.shields.io/twitter/follow/zechengzh?style=social
-[zecheng-x-url]: https://x.com/zechengzh
-[xinwei-x-image]: https://img.shields.io/twitter/follow/xinwei_97?style=social
-[xinwei-x-url]: https://x.com/xinwei_97
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
 [discord-url]: https://discord.gg/tPyffEZvvJ
 [docs-image]: https://img.shields.io/badge/docs-traceroot.ai-0dbf43
@@ -224,4 +220,7 @@ If you find TraceRoot useful in your research, please consider citing:
 [testing-url]: https://github.com/traceroot-ai/traceroot/actions/workflows/test.yml
 [wechat-image]: https://img.shields.io/badge/WeChat-TraceRoot.AI-brightgreen?logo=wechat&logoColor=white
 [wechat-url]: https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/wechat.jpg
-
+[xinwei-x-image]: https://img.shields.io/twitter/follow/xinwei_97?style=social
+[xinwei-x-url]: https://x.com/xinwei_97
+[zecheng-x-image]: https://img.shields.io/twitter/follow/zechengzh?style=social
+[zecheng-x-url]: https://x.com/zechengzh
