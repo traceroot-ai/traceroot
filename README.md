@@ -154,8 +154,6 @@ As mentioned above, you need to setup the Jaeger docker container at first befor
 
 For more details or the SDK usage and examples, please checkout this [Quickstart](https://docs.traceroot.ai/quickstart).
 
-<<<<<<< Updated upstream
-=======
 ## AI Agent Framework
 
 
@@ -179,14 +177,13 @@ TODO: Add TraceRoot's specialized explainability.
 
 Please checkout the [README.md in the `rest/agent` directory](rest/agent/README.md) for more details.
 
->>>>>>> Stashed changes
 ## Citation
 
 If you find TraceRoot useful in your research, please consider citing:
 
 ```bibtex
 @article{traceroot_2025,
-  title={TraceRoot: A Multi-Agent System for Debugging and Tracing},
+  title={TraceRoot Is All You Need for Debugging and Tracing},
   author={Zecheng Zhang and Xinwei He},
   year = {2025},
   publisher = {GitHub},

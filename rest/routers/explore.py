@@ -48,7 +48,7 @@ try:
 except ImportError:
     from rest.agent.agent import Agent
 
-from rest.agent.summarizer.github import get_github_related
+from rest.agent.summarizer.github import is_github_related
 from rest.utils.github import parse_github_url
 
 
@@ -207,6 +207,7 @@ class ExploreRouter:
             req_data: CodeRequest = Depends(),
     ) -> dict[str, Any]:
         """Get file line context content from GitHub URL.
+        This is called to show the code in the UI.
 
         Args:
             req_data (CodeRequest): Request containing GitHub URL
@@ -286,6 +287,8 @@ class ExploreRouter:
             chat_id=req_data.chat_id)
         chat_history = ChatHistoryResponse(history=[])
         for item in history:
+            # For user only shows the user message
+            # without the context information
             if item["role"] == "user":
                 if "user_message" in item:
                     message = item["user_message"]
@@ -293,12 +296,15 @@ class ExploreRouter:
                     message = item["content"]
             else:
                 message = item["content"]
+            # Reference is only for assistant message
             if item["role"] == "assistant" and "reference" in item:
                 reference = [Reference(**ref) for ref in item["reference"]]
             else:
                 reference = []
 
             # Skip chunk messages except the first one
+            # For now chunk_id is only used for user message
+            # where we cut the user message + context into chunks
             chunk_id = 0
             if "chunk_id" in item and item["chunk_id"] > 0:
                 continue
@@ -402,10 +408,9 @@ class ExploreRouter:
         request: Request,
         req_data: ChatRequest,
     ) -> dict[str, Any]:
-        # Get user credentials at first
+        # Get basic information ###############################################
         user_email, _, user_sub = get_user_credentials(request)
         log_group_name = hash_user_sub(user_sub)
-
         trace_id = req_data.trace_id
         span_ids = req_data.span_ids
         start_time = req_data.start_time
@@ -416,13 +421,15 @@ class ExploreRouter:
         service_name = req_data.service_name
         mode = req_data.mode
 
-        # Construct chat related request
+        if model == ChatModel.AUTO:
+            model = ChatModel.GPT_4O
+
         if req_data.time.tzinfo:
             orig_time = req_data.time.astimezone(timezone.utc)
         else:
             orig_time = req_data.time.replace(tzinfo=timezone.utc)
 
-        # Try to get OpenAI token
+        # Get OpenAI token ####################################################
         openai_token = await self.db_client.get_integration_token(
             user_email=user_email,
             token_type=ResourceType.OPENAI.value,
@@ -438,12 +445,12 @@ class ExploreRouter:
             )
             return response.model_dump()
 
+        # Get whether it's the first chat #####################################
         first_chat: bool = False
         if await self.db_client.get_chat_metadata(chat_id=chat_id) is None:
             first_chat = True
 
-        if model == ChatModel.AUTO:
-            model = ChatModel.GPT_4O
+        # Get the title of the chat if it's the first chat ####################
         title = await summarize_title(
             user_message=message,
             client=self.chat.chat_client,
@@ -451,8 +458,8 @@ class ExploreRouter:
             model=model,
             first_chat=first_chat,
         )
-
         if first_chat and title is not None:
+            print(f"Inserting chat metadata: {title} {chat_id} {trace_id}")
             await self.db_client.insert_chat_metadata(
                 metadata={
                     "chat_id": chat_id,
@@ -461,19 +468,23 @@ class ExploreRouter:
                     "trace_id": trace_id,
                 })
 
+        # Get whether the user message is related to GitHub ###################
         is_github_issue: bool = False
         is_github_pr: bool = False
+        source_code_related: bool = False
+        github_related = await is_github_related(
+            user_message=message,
+            client=self.chat.chat_client,
+            openai_token=openai_token,
+            model=model,
+        )
+        source_code_related = github_related.source_code_related
+        # For now only allow issue and PR creation for agent and non-local mode
         if mode == ChatMode.AGENT and not self.local_mode:
-            github_related = await get_github_related(
-                user_message=message,
-                client=self.chat.chat_client,
-                openai_token=openai_token,
-                model=model,
-            )
             is_github_issue = github_related.is_github_issue
             is_github_pr = github_related.is_github_pr
-            print("is_github_pr: ", is_github_pr)
 
+        # Get the trace #######################################################
         keys = (start_time, end_time, service_name, log_group_name)
         cached_traces: list[Trace] | None = await self.cache.get(keys)
         if cached_traces:
@@ -492,7 +503,7 @@ class ExploreRouter:
                 break
         spans_latency_dict: dict[str, float] = {}
 
-        # Collect span latencies recursively
+        # Compute the span latencies recursively ##############################
         if selected_trace:
             collect_spans_latency_recursively(
                 selected_trace.spans,
@@ -507,10 +518,9 @@ class ExploreRouter:
                         selected_spans_latency_dict[span_id] = latency
                 spans_latency_dict = selected_spans_latency_dict
 
+        # Get the logs ########################################################
         keys = (trace_id, start_time, end_time, log_group_name)
-        # Try to get cached logs
         logs: TraceLogs | None = await self.cache.get(keys)
-
         if logs is None:
             logs = await self.observe_client.get_logs_by_trace_id(
                 trace_id=trace_id,
@@ -524,108 +534,107 @@ class ExploreRouter:
         # Get GitHub token
         github_token = await self.get_github_token(user_email)
 
-        # Fetch the source code for the logs
-        # Collect all GitHub file tasks first
-        github_tasks = []
-        log_entries_to_update = []
-        github_file_tasks = set()
+        # Only fetch the source code if it's source code related ##############
+        github_tasks: list[tuple[str, str, str, str]] = []
+        log_entries_to_update: list = []
+        github_task_keys: set[tuple[str, str, str, str]] = set()
+        if source_code_related:
+            for log in logs.logs:
+                for span_id, span_logs in log.items():
+                    for log_entry in span_logs:
+                        if log_entry.git_url:
+                            owner, repo_name, ref, file_path, line_number = \
+                                parse_github_url(log_entry.git_url)
+                            # Create task for this GitHub file fetch
+                            # notice that there is no await here
+                            if is_github_pr:
+                                line_context_len = 200
+                            else:
+                                line_context_len = 5
+                            task = self.handle_github_file(
+                                owner,
+                                repo_name,
+                                file_path,
+                                ref,
+                                line_number,
+                                github_token,
+                                line_context_len,
+                            )
+                            github_task_keys.add(
+                                (owner, repo_name, file_path, ref))
+                            github_tasks.append(task)
+                            log_entries_to_update.append(log_entry)
 
-        for log in logs.logs:
-            for span_id, span_logs in log.items():
-                for log_entry in span_logs:
-                    if log_entry.git_url:
-                        owner, repo_name, ref, file_path, line_number = \
-                            parse_github_url(log_entry.git_url)
-                        # Create task for this GitHub file fetch
-                        # notice that there is no await here
-                        if is_github_pr:
-                            line_context_len = 200
-                        else:
-                            line_context_len = 5
-                        task = self.handle_github_file(
-                            owner,
-                            repo_name,
-                            file_path,
-                            ref,
-                            line_number,
-                            github_token,
-                            line_context_len,
-                        )
-                        github_file_tasks.add(
-                            (owner, repo_name, file_path, ref))
-                        github_tasks.append(task)
-                        log_entries_to_update.append(log_entry)
+            # Process tasks in batches of 20 to avoid overwhelming API
+            batch_size = 20
+            for i in range(0, len(github_tasks), batch_size):
+                batch_tasks = github_tasks[i:i + batch_size]
+                batch_log_entries = log_entries_to_update[i:i + batch_size]
 
-        # Process tasks in batches of 20 to avoid overwhelming GitHub API
-        batch_size = 20
-        for i in range(0, len(github_tasks), batch_size):
-            batch_tasks = github_tasks[i:i + batch_size]
-            batch_log_entries = log_entries_to_update[i:i + batch_size]
+                time = datetime.now().astimezone(timezone.utc)
+                await self.db_client.insert_chat_record(
+                    message={
+                        "chat_id": chat_id,
+                        "timestamp": time,
+                        "role": MessageType.GITHUB.value,
+                        "content": "Fetching GitHub file content... ",
+                        "trace_id": trace_id,
+                        "chunk_id": i // batch_size,
+                        "action_type": ActionType.GITHUB_GET_FILE.value,
+                        "status": ActionStatus.PENDING.value,
+                    })
 
-            time = datetime.now().astimezone(timezone.utc)
-            await self.db_client.insert_chat_record(
-                message={
-                    "chat_id": chat_id,
-                    "timestamp": time,
-                    "role": MessageType.GITHUB.value,
-                    "content": "Fetching GitHub file content... ",
-                    "trace_id": trace_id,
-                    "chunk_id": i // batch_size,
-                    "action_type": ActionType.GITHUB_GET_FILE.value,
-                    "status": ActionStatus.PENDING.value,
-                })
+                # Execute batch in parallel
+                batch_results = await asyncio.gather(*batch_tasks,
+                                                     return_exceptions=True)
 
-            # Execute batch in parallel
-            batch_results = await asyncio.gather(*batch_tasks,
-                                                 return_exceptions=True)
+                # Process results and update log entries
+                num_failed = 0
+                for log_entry, code_response in zip(batch_log_entries,
+                                                    batch_results):
+                    # Handle exceptions gracefully
+                    if isinstance(code_response, Exception):
+                        num_failed += 1
+                        continue
 
-            # Process results and update log entries
-            num_failed = 0
-            for log_entry, code_response in zip(batch_log_entries,
-                                                batch_results):
-                # Handle exceptions gracefully
-                if isinstance(code_response, Exception):
-                    num_failed += 1
-                    continue
+                    # If error message is not None, skip the log entry
+                    if code_response["error_message"]:
+                        num_failed += 1
+                        continue
 
-                # If error message is not None, skip the log entry
-                if code_response["error_message"]:
-                    num_failed += 1
-                    continue
+                    log_entry.line = code_response["line"]
+                    # For now disable the context as it may hallucinate
+                    # on the case such as count number of error logs
+                    if not is_github_pr:
+                        log_entry.lines_above = None
+                        log_entry.lines_below = None
+                    else:
+                        log_entry.lines_above = code_response["lines_above"]
+                        log_entry.lines_below = code_response["lines_below"]
 
-                log_entry.line = code_response["line"]
-                # For now disable the context as it may hallucinate
-                # on the case such as count number of error logs
-                if not is_github_pr:
-                    log_entry.lines_above = None
-                    log_entry.lines_below = None
-                else:
-                    log_entry.lines_above = code_response["lines_above"]
-                    log_entry.lines_below = code_response["lines_below"]
-
-            time = datetime.now().astimezone(timezone.utc)
-            num_success = len(batch_log_entries) - num_failed
-            await self.db_client.insert_chat_record(
-                message={
-                    "chat_id":
-                    chat_id,
-                    "timestamp":
-                    time,
-                    "role":
-                    MessageType.GITHUB.value,
-                    "content":
-                    "Finished fetching GitHub file content for "
-                    f"{num_success} times. Failed to "
-                    f"fetch {num_failed} times.",
-                    "trace_id":
-                    trace_id,
-                    "chunk_id":
-                    i // batch_size,
-                    "action_type":
-                    ActionType.GITHUB_GET_FILE.value,
-                    "status":
-                    ActionStatus.SUCCESS.value,
-                })
+                time = datetime.now().astimezone(timezone.utc)
+                num_success = len(batch_log_entries) - num_failed
+                await self.db_client.insert_chat_record(
+                    message={
+                        "chat_id":
+                        chat_id,
+                        "timestamp":
+                        time,
+                        "role":
+                        MessageType.GITHUB.value,
+                        "content":
+                        "Finished fetching GitHub file content for "
+                        f"{num_success} times. Failed to "
+                        f"fetch {num_failed} times.",
+                        "trace_id":
+                        trace_id,
+                        "chunk_id":
+                        i // batch_size,
+                        "action_type":
+                        ActionType.GITHUB_GET_FILE.value,
+                        "status":
+                        ActionStatus.SUCCESS.value,
+                    })
 
         chat_history = await self.db_client.get_chat_history(chat_id=chat_id)
 
@@ -660,7 +669,7 @@ class ExploreRouter:
                 tree=node,
                 openai_token=openai_token,
                 github_token=github_token,
-                github_file_tasks=github_file_tasks,
+                github_task_keys=github_task_keys,
                 is_github_issue=is_github_issue,
                 is_github_pr=is_github_pr,
             )
