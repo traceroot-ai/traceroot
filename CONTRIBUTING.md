@@ -1,6 +1,6 @@
 # Welcome to TraceRoot!
 
-Thank you for your interest in contributing to the TraceRoot project! 🎉 We're excited to have your support. As an open-source initiative in a rapidly evolving and open-ended field, we wholeheartedly welcome contributions of all kinds. Whether you want to introduce new features, enhance the infrastructure, improve documentation, asking issues, add more examples, implement state-of-the-art research ideas, or fix bugs, we appreciate your enthusiasm and efforts. 🙌  You are welcome to join our [discord](https://discord.gg/CeuqGDQ58q/) for more efficient communication. 💬
+Thank you for your interest in contributing to the TraceRoot project! 🎉 We're excited to have your support. As an open-source initiative in a rapidly evolving and open-ended field, we wholeheartedly welcome contributions of all kinds. Whether you want to introduce new features, enhance the infrastructure, improve documentation, asking issues, add more examples, implement state-of-the-art research ideas, or fix bugs, we appreciate your enthusiasm and efforts. 🙌  You are welcome to join our [discord](https://discord.gg/tPyffEZvvJ) for more efficient communication. 💬
 
 ## Join Our Community 🌍
 
@@ -9,7 +9,7 @@ Thank you for your interest in contributing to the TraceRoot project! 🎉 We're
 - [Schedule an Introduction Call](https://cal.com/traceroot/30min)
 
 ### Our Communication Channels 💬
-- **Discord:** [Join here](https://discord.gg/CeuqGDQ58q/)
+- **Discord:** [Join here](https://discord.gg/tPyffEZvvJ)
 
 ## Contributing Guidelines 📝
 
