@@ -154,6 +154,32 @@ As mentioned above, you need to setup the Jaeger docker container at first befor
 
 For more details or the SDK usage and examples, please checkout this [Quickstart](https://docs.traceroot.ai/quickstart).
 
+<<<<<<< Updated upstream
+=======
+## AI Agent Framework
+
+
+Here is an overview for our AI Agent Framework:
+
+### Context Model
+
+<div align="center">
+  <a href="https://traceroot.ai/">
+    <img src="misc/images/agent-context.svg" alt="Context Model" width="80%">
+  </a>
+</div>
+
+### Chunking
+
+TODO: Add TraceRoot's specialized chunking.
+
+### Explainability
+
+TODO: Add TraceRoot's specialized explainability.
+
+Please checkout the [README.md in the `rest/agent` directory](rest/agent/README.md) for more details.
+
+>>>>>>> Stashed changes
 ## Citation
 
 If you find TraceRoot useful in your research, please consider citing:
