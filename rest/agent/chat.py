@@ -157,7 +157,8 @@ class Chat:
                 # We only need to include the user message
                 # (without the context information) in the
                 # chat history
-                if "user_message" in record:
+                if "user_message" in record and record[
+                        "user_message"] is not None:
                     content = record["user_message"]
                 else:
                     content = record["content"]
@@ -165,6 +166,8 @@ class Chat:
                     "role": record["role"],
                     "content": content,
                 })
+        # To handle potential chunking calls, we need to create multiple
+        # messages for each context chunk
         all_messages: list[list[dict[str, str]]] = [
             deepcopy(messages) for _ in range(len(context_messages))
         ]

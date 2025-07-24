@@ -254,6 +254,9 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
           references: chatResponse.data.reference,
         };
         setMessages(prev => [assistantMessage, ...prev]);
+        
+        // Refresh TopBar metadata when assistant message is posted
+        topBarRef.current?.refreshMetadata();
       } else {
         throw new Error(chatResponse.error || 'Failed to get response from chat API');
       }
@@ -267,6 +270,9 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
         timestamp: new Date(),
       };
       setMessages(prev => [errorMessage, ...prev]);
+      
+      // Refresh TopBar metadata when error message is posted
+      topBarRef.current?.refreshMetadata();
     } finally {
       // Clear the polling interval when loading is complete
       if (pollingInterval) {
