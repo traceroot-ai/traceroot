@@ -89,6 +89,28 @@ We are a community-driven collective comprising over multiple engineers and rese
   </tr>
 </table>
 
+## AI Agent Framework
+
+Here is an overview for our AI Agent Framework:
+
+### Context Model
+
+<div align="center">
+  <a href="https://traceroot.ai/">
+    <img src="misc/images/agent-context.svg" alt="Context Model" width="80%">
+  </a>
+</div>
+
+### Chunking
+
+TODO: Add TraceRoot's specialized chunking.
+
+### Explainability
+
+TODO: Add TraceRoot's specialized explainability.
+
+Please checkout the [README.md in the `rest/agent` directory](rest/agent/README.md) for more details.
+
 ## Installation
 
 You can install the latest version of TraceRoot with the following command:
@@ -106,6 +128,8 @@ pip install -e .
 ```
 
 ## Local Usage
+
+For local usage, all of your data will be stored locally.
 
 You can use the TraceRoot framework locally by following the [README.md in the `ui` directory](ui/README.md) and [README.md in the `rest` directory](rest/README.md).
 
@@ -133,6 +157,9 @@ docker run -d --name jaeger \
   cr.jaegertracing.io/jaegertracing/jaeger:2.8.0
 ```
 
+In local mode, the first step is to go to the integration page and connect with your GitHub account (optional) with your GitHub token.
+You also need to put your OpenAI API key in the integration page.
+
 ## SDK
 
 Our platform is built on top of the TraceRoot SDK. You need to use our SDK to integrate with your applications by
@@ -154,28 +181,6 @@ github_commit_hash: "your-github-commit-hash"
 As mentioned above, you need to setup the Jaeger docker container at first before let the TraceRoot SDK capture the traces and logs from your applications.
 
 For more details or the SDK usage and examples, please checkout this [Quickstart](https://docs.traceroot.ai/quickstart).
-
-## AI Agent Framework
-
-Here is an overview for our AI Agent Framework:
-
-### Context Model
-
-<div align="center">
-  <a href="https://traceroot.ai/">
-    <img src="misc/images/agent-context.svg" alt="Context Model" width="80%">
-  </a>
-</div>
-
-### Chunking
-
-TODO: Add TraceRoot's specialized chunking.
-
-### Explainability
-
-TODO: Add TraceRoot's specialized explainability.
-
-Please checkout the [README.md in the `rest/agent` directory](rest/agent/README.md) for more details.
 
 ## Citation
 
