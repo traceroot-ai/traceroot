@@ -30,6 +30,6 @@ Please **do not** report security vulnerabilities through public GitHub issues, 
 
 If you have questions or issues with the private reporting process, you can contact us through one of our official communication channels:
 
-- **Discord:** [Join here](https://discord.gg/CeuqGDQ58q/)
+- **Discord:** [Join here](https://discord.gg/tPyffEZvvJ)
 
 Private GitHub reporting is always the preferred method for security vulnerabilities.
