@@ -16,7 +16,7 @@ Thank you for your interest in contributing to the TraceRoot project! 🎉 We're
 
 ### Reporting Issues 🐛
 
-If you encounter any issues or have suggestions for improvements, please feel free to open an issue on our [GitHub repository](https://github.com/traceroot/traceroot/issues).
+If you encounter any issues or have suggestions for improvements, please feel free to open an issue on our [GitHub repository](https://github.com/traceroot-ai/traceroot/issues).
 
 ### Contributing Code 💻
 
