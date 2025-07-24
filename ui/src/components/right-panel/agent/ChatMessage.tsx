@@ -41,25 +41,25 @@ const getLogLevelColor = (level: string) => {
 // Simple markdown renderer for basic formatting
 const renderMarkdown = (text: string, messageId: string, references?: Reference[], hoveredRef?: {messageId: string, refNum: number} | null, onReferenceHover?: (messageId: string, refNum: number | null) => void): React.ReactNode => {
   let currentIndex = 0;
-  
+
   console.log('🔍 renderMarkdown called with text:', text);
-  
+
   // Patterns for markdown elements (order matters - code blocks should be processed first)
   const patterns = [
     // PR created pattern - MUST be first to catch it before other patterns
-    { 
-      regex: /PR created:\s*https:\/\/github\.com\/([^\/\s]+)\/([^\/\s]+)\/pull\/(\d+)/g, 
+    {
+      regex: /PR created:\s*https:\/\/github\.com\/([^\/\s]+)\/([^\/\s]+)\/pull\/(\d+)/g,
       component: (match: string, ...args: string[]) => {
         const owner = args[0];
         const repo = args[1];
         const pullNumber = args[2];
         const fullUrl = `https://github.com/${owner}/${repo}/pull/${pullNumber}`;
-        
+
         console.log('🎯 PR PATTERN MATCHED!!! - match:', match, 'owner:', owner, 'repo:', repo, 'pullNumber:', pullNumber);
-        
+
         return (
           <span key={currentIndex++}>
-            PR created: <a 
+            PR created: <a
               href={fullUrl}
               target="_blank"
               rel="noopener noreferrer"
@@ -72,14 +72,14 @@ const renderMarkdown = (text: string, messageId: string, references?: Reference[
         );
       }
     },
-    { 
-      regex: /```(\w+)?\n?([\s\S]*?)```/g, 
+    {
+      regex: /```(\w+)?\n?([\s\S]*?)```/g,
       component: (match: string, ...args: string[]) => {
         // For code blocks: args[0] might be language, args[1] is content
         // If no language specified, args[0] is content
         const content = args.length > 1 ? args[1] : args[0];
         const trimmedContent = content.trim();
-        
+
         const handleCopy = async () => {
           try {
             await navigator.clipboard.writeText(trimmedContent);
@@ -87,7 +87,7 @@ const renderMarkdown = (text: string, messageId: string, references?: Reference[
             console.error('Failed to copy text: ', err);
           }
         };
-        
+
         return (
           <pre key={currentIndex++} className="bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md p-3 my-2 overflow-x-auto relative group">
             <button
@@ -103,15 +103,15 @@ const renderMarkdown = (text: string, messageId: string, references?: Reference[
       }
     },
     // GitHub pull request URL pattern - process before issues to avoid conflicts
-    { 
-      regex: /https:\/\/github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/g, 
+    {
+      regex: /https:\/\/github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/g,
       component: (match: string, ...args: string[]) => {
         const [owner, repo, pullNumber] = args;
         const fullUrl = match;
-        
+
         return (
-          <a 
-            key={currentIndex++} 
+          <a
+            key={currentIndex++}
             href={fullUrl}
             target="_blank"
             rel="noopener noreferrer"
@@ -124,15 +124,15 @@ const renderMarkdown = (text: string, messageId: string, references?: Reference[
       }
     },
     // GitHub issue URL pattern - should be processed early to avoid conflicts with other link patterns
-    { 
-      regex: /https:\/\/github\.com\/([^\/]+)\/([^\/]+)\/issues\/(\d+)/g, 
+    {
+      regex: /https:\/\/github\.com\/([^\/]+)\/([^\/]+)\/issues\/(\d+)/g,
       component: (match: string, ...args: string[]) => {
         const [owner, repo, issueNumber] = args;
         const fullUrl = match;
-        
+
         return (
-          <a 
-            key={currentIndex++} 
+          <a
+            key={currentIndex++}
             href={fullUrl}
             target="_blank"
             rel="noopener noreferrer"
@@ -148,14 +148,14 @@ const renderMarkdown = (text: string, messageId: string, references?: Reference[
     { regex: /\[(\d+)\]/g, component: (match: string, ...args: string[]) => {
         const refNumber = parseInt(args[0]);
         const reference = references?.find(ref => ref.number === refNumber);
-        
+
         // Debug logging
         console.log('Reference pattern matched:', match, 'refNumber:', refNumber, 'reference found:', !!reference, 'hoveredRef:', hoveredRef);
         console.log('Available references:', references);
-        
+
         return (
-          <span 
-            key={currentIndex++} 
+          <span
+            key={currentIndex++}
             className="relative inline-block cursor-help text-blue-600 dark:text-blue-400 font-medium underline hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
             onMouseEnter={() => {
               console.log('Mouse enter on reference:', refNumber);
@@ -188,7 +188,7 @@ const renderMarkdown = (text: string, messageId: string, references?: Reference[
                     )}
                     {reference.log_message && (
                       <div className="mb-1">
-                        <span className="font-semibold">Log:</span> 
+                        <span className="font-semibold">Log:</span>
                         <div className="mt-1 p-2 bg-gray-100 dark:bg-gray-700 rounded text-xs font-mono">
                           {reference.log_message}
                         </div>
@@ -225,15 +225,15 @@ const renderMarkdown = (text: string, messageId: string, references?: Reference[
     { regex: /\*(.*?)\*/g, component: (match: string, ...args: string[]) => <em key={currentIndex++}>{renderMarkdown(args[0], messageId, references, hoveredRef, onReferenceHover)}</em> },
     { regex: /`(.*?)`/g, component: (match: string, ...args: string[]) => <code key={currentIndex++} className="bg-gray-100 dark:bg-gray-600 px-1 py-0.5 rounded text-xs font-mono">{args[0]}</code> },
   ];
-  
+
   let remainingText = text;
   const elements: React.ReactNode[] = [];
-  
+
   while (remainingText.length > 0) {
     let earliestMatch = null;
     let earliestIndex = remainingText.length;
     let matchingPattern = null;
-    
+
     // Find the earliest pattern match
     for (const pattern of patterns) {
       const match = pattern.regex.exec(remainingText);
@@ -246,19 +246,19 @@ const renderMarkdown = (text: string, messageId: string, references?: Reference[
         matchingPattern = pattern;
       }
     }
-    
+
     if (earliestMatch && matchingPattern) {
       // Add text before the match
       if (earliestIndex > 0) {
         elements.push(remainingText.substring(0, earliestIndex));
       }
-      
+
       // Add the formatted element
       elements.push(matchingPattern.component(earliestMatch[0], ...earliestMatch.slice(1)));
-      
+
       // Update remaining text
       remainingText = remainingText.substring(earliestIndex + earliestMatch[0].length);
-      
+
       // Reset regex lastIndex for next iteration
       patterns.forEach(p => p.regex.lastIndex = 0);
     } else {
@@ -267,7 +267,7 @@ const renderMarkdown = (text: string, messageId: string, references?: Reference[
       break;
     }
   }
-  
+
   return elements.length > 0 ? elements : text;
 };
 
@@ -353,8 +353,8 @@ export default function ChatMessage({ messages, isLoading, userAvatarUrl, messag
           {/* Avatar for assistant and github */}
           {(message.role === 'assistant' || message.role === 'github') && (
             <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-              message.role === 'github' 
-                ? 'bg-gray-100 dark:bg-gray-700' 
+              message.role === 'github'
+                ? 'bg-gray-100 dark:bg-gray-700'
                 : 'bg-green-100 dark:bg-green-900'
             }`}>
               {message.role === 'github' ? (
@@ -364,7 +364,7 @@ export default function ChatMessage({ messages, isLoading, userAvatarUrl, messag
               )}
             </div>
           )}
-          
+
           {/* Message content */}
           <div
             className={`max-w-[70%] max-w-[600px] rounded-lg px-4 py-2 break-words ${

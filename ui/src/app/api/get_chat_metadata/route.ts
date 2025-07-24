@@ -8,7 +8,7 @@ export async function GET(request: Request): Promise<NextResponse<ChatMetadata |
 
     if (!chat_id) {
       return NextResponse.json(
-        null, 
+        null,
         { status: 400 }
       );
     }
@@ -21,7 +21,7 @@ export async function GET(request: Request): Promise<NextResponse<ChatMetadata |
         { status: 401 }
       );
     }
-    
+
     const userSecret = authHeader.substring(7); // Remove 'Bearer ' prefix
 
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
@@ -42,12 +42,12 @@ export async function GET(request: Request): Promise<NextResponse<ChatMetadata |
         }
 
         const apiData: ChatMetadata = await apiResponse.json();
-        
+
         // Convert timestamp from Python datetime string to number for consistency
         const processedData: ChatMetadata = {
           ...apiData,
-          timestamp: typeof apiData.timestamp === 'string' 
-            ? new Date(apiData.timestamp).getTime() 
+          timestamp: typeof apiData.timestamp === 'string'
+            ? new Date(apiData.timestamp).getTime()
             : apiData.timestamp
         };
 
@@ -63,7 +63,7 @@ export async function GET(request: Request): Promise<NextResponse<ChatMetadata |
     return NextResponse.json(null);
   } catch (error) {
     console.error('Get Chat Metadata API Error:', error);
-    
+
     return NextResponse.json(null, { status: 500 });
   }
 }

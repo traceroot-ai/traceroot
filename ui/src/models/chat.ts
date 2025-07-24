@@ -41,7 +41,7 @@ export interface ChatResponse {
     data: ChatbotResponse | null;
     error?: string;
 }
-  
+
 export interface ChatMetadata {
     chat_id: string;
     timestamp: number;

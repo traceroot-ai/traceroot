@@ -58,7 +58,7 @@ const CustomTooltip = ({ active, payload }: any) => {
 // Custom dot component for individual point styling and click handling
 const CustomDot = (props: any) => {
   const { cx, cy, payload, onPointClick, isPercentilePlot } = props;
-  
+
   // Get the color for this point
   const getPointColor = (label: string): string => {
     if (isPercentilePlot && Object.keys(PERCENTILE_COLORS).includes(label)) {

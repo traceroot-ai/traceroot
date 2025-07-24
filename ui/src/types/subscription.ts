@@ -41,4 +41,4 @@ export const PLAN_FEATURES = {
     'Full GitHub support with ticket/PR context',
     'SOC2 & ISO27001 reports, BAA available (HIPAA)'
   ]
-} as const; 
+} as const;

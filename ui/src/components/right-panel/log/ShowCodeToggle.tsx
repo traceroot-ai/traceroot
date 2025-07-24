@@ -92,7 +92,7 @@ export default function ShowCodeToggle({ logEntries, onLogEntriesUpdate, showCod
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
           };
-          
+
           // Add Authorization header if user secret is available
           if (user_secret) {
             headers['Authorization'] = `Bearer ${user_secret}`;

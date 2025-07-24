@@ -10,14 +10,14 @@ export interface LogResponse {
 }
 
 async function fetchLogsFromRestAPI(
-    traceId: string, 
-    startTime: string, 
-    endTime: string, 
+    traceId: string,
+    startTime: string,
+    endTime: string,
     userSecret: string,
     logGroupName?: string
 ): Promise<TraceLog | null> {
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
-    
+
     if (!restApiEndpoint) {
         throw new Error('REST_API_ENDPOINT environment variable is not set');
     }
@@ -26,7 +26,7 @@ async function fetchLogsFromRestAPI(
     url.searchParams.append('trace_id', traceId);
     url.searchParams.append('start_time', startTime);
     url.searchParams.append('end_time', endTime);
-    
+
     if (logGroupName) {
         url.searchParams.append('log_group_name', logGroupName);
     }
@@ -42,7 +42,7 @@ async function fetchLogsFromRestAPI(
     }
 
     const apiResponse = await response.json();
-    
+
     // Transform REST API response to match our TraceLog format
     if (apiResponse.logs && apiResponse.logs.logs) {
         const traceLog: TraceLog = {
@@ -50,18 +50,18 @@ async function fetchLogsFromRestAPI(
         };
         return traceLog;
     }
-    
+
     return null;
 }
 
 async function fetchLogsFromFiles(traceId: string): Promise<TraceLog | null> {
     // Read all log files and find the one containing the requested trace ID
     const logDir: string = path.join(process.cwd(), 'data/log');
-    
+
     if (!fs.existsSync(logDir)) {
         return null;
     }
-    
+
     const files: string[] = fs.readdirSync(logDir)
         .filter((file: string): boolean => file.endsWith('.json'))
         .sort();
@@ -70,12 +70,12 @@ async function fetchLogsFromFiles(traceId: string): Promise<TraceLog | null> {
         const filePath: string = path.join(logDir, file);
         const fileContent: string = fs.readFileSync(filePath, 'utf-8');
         const logData: TraceLog = JSON.parse(fileContent);
-        
+
         if (logData[traceId]) {
             return { [traceId]: logData[traceId] };
         }
     }
-    
+
     return null;
 }
 
@@ -90,9 +90,9 @@ export async function GET(request: Request): Promise<NextResponse<LogResponse>> 
                 error: 'Missing or invalid Authorization header. Expected: Bearer <user_secret>'
             }, { status: 401 });
         }
-        
+
         const userSecret = authHeader.substring(7); // Remove 'Bearer ' prefix
-        
+
         const { searchParams } = new URL(request.url);
         const traceId = searchParams.get('traceId');
         const startTime = searchParams.get('start_time');
@@ -136,8 +136,8 @@ export async function GET(request: Request): Promise<NextResponse<LogResponse>> 
     } catch (error: unknown) {
         console.error('Error fetching log data:', error);
         return NextResponse.json(
-            { 
-                success: false, 
+            {
+                success: false,
                 data: null,
                 error: error instanceof Error ? error.message : 'Failed to fetch log data'
             },

@@ -1,6 +1,5 @@
 """Subscription-related models and configuration."""
 
-from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
@@ -26,9 +25,12 @@ class UserSubscription(BaseModel):
     """User subscription model."""
     user_email: str = Field(..., description="User account email address")
     hasAccess: bool = Field(..., description="Whether user has active access")
-    subscription_plan: str = Field(..., description="Current subscription plan")
-    start_date: str = Field(..., description="Subscription start date in ISO format")
-    payment_history: List[PaymentRecord] = Field(default_factory=list, description="Payment history")
+    subscription_plan: str = Field(...,
+                                   description="Current subscription plan")
+    start_date: str = Field(
+        ..., description="Subscription start date in ISO format")
+    payment_history: List[PaymentRecord] = Field(default_factory=list,
+                                                 description="Payment history")
 
 
 class SubscriptionRequest(BaseModel):
@@ -83,4 +85,4 @@ class GetSubscriptionResponse(BaseModel):
     """Response model for getting subscription information."""
     success: bool
     subscription: Optional[UserSubscription] = None
-    message: Optional[str] = None 
+    message: Optional[str] = None

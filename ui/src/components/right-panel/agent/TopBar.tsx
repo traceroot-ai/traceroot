@@ -63,34 +63,34 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(({ chatId, traceId, onNewChat,
   // Animate title transitions
   useEffect(() => {
     const newTitle = chatMetadata?.chat_title || '';
-    
+
     if (newTitle === displayedTitle) return;
-    
+
     // Cancel any ongoing animation
     if (animationControllerRef.current) {
       animationControllerRef.current.cancelled = true;
     }
-    
+
     // Create new animation controller
     const controller = { cancelled: false };
     animationControllerRef.current = controller;
-    
+
     setIsAnimating(true);
-    
+
     const animateTitle = async () => {
       // Phase 1: Make old title disappear instantly
       if (displayedTitle) {
         setDisplayedTitle('');
       }
-      
+
       // Small pause between animations
       await new Promise(resolve => setTimeout(resolve, 100));
-      
+
       // Check if animation was cancelled
       if (controller.cancelled) {
         return;
       }
-      
+
       // Phase 2: Fade in new title from left to right
       if (newTitle) {
         for (let i = 0; i <= newTitle.length; i++) {
@@ -98,18 +98,18 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(({ chatId, traceId, onNewChat,
           if (controller.cancelled) {
             return;
           }
-          
+
           setDisplayedTitle(newTitle.substring(0, i));
           await new Promise(resolve => setTimeout(resolve, 40));
         }
       }
-      
+
       // Only update isAnimating if this animation wasn't cancelled
       if (!controller.cancelled) {
         setIsAnimating(false);
       }
     };
-    
+
     animateTitle();
   }, [chatMetadata?.chat_title]);
 
@@ -163,7 +163,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(({ chatId, traceId, onNewChat,
         )}
       </div>
       <div className="flex items-center gap-2">
-        <button 
+        <button
           className="mr-1 p-3 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
           onClick={onNewChat}
           title="Start new chat"
@@ -171,14 +171,14 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(({ chatId, traceId, onNewChat,
           <GoPlus className="w-5 h-5" />
         </button>
         <div className="relative" ref={historyButtonRef}>
-          <button 
+          <button
             className="mr-1 p-3 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
             onClick={handleHistoryClick}
             title="View chat history"
           >
             <GoHistory className="w-5 h-5" />
           </button>
-          
+
           <History
             traceId={traceId}
             isVisible={showHistoryDropdown}

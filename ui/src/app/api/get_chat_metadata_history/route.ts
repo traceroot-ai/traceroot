@@ -8,7 +8,7 @@ export async function GET(request: Request): Promise<NextResponse<ChatMetadataHi
 
     if (!trace_id) {
       return NextResponse.json(
-        { history: [] } as ChatMetadataHistory, 
+        { history: [] } as ChatMetadataHistory,
         { status: 400 }
       );
     }
@@ -21,7 +21,7 @@ export async function GET(request: Request): Promise<NextResponse<ChatMetadataHi
         { status: 401 }
       );
     }
-    
+
     const userSecret = authHeader.substring(7); // Remove 'Bearer ' prefix
 
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
@@ -42,13 +42,13 @@ export async function GET(request: Request): Promise<NextResponse<ChatMetadataHi
         }
 
         const apiData: ChatMetadataHistory = await apiResponse.json();
-        
+
         // Convert timestamp from Python datetime string to number for consistency
         const processedData: ChatMetadataHistory = {
           history: apiData.history.map(item => ({
             ...item,
-            timestamp: typeof item.timestamp === 'string' 
-              ? new Date(item.timestamp).getTime() 
+            timestamp: typeof item.timestamp === 'string'
+              ? new Date(item.timestamp).getTime()
               : item.timestamp
           }))
         };
@@ -69,7 +69,7 @@ export async function GET(request: Request): Promise<NextResponse<ChatMetadataHi
     return NextResponse.json(fallbackResponse);
   } catch (error) {
     console.error('Get Chat Metadata History API Error:', error);
-    
+
     const errorResponse: ChatMetadataHistory = {
       history: []
     };

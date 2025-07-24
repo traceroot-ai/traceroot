@@ -36,4 +36,4 @@ export const fadeInAnimationStyles = `
   .loading-dot-3 {
     animation: bounce 1.4s infinite ease-in-out both;
   }
-`; 
+`;

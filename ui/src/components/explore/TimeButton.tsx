@@ -66,7 +66,7 @@ export const TimeButton: React.FC<TimeButtonProps> = ({ selectedTimeRange, onTim
         </span>
         <span className="ml-2">▼</span>
       </button>
-      
+
       {isDropdownOpen && (
         <div className="absolute right-0 mt-2 w-48 rounded-md shadow-md bg-white dark:bg-gray-800 ring-1 ring-gray-300 ring-opacity-5 z-10">
           <div className="py-1" role="menu" aria-orientation="vertical">
@@ -91,4 +91,4 @@ export const TimeButton: React.FC<TimeButtonProps> = ({ selectedTimeRange, onTim
   );
 };
 
-export default TimeButton; 
+export default TimeButton;

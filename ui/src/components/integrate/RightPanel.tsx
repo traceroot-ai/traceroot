@@ -79,18 +79,18 @@ export default function RightPanel() {
           'Authorization': `Bearer ${user_secret}`,
         },
       });
-      
+
       if (!response.ok) {
         console.error(`Failed to fetch token for ${resourceType}:`, response.statusText);
         return null;
       }
 
       const data = await response.json();
-      
+
       if (data.success && data.token) {
         return data.token;
       }
-      
+
       return null;
     } catch (error) {
       console.error(`Error fetching token for ${resourceType}:`, error);
@@ -110,12 +110,12 @@ export default function RightPanel() {
 
     try {
       const [githubToken, notionToken, slackToken, openaiToken, tracerootToken] = await Promise.all(tokenPromises);
-      
-      setIntegrations(prevIntegrations => 
+
+      setIntegrations(prevIntegrations =>
         prevIntegrations.map(integration => {
           let token = null;
           let connected = false;
-          
+
           switch (integration.id) {
             case 'github':
               token = githubToken;
@@ -138,7 +138,7 @@ export default function RightPanel() {
               connected = !!tracerootToken;
               break;
           }
-          
+
           return {
             ...integration,
             token,
@@ -157,9 +157,9 @@ export default function RightPanel() {
   }, [user]);
 
   const handleUpdateIntegration = (updatedIntegration: Integration) => {
-    setIntegrations(prevIntegrations => 
-      prevIntegrations.map(integration => 
-        integration.id === updatedIntegration.id 
+    setIntegrations(prevIntegrations =>
+      prevIntegrations.map(integration =>
+        integration.id === updatedIntegration.id
           ? { ...updatedIntegration, connected: !!updatedIntegration.token }
           : integration
       )

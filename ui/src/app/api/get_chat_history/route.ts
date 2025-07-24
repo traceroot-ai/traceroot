@@ -8,7 +8,7 @@ export async function GET(request: Request): Promise<NextResponse<ChatHistoryRes
 
     if (!chat_id) {
       return NextResponse.json(
-        null, 
+        null,
         { status: 400 }
       );
     }
@@ -21,7 +21,7 @@ export async function GET(request: Request): Promise<NextResponse<ChatHistoryRes
         { status: 401 }
       );
     }
-    
+
     const userSecret = authHeader.substring(7); // Remove 'Bearer ' prefix
 
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
@@ -42,14 +42,14 @@ export async function GET(request: Request): Promise<NextResponse<ChatHistoryRes
         }
 
         const apiData: ChatHistoryResponse = await apiResponse.json();
-        
+
         // Convert timestamp from Python datetime string to number for consistency
         const processedData: ChatHistoryResponse = {
           ...apiData,
           history: apiData.history.map(item => ({
             ...item,
-            time: typeof item.time === 'string' 
-              ? new Date(item.time).getTime() 
+            time: typeof item.time === 'string'
+              ? new Date(item.time).getTime()
               : item.time
           }))
         };
@@ -66,7 +66,7 @@ export async function GET(request: Request): Promise<NextResponse<ChatHistoryRes
     return NextResponse.json(null);
   } catch (error) {
     console.error('Get Chat History API Error:', error);
-    
+
     return NextResponse.json(null, { status: 500 });
   }
 }

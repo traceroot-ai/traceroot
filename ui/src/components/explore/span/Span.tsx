@@ -8,7 +8,7 @@ import { MdErrorOutline } from "react-icons/md";
 // Function to calculate and format latency
 const formatLatency = (startTime: number, endTime: number): string => {
   const latencyMs = (endTime - startTime) * 1000; // Convert to milliseconds
-  
+
   if (latencyMs < 1) {
     return `${(latencyMs * 1000).toFixed(0)}μs`; // Microseconds
   } else if (latencyMs < 1000) {
@@ -30,11 +30,11 @@ interface SpanProps {
   isRepeated?: boolean;
 }
 
-const Span: React.FC<SpanProps> = ({ 
-  span: span, 
-  widthPercentage = 100, 
-  isSelected = false, 
-  onSpanSelect, 
+const Span: React.FC<SpanProps> = ({
+  span: span,
+  widthPercentage = 100,
+  isSelected = false,
+  onSpanSelect,
   selectedSpanId,
   selectedSpanIds = [],
   level = 0,
@@ -48,7 +48,7 @@ const Span: React.FC<SpanProps> = ({
   useEffect(() => {
     // First collapse
     setIsExpanded(false);
-    
+
     // Then expand after a small delay
     const timer = setTimeout(() => {
       setIsExpanded(true);
@@ -78,13 +78,13 @@ const Span: React.FC<SpanProps> = ({
     // Identify repeated leaf spans among siblings
     const leafSpans = childSpans.filter(childSpan => !childSpan.spans || childSpan.spans.length === 0);
     const spanNameCounts = new Map<string, number>();
-    
+
     // Count occurrences of each span name among leaf spans
     leafSpans.forEach(leafSpan => {
       const count = spanNameCounts.get(leafSpan.name) || 0;
       spanNameCounts.set(leafSpan.name, count + 1);
     });
-    
+
     // Determine which spans are repeated (name appears more than once among leaf spans)
     // const repeatedNames = new Set<string>();
     // spanNameCounts.forEach((count, name) => {
@@ -107,11 +107,11 @@ const Span: React.FC<SpanProps> = ({
             }}
           />
         )}
-        
-        <div 
+
+        <div
           className={`mt-1 space-y-2 overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[3000px] opacity-100' : 'max-h-0 opacity-0'}`}
-          style={{ 
-            width: `${childWidthPercentage}%`, 
+          style={{
+            width: `${childWidthPercentage}%`,
             marginLeft: `${100 - childWidthPercentage}%`,
             willChange: 'max-height, opacity'
           }}
@@ -120,7 +120,7 @@ const Span: React.FC<SpanProps> = ({
             const isLast = index === childSpans.length - 1;
             // const isLeaf = !childSpan.spans || childSpan.spans.length === 0;
             // const isRepeatedLeaf = isLeaf && repeatedNames.has(childSpan.name);
-            
+
             return (
               <Span
                 key={childSpan.id}
@@ -144,10 +144,10 @@ const Span: React.FC<SpanProps> = ({
   return (
     <>
       {level === 0 && <style>{fadeInAnimationStyles}</style>}
-      <div 
+      <div
         className={`relative space-y-2 transition-all duration-300 ease-in-out ${isExpanded ? 'animate-fadeIn' : ''}`}
-        style={{ 
-          width: `${widthPercentage}%`, 
+        style={{
+          width: `${widthPercentage}%`,
           marginLeft: `${100 - widthPercentage}%`,
           opacity: isExpanded ? 1 : 0,
           transform: `translateY(${isExpanded ? '0' : '-10px'})`,
@@ -157,8 +157,8 @@ const Span: React.FC<SpanProps> = ({
         <div
           onClick={handleSpanClick}
           className={`h-[45px] p-3 rounded border border-gray-200 dark:border-gray-700 transition-colors cursor-pointer transform transition-all duration-300 ease-in-out hover:scale-[1.01] hover:shadow-sm ${
-            isSelected 
-              ? 'bg-green-50 dark:bg-green-900/10 hover:bg-green-100 dark:hover:bg-green-900/20' 
+            isSelected
+              ? 'bg-green-50 dark:bg-green-900/10 hover:bg-green-100 dark:hover:bg-green-900/20'
               : 'hover:bg-green-50 dark:hover:bg-green-900/10'
           }`}
         >
@@ -189,7 +189,7 @@ const Span: React.FC<SpanProps> = ({
               </span>
             )}
 
-            <span 
+            <span
               className="inline-flex h-6 mr-1 text-xs items-center justify-center rounded-md px-2"
               style={{ backgroundColor: TRACE_ENTRY_COLOR }}
               title={span.name.length > 40 ? span.name : undefined}
@@ -201,8 +201,8 @@ const Span: React.FC<SpanProps> = ({
 
             {/* Error icon for error/critical logs */}
             {((span.num_error_logs ?? 0) > 0 || (span.num_critical_logs ?? 0) > 0) && (
-              <MdErrorOutline 
-                className="text-red-600 mr-1" 
+              <MdErrorOutline
+                className="text-red-600 mr-1"
                 size={20}
                 title={`${span.num_error_logs ?? 0} error logs, ${span.num_critical_logs ?? 0} critical logs`}
               />
@@ -210,14 +210,14 @@ const Span: React.FC<SpanProps> = ({
 
             {/* Warning icon for warning logs */}
             {((span.num_warning_logs ?? 0) > 0) && (
-              <IoWarningOutline 
-                className="text-yellow-600 mr-1" 
+              <IoWarningOutline
+                className="text-yellow-600 mr-1"
                 size={20}
                 title={`${span.num_warning_logs ?? 0} warning logs`}
               />
             )}
 
-            <span className="flex items-center text-xs text-gray-500 dark:text-gray-400 ml-auto"> 
+            <span className="flex items-center text-xs text-gray-500 dark:text-gray-400 ml-auto">
               {formatLatency(span.start_time, span.end_time)}
             </span>
           </div>

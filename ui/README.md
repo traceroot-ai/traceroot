@@ -27,10 +27,13 @@ export NEXT_PUBLIC_STRIPE_MODE=disabled # Set to enabled to use stripe
 ## Start the development server
 
 Only run this command once:
+
 ```bash
 npm install
 ```
+
 Then run the following command to start the development server:
+
 ```bash
 make dev
 ```

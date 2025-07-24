@@ -75,4 +75,4 @@ export function useUser() {
     getAuthState,
     isAuthenticated: !!user
   };
-} 
+}

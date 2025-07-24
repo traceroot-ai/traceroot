@@ -7,4 +7,4 @@ export interface Integration {
   connected: boolean;
   docs: string;
   token?: string | null;
-} 
+}

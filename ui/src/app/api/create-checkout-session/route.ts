@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    
+
     const response = await fetch(`${process.env.REST_API_ENDPOINT}/api/create-checkout-session`, {
       method: 'POST',
       headers: {
@@ -26,8 +26,8 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error('Error in checkout session creation:', err);
     return new Response(
-      JSON.stringify({ error: 'Failed to create checkout session' }), 
+      JSON.stringify({ error: 'Failed to create checkout session' }),
       { status: 500 }
     );
   }
-} 
+}
