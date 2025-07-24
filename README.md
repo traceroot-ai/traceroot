@@ -23,13 +23,13 @@
 
 [Contributing](CONTRIBUTING.md) |
 [TraceRoot.AI](https://traceroot.ai/) |
-[Community](https://discord.gg/CeuqGDQ58q/) |
+[Community](https://discord.gg/tPyffEZvvJ) |
 [SDK](https://github.com/traceroot-ai/traceroot-sdk) |
 [Documentation](https://docs.traceroot.ai)
 
 </h4>
 
-Join us ([*Discord*](https://discord.gg/CeuqGDQ58q/)) in pushing the boundaries of debugging with AI agents. 
+Join us ([*Discord*](https://discord.gg/tPyffEZvvJ)) in pushing the boundaries of debugging with AI agents. 
 
 Please 🌟 Star TraceRoot on GitHub and be instantly notified of new releases.
 </div>
@@ -156,7 +156,7 @@ For more details or the SDK usage and examples, please checkout this [Quickstart
 
 [docs-image]: https://img.shields.io/badge/Documentation-0dbf43
 [docs-url]: https://docs.traceroot.ai
-[discord-url]: https://discord.gg/CeuqGDQ58q/
+[discord-url]: https://discord.gg/tPyffEZvvJ
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
 [pypi-image]: https://badge.fury.io/py/traceroot.svg
 [pypi-url]: https://pypi.python.org/pypi/traceroot
