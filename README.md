@@ -224,3 +224,4 @@ If you find TraceRoot useful in your research, please consider citing:
 [testing-url]: https://github.com/traceroot-ai/traceroot/actions/workflows/test.yml
 [wechat-image]: https://img.shields.io/badge/WeChat-TraceRoot.AI-brightgreen?logo=wechat&logoColor=white
 [wechat-url]: https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/wechat.jpg
+
