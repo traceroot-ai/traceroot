@@ -6,6 +6,7 @@
 
 <div align="center">
 
+[![Testing Status][testing-image]][testing-url]
 [![Documentation][docs-image]][docs-url]
 [![Discord][discord-image]][discord-url]
 [![PyPI Version][pypi-image]][pypi-url]
@@ -212,3 +213,5 @@ If you find TraceRoot useful in your research, please consider citing:
 [pypi-sdk-downloads-image]: https://img.shields.io/pypi/dm/traceroot
 [pypi-sdk-downloads-url]: https://pypi.python.org/pypi/traceroot
 [pypi-url]: https://pypi.python.org/pypi/traceroot
+[testing-image]: https://github.com/traceroot-ai/traceroot/actions/workflows/test.yml/badge.svg
+[testing-url]: https://github.com/traceroot-ai/traceroot/actions/workflows/test.yml

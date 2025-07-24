@@ -482,6 +482,13 @@ class ExploreRouter:
         if mode == ChatMode.AGENT and not self.local_mode:
             is_github_issue = github_related.is_github_issue
             is_github_pr = github_related.is_github_pr
+        elif self.local_mode and (github_related.is_github_issue
+                                  or github_related.is_github_pr):
+            # If user wants to create a GitHub PR or issue,
+            # cannot do that in local mode ;)
+            is_github_issue = False
+            is_github_pr = False
+            source_code_related = False
 
         # Get the trace #######################################################
         keys = (start_time, end_time, service_name, log_group_name)
