@@ -32,10 +32,10 @@ export function formatDateTime(ts: number) {
   return `${y}-${m}-${d} ${h}:${min}:${s}`;
 }
 
-export const Trace: React.FC<TraceProps> = ({ 
-  onTraceSelect, 
-  onSpanSelect, 
-  onTraceData, 
+export const Trace: React.FC<TraceProps> = ({
+  onTraceSelect,
+  onSpanSelect,
+  onTraceData,
   selectedTraceId: externalSelectedTraceId,
   traceQueryStartTime,
   traceQueryEndTime
@@ -173,7 +173,7 @@ export const Trace: React.FC<TraceProps> = ({
       try {
         let startTime: Date;
         let endTime: Date;
-        
+
         // Use provided time range if available, otherwise use time range selector
         if (traceQueryStartTime && traceQueryEndTime) {
           startTime = traceQueryStartTime;
@@ -183,8 +183,8 @@ export const Trace: React.FC<TraceProps> = ({
           startTime = new Date(endTime);
           startTime.setMinutes(endTime.getMinutes() - selectedTimeRange.minutes);
         }
-        
-        timeRangeRef.current = { 
+
+        timeRangeRef.current = {
           start: new Date(startTime),
           end: new Date(endTime)
         };
@@ -195,11 +195,11 @@ export const Trace: React.FC<TraceProps> = ({
           },
         });
         const result = await response.json();
-        
+
         if (!result.success) {
           throw new Error(result.error || 'Failed to fetch traces');
         }
-        
+
         setTraces(result.data);
         onTraceData?.(timeRangeRef.current.start, timeRangeRef.current.end);
       } catch (err) {
@@ -233,9 +233,9 @@ export const Trace: React.FC<TraceProps> = ({
     }
     const color = getPercentileColor(percentile as PercentileKey);
     return (
-      <span 
+      <span
         className="inline-flex w-12 h-5 mr-2 text-xs font-mono items-center justify-center rounded-md"
-        style={{ 
+        style={{
           background: `${color}`,
           color: 'black',
           boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.2)'
@@ -250,7 +250,7 @@ export const Trace: React.FC<TraceProps> = ({
     const newSelectedTraceId = selectedTraceId === traceId ? null : traceId;
     setSelectedTraceId(newSelectedTraceId);
     onTraceSelect?.(newSelectedTraceId);
-    
+
     // Always clear span selection when trace selection changes
     // This unifies behavior with right panel components
     setSelectedSpanId(null);
@@ -261,7 +261,7 @@ export const Trace: React.FC<TraceProps> = ({
   const handleSpanSelect = (spanId: string, childSpanIds: string[]) => {
     const newSelectedSpanId = selectedSpanId === spanId ? null : spanId;
     setSelectedSpanId(newSelectedSpanId);
-    
+
     const allSpanIds = newSelectedSpanId ? [newSelectedSpanId, ...childSpanIds] : [];
     setSelectedSpanIds(allSpanIds);
     onSpanSelect?.(allSpanIds);
@@ -299,7 +299,7 @@ export const Trace: React.FC<TraceProps> = ({
             />
           </div>
         </div>
-        
+
         {loading && (
           <div className="flex flex-col items-center justify-center py-12 space-y-4">
             {/* Loading text with animated dots */}
@@ -312,19 +312,19 @@ export const Trace: React.FC<TraceProps> = ({
             </div>
           </div>
         )}
-        
+
         {error && (
           <div className="text-sm text-red-500 dark:text-red-400">{error}</div>
         )}
-        
+
         {!loading && !error && filteredTraces.length === 0 && traces.length > 0 && (
           <div className="text-sm text-gray-500 dark:text-gray-400">No traces match your search criteria</div>
         )}
-        
+
         {!loading && !error && traces.length === 0 && (
           <div className="text-sm text-gray-500 dark:text-gray-400">No Information Found</div>
         )}
-        
+
         {!loading && !error && filteredTraces.length > 0 && (
           <div className="space-y-1 transition-all duration-300 ease-in-out">
             {filteredTraces.map((trace, index) => (
@@ -374,8 +374,8 @@ export const Trace: React.FC<TraceProps> = ({
 
                       {/* Error icon for error/critical logs */}
                       {((trace.num_error_logs ?? 0) > 0 || (trace.num_critical_logs ?? 0) > 0) && (
-                        <MdErrorOutline 
-                          className="text-red-600 mr-1" 
+                        <MdErrorOutline
+                          className="text-red-600 mr-1"
                           size={20}
                           title={`${trace.num_error_logs ?? 0} error logs, ${trace.num_critical_logs ?? 0} critical logs`}
                         />
@@ -383,8 +383,8 @@ export const Trace: React.FC<TraceProps> = ({
 
                       {/* Warning icon for error/critical logs */}
                       {((trace.num_warning_logs ?? 0) > 0) && (
-                        <IoWarningOutline 
-                          className="text-yellow-600 mr-1" 
+                        <IoWarningOutline
+                          className="text-yellow-600 mr-1"
                           size={20}
                           title={`${trace.num_warning_logs ?? 0} warning logs`}
                         />
@@ -411,12 +411,12 @@ export const Trace: React.FC<TraceProps> = ({
                         zIndex: -1,
                       }}
                     />
-                    
+
                     <div className="space-y-3" style={{ width: '97%', marginLeft: '3%' }}>
                       {trace.spans.map((span) => (
-                        <Span 
-                          key={span.id} 
-                          span={span} 
+                        <Span
+                          key={span.id}
+                          span={span}
                           widthPercentage={97}
                           isSelected={selectedSpanIds.includes(span.id)}
                           selectedSpanId={selectedSpanId}
@@ -437,4 +437,4 @@ export const Trace: React.FC<TraceProps> = ({
   );
 };
 
-export default Trace; 
+export default Trace;

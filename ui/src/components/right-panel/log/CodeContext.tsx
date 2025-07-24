@@ -44,7 +44,7 @@ export default function CodeContext({ entry, showCode }: CodeContextProps) {
     <div className="mt-3 p-3 bg-white dark:bg-gray-900 rounded">
       <div className="font-mono text-xs space-y-1">
         {/* Lines above */}
-        {entry.lines_above && first_non_empty_line !== -1 && 
+        {entry.lines_above && first_non_empty_line !== -1 &&
           entry.lines_above.slice(first_non_empty_line).map((line, idx) => (
             <div key={`above-${idx}`} className="text-gray-500 dark:text-gray-500">
               <span className="text-gray-400 dark:text-gray-600 mr-2">
@@ -64,7 +64,7 @@ export default function CodeContext({ entry, showCode }: CodeContextProps) {
           </div>
         )}
         {/* Lines below */}
-        {entry.lines_below && last_non_empty_line !== -1 && 
+        {entry.lines_below && last_non_empty_line !== -1 &&
           entry.lines_below.slice(0, last_non_empty_line + 1).map((line, idx) => (
             <div key={`below-${idx}`} className="text-gray-500 dark:text-gray-500">
               <span className="text-gray-400 dark:text-gray-600 mr-2">
@@ -77,4 +77,4 @@ export default function CodeContext({ entry, showCode }: CodeContextProps) {
       </div>
     </div>
   );
-} 
+}

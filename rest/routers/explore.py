@@ -459,7 +459,6 @@ class ExploreRouter:
             first_chat=first_chat,
         )
         if first_chat and title is not None:
-            print(f"Inserting chat metadata: {title} {chat_id} {trace_id}")
             await self.db_client.insert_chat_metadata(
                 metadata={
                     "chat_id": chat_id,

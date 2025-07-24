@@ -23,7 +23,7 @@ function formatTime(timeS: number): string {
 
 function getAllSpans(spans: Span[]): Span[] {
   const allSpans: Span[] = [];
-  
+
   function collectSpans(spanList: Span[]) {
     for (const span of spanList) {
       allSpans.push(span);
@@ -32,7 +32,7 @@ function getAllSpans(spans: Span[]): Span[] {
       }
     }
   }
-  
+
   collectSpans(spans);
   return allSpans;
 }
@@ -41,12 +41,12 @@ function countChildrenRecursively(span: Span): number {
   if (!span.spans || span.spans.length === 0) {
     return 0;
   }
-  
+
   let totalChildren = span.spans.length;
   for (const childSpan of span.spans) {
     totalChildren += countChildrenRecursively(childSpan);
   }
-  
+
   return totalChildren;
 }
 
@@ -58,9 +58,9 @@ const getPercentileTag = (percentile: string) => {
   }
   const color = getPercentileColor(percentile as PercentileKey);
   return (
-    <span 
+    <span
       className="inline-flex w-12 h-5 font-mono mr-1 text-xs items-center justify-center rounded-md"
-      style={{ 
+      style={{
         background: `${color}`,
         color: '#000',
         boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.2)'
@@ -170,14 +170,14 @@ export default function TraceDetail({
             {timeMarkers.map((marker, index) => {
               const isFirst = index === 0;
               const isLast = index === timeMarkers.length - 1;
-              
+
               return (
                 <div
                   key={index}
                   className="absolute top-0"
                   style={{ left: `${marker.position}%` }}
                 >
-                  <div 
+                  <div
                     className="w-0.5 h-2 bg-gray-500 dark:bg-gray-400 mb-1.5"
                     style={{
                       transform: isFirst ? 'translateX(0)' : isLast ? 'translateX(-100%)' : 'translateX(-50%)'
@@ -204,8 +204,8 @@ export default function TraceDetail({
                 <div key={span.id} className="relative h-10">
                   <div
                     className={`absolute h-10 rounded transition-all duration-200 hover:shadow-sm cursor-pointer ${
-                      isSelected 
-                        ? 'bg-green-50 dark:bg-green-900/10 border-2 border-green-500 dark:border-green-400' 
+                      isSelected
+                        ? 'bg-green-50 dark:bg-green-900/10 border-2 border-green-500 dark:border-green-400'
                         : 'bg-white dark:bg-gray-700 hover:scale-[1.01] border border-gray-200 dark:border-gray-700'
                     }`}
                     style={position}
@@ -256,7 +256,7 @@ export default function TraceDetail({
               >
                 <RxCross2 className="w-5 h-5 text-gray-500 dark:text-gray-400" />
               </button>
-              
+
               <div className="p-6 pt-16">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
                   Details
@@ -298,7 +298,7 @@ export default function TraceDetail({
                       {countChildrenRecursively(selectedSpanForPopup)}
                     </p>
                   </div>
-                  
+
                 </div>
               </div>
             </div>

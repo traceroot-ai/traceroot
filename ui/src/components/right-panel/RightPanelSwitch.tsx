@@ -18,10 +18,10 @@ interface RightPanelSwitchProps {
   onTraceSpansUpdate?: (spans: Span[]) => void;
 }
 
-export default function RightPanelSwitch({ 
-  traceId, 
-  spanIds = [], 
-  traceQueryStartTime, 
+export default function RightPanelSwitch({
+  traceId,
+  spanIds = [],
+  traceQueryStartTime,
   traceQueryEndTime,
   onTraceSelect,
   onSpanClear,
@@ -46,7 +46,7 @@ export default function RightPanelSwitch({
         // so we use the default time range as 10 minutes.
         const endTime = traceQueryEndTime || new Date();
         const startTime = traceQueryStartTime || new Date(endTime.getTime() - 10 * 60 * 1000);
-        
+
         const response = await fetch(`/api/list_trace?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}`, {
           headers: {
             'Authorization': `Bearer ${getAuthState()}`,
@@ -105,9 +105,9 @@ export default function RightPanelSwitch({
       {/* View content */}
       <div className="flex-1 overflow-hidden">
         {viewType === 'log' ? (
-          <LogPanelSwitch 
-            traceId={traceId} 
-            spanIds={spanIds} 
+          <LogPanelSwitch
+            traceId={traceId}
+            spanIds={spanIds}
             traceQueryStartTime={traceQueryStartTime}
             traceQueryEndTime={traceQueryEndTime}
             segments={spans}
@@ -120,16 +120,16 @@ export default function RightPanelSwitch({
             viewType={viewType}
           />
         ) : viewType === 'agent' ? (
-          <Agent 
-            traceId={traceId} 
-            spanIds={spanIds} 
+          <Agent
+            traceId={traceId}
+            spanIds={spanIds}
             queryStartTime={traceQueryStartTime}
             queryEndTime={traceQueryEndTime}
           />
         ) : (
-          <TracePanelSwitch 
-            traceId={traceId} 
-            spanIds={spanIds} 
+          <TracePanelSwitch
+            traceId={traceId}
+            spanIds={spanIds}
             traceQueryStartTime={traceQueryStartTime}
             traceQueryEndTime={traceQueryEndTime}
             segments={spans}
@@ -144,4 +144,4 @@ export default function RightPanelSwitch({
       </div>
     </div>
   );
-} 
+}

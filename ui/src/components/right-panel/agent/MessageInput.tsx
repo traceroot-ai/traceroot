@@ -35,7 +35,7 @@ export default function MessageInput({
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showModeDropdown, setShowModeDropdown] = useState(false);
   const [textareaHeight, setTextareaHeight] = useState('auto');
-  
+
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
@@ -52,12 +52,12 @@ export default function MessageInput({
 
     // Reset height to auto to get the correct scrollHeight
     textarea.style.height = 'auto';
-    
+
     // Get the computed line height
     const lineHeight = parseInt(window.getComputedStyle(textarea).lineHeight);
     const minHeight = lineHeight; // One line height
     const maxHeight = lineHeight * 5; // Maximum 5 lines
-    
+
     // Set the height based on content, but clamp between min and max
     const newHeight = Math.min(Math.max(textarea.scrollHeight, minHeight), maxHeight);
     textarea.style.height = `${newHeight}px`;
@@ -175,7 +175,7 @@ export default function MessageInput({
                     {getModeDisplayName(selectedMode)}
                   </span>
                 </button>
-                
+
                 {/* Mode selection dropdown */}
                 {showModeDropdown && (
                   <div className="absolute bottom-full left-0 mb-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md shadow-md py-1 min-w-[100px] z-10">
@@ -183,8 +183,8 @@ export default function MessageInput({
                       type="button"
                       onClick={() => handleModeSelect('agent')}
                       className={`text-xs w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-1 ${
-                        selectedMode === 'agent' 
-                          ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400' 
+                        selectedMode === 'agent'
+                          ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
                           : 'text-gray-700 dark:text-gray-300'
                       }`}
                     >
@@ -195,8 +195,8 @@ export default function MessageInput({
                       type="button"
                       onClick={() => handleModeSelect('chat')}
                       className={`text-xs w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-1 ${
-                        selectedMode === 'chat' 
-                          ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400' 
+                        selectedMode === 'chat'
+                          ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
                           : 'text-gray-700 dark:text-gray-300'
                       }`}
                     >
@@ -219,7 +219,7 @@ export default function MessageInput({
                     {CHAT_MODEL_DISPLAY_NAMES[selectedModel]}
                   </span>
                 </button>
-                
+
                 {/* Model selection dropdown */}
                 {showModelDropdown && (
                   <div className="absolute bottom-full left-0 mb-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg py-1 min-w-[140px] z-10 ">
@@ -229,8 +229,8 @@ export default function MessageInput({
                         type="button"
                         onClick={() => handleModelSelect(value)}
                         className={`text-xs w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
-                          selectedModel === value 
-                            ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400' 
+                          selectedModel === value
+                            ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
                             : 'text-gray-700 dark:text-gray-300'
                         }`}
                       >
@@ -241,8 +241,8 @@ export default function MessageInput({
                 )}
               </div>
             </div>
-            
-            <button 
+
+            <button
               type="submit"
               className="bg-green-500 hover:bg-green-600 text-white w-8 h-8 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-green-500 flex items-center justify-center"
               disabled={!inputMessage.trim() || isLoading}

@@ -19,9 +19,9 @@ interface LogDetailProps {
   viewType?: ViewType;
 }
 
-export default function LogDetail({ 
-  traceId, 
-  spanIds = [], 
+export default function LogDetail({
+  traceId,
+  spanIds = [],
   traceQueryStartTime,
   traceQueryEndTime,
   segments,
@@ -102,7 +102,7 @@ export default function LogDetail({
 
         const endTime = traceQueryEndTime || new Date();
         const startTime = traceQueryStartTime || new Date(endTime.getTime() - 10 * 60 * 1000); // 10 minutes before endTime
-        
+
         url.searchParams.append('start_time', startTime.toISOString());
         url.searchParams.append('end_time', endTime.toISOString());
 
@@ -128,34 +128,34 @@ export default function LogDetail({
   }, [traceId, traceQueryStartTime, traceQueryEndTime]);
 
   // Filter logs based on selected spans
-  const logs = React.useMemo(() => {    
+  const logs = React.useMemo(() => {
     if (!allLogs) {
       return allLogs;
     }
-    
+
     // If no spanIds selected, show all logs
     if (spanIds.length === 0) {
       return allLogs;
     }
-    
+
     // Check if any of the spanIds exist in the current trace data
     const traceData = allLogs[traceId];
     if (!traceData) {
       return allLogs;
     }
-    
+
     // Get all span IDs that exist in current trace
     const existingSpanIds = new Set<string>();
     traceData.forEach((spanLog: any) => {
       Object.keys(spanLog).forEach(spanId => existingSpanIds.add(spanId));
     });
-    
+
     // Check if any of the selected spanIds exist in the current trace
     const hasValidSpanIds = spanIds.some(spanId => existingSpanIds.has(spanId));
     if (!hasValidSpanIds) {
       return {};
     }
-    
+
     const filteredLogs: TraceLog = {};
     Object.entries(allLogs).forEach(([traceId, spanLogs]) => {
       const filteredSpanLogs = (spanLogs as any[]).filter((spanLog) => {
@@ -342,7 +342,7 @@ export default function LogDetail({
       for (const word of words) {
         const wordWithSpace = (currentLine ? ' ' : '') + word;
         const potentialLine = leadingWhitespace + currentLine + wordWithSpace;
-        
+
         if (potentialLine.length <= maxLineLength) {
           currentLine += wordWithSpace;
         } else {
@@ -411,8 +411,8 @@ export default function LogDetail({
                 </div>
               </div>
               <div className="flex-shrink-0">
-                <ShowCodeToggle 
-                  logEntries={orderedLogEntries} 
+                <ShowCodeToggle
+                  logEntries={orderedLogEntries}
                   onLogEntriesUpdate={handleForceUpdate}
                   showCode={showCode}
                   onShowCodeChange={setShowCode}
@@ -431,7 +431,7 @@ export default function LogDetail({
                 <div
                   key={entryKey}
                   className={`relative p-2 rounded ${getLogLevelBgColor(entry.level)} ml-auto transform transition-all duration-300 ease-in-out hover:shadow animate-fadeIn`}
-                  style={{ 
+                  style={{
                     width: getLogWidth(spanDepthMap[spanId] ?? 0),
                     animationDelay: `${idx * 10}ms`
                   }}
@@ -447,7 +447,7 @@ export default function LogDetail({
                           {entry.file_name}:{entry.line_number}
                         </span>
                         {githubLink && (
-                          <a 
+                          <a
                             href={githubLink}
                             target="_blank"
                             rel="noopener noreferrer"
@@ -498,4 +498,4 @@ export default function LogDetail({
       </div>
     </div>
   );
-} 
+}

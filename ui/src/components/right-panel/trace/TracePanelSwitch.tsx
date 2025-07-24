@@ -19,9 +19,9 @@ interface TracePanelSwitchProps {
   onTraceSelect?: (traceId: string) => void;
 }
 
-export default function TracePanelSwitch({ 
-  traceId, 
-  spanIds = [], 
+export default function TracePanelSwitch({
+  traceId,
+  spanIds = [],
   traceQueryStartTime,
   traceQueryEndTime,
   segments = [],
@@ -44,14 +44,14 @@ export default function TracePanelSwitch({
   return (
     <div className="h-screen flex flex-col">
       {traceId ? (
-        <TraceDetail 
+        <TraceDetail
           traceId={traceId}
           spanIds={spanIds}
           spans={segments}
           percentile={getTracePercentile(traceId)}
         />
       ) : (
-        <TraceOverview 
+        <TraceOverview
           traceQueryStartTime={traceQueryStartTime}
           traceQueryEndTime={traceQueryEndTime}
           traceDurations={traceDurations}

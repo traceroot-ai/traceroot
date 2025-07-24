@@ -33,7 +33,7 @@ export function useUserSubscription() {
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:8000';
       const url = `${backendUrl}/v1/subscriptions/get?user_email=${encodeURIComponent(user.email)}`;
       console.log('[Subscription Hook] Fetching subscription from:', url);
-      
+
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -53,11 +53,11 @@ export function useUserSubscription() {
 
       const data = await response.json();
       console.log('[Subscription Hook] Received raw response:', data);
-      
+
       // Extract subscription data from the response
       const subscriptionData = data.subscription;
       console.log('[Subscription Hook] Extracted subscription data:', subscriptionData);
-      
+
       if (!subscriptionData) {
         console.log('[Subscription Hook] No subscription data found in response');
         setSubscription(null);
@@ -101,7 +101,7 @@ export function useUserSubscription() {
   // Extract values from subscription data with proper logging
   const currentPlan = subscription?.subscription_plan ?? 'none';
   const hasActiveSubscription = subscription?.hasAccess ?? false;
-  
+
   console.log('[Subscription Hook] Returning values:', {
     currentPlan,
     hasActiveSubscription,
@@ -116,4 +116,4 @@ export function useUserSubscription() {
     hasActiveSubscription,
     currentPlan,
   };
-} 
+}

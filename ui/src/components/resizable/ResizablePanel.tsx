@@ -58,7 +58,7 @@ export default function ResizablePanel({
       <div style={{ width: `${leftWidth}%` }} className="h-full">
         {leftPanel}
       </div>
-      
+
       {/* Draggable separator */}
       <div
         className={`w-1 h-full cursor-col-resize hover:bg-green-500 active:bg-green-600 transition-colors ${
@@ -66,10 +66,10 @@ export default function ResizablePanel({
         }`}
         onMouseDown={handleMouseDown}
       />
-      
+
       <div style={{ width: `${100 - leftWidth - 0.25}%` }} className="h-full">
         {rightPanel}
       </div>
     </div>
   );
-} 
+}

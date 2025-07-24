@@ -15,7 +15,7 @@ export const getTimezoneOffsetMs = (): number => {
 // Convert UTC timestamp to local timestamp by adjusting for timezone offset
 export const convertUTCToLocal = (utcTimestamp: number | string | Date): Date => {
   let utcMs: number;
-  
+
   if (utcTimestamp instanceof Date) {
     // If it's a Date, get the UTC milliseconds
     utcMs = utcTimestamp.getTime();
@@ -27,12 +27,12 @@ export const convertUTCToLocal = (utcTimestamp: number | string | Date): Date =>
     // Handle numeric timestamp - assume milliseconds, convert if seconds
     utcMs = utcTimestamp < 1e12 ? utcTimestamp * 1000 : utcTimestamp;
   }
-  
+
   // JavaScript's getTimezoneOffset() returns positive for timezones behind UTC
   // So we SUBTRACT the offset to get local time
   const offsetMs = getTimezoneOffsetMs();
   const localMs = utcMs - offsetMs;
-  
+
   return new Date(localMs);
 };
 
@@ -40,7 +40,7 @@ export const convertUTCToLocal = (utcTimestamp: number | string | Date): Date =>
 export const formatUTCAsLocal = (utcTimestamp: number | string | Date): string => {
   try {
     const localDate = convertUTCToLocal(utcTimestamp);
-    
+
     const month = localDate.getMonth() + 1;
     const day = localDate.getDate();
     const year = localDate.getFullYear();
@@ -50,9 +50,9 @@ export const formatUTCAsLocal = (utcTimestamp: number | string | Date): string =
     const milliseconds = localDate.getMilliseconds();
     const ampm = hours >= 12 ? 'PM' : 'AM';
     const displayHours = hours % 12 || 12;
-    
+
     const result = `${month}/${day}/${year}, ${displayHours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')} ${ampm}`;
-    
+
     return result;
   } catch (error) {
     console.error('Error formatting UTC as local:', error);
@@ -69,4 +69,4 @@ export const getTimezoneInfo = () => {
     offsetHours: now.getTimezoneOffset() / 60,
     isDST: now.getTimezoneOffset() < (new Date(now.getFullYear(), 0, 1)).getTimezoneOffset()
   };
-}; 
+};

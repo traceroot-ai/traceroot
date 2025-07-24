@@ -14,27 +14,27 @@ export async function POST(request: Request): Promise<NextResponse<IntegrationSe
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
             console.log('Missing or invalid Authorization header. Expected: Bearer <user_secret>');
             return NextResponse.json(
-                { 
-                    success: false, 
+                {
+                    success: false,
                     error: 'Missing or invalid Authorization header. Expected: Bearer <user_secret>'
                 },
                 { status: 401 }
             );
         }
-        
+
         const user_secret = authHeader.substring(7); // Remove 'Bearer ' prefix
-        
+
         // Parse the request body to get TokenResource (without user_secret)
         const tokenResource: TokenResource = await request.json();
 
         // Check if REST_API_ENDPOINT environment variable is set
         const restApiEndpoint = process.env.REST_API_ENDPOINT;
-        
+
         if (restApiEndpoint) {
             // Use REST API endpoint
-            try {                
+            try {
                 // Construct the API URL
-                const apiUrl = `${restApiEndpoint}/v1/integrate`;                
+                const apiUrl = `${restApiEndpoint}/v1/integrate`;
                 const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: {
@@ -49,7 +49,7 @@ export async function POST(request: Request): Promise<NextResponse<IntegrationSe
                 }
 
                 const responseData = await response.json();
-                
+
                 return NextResponse.json({
                     success: true,
                     token: responseData.token,
@@ -57,7 +57,7 @@ export async function POST(request: Request): Promise<NextResponse<IntegrationSe
             } catch (apiError) {
                 console.error('Error posting to REST API:', apiError);
                 return NextResponse.json(
-                    { 
+                    {
                         success: false,
                         error: apiError instanceof Error ? apiError.message : 'Failed to post integration secret to REST API'
                     },
@@ -68,7 +68,7 @@ export async function POST(request: Request): Promise<NextResponse<IntegrationSe
 
         // Fallback: Simulate successful integration (for development/testing)
         console.log('No REST API endpoint specified, simulating successful integration');
-        
+
         return NextResponse.json({
             success: true,
             token: tokenResource.token,
@@ -76,8 +76,8 @@ export async function POST(request: Request): Promise<NextResponse<IntegrationSe
     } catch (error: unknown) {
         console.error('Error processing integration secret request:', error);
         return NextResponse.json(
-            { 
-                success: false, 
+            {
+                success: false,
                 error: error instanceof Error ? error.message : 'Failed to process integration secret request'
             },
             { status: 500 }

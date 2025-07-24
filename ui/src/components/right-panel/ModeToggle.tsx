@@ -48,4 +48,4 @@ export default function ModeToggle({ viewType, onViewTypeChange }: ModeTogglePro
       </div>
     </div>
   );
-} 
+}

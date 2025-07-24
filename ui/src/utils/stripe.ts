@@ -25,7 +25,7 @@ console.log('Price IDs Configuration:', PLAN_PRICE_IDS);
 export async function redirectToCheckout(plan: SubscriptionPlan, userEmail: string) {
   try {
     console.log(`Starting checkout for plan: ${plan}`);
-    
+
     // Don't allow checkout for 'none' plan
     if (plan === 'none') {
       throw new Error('Cannot checkout with "none" plan');
@@ -43,7 +43,7 @@ export async function redirectToCheckout(plan: SubscriptionPlan, userEmail: stri
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         priceId,
         plan,
         userEmail
@@ -56,7 +56,7 @@ export async function redirectToCheckout(plan: SubscriptionPlan, userEmail: stri
     }
 
     const { sessionId } = await response.json();
-    
+
     // Redirect to Stripe Checkout
     const result = await stripe.redirectToCheckout({
       sessionId
@@ -65,7 +65,7 @@ export async function redirectToCheckout(plan: SubscriptionPlan, userEmail: stri
     if (result.error) {
       throw new Error(result.error.message);
     }
-    
+
   } catch (err) {
     console.error('Error in redirectToCheckout:', err);
     throw err;
@@ -75,7 +75,7 @@ export async function redirectToCheckout(plan: SubscriptionPlan, userEmail: stri
 export async function createPortalSession(userEmail: string): Promise<string> {
   try {
     console.log(`Creating portal session for: ${userEmail}`);
-    
+
     const response = await fetch('/api/create-portal-session', {
       method: 'POST',
       headers: {
@@ -91,10 +91,10 @@ export async function createPortalSession(userEmail: string): Promise<string> {
 
     const { url } = await response.json();
     console.log('Portal session URL:', url);
-    
+
     return url;
   } catch (err) {
     console.error('Error creating portal session:', err);
     throw err;
   }
-} 
+}

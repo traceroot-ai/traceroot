@@ -17,7 +17,6 @@
 
 </div>
 
-
 <div align="center">
 <h4 align="center">
 
@@ -29,9 +28,10 @@
 
 </h4>
 
-Join us ([*Discord*](https://discord.gg/tPyffEZvvJ)) in pushing the boundaries of debugging with AI agents. 
+Join us ([*Discord*](https://discord.gg/tPyffEZvvJ)) in pushing the boundaries of debugging with AI agents.
 
 Please 🌟 Star TraceRoot on GitHub and be instantly notified of new releases.
+
 </div>
 
 ## TraceRoot Framework Design Principles
@@ -62,7 +62,7 @@ We are a community-driven collective comprising over multiple engineers and rese
 
 <table style="width: 100%;">
 
-  <tr>
+<tr>
     <td align="left">✅</td>
     <td align="left" style="font-weight: bold;">Multi-Agent System</td>
     <td align="left">Multi-Agent system that can be used to solve complex tasks.</td>
@@ -142,6 +142,7 @@ pip install traceroot==0.0.4a5
 ```
 
 To use the local mode of the TraceRoot SDK, you need create a `.traceroot-config.yaml` file in the root directory of your project with following content:
+
 ```yaml
 local_mode: true
 service_name: "your-service-name"
@@ -155,7 +156,6 @@ As mentioned above, you need to setup the Jaeger docker container at first befor
 For more details or the SDK usage and examples, please checkout this [Quickstart](https://docs.traceroot.ai/quickstart).
 
 ## AI Agent Framework
-
 
 Here is an overview for our AI Agent Framework:
 
@@ -191,19 +191,19 @@ If you find TraceRoot useful in your research, please consider citing:
 }
 ```
 
-[docs-image]: https://img.shields.io/badge/Documentation-0dbf43
-[docs-url]: https://docs.traceroot.ai
-[discord-url]: https://discord.gg/tPyffEZvvJ
-[discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
-[pypi-image]: https://badge.fury.io/py/traceroot.svg
-[pypi-url]: https://pypi.python.org/pypi/traceroot
+[company-linkedin-image]: https://custom-icon-badges.demolab.com/badge/LinkedIn-0A66C2?logo=linkedin-white&logoColor=fff
+[company-linkedin-url]: https://www.linkedin.com/company/traceroot-ai/
 [company-website-image]: https://img.shields.io/badge/TraceRoot.AI-148740
 [company-website-url]: https://traceroot.ai
-[company-x-url]: https://x.com/TracerootAI
-[company-x-image]: https://img.shields.io/twitter/follow/TracerootAI?style=social
-[company-linkedin-url]: https://www.linkedin.com/company/traceroot-ai/
-[company-linkedin-image]: https://custom-icon-badges.demolab.com/badge/LinkedIn-0A66C2?logo=linkedin-white&logoColor=fff
-[company-whatsapp-url]: https://chat.whatsapp.com/GzBii194psf925AEBztMir
 [company-whatsapp-image]: https://img.shields.io/badge/WhatsApp-25D366?logo=whatsapp&logoColor=white
+[company-whatsapp-url]: https://chat.whatsapp.com/GzBii194psf925AEBztMir
+[company-x-image]: https://img.shields.io/twitter/follow/TracerootAI?style=social
+[company-x-url]: https://x.com/TracerootAI
+[discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
+[discord-url]: https://discord.gg/tPyffEZvvJ
+[docs-image]: https://img.shields.io/badge/Documentation-0dbf43
+[docs-url]: https://docs.traceroot.ai
+[pypi-image]: https://badge.fury.io/py/traceroot.svg
 [pypi-sdk-downloads-image]: https://img.shields.io/pypi/dm/traceroot
 [pypi-sdk-downloads-url]: https://pypi.python.org/pypi/traceroot
+[pypi-url]: https://pypi.python.org/pypi/traceroot
