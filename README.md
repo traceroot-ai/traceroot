@@ -1,6 +1,6 @@
 <div align="center">
   <a href="https://traceroot.ai/">
-    <img src="misc/images/traceroot_logo.png" alt="TraceRoot Logo" width="80%">
+    <img src="misc/images/traceroot_logo.png" alt="TraceRoot Logo" width="70%">
   </a>
 </div>
 
@@ -54,7 +54,7 @@ The framework enables integrating with other sources and tools, such as GitHub, 
 
 <h3>😊 Developer Friendly</h3 >
 
-We provide a Cursor like interface but specialized for debugging and tracing. You can select the logs and traces you are interested in and ask the framework to help you with the analysis.
+We also provide a Cursor like interface but specialized for debugging and tracing. You can select the logs and traces you are interested in and ask the framework to help you with the analysis.
 
 ## Why Use TraceRoot for Your Applications?
 
@@ -109,18 +109,18 @@ pip install -e .
 
 You can use the TraceRoot framework locally by following the [README.md in the `ui` directory](ui/README.md) and [README.md in the `rest` directory](rest/README.md).
 
-Also, you can build the docker image and run the docker container by following the [README.md in the `docker` directory](docker/public/README.md).
+Also, you can build the latest docker image and run the docker container by following the [README.md in the `docker` directory](docker/public/README.md).
 
-Or even simpler, just pull the docker image by
+Or even simpler, just pull the latest docker image by
 
 ```bash
-docker pull zechengzh/traceroot-public:v0.0.1
-docker run -d --name traceroot-public -p 3000:3000 -p 8000:8000 zechengzh/traceroot-public:v0.0.1
+docker pull zechengzh/traceroot-public
+docker run -d --name traceroot-public -p 3000:3000 -p 8000:8000 zechengzh/traceroot-public
 ```
 
 This will start the UI at [http://localhost:3000](http://localhost:3000) and the API at [http://localhost:8000](http://localhost:8000).
 
-Before using the TraceRoot framework, you need to setup the Jaeger docker container at first. It will be used to store the traces and logs and capture the traces and logs from our SDK integrated with your applications.
+Before using the TraceRoot framework, you need to setup the Jaeger docker container at first. It will be used to store the traces and logs and capture the traces and logs from our SDK which is integrated with your applications.
 
 ```bash
 docker run -d --name jaeger \
@@ -153,6 +153,20 @@ github_commit_hash: "your-github-commit-hash"
 As mentioned above, you need to setup the Jaeger docker container at first before let the TraceRoot SDK capture the traces and logs from your applications.
 
 For more details or the SDK usage and examples, please checkout this [Quickstart](https://docs.traceroot.ai/quickstart).
+
+## Citation
+
+If you find TraceRoot useful in your research, please consider citing:
+
+```bibtex
+@article{traceroot_2025,
+  title={TraceRoot: A Multi-Agent System for Debugging and Tracing},
+  author={Zecheng Zhang and Xinwei He},
+  year = {2025},
+  publisher = {GitHub},
+  url = {https://github.com/traceroot-ai/traceroot}
+}
+```
 
 [docs-image]: https://img.shields.io/badge/Documentation-0dbf43
 [docs-url]: https://docs.traceroot.ai
