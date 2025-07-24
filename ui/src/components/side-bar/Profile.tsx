@@ -107,7 +107,16 @@ export default function Profile() {
                   </p>
                 ) : (
                   <p className="text-md font-medium">
-                    Please register or login! :)
+                    Please visit{' '}
+                    <a
+                      href="https://traceroot.ai"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 underline transition-colors"
+                    >
+                      TraceRoot.AI
+                    </a>{' '}
+                    to register or login.
                   </p>
                 )}
               </div>
