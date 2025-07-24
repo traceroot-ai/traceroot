@@ -13,8 +13,11 @@
 [![PyPI SDK Downloads][pypi-sdk-downloads-image]][pypi-sdk-downloads-url]
 [![TraceRoot.AI Website][company-website-image]][company-website-url]
 [![X][company-x-image]][company-x-url]
+[![X][zecheng-x-image]][zecheng-x-url]
+[![X][xinwei-x-image]][xinwei-x-url]
 [![LinkedIn][company-linkedin-image]][company-linkedin-url]
 [![WhatsApp][company-whatsapp-image]][company-whatsapp-url]
+[![Wechat][wechat-image]][wechat-url]
 
 </div>
 
@@ -199,15 +202,19 @@ If you find TraceRoot useful in your research, please consider citing:
 
 [company-linkedin-image]: https://custom-icon-badges.demolab.com/badge/LinkedIn-0A66C2?logo=linkedin-white&logoColor=fff
 [company-linkedin-url]: https://www.linkedin.com/company/traceroot-ai/
-[company-website-image]: https://img.shields.io/badge/TraceRoot.AI-148740
+[company-website-image]: https://img.shields.io/badge/website-traceroot.ai-148740
 [company-website-url]: https://traceroot.ai
 [company-whatsapp-image]: https://img.shields.io/badge/WhatsApp-25D366?logo=whatsapp&logoColor=white
 [company-whatsapp-url]: https://chat.whatsapp.com/GzBii194psf925AEBztMir
 [company-x-image]: https://img.shields.io/twitter/follow/TracerootAI?style=social
 [company-x-url]: https://x.com/TracerootAI
+[zecheng-x-image]: https://img.shields.io/twitter/follow/zechengzh?style=social
+[zecheng-x-url]: https://x.com/zechengzh
+[xinwei-x-image]: https://img.shields.io/twitter/follow/xinwei_97?style=social
+[xinwei-x-url]: https://x.com/xinwei_97
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
 [discord-url]: https://discord.gg/tPyffEZvvJ
-[docs-image]: https://img.shields.io/badge/Documentation-0dbf43
+[docs-image]: https://img.shields.io/badge/docs-traceroot.ai-0dbf43
 [docs-url]: https://docs.traceroot.ai
 [pypi-image]: https://badge.fury.io/py/traceroot.svg
 [pypi-sdk-downloads-image]: https://img.shields.io/pypi/dm/traceroot
@@ -215,3 +222,5 @@ If you find TraceRoot useful in your research, please consider citing:
 [pypi-url]: https://pypi.python.org/pypi/traceroot
 [testing-image]: https://github.com/traceroot-ai/traceroot/actions/workflows/test.yml/badge.svg
 [testing-url]: https://github.com/traceroot-ai/traceroot/actions/workflows/test.yml
+[wechat-image]: https://img.shields.io/badge/WeChat-TraceRoot.AI-brightgreen?logo=wechat&logoColor=white
+[wechat-url]: https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/wechat.jpg
