@@ -107,11 +107,7 @@ Here is an overview for our AI Agent Framework:
 
 ### Chunking
 
-TODO: Add TraceRoot's specialized chunking.
-
 ### Explainability
-
-TODO: Add TraceRoot's specialized explainability.
 
 Please checkout the [README.md in the `rest/agent` directory](rest/agent/README.md) for more details.
 
@@ -159,7 +155,7 @@ You also need to put your OpenAI API key in the integration page.
 
 ## SDK
 
-Our platform is built on top of the TraceRoot SDK. You need to use our SDK to integrate with your applications by
+Our project is built on top of the TraceRoot SDK. You need to use our SDK to integrate with your applications by
 
 ```bash
 pip install traceroot==0.0.4a5

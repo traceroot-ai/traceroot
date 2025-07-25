@@ -2,7 +2,7 @@
 
 ## Overview
 
-The TraceRoot Agent Framework is a framework for building agents that can interact with the TraceRoot platform with structured logging, tracing and source code data across different platforms. It can answer any questions related to the source code, tracing and logging data. It can also create related issues and PRs on GitHub. It has following benefits:
+The TraceRoot Agent Framework is a framework for building agents that can interact with the TraceRoot with structured logging, tracing and source code data across different platforms. It can answer any questions related to the source code, tracing and logging data. It can also create related issues and PRs on GitHub. It has following benefits:
 
 1. High accuracy when answering questions related to the source code, tracing and logging data.
 1. Least token or context usage.
@@ -32,12 +32,6 @@ For now it contains mainly five parts:
 
 ## Chunking
 
-TODO: Add TraceRoot's specialized chunking.
-
 ## Explainability
 
-TODO: Add TraceRoot's specialized explainability.
-
 ## Multi-Agent System
-
-TODO: Add TraceRoot's specialized multi-agent framework.
