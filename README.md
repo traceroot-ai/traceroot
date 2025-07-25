@@ -139,13 +139,6 @@ You can use the TraceRoot framework locally by following the [README.md in the `
 
 Also, you can build the latest docker image and run the docker container by following the [README.md in the `docker` directory](docker/public/README.md).
 
-Or even simpler, just pull the latest docker image by
-
-```bash
-docker pull zechengzh/traceroot-public
-docker run -d --name traceroot-public -p 3000:3000 -p 8000:8000 zechengzh/traceroot-public
-```
-
 This will start the UI at [http://localhost:3000](http://localhost:3000) and the API at [http://localhost:8000](http://localhost:8000).
 
 Before using the TraceRoot framework, you need to setup the Jaeger docker container at first. It will be used to store the traces and logs and capture the traces and logs from our SDK which is integrated with your applications.

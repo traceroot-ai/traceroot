@@ -178,13 +178,14 @@ class TraceRootJaegerClient:
                     if key and value is not None:
                         field_map[key] = value
 
-                log["level"] = field_map.get('log.level', 'INFO')
+                log["level"] = field_map.get('log.level', 'INFO').upper()
                 log["message"] = field_map.get('log.message', '')
                 log["stack_trace"] = field_map.get('log.stack_trace', '')
                 log["line_number"] = int(log["stack_trace"].split(':')[-1])
                 log["function_name"] = log["stack_trace"].split(':')[-2]
                 log["span_id"] = span_data.get('spanID', '')
                 log["trace_id"] = trace_data.get('traceID', '')
+                log["timestamp"] = span_log["timestamp"]
                 all_events.append(log)
 
         all_events.sort(key=lambda x: x["timestamp"])
