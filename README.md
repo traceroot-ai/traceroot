@@ -120,10 +120,15 @@ Or you can install the latest version of TraceRoot with the following command:
 Install the dependencies locally:
 
 ```bash
+git clone https://github.com/traceroot-ai/traceroot.git
+cd traceroot
+
+# Create and activate a virtual environment
 python3.11 -m venv venv
 source venv/bin/activate
-pip install .
-# Or
+
+# Install TraceRoot with dependencies excluding optional dependencies
+pip install --upgrade pip
 pip install -e .
 ```
 
