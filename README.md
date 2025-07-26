@@ -115,8 +115,6 @@ Please checkout the [README.md in the `rest/agent` directory](rest/agent/README.
 
 You can install the latest version of TraceRoot with the following command:
 
-Or you can install the latest version of TraceRoot with the following command:
-
 Install the dependencies locally:
 
 ```bash
