@@ -32,7 +32,7 @@ export default function Explore() {
     if (selectedTraceId && currentTraceSpans.length > 0 && selectedSpanIds.length > 0) {
       const validSpanIds = getAllSpanIds(currentTraceSpans);
       const validSelectedSpans = selectedSpanIds.filter(spanId => validSpanIds.includes(spanId));
-      
+
       // If some selected spans are no longer valid, update the selection
       if (validSelectedSpans.length !== selectedSpanIds.length) {
         setSelectedSpanIds(validSelectedSpans);
@@ -69,16 +69,16 @@ export default function Explore() {
   return (
     <ResizablePanel
       leftPanel={
-        <Trace 
-          onTraceSelect={handleTraceSelect} 
+        <Trace
+          onTraceSelect={handleTraceSelect}
           onSpanSelect={handleSpanSelect}
           onTraceData={handleTraceData}
           selectedTraceId={selectedTraceId}
         />
       }
       rightPanel={
-        <RightPanelSwitch 
-          traceId={selectedTraceId || undefined} 
+        <RightPanelSwitch
+          traceId={selectedTraceId || undefined}
           spanIds={selectedSpanIds}
           traceQueryStartTime={timeRange?.start}
           traceQueryEndTime={timeRange?.end}

@@ -50,22 +50,22 @@ export default function Profile() {
   return (
     <>
       <div className="pb-5 pt-1 flex justify-center">
-        <div 
+        <div
           key={`avatar-${avatarLetter || 'no-letter'}`}
           className="w-12 h-12 rounded-full bg-green-50 dark:bg-green-900/10 flex items-center justify-center hover:bg-green-100 dark:hover:bg-green-900/20 transition-colors cursor-pointer"
           title="User Profile"
           onClick={handleProfileClick}
         >
           {avatarLetter ? (
-            <span 
+            <span
               className="text-green-600 dark:text-green-400 font-semibold text-xl"
               style={{ zIndex: 100 }}
             >
               {avatarLetter}
             </span>
           ) : (
-            <FaUser 
-              className="text-gray-600 dark:text-gray-400" 
+            <FaUser
+              className="text-gray-600 dark:text-gray-400"
               size={18}
             />
           )}
@@ -75,7 +75,7 @@ export default function Profile() {
       {/* Profile Popup */}
       {showPopup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={closePopup}>
-          <div 
+          <div
             className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 min-w-[300px] max-w-[400px] mx-4 relative"
             onClick={(e) => e.stopPropagation()}
           >
@@ -87,7 +87,7 @@ export default function Profile() {
             >
               <RxCross1 className="w-4 h-4 text-gray-500 dark:text-gray-400" />
             </button>
-            
+
             {/* Profile content */}
             <div className="text-center">
               <div className="w-14 h-14 rounded-full bg-green-50 dark:bg-green-900/10 flex items-center justify-center mx-auto mb-4">
@@ -107,7 +107,16 @@ export default function Profile() {
                   </p>
                 ) : (
                   <p className="text-md font-medium">
-                    Please register or login! :)
+                    Please visit{' '}
+                    <a
+                      href="https://traceroot.ai"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 underline transition-colors"
+                    >
+                      TraceRoot.AI
+                    </a>{' '}
+                    to register or login.
                   </p>
                 )}
               </div>

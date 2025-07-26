@@ -18,4 +18,4 @@ const RefreshButton: React.FC<RefreshButtonProps> = ({ onRefresh }) => {
   );
 };
 
-export default RefreshButton; 
+export default RefreshButton;

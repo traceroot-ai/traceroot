@@ -6,17 +6,20 @@
 
 <div align="center">
 
+[![Testing Status][testing-image]][testing-url]
 [![Documentation][docs-image]][docs-url]
 [![Discord][discord-image]][discord-url]
 [![PyPI Version][pypi-image]][pypi-url]
 [![PyPI SDK Downloads][pypi-sdk-downloads-image]][pypi-sdk-downloads-url]
 [![TraceRoot.AI Website][company-website-image]][company-website-url]
 [![X][company-x-image]][company-x-url]
+[![X][zecheng-x-image]][zecheng-x-url]
+[![X][xinwei-x-image]][xinwei-x-url]
 [![LinkedIn][company-linkedin-image]][company-linkedin-url]
 [![WhatsApp][company-whatsapp-image]][company-whatsapp-url]
+[![Wechat][wechat-image]][wechat-url]
 
 </div>
-
 
 <div align="center">
 <h4 align="center">
@@ -29,9 +32,10 @@
 
 </h4>
 
-Join us ([*Discord*](https://discord.gg/tPyffEZvvJ)) in pushing the boundaries of debugging with AI agents. 
+Join us ([*Discord*](https://discord.gg/tPyffEZvvJ)) in pushing the boundaries of debugging with AI agents.
 
 Please 🌟 Star TraceRoot on GitHub and be instantly notified of new releases.
+
 </div>
 
 ## TraceRoot Framework Design Principles
@@ -62,7 +66,7 @@ We are a community-driven collective comprising over multiple engineers and rese
 
 <table style="width: 100%;">
 
-  <tr>
+<tr>
     <td align="left">✅</td>
     <td align="left" style="font-weight: bold;">Multi-Agent System</td>
     <td align="left">Multi-Agent system that can be used to solve complex tasks.</td>
@@ -89,6 +93,24 @@ We are a community-driven collective comprising over multiple engineers and rese
   </tr>
 </table>
 
+## AI Agent Framework
+
+Here is an overview for our AI Agent Framework:
+
+### Context Model
+
+<div align="center">
+  <a href="https://traceroot.ai/">
+    <img src="misc/images/agent-context.svg" alt="Context Model" width="80%">
+  </a>
+</div>
+
+### Chunking
+
+### Explainability
+
+Please checkout the [README.md in the `rest/agent` directory](rest/agent/README.md) for more details.
+
 ## Installation
 
 You can install the latest version of TraceRoot with the following command:
@@ -107,16 +129,11 @@ pip install -e .
 
 ## Local Usage
 
+For local usage, all of your data will be stored locally.
+
 You can use the TraceRoot framework locally by following the [README.md in the `ui` directory](ui/README.md) and [README.md in the `rest` directory](rest/README.md).
 
 Also, you can build the latest docker image and run the docker container by following the [README.md in the `docker` directory](docker/public/README.md).
-
-Or even simpler, just pull the latest docker image by
-
-```bash
-docker pull zechengzh/traceroot-public
-docker run -d --name traceroot-public -p 3000:3000 -p 8000:8000 zechengzh/traceroot-public
-```
 
 This will start the UI at [http://localhost:3000](http://localhost:3000) and the API at [http://localhost:8000](http://localhost:8000).
 
@@ -133,15 +150,19 @@ docker run -d --name jaeger \
   cr.jaegertracing.io/jaegertracing/jaeger:2.8.0
 ```
 
+In local mode, the first step is to go to the integration page and connect with your GitHub account (optional) with your GitHub token.
+You also need to put your OpenAI API key in the integration page.
+
 ## SDK
 
-Our platform is built on top of the TraceRoot SDK. You need to use our SDK to integrate with your applications by
+Our project is built on top of the TraceRoot SDK. You need to use our SDK to integrate with your applications by
 
 ```bash
 pip install traceroot==0.0.4a5
 ```
 
 To use the local mode of the TraceRoot SDK, you need create a `.traceroot-config.yaml` file in the root directory of your project with following content:
+
 ```yaml
 local_mode: true
 service_name: "your-service-name"
@@ -153,29 +174,6 @@ github_commit_hash: "your-github-commit-hash"
 As mentioned above, you need to setup the Jaeger docker container at first before let the TraceRoot SDK capture the traces and logs from your applications.
 
 For more details or the SDK usage and examples, please checkout this [Quickstart](https://docs.traceroot.ai/quickstart).
-
-## AI Agent Framework
-
-
-Here is an overview for our AI Agent Framework:
-
-### Context Model
-
-<div align="center">
-  <a href="https://traceroot.ai/">
-    <img src="misc/images/agent-context.svg" alt="Context Model" width="80%">
-  </a>
-</div>
-
-### Chunking
-
-TODO: Add TraceRoot's specialized chunking.
-
-### Explainability
-
-TODO: Add TraceRoot's specialized explainability.
-
-Please checkout the [README.md in the `rest/agent` directory](rest/agent/README.md) for more details.
 
 ## Citation
 
@@ -191,19 +189,27 @@ If you find TraceRoot useful in your research, please consider citing:
 }
 ```
 
-[docs-image]: https://img.shields.io/badge/Documentation-0dbf43
-[docs-url]: https://docs.traceroot.ai
-[discord-url]: https://discord.gg/tPyffEZvvJ
-[discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
-[pypi-image]: https://badge.fury.io/py/traceroot.svg
-[pypi-url]: https://pypi.python.org/pypi/traceroot
-[company-website-image]: https://img.shields.io/badge/TraceRoot.AI-148740
-[company-website-url]: https://traceroot.ai
-[company-x-url]: https://x.com/TracerootAI
-[company-x-image]: https://img.shields.io/twitter/follow/TracerootAI?style=social
-[company-linkedin-url]: https://www.linkedin.com/company/traceroot-ai/
 [company-linkedin-image]: https://custom-icon-badges.demolab.com/badge/LinkedIn-0A66C2?logo=linkedin-white&logoColor=fff
-[company-whatsapp-url]: https://chat.whatsapp.com/GzBii194psf925AEBztMir
+[company-linkedin-url]: https://www.linkedin.com/company/traceroot-ai/
+[company-website-image]: https://img.shields.io/badge/website-traceroot.ai-148740
+[company-website-url]: https://traceroot.ai
 [company-whatsapp-image]: https://img.shields.io/badge/WhatsApp-25D366?logo=whatsapp&logoColor=white
+[company-whatsapp-url]: https://chat.whatsapp.com/GzBii194psf925AEBztMir
+[company-x-image]: https://img.shields.io/twitter/follow/TracerootAI?style=social
+[company-x-url]: https://x.com/TracerootAI
+[discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
+[discord-url]: https://discord.gg/tPyffEZvvJ
+[docs-image]: https://img.shields.io/badge/docs-traceroot.ai-0dbf43
+[docs-url]: https://docs.traceroot.ai
+[pypi-image]: https://badge.fury.io/py/traceroot.svg
 [pypi-sdk-downloads-image]: https://img.shields.io/pypi/dm/traceroot
 [pypi-sdk-downloads-url]: https://pypi.python.org/pypi/traceroot
+[pypi-url]: https://pypi.python.org/pypi/traceroot
+[testing-image]: https://github.com/traceroot-ai/traceroot/actions/workflows/test.yml/badge.svg
+[testing-url]: https://github.com/traceroot-ai/traceroot/actions/workflows/test.yml
+[wechat-image]: https://img.shields.io/badge/WeChat-TraceRoot.AI-brightgreen?logo=wechat&logoColor=white
+[wechat-url]: https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/wechat.jpg
+[xinwei-x-image]: https://img.shields.io/twitter/follow/xinwei_97?style=social
+[xinwei-x-url]: https://x.com/xinwei_97
+[zecheng-x-image]: https://img.shields.io/twitter/follow/zechengzh?style=social
+[zecheng-x-url]: https://x.com/zechengzh

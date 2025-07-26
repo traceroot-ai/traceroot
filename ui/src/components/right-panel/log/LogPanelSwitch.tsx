@@ -21,7 +21,7 @@ interface LogPanelSwitchProps {
   viewType?: ViewType;
 }
 
-export default function LogPanelSwitch({ 
+export default function LogPanelSwitch({
   traceId,
   spanIds = [],
   traceQueryStartTime,
@@ -38,7 +38,7 @@ export default function LogPanelSwitch({
   return (
     <div className="h-screen flex flex-col">
       {traceId ? (
-        <LogDetail 
+        <LogDetail
           traceId={traceId}
           spanIds={spanIds}
           traceQueryStartTime={traceQueryStartTime}
@@ -47,7 +47,7 @@ export default function LogPanelSwitch({
           viewType={viewType}
         />
       ) : (
-        <LogOverview 
+        <LogOverview
           traceQueryStartTime={traceQueryStartTime}
           traceQueryEndTime={traceQueryEndTime}
           traceDurations={traceDurations}

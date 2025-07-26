@@ -54,7 +54,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
-        searchBarRef.current && 
+        searchBarRef.current &&
         !searchBarRef.current.contains(event.target as Node) &&
         !categoryDropdownRef.current?.contains(event.target as Node) &&
         !operationDropdownRef.current?.contains(event.target as Node) &&
@@ -112,7 +112,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
 
   return (
     <div ref={searchBarRef} className="relative flex items-start gap-2 justify-start">
-      <div 
+      <div
         className={`flex flex-col gap-2 px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 ${
           isExpanded ? 'ring-2 ring-green-500' : 'hover:border-gray-400 dark:hover:border-gray-500'
         } transition-all duration-200 min-h-[2rem] max-h-[10rem] ${criteria.length === 0 ? 'justify-center' : ''} w-auto max-w-md`}
@@ -158,8 +158,8 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
           <div className="relative flex-shrink-0">
             <button
               className={`px-2 py-1 text-xs rounded-md border ${
-                currentCriterion.category 
-                  ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-600 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-800/30' 
+                currentCriterion.category
+                  ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-600 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-800/30'
                   : 'bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 text-xs'
               } whitespace-nowrap`}
               onClick={(e) => {
@@ -180,7 +180,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
                 {currentCriterion.category ? getCategoryLabel(currentCriterion.category).substring(0, 3) : <TbCategory className="w-4 h-4" />}
               </span>
             </button>
-            
+
             {showCategoryDropdown && (
               <div ref={categoryDropdownRef} className="text-xs absolute top-full left-0 mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg z-50">
                 {CATEGORIES.map((category) => (
@@ -204,8 +204,8 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
           <div className="relative flex-shrink-0">
             <button
               className={`px-2 py-1 text-sm rounded-md border ${
-                currentCriterion.operation 
-                  ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-600 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-800/30' 
+                currentCriterion.operation
+                  ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-600 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-800/30'
                   : 'bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 text-xs'
               } whitespace-nowrap`}
               onClick={(e) => {
@@ -226,7 +226,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
                 {currentCriterion.operation ? getOperationLabel(currentCriterion.operation) : <LuSquareEqual className="w-4 h-4" />}
               </span>
             </button>
-            
+
             {showOperationDropdown && (
               <div ref={operationDropdownRef} className="absolute top-full left-0 mt-1 w-32 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-md z-50">
                 {OPERATIONS.map((operation) => (
@@ -251,8 +251,8 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
             <div className="relative flex-shrink-0">
               <button
                 className={`px-2 py-1 text-sm rounded-md border ${
-                  currentCriterion.logicalOperator 
-                    ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-800/30' 
+                  currentCriterion.logicalOperator
+                    ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-800/30'
                     : 'bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-600'
                 } whitespace-nowrap`}
                 onClick={(e) => {
@@ -265,7 +265,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
               >
                 {currentCriterion.logicalOperator || 'AND'}
               </button>
-              
+
               {showLogicalDropdown && (
                 <div ref={logicalDropdownRef} className="absolute top-full left-0 mt-1 w-20 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg z-50">
                   {LOGICAL_OPERATORS.map((operator) => (
@@ -295,7 +295,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
             placeholder=""
             className="w-45 min-w-[80px] px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent text-xs"
           />
-          
+
           {/* cross button */}
           <button
             onClick={() => {

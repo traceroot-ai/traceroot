@@ -15,27 +15,27 @@ export async function DELETE(request: Request): Promise<NextResponse<DeleteInteg
         const authHeader = request.headers.get('authorization');
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
             return NextResponse.json(
-                { 
-                    success: false, 
+                {
+                    success: false,
                     error: 'Missing or invalid Authorization header. Expected: Bearer <user_secret>'
                 },
                 { status: 401 }
             );
         }
-        
+
         const user_secret = authHeader.substring(7); // Remove 'Bearer ' prefix
-        
+
         // Parse the request body to get resource_type
         const { resource_type }: DeleteIntegrationRequest = await request.json();
 
         // Check if REST_API_ENDPOINT environment variable is set
         const restApiEndpoint = process.env.REST_API_ENDPOINT;
-        
+
         if (restApiEndpoint) {
             // Use REST API endpoint
-            try {                
+            try {
                 // Construct the API URL
-                const apiUrl = `${restApiEndpoint}/v1/integrate`;                
+                const apiUrl = `${restApiEndpoint}/v1/integrate`;
                 const response = await fetch(apiUrl, {
                     method: 'DELETE',
                     headers: {
@@ -55,7 +55,7 @@ export async function DELETE(request: Request): Promise<NextResponse<DeleteInteg
             } catch (apiError) {
                 console.error('Error deleting via REST API:', apiError);
                 return NextResponse.json(
-                    { 
+                    {
                         success: false,
                         error: apiError instanceof Error ? apiError.message : 'Failed to delete integration via REST API'
                     },
@@ -66,15 +66,15 @@ export async function DELETE(request: Request): Promise<NextResponse<DeleteInteg
 
         // Fallback: Simulate successful deletion (for development/testing)
         console.log('No REST API endpoint specified, simulating successful deletion');
-        
+
         return NextResponse.json({
             success: true,
         });
     } catch (error: unknown) {
         console.error('Error processing delete integration request:', error);
         return NextResponse.json(
-            { 
-                success: false, 
+            {
+                success: false,
                 error: error instanceof Error ? error.message : 'Failed to process delete integration request'
             },
             { status: 500 }

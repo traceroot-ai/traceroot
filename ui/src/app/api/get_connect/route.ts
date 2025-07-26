@@ -13,24 +13,24 @@ export async function GET(request: Request): Promise<NextResponse<GetIntegration
         const authHeader = request.headers.get('authorization');
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
             return NextResponse.json(
-                { 
-                    success: false, 
+                {
+                    success: false,
                     error: 'Missing or invalid Authorization header. Expected: Bearer <user_secret>'
                 },
                 { status: 401 }
             );
         }
-        
+
         const user_secret = authHeader.substring(7); // Remove 'Bearer ' prefix
-        
+
         // Parse query parameters from the URL
         const url = new URL(request.url);
         const resourceType = url.searchParams.get('resourceType') as ResourceType;
-        
+
         if (!resourceType) {
             return NextResponse.json(
-                { 
-                    success: false, 
+                {
+                    success: false,
                     error: 'Missing required parameter: resourceType'
                 },
                 { status: 400 }
@@ -39,12 +39,12 @@ export async function GET(request: Request): Promise<NextResponse<GetIntegration
 
         // Check if REST_API_ENDPOINT environment variable is set
         const restApiEndpoint = process.env.REST_API_ENDPOINT;
-        
+
         if (restApiEndpoint) {
             // Use REST API endpoint
-            try {                
+            try {
                 // Construct the API URL with query parameters
-                const apiUrl = `${restApiEndpoint}/v1/integrate?resourceType=${encodeURIComponent(resourceType)}`;                
+                const apiUrl = `${restApiEndpoint}/v1/integrate?resourceType=${encodeURIComponent(resourceType)}`;
                 const response = await fetch(apiUrl, {
                     method: 'GET',
                     headers: {
@@ -58,7 +58,7 @@ export async function GET(request: Request): Promise<NextResponse<GetIntegration
                 }
 
                 const responseData = await response.json();
-                
+
                 return NextResponse.json({
                     success: true,
                     token: responseData.token,
@@ -66,7 +66,7 @@ export async function GET(request: Request): Promise<NextResponse<GetIntegration
             } catch (apiError) {
                 console.error('Error getting from REST API:', apiError);
                 return NextResponse.json(
-                    { 
+                    {
                         success: false,
                         error: apiError instanceof Error ? apiError.message : 'Failed to get integration from REST API'
                     },
@@ -77,7 +77,7 @@ export async function GET(request: Request): Promise<NextResponse<GetIntegration
 
         // Fallback: Simulate successful integration (for development/testing)
         console.log('No REST API endpoint specified, simulating successful integration');
-        
+
         return NextResponse.json({
             success: true,
             token: null, // No token found in fallback mode
@@ -85,11 +85,11 @@ export async function GET(request: Request): Promise<NextResponse<GetIntegration
     } catch (error: unknown) {
         console.error('Error processing get integration request:', error);
         return NextResponse.json(
-            { 
-                success: false, 
+            {
+                success: false,
                 error: error instanceof Error ? error.message : 'Failed to process get integration request'
             },
             { status: 500 }
         );
     }
-} 
+}

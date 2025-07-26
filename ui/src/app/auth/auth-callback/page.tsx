@@ -38,7 +38,7 @@ function AuthCallbackContent() {
         // For example, you might want to store the user info in local storage
         if (data.user) {
           localStorage.setItem('user', JSON.stringify(data.user));
-          
+
           // Dispatch custom event to notify components about the user data update
           window.dispatchEvent(new CustomEvent('userDataUpdated'));
         }

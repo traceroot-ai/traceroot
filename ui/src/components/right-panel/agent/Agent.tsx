@@ -75,24 +75,24 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
     try {
       // Set loading state while fetching
       setIsLoading(true);
-      
+
       // Fetch the chat history for the selected chat
       const response = await fetch(`/api/get_chat_history?chat_id=${encodeURIComponent(chatId)}`, {
         headers: {
           'Authorization': `Bearer ${getAuthState()}`,
         },
       });
-      
+
       if (!response.ok) {
         throw new Error(`Failed to fetch chat history: ${response.status}`);
       }
-      
+
       const chatHistoryResponse: ChatHistoryResponse = await response.json();
-      
+
       if (chatHistoryResponse && chatHistoryResponse.history) {
         // Sort the chat history by timestamp (from small to large)
         const sortedHistory = [...chatHistoryResponse.history].sort((a, b) => a.time - b.time);
-        
+
         // Convert ChatHistoryResponse to Message format, maintaining chronological order
         const historyMessages: Message[] = sortedHistory.map((historyItem, index) => ({
           id: `${chatId}-${index}`,
@@ -101,13 +101,13 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
           timestamp: formatUTCAsLocal(historyItem.time),
           references: historyItem.reference,
         }));
-        
+
         // Set the messages in reverse order (most recent first) for display
         setMessages([...historyMessages].reverse());
-        
+
         // Set the chat ID
         setChatId(chatId);
-        
+
         // Refresh TopBar metadata
         await topBarRef.current?.refreshMetadata();
       } else {
@@ -115,7 +115,7 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
         // Still set the chat ID even if no history is found
         setChatId(chatId);
         setMessages([]);
-        
+
         // Refresh TopBar metadata
         await topBarRef.current?.refreshMetadata();
       }
@@ -124,7 +124,7 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
       // Still set the chat ID and clear messages on error
       setChatId(chatId);
       setMessages([]);
-      
+
       // Refresh TopBar metadata
       await topBarRef.current?.refreshMetadata();
     } finally {
@@ -163,14 +163,14 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
             'Authorization': `Bearer ${getAuthState()}`,
           },
         });
-        
+
         if (historyResponse.ok) {
           const chatHistoryResponse: ChatHistoryResponse = await historyResponse.json();
-          
+
           if (chatHistoryResponse && chatHistoryResponse.history) {
             // Sort the chat history by timestamp (from small to large)
             const sortedHistory = [...chatHistoryResponse.history].sort((a, b) => a.time - b.time);
-            
+
             // Convert ChatHistoryResponse to Message format, focusing on GitHub messages
             const historyMessages: Message[] = sortedHistory
               .filter(historyItem => historyItem.message_type === 'github') // Only GitHub messages
@@ -181,14 +181,14 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
                 timestamp: formatUTCAsLocal(historyItem.time),
                 references: historyItem.reference,
               }));
-            
+
             // Filter out messages that are already in the current messages state
             setMessages(prev => {
               const existingMessageIds = new Set(prev.map(msg => msg.id));
               const newGitHubMessages = historyMessages
                 .filter(msg => !existingMessageIds.has(msg.id))
                 .reverse(); // Most recent first for display
-              
+
               if (newGitHubMessages.length > 0) {
                 console.log('Adding new GitHub messages:', newGitHubMessages.length);
                 // Refresh TopBar metadata when new GitHub messages are added
@@ -245,7 +245,7 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
         if (chatResponse.data.chat_id) {
           setChatId(chatResponse.data.chat_id);
         }
-        
+
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
           content: chatResponse.data.message,
@@ -254,7 +254,7 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
           references: chatResponse.data.reference,
         };
         setMessages(prev => [assistantMessage, ...prev]);
-        
+
         // Refresh TopBar metadata when assistant message is posted
         topBarRef.current?.refreshMetadata();
       } else {
@@ -270,7 +270,7 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
         timestamp: new Date(),
       };
       setMessages(prev => [errorMessage, ...prev]);
-      
+
       // Refresh TopBar metadata when error message is posted
       topBarRef.current?.refreshMetadata();
     } finally {

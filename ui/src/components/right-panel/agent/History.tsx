@@ -23,7 +23,7 @@ export default function History({ traceId, isVisible, onHistoryItemClick, onClos
   useEffect(() => {
     const fetchChatHistory = async () => {
       if (!isVisible || !traceId) return;
-      
+
       setIsLoading(true);
       try {
         const response = await fetch(`/api/get_chat_metadata_history?trace_id=${encodeURIComponent(traceId)}`, {
@@ -59,11 +59,11 @@ export default function History({ traceId, isVisible, onHistoryItemClick, onClos
   return (
     <>
       {/* Backdrop to close dropdown when clicking outside */}
-      <div 
-        className="fixed inset-0 z-10" 
+      <div
+        className="fixed inset-0 z-10"
         onClick={onClose}
       />
-      
+
       {/* History dropdown */}
       <div className="absolute top-full right-0 mt-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg py-2 min-w-[300px] max-w-[400px] z-20 max-h-[300px] overflow-y-auto">
         {isLoading ? (

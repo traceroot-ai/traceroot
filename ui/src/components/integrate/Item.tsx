@@ -110,9 +110,9 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authState}`,
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           token: null,
-          resourceType: ResourceType.TRACEROOT 
+          resourceType: ResourceType.TRACEROOT
         }),
       });
 
@@ -124,14 +124,14 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         setDisplayToken(newToken);
         setAuthSecret(''); // Clear the input field
         setIsEditing(false); // Reset editing state
-        
+
         // Update the integration with the new token
         const updatedIntegration: Integration = {
           ...integration,
           token: newToken,
           connected: true
         };
-        
+
         if (onUpdateIntegration) {
           onUpdateIntegration(updatedIntegration);
         }
@@ -196,14 +196,14 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         setDisplayToken(newToken);
         setAuthSecret(''); // Clear the input field
         setIsEditing(false); // Reset editing state
-        
+
         // Update the integration with the new token
         const updatedIntegration: Integration = {
           ...integration,
           token: newToken,
           connected: true
         };
-        
+
         if (onUpdateIntegration) {
           onUpdateIntegration(updatedIntegration);
         }
@@ -251,7 +251,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authState}`,
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           resource_type: getResourceType(integration.name)
         }),
       });
@@ -264,14 +264,14 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         setDisplayToken('');
         setShowError(false);
         setIsEditing(false); // Reset editing state
-        
+
         // Update the integration to remove token
         const updatedIntegration: Integration = {
           ...integration,
           token: null,
           connected: false
         };
-        
+
         if (onUpdateIntegration) {
           onUpdateIntegration(updatedIntegration);
         }
@@ -375,12 +375,12 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
                 className={`w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent ${
                   integration.id === 'traceroot' ? 'pr-20' : 'pr-10'
                 } ${
-                  showError 
-                    ? 'border-red-500 focus:ring-red-500' 
+                  showError
+                    ? 'border-red-500 focus:ring-red-500'
                     : 'border-gray-300 dark:border-gray-600'
                 } ${integration.id === 'traceroot' ? 'cursor-not-allowed bg-gray-50 dark:bg-gray-800' : ''}`}
               />
-              
+
               {/* Copy button for TraceRoot only */}
               {integration.id === 'traceroot' && (
                 <button
@@ -391,7 +391,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
                   {isCopied ? <FaCheck size={18} /> : <FiCopy size={20} />}
                 </button>
               )}
-              
+
               <button
                 type="button"
                 onClick={() => setShowSecret(!showSecret)}

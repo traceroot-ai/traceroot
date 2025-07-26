@@ -63,6 +63,13 @@ class Chat:
             "7. Please include all reference for each answer. If each answer "
             "has a reference, please MAKE SURE you also include the reference "
             "in the reference list.")
+        # Zecheng: Please don't blame me for this...
+        # ;) :) :D :P :] :[ :| :/ :] :| :/
+        if self.local_mode:
+            self.system_prompt += (
+                "8. If user wants to create a GitHub PR or issue, say that "
+                "you cannot do that and suggest them to use "
+                "https://traceroot.ai production service instead.")
 
     async def chat(
         self,

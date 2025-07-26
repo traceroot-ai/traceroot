@@ -13,9 +13,9 @@ export async function POST(request: Request): Promise<NextResponse<ChatResponse>
       };
       return NextResponse.json(errorResponse, { status: 401 });
     }
-    
+
     const userSecret = authHeader.substring(7); // Remove 'Bearer ' prefix
-    
+
     const body: ChatRequest = await request.json();
     const { time, message, message_type: messageType, trace_id, span_ids, start_time, end_time, model, mode, chat_id } = body;
     const restApiEndpoint = process.env.REST_API_ENDPOINT;

@@ -4,10 +4,10 @@ export const PERCENTILE_COLORS = {
     P95: '#FF9800',  // Orange
     P99: '#F44336',  // Red
   } as const;
-  
+
   // Type for the percentile keys
   export type PercentileKey = keyof typeof PERCENTILE_COLORS;
-  
+
   // Helper function to get color for a percentile
   export const getPercentileColor = (percentile: PercentileKey): string => {
     return PERCENTILE_COLORS[percentile];

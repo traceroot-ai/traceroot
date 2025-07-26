@@ -14,7 +14,7 @@ export async function GET(request: Request): Promise<NextResponse<TraceResponse>
                 error: 'Missing or invalid Authorization header. Expected: Bearer <user_secret>'
             }, { status: 401 });
         }
-        
+
         const userSecret = authHeader.substring(7); // Remove 'Bearer ' prefix
 
         // Get URL parameters
@@ -24,24 +24,24 @@ export async function GET(request: Request): Promise<NextResponse<TraceResponse>
 
         // Check if REST_API_ENDPOINT environment variable is set
         const restApiEndpoint = process.env.REST_API_ENDPOINT;
-        
+
         if (restApiEndpoint) {
             // Use REST API endpoint
             try {
                 // Generate default timestamps if not provided (last 3 hours)
                 const now = new Date();
                 const threeHoursAgo = new Date(now.getTime() - 3 * 60 * 60 * 1000);
-                
+
                 // Ensure start and end times are provided
                 if (!startTime || !endTime) {
                     console.log('Start or end time not provided, using default values (last 3 hours)');
                 }
-                
+
                 const startTimeValue = startTime || threeHoursAgo.toISOString();
-                const endTimeValue = endTime || now.toISOString();                
+                const endTimeValue = endTime || now.toISOString();
                 // Construct the API URL
                 const apiUrl = `${restApiEndpoint}/v1/explore/list-traces?start_time=${encodeURIComponent(startTimeValue)}&end_time=${encodeURIComponent(endTimeValue)}`;
-                
+
                 const response = await fetch(apiUrl, {
                     method: 'GET',
                     headers: {
@@ -55,7 +55,7 @@ export async function GET(request: Request): Promise<NextResponse<TraceResponse>
                 }
 
                 const pythonResponse: { traces: Trace[] } = await response.json();
-                
+
                 // The Python dataclass structure is already compatible with TypeScript Trace interface
                 const traces: Trace[] = pythonResponse.traces;
 
@@ -88,8 +88,8 @@ export async function GET(request: Request): Promise<NextResponse<TraceResponse>
     } catch (error: unknown) {
         console.error('Error reading trace files:', error);
         return NextResponse.json(
-            { 
-                success: false, 
+            {
+                success: false,
                 data: [],
                 error: error instanceof Error ? error.message : 'Failed to read trace data'
             },

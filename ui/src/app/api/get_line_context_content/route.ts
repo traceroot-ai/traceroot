@@ -8,7 +8,7 @@ export async function GET(request: Request): Promise<NextResponse<CodeResponse |
 
     if (!fileUrl) {
       return NextResponse.json(
-        null, 
+        null,
         { status: 400 }
       );
     }
@@ -18,7 +18,7 @@ export async function GET(request: Request): Promise<NextResponse<CodeResponse |
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       authHeader = "";
     }
-    
+
     const userSecret = authHeader.substring(7);
 
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
@@ -39,7 +39,7 @@ export async function GET(request: Request): Promise<NextResponse<CodeResponse |
         }
 
         const apiData: CodeResponse = await apiResponse.json();
-        
+
         return NextResponse.json(apiData);
       } catch (apiError) {
         console.error('REST API call failed:', apiError);
@@ -55,18 +55,18 @@ export async function GET(request: Request): Promise<NextResponse<CodeResponse |
       lines_below: [],
       error_message: null
     };
-    
+
     return NextResponse.json(emptyCodeResponse);
   } catch (error) {
     console.error('Get File Line Context Content API Error:', error);
-    
+
     const emptyCodeResponse: CodeResponse = {
       line: "",
       lines_above: null,
       lines_below: null,
       error_message: null
     };
-    
+
     return NextResponse.json(emptyCodeResponse, { status: 500 });
   }
 }
