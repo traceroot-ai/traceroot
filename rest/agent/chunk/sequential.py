@@ -3,7 +3,7 @@ CHUNK_SIZE = 200_000
 OVERLAP_SIZE = 5_000  # CHUNK_SIZE - WINDOW_SIZE
 
 
-def create_overlapping_chunks(
+def create_overlapping_chunk(
     text: str,
     chunk_size: int = CHUNK_SIZE,
     overlap_size: int = OVERLAP_SIZE,
