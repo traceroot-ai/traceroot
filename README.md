@@ -155,7 +155,7 @@ You also need to put your OpenAI API key in the integration page.
 
 ## SDK
 
-Our platform is built on top of the TraceRoot SDK. You need to use our SDK to integrate with your applications by
+Our project is built on top of the TraceRoot SDK. You need to use our SDK to integrate with your applications by
 
 ```bash
 pip install traceroot==0.0.4a5
