@@ -10,7 +10,7 @@ def create_overlapping_chunks(
 ) -> list[str]:
     r"""Chunks a text into overlapping segments.
 
-    This version is a generator, making it more memory-efficient for large texts.
+    This version is a generator, making more memory-efficient for large texts.
 
     Args:
         text (str): The text to chunk.
