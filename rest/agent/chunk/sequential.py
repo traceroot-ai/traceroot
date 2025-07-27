@@ -1,6 +1,6 @@
 # Approximate the chunk size for number of tokens
 CHUNK_SIZE = 200_000
-OVERLAP_SIZE = 5_000 # CHUNK_SIZE - WINDOW_SIZE
+OVERLAP_SIZE = 5_000  # CHUNK_SIZE - WINDOW_SIZE
 
 
 def create_overlapping_chunks(
