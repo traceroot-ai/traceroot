@@ -107,11 +107,7 @@ Here is an overview for our AI Agent Framework:
 
 ### Chunking
 
-TODO: Add TraceRoot's specialized chunking.
-
 ### Explainability
-
-TODO: Add TraceRoot's specialized explainability.
 
 Please checkout the [README.md in the `rest/agent` directory](rest/agent/README.md) for more details.
 
@@ -138,13 +134,6 @@ For local usage, all of your data will be stored locally.
 You can use the TraceRoot framework locally by following the [README.md in the `ui` directory](ui/README.md) and [README.md in the `rest` directory](rest/README.md).
 
 Also, you can build the latest docker image and run the docker container by following the [README.md in the `docker` directory](docker/public/README.md).
-
-Or even simpler, just pull the latest docker image by
-
-```bash
-docker pull zechengzh/traceroot-public
-docker run -d --name traceroot-public -p 3000:3000 -p 8000:8000 zechengzh/traceroot-public
-```
 
 This will start the UI at [http://localhost:3000](http://localhost:3000) and the API at [http://localhost:8000](http://localhost:8000).
 
