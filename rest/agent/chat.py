@@ -12,7 +12,7 @@ except ImportError:
 import json
 from copy import deepcopy
 
-from rest.agent.chunk.sequential import create_overlapping_chunk
+from rest.agent.chunk.sequential import sequential_chunk
 from rest.agent.context.tree import SpanNode
 from rest.agent.filter.feature import (log_feature_selector,
                                        span_feature_selector)
@@ -263,7 +263,7 @@ class Chat:
     def get_context_messages(self, context: str) -> list[str]:
         r"""Get the context message.
         """
-        context_chunks = create_overlapping_chunk(context)
+        context_chunks = sequential_chunk(context)
         if len(context_chunks) == 1:
             return [(f"\n\nHere is the structure of the tree with related "
                      "information:\n\n"

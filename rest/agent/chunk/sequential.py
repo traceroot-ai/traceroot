@@ -3,22 +3,22 @@ CHUNK_SIZE = 200_000
 OVERLAP_SIZE = 5_000  # CHUNK_SIZE - WINDOW_SIZE
 
 
-def create_overlapping_chunk(
+def sequential_chunk(
     text: str,
     chunk_size: int = CHUNK_SIZE,
     overlap_size: int = OVERLAP_SIZE,
-) -> list[str]:
-    r"""Chunks a text into overlapping segments.
-
-    This version is a generator, making more memory-efficient for large texts.
+) -> iterator[str]:
+    r"""Chunk the text sequentially.
 
     Args:
         text (str): The text to chunk.
-        chunk_size (int): The maximum size of each chunk.
-        overlap_size (int): The number of characters to overlap between chunks.
+        chunk_size (int): The size of each chunk.
+        window_size (int): The size of the window to
+            slide, which means there is CHUNK_SIZE - WINDOW_SIZE overlap
+            size between chunks.
 
-    Yields:
-        str: The next chunk of text.
+    Returns:
+        A list of chunks.
     """
     if overlap_size >= chunk_size:
         raise ValueError("overlap_size must be smaller than chunk_size.")
