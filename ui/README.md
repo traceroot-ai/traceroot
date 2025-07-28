@@ -12,18 +12,6 @@ npm -v
 # 10.8.2
 ```
 
-Please update the `ui/.env.local` file with the correct values or use the
-`set_env` script or export the environment variables.
-
-```bash
-export NEXT_PUBLIC_APP_URL=http://localhost:3000
-export NEXT_PUBLIC_AUTH_ENDPOINT=http://localhost:8000
-export REST_API_ENDPOINT=http://localhost:8000
-export NEXT_PUBLIC_REST_API_ENDPOINT=http://localhost:8000
-export NEXT_PUBLIC_LOCAL_MODE=true # Set to true to start locally
-export NEXT_PUBLIC_STRIPE_MODE=disabled # Set to enabled to use stripe
-```
-
 ## Start the development server
 
 Only run this command once:
