@@ -1,3 +1,5 @@
+from typing import Iterator;
+
 # Approximate the chunk size for number of tokens
 CHUNK_SIZE = 200_000
 OVERLAP_SIZE = 5_000  # CHUNK_SIZE - WINDOW_SIZE
@@ -7,7 +9,7 @@ def sequential_chunk(
     text: str,
     chunk_size: int = CHUNK_SIZE,
     overlap_size: int = OVERLAP_SIZE,
-) -> iterator[str]:
+) -> Iterator[str]:
     r"""Chunk the text sequentially.
 
     Args:
