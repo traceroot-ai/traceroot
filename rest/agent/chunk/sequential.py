@@ -1,8 +1,8 @@
-from typing import Iterator;
+from typing import Iterator
 
 # Approximate the chunk size for number of tokens
 CHUNK_SIZE = 200_000
-OVERLAP_SIZE = 5_000  # CHUNK_SIZE - WINDOW_SIZE
+OVERLAP_SIZE = 5_000
 
 
 def sequential_chunk(
@@ -10,17 +10,16 @@ def sequential_chunk(
     chunk_size: int = CHUNK_SIZE,
     overlap_size: int = OVERLAP_SIZE,
 ) -> Iterator[str]:
-    r"""Chunk the text sequentially.
+    r"""Chunk the text sequentially with a defined overlap.
 
     Args:
         text (str): The text to chunk.
         chunk_size (int): The size of each chunk.
-        window_size (int): The size of the window to
-            slide, which means there is CHUNK_SIZE - WINDOW_SIZE overlap
-            size between chunks.
+        overlap_size (int): The size of the character overlap
+            between consecutive chunks.
 
     Returns:
-        A list of chunks.
+        An iterator that yields string chunks.
     """
     if overlap_size >= chunk_size:
         raise ValueError("overlap_size must be smaller than chunk_size.")
