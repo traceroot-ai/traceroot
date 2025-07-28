@@ -22,6 +22,12 @@
 </div>
 
 <div align="center">
+
+**TraceRoot is an open-source debugging platform that helps engineers fix production issues 10x faster by combining structured traces, logs, and source code context with AI-powered analysis.**
+
+</div>
+
+<div align="center">
 <h4 align="center">
 
 [Contributing](CONTRIBUTING.md) |
@@ -115,7 +121,15 @@ TODO: Add TraceRoot's specialized explainability.
 
 Please checkout the [README.md in the `rest/agent` directory](rest/agent/README.md) for more details.
 
-## Installation
+## Getting started with TraceRoot
+
+### TraceRoot Cloud (recommended)
+
+The fastest and most reliable way to get started with TraceRoot is signing up to [TraceRoot Cloud](https://auth.traceroot.ai/).
+
+### Self-hosting the open-source deploy (Advanced)
+
+#### Installation
 
 You can install the latest version of TraceRoot with the following command:
 
@@ -131,7 +145,7 @@ pip install .
 pip install -e .
 ```
 
-## Local Usage
+#### Local Usage
 
 For local usage, all of your data will be stored locally.
 
@@ -164,7 +178,7 @@ docker run -d --name jaeger \
 In local mode, the first step is to go to the integration page and connect with your GitHub account (optional) with your GitHub token.
 You also need to put your OpenAI API key in the integration page.
 
-## SDK
+## Setting up PostHog
 
 Our platform is built on top of the TraceRoot SDK. You need to use our SDK to integrate with your applications by
 
