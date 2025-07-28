@@ -30,7 +30,7 @@ export function useUserSubscription() {
     }
 
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:8000';
+      const backendUrl = process.env.NEXT_PUBLIC_REST_API_ENDPOINT || 'http://localhost:8000';
       const url = `${backendUrl}/v1/subscriptions/get?user_email=${encodeURIComponent(user.email)}`;
       console.log('[Subscription Hook] Fetching subscription from:', url);
 

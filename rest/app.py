@@ -120,6 +120,7 @@ class App:
     def add_middleware(self):
         allow_origins = [
             "https://test.traceroot.ai",  # MVP
+            "https://api.test.traceroot.ai",  # API subdomain
             "http://localhost:3000",
             "http://localhost:3001",
             # Add explicit protocol+port combinations

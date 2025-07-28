@@ -45,11 +45,11 @@ class IntegrateRouter:
     def _setup_routes(self):
         """Set up API routes"""
         # Apply rate limiting to routes using configuration
-        self.router.post("/")(self.limiter.limit(
+        self.router.post("")(self.limiter.limit(
             self.rate_limit_config.post_integrate_limit)(self.post_integrate))
-        self.router.get("/")(self.limiter.limit(
+        self.router.get("")(self.limiter.limit(
             self.rate_limit_config.get_integrate_limit)(self.get_integrate))
-        self.router.delete("/")(self.limiter.limit(
+        self.router.delete("")(self.limiter.limit(
             self.rate_limit_config.delete_integrate_limit)(
                 self.delete_integrate))
 
