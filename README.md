@@ -178,7 +178,7 @@ docker run -d --name jaeger \
 In local mode, the first step is to go to the integration page and connect with your GitHub account (optional) with your GitHub token.
 You also need to put your OpenAI API key in the integration page.
 
-## Setting up PostHog
+## Setting up TraceRoot
 
 Our platform is built on top of the TraceRoot SDK. You need to use our SDK to integrate with your applications by
 
