@@ -134,12 +134,6 @@ pip install -e .
 
 For local usage, all of your data will be stored locally.
 
-Run the below command to intialize environment variables.
-
-```bash
-source .env.development
-```
-
 You can use the TraceRoot framework locally by following the [README.md in the `ui` directory](ui/README.md) and [README.md in the `rest` directory](rest/README.md).
 
 Also, you can build the latest docker image and run the docker container by following the [README.md in the `docker` directory](docker/public/README.md).
