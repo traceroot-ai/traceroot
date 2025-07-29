@@ -450,14 +450,23 @@ class ExploreRouter:
         if await self.db_client.get_chat_metadata(chat_id=chat_id) is None:
             first_chat = True
 
+        # Get the title and GitHub related information ########################
+        title, github_related = await asyncio.gather(
+            summarize_title(
+                user_message=message,
+                client=self.chat.chat_client,
+                openai_token=openai_token,
+                model=ChatModel.GPT_4_1_MINI,  # Use GPT-4.1-mini for title
+                first_chat=first_chat,
+            ),
+            is_github_related(
+                user_message=message,
+                client=self.chat.chat_client,
+                openai_token=openai_token,
+                model=ChatModel.GPT_4_1_MINI,  # Use GPT-4.1-mini for title
+            ))
+
         # Get the title of the chat if it's the first chat ####################
-        title = await summarize_title(
-            user_message=message,
-            client=self.chat.chat_client,
-            openai_token=openai_token,
-            model=model,
-            first_chat=first_chat,
-        )
         if first_chat and title is not None:
             await self.db_client.insert_chat_metadata(
                 metadata={
@@ -475,7 +484,7 @@ class ExploreRouter:
             user_message=message,
             client=self.chat.chat_client,
             openai_token=openai_token,
-            model=model,
+            model=ChatModel.GPT_4_1_MINI,  # Use GPT-4.1-mini for title
         )
         source_code_related = github_related.source_code_related
         # For now only allow issue and PR creation for agent and non-local mode
@@ -675,7 +684,7 @@ class ExploreRouter:
                 tree=node,
                 openai_token=openai_token,
                 github_token=github_token,
-                github_task_keys=github_task_keys,
+                github_file_tasks=github_task_keys,
                 is_github_issue=is_github_issue,
                 is_github_pr=is_github_pr,
             )

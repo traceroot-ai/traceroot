@@ -200,7 +200,7 @@ For more details or the SDK usage and examples, please checkout this [Quickstart
 
 ## Citation
 
-If you find TraceRoot useful in your research, please consider citing:
+If you find our exploratory TraceRoot useful in your research, please consider citing:
 
 ```bibtex
 @article{traceroot_2025,

@@ -29,7 +29,7 @@ class Agent:
         chat_history: list[dict] | None = None,
         openai_token: str | None = None,
         github_token: str | None = None,
-        github_task_keys: set[tuple[str, str, str, str]] | None = None,
+        github_file_tasks: set[tuple[str, str, str, str]] | None = None,
         is_github_issue: bool = False,
         is_github_pr: bool = False,
     ) -> ChatbotResponse:
