@@ -263,7 +263,8 @@ class Chat:
     def get_context_messages(self, context: str) -> list[str]:
         r"""Get the context message.
         """
-        context_chunks = sequential_chunk(context)
+        # Make this more efficient.
+        context_chunks = list(sequential_chunk(context))
         if len(context_chunks) == 1:
             return [(f"\n\nHere is the structure of the tree with related "
                      "information:\n\n"
