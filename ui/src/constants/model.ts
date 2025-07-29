@@ -3,6 +3,8 @@ export const CHAT_MODELS = {
   GPT_4O_MINI: 'gpt-4o-mini',
   O4_MINI: 'o4-mini',
   O3: 'o3',
+  GPT_4_1_MINI: 'gpt-4.1-mini',
+  GPT_4_1: 'gpt-4.1',
   AUTO: 'auto'
 } as const;
 
@@ -13,6 +15,8 @@ export const CHAT_MODEL_DISPLAY_NAMES: Record<ChatModel, string> = {
   [CHAT_MODELS.GPT_4O_MINI]: 'GPT-4o Mini',
   [CHAT_MODELS.O4_MINI]: 'o4-mini',
   [CHAT_MODELS.O3]: 'o3',
+  [CHAT_MODELS.GPT_4_1_MINI]: 'GPT-4.1 Mini',
+  [CHAT_MODELS.GPT_4_1]: 'GPT-4.1',
   [CHAT_MODELS.AUTO]: 'Auto'
 };
 
