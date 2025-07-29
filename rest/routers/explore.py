@@ -25,6 +25,9 @@ except ImportError:
     from rest.client.mongodb_client import TraceRootMongoDBClient
 
 from rest.agent.context.tree import SpanNode, build_heterogeneous_tree
+from rest.agent.summarizer.chatbot_output import summarize_chatbot_output
+from rest.agent.summarizer.github import (SeparateIssueAndPrInput,
+                                          separate_issue_and_pr)
 from rest.agent.summarizer.title import summarize_title
 from rest.client.sqlite_client import TraceRootSQLiteClient
 from rest.config import (ChatbotResponse, ChatHistoryResponse, ChatMetadata,
@@ -48,7 +51,7 @@ try:
 except ImportError:
     from rest.agent.agent import Agent
 
-from rest.agent.summarizer.github import is_github_related
+from rest.agent.summarizer.github import is_github_related, set_github_related
 from rest.utils.github import parse_github_url
 
 
@@ -463,7 +466,7 @@ class ExploreRouter:
                 user_message=message,
                 client=self.chat.chat_client,
                 openai_token=openai_token,
-                model=ChatModel.GPT_4_1_MINI,  # Use GPT-4.1-mini for title
+                model=ChatModel.GPT_4O,
             ))
 
         # Get the title of the chat if it's the first chat ####################
@@ -480,12 +483,7 @@ class ExploreRouter:
         is_github_issue: bool = False
         is_github_pr: bool = False
         source_code_related: bool = False
-        github_related = await is_github_related(
-            user_message=message,
-            client=self.chat.chat_client,
-            openai_token=openai_token,
-            model=ChatModel.GPT_4_1_MINI,  # Use GPT-4.1-mini for title
-        )
+        set_github_related(github_related)
         source_code_related = github_related.source_code_related
         # For now only allow issue and PR creation for agent and non-local mode
         if mode == ChatMode.AGENT and not self.local_mode:
@@ -673,22 +671,70 @@ class ExploreRouter:
 
         if mode == ChatMode.AGENT and (is_github_issue or
                                        is_github_pr) and not self.local_mode:
-            response: ChatbotResponse = await self.agent.chat(
-                trace_id=trace_id,
-                chat_id=chat_id,
-                user_message=message,
-                model=model,
-                db_client=self.db_client,
-                chat_history=chat_history,
-                timestamp=orig_time,
-                tree=node,
-                openai_token=openai_token,
-                github_token=github_token,
-                github_file_tasks=github_task_keys,
-                is_github_issue=is_github_issue,
-                is_github_pr=is_github_pr,
-            )
-            return response.model_dump()
+            issue_response: ChatbotResponse | None = None
+            pr_response: ChatbotResponse | None = None
+            issue_message: str = message
+            pr_message: str = message
+            if is_github_issue and is_github_pr:
+                separate_issue_and_pr_output: SeparateIssueAndPrInput = \
+                    await separate_issue_and_pr(
+                        user_message=message,
+                        client=self.chat.chat_client,
+                        openai_token=openai_token,
+                        model=model,
+                    )
+                issue_message = separate_issue_and_pr_output.issue_message
+                pr_message = separate_issue_and_pr_output.pr_message
+            print("issue_message", issue_message)
+            print("pr_message", pr_message)
+            if is_github_issue:
+                issue_response = await self.agent.chat(
+                    trace_id=trace_id,
+                    chat_id=chat_id,
+                    user_message=issue_message,
+                    model=model,
+                    db_client=self.db_client,
+                    chat_history=chat_history,
+                    timestamp=orig_time,
+                    tree=node,
+                    openai_token=openai_token,
+                    github_token=github_token,
+                    github_file_tasks=github_task_keys,
+                    is_github_issue=True,
+                    is_github_pr=False,
+                )
+            if is_github_pr:
+                pr_response = await self.agent.chat(
+                    trace_id=trace_id,
+                    chat_id=chat_id,
+                    user_message=pr_message,
+                    model=model,
+                    db_client=self.db_client,
+                    chat_history=chat_history,
+                    timestamp=orig_time,
+                    tree=node,
+                    openai_token=openai_token,
+                    github_token=github_token,
+                    github_file_tasks=github_task_keys,
+                    is_github_issue=False,
+                    is_github_pr=True,
+                )
+            # TODO: sequential tool calls
+            if issue_response and pr_response:
+                summary_response = await summarize_chatbot_output(
+                    issue_response=issue_response,
+                    pr_response=pr_response,
+                    client=self.chat.chat_client,
+                    openai_token=openai_token,
+                    model=model,
+                )
+                return summary_response.model_dump()
+            elif issue_response:
+                return issue_response.model_dump()
+            elif pr_response:
+                return pr_response.model_dump()
+            else:
+                raise ValueError("Should not reach here")
         else:
             response: ChatbotResponse = await self.chat.chat(
                 trace_id=trace_id,

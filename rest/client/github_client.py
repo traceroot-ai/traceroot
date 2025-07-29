@@ -41,12 +41,6 @@ class GitHubClient:
     ) -> int:
         r"""Create a PR with file changes.
         """
-        print(f"Creating PR with file changes for {owner}/{repo_name} "
-              f"from {base_branch} to {head_branch}")
-        print(f"File path to change: {file_path_to_change}")
-        print(f"File content to change: {file_content_to_change}")
-        print(f"Commit message: {commit_message}")
-
         if github_token:
             github = Github(github_token, retry=None)
         else:
