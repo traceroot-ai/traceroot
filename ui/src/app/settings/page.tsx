@@ -55,8 +55,8 @@ export default function SettingsPage() {
   };
 
   // Capitalize the plan name for display
-  const formatPlanName = (plan: string) => {
-    if (!plan || plan === 'none') return 'None';
+  const formatPlanName = (plan: string | null | undefined) => {
+    if (!plan) return 'None';
     return plan.charAt(0).toUpperCase() + plan.slice(1);
   };
 
@@ -182,14 +182,50 @@ export default function SettingsPage() {
           <p className="text-gray-600 mb-6">Manage your plan and billing</p>
 
           <div className="space-y-4">
+            {/* Access Lost Warning */}
+            {subscription && !subscription.hasAccess && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-start">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-red-600" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <h3 className="text-sm font-medium text-red-800">
+                      Subscription Access Lost
+                    </h3>
+                    <div className="mt-2 text-sm text-red-700">
+                      <p>
+                        Your subscription has expired or been cancelled. You no longer have access to premium features.
+                        To restore access, please upgrade your subscription.
+                      </p>
+                    </div>
+                    <div className="mt-4">
+                      <button
+                        onClick={() => router.push('/pricing')}
+                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                      >
+                        Upgrade Now
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Current Plan */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <span className="text-black font-medium">Current Plan:</span>
-                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${getPlanBadgeColor(currentPlanDisplay)}`}>
+                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${getPlanBadgeColor(currentPlanDisplay || 'n/a')}`}>
                   {formatPlanName(currentPlanDisplay)}
                 </span>
-                {hasActiveSubscription && (
+                {subscription?.is_trial ? (
+                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 border border-blue-200">
+                    Trial ({subscription.trial_days_remaining} days left)
+                  </span>
+                ) : hasActiveSubscription && (
                   <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 border border-green-200">
                     Active
                   </span>
@@ -202,7 +238,7 @@ export default function SettingsPage() {
                 onMouseLeave={() => setIsChangeHovered(false)}
                 onClick={() => router.push('/pricing')}
               >
-                Change plan
+                {subscription?.is_trial ? 'Upgrade Plan' : 'Change plan'}
               </button>
             </div>
 

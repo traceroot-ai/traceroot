@@ -9,8 +9,10 @@ import SearchBar, { SearchCriterion } from './SearchBar';
 import { PERCENTILE_COLORS, getPercentileColor, PercentileKey } from '@/constants/colors';
 import { fadeInAnimationStyles } from '@/constants/animations';
 import { useUser } from '@/hooks/useUser';
-import { IoWarningOutline } from "react-icons/io5";
+import { IoWarningOutline, IoLogoJavascript } from "react-icons/io5";
 import { MdErrorOutline } from "react-icons/md";
+import { FaPython } from "react-icons/fa";
+import { SiTypescript } from "react-icons/si";
 
 interface TraceProps {
   onTraceSelect?: (traceId: string | null) => void;
@@ -345,6 +347,26 @@ export const Trace: React.FC<TraceProps> = ({
                 >
                   <div className="flex justify-between items-center h-full">
                     <div className="flex items-center text-sm">
+                      {/* Telemetry SDK Language Icons */}
+                      {trace.telemetry_sdk_language && trace.telemetry_sdk_language.length > 0 && (
+                        <>
+                          {/* Python Icon - show when telemetry_sdk_language includes "python" */}
+                          {trace.telemetry_sdk_language.includes("python") && (
+                            <FaPython className="text-gray-600 dark:text-gray-300 mr-2" size={14} />
+                          )}
+
+                          {/* TypeScript Icon - show when telemetry_sdk_language includes "ts" */}
+                          {trace.telemetry_sdk_language.includes("ts") && (
+                            <SiTypescript className="text-gray-600 dark:text-gray-300 mr-2" size={14} />
+                          )}
+
+                          {/* JavaScript Icon - show when telemetry_sdk_language includes "js" */}
+                          {trace.telemetry_sdk_language.includes("js") && (
+                            <IoLogoJavascript className="text-gray-600 dark:text-gray-300 mr-2" size={14} />
+                          )}
+                        </>
+                      )}
+
                       {/* Tags */}
                       <span
                         className="inline-flex min-w-16 max-w-32 h-6 mr-2 text-xs items-center justify-center rounded-md whitespace-nowrap px-2"

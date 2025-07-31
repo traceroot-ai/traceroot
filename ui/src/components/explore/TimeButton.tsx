@@ -53,7 +53,7 @@ export const TimeButton: React.FC<TimeButtonProps> = ({ selectedTimeRange, onTim
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-        className="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 min-h-[2.5rem] flex items-center"
+        className="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 hover:border-gray-400 dark:hover:border-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 min-h-[2.5rem] flex items-center transition-colors"
       >
         <span className="hidden lg:inline">
           {selectedTimeRange.label}
@@ -68,7 +68,7 @@ export const TimeButton: React.FC<TimeButtonProps> = ({ selectedTimeRange, onTim
       </button>
 
       {isDropdownOpen && (
-        <div className="absolute right-0 mt-2 w-48 rounded-md shadow-md bg-white dark:bg-gray-800 ring-1 ring-gray-300 ring-opacity-5 z-10">
+        <div className="absolute right-0 mt-2 w-48 rounded-md shadow-md bg-white dark:black ring-1 ring-gray-300 ring-opacity-5 z-10">
           <div className="py-1" role="menu" aria-orientation="vertical">
             {TIME_RANGES.map((range) => (
               <button

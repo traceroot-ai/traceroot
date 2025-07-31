@@ -33,6 +33,7 @@ class Span(BaseModel):
     r"""Span model.
     """
     id: str
+    parent_id: str | None
     name: str
     start_time: float
     end_time: float
@@ -42,6 +43,7 @@ class Span(BaseModel):
     num_warning_logs: int | None = None
     num_error_logs: int | None = None
     num_critical_logs: int | None = None
+    telemetry_sdk_language: str | None = None
     spans: list['Span'] = Field(default_factory=list)
 
 
@@ -61,6 +63,7 @@ class Trace(BaseModel):
     num_warning_logs: int | None = None
     num_error_logs: int | None = None
     num_critical_logs: int | None = None
+    telemetry_sdk_language: set[str] = Field(default_factory=set)
 
 
 class ListTraceResponse(BaseModel):

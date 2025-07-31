@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Span as SpanType } from '@/models/trace';
 import { TRACE_ENTRY_COLOR } from '@/constants/colors';
 import { fadeInAnimationStyles } from '@/constants/animations';
-import { IoWarningOutline } from "react-icons/io5";
+import { IoWarningOutline, IoLogoJavascript } from "react-icons/io5";
 import { MdErrorOutline } from "react-icons/md";
+import { FaPython } from "react-icons/fa";
+import { SiTypescript } from "react-icons/si";
 
 // Function to calculate and format latency
 const formatLatency = (startTime: number, endTime: number): string => {
@@ -163,6 +165,21 @@ const Span: React.FC<SpanProps> = ({
           }`}
         >
           <div className="flex items-center h-full">
+            {/* Python Icon - show when telemetry_sdk_language is "python" */}
+            {span.telemetry_sdk_language === "python" && (
+              <FaPython className="text-gray-600 dark:text-gray-300 mr-2" size={14} />
+            )}
+
+            {/* TypeScript Icon - show when telemetry_sdk_language is "ts" */}
+            {span.telemetry_sdk_language === "ts" && (
+              <SiTypescript className="text-gray-600 dark:text-gray-300 mr-2" size={14} />
+            )}
+
+            {/* JavaScript Icon - show when telemetry_sdk_language is "js" */}
+            {span.telemetry_sdk_language === "js" && (
+              <IoLogoJavascript className="text-gray-600 dark:text-gray-300 mr-2" size={14} />
+            )}
+
             {/* Span Tag */}
             <span
               className="inline-flex w-16 h-6 mr-2 text-xs items-center justify-center rounded-md italic"

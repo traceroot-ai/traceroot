@@ -12,30 +12,24 @@ console.log('Environment Variables:', {
 // Initialize Stripe with the configured publishable key
 const stripePromise = loadStripe(stripeConfig.publishableKey);
 
-// Price IDs from configuration
-const PLAN_PRICE_IDS: Record<Exclude<SubscriptionPlan, 'none'>, string> = {
-  starter: stripeConfig.planPriceIds.starter,
-  pro: stripeConfig.planPriceIds.pro,
-  startups: stripeConfig.planPriceIds.startups,
-} as const;
 
 // Debug logging for price IDs
-console.log('Price IDs Configuration:', PLAN_PRICE_IDS);
+// console.log('Price IDs Configuration:', PLAN_PRICE_IDS);
 
 export async function redirectToCheckout(plan: SubscriptionPlan, userEmail: string) {
   try {
     console.log(`Starting checkout for plan: ${plan}`);
 
-    // Don't allow checkout for 'none' plan
-    if (plan === 'none') {
-      throw new Error('Cannot checkout with "none" plan');
+    // Don't allow checkout for invalid plans
+    if (!plan) {
+      throw new Error('Invalid plan selected');
     }
 
     const stripe = await stripePromise;
     if (!stripe) throw new Error('Stripe failed to initialize');
 
-    const priceId = PLAN_PRICE_IDS[plan];
-    if (!priceId) throw new Error('Invalid plan selected');
+    const priceId = stripeConfig.planPriceIds[plan];
+    if (!priceId) throw new Error('Price ID not found for selected plan');
 
     // Create Stripe Checkout Session using our Next.js API route
     const response = await fetch('/api/create-checkout-session', {

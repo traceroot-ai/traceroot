@@ -69,8 +69,17 @@ function PricingContent() {
   // Helper function to get button text and styling
   const getButtonProps = (plan: SubscriptionPlan) => {
     const isUserCurrentPlan = isCurrentPlan(plan);
+    const baseClassName = 'mt-8 block w-full rounded-md px-4 py-2 text-center text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50';
 
     if (isUserCurrentPlan) {
+      if (subscription?.is_trial && plan === 'starter') {
+        return {
+          text: 'Activate Paid Plan',
+          onClick: () => handleSubscribe(plan),
+          disabled: processing || isLoading || subscriptionLoading,
+          className: `${baseClassName} bg-green-500 text-white hover:bg-green-600`,
+        };
+      }
       return {
         text: 'Current Plan',
         onClick: () => {}, // No action for current plan
@@ -78,8 +87,6 @@ function PricingContent() {
         className: 'mt-8 block w-full rounded-md bg-gray-400 px-4 py-2 text-center text-sm font-semibold text-gray-600 cursor-not-allowed',
       };
     }
-
-    const baseClassName = 'mt-8 block w-full rounded-md px-4 py-2 text-center text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50';
 
     if (plan === 'pro') {
       return {
@@ -115,12 +122,17 @@ function PricingContent() {
 
         <div className="mt-16 grid gap-8 lg:grid-cols-3">
           {/* Starter Plan */}
-          <div className={`rounded-lg border bg-white p-8 shadow-sm dark:bg-gray-800 ${
+          <div className={`relative rounded-lg border bg-white p-8 shadow-sm dark:bg-gray-800 ${
             isCurrentPlan('starter')
               ? 'border-green-500 ring-2 ring-green-500 ring-opacity-50'
               : 'border-gray-200 dark:border-gray-700'
           }`}>
-            {isCurrentPlan('starter') && (
+            {isCurrentPlan('starter') && subscription?.is_trial && (
+              <div className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full bg-blue-500 px-4 py-1 text-sm font-semibold text-white">
+                Trial Plan ({subscription.trial_days_remaining} days left)
+              </div>
+            )}
+            {isCurrentPlan('starter') && !subscription?.is_trial && (
               <div className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full bg-green-500 px-4 py-1 text-sm font-semibold text-white">
                 Your Plan
               </div>
@@ -131,7 +143,7 @@ function PricingContent() {
               <span className="text-base font-medium text-gray-500 dark:text-gray-400">/month</span>
             </p>
             <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-              You can optionally cancel and get money back for the first 7 days trial period
+              You can optionally cancel and get money back for the first 7 days free trial period
             </p>
             <ul className="mt-8 space-y-4">
               {PLAN_FEATURES.starter.map((feature, index) => (
@@ -163,7 +175,7 @@ function PricingContent() {
           <div className={`relative rounded-lg border bg-white p-8 shadow-sm dark:bg-gray-800 ${
             isCurrentPlan('pro')
               ? 'border-green-500 ring-2 ring-green-500 ring-opacity-50'
-              : 'border-green-500'
+              : 'border-gray-200 dark:border-gray-700'
           }`}>
             <div className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full bg-green-500 px-4 py-1 text-sm font-semibold text-white">
               {isCurrentPlan('pro') ? 'Your Plan' : 'Popular'}

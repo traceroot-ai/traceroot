@@ -1,4 +1,4 @@
-export type SubscriptionPlan = 'starter' | 'pro' | 'startups' | 'none';
+export type SubscriptionPlan = 'starter' | 'pro' | 'startups';
 
 export interface UserSubscription {
   user_email: string;

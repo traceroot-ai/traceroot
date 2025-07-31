@@ -354,6 +354,7 @@ def test_convert_span_no_logs_no_children():
     """Test converting span with no logs or children."""
     span = Span(
         id="span123",
+        parent_id=None,
         name="test.function",
         start_time=1672574400.0,
         end_time=1672574401.0,
@@ -392,6 +393,7 @@ def test_convert_span_with_logs():
     """Test converting span with logs."""
     span = Span(
         id="span123",
+        parent_id=None,
         name="test.function",
         start_time=1672574400.0,
         end_time=1672574401.0,
@@ -419,6 +421,7 @@ def test_convert_span_with_children():
     """Test converting span with child spans."""
     child_span = Span(
         id="child123",
+        parent_id="parent123",
         name="child.function",
         start_time=1672574400.5,
         end_time=1672574400.8,
@@ -427,6 +430,7 @@ def test_convert_span_with_children():
 
     parent_span = Span(
         id="parent123",
+        parent_id=None,
         name="parent.function",
         start_time=1672574400.0,
         end_time=1672574401.0,
@@ -446,6 +450,7 @@ def test_convert_span_sorts_logs_by_timestamp():
     """Test that logs are sorted by timestamp."""
     span = Span(
         id="span123",
+        parent_id=None,
         name="test.function",
         start_time=1672574400.0,
         end_time=1672574401.0,
@@ -484,6 +489,7 @@ def test_convert_span_sorts_children_by_start_time():
     """Test that child spans are sorted by start time."""
     child_span1 = Span(
         id="child1",
+        parent_id="parent123",
         name="child1.function",
         start_time=1672574400.8,  # Later start time
         end_time=1672574400.9,
@@ -492,6 +498,7 @@ def test_convert_span_sorts_children_by_start_time():
 
     child_span2 = Span(
         id="child2",
+        parent_id="parent123",
         name="child2.function",
         start_time=1672574400.2,  # Earlier start time
         end_time=1672574400.4,
@@ -500,6 +507,7 @@ def test_convert_span_sorts_children_by_start_time():
 
     parent_span = Span(
         id="parent123",
+        parent_id=None,
         name="parent.function",
         start_time=1672574400.0,
         end_time=1672574401.0,
@@ -521,6 +529,7 @@ def test_build_heterogeneous_tree_simple():
     """Test building a simple heterogeneous tree."""
     span = Span(
         id="root",
+        parent_id=None,
         name="root.function",
         start_time=1672574400.0,
         end_time=1672574401.0,
@@ -553,6 +562,7 @@ def test_build_heterogeneous_tree_complex():
     # Create child span
     child_span = Span(
         id="child",
+        parent_id="parent",
         name="child.function",
         start_time=1672574400.3,
         end_time=1672574400.7,
@@ -562,6 +572,7 @@ def test_build_heterogeneous_tree_complex():
     # Create parent span with child
     parent_span = Span(
         id="parent",
+        parent_id=None,
         name="parent.function",
         start_time=1672574400.0,
         end_time=1672574401.0,
@@ -618,6 +629,7 @@ def test_build_heterogeneous_tree_empty_logs():
     """Test building tree with empty trace logs."""
     span = Span(
         id="span123",
+        parent_id=None,
         name="test.function",
         start_time=1672574400.0,
         end_time=1672574401.0,

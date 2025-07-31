@@ -10,6 +10,7 @@ export interface Span {
     num_error_logs?: number;
     num_critical_logs?: number;
     spans?: Span[]; // Optional nested spans
+    telemetry_sdk_language?: string;
 }
 
 export interface Trace {
@@ -26,6 +27,7 @@ export interface Trace {
     end_time: number;
     percentile: string;
     spans: Span[];
+    telemetry_sdk_language: string[];
 }
 
 // Response type for the API

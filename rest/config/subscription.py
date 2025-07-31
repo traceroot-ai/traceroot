@@ -11,7 +11,6 @@ class SubscriptionPlan(str, Enum):
     STARTER = "starter"
     PRO = "pro"
     STARTUPS = "startups"
-    NONE = "none"
 
 
 class PaymentRecord(BaseModel):
@@ -25,10 +24,16 @@ class UserSubscription(BaseModel):
     """User subscription model."""
     user_email: str = Field(..., description="User account email address")
     hasAccess: bool = Field(..., description="Whether user has active access")
-    subscription_plan: str = Field(...,
+    subscription_plan: str = Field(default="starter",
                                    description="Current subscription plan")
     start_date: str = Field(
         ..., description="Subscription start date in ISO format")
+    is_trial: bool = Field(default=False,
+                           description="Whether this is a trial subscription")
+    trial_start_date: Optional[str] = Field(
+        None, description="When trial started, if applicable")
+    trial_days_remaining: Optional[int] = Field(
+        None, description="Number of days remaining in trial")
     payment_history: List[PaymentRecord] = Field(default_factory=list,
                                                  description="Payment history")
 
@@ -36,24 +41,26 @@ class UserSubscription(BaseModel):
 class SubscriptionRequest(BaseModel):
     """Request model for creating a subscription."""
     user_email: str
-    subscription_plan: str
+    subscription_plan: str = "starter"
     start_date: str
     hasAccess: bool = True
+    is_trial: bool = True
 
 
 class SubscriptionResponse(BaseModel):
     """Response model for subscription operations."""
     success: bool
     message: str
-    subscription: Optional[UserSubscription] = None
+    subscription: UserSubscription
 
 
 class UpdateSubscriptionRequest(BaseModel):
     """Request model for updating a subscription."""
     user_email: str
     hasAccess: bool
-    subscription_plan: str
+    subscription_plan: str = "starter"
     start_date: str
+    is_trial: bool = False
 
 
 class UpdateSubscriptionResponse(BaseModel):
@@ -84,5 +91,5 @@ class GetSubscriptionRequest(BaseModel):
 class GetSubscriptionResponse(BaseModel):
     """Response model for getting subscription information."""
     success: bool
-    subscription: Optional[UserSubscription] = None
+    subscription: UserSubscription
     message: Optional[str] = None

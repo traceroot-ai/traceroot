@@ -11,6 +11,7 @@
 [![Discord][discord-image]][discord-url]
 [![PyPI Version][pypi-image]][pypi-url]
 [![PyPI SDK Downloads][pypi-sdk-downloads-image]][pypi-sdk-downloads-url]
+[![npm version][npm-image]][npm-url]
 [![TraceRoot.AI Website][company-website-image]][company-website-url]
 [![X][company-x-image]][company-x-url]
 [![X][zecheng-x-image]][zecheng-x-url]
@@ -224,6 +225,8 @@ If you find our exploratory TraceRoot useful in your research, please consider c
 [discord-url]: https://discord.gg/tPyffEZvvJ
 [docs-image]: https://img.shields.io/badge/docs-traceroot.ai-0dbf43
 [docs-url]: https://docs.traceroot.ai
+[npm-image]: https://img.shields.io/npm/v/traceroot-sdk-ts?style=flat-square&logo=npm&logoColor=fff
+[npm-url]: https://www.npmjs.com/package/traceroot-sdk-ts
 [pypi-image]: https://badge.fury.io/py/traceroot.svg
 [pypi-sdk-downloads-image]: https://img.shields.io/pypi/dm/traceroot
 [pypi-sdk-downloads-url]: https://pypi.python.org/pypi/traceroot

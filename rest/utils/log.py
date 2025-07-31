@@ -52,10 +52,11 @@ def process_log_events(all_events: list[dict[str, Any]]) -> TraceLogs:
         stack = items[9]
         stack_items = stack.split(' -> ')
         code_info = stack_items[-1]
+        code_info = code_info.replace('///(rsc)/./', '')
         code_info_items = code_info.split(':')
-        file_path = code_info_items[0]
-        function_name = code_info_items[1]
-        line_number = int(code_info_items[2])
+        file_path = code_info_items[-3]
+        function_name = code_info_items[-2]
+        line_number = int(code_info_items[-1])
 
         # Support other github like pages
         github_url = f"{github_url}{file_path}?plain=1#L{line_number}"

@@ -140,7 +140,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
                   </span>
                   <button
                     onClick={() => handleRemoveCriterion(criterion.id)}
-                    className="ml-2 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400"
+                    className="ml-2 text-black dark:text-gray-300 hover:text-red-500 dark:hover:text-red-400"
                   >
                     <IoMdClose className="w-3 h-3" />
                   </button>
@@ -152,15 +152,17 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
 
         {/* Main search input row */}
         <div className="flex flex-wrap items-center justify-start gap-2 min-h-[2rem]">
-          <IoIosSearch className="w-4 h-4 text-gray-500 flex-shrink-0" />
+          <IoIosSearch className="w-4 h-4 text-black dark:text-gray-300 flex-shrink-0" />
 
           {/* Category selector */}
           <div className="relative flex-shrink-0">
             <button
               className={`px-2 py-1 text-xs rounded-md border ${
-                currentCriterion.category
+                showCategoryDropdown
+                  ? 'bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-black dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 ring-2 ring-green-500 ring-offset-1'
+                  : currentCriterion.category
                   ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-600 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-800/30'
-                  : 'bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 text-xs'
+                  : 'bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-black dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 text-xs'
               } whitespace-nowrap`}
               onClick={(e) => {
                 e.stopPropagation();
@@ -204,9 +206,11 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
           <div className="relative flex-shrink-0">
             <button
               className={`px-2 py-1 text-sm rounded-md border ${
-                currentCriterion.operation
+                showOperationDropdown
+                  ? 'bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-black dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 ring-2 ring-green-500 ring-offset-1'
+                  : currentCriterion.operation
                   ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-600 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-800/30'
-                  : 'bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 text-xs'
+                  : 'bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-black dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 text-xs'
               } whitespace-nowrap`}
               onClick={(e) => {
                 e.stopPropagation();
@@ -253,7 +257,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
                 className={`px-2 py-1 text-sm rounded-md border ${
                   currentCriterion.logicalOperator
                     ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-800/30'
-                    : 'bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-600'
+                    : 'bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-black dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
                 } whitespace-nowrap`}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -313,7 +317,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
               // Call parent clear function
               onClear();
             }}
-            className="w-6 h-6 mt-1 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex-shrink-0"
+            className="w-6 h-6 mt-1 text-black dark:text-gray-300 hover:text-red-500 dark:hover:text-red-400 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex-shrink-0"
           >
             <IoMdClose className="w-4 h-4" />
           </button>

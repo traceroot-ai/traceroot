@@ -8,6 +8,9 @@ interface UserSubscription {
   hasAccess: boolean;
   subscription_plan: string;
   start_date: string;
+  is_trial: boolean;
+  trial_start_date?: string;
+  trial_days_remaining?: number;
   payment_history: Array<{
     amount: number;
     date: string;
@@ -99,7 +102,7 @@ export function useUserSubscription() {
   };
 
   // Extract values from subscription data with proper logging
-  const currentPlan = subscription?.subscription_plan ?? 'none';
+  const currentPlan = subscription?.subscription_plan;
   const hasActiveSubscription = subscription?.hasAccess ?? false;
 
   console.log('[Subscription Hook] Returning values:', {
