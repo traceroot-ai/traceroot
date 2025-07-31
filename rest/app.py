@@ -6,35 +6,33 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-try:
-    from rest.client.ee.aws_client import TraceRootAWSClient
-except ImportError:
-    from rest.client.aws_client import TraceRootAWSClient
+from rest.utils.importer import import_with_ee_fallback
 
+TraceRootAWSClient = import_with_ee_fallback(
+    "rest.client.ee.aws_client.TraceRootAWSClient",
+    "rest.client.aws_client.TraceRootAWSClient",
+)
 from rest.client.jaeger_client import TraceRootJaegerClient
 from rest.routers.auth import router as auth_router
 from rest.routers.explore import ExploreRouter
 from rest.routers.integrate import IntegrateRouter
 
-try:
-    from rest.routers.ee.stripe_checkout import StripeCheckoutRouter
-except ImportError:
-    from rest.routers.stripe_checkout import StripeCheckoutRouter
-
-try:
-    from rest.routers.ee.stripe_webhook import StripeWebhookRouter
-except ImportError:
-    from rest.routers.stripe_webhook import StripeWebhookRouter
-
-try:
-    from rest.routers.ee.subscription import SubscriptionRouter
-except ImportError:
-    from rest.routers.subscription import SubscriptionRouter
-
-try:
-    from rest.routers.ee.verify import VerifyRouter
-except ImportError:
-    from rest.routers.verify import VerifyRouter
+StripeCheckoutRouter = import_with_ee_fallback(
+    "rest.routers.ee.stripe_checkout.StripeCheckoutRouter",
+    "rest.routers.stripe_checkout.StripeCheckoutRouter",
+)
+StripeWebhookRouter = import_with_ee_fallback(
+    "rest.routers.ee.stripe_webhook.StripeWebhookRouter",
+    "rest.routers.stripe_webhook.StripeWebhookRouter",
+)
+SubscriptionRouter = import_with_ee_fallback(
+    "rest.routers.ee.subscription.SubscriptionRouter",
+    "rest.routers.subscription.SubscriptionRouter",
+)
+VerifyRouter = import_with_ee_fallback(
+    "rest.routers.ee.verify.VerifyRouter",
+    "rest.routers.verify.VerifyRouter",
+)
 
 
 class App:

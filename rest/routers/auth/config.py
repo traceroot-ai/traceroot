@@ -26,6 +26,8 @@ class AuthSettings(BaseModel):
     COGNITO_USER_POOL_ID: str
     COGNITO_CLIENT_SECRET: str
     COGNITO_ISSUER: str
+    COGNITO_DOMAIN: str
+    COGNITO_REDIRECT_URI: str
     AWS_REGION: str = "us-west-2"  # Default to us-west-2 if not specified
 
     @classmethod
@@ -36,6 +38,8 @@ class AuthSettings(BaseModel):
             COGNITO_USER_POOL_ID=os.getenv("COGNITO_USER_POOL_ID", ""),
             COGNITO_CLIENT_SECRET=os.getenv("COGNITO_CLIENT_SECRET", ""),
             COGNITO_ISSUER=os.getenv("COGNITO_ISSUER", ""),
+            COGNITO_DOMAIN=os.getenv("COGNITO_DOMAIN", ""),
+            COGNITO_REDIRECT_URI=os.getenv("COGNITO_REDIRECT_URI", ""),
             AWS_REGION=os.getenv("AWS_REGION", "us-west-2"),
         )
 
@@ -48,22 +52,11 @@ class AuthSettings(BaseModel):
                         f"{'*' * len(settings.COGNITO_CLIENT_SECRET)}")
         else:
             logger.info("COGNITO_CLIENT_SECRET is not set.")
-        logger.info(f"COGNITO_ISSUER: {settings.COGNITO_ISSUER}")
         logger.info(f"AWS_REGION: {settings.AWS_REGION}")
 
         # Validate required settings
-        if not settings.COGNITO_CLIENT_ID:
-            logger.warning("COGNITO_CLIENT_ID is not set. "
-                           "Authentication features may not work properly.")
-        if not settings.COGNITO_USER_POOL_ID:
-            logger.warning("COGNITO_USER_POOL_ID is not set. "
-                           "Authentication features may not work properly.")
-        if not settings.COGNITO_CLIENT_SECRET:
-            logger.warning("COGNITO_CLIENT_SECRET is not set. "
-                           "Authentication features may not work properly.")
-        if not settings.COGNITO_ISSUER:
-            logger.warning("COGNITO_ISSUER is not set. "
-                           "Authentication features may not work properly.")
+        if not all([settings.COGNITO_CLIENT_ID, settings.COGNITO_USER_POOL_ID, settings.COGNITO_CLIENT_SECRET, settings.COGNITO_ISSUER, settings.COGNITO_DOMAIN, settings.COGNITO_REDIRECT_URI]):
+            logger.warning("One or more Cognito settings are not set. Authentication features may not work properly.")
 
         return settings
 
