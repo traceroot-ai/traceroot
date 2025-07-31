@@ -18,7 +18,7 @@ TraceRoot.AI proposes a specialized context model as follows:
 
 <div align="center">
   <a href="https://traceroot.ai/">
-    <img src="../../misc/images/agent-context.svg" alt="Context Model" width="80%">
+    <img src="../../misc/images/context-model.png" alt="Context Model" width="90%" max-width="1200px">
   </a>
 </div>
 
