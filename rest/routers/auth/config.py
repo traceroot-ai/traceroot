@@ -55,8 +55,14 @@ class AuthSettings(BaseModel):
         logger.info(f"AWS_REGION: {settings.AWS_REGION}")
 
         # Validate required settings
-        if not all([settings.COGNITO_CLIENT_ID, settings.COGNITO_USER_POOL_ID, settings.COGNITO_CLIENT_SECRET, settings.COGNITO_ISSUER, settings.COGNITO_DOMAIN, settings.COGNITO_REDIRECT_URI]):
-            logger.warning("One or more Cognito settings are not set. Authentication features may not work properly.")
+        if not all([settings.COGNITO_CLIENT_ID,
+                    settings.COGNITO_USER_POOL_ID,
+                    settings.COGNITO_CLIENT_SECRET,
+                    settings.COGNITO_ISSUER,
+                    settings.COGNITO_DOMAIN,
+                    settings.COGNITO_REDIRECT_URI]):
+            logger.warning(
+                "One or more Cognito settings are not set. Authentication features may not work properly.")
 
         return settings
 

@@ -6,16 +6,17 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
+from rest.client.jaeger_client import TraceRootJaegerClient
+from rest.routers.auth import router as auth_router
+from rest.routers.explore import ExploreRouter
+from rest.routers.integrate import IntegrateRouter
+
 from rest.utils.importer import import_with_ee_fallback
 
 TraceRootAWSClient = import_with_ee_fallback(
     "rest.client.ee.aws_client.TraceRootAWSClient",
     "rest.client.aws_client.TraceRootAWSClient",
 )
-from rest.client.jaeger_client import TraceRootJaegerClient
-from rest.routers.auth import router as auth_router
-from rest.routers.explore import ExploreRouter
-from rest.routers.integrate import IntegrateRouter
 
 StripeCheckoutRouter = import_with_ee_fallback(
     "rest.routers.ee.stripe_checkout.StripeCheckoutRouter",
