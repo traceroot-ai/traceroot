@@ -1,5 +1,7 @@
 from datetime import datetime
+from typing import Union
 
+from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
 from rest.agent.context.tree import LogNode, SpanNode
@@ -22,27 +24,67 @@ LOG_NODE_SELECTOR_PROMPT = (
 
 async def log_node_selector(
     user_message: str,
-    client: AsyncOpenAI,
+    client: Union[AsyncOpenAI, AsyncAnthropic],
     model: str = "gpt-4o-mini",
 ) -> LogNodeSelectorOutput:
-    messages = [
-        {
-            "role": "system",
-            "content": LOG_NODE_SELECTOR_PROMPT
-        },
-        {
-            "role": "user",
-            "content": user_message
-        },
-    ]
-    response = await client.responses.parse(
-        model=model,
-        input=messages,
-        text_format=LogNodeSelectorOutput,
-        temperature=0.5,
-    )
-    response: LogNodeSelectorOutput = response.output[0].content[0].parsed
-    return response
+    """Selects log node filters based on the user message."""
+    is_anthropic_model = "claude" in model
+
+    if is_anthropic_model:
+        if not isinstance(client, AsyncAnthropic):
+            raise TypeError(
+                "An AsyncAnthropic client is required for Claude models.")
+
+        messages = [{"role": "user", "content": user_message}]
+        response = await client.messages.create(
+            model=model,
+            system=LOG_NODE_SELECTOR_PROMPT,
+            messages=messages,
+            max_tokens=1024,
+            temperature=0.5,
+            tools=[{
+                "name": "select_log_node_filters",
+                "description":
+                "Generates filters for log nodes based on user input.",
+                "input_schema": LogNodeSelectorOutput.model_json_schema(),
+            }],
+            tool_choice={
+                "type": "tool",
+                "name": "select_log_node_filters"
+            },
+        )
+        tool_call = next(
+            (block for block in response.content if block.type == "tool_use"),
+            None)
+        if not tool_call:
+            # Return an empty object if the model fails to use the tool
+            return LogNodeSelectorOutput(log_features=[],
+                                         log_feature_values=[],
+                                         log_feature_ops=[])
+        return LogNodeSelectorOutput(**tool_call.input)
+
+    else:
+        if not isinstance(client, AsyncOpenAI):
+            raise TypeError(
+                "An AsyncOpenAI client is required for OpenAI models.")
+
+        messages = [
+            {
+                "role": "system",
+                "content": LOG_NODE_SELECTOR_PROMPT
+            },
+            {
+                "role": "user",
+                "content": user_message
+            },
+        ]
+        response = await client.responses.parse(
+            model=model,
+            input=messages,
+            text_format=LogNodeSelectorOutput,
+            temperature=0.5,
+        )
+        return response.output[0].content[0].parsed
 
 
 def apply_operation(log_value: str, filter_value: str,
