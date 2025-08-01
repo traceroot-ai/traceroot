@@ -2,6 +2,7 @@ import asyncio
 import os
 from datetime import datetime, timezone
 
+from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
 try:
@@ -28,16 +29,20 @@ from rest.typing import ActionStatus, ActionType, ChatModel, MessageType
 class Chat:
 
     def __init__(self):
-        api_key = os.getenv("OPENAI_API_KEY")
-        if api_key is None:
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+
+        if openai_api_key is None and anthropic_api_key is None:
             # This means that is using the local mode
             # and user needs to provide the token within
             # the integrate section at first
-            api_key = "fake_openai_api_key"
+            openai_api_key = "fake_openai_api_key"
+            anthropic_api_key = "fake_anthropic_api_key"
             self.local_mode = True
         else:
             self.local_mode = False
-        self.chat_client = AsyncOpenAI(api_key=api_key)
+        self.openai_client = AsyncOpenAI(api_key=openai_api_key)
+        self.anthropic_client = AsyncAnthropic(api_key=anthropic_api_key)
         self.system_prompt = (
             "You are a helpful TraceRoot.AI assistant that is the best "
             "assistant for debugging with logs, traces, metrics and source "
@@ -81,6 +86,7 @@ class Chat:
         tree: SpanNode,
         chat_history: list[dict] | None = None,
         openai_token: str | None = None,
+        anthropic_token: str | None = None,
     ) -> ChatbotResponse:
         """
         Args:
@@ -99,9 +105,16 @@ class Chat:
         if model == ChatModel.AUTO:
             model = ChatModel.GPT_4O
 
-        # Use local client to avoid race conditions in concurrent calls
+        # Determine if the model is from Anthropic or OpenAI
+        is_anthropic_model = "claude" in model.value
+
+        # Initialize clients, using user-provided tokens if available
+        openai_client = self.openai_client
         if openai_token is not None:
-            client = AsyncOpenAI(api_key=openai_token)
+            openai_client = AsyncOpenAI(api_key=openai_token)
+        anthropic_client = self.anthropic_client
+        if anthropic_token is not None:
+            anthropic_client = AsyncAnthropic(api_key=anthropic_token)
         else:
             client = self.chat_client
 
@@ -196,10 +209,25 @@ class Chat:
                     "status": ActionStatus.PENDING.value,
                 })
 
-        responses: list[ChatOutput] = await asyncio.gather(*[
-            self.chat_with_context_chunks(messages, model, client)
-            for messages in all_messages
-        ])
+        if is_anthropic_model:
+            chat_coros = [
+                self.chat_with_context_chunks_anthropic(
+                    messages, model, anthropic_client, self.system_prompt)
+                for messages in all_messages
+            ]
+        else:
+            for msg_list in all_messages:
+                msg_list.insert(0, {
+                    "role": "system",
+                    "content": self.system_prompt
+                })
+            chat_coros = [
+                self.chat_with_context_chunks_openai(messages, model,
+                                                     openai_client)
+                for messages in all_messages
+            ]
+
+        responses: list[ChatOutput] = await asyncio.gather(*chat_coros)
 
         response_time = datetime.now().astimezone(timezone.utc)
         if len(responses) == 1:
@@ -216,8 +244,8 @@ class Chat:
             response = await chunk_summarize(
                 response_answers=response_answers,
                 response_references=response_references,
-                client=client,
-                model=model,
+                client=openai_client,
+                model=ChatModel.GPT_4O,
             )
             response_content = response.answer
             response_references = response.reference
@@ -243,21 +271,68 @@ class Chat:
             chat_id=chat_id,
         )
 
-    async def chat_with_context_chunks(
+    async def chat_with_context_chunks_openai(
         self,
         messages: list[dict[str, str]],
         model: ChatModel,
         chat_client: AsyncOpenAI,
     ) -> ChatOutput:
-        r"""Chat with context chunks.
-        """
+        r"""Chat with context chunks using an OpenAI model."""
+        # NOTE: `chat_client.responses.parse` seems to be a custom wrapper or
+        # part of a library like `instructor` for structured output.
         response = await chat_client.responses.parse(
-            model=model,
+            model=model.value,
             input=messages,
             text_format=ChatOutput,
             temperature=0.8,
         )
         return response.output[0].content[0].parsed
+
+    async def chat_with_context_chunks_anthropic(
+        self,
+        messages: list[dict[str, str]],
+        model: ChatModel,
+        chat_client: AsyncAnthropic,
+        system_prompt: str,
+    ) -> ChatOutput:
+        r"""Chat with context chunks using an Anthropic model."""
+        try:
+            # Use Anthropic's tool-use feature for structured output
+            response = await chat_client.messages.create(
+                model=model.value,
+                system=system_prompt,
+                messages=messages,
+                max_tokens=4096,
+                temperature=0.8,
+                tools=[{
+                    "name": "provide_answer",
+                    "description": "Answer with references.",
+                    "input_schema": ChatOutput.model_json_schema(),
+                }],
+                tool_choice={
+                    "type": "tool",
+                    "name": "provide_answer"
+                },
+            )
+
+            tool_call = next(
+                (block
+                 for block in response.content if block.type == "tool_use"),
+                None)
+            if tool_call and tool_call.name == "provide_answer":
+                return ChatOutput(**tool_call.input)
+            else:
+                # Fallback if the model fails to use the tool
+                text_content = "".join(block.text for block in response.content
+                                       if block.type == "text")
+                return ChatOutput(
+                    answer=f"Unstructured model response: {text_content}",
+                    reference=[])
+        except Exception as e:
+            print(f"Error calling Anthropic API: {e}")
+            return ChatOutput(
+                answer=f"An error occurred with the Anthropic API: {str(e)}",
+                reference=[])
 
     def get_context_messages(self, context: str) -> list[str]:
         r"""Get the context message.
