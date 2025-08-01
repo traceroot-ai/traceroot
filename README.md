@@ -124,8 +124,8 @@ Please checkout the [README.md in the `rest/agent` directory](rest/agent/README.
 
 The fastest and most reliable way to get started with TraceRoot is signing up
 for free to [TraceRoot Cloud](https://auth.traceroot.ai/) for a 7 day trial.
-You will have 150k trace + logs storage, 1.5M LLM tokens, 30d retention and AI
-agent with chat mode.
+You will have 150k trace + logs storage with 30d retentions, 1.5M LLM tokens,
+and AI agent with chat mode.
 
 ### Self-hosting the open-source deploy (Advanced)
 
