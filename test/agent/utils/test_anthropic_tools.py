@@ -18,4 +18,7 @@ def test_get_anthropic_tool_schema():
     the correct schema for get_weather function.
     """
     result = get_anthropic_tool_schema(get_weather)
-    assert result["type"] == "function"
+
+    assert result["name"] == "get_weather"
+    assert "Get current temperature" in result["description"]
+    assert "input_schema" in result
