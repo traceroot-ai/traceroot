@@ -34,9 +34,10 @@ def to_pascal(snake: str) -> str:
 def get_anthropic_tool_schema(func: Callable) -> dict[str, Any]:
     r"""Generates an Anthropic JSON schema from a given Python function.
 
-    This function creates a schema compatible with Anthropic's API specifications,
-    based on the provided Python function. It processes the function's
-    parameters, types, and docstrings, and constructs a schema accordingly.
+    This function creates a schema compatible with Anthropic's API
+    specifications, based on the provided Python function. It processes the
+    function'sparameters, types, and docstrings, and constructs a schema
+    accordingly.
 
     Note:
         - Each parameter in `func` must have a type annotation; otherwise, it's

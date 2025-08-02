@@ -5,6 +5,7 @@ from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
+from rest.agent.utils.anthropic_tools import get_anthropic_tool_schema
 from rest.agent.utils.openai_tools import get_openai_tool_schema
 
 GITHUB_PROMPT = (
@@ -84,25 +85,23 @@ async def is_github_related(
             raise TypeError(
                 "An AsyncAnthropic client is required for Claude models.")
 
-        response = await client.messages.create(
-            model=model,
-            system=GITHUB_PROMPT,
-            messages=[{
-                "role": "user",
-                "content": user_message
-            }],
-            max_tokens=1024,
-            temperature=0.3,
-            tools=[{
-                "name": "classify_github_intent",
-                "description":
-                "Classifies intent for GitHub issues, PRs, or source code.",
-                "input_schema": GithubRelatedOutput.model_json_schema()
-            }],
-            tool_choice={
-                "type": "tool",
-                "name": "classify_github_intent"
-            })
+        tool_schema = get_anthropic_tool_schema(GithubRelatedOutput)
+
+        response = await client.messages.create(model=model,
+                                                system=GITHUB_PROMPT,
+                                                messages=[{
+                                                    "role":
+                                                    "user",
+                                                    "content":
+                                                    user_message
+                                                }],
+                                                max_tokens=1024,
+                                                temperature=0.3,
+                                                tools=[tool_schema],
+                                                tool_choice={
+                                                    "type": "tool",
+                                                    "name": tool_schema["name"]
+                                                })
         tool_call = next(
             (block for block in response.content if block.type == "tool_use"),
             None)
@@ -178,6 +177,8 @@ async def separate_issue_and_pr(
             raise TypeError(
                 "An AsyncAnthropic client is required for Claude models.")
 
+        tool_schema = get_anthropic_tool_schema(SeparateIssueAndPrInput)
+
         response = await client.messages.create(
             model=model,
             system=SEPARATE_ISSUE_AND_PR_PROMPT,
@@ -186,15 +187,10 @@ async def separate_issue_and_pr(
                 "content": user_message
             }],
             max_tokens=2048,
-            tools=[{
-                "name": "separate_issue_and_pr_messages",
-                "description":
-                "Reformulates a message into separate issue and PR messages.",
-                "input_schema": SeparateIssueAndPrInput.model_json_schema()
-            }],
+            tools=[tool_schema],
             tool_choice={
                 "type": "tool",
-                "name": "separate_issue_and_pr_messages"
+                "name": tool_schema["name"]
             })
         tool_call = next(
             (block for block in response.content if block.type == "tool_use"),
@@ -206,7 +202,7 @@ async def separate_issue_and_pr(
         else:
             result = SeparateIssueAndPrInput(**tool_call.input)
 
-    else:  # OpenAI model
+    else:
         if openai_token:
             client = AsyncOpenAI(api_key=openai_token)
         if not isinstance(client, AsyncOpenAI):
