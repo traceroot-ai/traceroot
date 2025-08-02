@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { TbEye, TbEyeOff } from 'react-icons/tb';
 import { FiCopy } from "react-icons/fi";
 import { FaGithub } from "react-icons/fa";
-import { SiNotion, SiSlack, SiOpenai } from "react-icons/si";
+import { SiNotion, SiSlack, SiOpenai, SiAnthropic } from "react-icons/si";
 import { FaCheck } from "react-icons/fa";
 import { Integration } from '@/types/integration';
 import { TokenResource, ResourceType } from '@/models/integrate';
@@ -40,6 +40,8 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         return <SiSlack size={size} className="text-black" />;
       case 'openai':
         return <SiOpenai size={size} className="text-black" />;
+      case 'anthropic':
+        return <SiAnthropic size={size} className="text-black" />;
       case 'traceroot':
         return (
           <svg
@@ -79,6 +81,8 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         return ResourceType.SLACK;
       case 'openai':
         return ResourceType.OPENAI;
+      case 'anthropic':
+        return ResourceType.ANTHROPIC;
       case 'traceroot':
         return ResourceType.TRACEROOT;
       default:

@@ -56,6 +56,16 @@ const initialIntegrations: Integration[] = [
     connected: false,
     docs: 'https://platform.openai.com/docs/api-reference/authentication',
     token: null,
+  },
+  {
+    id: 'anthropic',
+    name: 'Anthropic',
+    description: 'Anthropic Integration',
+    icon: 'anthropic',
+    categories: ['LLM', 'Agent'],
+    connected: false,
+    docs: 'https://docs.anthropic.com/en/api/overview',
+    token: null,
   }
 ];
 
@@ -105,11 +115,12 @@ export default function RightPanel() {
       fetchIntegrationToken(ResourceType.NOTION),
       fetchIntegrationToken(ResourceType.SLACK),
       fetchIntegrationToken(ResourceType.OPENAI),
+      fetchIntegrationToken(ResourceType.ANTHROPIC),
       fetchIntegrationToken(ResourceType.TRACEROOT)
     ];
 
     try {
-      const [githubToken, notionToken, slackToken, openaiToken, tracerootToken] = await Promise.all(tokenPromises);
+      const [githubToken, notionToken, slackToken, openaiToken, anthropicToken, tracerootToken] = await Promise.all(tokenPromises);
 
       setIntegrations(prevIntegrations =>
         prevIntegrations.map(integration => {
@@ -132,6 +143,10 @@ export default function RightPanel() {
             case 'openai':
               token = openaiToken;
               connected = !!openaiToken;
+              break;
+            case 'anthropic':
+              token = anthropicToken;
+              connected = !!anthropicToken;
               break;
             case 'traceroot':
               token = tracerootToken;
