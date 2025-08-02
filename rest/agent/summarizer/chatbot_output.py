@@ -38,7 +38,7 @@ async def summarize_chatbot_output(
     anthropic_token: str | None = None,
     model: ChatModel = ChatModel.GPT_4_1_MINI,
 ) -> ChatbotResponse:
-    """Summarizes two ChatbotResponse objects into one."""
+    r"""Summarizes two ChatbotResponse objects into one."""
     is_anthropic_model = "claude" in model.value
     user_content = (f"Here are the first issue response: "
                     f"{issue_response.model_dump_json()}\n\n"
