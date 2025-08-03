@@ -16,7 +16,7 @@ Run the following command to start the Docker container. This one maps 3000 to t
 docker run -d -p 3000:3000 -p 8000:8000 traceroot-public:v0.0.1
 ```
 
-You may need several minuts to let the container build the frontend and backend.
+You may need several minutes to let the container build the frontend and backend.
 
 ## Access the TraceRoot UI
 
