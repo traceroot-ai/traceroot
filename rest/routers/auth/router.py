@@ -12,7 +12,10 @@ try:
 except ImportError:
     from rest.utils.auth import verify_cognito_token
 
-from rest.client.ee.mongodb_client import TraceRootMongoDBClient
+try:
+    from rest.client.ee.mongodb_client import TraceRootMongoDBClient
+except ImportError:
+    from rest.client.mongodb_client import TraceRootMongoDBClient
 from rest.config.subscription import UserSubscription
 
 

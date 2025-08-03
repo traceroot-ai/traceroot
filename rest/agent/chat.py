@@ -2,6 +2,7 @@ import asyncio
 import os
 from datetime import datetime, timezone
 
+import httpx
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
@@ -42,7 +43,12 @@ class Chat:
         else:
             self.local_mode = False
         self.openai_client = AsyncOpenAI(api_key=openai_api_key)
-        self.anthropic_client = AsyncAnthropic(api_key=anthropic_api_key)
+        # Explicitly create an httpx client to avoid the internal proxy issue.
+        http_client = httpx.AsyncClient()
+        self.anthropic_client = AsyncAnthropic(
+            api_key=anthropic_api_key,
+            http_client=http_client,
+        )
         self.system_prompt = (
             "You are a helpful TraceRoot.AI assistant that is the best "
             "assistant for debugging with logs, traces, metrics and source "
@@ -114,7 +120,11 @@ class Chat:
             openai_client = AsyncOpenAI(api_key=openai_token)
         anthropic_client = self.anthropic_client
         if anthropic_token is not None:
-            anthropic_client = AsyncAnthropic(api_key=anthropic_token)
+            http_client = httpx.AsyncClient()
+            anthropic_client = AsyncAnthropic(
+                api_key=anthropic_token,
+                http_client=http_client,
+            )
         else:
             client = self.chat_client
 
