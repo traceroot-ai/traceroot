@@ -1,7 +1,10 @@
+from datetime import datetime, timezone
+
+from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
 from rest.config import ChatbotResponse
-from rest.typing import ChatModel
+from rest.typing import ChatModel, MessageType
 
 SYSTEM_PROMPT = (
     "You are a helpful TraceRoot.AI assistant that summarizes the response "
@@ -32,25 +35,69 @@ async def summarize_chatbot_output(
     pr_response: ChatbotResponse,
     client: AsyncOpenAI,
     openai_token: str | None = None,
+    anthropic_token: str | None = None,
     model: ChatModel = ChatModel.GPT_4_1_MINI,
 ) -> ChatbotResponse:
-    if openai_token is not None:
-        client = AsyncOpenAI(api_key=openai_token)
-    messages = [{
-        "role": "system",
-        "content": SYSTEM_PROMPT,
-    }, {
-        "role":
-        "user",
-        "content": (f"Here are the first issue response: "
+    r"""Summarizes two ChatbotResponse objects into one."""
+    is_anthropic_model = "claude" in model.value
+    user_content = (f"Here are the first issue response: "
                     f"{issue_response.model_dump_json()}\n\n"
                     f"Here are the second PR response: "
                     f"{pr_response.model_dump_json()}")
-    }]
-    response = await client.responses.parse(
-        model=model,
-        input=messages,
-        text_format=ChatbotResponse,
-        temperature=0.5,
-    )
-    return response.output[0].content[0].parsed
+
+    if is_anthropic_model:
+        if anthropic_token is not None:
+            client = AsyncAnthropic(api_key=anthropic_token)
+        if not isinstance(client, AsyncAnthropic):
+            raise TypeError(
+                "An AsyncAnthropic client is required for Claude models.")
+
+        messages = [{"role": "user", "content": user_content}]
+        response = await client.messages.create(
+            model=model.value,
+            system=SYSTEM_PROMPT,
+            messages=messages,
+            max_tokens=4096,
+            temperature=0.5,
+            tools=[{
+                "name": "summarize_github_responses",
+                "description":
+                "Generates a single, summarized chatbot response.",
+                "input_schema": ChatbotResponse.model_json_schema(),
+            }],
+            tool_choice={
+                "type": "tool",
+                "name": "summarize_github_responses"
+            },
+        )
+        tool_call = next(
+            (block for block in response.content if block.type == "tool_use"),
+            None)
+        if not tool_call:
+            return ChatbotResponse(
+                message="Failed to get structured summary from the Anthropic.",
+                message_type=MessageType.ASSISTANT,
+                time=datetime.now(timezone.utc))
+        return ChatbotResponse(**tool_call.input)
+
+    else:
+        if openai_token is not None:
+            client = AsyncOpenAI(api_key=openai_token)
+        if not isinstance(client, AsyncOpenAI):
+            raise TypeError(
+                "An AsyncOpenAI client is required for OpenAI models.")
+
+        messages = [{
+            "role": "system",
+            "content": SYSTEM_PROMPT,
+        }, {
+            "role": "user",
+            "content": user_content
+        }]
+        response = await client.responses.parse(
+            model=model.value,
+            input=messages,
+            text_format=ChatbotResponse,
+            temperature=0.5,
+        )
+        return response.output[0].content[0].parsed

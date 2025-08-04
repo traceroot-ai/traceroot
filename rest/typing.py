@@ -56,6 +56,7 @@ class ResourceType(str, Enum):
     NOTION = "notion"
     SLACK = "slack"
     OPENAI = "openai"
+    ANTHROPIC = "anthropic"
     TRACEROOT = "traceroot"
 
 

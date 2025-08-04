@@ -1,5 +1,6 @@
 import json
 
+from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
 from rest.agent.output.chat_output import ChatOutput
@@ -40,28 +41,67 @@ async def chunk_summarize(
     """
     reference = []
     for ref in response_references:
-        if len(ref) > 0:
+        if ref:
             ref_str = "\n".join(
                 [json.dumps(r.model_dump(), indent=4) for r in ref])
             reference.append(ref_str)
         else:
             reference.append("[]")
-    reference = "\n\n".join(reference)
-    answer = "\n\n".join(response_answers)
-    messages = [{
-        "role": "system",
-        "content": SYSTEM_PROMPT,
-    }, {
-        "role":
-        "user",
-        "content":
-        f"Here are the response answers: {answer}\n\n"
-        f"Here are the response references: {reference}"
-    }]
-    response = await client.responses.parse(
-        model=model,
-        input=messages,
-        text_format=ChatOutput,
-        temperature=0.8,
-    )
-    return response.output[0].content[0].parsed
+
+    reference_content = "\n\n".join(reference)
+    answer_content = "\n\n".join(response_answers)
+    user_content = (f"Here are the response answers: {answer_content}\n\n"
+                    f"Here are the response references: {reference_content}")
+
+    is_anthropic_model = "claude" in model.value
+
+    if is_anthropic_model:
+        if not isinstance(client, AsyncAnthropic):
+            raise TypeError(
+                "An AsyncAnthropic client is required for Claude models.")
+
+        messages = [{"role": "user", "content": user_content}]
+        response = await client.messages.create(
+            model=model.value,
+            system=SYSTEM_PROMPT,
+            messages=messages,
+            max_tokens=4096,
+            temperature=0.8,
+            tools=[{
+                "name": "summarize_chunks",
+                "description":
+                "Provides single summarized ChatOutput from multiple chunks.",
+                "input_schema": ChatOutput.model_json_schema(),
+            }],
+            tool_choice={
+                "type": "tool",
+                "name": "summarize_chunks"
+            },
+        )
+        tool_call = next(
+            (block for block in response.content if block.type == "tool_use"),
+            None)
+        if not tool_call:
+            return ChatOutput(
+                answer="Failed to get structured summary from the Anthropic.",
+                reference=[])
+        return ChatOutput(**tool_call.input)
+    else:
+        if not isinstance(client, AsyncOpenAI):
+            raise TypeError(
+                "An AsyncOpenAI client is required for OpenAI models.")
+
+        messages = [{
+            "role": "system",
+            "content": SYSTEM_PROMPT,
+        }, {
+            "role": "user",
+            "content": user_content
+        }]
+        response = await client.responses.parse(
+            model=model.value,
+            input=messages,
+            text_format=ChatOutput,
+            temperature=0.8,
+        )
+        return response.output[0].content[0].parsed

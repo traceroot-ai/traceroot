@@ -1,3 +1,6 @@
+from typing import Union
+
+from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
 TITLE_PROMPT = (
@@ -14,26 +17,56 @@ TITLE_PROMPT = (
 
 async def summarize_title(
     user_message: str,
-    client: AsyncOpenAI,
+    client: Union[AsyncOpenAI, AsyncAnthropic],
     openai_token: str | None = None,
+    anthropic_token: str | None = None,
     model: str = "gpt-4o-mini",
     first_chat: bool = False,
 ) -> str | None:
     if not first_chat:
         return None
-    if openai_token is not None:
-        client = AsyncOpenAI(api_key=openai_token)
-    response = await client.chat.completions.create(
-        model=model,
-        messages=[
-            {
-                "role": "system",
-                "content": TITLE_PROMPT
-            },
-            {
+
+    is_anthropic_model = "claude" in model
+
+    if is_anthropic_model:
+        if anthropic_token is not None:
+            client = AsyncAnthropic(api_key=anthropic_token)
+        if not isinstance(client, AsyncAnthropic):
+            raise TypeError(
+                "An AsyncAnthropic client is required for Claude models.")
+
+        response = await client.messages.create(
+            model=model,
+            system=TITLE_PROMPT,
+            messages=[{
                 "role": "user",
                 "content": user_message
-            },
-        ],
-    )
-    return response.choices[0].message.content
+            }],
+            max_tokens=50,  # A small limit is efficient for a title
+            temperature=0.7,
+        )
+        return response.content[0].text
+
+    else:  # OpenAI model
+        if openai_token is not None:
+            client = AsyncOpenAI(api_key=openai_token)
+        if not isinstance(client, AsyncOpenAI):
+            raise TypeError(
+                "An AsyncOpenAI client is required for OpenAI models.")
+
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": TITLE_PROMPT
+                },
+                {
+                    "role": "user",
+                    "content": user_message
+                },
+            ],
+            max_tokens=50,  # A small limit is efficient for a title
+            temperature=0.7,
+        )
+        return response.choices[0].message.content

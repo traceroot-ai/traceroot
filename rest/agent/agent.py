@@ -28,6 +28,7 @@ class Agent:
         tree: SpanNode,
         chat_history: list[dict] | None = None,
         openai_token: str | None = None,
+        anthropic_token: str | None = None,
         github_token: str | None = None,
         github_file_tasks: set[tuple[str, str, str, str]] | None = None,
         is_github_issue: bool = False,

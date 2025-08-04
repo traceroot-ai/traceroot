@@ -1,8 +1,11 @@
 import json
+from typing import Union
 
+from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
+from rest.agent.utils.anthropic_tools import get_anthropic_tool_schema
 from rest.agent.utils.openai_tools import get_openai_tool_schema
 
 GITHUB_PROMPT = (
@@ -68,39 +71,84 @@ class SeparateIssueAndPrInput(BaseModel):
 
 async def is_github_related(
     user_message: str,
-    client: AsyncOpenAI,
+    client: Union[AsyncOpenAI, AsyncAnthropic],
     openai_token: str | None = None,
+    anthropic_token: str | None = None,
     model: str = "gpt-4.1-mini",
 ) -> GithubRelatedOutput:
-    if openai_token is not None:
-        client = AsyncOpenAI(api_key=openai_token)
-    kwargs = {
-        "model":
-        model,
-        "messages": [
-            {
-                "role": "system",
-                "content": GITHUB_PROMPT
-            },
-            {
-                "role": "user",
-                "content": user_message
-            },
-        ],
-        "tools": [get_openai_tool_schema(GithubRelatedOutput)],
-    }
-    # Only set the temperature if it's not an OpenAI thinking model
-    if 'gpt' in model:
-        kwargs["temperature"] = 0.3
-    response = await client.chat.completions.create(**kwargs)
-    if response.choices[0].message.tool_calls is None:
-        return GithubRelatedOutput(
-            is_github_issue=False,
-            is_github_pr=False,
-            source_code_related=False,
-        )
-    arguments = response.choices[0].message.tool_calls[0].function.arguments
-    return GithubRelatedOutput(**json.loads(arguments))
+    is_anthropic_model = "claude" in model
+
+    if is_anthropic_model:
+        if anthropic_token:
+            client = AsyncAnthropic(api_key=anthropic_token)
+        if not isinstance(client, AsyncAnthropic):
+            raise TypeError(
+                "An AsyncAnthropic client is required for Claude models.")
+
+        tool_schema = get_anthropic_tool_schema(GithubRelatedOutput)
+
+        response = await client.messages.create(model=model,
+                                                system=GITHUB_PROMPT,
+                                                messages=[{
+                                                    "role":
+                                                    "user",
+                                                    "content":
+                                                    user_message
+                                                }],
+                                                max_tokens=1024,
+                                                temperature=0.3,
+                                                tools=[tool_schema],
+                                                tool_choice={
+                                                    "type": "tool",
+                                                    "name": tool_schema["name"]
+                                                })
+        tool_call = next(
+            (block for block in response.content if block.type == "tool_use"),
+            None)
+        if not tool_call:
+            return GithubRelatedOutput(is_github_issue=False,
+                                       is_github_pr=False,
+                                       source_code_related=False)
+        return GithubRelatedOutput(**tool_call.input)
+
+    else:
+        if openai_token:
+            client = AsyncOpenAI(api_key=openai_token)
+        if not isinstance(client, AsyncOpenAI):
+            raise TypeError(
+                "An AsyncOpenAI client is required for OpenAI models.")
+
+        kwargs = {
+            "model":
+            model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": GITHUB_PROMPT
+                },
+                {
+                    "role": "user",
+                    "content": user_message
+                },
+            ],
+            "tools": [get_openai_tool_schema(GithubRelatedOutput)],
+            "tool_choice": {
+                "type": "function",
+                "function": {
+                    "name": "GithubRelatedOutput"
+                }
+            }
+        }
+        if 'gpt' in model:
+            kwargs["temperature"] = 0.3
+        response = await client.chat.completions.create(**kwargs)
+        tool_calls = response.choices[0].message.tool_calls
+        if not tool_calls:
+            return GithubRelatedOutput(is_github_issue=False,
+                                       is_github_pr=False,
+                                       source_code_related=False)
+        arguments = tool_calls[0].function.arguments
+        return GithubRelatedOutput(**json.loads(arguments))
 
 
 def set_github_related(
@@ -114,33 +162,79 @@ def set_github_related(
 
 async def separate_issue_and_pr(
     user_message: str,
-    client: AsyncOpenAI,
+    client: Union[AsyncOpenAI, AsyncAnthropic],
     openai_token: str | None = None,
+    anthropic_token: str | None = None,
     model: str = "gpt-4.1-mini",
 ) -> tuple[str, str]:
-    if openai_token is not None:
-        client = AsyncOpenAI(api_key=openai_token)
-    kwargs = {
-        "model":
-        model,
-        "messages": [
-            {
-                "role": "system",
-                "content": SEPARATE_ISSUE_AND_PR_PROMPT
-            },
-            {
+    is_anthropic_model = "claude" in model
+    result: SeparateIssueAndPrInput
+
+    if is_anthropic_model:
+        if anthropic_token:
+            client = AsyncAnthropic(api_key=anthropic_token)
+        if not isinstance(client, AsyncAnthropic):
+            raise TypeError(
+                "An AsyncAnthropic client is required for Claude models.")
+
+        tool_schema = get_anthropic_tool_schema(SeparateIssueAndPrInput)
+
+        response = await client.messages.create(
+            model=model,
+            system=SEPARATE_ISSUE_AND_PR_PROMPT,
+            messages=[{
                 "role": "user",
                 "content": user_message
-            },
-        ],
-        "tools": [get_openai_tool_schema(SeparateIssueAndPrInput)],
-    }
-    response = await client.chat.completions.create(**kwargs)
-    # TODO: Improve the default values here
-    if response.choices[0].message.tool_calls is None:
-        return SeparateIssueAndPrInput(
-            issue_message="Please create an GitHub issue.",
-            pr_message="Please create a GitHub PR.",
-        )
-    arguments = response.choices[0].message.tool_calls[0].function.arguments
-    return SeparateIssueAndPrInput(**json.loads(arguments))
+            }],
+            max_tokens=2048,
+            tools=[tool_schema],
+            tool_choice={
+                "type": "tool",
+                "name": tool_schema["name"]
+            })
+        tool_call = next(
+            (block for block in response.content if block.type == "tool_use"),
+            None)
+        if not tool_call:
+            result = SeparateIssueAndPrInput(
+                issue_message="Please create a GitHub issue.",
+                pr_message="Please create a GitHub PR.")
+        else:
+            result = SeparateIssueAndPrInput(**tool_call.input)
+
+    else:
+        if openai_token:
+            client = AsyncOpenAI(api_key=openai_token)
+        if not isinstance(client, AsyncOpenAI):
+            raise TypeError(
+                "An AsyncOpenAI client is required for OpenAI models.")
+
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": SEPARATE_ISSUE_AND_PR_PROMPT
+                },
+                {
+                    "role": "user",
+                    "content": user_message
+                },
+            ],
+            tools=[get_openai_tool_schema(SeparateIssueAndPrInput)],
+            tool_choice={
+                "type": "function",
+                "function": {
+                    "name": "SeparateIssueAndPrInput"
+                }
+            })
+        tool_calls = response.choices[0].message.tool_calls
+        if not tool_calls:
+            result = SeparateIssueAndPrInput(
+                issue_message="Please create a GitHub issue.",
+                pr_message="Please create a GitHub PR.")
+        else:
+            arguments = tool_calls[0].function.arguments
+            result = SeparateIssueAndPrInput(**json.loads(arguments))
+
+    return (result.issue_message, result.pr_message)
