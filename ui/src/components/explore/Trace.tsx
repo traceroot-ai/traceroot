@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
-import { Trace as TraceType } from '@/models/trace';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { Trace as TraceType, Span as SpanType } from '@/models/trace';
 import Span from './span/Span';
 import TimeButton, { TimeRange, TIME_RANGES } from './TimeButton';
 import RefreshButton from './RefreshButton';
@@ -64,7 +64,7 @@ export const Trace: React.FC<TraceProps> = ({
     setLoading(true);
   };
 
-  const filterTraces = (traces: TraceType[], criteria: SearchCriterion[]) => {
+  const filterTraces = useCallback((traces: TraceType[], criteria: SearchCriterion[]) => {
     if (criteria.length === 0) {
       return traces;
     }
@@ -93,7 +93,7 @@ export const Trace: React.FC<TraceProps> = ({
             break;
           case 'span_name':
             // Check if any span name matches
-            const checkSpanName = (spans: any[]): boolean => {
+            const checkSpanName = (spans: SpanType[]): boolean => {
               return spans.some(span => {
                 if (span.name && performOperation(span.name, criterion.operation, criterion.value)) {
                   return true;
@@ -134,7 +134,7 @@ export const Trace: React.FC<TraceProps> = ({
 
       return result;
     });
-  };
+  }, []);
 
   const performOperation = (value: string | number, operation: string, searchValue: string): boolean => {
     if (value === undefined || value === null) return false;
@@ -212,7 +212,7 @@ export const Trace: React.FC<TraceProps> = ({
     };
 
     fetchTraces();
-  }, [selectedTimeRange, loading, traceQueryStartTime, traceQueryEndTime]);
+  }, [selectedTimeRange, loading, traceQueryStartTime, traceQueryEndTime, getAuthState, onTraceData]);
 
   useEffect(() => {
     setLoading(true);
@@ -226,7 +226,7 @@ export const Trace: React.FC<TraceProps> = ({
     } else {
       setFilteredTraces([]);
     }
-  }, [traces, searchCriteria]);
+  }, [traces, searchCriteria, filterTraces]);
 
   const getPercentileTag = (percentile: string) => {
     // Ensure the percentile is a valid key
@@ -352,17 +352,23 @@ export const Trace: React.FC<TraceProps> = ({
                         <>
                           {/* Python Icon - show when telemetry_sdk_language includes "python" */}
                           {trace.telemetry_sdk_language.includes("python") && (
-                            <FaPython className="text-gray-600 dark:text-gray-300 mr-2" size={14} />
+                            <div className="w-5 h-5 flex items-center justify-center mr-2">
+                              <FaPython className="text-gray-600 dark:text-gray-300" size={14} />
+                            </div>
                           )}
 
                           {/* TypeScript Icon - show when telemetry_sdk_language includes "ts" */}
                           {trace.telemetry_sdk_language.includes("ts") && (
-                            <SiTypescript className="text-gray-600 dark:text-gray-300 mr-2" size={14} />
+                            <div className="w-5 h-5 flex items-center justify-center mr-2">
+                              <SiTypescript className="text-gray-600 dark:text-gray-300" size={14} />
+                            </div>
                           )}
 
                           {/* JavaScript Icon - show when telemetry_sdk_language includes "js" */}
                           {trace.telemetry_sdk_language.includes("js") && (
-                            <IoLogoJavascript className="text-gray-600 dark:text-gray-300 mr-2" size={14} />
+                            <div className="w-5 h-5 flex items-center justify-center mr-2">
+                              <IoLogoJavascript className="text-gray-600 dark:text-gray-300" size={14} />
+                            </div>
                           )}
                         </>
                       )}
@@ -414,7 +420,7 @@ export const Trace: React.FC<TraceProps> = ({
                     </div>
 
                     {/* Start and end time */}
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0 ml-4 whitespace-nowrap">
                       {formatDateTime(trace.start_time)} - {formatDateTime(trace.end_time)}
                     </span>
                   </div>
