@@ -18,83 +18,14 @@
 
 </div>
 
-<div align="center">
+🔍 TraceRoot helps engineers debug production issues 10x faster using AI-powered analysis of traces, logs, and code context.
 
-**TraceRoot is an open-source debugging platform that helps engineers fix production issues 10x faster by combining structured traces, logs, and source code context with AI-powered analysis.**
+- Check out [traceroot.ai](https://traceroot.ai) to start debugging your production issues with AI.
+- Visit the [traceroot docs](https://docs.traceroot.ai) to get started with our SDK.
+- Join our [Discord](https://discord.gg/tPyffEZvvJ) for debugging discussions.
 
-</div>
 
-<div align="center">
-<h4 align="center">
 
-[Contributing](CONTRIBUTING.md) |
-[TraceRoot.AI](https://traceroot.ai/) |
-[Community](https://discord.gg/tPyffEZvvJ) |
-[SDK](https://github.com/traceroot-ai/traceroot-sdk) |
-[Documentation](https://docs.traceroot.ai)
-
-</h4>
-
-Join us ([*Discord*](https://discord.gg/tPyffEZvvJ)) in pushing the boundaries of debugging with AI agents.
-
-Please 🌟 Star TraceRoot on GitHub and be instantly notified of new releases.
-
-</div>
-
-## TraceRoot Framework Design Principles
-
-<h3>🤖 Intelligence</h3 >
-
-The framework enables multi-agent systems to continuously evolve by interacting with environments.
-
-<h3>⏰ Real-Time</h3 >
-
-The framework enables real-time tracing and logging to your applications.
-
-<h3>🧠 Structured Information</h3 >
-
-The framework enables utilizing structured loggings and tracing data to improve the performance of AI agents.
-
-<h3>💻 Integration</h3 >
-
-The framework enables integrating with other sources and tools, such as GitHub, Notion, etc. This provides a seamless experience for you to use the framework in your applications.
-
-<h3>😊 Developer Friendly</h3 >
-
-We also provide a Cursor like interface but specialized for debugging and tracing. You can select the logs and traces you are interested in and ask the framework to help you with the analysis.
-
-## Why Use TraceRoot for Your Applications?
-
-We are a community-driven collective comprising over multiple engineers and researchers dedicated to advancing frontier engineering and research in using Multi-Agent Systems to help not only human but also AI agents on debugging, tracing, and root cause analysis.
-
-<table style="width: 100%;">
-
-<tr>
-    <td align="left">✅</td>
-    <td align="left" style="font-weight: bold;">Multi-Agent System</td>
-    <td align="left">Multi-Agent system that can be used to solve complex tasks.</td>
-  </tr>
-  <tr>
-    <td align="left">✅</td>
-    <td align="left" style="font-weight: bold;">Real-Time Tracing and Logging</td>
-    <td align="left">Enable real-time tracing and logging to your applications.</td>
-  </tr>
-  <tr>
-    <td align="left">✅</td>
-    <td align="left" style="font-weight: bold;">Structured Logging</td>
-    <td align="left">Enable structured logging to your applications, which allows better performance of AI agents.</td>
-  </tr>
-  <tr>
-    <td align="left">✅</td>
-    <td align="left" style="font-weight: bold;">Integration with Multiple Resources</td>
-    <td align="left">Integrate with other sources and tools, such as GitHub, Notion, etc.</td>
-  </tr>
-  <tr>
-    <td align="left">✅</td>
-    <td align="left" style="font-weight: bold;">Developer Friendly</td>
-    <td align="left">We provide a Cursor like interface but specialized for debugging and tracing.</td>
-  </tr>
-</table>
 
 ## AI Agent Framework
 
