@@ -3,6 +3,7 @@
 import React from 'react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { IoWarningOutline, IoTimeOutline, IoPlayOutline, IoStopOutline, IoStatsChartOutline } from "react-icons/io5";
+import { Badge } from "@/components/ui/badge";
 
 interface LogOverviewProps {
   // Single trace props
@@ -43,46 +44,46 @@ export default function LogOverview({
         <div className="space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* Start Time */}
-            <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl p-4 group hover:shadow-md transition-all duration-200">
+            <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4 group">
               <div className="flex items-center space-x-3 mb-2">
-                <div className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg">
-                  <IoPlayOutline className="text-gray-800 dark:text-gray-300" size={18} />
+                <div className="p-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg">
+                  <IoPlayOutline className="text-zinc-800 dark:text-zinc-300" size={18} />
                 </div>
-                <div className="text-md font-mono font-semibold text-gray-700 dark:text-gray-300">
+                <div className="text-sm font-mono font-semibold text-zinc-700 dark:text-zinc-300">
                   Start Time
                 </div>
               </div>
-              <div className="text-sm font-mono font-medium text-gray-700 dark:text-gray-100 leading-relaxed">
+              <div className="text-sm font-mono font-medium text-zinc-700 dark:text-zinc-100 leading-relaxed">
                 {startFormatted}
               </div>
             </div>
 
             {/* Duration */}
-            <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl p-4 group hover:shadow-md transition-all duration-200">
+            <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4 group">
               <div className="flex items-center space-x-3 mb-2">
-                <div className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg">
-                  <IoTimeOutline className="text-gray-800 dark:text-gray-300" size={18} />
+                <div className="p-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg">
+                  <IoTimeOutline className="text-zinc-800 dark:text-zinc-300" size={18} />
                 </div>
-                <div className="text-md font-mono font-semibold text-gray-700 dark:text-gray-300">
+                <div className="text-sm font-mono font-semibold text-zinc-700 dark:text-zinc-300">
                   Duration
                 </div>
               </div>
-              <div className="text-sm font-mono font-medium text-gray-700 dark:text-gray-100 leading-relaxed">
+              <div className="text-sm font-mono font-medium text-zinc-700 dark:text-zinc-100 leading-relaxed">
                 {duration}
               </div>
             </div>
 
             {/* End Time */}
-            <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl p-4 group hover:shadow-md transition-all duration-200">
+            <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4 group">
               <div className="flex items-center space-x-3 mb-2">
-                <div className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg">
-                  <IoStopOutline className="text-gray-800 dark:text-gray-300" size={18} />
+                <div className="p-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg">
+                  <IoStopOutline className="text-zinc-800 dark:text-zinc-300" size={18} />
                 </div>
-                <div className="text-md font-mono font-semibold text-gray-700 dark:text-gray-300">
+                <div className="text-sm font-mono font-semibold text-zinc-700 dark:text-zinc-300">
                   End Time
                 </div>
               </div>
-              <div className="text-sm font-mono font-medium text-gray-700 dark:text-gray-100 leading-relaxed">
+              <div className="text-sm font-mono font-medium text-zinc-700 dark:text-zinc-100 leading-relaxed">
                 {endFormatted}
               </div>
             </div>
@@ -90,10 +91,10 @@ export default function LogOverview({
 
           {/* Last Updated */}
           <div className="text-center">
-            <div className="inline-flex items-center space-x-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-full text-xs text-gray-700 dark:text-gray-300">
+            <Badge variant="secondary" className="space-x-2">
               <IoTimeOutline size={12} />
               <span>Last updated {timeAgo}</span>
-            </div>
+            </Badge>
           </div>
         </div>
       );
@@ -113,61 +114,61 @@ export default function LogOverview({
         <div className="space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* Earliest Start */}
-            <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl p-4 group hover:shadow-md transition-all duration-200">
+            <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4 group">
               <div className="flex items-center space-x-3 mb-2">
-                <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
-                  <IoPlayOutline className="text-gray-700 dark:text-gray-300" size={18} />
+                <div className="p-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg">
+                  <IoPlayOutline className="text-zinc-800 dark:text-zinc-300" size={18} />
                 </div>
-                <div className="text-md font-mono font-semibold text-gray-700 dark:text-gray-300">
+                <div className="text-sm font-mono font-semibold text-zinc-700 dark:text-zinc-300">
                   Earliest Start
                 </div>
               </div>
-              <div className="text-base font-mono font-medium text-gray-900 dark:text-gray-100 leading-relaxed">
+              <div className="text-sm font-mono font-medium text-zinc-700 dark:text-zinc-100 leading-relaxed">
                 {startFormatted}
               </div>
             </div>
 
             {/* Total Duration */}
-            <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl p-4 group hover:shadow-md transition-all duration-200">
+            <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4 group">
               <div className="flex items-center space-x-3 mb-2">
-                <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
-                  <IoTimeOutline className="text-gray-700 dark:text-gray-300" size={18} />
+                <div className="p-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg">
+                  <IoTimeOutline className="text-zinc-800 dark:text-zinc-300" size={18} />
                 </div>
-                <div className="text-md font-mono font-semibold text-gray-700 dark:text-gray-300">
+                <div className="text-sm font-mono font-semibold text-zinc-700 dark:text-zinc-300">
                   Total Duration
                 </div>
               </div>
-              <div className="text-base font-mono font-medium text-gray-900 dark:text-gray-100 leading-relaxed">
+              <div className="text-sm font-mono font-medium text-zinc-700 dark:text-zinc-100 leading-relaxed">
                 {duration}
               </div>
             </div>
 
             {/* Latest End */}
-            <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-xl p-4 group hover:shadow-md transition-all duration-200">
+            <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4 group">
               <div className="flex items-center space-x-3 mb-2">
-                <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
-                  <IoStopOutline className="text-gray-700 dark:text-gray-300" size={18} />
+                <div className="p-2 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg">
+                  <IoStopOutline className="text-zinc-800 dark:text-zinc-300" size={18} />
                 </div>
-                <div className="text-md font-mono font-semibold text-gray-700 dark:text-gray-300">
+                <div className="text-sm font-mono font-semibold text-zinc-700 dark:text-zinc-300">
                   Latest End
                 </div>
               </div>
-              <div className="text-base font-mono font-medium text-gray-900 dark:text-gray-100 leading-relaxed">
+              <div className="text-sm font-mono font-medium text-zinc-700 dark:text-zinc-100 leading-relaxed">
                 {endFormatted}
               </div>
             </div>
           </div>
 
           {/* Stats and Last Updated */}
-                     <div className="flex flex-col sm:flex-row items-center justify-center space-y-2 sm:space-y-0 sm:space-x-4">
-             <div className="inline-flex items-center space-x-2 px-3 py-1.5 bg-gray-200 dark:bg-gray-700 rounded-full text-xs text-gray-700 dark:text-gray-300">
-               <IoStatsChartOutline size={12} />
-               <span>{traceIDs.length} traces</span>
-             </div>
-            <div className="inline-flex items-center space-x-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-full text-xs text-gray-700 dark:text-gray-300">
+          <div className="flex flex-col sm:flex-row items-center justify-center space-y-2 sm:space-y-0 sm:space-x-4">
+            <Badge variant="outline" className="space-x-2">
+              <IoStatsChartOutline size={12} />
+              <span>{traceIDs.length} traces</span>
+            </Badge>
+            <Badge variant="secondary" className="space-x-2">
               <IoTimeOutline size={12} />
               <span>Last updated {timeAgo}</span>
-            </div>
+            </Badge>
           </div>
         </div>
       );
@@ -175,43 +176,21 @@ export default function LogOverview({
 
     return (
       <div className="text-center py-8">
-        <div className="inline-flex items-center justify-center space-x-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-full text-sm text-gray-700 dark:text-gray-300">
+        <Badge variant="secondary" className="space-x-2 text-sm">
           <IoTimeOutline size={16} />
           <span>No time range data available</span>
-        </div>
+        </Badge>
       </div>
     );
   };
 
   return (
-    <div className="space-y-6 w-full p-4">
+    <div className="space-y-4 p-4 bg-zinc-50 dark:bg-zinc-900 mx-4 mb-4 mt-1 rounded-lg">
       {/* Query Time Range Card */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden">
-        {/* Header */}
-          <div className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-700/50 border-b border-gray-200 dark:border-gray-700 px-6 py-2">
-           <div className="flex items-center justify-center space-x-3">
-             <div className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg">
-               <IoTimeOutline className="text-gray-800 dark:text-gray-300" size={22} />
-             </div>
-             <h2 className="text-lg font-mono font-semibold tracking-wide text-gray-800 dark:text-gray-100">
-               Query Time Range
-             </h2>
-           </div>
-         </div>
-
+      <div className="bg-white dark:bg-zinc-900 rounded-lg border border-zinc-200 dark:border-zinc-700">
         {/* Content */}
         <div className="p-6">
           {formatTimeRange()}
-        </div>
-      </div>
-
-      {/* Instructions Card */}
-      <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded-xl p-4">
-        <div className="flex items-center justify-center space-x-3 text-amber-700 dark:text-amber-300">
-          <IoWarningOutline size={20} />
-          <p className="text-sm font-medium">
-            Select a log from the list to view its details
-          </p>
         </div>
       </div>
     </div>

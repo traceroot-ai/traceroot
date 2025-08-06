@@ -3,8 +3,14 @@
 import { useState, useEffect } from 'react';
 
 interface User {
+  user_id?: string;
   email?: string;
-  name?: string;
+  given_name?: string;
+  family_name?: string;
+  token_use?: string;
+  scope?: string[];
+  company?: string;
+  title?: string;
 }
 
 export function useUser() {

@@ -1,9 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { FaArrowUp } from "react-icons/fa";
+import { Send } from "lucide-react";
 import { CiChat2 } from "react-icons/ci";
 import { GiBrain } from "react-icons/gi";
 import { RiRobot2Line } from "react-icons/ri";
 import { CHAT_MODEL_DISPLAY_NAMES, CHAT_MODELS, type ChatModel } from '../../../constants/model';
+import { Badge } from '../../ui/badge';
+import { Button } from '../../ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '../../ui/dropdown-menu';
 
 type Mode = 'agent' | 'chat';
 
@@ -32,13 +41,9 @@ export default function MessageInput({
   traceId,
   spanIds = []
 }: MessageInputProps) {
-  const [showModelDropdown, setShowModelDropdown] = useState(false);
-  const [showModeDropdown, setShowModeDropdown] = useState(false);
   const [textareaHeight, setTextareaHeight] = useState('auto');
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const modelDropdownRef = useRef<HTMLDivElement>(null);
-  const modeDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!isLoading && inputRef.current) {
@@ -67,42 +72,14 @@ export default function MessageInput({
     adjustTextareaHeight();
   }, [inputMessage]);
 
-  // Handle clicking outside the dropdowns
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(event.target as Node)) {
-        setShowModelDropdown(false);
-      }
-      if (modeDropdownRef.current && !modeDropdownRef.current.contains(event.target as Node)) {
-        setShowModeDropdown(false);
-      }
-    };
 
-    if (showModelDropdown || showModeDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
 
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showModelDropdown, showModeDropdown]);
-
-  const handleModelSelect = (model: ChatModel) => {
-    setSelectedModel(model);
-    setShowModelDropdown(false);
+  const handleModelSelect = (model: string) => {
+    setSelectedModel(model as ChatModel);
   };
 
-  const toggleModelDropdown = () => {
-    setShowModelDropdown(!showModelDropdown);
-  };
-
-  const handleModeSelect = (mode: Mode) => {
-    setSelectedMode(mode);
-    setShowModeDropdown(false);
-  };
-
-  const toggleModeDropdown = () => {
-    setShowModeDropdown(!showModeDropdown);
+  const handleModeSelect = (mode: string) => {
+    setSelectedMode(mode as Mode);
   };
 
   const getModeIcon = (mode: Mode) => {
@@ -118,14 +95,14 @@ export default function MessageInput({
       <form onSubmit={onSendMessage} className="p-3">
         <div className="mb-1 text-xs text-gray-500 dark:text-gray-400 pb-1 px-1 flex gap-2 items-center">
           {traceId && (
-            <span className="rounded-md bg-gray-100 dark:bg-gray-700 px-3 py-1 font-mono text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600">
+            <Badge variant="secondary" className="font-mono">
               Trace: {traceId}
-            </span>
+            </Badge>
           )}
           {spanIds && spanIds.length > 0 && (
-            <span className="rounded-md bg-gray-100 dark:bg-gray-700 px-3 py-1 font-mono text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600">
+            <Badge variant="secondary" className="font-mono">
               Spans selected: {spanIds.length}
-            </span>
+            </Badge>
           )}
           {!traceId && (!spanIds || spanIds.length === 0) && (
             <span>No trace or spans selected</span>
@@ -150,111 +127,80 @@ export default function MessageInput({
                 }
               }}
               placeholder={isLoading ? "Agent is thinking..." : "Type your message..."}
-              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 resize-none leading-relaxed overflow-y-auto text-sm"
+              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 resize-none leading-relaxed overflow-y-auto text-sm"
               style={{ height: textareaHeight }}
               disabled={isLoading}
               rows={1}
             />
             {isLoading && (
               <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin"></div>
+                <div className="w-4 h-4 border-1 border-neutral-500 border-t-transparent rounded-full animate-spin"></div>
               </div>
             )}
           </div>
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-3">
               {/* Mode selector */}
-              <div className="relative" ref={modeDropdownRef}>
-                <button
-                  type="button"
-                  onClick={toggleModeDropdown}
-                  className="flex items-center gap-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors p-2 rounded-md bg-gray-200"
-                >
-                  {React.createElement(getModeIcon(selectedMode), { className: "w-4 h-4" })}
-                  <span className="text-xs">
-                    {getModeDisplayName(selectedMode)}
-                  </span>
-                </button>
-
-                {/* Mode selection dropdown */}
-                {showModeDropdown && (
-                  <div className="absolute bottom-full left-0 mb-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md shadow-md py-1 min-w-[100px] z-10">
-                    <button
-                      type="button"
-                      onClick={() => handleModeSelect('agent')}
-                      className={`text-xs w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-1 ${
-                        selectedMode === 'agent'
-                          ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
-                          : 'text-gray-700 dark:text-gray-300'
-                      }`}
-                    >
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="gap-2 bg-zinc-50 dark:bg-zinc-900">
+                    {React.createElement(getModeIcon(selectedMode), { className: "w-4 h-4" })}
+                    <span className="text-xs">
+                      {getModeDisplayName(selectedMode)}
+                    </span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="top" align="start">
+                  <DropdownMenuRadioGroup value={selectedMode} onValueChange={handleModeSelect}>
+                    <DropdownMenuRadioItem value="agent">
                       <RiRobot2Line className="w-4 h-4" />
                       Agent
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleModeSelect('chat')}
-                      className={`text-xs w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-1 ${
-                        selectedMode === 'chat'
-                          ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
-                          : 'text-gray-700 dark:text-gray-300'
-                      }`}
-                    >
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="chat">
                       <CiChat2 className="w-4 h-4" />
                       Chat
-                    </button>
-                  </div>
-                )}
-              </div>
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               {/* Brain icon and model display */}
-              <div className="relative" ref={modelDropdownRef}>
-                <button
-                  type="button"
-                  onClick={toggleModelDropdown}
-                  className="flex items-center gap-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors p-2 rounded-md bg-gray-200"
-                >
-                  <GiBrain className="w-4 h-4" />
-                  <span className="text-xs">
-                    {CHAT_MODEL_DISPLAY_NAMES[selectedModel]}
-                  </span>
-                </button>
-
-                {/* Model selection dropdown */}
-                {showModelDropdown && (
-                  <div className="absolute bottom-full left-0 mb-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg py-1 min-w-[140px] z-10 ">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="gap-2 bg-zinc-50 dark:bg-zinc-900">
+                    <GiBrain className="w-4 h-4" />
+                    <span className="text-xs">
+                      {CHAT_MODEL_DISPLAY_NAMES[selectedModel]}
+                    </span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="top" align="start">
+                  <DropdownMenuRadioGroup value={selectedModel} onValueChange={handleModelSelect}>
                     {Object.entries(CHAT_MODELS).map(([key, value]) => (
-                      <button
+                      <DropdownMenuRadioItem
                         key={value}
-                        type="button"
-                        onClick={() => handleModelSelect(value)}
-                        className={`text-xs w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
-                          selectedModel === value
-                            ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
-                            : 'text-gray-700 dark:text-gray-300'
-                        }`}
+                        value={value}
                       >
                         {CHAT_MODEL_DISPLAY_NAMES[value]}
-                      </button>
+                      </DropdownMenuRadioItem>
                     ))}
-                  </div>
-                )}
-              </div>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
-            <button
+            <Button
               type="submit"
-              className="bg-green-500 hover:bg-green-600 text-white w-8 h-8 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-green-500 flex items-center justify-center"
+              size="icon"
+              className="w-8 h-8 bg-neutral-700 dark:bg-neutral-300 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-800"
               disabled={!inputMessage.trim() || isLoading}
             >
               {isLoading ? (
                 <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-xl animate-spin"></div>
               ) : (
-                <>
-                  <FaArrowUp className="w-4 h-4" />
-                </>
+                <Send className="w-4 h-4" />
               )}
-            </button>
+            </Button>
           </div>
         </div>
       </form>
