@@ -5,6 +5,15 @@ import { FaCode } from 'react-icons/fa';
 import { LogEntry } from '@/models/log';
 import { CodeResponse } from '@/models/code';
 import { useUser } from '@/hooks/useUser';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface ShowCodeToggleProps {
   logEntries: { entry: LogEntry; spanId: string }[];
@@ -176,44 +185,33 @@ export default function ShowCodeToggle({ logEntries, onLogEntriesUpdate, showCod
 
   return (
     <>
-      <div className="inline-flex rounded-md bg-gray-10 dark:bg-gray-300 ring-1 ring-gray-200 dark:ring-gray-600 border-gray-200 dark:border-gray-600">
-        <button
-          onClick={handleToggle}
+      <div className="flex items-center space-x-3 mr-3">
+        <Switch
+          id="show-code-toggle"
+          checked={showCode}
+          onCheckedChange={handleToggle}
           disabled={isLoading}
-          className={`flex items-center space-x-2 px-4 py-2 text-sm rounded-md my-0.5 ${
-            showCode
-              ? 'bg-green-50 dark:bg-green-900/10 text-green-700 dark:text-green-300'
-              : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
-          } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
           title={showCode ? 'Hide code context' : 'Show code context'}
+        />
+        <Label
+          htmlFor="show-code-toggle"
+          className="flex items-center space-x-2 text-sm cursor-pointer"
         >
           <FaCode className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-          <span>{isLoading ? 'Loading...' : showCode ? 'Hide Code' : 'Show Code'}</span>
-        </button>
+        </Label>
       </div>
 
-      {/* Error Popup */}
-      {errorMessage && (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 w-3/4 max-h-[30px]">
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg shadow-xl overflow-hidden">
-            <div className="flex items-center h-[30px] px-3">
-              <div className="flex-1 overflow-hidden">
-                <div className="text-sm text-red-700 dark:text-red-300 truncate">
-                  {errorMessage}
-                </div>
-              </div>
-              <button
-                onClick={closeErrorPopup}
-                className="ml-2 text-red-400 hover:text-red-600 dark:hover:text-red-300 flex-shrink-0"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Error Dialog */}
+      <Dialog open={!!errorMessage} onOpenChange={(open) => !open && closeErrorPopup()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-red-600 dark:text-red-400">Code Loading Error</DialogTitle>
+            <DialogDescription className="text-red-700 dark:text-red-300 whitespace-pre-line">
+              {errorMessage}
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

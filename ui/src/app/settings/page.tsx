@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { FaUser, FaCreditCard, FaHistory } from 'react-icons/fa';
+import { FaUser, FaCreditCard, FaHistory, FaBuilding, FaBriefcase } from 'react-icons/fa';
 import { HiMail } from 'react-icons/hi';
 import { useUser } from '../../hooks/useUser';
 import { useUserSubscription } from '../../hooks/useUserSubscription';
@@ -162,11 +162,29 @@ export default function SettingsPage() {
             </div>
 
             {/* User Info */}
-            <div className="flex flex-col">
+            <div className="flex flex-col space-y-2">
+              {user?.given_name && user?.family_name && (
+                <div className="flex items-center gap-2">
+                  <FaUser className="text-gray-400" size={20} />
+                  <span className="text-black font-medium">{user.given_name} {user.family_name}</span>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <HiMail className="text-gray-400" size={20} />
                 <span className="text-black font-medium">{displayEmail}</span>
               </div>
+              {user?.company && (
+                <div className="flex items-center gap-2">
+                  <FaBuilding className="text-gray-400" size={20} />
+                  <span className="text-black font-medium">{user.company}</span>
+                </div>
+              )}
+              {user?.title && (
+                <div className="flex items-center gap-2">
+                  <FaBriefcase className="text-gray-400" size={20} />
+                  <span className="text-black font-medium">{user.title}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>

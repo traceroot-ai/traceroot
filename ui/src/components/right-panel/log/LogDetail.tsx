@@ -3,12 +3,15 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { TraceLog, LogEntry } from '@/models/log';
 import { Span } from '@/models/trace';
-import { FaGithub, FaPlus, FaMinus } from "react-icons/fa";
+import { FaGithub } from "react-icons/fa";
+import { Plus, Minus } from "lucide-react";
 import { fadeInAnimationStyles } from '@/constants/animations';
 import ShowCodeToggle from './ShowCodeToggle';
 import CodeContext from './CodeContext';
 import { ViewType } from '../ModeToggle';
 import { useUser } from '@/hooks/useUser';
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 interface LogDetailProps {
   traceId: string;
@@ -170,62 +173,57 @@ export default function LogDetail({
   }, [allLogs, spanIds, traceId]);
 
   const formatTimestamp = (timestamp: number) => {
-    return new Date(timestamp * 1000).toLocaleString();
+    const date = new Date(timestamp * 1000);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    const y = date.getFullYear();
+    const m = months[date.getMonth()];
+    const d = date.getDate();
+    const h = String(date.getHours()).padStart(2, '0');
+    const min = String(date.getMinutes()).padStart(2, '0');
+    const s = String(date.getSeconds()).padStart(2, '0');
+
+    // Add ordinal suffix to day
+    const getOrdinalSuffix = (day: number) => {
+      if (day >= 11 && day <= 13) return 'th';
+      switch (day % 10) {
+        case 1: return 'st';
+        case 2: return 'nd';
+        case 3: return 'rd';
+        default: return 'th';
+      }
+    };
+
+    return `${y} ${m} ${d}${getOrdinalSuffix(d)} ${h}:${min}:${s}`;
   };
 
   const getLogLevelColor = (level: string) => {
     switch (level) {
       case 'CRITICAL':
-        return 'text-red-700 dark:text-red-300 font-medium';
+        return 'font-medium text-[#7f1d1d]';
       case 'ERROR':
-        return 'text-red-500 dark:text-red-400 font-medium';
+        return 'font-medium text-[#dc2626]';
       case 'WARNING':
-        return 'text-yellow-600 dark:text-yellow-400 font-medium';
+        return 'font-medium text-[#fb923c]';
       case 'INFO':
-        return 'text-blue-600 dark:text-blue-400 font-medium';
+        return 'font-medium text-[#64748b]';
       case 'DEBUG':
-        return 'text-purple-600 dark:text-purple-400 font-medium';
+        return 'font-medium text-[#a855f7]';
       default:
-        return 'text-gray-600 dark:text-gray-400 font-medium';
+        return 'font-medium text-[#64748b]';
     }
   };
 
-  const getLogLevelBgColorForStats = (level: string) => {
-    switch (level) {
-      case 'CRITICAL':
-        return 'bg-red-500 dark:bg-red-300';
-      case 'ERROR':
-        return 'bg-red-400 dark:bg-red-200';
-      case 'WARNING':
-        return 'bg-yellow-400 dark:bg-yellow-200';
-      case 'INFO':
-        return 'bg-blue-400 dark:bg-blue-200';
-      case 'DEBUG':
-        return 'bg-purple-400 dark:bg-purple-200';
-      default:
-        return 'bg-gray-600 dark:bg-gray-400';
-    }
-  };
+  const getLogStyle = (level: number) => {
+    const leftMargin = level * 3 + 1.5;
+    const rightMargin = 1.5;
+    const width = 100 - leftMargin - rightMargin;
 
-  const getLogLevelBgColor = (level: string) => {
-    switch (level) {
-      case 'CRITICAL':
-        return 'bg-red-200 dark:bg-red-800/40';
-      case 'ERROR':
-        return 'bg-red-100 dark:bg-red-900/30';
-      case 'WARNING':
-        return 'bg-yellow-100 dark:bg-yellow-900/30';
-      case 'INFO':
-        return 'bg-sky-200 dark:bg-sky-900/30';
-      case 'DEBUG':
-        return 'bg-purple-50 dark:bg-purple-900/30';
-      default:
-        return 'bg-gray-50 dark:bg-gray-900';
-    }
-  };
-
-  const getLogWidth = (level: number) => {
-    return `${Math.max(100 - (level * 3), 60)}%`;
+    return {
+      width: `${width}%`,
+      marginLeft: `${leftMargin}%`,
+      marginRight: `${rightMargin}%`
+    };
   };
 
   // Build spanId -> depth mapping by traversing the span tree
@@ -365,47 +363,77 @@ export default function LogDetail({
 
   return (
     <div className="h-screen flex flex-col text-xs">
-      <div className="bg-white dark:bg-gray-800 pt-0 px-4 pb-4 overflow-y-auto overflow-x-visible">
+      <div className="bg-white dark:bg-gray-900 pt-0 px-4 pb-6 overflow-y-auto overflow-x-visible">
         {loading && (
-          <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-            <p className="text-gray-600 dark:text-gray-300">Loading logs...</p>
+          <div className="bg-zinc-50 dark:bg-zinc-900 p-4 rounded-md border border-gray-200 dark:border-gray-700">
+            <p className="font-mono text-neutral-700 dark:text-neutral-300">Loading logs...</p>
           </div>
         )}
         {error && (
-          <div className="p-4 rounded-lg border border-red-200 dark:border-red-700">
-            <p className="text-red-600 dark:text-red-400">{error}</p>
+          <div className="bg-zinc-50 dark:bg-zinc-900 p-4 rounded-md border border-red-200 dark:border-red-700">
+            <p className="text-red-700 dark:text-red-300">{error}</p>
           </div>
         )}
         {/* Render logs in the order of SpanLogs, using span depth for indentation */}
         {!loading && !error && orderedLogEntries.length > 0 && (
-          <div className="text-sm bg-white rounded-lg border border-gray-200 dark:border-gray-700 dark:bg-gray-800 p-3 overflow-y-auto overflow-x-visible transition-all duration-300 ease-in-out">
+          <div className="text-sm bg-zinc-50 dark:bg-zinc-900 rounded-md pt-2 overflow-y-auto overflow-x-visible transition-all duration-100 ease-in-out">
             {/* Log Level Statistics and Show Code Toggle Button */}
-            <div className="flex justify-between items-center mb-4 gap-4">
-              <div className="flex-1 inline-flex rounded-md bg-gray-10 dark:bg-gray-300 ring-1 ring-gray-200 dark:ring-gray-600 border-gray-200 dark:border-gray-600">
-                <div className="font-mono flex flex-wrap items-center gap-4 px-4 py-1 text-xs rounded my-0.5 text-gray-700 dark:text-gray-200">
+            <div className="flex justify-between items-center mb-2">
+              <div>
+                <div className="font-mono flex flex-wrap items-center gap-2 px-3 py-1 text-xs my-0.5 text-gray-700 dark:text-gray-200">
                   {logStats.DEBUG > 0 && (
                     <div className="flex items-center">
-                      <span className={`${getLogLevelBgColor('DEBUG')} ${getLogLevelColor('DEBUG')} px-2 py-1.5 rounded-md`}>DEBUG: {logStats.DEBUG}</span>
+                      <Badge
+                        variant="secondary"
+                        className="h-6 px-2 py-1.5 font-normal text-white"
+                        style={{ backgroundColor: '#a855f7'}}
+                      >
+                        DEBUG: {logStats.DEBUG}
+                      </Badge>
                     </div>
                   )}
                   {logStats.INFO > 0 && (
                     <div className="flex items-center">
-                      <span className={`${getLogLevelBgColor('INFO')} ${getLogLevelColor('INFO')} px-2 py-1.5 rounded-md`}>INFO: {logStats.INFO}</span>
+                      <Badge
+                        variant="secondary"
+                        className="h-6 px-2 py-1.5 font-normal text-white"
+                        style={{ backgroundColor: '#64748b' }}
+                      >
+                        INFO: {logStats.INFO}
+                      </Badge>
                     </div>
                   )}
                   {logStats.WARNING > 0 && (
                     <div className="flex items-center">
-                      <span className={`${getLogLevelBgColor('WARNING')} ${getLogLevelColor('WARNING')} px-2 py-1.5 rounded-md`}>WARNING: {logStats.WARNING}</span>
+                      <Badge
+                        variant="secondary"
+                        className="h-6 px-2 py-1.5 font-normal text-white"
+                        style={{ backgroundColor: '#fb923c' }}
+                      >
+                        WARNING: {logStats.WARNING}
+                      </Badge>
                     </div>
                   )}
                   {logStats.ERROR > 0 && (
                     <div className="flex items-center">
-                      <span className={`${getLogLevelBgColor('ERROR')} ${getLogLevelColor('ERROR')} px-2 py-1.5 rounded-md`}>ERROR: {logStats.ERROR}</span>
+                      <Badge
+                        variant="secondary"
+                        className="h-6 px-2 py-1.5 font-normal text-white"
+                        style={{ backgroundColor: '#dc2626' }}
+                      >
+                        ERROR: {logStats.ERROR}
+                      </Badge>
                     </div>
                   )}
                   {logStats.CRITICAL > 0 && (
                     <div className="flex items-center">
-                      <span className={`${getLogLevelBgColor('CRITICAL')} ${getLogLevelColor('CRITICAL')} px-2 py-1.5 rounded-md`}>CRITICAL: {logStats.CRITICAL}</span>
+                      <Badge
+                        variant="secondary"
+                        className="h-6 px-2 py-1.5 font-normal text-white"
+                        style={{ backgroundColor: '#7f1d1d' }}
+                      >
+                        CRITICAL: {logStats.CRITICAL}
+                      </Badge>
                     </div>
                   )}
                 </div>
@@ -419,7 +447,7 @@ export default function LogDetail({
                 />
               </div>
             </div>
-            <div className={`space-y-2 overflow-y-auto overflow-x-visible ${showCode ? "pb-20" : "pb-25"}`}>
+            <div className={`space-y-1 overflow-y-auto ${showCode ? "pb-20" : "pb-25"}`}>
               {orderedLogEntries.map(({ entry, spanId }, idx) => {
               const githubLink = getGitHubLink(entry);
               const entryKey = `${spanId}-${idx}`;
@@ -430,10 +458,10 @@ export default function LogDetail({
               return (
                 <div
                   key={entryKey}
-                  className={`relative p-2 rounded ${getLogLevelBgColor(entry.level)} ml-auto transform transition-all duration-300 ease-in-out hover:shadow animate-fadeIn`}
+                  className={`relative p-1.5 rounded bg-white dark:bg-zinc-900 border border-gray-200 dark:border-gray-700 transform transition-all duration-100 ease-in-out hover:shadow animate-fadeIn`}
                   style={{
-                    width: getLogWidth(spanDepthMap[spanId] ?? 0),
-                    animationDelay: `${idx * 10}ms`
+                    ...getLogStyle(spanDepthMap[spanId] ?? 0),
+                    animationDelay: `${idx * 3}ms`
                   }}
                 >
                   <div className="flex items-start">
@@ -446,21 +474,21 @@ export default function LogDetail({
                         <span className="text-gray-400 dark:text-gray-500 font-mono">
                           {entry.file_name}:{entry.line_number}
                         </span>
+                        <span className="text-neutral-600 dark:text-neutral-300 italic">
+                          {entry.function_name}
+                        </span>
                         {githubLink && (
                           <a
                             href={githubLink}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
+                            className="text-neutral-500 dark:text-neutral-300 hover:text-neutral-600 dark:hover:text-neutral-400 transition-colors"
                             title="View on GitHub"
                           >
                             <FaGithub className="inline-block" />
                           </a>
                         )}
-                        <span className="text-gray-500 dark:text-gray-400 italic">
-                          {entry.function_name}
-                        </span>
-                        <span className="whitespace-pre text-gray-700 font-mono dark:text-gray-300 break-words text-xs">
+                        <span className="p-1.5 bg-zinc-50 dark:bg-zinc-900 rounded whitespace-pre text-neutral-800 dark:text-neutral-300 break-words text-xs">
                           {displayMessage}
                         </span>
                       </div>
@@ -469,18 +497,20 @@ export default function LogDetail({
                     </div>
                     {/* Expand/Collapse Icon - Only show if message is expandable */}
                     {messageExpandable && (
-                      <div className="ml-2 flex-shrink-0">
-                        <button
+                      <div className="ml-2 flex-shrink-0 bg-zinc-100 dark:bg-zinc-800 rounded-md">
+                        <Button
                           onClick={() => toggleExpandEntry(entryKey)}
-                          className="p-2 rounded bg-white/70 dark:bg-gray-800/70 border border-gray-200/50 dark:border-gray-600/50 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-white dark:hover:bg-gray-700/30 hover:border-gray-300/70 dark:hover:border-gray-500/70 transition-all duration-100 transform hover:scale-105 shadow-lg hover:shadow"
+                          variant="ghost"
+                          size="icon"
                           title={isExpanded ? "Collapse" : "Expand"}
+                          className="h-8 w-8"
                         >
                           {isExpanded ? (
-                            <FaMinus className="w-3 h-3 transition-transform duration-200 ease-in-out" />
+                            <Minus className="w-3 h-3 transition-transform duration-200 ease-in-out" />
                           ) : (
-                            <FaPlus className="w-3 h-3 transition-transform duration-200 ease-in-out" />
+                            <Plus className="w-3 h-3 transition-transform duration-200 ease-in-out" />
                           )}
-                        </button>
+                        </Button>
                       </div>
                     )}
                   </div>
@@ -492,7 +522,7 @@ export default function LogDetail({
         )}
         {!loading && !error && traceId && orderedLogEntries.length === 0 && (
           <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-            <p className="text-gray-600 dark:text-gray-300">No logs found for this trace</p>
+            <p className="text-gray-600 dark:text-gray-300">No logs found for this trace or span</p>
           </div>
         )}
       </div>

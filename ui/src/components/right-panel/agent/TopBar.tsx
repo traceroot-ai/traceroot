@@ -1,8 +1,16 @@
 import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
-import { GoHistory, GoPlus } from "react-icons/go";
-import { ChatMetadata } from '@/models/chat';
+import { GoHistory } from "react-icons/go";
+import { Plus } from "lucide-react";
+import { ChatMetadata, ChatMetadataHistory } from '@/models/chat';
 import { useUser } from '@/hooks/useUser';
-import History from './History';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface TopBarProps {
   chatId: string | null;
@@ -15,14 +23,51 @@ export interface TopBarRef {
   refreshMetadata: () => Promise<void>;
 }
 
+interface HistoryItem {
+  chat_id: string;
+  chat_title: string;
+  timestamp: number;
+}
+
 const TopBar = forwardRef<TopBarRef, TopBarProps>(({ chatId, traceId, onNewChat, onHistoryItemClick }, ref) => {
   const { getAuthState } = useUser();
-  const [showHistoryDropdown, setShowHistoryDropdown] = useState(false);
   const [chatMetadata, setChatMetadata] = useState<ChatMetadata | null>(null);
   const [displayedTitle, setDisplayedTitle] = useState<string>('');
   const [isAnimating, setIsAnimating] = useState(false);
-  const historyButtonRef = useRef<HTMLDivElement>(null);
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const animationControllerRef = useRef<{ cancelled: boolean } | null>(null);
+
+  const fetchChatHistory = async () => {
+    if (!traceId) return;
+
+    setIsLoadingHistory(true);
+    try {
+      const response = await fetch(`/api/get_chat_metadata_history?trace_id=${encodeURIComponent(traceId)}`, {
+        headers: {
+          'Authorization': `Bearer ${getAuthState()}`,
+        },
+      });
+      if (response.ok) {
+        const data: ChatMetadataHistory = await response.json();
+        const formattedItems: HistoryItem[] = data.history.map(item => ({
+          chat_id: item.chat_id,
+          chat_title: item.chat_title,
+          timestamp: item.timestamp,
+        })).sort((a, b) => b.timestamp - a.timestamp);
+        setHistoryItems(formattedItems);
+      } else {
+        console.error('Failed to fetch chat history:', response.statusText);
+        setHistoryItems([]);
+      }
+    } catch (error) {
+      console.error('Error fetching chat history:', error);
+      setHistoryItems([]);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
 
   // Function to fetch chat metadata
   const fetchChatMetadata = async () => {
@@ -59,6 +104,13 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(({ chatId, traceId, onNewChat,
   useEffect(() => {
     fetchChatMetadata();
   }, [chatId]);
+
+  // Fetch chat history when dropdown opens
+  useEffect(() => {
+    if (dropdownOpen) {
+      fetchChatHistory();
+    }
+  }, [dropdownOpen, traceId]);
 
   // Animate title transitions
   useEffect(() => {
@@ -113,41 +165,16 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(({ chatId, traceId, onNewChat,
     animateTitle();
   }, [chatMetadata?.chat_title]);
 
-  // Handle clicking outside the history dropdown
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (historyButtonRef.current && !historyButtonRef.current.contains(event.target as Node)) {
-        setShowHistoryDropdown(false);
-      }
-    };
-
-    if (showHistoryDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showHistoryDropdown]);
-
-  const handleHistoryClick = () => {
-    setShowHistoryDropdown(!showHistoryDropdown);
-  };
-
-  const handleCloseHistory = () => {
-    setShowHistoryDropdown(false);
-  };
-
-  const handleHistoryItemClickInternal = async (chatId: string) => {
-    setShowHistoryDropdown(false);
-    await onHistoryItemClick(chatId);
+  const handleHistoryItemClick = async (selectedChatId: string) => {
+    setDropdownOpen(false);
+    await onHistoryItemClick(selectedChatId);
   };
 
   return (
-    <div className="flex items-center justify-between bg-gray-100 dark:bg-gray-700 gap-2 mx-4 py-1 rounded-md">
+    <div className="flex items-center justify-between bg-zinc-50 dark:bg-zinc-900 gap-2 mx-4 mt-1 rounded-md p-1">
       <div className="flex items-center pl-3">
         {!chatId && (
-          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+          <span className="text-xs font-medium font-mono text-neutral-800 dark:text-neutral-300">
             New Chat
           </span>
         )}
@@ -162,30 +189,62 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(({ chatId, traceId, onNewChat,
           </div>
         )}
       </div>
-      <div className="flex items-center gap-2">
-        <button
-          className="mr-1 p-3 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+      <div className="flex items-center">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="mr-1"
           onClick={onNewChat}
           title="Start new chat"
         >
-          <GoPlus className="w-5 h-5" />
-        </button>
-        <div className="relative" ref={historyButtonRef}>
-          <button
-            className="mr-1 p-3 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
-            onClick={handleHistoryClick}
-            title="View chat history"
-          >
-            <GoHistory className="w-5 h-5" />
-          </button>
+          <Plus className="w-5 h-5" />
+        </Button>
 
-          <History
-            traceId={traceId}
-            isVisible={showHistoryDropdown}
-            onHistoryItemClick={handleHistoryItemClickInternal}
-            onClose={handleCloseHistory}
-          />
-        </div>
+        <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="mr-1"
+              title="View chat history"
+            >
+              <GoHistory className="w-5 h-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="min-w-[300px] max-w-[400px] max-h-[300px] overflow-y-auto"
+          >
+            {isLoadingHistory ? (
+              <div className="px-2 py-3 text-xs text-gray-500 dark:text-gray-400">
+                Loading chat history...
+              </div>
+            ) : historyItems.length === 0 ? (
+              <div className="px-2 py-3 text-xs text-gray-500 dark:text-gray-400">
+                No chat history available
+              </div>
+            ) : (
+              historyItems.map((item) => (
+                <DropdownMenuItem
+                  key={item.chat_id}
+                  onClick={() => handleHistoryItemClick(item.chat_id)}
+                  className="text-xs cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-900/20 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-200"
+                >
+                  <div className="flex items-center gap-2 w-full">
+                    <div className="w-4 h-4 flex items-center justify-center">
+                      {chatId === item.chat_id && (
+                        <div className="w-1.5 h-1.5 rounded-full bg-black dark:bg-white"></div>
+                      )}
+                    </div>
+                    <div className="font-normal truncate font-medium text-neutral-800 dark:text-neutral-300 flex-1">
+                      {item.chat_title}
+                    </div>
+                  </div>
+                </DropdownMenuItem>
+              ))
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );

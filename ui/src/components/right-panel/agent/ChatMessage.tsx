@@ -20,21 +20,47 @@ interface ChatMessageProps {
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
 }
 
+// Helper function to format timestamp like in LogDetail
+const formatTimestamp = (timestamp: Date | string) => {
+  const date = typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  const y = date.getFullYear();
+  const m = months[date.getMonth()];
+  const d = date.getDate();
+  const h = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  const s = String(date.getSeconds()).padStart(2, '0');
+
+  // Add ordinal suffix to day
+  const getOrdinalSuffix = (day: number) => {
+    if (day >= 11 && day <= 13) return 'th';
+    switch (day % 10) {
+      case 1: return 'st';
+      case 2: return 'nd';
+      case 3: return 'rd';
+      default: return 'th';
+    }
+  };
+
+  return `${y} ${m} ${d}${getOrdinalSuffix(d)} ${h}:${min}:${s}`;
+};
+
 // Helper function to get log level colors
 const getLogLevelColor = (level: string) => {
   switch (level) {
     case 'CRITICAL':
-      return 'text-red-700 dark:text-red-300 font-medium';
+      return 'font-medium text-[#7f1d1d]';
     case 'ERROR':
-      return 'text-red-500 dark:text-red-400 font-medium';
+      return 'font-medium text-[#dc2626]';
     case 'WARNING':
-      return 'text-yellow-600 dark:text-yellow-400 font-medium';
+      return 'font-medium text-[#fb923c]';
     case 'INFO':
-      return 'text-blue-600 dark:text-blue-400 font-medium';
+      return 'font-medium text-[#64748b]';
     case 'DEBUG':
-      return 'text-purple-600 dark:text-purple-400 font-medium';
+      return 'font-medium text-[#a855f7]';
     default:
-      return 'text-gray-600 dark:text-gray-400 font-medium';
+      return 'font-medium text-[#64748b]';
   }
 };
 
@@ -304,15 +330,15 @@ export default function ChatMessage({ messages, isLoading, userAvatarUrl, messag
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 flex flex-col-reverse">
+    <div className="flex-1 overflow-y-auto p-4 flex flex-col-reverse bg-zinc-50 dark:bg-zinc-900 mt-4 ml-4 mr-4 mb-2 rounded-lg">
       <div ref={messagesEndRef} />
       {/* Loading indicator */}
       {isLoading && (
         <div className="flex justify-start mb-4 items-start gap-2">
-          <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center flex-shrink-0 animate-pulse">
-            <RiRobot2Line className="w-5 h-5 text-green-600 dark:text-green-400" />
+          <div className="w-8 h-8 rounded-full bg-zinc-700 dark:bg-zinc-200 flex items-center justify-center flex-shrink-0 animate-pulse">
+            <RiRobot2Line className="w-5 h-5 text-white dark:text-zinc-700" />
           </div>
-          <div className="bg-gray-200 dark:bg-gray-700 rounded-lg px-4 py-2 min-w-[80px] flex justify-center items-center">
+          <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg px-4 py-2 min-w-[80px] flex justify-center items-center">
             <div className="typing-indicator">
               <span></span>
               <span></span>
@@ -357,7 +383,7 @@ export default function ChatMessage({ messages, isLoading, userAvatarUrl, messag
                 }
               }
               .dark .typing-indicator span {
-                background: #9CA3AF;
+                background: #64748b;
               }
             `}</style>
           </div>
@@ -372,15 +398,11 @@ export default function ChatMessage({ messages, isLoading, userAvatarUrl, messag
         >
           {/* Avatar for assistant and github */}
           {(message.role === 'assistant' || message.role === 'github') && (
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-              message.role === 'github'
-                ? 'bg-gray-100 dark:bg-gray-700'
-                : 'bg-green-100 dark:bg-green-900'
-            }`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-zinc-600 dark:bg-zinc-200 border border-zinc-600 dark:border-zinc-200`}>
               {message.role === 'github' ? (
-                <FaGithub className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                <FaGithub className="w-5 h-5 text-white dark:text-zinc-600" />
               ) : (
-                <RiRobot2Line className="w-5 h-5 text-green-600 dark:text-green-400" />
+                <RiRobot2Line className="w-5 h-5 text-white dark:text-zinc-600" />
               )}
             </div>
           )}
@@ -389,15 +411,15 @@ export default function ChatMessage({ messages, isLoading, userAvatarUrl, messag
           <div
             className={`max-w-[70%] max-w-[600px] rounded-lg px-4 py-2 break-words ${
               message.role === 'user'
-                ? 'bg-green-500 text-white'
+                ? 'bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700'
                 : message.role === 'github'
-                ? 'bg-gray-100 dark:bg-gray-600 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-500'
-                : 'bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
+                ? 'bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700'
+                : 'bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700'
             }`}
           >
             <div className="whitespace-pre-wrap break-words text-sm">{renderMarkdown(message.content, message.id, message.references, hoveredRef, handleReferenceHover)}</div>
             <p className="text-xs mt-1 opacity-70">
-              {typeof message.timestamp === 'string' ? message.timestamp : message.timestamp.toLocaleString()}
+              {formatTimestamp(message.timestamp)}
             </p>
           </div>
 
@@ -411,8 +433,8 @@ export default function ChatMessage({ messages, isLoading, userAvatarUrl, messag
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <div className="w-full h-full bg-green-50 dark:bg-green-900/10 flex items-center justify-center">
-                  <span className="text-green-600 dark:text-green-400 font-semibold text-sm">
+                <div className="w-full h-full bg-sidebar-accent/50 flex items-center justify-center bg-zinc-200 dark:bg-zinc-800">
+                  <span className="text-sidebar-accent-foreground font-semibold text-sm">
                     {avatarLetter || 'U'}
                   </span>
                 </div>

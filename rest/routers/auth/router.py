@@ -29,7 +29,7 @@ db_client = TraceRootMongoDBClient()
 
 
 @router.get("/auth-callback")
-async def auth_callback(request: Request, state: str):
+async def auth_callback(request: Request, state: str) -> JSONResponse:
     try:
         # Decode the base64 state parameter
         decoded_bytes = base64.b64decode(state)
@@ -43,15 +43,19 @@ async def auth_callback(request: Request, state: str):
 
         # Verify both tokens
         access_claims = verify_cognito_token(access_token, "access")
-        verify_cognito_token(id_token, "id")
+
+        id_claims = verify_cognito_token(id_token, "id")
 
         # Create session data
         session_data = {
             "user_id": user_info.get("sub"),
             "email": user_info.get("email"),
-            "name": user_info.get("name"),
+            "given_name": id_claims.get("given_name"),
+            "family_name": id_claims.get("family_name"),
             "token_use": access_claims.get("token_use"),
             "scope": access_claims.get("scope", "").split(),
+            "company": id_claims.get("custom:company"),
+            "title": id_claims.get("custom:title"),
         }
 
         # Set up session/cookie
@@ -64,7 +68,7 @@ async def auth_callback(request: Request, state: str):
             httponly=True,
             secure=True,
             samesite="lax",
-            max_age=3600  # 1 hour
+            max_age=3600 * 12  # 12 hours
         )
 
         # Create trial subscription for new users

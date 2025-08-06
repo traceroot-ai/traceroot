@@ -3,7 +3,7 @@ import RightPanel from '@/components/integrate/RightPanel';
 
 export default function IntegratePage() {
   return (
-    <div className="h-screen">
+    <div className="h-full">
       <RightPanel />
     </div>
   );
