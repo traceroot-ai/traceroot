@@ -28,9 +28,9 @@
 
 <div align="center">
   <img src="misc/images/product_git_v1.gif" alt="TraceRoot Demo" width="100%">
-</div>
 
-See TraceRoot fix production bugs in action! 🚀
+  <p><em>See TraceRoot fix production bugs in action! 🚀</em></p>
+</div>
 
 ## Features
 
