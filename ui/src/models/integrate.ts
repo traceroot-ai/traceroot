@@ -3,6 +3,7 @@ export enum ResourceType {
   NOTION = "notion",
   SLACK = "slack",
   OPENAI = "openai",
+  GROQ = "groq",
   TRACEROOT = "traceroot"
 }
 

@@ -32,13 +32,13 @@
 
 ## Features
 
-| Feature | Description |
-|---------|-------------|
-| 🚀 [Ease of Use](#getting-started-with-traceroot) | Get started with TraceRoot in minutes with our simple setup process |
-| 🤖 LLM Flexibility | Bring your own model (OpenAI, Anthropic, local LLMs) for AI-powered debugging |
-| 🌐 Distributed Services | Cross-platform support with distributed setup for enterprise-scale debugging |
-| 💻 AI Debugging Interface | Cursor-like interface specialized for debugging with AI assistance |
-| 🔌 Integration Support | Native integration with GitHub, Notion, and other development tools |
+| Feature                                           | Description                                                                   |
+| ------------------------------------------------- | ----------------------------------------------------------------------------- |
+| 🚀 [Ease of Use](#getting-started-with-traceroot) | Get started with TraceRoot in minutes with our simple setup process           |
+| 🤖 LLM Flexibility                                | Bring your own model (OpenAI, Anthropic, local LLMs) for AI-powered debugging |
+| 🌐 Distributed Services                           | Cross-platform support with distributed setup for enterprise-scale debugging  |
+| 💻 AI Debugging Interface                         | Cursor-like interface specialized for debugging with AI assistance            |
+| 🔌 Integration Support                            | Native integration with GitHub, Notion, and other development tools           |
 
 ## Getting started with TraceRoot
 
@@ -111,6 +111,7 @@ pip install traceroot==0.0.4a7
 ```
 
 Create `.traceroot-config.yaml` in your project root:
+
 ```yaml
 local_mode: true  # set to false for cloud version
 service_name: "your-service-name"
@@ -134,6 +135,7 @@ Here is an overview for our AI Agent Framework:
 </div>
 
 ### Chunking
+
 TODO
 
 ### Explainability

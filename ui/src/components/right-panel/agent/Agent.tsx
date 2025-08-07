@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { RiRobot2Line } from "react-icons/ri";
-import { DEFAULT_MODEL, type ChatModel } from '../../../constants/model';
+import { DEFAULT_MODEL, type ChatModel, DEFAULT_PROVIDER, type Provider } from '../../../constants/model';
 import { ChatRequest, ChatResponse, MessageType, ChatHistoryResponse, Reference } from '@/models/chat';
 import { useUser } from '@/hooks/useUser';
 import { generateUuidHex } from '@/utils/uuid';
@@ -33,6 +33,7 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState<ChatModel>(DEFAULT_MODEL);
   const [selectedMode, setSelectedMode] = useState<Mode>('agent');
+  const [selectedProvider, setSelectedProvider] = useState<Provider>(DEFAULT_PROVIDER);
   const [chatId, setChatId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const topBarRef = useRef<TopBarRef>(null);
@@ -223,6 +224,7 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
         model: selectedModel,
         mode: selectedMode,
         chat_id: currentChatId,
+        provider: selectedProvider,
       };
 
       const response = await fetch('/api/chat', {
@@ -312,6 +314,8 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
         setSelectedModel={setSelectedModel}
         selectedMode={selectedMode}
         setSelectedMode={handleModeChange}
+        selectedProvider={selectedProvider}
+        setSelectedProvider={setSelectedProvider}
         traceId={traceId}
         spanIds={spanIds}
       />

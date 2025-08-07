@@ -17,7 +17,7 @@ export async function POST(request: Request): Promise<NextResponse<ChatResponse>
     const userSecret = authHeader.substring(7); // Remove 'Bearer ' prefix
 
     const body: ChatRequest = await request.json();
-    const { time, message, message_type: messageType, trace_id, span_ids, start_time, end_time, model, mode, chat_id } = body;
+    const { time, message, message_type: messageType, trace_id, span_ids, start_time, end_time, model, mode, chat_id, provider } = body;
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
 
     if (restApiEndpoint) {
@@ -36,7 +36,9 @@ export async function POST(request: Request): Promise<NextResponse<ChatResponse>
           end_time,
           model,
           mode,
-          chat_id
+          chat_id,
+          service_name: null,
+          provider,
         };
 
         const apiResponse = await fetch(apiUrl, {
