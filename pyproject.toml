@@ -89,7 +89,7 @@ all = [
     "python-jose[cryptography]==3.5.0",
     "python-multipart==0.0.20",
     "requests==2.32.4",
-    "openai==1.97.1",
+    "openai==1.99.2",
     "pymongo==4.13.2",
     "boto3==1.39.11",
     "numpy==2.3.1",
