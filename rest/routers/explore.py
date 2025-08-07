@@ -38,7 +38,7 @@ from rest.config import (ChatbotResponse, ChatHistoryResponse, ChatMetadata,
                          ListTraceRequest, ListTraceResponse, Trace, TraceLogs)
 from rest.config.rate_limit import get_rate_limit_config
 from rest.typing import (ActionStatus, ActionType, ChatMode, ChatModel,
-                         MessageType, Reference, ResourceType)
+                         MessageType, Provider, Reference, ResourceType)
 from rest.utils.trace import collect_spans_latency_recursively
 
 try:
@@ -411,6 +411,9 @@ class ExploreRouter:
         request: Request,
         req_data: ChatRequest,
     ) -> dict[str, Any]:
+        print("req_data:")
+        from pprint import pprint
+        pprint(req_data)
         # Get basic information ###############################################
         user_email, _, user_sub = get_user_credentials(request)
         log_group_name = hash_user_sub(user_sub)
@@ -423,8 +426,14 @@ class ExploreRouter:
         chat_id = req_data.chat_id
         service_name = req_data.service_name
         mode = req_data.mode
+        # TODO: For other model testing
+        req_data.model
+        provider = req_data.provider
 
         if model == ChatModel.AUTO:
+            model = ChatModel.GPT_4O
+        # Still use the GPT-4o model for main model for now
+        elif provider == Provider.CUSTOM or provider == Provider.GROQ:
             model = ChatModel.GPT_4O
 
         if req_data.time.tzinfo:
@@ -437,6 +446,13 @@ class ExploreRouter:
             user_email=user_email,
             token_type=ResourceType.OPENAI.value,
         )
+        groq_token: str | None = None
+        if provider == Provider.GROQ:
+            groq_token = await self.db_client.get_integration_token(
+                user_email=user_email,
+                token_type=ResourceType.GROQ.value,
+            )
+
         if openai_token is None and self.chat.local_mode:
             response = ChatbotResponse(
                 time=orig_time,
@@ -480,10 +496,10 @@ class ExploreRouter:
                 })
 
         # Get whether the user message is related to GitHub ###################
+        set_github_related(github_related)
         is_github_issue: bool = False
         is_github_pr: bool = False
         source_code_related: bool = False
-        set_github_related(github_related)
         source_code_related = github_related.source_code_related
         # For now only allow issue and PR creation for agent and non-local mode
         if mode == ChatMode.AGENT and not self.local_mode:
@@ -685,8 +701,6 @@ class ExploreRouter:
                     )
                 issue_message = separate_issue_and_pr_output.issue_message
                 pr_message = separate_issue_and_pr_output.pr_message
-            print("issue_message", issue_message)
-            print("pr_message", pr_message)
             if is_github_issue:
                 issue_response = await self.agent.chat(
                     trace_id=trace_id,
@@ -702,6 +716,8 @@ class ExploreRouter:
                     github_file_tasks=github_task_keys,
                     is_github_issue=True,
                     is_github_pr=False,
+                    provider=provider,
+                    groq_token=groq_token,
                 )
             if is_github_pr:
                 pr_response = await self.agent.chat(
@@ -718,6 +734,8 @@ class ExploreRouter:
                     github_file_tasks=github_task_keys,
                     is_github_issue=False,
                     is_github_pr=True,
+                    provider=provider,
+                    groq_token=groq_token,
                 )
             # TODO: sequential tool calls
             if issue_response and pr_response:

@@ -3,7 +3,18 @@ import { Send } from "lucide-react";
 import { CiChat2 } from "react-icons/ci";
 import { GiBrain } from "react-icons/gi";
 import { RiRobot2Line } from "react-icons/ri";
-import { CHAT_MODEL_DISPLAY_NAMES, CHAT_MODELS, type ChatModel } from '../../../constants/model';
+import { MdCloudQueue } from "react-icons/md";
+import {
+  CHAT_MODEL_DISPLAY_NAMES,
+  CHAT_MODELS,
+  type ChatModel,
+  PROVIDERS,
+  PROVIDER_DISPLAY_NAMES,
+  type Provider,
+  DEFAULT_PROVIDER,
+  getModelsByProvider,
+  getDefaultModelForProvider
+} from '../../../constants/model';
 import { Badge } from '../../ui/badge';
 import { Button } from '../../ui/button';
 import {
@@ -25,6 +36,8 @@ interface MessageInputProps {
   setSelectedModel: (model: ChatModel) => void;
   selectedMode: Mode;
   setSelectedMode: (mode: Mode) => void;
+  selectedProvider?: Provider;
+  setSelectedProvider?: (provider: Provider) => void;
   traceId?: string;
   spanIds?: string[];
 }
@@ -38,6 +51,8 @@ export default function MessageInput({
   setSelectedModel,
   selectedMode,
   setSelectedMode,
+  selectedProvider = DEFAULT_PROVIDER,
+  setSelectedProvider,
   traceId,
   spanIds = []
 }: MessageInputProps) {
@@ -77,6 +92,19 @@ export default function MessageInput({
   const handleModelSelect = (model: string) => {
     setSelectedModel(model as ChatModel);
   };
+
+  const handleProviderSelect = (provider: string) => {
+    const newProvider = provider as Provider;
+    if (setSelectedProvider) {
+      setSelectedProvider(newProvider);
+      // When provider changes, switch to the default model for that provider
+      const defaultModel = getDefaultModelForProvider(newProvider);
+      setSelectedModel(defaultModel);
+    }
+  };
+
+  // Get available models for current provider
+  const availableModels = getModelsByProvider(selectedProvider);
 
   const handleModeSelect = (mode: string) => {
     setSelectedMode(mode as Mode);
@@ -164,6 +192,32 @@ export default function MessageInput({
                 </DropdownMenuContent>
               </DropdownMenu>
 
+              {/* Provider selector */}
+              {setSelectedProvider && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" className="gap-2 bg-zinc-50 dark:bg-zinc-900">
+                      <MdCloudQueue className="w-4 h-4" />
+                      <span className="text-xs">
+                        {PROVIDER_DISPLAY_NAMES[selectedProvider]}
+                      </span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent side="top" align="start">
+                    <DropdownMenuRadioGroup value={selectedProvider} onValueChange={handleProviderSelect}>
+                      {Object.entries(PROVIDERS).map(([key, value]) => (
+                        <DropdownMenuRadioItem
+                          key={value}
+                          value={value}
+                        >
+                          {PROVIDER_DISPLAY_NAMES[value]}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+
               {/* Brain icon and model display */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -176,12 +230,12 @@ export default function MessageInput({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="top" align="start">
                   <DropdownMenuRadioGroup value={selectedModel} onValueChange={handleModelSelect}>
-                    {Object.entries(CHAT_MODELS).map(([key, value]) => (
+                    {availableModels.map((model) => (
                       <DropdownMenuRadioItem
-                        key={value}
-                        value={value}
+                        key={model}
+                        value={model}
                       >
-                        {CHAT_MODEL_DISPLAY_NAMES[value]}
+                        {CHAT_MODEL_DISPLAY_NAMES[model]}
                       </DropdownMenuRadioItem>
                     ))}
                   </DropdownMenuRadioGroup>

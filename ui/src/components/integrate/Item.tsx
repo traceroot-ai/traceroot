@@ -5,6 +5,7 @@ import { TbEye, TbEyeOff } from 'react-icons/tb';
 import { FiCopy } from "react-icons/fi";
 import { FaGithub } from "react-icons/fa";
 import { SiNotion, SiSlack, SiOpenai, SiAnthropic } from "react-icons/si";
+import { Groq } from '@lobehub/icons';
 import { FaCheck } from "react-icons/fa";
 import { Integration } from '@/types/integration';
 import { TokenResource, ResourceType } from '@/models/integrate';
@@ -46,6 +47,8 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
           return <SiSlack size={size} className="text-foreground" />;
         case 'openai':
           return <SiOpenai size={size} className="text-foreground" />;
+        case 'groq':
+          return <Groq size={size} className="text-foreground" />;
         case 'anthropic':
           return <SiAnthropic size={size} className="text-foreground" />;
         case 'traceroot':
@@ -96,6 +99,8 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         return ResourceType.SLACK;
       case 'openai':
         return ResourceType.OPENAI;
+      case 'groq':
+        return ResourceType.GROQ;
       case 'traceroot':
         return ResourceType.TRACEROOT;
       default:

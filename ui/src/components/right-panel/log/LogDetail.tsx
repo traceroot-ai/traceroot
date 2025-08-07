@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { TraceLog, LogEntry } from '@/models/log';
 import { Span } from '@/models/trace';
 import { FaGithub } from "react-icons/fa";
+import { IoCopyOutline } from "react-icons/io5";
 import { Plus, Minus } from "lucide-react";
 import { fadeInAnimationStyles } from '@/constants/animations';
 import ShowCodeToggle from './ShowCodeToggle';
@@ -361,6 +362,20 @@ export default function LogDetail({
     return processedLines.join('\n');
   };
 
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col text-xs">
       <div className="bg-white dark:bg-gray-900 pt-0 px-4 pb-6 overflow-y-auto overflow-x-visible">
@@ -464,9 +479,9 @@ export default function LogDetail({
                     animationDelay: `${idx * 3}ms`
                   }}
                 >
-                  <div className="flex items-start">
-                    <div className="flex-1">
-                      <div className="flex font-mono items-center space-x-2 text-xs flex-wrap">
+                  <div className="flex items-start min-w-0">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex font-mono items-center space-x-2 text-xs flex-wrap min-w-0">
                         <span className={`font-medium ${getLogLevelColor(entry.level)}`}>{entry.level}</span>
                         <span className="text-gray-500 dark:text-gray-400">
                           {formatTimestamp(entry.time)}
@@ -487,10 +502,19 @@ export default function LogDetail({
                           >
                             <FaGithub className="inline-block" />
                           </a>
-                        )}
-                        <span className="p-1.5 bg-zinc-50 dark:bg-zinc-900 rounded whitespace-pre text-neutral-800 dark:text-neutral-300 break-words text-xs">
-                          {displayMessage}
-                        </span>
+                                                )}
+                        <div className="relative font-mono p-1 bg-zinc-50 dark:bg-zinc-900 rounded text-neutral-800 dark:text-neutral-300 text-xs min-w-0 max-w-full overflow-hidden min-h-[1.5rem]">
+                          <Button
+                            onClick={() => copyToClipboard(entry.message)}
+                            variant="ghost"
+                            size="icon"
+                            className="absolute top-0.5 right-0.5 h-5 w-5 opacity-70 hover:opacity-100 transition-opacity z-10"
+                            title="Copy message"
+                          >
+                            <IoCopyOutline className="w-3 h-3" />
+                          </Button>
+                          <span className="whitespace-pre-wrap break-all word-break-break-all overflow-wrap-anywhere m-0 max-w-full pr-7 block">{displayMessage}</span>
+                        </div>
                       </div>
                       {/* Show code context if available */}
                       <CodeContext entry={entry} showCode={showCode} />

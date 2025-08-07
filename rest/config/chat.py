@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from rest.typing import (ActionStatus, ActionType, ChatMode, ChatModel,
-                         MessageType, Reference)
+                         MessageType, Provider, Reference)
 
 
 class ChatRequest(BaseModel):
@@ -18,6 +18,7 @@ class ChatRequest(BaseModel):
     mode: ChatMode
     chat_id: str
     service_name: str | None = None
+    provider: Provider = Provider.OPENAI
 
 
 class ChatbotResponse(BaseModel):

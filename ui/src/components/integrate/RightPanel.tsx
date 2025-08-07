@@ -66,6 +66,16 @@ const initialIntegrations: Integration[] = [
     connected: false,
     docs: 'https://docs.anthropic.com/en/api/admin-api/apikeys/get-api-key',
     token: null,
+  },
+  {
+    id: 'groq',
+    name: 'Groq',
+    description: 'Groq API Key',
+    icon: 'groq',
+    categories: ['LLM'],
+    connected: false,
+    docs: 'https://console.groq.com/docs/quickstart',
+    token: null,
   }
 ];
 
@@ -115,11 +125,12 @@ export default function RightPanel() {
       fetchIntegrationToken(ResourceType.NOTION),
       fetchIntegrationToken(ResourceType.SLACK),
       fetchIntegrationToken(ResourceType.OPENAI),
+      fetchIntegrationToken(ResourceType.GROQ),
       fetchIntegrationToken(ResourceType.TRACEROOT)
     ];
 
     try {
-      const [githubToken, notionToken, slackToken, openaiToken, tracerootToken] = await Promise.all(tokenPromises);
+      const [githubToken, notionToken, slackToken, openaiToken, groqToken, tracerootToken] = await Promise.all(tokenPromises);
 
       setIntegrations(prevIntegrations =>
         prevIntegrations.map(integration => {
@@ -142,6 +153,10 @@ export default function RightPanel() {
             case 'openai':
               token = openaiToken;
               connected = !!openaiToken;
+              break;
+            case 'groq':
+              token = groqToken;
+              connected = !!groqToken;
               break;
             case 'traceroot':
               token = tracerootToken;

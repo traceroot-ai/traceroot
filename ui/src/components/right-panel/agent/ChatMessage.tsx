@@ -81,8 +81,6 @@ const renderMarkdown = (text: string, messageId: string, references?: Reference[
         const pullNumber = args[2];
         const fullUrl = `https://github.com/${owner}/${repo}/pull/${pullNumber}`;
 
-        console.log('🎯 PR PATTERN MATCHED!!! - match:', match, 'owner:', owner, 'repo:', repo, 'pullNumber:', pullNumber);
-
         return (
           <span key={currentIndex++}>
             PR created: <a
