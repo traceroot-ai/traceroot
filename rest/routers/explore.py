@@ -411,9 +411,6 @@ class ExploreRouter:
         request: Request,
         req_data: ChatRequest,
     ) -> dict[str, Any]:
-        print("req_data:")
-        from pprint import pprint
-        pprint(req_data)
         # Get basic information ###############################################
         user_email, _, user_sub = get_user_credentials(request)
         log_group_name = hash_user_sub(user_sub)
