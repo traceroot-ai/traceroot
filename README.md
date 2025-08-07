@@ -94,7 +94,7 @@ docker run -d --name jaeger \
 ```
 
 In local mode, the first step is to go to the integration page and connect with your GitHub account (optional) with your GitHub token.
-You also need to put your OpenAI API key in the integration page.
+You also need to put your LLM API key in the integration page.
 
 ## Setting up TraceRoot
 
@@ -112,8 +112,6 @@ github_owner: "your-github-owner"
 github_repo_name: "your-github-repo-name"
 github_commit_hash: "your-github-commit-hash"
 ```
-
-As mentioned above, you need to setup the Jaeger docker container at first before let the TraceRoot SDK capture the traces and logs from your applications.
 
 For more details or the SDK usage and examples, please checkout this [Quickstart](https://docs.traceroot.ai/quickstart).
 
