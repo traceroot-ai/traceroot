@@ -24,6 +24,12 @@
 - Visit the [traceroot docs](https://docs.traceroot.ai) to get started with traceroot library.
 - Join our [Discord](https://discord.gg/tPyffEZvvJ) for discussion
 
+## Demo
+
+<div align="center">
+  <img src="misc/images/product_git_v1.gif" alt="TraceRoot Demo" width="100%">
+</div>
+
 ## Features
 
 | Feature | Description |
