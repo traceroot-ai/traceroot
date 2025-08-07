@@ -24,6 +24,16 @@
 - Visit the [traceroot docs](https://docs.traceroot.ai) to get started with traceroot library.
 - Join our [Discord](https://discord.gg/tPyffEZvvJ) for discussion
 
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| 🚀 [Ease of Use](#getting-started-with-traceroot) | Get started with TraceRoot in minutes with our simple setup process |
+| 🤖 LLM Flexibility | Bring your own model (OpenAI, Anthropic, local LLMs) for AI-powered debugging |
+| 🌐 Distributed Services | Cross-platform support with distributed setup for enterprise-scale debugging |
+| 💻 AI Debugging Interface | Cursor-like interface specialized for debugging with AI assistance |
+| 🔌 Integration Support | Native integration with GitHub, Notion, and other development tools |
+
 ## Getting started with TraceRoot
 
 ### TraceRoot Cloud (Recommended)
@@ -88,16 +98,15 @@ You also need to put your OpenAI API key in the integration page.
 
 ## Setting up TraceRoot
 
-Our project is built on top of the TraceRoot SDK. You need to use our SDK to integrate with your applications by
+Whether you're using [TraceRoot Cloud](https://traceroot.ai) or self-hosting, you'll need our SDK:
 
 ```bash
 pip install traceroot==0.0.4a7
 ```
 
-To use the local mode of the TraceRoot SDK, you need create a `.traceroot-config.yaml` file in the root directory of your project with following content:
-
+Create `.traceroot-config.yaml` in your project root:
 ```yaml
-local_mode: true
+local_mode: true  # set to false for cloud version
 service_name: "your-service-name"
 github_owner: "your-github-owner"
 github_repo_name: "your-github-repo-name"
