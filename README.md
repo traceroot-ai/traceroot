@@ -51,14 +51,13 @@ and AI agent with chat mode.
 
 ### Self-hosting TraceRoot (Advanced)
 
-If you want to self-host TraceRoot, you can deploy a hobby instance in one line on Linux with Docker
-(recommended 4GB memory):
+If you want to self-host TraceRoot, you can deploy a hobby instance in one line on Linux with Docker:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/traceroot-ai/traceroot/HEAD/bin/deploy-starter)"
 ```
 
-Open source deployments should scale to approximately 100k events per month, after which we
+Open source deployments should scale to a certain point, after which we
 recommend [migrating to TraceRoot Cloud](https://traceroot.ai).
 
 This will start the UI at [http://localhost:3000](http://localhost:3000) and the API at [http://localhost:8000](http://localhost:8000).
@@ -66,10 +65,6 @@ This will start the UI at [http://localhost:3000](http://localhost:3000) and the
 ## Setting up TraceRoot
 
 Whether you're using [TraceRoot Cloud](https://traceroot.ai) or self-hosting, you'll need our SDK:
-
-```bash
-pip install traceroot==0.0.4a9
-```
 
 ### Available SDKs
 
