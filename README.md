@@ -49,78 +49,36 @@ for free to [TraceRoot Cloud](https://auth.traceroot.ai/) for a 7 day trial.
 You will have 150k trace + logs storage with 30d retentions, 1.5M LLM tokens,
 and AI agent with chat mode.
 
-### Self-hosting the open-source deploy (Advanced)
+### Self-hosting TraceRoot (Advanced)
 
-#### Installation
-
-You can install the latest version of TraceRoot with the following command:
-
-Install the dependencies locally:
+If you want to self-host TraceRoot, you can deploy a hobby instance in one line on Linux with Docker
+(recommended 4GB memory):
 
 ```bash
-git clone https://github.com/traceroot-ai/traceroot.git
-cd traceroot
-
-# Create and activate a virtual environment
-python3.11 -m venv venv
-source venv/bin/activate
-
-# Install TraceRoot with dependencies excluding optional dependencies
-pip install --upgrade pip
-pip install -e .
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/traceroot-ai/traceroot/HEAD/bin/deploy-starter)"
 ```
 
-#### Local Usage
-
-For local usage, all of your data will be stored locally.
-
-Run the below command to intialize environment variables.
-
-```bash
-source .env.development
-```
-
-You can use the TraceRoot framework locally by following the [README.md in the `ui` directory](ui/README.md) and [README.md in the `rest` directory](rest/README.md).
-
-Also, you can build the latest docker image and run the docker container by following the [README.md in the `docker` directory](docker/public/README.md).
+Open source deployments should scale to approximately 100k events per month, after which we
+recommend [migrating to TraceRoot Cloud](https://traceroot.ai).
 
 This will start the UI at [http://localhost:3000](http://localhost:3000) and the API at [http://localhost:8000](http://localhost:8000).
-
-Before using the TraceRoot framework, you need to setup the Jaeger docker container at first. It will be used to store the traces and logs and capture the traces and logs from our SDK which is integrated with your applications.
-
-```bash
-docker run -d --name jaeger \
-  -e COLLECTOR_OTLP_ENABLED=true \
-  -p 16686:16686 \
-  -p 14268:14268 \
-  -p 14250:14250 \
-  -p 4317:4317 \
-  -p 4318:4318 \
-  cr.jaegertracing.io/jaegertracing/jaeger:2.8.0
-```
-
-In local mode, the first step is to go to the integration page and connect with your GitHub account (optional) with your GitHub token.
-You also need to put your LLM API key in the integration page.
 
 ## Setting up TraceRoot
 
 Whether you're using [TraceRoot Cloud](https://traceroot.ai) or self-hosting, you'll need our SDK:
 
 ```bash
-pip install traceroot==0.0.4a7
+pip install traceroot==0.0.4a9
 ```
 
-Create `.traceroot-config.yaml` in your project root:
+### Available SDKs
 
-```yaml
-local_mode: true  # set to false for cloud version
-service_name: "your-service-name"
-github_owner: "your-github-owner"
-github_repo_name: "your-github-repo-name"
-github_commit_hash: "your-github-commit-hash"
-```
+| Language | Repository |
+|----------|------------|
+| Python | [traceroot-sdk](https://github.com/traceroot-ai/traceroot-sdk) |
+| JavaScript/TypeScript | [traceroot-sdk-ts](https://github.com/traceroot-ai/traceroot-sdk-ts) |
 
-For more details or the SDK usage and examples, please checkout this [Quickstart](https://docs.traceroot.ai/quickstart).
+For more details on SDK usage and examples, please check out this [Quickstart](https://docs.traceroot.ai/quickstart).
 
 ## AI Agent Framework
 
