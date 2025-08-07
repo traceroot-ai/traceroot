@@ -251,13 +251,29 @@ class Chat:
     ) -> ChatOutput:
         r"""Chat with context chunks.
         """
+        if model in {
+                ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
+                ChatModel.O4_MINI.value
+        }:
+            params = {}
+        else:
+            params = {
+                "temperature": 0.8,
+            }
         response = await chat_client.responses.parse(
             model=model,
             input=messages,
             text_format=ChatOutput,
-            temperature=0.8,
+            **params,
         )
-        return response.output[0].content[0].parsed
+        if model in {
+                ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
+                ChatModel.O4_MINI.value
+        }:
+            content = response.output[1].content[0]
+        else:
+            content = response.output[0].content[0]
+        return content.parsed
 
     def get_context_messages(self, context: str) -> list[str]:
         r"""Get the context message.

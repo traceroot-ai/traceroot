@@ -5,6 +5,7 @@ from openai import AsyncOpenAI
 from rest.agent.context.tree import LogNode, SpanNode
 from rest.agent.output.structure import LogNodeSelectorOutput
 from rest.agent.typing import FeatureOps, LogFeature
+from rest.typing import ChatModel
 
 LOG_NODE_SELECTOR_PROMPT = (
     "You are a helpful assistant that can select related "
@@ -35,13 +36,28 @@ async def log_node_selector(
             "content": user_message
         },
     ]
+    if model in {
+            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
+            ChatModel.O4_MINI.value
+    }:
+        params = {}
+    else:
+        params = {
+            "temperature": 0.5,
+        }
     response = await client.responses.parse(
         model=model,
         input=messages,
         text_format=LogNodeSelectorOutput,
-        temperature=0.5,
+        **params,
     )
-    response: LogNodeSelectorOutput = response.output[0].content[0].parsed
+    if model in {
+            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
+            ChatModel.O4_MINI.value
+    }:
+        response: LogNodeSelectorOutput = response.output[1].content[0].parsed
+    else:
+        response: LogNodeSelectorOutput = response.output[0].content[0].parsed
     return response
 
 

@@ -3,6 +3,7 @@ from openai import AsyncOpenAI
 from rest.agent.output.feature import (LogFeatureSelectorOutput,
                                        SpanFeatureSelectorOutput)
 from rest.agent.typing import LogFeature, SpanFeature
+from rest.typing import ChatModel
 
 LOG_FEATURE_SELECTOR_PROMPT = (
     "You are a helpful assistant that can select related "
@@ -40,13 +41,30 @@ async def log_feature_selector(
             "content": user_message
         },
     ]
+    if model in {
+            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
+            ChatModel.O4_MINI.value
+    }:
+        params = {}
+    else:
+        params = {
+            "temperature": 0.5,
+        }
     response = await client.responses.parse(
         model=model,
         input=messages,
         text_format=LogFeatureSelectorOutput,
-        temperature=0.5,
+        **params,
     )
-    response: LogFeatureSelectorOutput = response.output[0].content[0].parsed
+    if model in {
+            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
+            ChatModel.O4_MINI.value
+    }:
+        response: LogFeatureSelectorOutput = response.output[1].content[
+            0].parsed
+    else:
+        response: LogFeatureSelectorOutput = response.output[0].content[
+            0].parsed
     return response.log_features
 
 
@@ -65,11 +83,28 @@ async def span_feature_selector(
             "content": user_message
         },
     ]
+    if model in {
+            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
+            ChatModel.O4_MINI.value
+    }:
+        params = {}
+    else:
+        params = {
+            "temperature": 0.5,
+        }
     response = await client.responses.parse(
         model=model,
         input=messages,
         text_format=SpanFeatureSelectorOutput,
-        temperature=0.5,
+        **params,
     )
-    response: SpanFeatureSelectorOutput = response.output[0].content[0].parsed
+    if model in {
+            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
+            ChatModel.O4_MINI.value
+    }:
+        response: SpanFeatureSelectorOutput = response.output[1].content[
+            0].parsed
+    else:
+        response: SpanFeatureSelectorOutput = response.output[0].content[
+            0].parsed
     return response.span_features
