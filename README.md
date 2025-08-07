@@ -20,30 +20,9 @@
 
 🔍 TraceRoot helps engineers debug production issues 10x faster using AI-powered analysis of traces, logs, and code context.
 
-- Check out [traceroot.ai](https://traceroot.ai) to start debugging your production issues with AI.
-- Visit the [traceroot docs](https://docs.traceroot.ai) to get started with our SDK.
-- Join our [Discord](https://discord.gg/tPyffEZvvJ) for debugging discussions.
-
-
-
-
-## AI Agent Framework
-
-Here is an overview for our AI Agent Framework:
-
-### Context Model
-
-<div align="center">
-  <a href="https://traceroot.ai/">
-    <img src="misc/images/context-model.png" alt="Context Model" width="90%" max-width="1200px">
-  </a>
-</div>
-
-### Chunking
-
-### Explainability
-
-Please checkout the [README.md in the `rest/agent` directory](rest/agent/README.md) for more details.
+- Check out [traceroot.ai website](https://traceroot.ai) to start using TraceRoot to debug your production issues.
+- Visit the [traceroot docs](https://docs.traceroot.ai) to get started with traceroot library.
+- Join our [Discord](https://discord.gg/tPyffEZvvJ) for discussion
 
 ## Getting started with TraceRoot
 
@@ -128,6 +107,25 @@ github_commit_hash: "your-github-commit-hash"
 As mentioned above, you need to setup the Jaeger docker container at first before let the TraceRoot SDK capture the traces and logs from your applications.
 
 For more details or the SDK usage and examples, please checkout this [Quickstart](https://docs.traceroot.ai/quickstart).
+
+## AI Agent Framework
+
+Here is an overview for our AI Agent Framework:
+
+### Context Model
+
+<div align="center">
+  <a href="https://traceroot.ai/">
+    <img src="misc/images/context-model.png" alt="Context Model" width="90%" max-width="1200px">
+  </a>
+</div>
+
+### Chunking
+TODO
+
+### Explainability
+
+Please checkout the [README.md in the `rest/agent` directory](rest/agent/README.md) for more details.
 
 ## Citation
 
