@@ -4,6 +4,7 @@ import { ChatMode } from "@/constants/model";
 export type MessageType = "assistant" | "user" | "github";
 export type ActionType = "github_get_file" | "agent_chat";
 export type ActionStatus = "pending" | "success" | "failed" | "cancelled";
+export type Provider = "openai" | "custom" | "groq";
 
 export interface Reference {
   number: number;
@@ -24,6 +25,7 @@ export interface ChatRequest {
   model: ChatModel;
   mode: ChatMode;
   chat_id: string;
+  provider: Provider;
 }
 
 export interface ChatbotResponse {

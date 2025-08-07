@@ -44,6 +44,8 @@ class ChatModel(str, Enum):
     GPT_4_1_MINI = "gpt-4.1-mini"
     AUTO = "auto"
 
+    GPT_OSS_120B = "openai/gpt-oss-120b"
+
 
 class ChatMode(str, Enum):
     AGENT = "agent"
@@ -56,6 +58,7 @@ class ResourceType(str, Enum):
     NOTION = "notion"
     SLACK = "slack"
     OPENAI = "openai"
+    GROQ = "groq"
     TRACEROOT = "traceroot"
 
 
@@ -81,3 +84,9 @@ class ActionStatus(str, Enum):
     SUCCESS = "success"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class Provider(str, Enum):
+    OPENAI = "openai"
+    CUSTOM = "custom"
+    GROQ = "groq"

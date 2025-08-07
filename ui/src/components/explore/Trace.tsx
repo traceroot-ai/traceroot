@@ -13,6 +13,12 @@ import { IoWarningOutline, IoLogoJavascript } from "react-icons/io5";
 import { MdErrorOutline } from "react-icons/md";
 import { FaPython } from "react-icons/fa";
 import { SiTypescript } from "react-icons/si";
+import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface TraceProps {
   onTraceSelect?: (traceId: string | null) => void;
@@ -25,13 +31,27 @@ interface TraceProps {
 
 export function formatDateTime(ts: number) {
   const date = new Date(ts * 1000);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
   const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
+  const m = months[date.getMonth()];
+  const d = date.getDate();
   const h = String(date.getHours()).padStart(2, '0');
   const min = String(date.getMinutes()).padStart(2, '0');
   const s = String(date.getSeconds()).padStart(2, '0');
-  return `${y}-${m}-${d} ${h}:${min}:${s}`;
+
+  // Add ordinal suffix to day
+  const getOrdinalSuffix = (day: number) => {
+    if (day >= 11 && day <= 13) return 'th';
+    switch (day % 10) {
+      case 1: return 'st';
+      case 2: return 'nd';
+      case 3: return 'rd';
+      default: return 'th';
+    }
+  };
+
+  return `${y} ${m} ${d}${getOrdinalSuffix(d)} ${h}:${min}:${s}`;
 }
 
 export const Trace: React.FC<TraceProps> = ({
@@ -288,58 +308,62 @@ export const Trace: React.FC<TraceProps> = ({
     <>
       <style>{fadeInAnimationStyles}</style>
       <div className="h-screen bg-white dark:bg-gray-800 p-4 overflow-y-auto overflow-x-hidden">
+
+        {/* Search and Time Range Selector */}
         <div className="space-y-4">
-        <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-2">
-          <div className="flex-1 min-w-0">
-            <SearchBar onSearch={handleSearch} onClear={handleClearSearch} />
-          </div>
-          <div className="flex space-x-2 flex-shrink-0 justify-end">
-            <RefreshButton onRefresh={handleRefresh} />
-            <TimeButton
-              selectedTimeRange={selectedTimeRange}
-              onTimeRangeSelect={handleTimeRangeSelect}
-            />
-          </div>
+          <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <SearchBar onSearch={handleSearch} onClear={handleClearSearch} />
+            </div>
+            <div className="flex space-x-2 flex-shrink-0 justify-end">
+              <RefreshButton onRefresh={handleRefresh} />
+              <TimeButton
+                selectedTimeRange={selectedTimeRange}
+                onTimeRangeSelect={handleTimeRangeSelect}
+              />
+            </div>
         </div>
 
-        {loading && (
-          <div className="flex flex-col items-center justify-center py-12 space-y-4">
-            {/* Loading text with animated dots */}
-            <div className="flex items-center space-x-1 text-sm text-gray-600 dark:text-gray-300">
-              <div className="flex space-x-1">
-                <div className="w-1 h-1 bg-gray-500 dark:bg-gray-400 rounded-full loading-dot-1"></div>
-                <div className="w-1 h-1 bg-gray-500 dark:bg-gray-400 rounded-full loading-dot-2"></div>
-                <div className="w-1 h-1 bg-gray-500 dark:bg-gray-400 rounded-full loading-dot-3"></div>
+        {/* Content container with zinc-50 background */}
+        <div className="mt-4 bg-zinc-50 dark:bg-zinc-900 p-2.5 rounded-lg">
+          {loading && (
+            <div className="flex flex-col items-center justify-center py-5 space-y-4">
+              {/* Loading text with animated dots */}
+              <div className="flex items-center space-x-1 text-sm text-gray-600 dark:text-gray-300">
+                <div className="flex space-x-1">
+                  <div className="w-1 h-1 bg-gray-500 dark:bg-gray-400 rounded-full loading-dot-1"></div>
+                  <div className="w-1 h-1 bg-gray-500 dark:bg-gray-400 rounded-full loading-dot-2"></div>
+                  <div className="w-1 h-1 bg-gray-500 dark:bg-gray-400 rounded-full loading-dot-3"></div>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {error && (
-          <div className="text-sm text-red-500 dark:text-red-400">{error}</div>
-        )}
+          {error && (
+            <div className="text-sm text-red-500 dark:text-red-400">{error}</div>
+          )}
 
-        {!loading && !error && filteredTraces.length === 0 && traces.length > 0 && (
-          <div className="text-sm text-gray-500 dark:text-gray-400">No traces match your search criteria</div>
-        )}
+          {!loading && !error && filteredTraces.length === 0 && traces.length > 0 && (
+            <div className="text-sm text-gray-500 dark:text-gray-400">No traces match your search criteria</div>
+          )}
 
-        {!loading && !error && traces.length === 0 && (
-          <div className="text-sm text-gray-500 dark:text-gray-400">No Information Found</div>
-        )}
+          {!loading && !error && traces.length === 0 && (
+            <div className="text-muted-foreground text-sm">No Information Found</div>
+          )}
 
-        {!loading && !error && filteredTraces.length > 0 && (
-          <div className="space-y-1 transition-all duration-300 ease-in-out">
+          {!loading && !error && filteredTraces.length > 0 && (
+          <div className="space-y-1.5 transition-all duration-100 ease-in-out">
             {filteredTraces.map((trace, index) => (
               <div key={trace.id} className="relative">
                 {/* Trace Block */}
                 <div
-                  className={`relative h-[45px] p-3 rounded border border-gray-200 dark:border-gray-700 transition-colors cursor-pointer transform transition-all duration-300 ease-in-out hover:scale-[1.01] hover:shadow-sm animate-fadeIn ${
+                  className={`relative h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-100 ease-in-out hover:scale-[1.005] hover:shadow-sm animate-fadeIn ${
                     selectedTraceId === trace.id
-                      ? 'bg-green-50 dark:bg-green-900/10 hover:bg-green-100 dark:hover:bg-green-900/20'
-                      : 'bg-white dark:bg-gray-800 hover:bg-green-100 dark:hover:bg-green-900/20'
+                      ? 'bg-zinc-100 dark:bg-zinc-900'
+                      : 'bg-white dark:bg-gray-800'
                   }`}
                   style={{
-                    animationDelay: `${index * 10}ms`
+                    animationDelay: `${index * 5}ms`
                   }}
                   onClick={() => handleTraceClick(trace.id)}
                   role="button"
@@ -353,82 +377,103 @@ export const Trace: React.FC<TraceProps> = ({
                           {/* Python Icon - show when telemetry_sdk_language includes "python" */}
                           {trace.telemetry_sdk_language.includes("python") && (
                             <div className="w-5 h-5 flex items-center justify-center mr-2">
-                              <FaPython className="text-gray-600 dark:text-gray-300" size={14} />
+                              <FaPython className="text-neutral-700 dark:text-neutral-300 mr-2" size={14} />
                             </div>
                           )}
 
                           {/* TypeScript Icon - show when telemetry_sdk_language includes "ts" */}
                           {trace.telemetry_sdk_language.includes("ts") && (
                             <div className="w-5 h-5 flex items-center justify-center mr-2">
-                              <SiTypescript className="text-gray-600 dark:text-gray-300" size={14} />
+                              <SiTypescript className="text-neutral-700 dark:text-neutral-300 mr-2" size={14} />
                             </div>
                           )}
 
                           {/* JavaScript Icon - show when telemetry_sdk_language includes "js" */}
                           {trace.telemetry_sdk_language.includes("js") && (
                             <div className="w-5 h-5 flex items-center justify-center mr-2">
-                              <IoLogoJavascript className="text-gray-600 dark:text-gray-300" size={14} />
+                              <IoLogoJavascript className="text-neutral-700 dark:text-neutral-300 mr-2" size={14} />
                             </div>
                           )}
                         </>
                       )}
 
                       {/* Tags */}
-                      <span
-                        className="inline-flex min-w-16 max-w-32 h-6 mr-2 text-xs items-center justify-center rounded-md whitespace-nowrap px-2"
-                        style={{
-                          background: '#f3f3f3',
-                          color: '#1e1e1e',
-                          boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.2)'
-                        }}
-                        title={((trace.service_name || "Unknown Service").length > 25) ? (trace.service_name || "Unknown Service") : undefined}
-                      >
-                        {((trace.service_name || "Unknown Service").length > 25) ? (trace.service_name || "Unknown Service").slice(0, 9) + '......' : (trace.service_name || "Trace")}
-                      </span>
+                      {((trace.service_name || "Unknown Service").length > 25) ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Badge
+                              variant="outline"
+                              className="min-w-16 h-6 mr-2 justify-center font-mono font-normal max-w-fit"
+                            >
+                              {(trace.service_name || "Unknown Service").slice(0, 9) + '......'}
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{trace.service_name || "Unknown Service"}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className="min-w-16 h-6 mr-2 justify-center font-mono font-normal max-w-fit"
+                        >
+                          {trace.service_name || "Trace"}
+                        </Badge>
+                      )}
 
                       {/* Environment */}
-                      <span
-                        className="inline-flex h-6 mr-2 text-xs items-center justify-center rounded-md px-2"
-                        style={{
-                          background: '#dbeafe',
-                          color: '#1e40af',
-                          boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.2)'
-                        }}
+                      <Badge
+                        variant="secondary"
+                        className="h-6 mr-2 justify-center font-mono font-normal"
                       >
                         {trace.service_environment || "Unknown Environment"}
-                      </span>
-
-                      {getPercentileTag(trace.percentile)}
+                      </Badge>
 
                       {/* Error icon for error/critical logs */}
                       {((trace.num_error_logs ?? 0) > 0 || (trace.num_critical_logs ?? 0) > 0) && (
-                        <MdErrorOutline
-                          className="text-red-600 mr-1"
-                          size={20}
-                          title={`${trace.num_error_logs ?? 0} error logs, ${trace.num_critical_logs ?? 0} critical logs`}
-                        />
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Badge
+                              variant="destructive"
+                              className="h-6 mr-1 px-1 font-light"
+                            >
+                              <MdErrorOutline size={16} className="text-white" />
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{`${trace.num_error_logs ?? 0} error logs, ${trace.num_critical_logs ?? 0} critical logs`}</p>
+                          </TooltipContent>
+                        </Tooltip>
                       )}
 
                       {/* Warning icon for error/critical logs */}
                       {((trace.num_warning_logs ?? 0) > 0) && (
-                        <IoWarningOutline
-                          className="text-yellow-600 mr-1"
-                          size={20}
-                          title={`${trace.num_warning_logs ?? 0} warning logs`}
-                        />
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Badge
+                              variant="secondary"
+                              className="h-6 m-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-light"
+                            >
+                              <IoWarningOutline size={16} className="text-white" />
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{`${trace.num_warning_logs ?? 0} warning logs`}</p>
+                          </TooltipContent>
+                        </Tooltip>
                       )}
                     </div>
 
-                    {/* Start and end time */}
-                    <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0 ml-4 whitespace-nowrap">
-                      {formatDateTime(trace.start_time)} - {formatDateTime(trace.end_time)}
+                    {/* Start time */}
+                    <span className="text-xs text-neutral-600 dark:text-neutral-300 flex-shrink-0 ml-4 whitespace-nowrap">
+                      {formatDateTime(trace.start_time)}
                     </span>
                   </div>
                 </div>
 
                 {/* Spans Container - Only rendered when trace is selected */}
                 {selectedTraceId === trace.id && (
-                  <div className="relative pb-2 pt-2" style={{ zIndex: 1 }}>
+                  <div className="relative pb-1 pt-1.5" style={{ zIndex: 1 }}>
                     {/* Vertical Line: extends naturally with the content */}
                     <div
                       className="absolute top-0 w-px"
@@ -440,7 +485,7 @@ export const Trace: React.FC<TraceProps> = ({
                       }}
                     />
 
-                    <div className="space-y-3" style={{ width: '97%', marginLeft: '3%' }}>
+                    <div className="space-y-2" style={{ width: '97%', marginLeft: '3%' }}>
                       {trace.spans.map((span) => (
                         <Span
                           key={span.id}
@@ -458,7 +503,8 @@ export const Trace: React.FC<TraceProps> = ({
               </div>
             ))}
           </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
     </>

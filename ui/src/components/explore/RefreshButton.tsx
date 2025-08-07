@@ -1,5 +1,6 @@
 import React from 'react';
-import { IoMdRefresh } from "react-icons/io";
+import { RotateCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface RefreshButtonProps {
   onRefresh: () => void;
@@ -7,14 +8,14 @@ interface RefreshButtonProps {
 
 const RefreshButton: React.FC<RefreshButtonProps> = ({ onRefresh }) => {
   return (
-    <button
+    <Button
       onClick={onRefresh}
-      className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 hover:border-gray-400 dark:hover:border-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors min-h-[2.5rem] flex items-center"
+      variant="outline"
+      size="default"
+      className="min-h-[2.5rem]"
     >
-      <div className="flex items-center space-x-2">
-        <IoMdRefresh className="w-4 h-4" />
-      </div>
-    </button>
+      <RotateCw className="w-4 h-4" />
+    </Button>
   );
 };
 

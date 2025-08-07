@@ -6,6 +6,12 @@ import { IoWarningOutline, IoLogoJavascript } from "react-icons/io5";
 import { MdErrorOutline } from "react-icons/md";
 import { FaPython } from "react-icons/fa";
 import { SiTypescript } from "react-icons/si";
+import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 // Function to calculate and format latency
 const formatLatency = (startTime: number, endTime: number): string => {
@@ -111,7 +117,7 @@ const Span: React.FC<SpanProps> = ({
         )}
 
         <div
-          className={`mt-1 space-y-2 overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[3000px] opacity-100' : 'max-h-0 opacity-0'}`}
+          className={`mt-1 space-y-1.5 overflow-hidden transition-all duration-100 ease-in-out ${isExpanded ? 'max-h-[3000px] opacity-100' : 'max-h-0 opacity-0'}`}
           style={{
             width: `${childWidthPercentage}%`,
             marginLeft: `${100 - childWidthPercentage}%`,
@@ -147,7 +153,7 @@ const Span: React.FC<SpanProps> = ({
     <>
       {level === 0 && <style>{fadeInAnimationStyles}</style>}
       <div
-        className={`relative space-y-2 transition-all duration-300 ease-in-out ${isExpanded ? 'animate-fadeIn' : ''}`}
+        className={`relative space-y-1.5 transition-all duration-100 ease-in-out ${isExpanded ? 'animate-fadeIn' : ''}`}
         style={{
           width: `${widthPercentage}%`,
           marginLeft: `${100 - widthPercentage}%`,
@@ -158,30 +164,30 @@ const Span: React.FC<SpanProps> = ({
       >
         <div
           onClick={handleSpanClick}
-          className={`h-[45px] p-3 rounded border border-gray-200 dark:border-gray-700 transition-colors cursor-pointer transform transition-all duration-300 ease-in-out hover:scale-[1.01] hover:shadow-sm ${
+          className={`h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-300 ease-in-out hover:scale-[1.01] hover:shadow-sm ${
             isSelected
-              ? 'bg-green-50 dark:bg-green-900/10 hover:bg-green-100 dark:hover:bg-green-900/20'
-              : 'hover:bg-green-50 dark:hover:bg-green-900/10'
+              ? 'bg-zinc-100 dark:bg-zinc-900'
+              : 'bg-white dark:bg-zinc-900'
           }`}
         >
           <div className="flex items-center h-full">
             {/* Python Icon - show when telemetry_sdk_language is "python" */}
             {span.telemetry_sdk_language === "python" && (
-              <FaPython className="text-gray-600 dark:text-gray-300 mr-2" size={14} />
+              <FaPython className="text-neutral-700 dark:text-neutral-300 mr-2" size={14} />
             )}
 
             {/* TypeScript Icon - show when telemetry_sdk_language is "ts" */}
             {span.telemetry_sdk_language === "ts" && (
-              <SiTypescript className="text-gray-600 dark:text-gray-300 mr-2" size={14} />
+              <SiTypescript className="text-neutral-700 dark:text-neutral-300 mr-2" size={14} />
             )}
 
             {/* JavaScript Icon - show when telemetry_sdk_language is "js" */}
             {span.telemetry_sdk_language === "js" && (
-              <IoLogoJavascript className="text-gray-600 dark:text-gray-300 mr-2" size={14} />
+              <IoLogoJavascript className="text-neutral-700 dark:text-neutral-300 mr-2" size={14} />
             )}
 
             {/* Span Tag */}
-            <span
+            {/* <span
               className="inline-flex w-16 h-6 mr-2 text-xs items-center justify-center rounded-md italic"
               style={{
                 background: '#f3f4f6',
@@ -190,10 +196,10 @@ const Span: React.FC<SpanProps> = ({
               }}
             >
               func
-            </span>
+            </span> */}
 
             {/* Repeated Tag - only show for repeated leaf spans */}
-            {isRepeated && (
+            {/* {isRepeated && (
               <span
                 className="inline-flex h-6 mr-2 text-xs items-center justify-center rounded-md px-2"
                 style={{
@@ -204,37 +210,68 @@ const Span: React.FC<SpanProps> = ({
               >
                 Repeated
               </span>
-            )}
+            )} */}
 
-            <span
-              className="inline-flex h-6 mr-1 text-xs items-center justify-center rounded-md px-2"
-              style={{ backgroundColor: TRACE_ENTRY_COLOR }}
-              title={span.name.length > 40 ? span.name : undefined}
-            >
-              {span.name.length > 40 ? span.name.slice(0, 40) + '...' : span.name}
-            </span>
+            {span.name.length > 20 ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="outline"
+                    className="h-6 mr-1 justify-center font-mono font-normal max-w-fit"
+                  >
+                    {span.name.slice(0, 35) + '...'}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{span.name}</p>
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <Badge
+                variant="outline"
+                className="h-6 mr-1 justify-center font-mono font-normal max-w-fit"
+              >
+                {span.name}
+              </Badge>
+            )}
 
             {/* Logs */}
 
             {/* Error icon for error/critical logs */}
             {((span.num_error_logs ?? 0) > 0 || (span.num_critical_logs ?? 0) > 0) && (
-              <MdErrorOutline
-                className="text-red-600 mr-1"
-                size={20}
-                title={`${span.num_error_logs ?? 0} error logs, ${span.num_critical_logs ?? 0} critical logs`}
-              />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="destructive"
+                    className="h-6 mr-1 px-1 font-normal"
+                  >
+                    <MdErrorOutline size={16} className="text-white" />
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{`${span.num_error_logs ?? 0} error logs, ${span.num_critical_logs ?? 0} critical logs`}</p>
+                </TooltipContent>
+              </Tooltip>
             )}
 
             {/* Warning icon for warning logs */}
             {((span.num_warning_logs ?? 0) > 0) && (
-              <IoWarningOutline
-                className="text-yellow-600 mr-1"
-                size={20}
-                title={`${span.num_warning_logs ?? 0} warning logs`}
-              />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="secondary"
+                    className="h-6 mr-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-normal"
+                  >
+                    <IoWarningOutline size={16} className="text-white" />
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{`${span.num_warning_logs ?? 0} warning logs`}</p>
+                </TooltipContent>
+              </Tooltip>
             )}
 
-            <span className="flex items-center text-xs text-gray-500 dark:text-gray-400 ml-auto">
+            <span className="flex items-center text-xs text-neutral-600 dark:text-neutral-300 ml-auto">
               {formatLatency(span.start_time, span.end_time)}
             </span>
           </div>

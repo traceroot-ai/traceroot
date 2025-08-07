@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Sidebar from "@/components/side-bar/Sidebar";
+import AppSidebar from "@/components/side-bar/Sidebar";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { Toaster } from 'react-hot-toast';
 
 const inter = Inter({ subsets: ["latin"] });
@@ -21,13 +22,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={inter.className}>
-        <div className="min-h-screen">
-          <Sidebar />
-          <main className="ml-[4%]">
+      <body className={`${inter.className} h-screen overflow-hidden`}>
+        <SidebarProvider defaultOpen={false}>
+          <AppSidebar />
+          <SidebarInset>
             {children}
-          </main>
-        </div>
+          </SidebarInset>
+        </SidebarProvider>
         <Toaster
           position="top-right"
           toastOptions={{

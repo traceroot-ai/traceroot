@@ -9,10 +9,10 @@ import { ResourceType } from '@/models/integrate';
 const initialIntegrations: Integration[] = [
   {
     id: 'traceroot',
-    name: 'TraceRoot',
+    name: 'TraceRoot.AI',
     description: 'TraceRoot.AI Token',
     icon: 'traceroot',
-    categories: ['Platform', 'Debugging', 'Tracing', 'Metrics'],
+    categories: ['Debugging', 'Tracing'],
     connected: false,
     docs: 'https://docs.traceroot.ai/',
     token: null,
@@ -20,7 +20,7 @@ const initialIntegrations: Integration[] = [
   {
     id: 'github',
     name: 'GitHub',
-    description: 'GitHub Integration',
+    description: 'GitHub Token',
     icon: 'github',
     categories: ['Code', 'Knowledge'],
     connected: false,
@@ -40,7 +40,7 @@ const initialIntegrations: Integration[] = [
   {
     id: 'slack',
     name: 'Slack',
-    description: 'Slack Integration',
+    description: 'Slack Token',
     icon: 'slack',
     categories: ['Communication', 'Knowledge'],
     connected: false,
@@ -50,11 +50,31 @@ const initialIntegrations: Integration[] = [
   {
     id: 'openai',
     name: 'OpenAI',
-    description: 'OpenAI Integration',
+    description: 'OpenAI Token',
     icon: 'openai',
     categories: ['LLM', 'Agent'],
     connected: false,
     docs: 'https://platform.openai.com/docs/api-reference/authentication',
+    token: null,
+  },
+  {
+    id: 'anthropic',
+    name: 'Anthropic',
+    description: 'Anthropic API Key',
+    icon: 'anthropic',
+    categories: ['LLM', 'Agent'],
+    connected: false,
+    docs: 'https://docs.anthropic.com/en/api/admin-api/apikeys/get-api-key',
+    token: null,
+  },
+  {
+    id: 'groq',
+    name: 'Groq',
+    description: 'Groq API Key',
+    icon: 'groq',
+    categories: ['LLM'],
+    connected: false,
+    docs: 'https://console.groq.com/docs/quickstart',
     token: null,
   }
 ];
@@ -105,11 +125,12 @@ export default function RightPanel() {
       fetchIntegrationToken(ResourceType.NOTION),
       fetchIntegrationToken(ResourceType.SLACK),
       fetchIntegrationToken(ResourceType.OPENAI),
+      fetchIntegrationToken(ResourceType.GROQ),
       fetchIntegrationToken(ResourceType.TRACEROOT)
     ];
 
     try {
-      const [githubToken, notionToken, slackToken, openaiToken, tracerootToken] = await Promise.all(tokenPromises);
+      const [githubToken, notionToken, slackToken, openaiToken, groqToken, tracerootToken] = await Promise.all(tokenPromises);
 
       setIntegrations(prevIntegrations =>
         prevIntegrations.map(integration => {
@@ -132,6 +153,10 @@ export default function RightPanel() {
             case 'openai':
               token = openaiToken;
               connected = !!openaiToken;
+              break;
+            case 'groq':
+              token = groqToken;
+              connected = !!groqToken;
               break;
             case 'traceroot':
               token = tracerootToken;
@@ -167,23 +192,24 @@ export default function RightPanel() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-900 p-6">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-medium text-gray-900 dark:text-white mb-2">
-          Sources & Integrations
-        </h1>
-      </div>
-
-      {/* Grid of integration cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {integrations.map((integration) => (
-          <Item
-            key={integration.id}
-            integration={integration}
-            onUpdateIntegration={handleUpdateIntegration}
-          />
-        ))}
+    <div className="min-h-full flex flex-col p-4">
+      {/* Container with 75% width and max-width constraint */}
+      <div className="w-3/4 max-w-6xl mx-auto bg-white m-5 p-10 rounded-lg font-mono bg-zinc-50">
+        <h2 className="scroll-m-20 mb-5 text-3xl font-semibold first:mt-0">
+          Integrations & Sources
+        </h2>
+        <p className="leading-7 [&:not(:first-child)]:mb-5">
+          Integrate tools and sources to TraceRoot.AI to enable AI-powered insights and actions.
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-2 gap-5 p-3">
+          {integrations.map((integration) => (
+            <Item
+              key={integration.id}
+              integration={integration}
+              onUpdateIntegration={handleUpdateIntegration}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
