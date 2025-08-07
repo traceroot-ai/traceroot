@@ -26,3 +26,21 @@ export const isStripeConfigured = (): boolean => {
 export const shouldShowPaymentFeatures = (): boolean => {
   return isStripeConfigured();
 };
+
+/**
+ * Get the current Stripe mode
+ */
+export const getStripeMode = (): 'test' | 'production' | 'disabled' => {
+  const mode = (process.env.NEXT_PUBLIC_STRIPE_MODE || 'disabled').toLowerCase();
+  if (mode === 'test' || mode === 'production') {
+    return mode as 'test' | 'production';
+  }
+  return 'disabled';
+};
+
+/**
+ * Check if we're in disabled mode specifically
+ */
+export const isStripeDisabled = (): boolean => {
+  return getStripeMode() === 'disabled';
+};

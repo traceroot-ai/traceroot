@@ -1,5 +1,5 @@
 /**
- * Stripe configuration that switches between test and production based on STRIPE_MODE
+ * Stripe configuration that switches between test, production, and disabled based on STRIPE_MODE
  */
 
 interface StripeConfig {
@@ -9,23 +9,38 @@ interface StripeConfig {
     pro: string;
     startups: string;
   };
-  mode: 'test' | 'production';
+  mode: 'test' | 'production' | 'disabled';
 }
 
 function getStripeConfig(): StripeConfig {
-  // Get the Stripe mode from environment, default to 'test'
-  const stripeMode = (process.env.NEXT_PUBLIC_STRIPE_MODE || 'test').toLowerCase();
+  // Get the Stripe mode from environment, default to 'disabled' for local development
+  const stripeMode = (process.env.NEXT_PUBLIC_STRIPE_MODE || 'disabled').toLowerCase();
 
-  if (stripeMode !== 'test' && stripeMode !== 'production') {
-    console.warn(`Invalid STRIPE_MODE '${stripeMode}'. Defaulting to 'test'.`);
-    return getTestConfig();
+  if (stripeMode !== 'test' && stripeMode !== 'production' && stripeMode !== 'disabled') {
+    console.warn(`Invalid STRIPE_MODE '${stripeMode}'. Defaulting to 'disabled'.`);
+    return getDisabledConfig();
   }
 
   if (stripeMode === 'production') {
     return getProductionConfig();
-  } else {
+  } else if (stripeMode === 'test') {
     return getTestConfig();
+  } else {
+    return getDisabledConfig();
   }
+}
+
+function getDisabledConfig(): StripeConfig {
+  console.log('Stripe disabled - using stub configuration for local development');
+  return {
+    publishableKey: 'pk_disabled_local_development',
+    planPriceIds: {
+      starter: 'price_disabled_starter',
+      pro: 'price_disabled_pro',
+      startups: 'price_disabled_startups',
+    },
+    mode: 'disabled' as const,
+  };
 }
 
 function getTestConfig(): StripeConfig {
@@ -48,6 +63,8 @@ function getTestConfig(): StripeConfig {
 
   if (missing.length > 0) {
     console.error('Missing test Stripe environment variables:', missing);
+    console.warn('Falling back to disabled mode due to missing test configuration');
+    return getDisabledConfig();
   }
 
   return config;
@@ -73,6 +90,8 @@ function getProductionConfig(): StripeConfig {
 
   if (missing.length > 0) {
     console.error('Missing production Stripe environment variables:', missing);
+    console.warn('Falling back to disabled mode due to missing production configuration');
+    return getDisabledConfig();
   }
 
   return config;

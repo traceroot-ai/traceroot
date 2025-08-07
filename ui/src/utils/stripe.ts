@@ -9,16 +9,18 @@ console.log('Environment Variables:', {
   priceIds: stripeConfig.planPriceIds,
 });
 
-// Initialize Stripe with the configured publishable key
-const stripePromise = loadStripe(stripeConfig.publishableKey);
-
-
-// Debug logging for price IDs
-// console.log('Price IDs Configuration:', PLAN_PRICE_IDS);
+// Initialize Stripe with the configured publishable key (only if not disabled)
+const stripePromise = stripeConfig.mode === 'disabled' ? null : loadStripe(stripeConfig.publishableKey);
 
 export async function redirectToCheckout(plan: SubscriptionPlan, userEmail: string) {
   try {
     console.log(`Starting checkout for plan: ${plan}`);
+
+    // Check if Stripe is disabled
+    if (stripeConfig.mode === 'disabled') {
+      console.warn('Stripe is disabled - checkout not available in local development mode');
+      throw new Error('Payment processing is disabled in local development mode');
+    }
 
     // Don't allow checkout for invalid plans
     if (!plan) {
@@ -70,6 +72,12 @@ export async function createPortalSession(userEmail: string): Promise<string> {
   try {
     console.log(`Creating portal session for: ${userEmail}`);
 
+    // Check if Stripe is disabled
+    if (stripeConfig.mode === 'disabled') {
+      console.warn('Stripe is disabled - portal not available in local development mode');
+      throw new Error('Customer portal is disabled in local development mode');
+    }
+
     const response = await fetch('/api/create-portal-session', {
       method: 'POST',
       headers: {
@@ -91,4 +99,14 @@ export async function createPortalSession(userEmail: string): Promise<string> {
     console.error('Error creating portal session:', err);
     throw err;
   }
+}
+
+// Helper function to check if Stripe features should be available
+export function isStripeEnabled(): boolean {
+  return stripeConfig.mode !== 'disabled';
+}
+
+// Helper function to get user-friendly error message for disabled features
+export function getDisabledFeatureMessage(feature: string): string {
+  return `${feature} is not available in local development mode. Please use TraceRoot Cloud for payment features.`;
 }
