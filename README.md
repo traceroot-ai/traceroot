@@ -68,9 +68,9 @@ Whether you're using [TraceRoot Cloud](https://traceroot.ai) or self-hosting, yo
 
 ### Available SDKs
 
-| Language | Repository |
-|----------|------------|
-| Python | [traceroot-sdk](https://github.com/traceroot-ai/traceroot-sdk) |
+| Language              | Repository                                                           |
+| --------------------- | -------------------------------------------------------------------- |
+| Python                | [traceroot-sdk](https://github.com/traceroot-ai/traceroot-sdk)       |
 | JavaScript/TypeScript | [traceroot-sdk-ts](https://github.com/traceroot-ai/traceroot-sdk-ts) |
 
 For more details on SDK usage and examples, please check out this [Quickstart](https://docs.traceroot.ai/quickstart).
