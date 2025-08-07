@@ -35,26 +35,26 @@ check_docker() {
         print_info "Visit: https://docs.docker.com/get-docker/"
         exit 1
     fi
-    
+
     if ! docker info &> /dev/null; then
         print_error "Docker is not running. Please start Docker first."
         exit 1
     fi
-    
+
     print_message "Docker is installed and running ✓"
 }
 
 # Function to stop and remove existing containers
 cleanup_existing() {
     print_message "Cleaning up existing TraceRoot containers..."
-    
+
     # Stop and remove TraceRoot container if it exists
     if docker ps -a --format 'table {{.Names}}' | grep -q "^traceroot$"; then
         docker stop traceroot &> /dev/null || true
         docker rm traceroot &> /dev/null || true
         print_message "Removed existing TraceRoot container"
     fi
-    
+
     # Stop and remove Jaeger container if it exists
     if docker ps -a --format 'table {{.Names}}' | grep -q "^jaeger$"; then
         docker stop jaeger &> /dev/null || true
@@ -66,7 +66,7 @@ cleanup_existing() {
 # Function to start Jaeger
 start_jaeger() {
     print_message "Starting Jaeger (tracing backend)..."
-    
+
     docker run -d --name jaeger \
         -e COLLECTOR_OTLP_ENABLED=true \
         -p 16686:16686 \
@@ -75,7 +75,7 @@ start_jaeger() {
         -p 4317:4317 \
         -p 4318:4318 \
         cr.jaegertracing.io/jaegertracing/jaeger:2.8.0 &> /dev/null
-    
+
     print_message "Jaeger started successfully ✓"
     print_info "Jaeger UI will be available at: http://localhost:16686"
 }
@@ -83,20 +83,20 @@ start_jaeger() {
 # Function to build and start TraceRoot
 start_traceroot() {
     print_message "Building and starting TraceRoot (this may take 5-10 minutes)..."
-    
+
     # Create a temporary directory for the build
     TEMP_DIR=$(mktemp -d)
     cd "$TEMP_DIR"
-    
+
     # Clone the repository
     print_info "Cloning TraceRoot repository..."
     git clone https://github.com/traceroot-ai/traceroot.git &> /dev/null
     cd traceroot
-    
+
     # Build the Docker image
     print_info "Building Docker image..."
     docker build --no-cache --build-arg LOCAL_BUILD=false -t traceroot-hobby -f ./docker/public/Dockerfile . &> /dev/null
-    
+
     # Run the container
     print_info "Starting TraceRoot container..."
     docker run -d --name traceroot \
@@ -104,18 +104,18 @@ start_traceroot() {
         -p 3000:3000 \
         -p 8000:8000 \
         traceroot-hobby &> /dev/null
-    
+
     # Cleanup temp directory
     cd /
     rm -rf "$TEMP_DIR"
-    
+
     print_message "TraceRoot started successfully ✓"
 }
 
 # Function to wait for services to be ready
 wait_for_services() {
     print_message "Waiting for services to be ready..."
-    
+
     # Wait for frontend (max 5 minutes)
     print_info "Checking frontend service..."
     for i in {1..60}; do
@@ -129,7 +129,7 @@ wait_for_services() {
         fi
         sleep 5
     done
-    
+
     # Wait for backend (max 5 minutes)
     print_info "Checking backend service..."
     for i in {1..60}; do
@@ -175,7 +175,7 @@ main() {
     echo "🔍 Welcome to TraceRoot Hobby Deploy!"
     echo "This will set up TraceRoot locally for development and testing."
     echo ""
-    
+
     check_docker
     cleanup_existing
     start_jaeger
@@ -185,4 +185,4 @@ main() {
 }
 
 # Run main function
-main 
+main
