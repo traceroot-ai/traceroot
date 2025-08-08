@@ -51,7 +51,7 @@ and AI agent with chat mode.
 
 ### Self-hosting TraceRoot (Advanced)
 
-If you want to self-host TraceRoot, you can deploy a hobby instance in one line on Linux with Docker:
+If you want to self-host TraceRoot, you can deploy a starter instance in one line on Linux with Docker:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/traceroot-ai/traceroot/HEAD/bin/deploy-starter)"
