@@ -1,14 +1,14 @@
 #!/bin/bash
 #
 # This script:
-# 1. creates a new release branch `vX.Y` from origin/master, and
+# 1. creates a new release branch `vX.Y` from origin/main, and
 # 2. generates the first tag `vX.Y.0` on the minor version `vX.Y`.
 #
 
 set -e
 
 VERSION=$1
-BASE_REF=${2:-origin/master}
+BASE_REF=${2:-origin/main}
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then
     echo
@@ -16,7 +16,7 @@ if [[ $# -lt 1 || $# -gt 2 ]]; then
     echo
     echo "  VERSION:         The major version of the release, such as 'v1.9'"
     echo "  BASE_REF:        (optional) The git branch or commit that should"
-    echo "                   be used to create the release branch. Default: origin/master"
+    echo "                   be used to create the release branch. Default: origin/main"
     echo
     exit 1
 fi
@@ -35,11 +35,15 @@ else
     # If version is vX.0 for a new X, then we need to find the highest v(X-1).Y:
     if [[ "$VERSION" =~ ^v[0-9]+\.0$ ]]; then
         PREV_PREFIX=$(echo ${VERSION} | awk -F. '{print "v" substr($1, 2) - 1}')
-        PREV_VERSION=$(git tag -l | grep -E $PREV_PREFIX | grep -E "^v[0-9]+\.[0-9]+\.[0]$" | sort -V | tail -n 1)
+        PREV_VERSION=$(git tag -l | grep -E $PREV_PREFIX | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -n 1)
     else
         PREV_VERSION=$(echo ${VERSION} | awk -F. -v OFS=. '{$NF -= 1 ; print}').0
     fi
-    NOTES_ARG="--notes-start-tag ${PREV_VERSION}"
+    if [[ -n "$PREV_VERSION" ]]; then
+        NOTES_ARG="--notes-start-tag ${PREV_VERSION}"
+    else
+        NOTES_ARG=""
+    fi
 fi
 
 # Install GitHub CLI if not available
@@ -58,14 +62,14 @@ if ! command -v gh &> /dev/null; then
 fi
 
 # Check GitHub CLI version
-GIT_VERSION=$(gh --version | perl -pe 'if(($v)=/([0-9]+([.][0-9]+)+)/){print"$v\n";exit}$_=""')
-if ! { echo "2.28.0"; echo "$GIT_VERSION"; } | sort -V -C; then
+GH_VERSION=$(gh --version | perl -pe 'if(($v)=/([0-9]+([.][0-9]+)+)/){print"$v\n";exit}$_=""')
+if ! { echo "2.28.0"; echo "$GH_VERSION"; } | sort -V -C; then
     gh --version
     echo "You are running an out of date version of github cli. Please upgrade to at least v2.28.0"
     false
 fi
 
-# Fetch origin/master, and confirm that this is OK
+# Fetch origin/main, and confirm that this is OK
 git fetch origin
 git checkout $BASE_REF
 
@@ -94,7 +98,6 @@ fi
 
 # Create release branch and tag
 TAG=${VERSION}.0
-LATEST_TAG=${VERSION}
 
 git checkout -b $BRANCH
 git push origin $BRANCH
