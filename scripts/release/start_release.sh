@@ -86,16 +86,6 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     false
 fi
 
-# Fail if the release branch already exists
-if git show-ref -q --heads origin/${BRANCH}; then
-    echo "Release branch already exists at 'origin/${BRANCH}'"
-    echo "Please checkout the '${BRANCH}' branch and use the following script to make hotfixes:"
-    echo
-    echo "  ./scripts/release/cherry_pick.sh <PULL_REQUEST>"
-    echo
-    false
-fi
-
 # Create release branch and tag
 TAG=${VERSION}.0
 
@@ -103,3 +93,6 @@ git checkout -b $BRANCH
 git push origin $BRANCH
 git tag $TAG
 git push origin $TAG
+
+# Make a new release
+gh release create $TAG --verify-tag --generate-notes --title $TAG $NOTES_ARG
