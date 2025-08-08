@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# TraceRoot Hobby Deploy Script
+# TraceRoot Starter Deploy Script
 # This script sets up TraceRoot locally with minimal configuration
 
 # Colors for output
@@ -95,7 +95,7 @@ start_traceroot() {
 
     # Build the Docker image
     print_info "Building Docker image..."
-    docker build --no-cache --build-arg LOCAL_BUILD=false -t traceroot-hobby -f ./docker/public/Dockerfile . &> /dev/null
+    docker build --no-cache --build-arg LOCAL_BUILD=false -t traceroot-starter -f ./docker/public/Dockerfile . &> /dev/null
 
     # Run the container
     print_info "Starting TraceRoot container..."
@@ -103,7 +103,7 @@ start_traceroot() {
         --add-host=host.docker.internal:host-gateway \
         -p 3000:3000 \
         -p 8000:8000 \
-        traceroot-hobby &> /dev/null
+        traceroot-starter &> /dev/null
 
     # Cleanup temp directory
     cd /
@@ -133,7 +133,7 @@ wait_for_services() {
     # Wait for backend (max 5 minutes)
     print_info "Checking backend service..."
     for i in {1..60}; do
-        if curl -s http://localhost:8000/health &> /dev/null; then
+        if curl -s http://localhost:8000/docs &> /dev/null; then
             print_message "Backend is ready ✓"
             break
         fi
@@ -172,7 +172,7 @@ show_success_message() {
 # Main execution
 main() {
     echo ""
-    echo "🔍 Welcome to TraceRoot Hobby Deploy!"
+    echo "🔍 Welcome to TraceRoot Starter Deploy!"
     echo "This will set up TraceRoot locally for development and testing."
     echo ""
 

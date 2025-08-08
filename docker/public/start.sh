@@ -16,4 +16,5 @@ cd /app/traceroot
 source venv/bin/activate
 uvicorn rest.main:app --host 0.0.0.0 --port 8000 &
 
-sleep 30
+# Wait for all background processes to finish
+wait
