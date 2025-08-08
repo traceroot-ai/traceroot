@@ -45,4 +45,4 @@ services:
 
 networks:
   default:
-    name: traceroot-network 
+    name: traceroot-network
