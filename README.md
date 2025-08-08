@@ -18,11 +18,15 @@
 
 </div>
 
-🔍 TraceRoot helps engineers debug production issues 10x faster using AI-powered analysis of traces, logs, and code context.
+🔍 **TraceRoot** helps engineers debug production issues **10× faster** using AI-powered analysis of traces, logs, and code context.
 
-- Check out [traceroot.ai website](https://traceroot.ai) to start using TraceRoot to debug your production issues.
-- Visit the [traceroot docs](https://docs.traceroot.ai) to get started with traceroot library.
-- Join our [Discord](https://discord.gg/tPyffEZvvJ) for discussion
+- Visit the [TraceRoot website](https://traceroot.ai) to start debugging your production issues.
+- Explore the [TraceRoot documentation](https://docs.traceroot.ai) to get started with the TraceRoot library.
+- Join our [Discord community](https://discord.gg/tPyffEZvvJ) for discussions.
+
+## About
+
+TraceRoot accelerates the debugging process with AI-powered insights. It integrates seamlessly into your development workflow, providing real-time trace and log analysis, code context understanding, and intelligent assistance.
 
 ## Demo
 
@@ -44,10 +48,11 @@
 
 ### TraceRoot Cloud (Recommended)
 
-The fastest and most reliable way to get started with TraceRoot is signing up
-for free to [TraceRoot Cloud](https://auth.traceroot.ai/) for a 7 day trial.
-You will have 150k trace + logs storage with 30d retentions, 1.5M LLM tokens,
-and AI agent with chat mode.
+The fastest and most reliable way to start with TraceRoot is by signing up for free to [TraceRoot Cloud](https://auth.traceroot.ai/) for a **7-day trial**.  
+You’ll get:
+- **150k** traces + logs storage with **30-day retention**
+- **1.5M** LLM tokens
+- AI agent with chat mode
 
 ### Self-hosting TraceRoot (Advanced)
 
