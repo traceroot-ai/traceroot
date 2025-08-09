@@ -355,7 +355,8 @@ class TraceRootJaegerClient:
                 return None
 
             # Build parent-child relationships using parentSpanID
-            root_spans = self._build_span_hierarchy(spans_data, spans_dict)
+            root_spans: list[Span] = self._build_span_hierarchy(
+                spans_data, spans_dict)
 
             # Calculate trace start time, end time, and duration
             start_times = [span.start_time for span in spans_dict.values()]
@@ -464,6 +465,7 @@ class TraceRootJaegerClient:
             num_warning_logs: int = 0
             num_error_logs: int = 0
             num_critical_logs: int = 0
+            telemetry_sdk_language: str | None = None
 
             for tag in span_data.get("tags", []):
                 if tag.get("key") == "num_debug_logs":
@@ -476,6 +478,8 @@ class TraceRootJaegerClient:
                     num_error_logs = int(tag.get("value"))
                 if tag.get("key") == "num_critical_logs":
                     num_critical_logs = int(tag.get("value"))
+                if tag.get("key") == "telemetry.sdk.language":
+                    telemetry_sdk_language = tag.get("value")
 
             # Convert microseconds to seconds (float)
             start_time = span_data.get("startTime", 0) / 1_000_000.0
@@ -487,6 +491,7 @@ class TraceRootJaegerClient:
             # For now, set to 0 as Jaeger doesn't directly provide log counts
             span = Span(
                 id=span_id,
+                parent_id=None,
                 name=operation_name,
                 start_time=start_time,
                 end_time=end_time,
@@ -496,6 +501,7 @@ class TraceRootJaegerClient:
                 num_warning_logs=num_warning_logs,
                 num_error_logs=num_error_logs,
                 num_critical_logs=num_critical_logs,
+                telemetry_sdk_language=telemetry_sdk_language,
                 spans=[],  # Will be populated by _build_span_hierarchy
             )
 
