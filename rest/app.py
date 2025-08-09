@@ -15,6 +15,7 @@ from rest.client.jaeger_client import TraceRootJaegerClient
 from rest.routers.auth import router as auth_router
 from rest.routers.explore import ExploreRouter
 from rest.routers.integrate import IntegrateRouter
+from rest.routers.workflow import WorkflowRouter
 
 try:
     from rest.routers.ee.stripe_checkout import StripeCheckoutRouter
@@ -76,6 +77,14 @@ class App:
             self.integrate_router.router,
             prefix="/v1/integrate",
             tags=["integrate"],
+        )
+
+        # Add workflow router
+        self.workflow_router = WorkflowRouter(self.limiter)
+        self.app.include_router(
+            self.workflow_router.router,
+            prefix="/v1/workflow",
+            tags=["workflow"],
         )
 
         # Add verify router for SDK verification

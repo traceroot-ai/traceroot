@@ -1,13 +1,85 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 
+interface WorkflowCheckbox {
+  summarization: boolean;
+  issue_creation: boolean;
+  pr_creation: boolean;
+}
+
 export default function RightPanel() {
-  const [checkbox1, setCheckbox1] = useState<boolean>(false);
-  const [checkbox2, setCheckbox2] = useState<boolean>(false);
-  const [checkbox3, setCheckbox3] = useState<boolean>(false);
+  const [summarization, setSummarization] = useState<boolean>(false);
+  const [issueCreation, setIssueCreation] = useState<boolean>(false);
+  const [prCreation, setPrCreation] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  // Load initial workflow state
+  useEffect(() => {
+    const loadWorkflowState = async () => {
+      try {
+        const response = await fetch('/api/get_workflow', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_USER_SECRET || 'demo-secret'}`,
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.workflow) {
+            setSummarization(data.workflow.summarization);
+            setIssueCreation(data.workflow.issue_creation);
+            setPrCreation(data.workflow.pr_creation);
+          }
+        } else {
+          console.error('Failed to load workflow state:', response.statusText);
+        }
+      } catch (error) {
+        console.error('Error loading workflow state:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadWorkflowState();
+  }, []);
+
+  const handleCheckboxChange = async (
+    checkboxType: 'summarization' | 'issue_creation' | 'pr_creation',
+    checked: boolean,
+    setter: React.Dispatch<React.SetStateAction<boolean>>
+  ) => {
+    try {
+      const endpoint = checked ? '/api/post_workflow' : '/api/delete_workflow';
+      const method = checked ? 'POST' : 'DELETE';
+
+      const response = await fetch(endpoint, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_USER_SECRET || 'demo-secret'}`,
+        },
+        body: JSON.stringify({ checkbox_type: checkboxType }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setter(checked);
+        } else {
+          console.error('API request failed:', data.error);
+        }
+      } else {
+        console.error('Failed to update workflow:', response.statusText);
+      }
+    } catch (error) {
+      console.error('Error updating workflow:', error);
+    }
+  };
 
   return (
     <div className="min-h-full flex flex-col p-2">
@@ -19,16 +91,19 @@ export default function RightPanel() {
         <h3 className="leading-7 [&:not(:first-child)]:mb-5">
           Let TraceRoot AI agents automatically summarize error logs and create issues or PRs for you.
         </h3>
-        
-        <div className="space-y-5 p-1">
+
+        <div className="flex items-center space-x-8 p-1">
           <div className="flex items-center space-x-2">
             <Checkbox
-              id="checkbox1"
-              checked={checkbox1}
-              onCheckedChange={(checked) => setCheckbox1(checked === true)}
+              id="summarization_checkbox"
+              checked={summarization}
+              disabled={loading}
+              onCheckedChange={(checked) =>
+                handleCheckboxChange('summarization', checked === true, setSummarization)
+              }
             />
             <Label
-              htmlFor="checkbox1"
+              htmlFor="summarization_checkbox"
               className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
             >
               Summarization
@@ -37,12 +112,15 @@ export default function RightPanel() {
 
           <div className="flex items-center space-x-2">
             <Checkbox
-              id="checkbox2"
-              checked={checkbox2}
-              onCheckedChange={(checked) => setCheckbox2(checked === true)}
+              id="issue_checkbox"
+              checked={issueCreation}
+              disabled={loading}
+              onCheckedChange={(checked) =>
+                handleCheckboxChange('issue_creation', checked === true, setIssueCreation)
+              }
             />
             <Label
-              htmlFor="checkbox2"
+              htmlFor="issue_checkbox"
               className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
             >
               Issue Creation
@@ -51,12 +129,15 @@ export default function RightPanel() {
 
           <div className="flex items-center space-x-2">
             <Checkbox
-              id="checkbox3"
-              checked={checkbox3}
-              onCheckedChange={(checked) => setCheckbox3(checked === true)}
+              id="pr_checkbox"
+              checked={prCreation}
+              disabled={loading}
+              onCheckedChange={(checked) =>
+                handleCheckboxChange('pr_creation', checked === true, setPrCreation)
+              }
             />
             <Label
-              htmlFor="checkbox3"
+              htmlFor="pr_checkbox"
               className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
             >
               PR Creation

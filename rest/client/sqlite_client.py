@@ -5,7 +5,7 @@ from typing import Any
 
 import aiosqlite
 
-from rest.config import ChatMetadata, ChatMetadataHistory
+from rest.config import ChatMetadata, ChatMetadataHistory, WorkflowCheckbox
 
 DB_PATH = os.getenv("SQLITE_DB_PATH", "traceroot.db")
 
@@ -78,6 +78,22 @@ class TraceRootSQLiteClient:
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_connection_tokens_user_email "
                 "ON connection_tokens(user_email)")
+
+            # Workflow configuration table
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS workflow_config (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_email TEXT NOT NULL UNIQUE,
+                    summarization BOOLEAN DEFAULT FALSE,
+                    issue_creation BOOLEAN DEFAULT FALSE,
+                    pr_creation BOOLEAN DEFAULT FALSE,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await db.execute("CREATE INDEX IF NOT EXISTS "
+                             "idx_workflow_config_user_email "
+                             "ON workflow_config(user_email)")
 
             await db.commit()
 
@@ -334,3 +350,122 @@ class TraceRootSQLiteClient:
                 credentials if found, None otherwise
         """
         return
+
+    async def get_workflow(self, user_email: str) -> WorkflowCheckbox | None:
+        """Get workflow configuration for a user.
+
+        Args:
+            user_email: The user email to look up
+
+        Returns:
+            WorkflowCheckbox object if found, None otherwise
+        """
+        await self._init_db()
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                ("SELECT summarization, issue_creation, pr_creation "
+                 "FROM workflow_config WHERE user_email = ?"), (user_email, ))
+            row = await cursor.fetchone()
+            if row:
+                return WorkflowCheckbox(summarization=bool(row[0]),
+                                        issue_creation=bool(row[1]),
+                                        pr_creation=bool(row[2]))
+            return None
+
+    async def insert_workflow(self, user_email: str,
+                              checkbox_type: str) -> bool:
+        """Insert or update workflow configuration for a user.
+
+        Args:
+            user_email: The user email
+            checkbox_type: The checkbox type to enable
+
+        Returns:
+            True if successful, False otherwise
+        """
+        await self._init_db()
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                # First, get existing configuration
+                cursor = await db.execute(
+                    ("SELECT summarization, issue_creation, pr_creation "
+                     "FROM workflow_config WHERE user_email = ?"),
+                    (user_email, ))
+                row = await cursor.fetchone()
+
+                if row:
+                    # Update existing record
+                    summarization, issue_creation, pr_creation = row
+                    if checkbox_type == 'summarization':
+                        summarization = True
+                    elif checkbox_type == 'issue_creation':
+                        issue_creation = True
+                    elif checkbox_type == 'pr_creation':
+                        pr_creation = True
+
+                    await db.execute(
+                        ("UPDATE workflow_config SET summarization = ?, "
+                         "issue_creation = ?, pr_creation = ? WHERE "
+                         "user_email = ?"), (summarization, issue_creation,
+                                             pr_creation, user_email))
+                else:
+                    # Insert new record
+                    summarization = checkbox_type == 'summarization'
+                    issue_creation = checkbox_type == 'issue_creation'
+                    pr_creation = checkbox_type == 'pr_creation'
+
+                    await db.execute(
+                        ("INSERT INTO workflow_config (user_email, "
+                         "summarization, issue_creation, pr_creation) "
+                         "VALUES (?, ?, ?, ?)"), (user_email, summarization,
+                                                  issue_creation, pr_creation))
+
+                await db.commit()
+                return True
+        except Exception:
+            return False
+
+    async def delete_workflow(self, user_email: str,
+                              checkbox_type: str) -> bool:
+        """Delete workflow configuration for a user.
+
+        Args:
+            user_email: The user email
+            checkbox_type: The checkbox type to disable
+
+        Returns:
+            True if successful, False otherwise
+        """
+        await self._init_db()
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                # Get existing configuration
+                cursor = await db.execute(
+                    ("SELECT summarization, issue_creation, "
+                     "pr_creation FROM workflow_config WHERE "
+                     "user_email = ?"), (user_email, ))
+                row = await cursor.fetchone()
+
+                if row:
+                    # Update existing record by disabling the specified
+                    # checkbox
+                    summarization, issue_creation, pr_creation = row
+                    if checkbox_type == 'summarization':
+                        summarization = False
+                    elif checkbox_type == 'issue_creation':
+                        issue_creation = False
+                    elif checkbox_type == 'pr_creation':
+                        pr_creation = False
+
+                    await db.execute(
+                        ("UPDATE workflow_config SET summarization = ?, "
+                         "issue_creation = ?, pr_creation = ? WHERE "
+                         "user_email = ?"), (summarization, issue_creation,
+                                             pr_creation, user_email))
+                    await db.commit()
+                    return True
+                else:
+                    # No existing configuration, nothing to delete
+                    return True
+        except Exception:
+            return False
