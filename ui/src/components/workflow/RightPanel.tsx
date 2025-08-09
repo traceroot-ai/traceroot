@@ -18,6 +18,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface WorkflowCheckbox {
   summarization: boolean;
@@ -63,6 +68,33 @@ function SummarizationCell({ text }: SummarizationCellProps) {
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+interface TraceIdCellProps {
+  traceId: string;
+}
+
+function TraceIdCell({ traceId }: TraceIdCellProps) {
+  const maxLength = 15;
+  const shouldTruncate = traceId.length > maxLength;
+  const truncatedText = shouldTruncate ? `${traceId.substring(0, maxLength)}...` : traceId;
+
+  if (!shouldTruncate) {
+    return <span>{traceId}</span>;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="cursor-help">
+          {truncatedText}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>{traceId}</p>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -263,7 +295,7 @@ export default function RightPanel() {
               <TableRow>
                 <TableHead>Trace ID</TableHead>
                 <TableHead>Service Name</TableHead>
-                <TableHead>Number of Errors</TableHead>
+                <TableHead># Errors</TableHead>
                 {summarization && <TableHead>Summarization</TableHead>}
                 {issueCreation && <TableHead>Created Issue</TableHead>}
                 {prCreation && <TableHead>Created PR</TableHead>}
@@ -279,7 +311,9 @@ export default function RightPanel() {
               ) : (
                 tableData.map((row, index) => (
                   <TableRow key={index}>
-                    <TableCell>{row.trace_id}</TableCell>
+                    <TableCell>
+                      <TraceIdCell traceId={row.trace_id} />
+                    </TableCell>
                     <TableCell className="font-medium">{row.service_name}</TableCell>
                     <TableCell>{row.error_count}</TableCell>
                     {summarization && (
