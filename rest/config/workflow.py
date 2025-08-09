@@ -24,6 +24,9 @@ class WorkflowTableData(BaseModel):
     summarization: str
     created_issue: str
     created_pr: str
+    summarization_chat_id: Optional[str] = None
+    created_issue_chat_id: Optional[str] = None
+    created_pr_chat_id: Optional[str] = None
     pattern: Pattern
     timestamp: str
 
@@ -66,6 +69,9 @@ class WorkflowItemRequest(BaseModel):
     summarization: Optional[str] = "-"
     created_issue: Optional[str] = "-"
     created_pr: Optional[str] = "-"
+    summarization_chat_id: Optional[str] = None
+    created_issue_chat_id: Optional[str] = None
+    created_pr_chat_id: Optional[str] = None
     pattern: Pattern
     timestamp: str
 

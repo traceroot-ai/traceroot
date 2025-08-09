@@ -7,6 +7,9 @@ interface WorkflowItem {
     summarization: string;
     created_issue: string;
     created_pr: string;
+    summarization_chat_id?: string | null;
+    created_issue_chat_id?: string | null;
+    created_pr_chat_id?: string | null;
     pattern: {
         pattern_id: string;
         pattern_description: string;

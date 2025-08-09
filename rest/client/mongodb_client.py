@@ -194,3 +194,27 @@ class TraceRootMongoDBClient:
         Returns:
             True if successful, False otherwise
         """
+
+    async def check_pattern_exists(self,
+                                   pattern_description: str) -> str | None:
+        """Check if a pattern already exists based on description.
+
+        Args:
+            pattern_description: The pattern description to check
+
+        Returns:
+            The pattern_id if found, None otherwise
+        """
+
+    async def insert_pattern(self, pattern_id: str, trace_id: str,
+                             pattern_description: str) -> bool:
+        """Insert a new pattern.
+
+        Args:
+            pattern_id: The UUID for the pattern
+            trace_id: The trace ID associated with the pattern
+            pattern_description: The pattern description
+
+        Returns:
+            True if successful, False otherwise
+        """

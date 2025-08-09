@@ -48,7 +48,7 @@ async def log_feature_selector(
         params = {}
     else:
         params = {
-            "temperature": 0.5,
+            "temperature": 0.0,
         }
     response = await client.responses.parse(
         model=model,
@@ -90,7 +90,7 @@ async def span_feature_selector(
         params = {}
     else:
         params = {
-            "temperature": 0.5,
+            "temperature": 0.0,
         }
     response = await client.responses.parse(
         model=model,
