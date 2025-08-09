@@ -1,4 +1,5 @@
 from openai import AsyncOpenAI
+
 from rest.agent.output.pattern import PatternOutput
 from rest.typing import ChatModel
 
@@ -22,8 +23,7 @@ async def summarize_pattern(
         "role": "system",
         "content": SYSTEM_PROMPT,
     }, {
-        "role":
-        "user",
+        "role": "user",
         "content": (f"Here is the message: "
                     f"{message}")
     }]
