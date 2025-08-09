@@ -24,3 +24,12 @@ docker run -d --name jaeger \
 ## Run SDK
 
 Please refer to the [README.md in the traceroot-sdk directory](https://github.com/traceroot-ai/traceroot-sdk) with local mode enabled.
+
+## Run an Example
+
+Please
+
+```bash
+git clone https://github.com/traceroot-ai/traceroot-examples.git
+python3 examples/simple_example.py
+```
