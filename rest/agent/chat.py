@@ -23,7 +23,7 @@ from rest.agent.typing import LogFeature
 from rest.client.sqlite_client import TraceRootSQLiteClient
 from rest.config import ChatbotResponse
 from rest.typing import ActionStatus, ActionType, ChatModel, MessageType
-
+from rest.agent.utils.ai_response_parse import structured_parse
 
 class Chat:
 
@@ -251,29 +251,10 @@ class Chat:
     ) -> ChatOutput:
         r"""Chat with context chunks.
         """
-        if model in {
-                ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
-                ChatModel.O4_MINI.value
-        }:
-            params = {}
-        else:
-            params = {
-                "temperature": 0.8,
-            }
-        response = await chat_client.responses.parse(
-            model=model,
-            input=messages,
-            text_format=ChatOutput,
-            **params,
+        return await structured_parse(
+            chat_client, model, ChatOutput,
+            messages=messages, temperature=0.8
         )
-        if model in {
-                ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
-                ChatModel.O4_MINI.value
-        }:
-            content = response.output[1].content[0]
-        else:
-            content = response.output[0].content[0]
-        return content.parsed
 
     def get_context_messages(self, context: str) -> list[str]:
         r"""Get the context message.
