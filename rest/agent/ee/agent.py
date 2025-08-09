@@ -1,5 +1,6 @@
 import asyncio
 import os
+import uuid
 from datetime import datetime, timezone
 
 from openai import AsyncOpenAI
@@ -22,6 +23,8 @@ from rest.agent.ee.github_tools import (create_issue,
 from rest.agent.filter.feature import (log_feature_selector,
                                        span_feature_selector)
 from rest.agent.filter.structure import filter_log_node, log_node_selector
+from rest.agent.output.pattern import PatternOutput
+from rest.agent.summarizer.pattern import summarize_pattern
 from rest.agent.typing import LogFeature
 from rest.agent.utils.openai_tools import get_openai_tool_schema
 from rest.client.github_client import GitHubClient
@@ -192,6 +195,32 @@ class Agent:
 
         context = f"{json.dumps(tree, indent=4)}"
 
+        pattern: PatternOutput = await summarize_pattern(
+            message=user_message,
+            client=client,
+            model=model,
+        )
+
+        # Check if pattern exists, if not insert it
+        existing_pattern_id = await db_client.check_pattern_exists(
+            pattern.pattern)
+        if existing_pattern_id is None:
+            # Generate new UUID for the pattern
+            pattern_id = str(uuid.uuid4())
+            await db_client.insert_pattern(pattern_id=pattern_id,
+                                           trace_id=trace_id,
+                                           pattern_description=pattern.pattern)
+        else:
+            pattern_id = existing_pattern_id
+            response_time = datetime.now().astimezone(timezone.utc)
+            return ChatbotResponse(
+                time=response_time,
+                message="pattern_id: " + pattern_id,
+                reference=[],
+                message_type=MessageType.ASSISTANT,
+                chat_id=chat_id,
+            )
+
         context_chunks = self.get_context_messages(context)
         context_messages = [
             deepcopy(context_chunks[i]) for i in range(len(context_chunks))
@@ -273,7 +302,6 @@ class Agent:
             action_type = ActionType.GITHUB_CREATE_ISSUE.value
         elif is_github_pr:
             if "file_path_to_change" in response:
-                breakpoint()
                 pr_number = github_client.create_pr_with_file_changes(
                     title=response["title"],
                     body=response["body"],

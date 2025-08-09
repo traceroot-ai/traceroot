@@ -20,6 +20,8 @@ class TraceRootSQLiteClient:
     async def _init_db(self):
         """Initialize the database tables if they don't exist"""
         async with aiosqlite.connect(self.db_path) as db:
+            # Run migrations first
+            await self._run_migrations(db)
             # Chat records table
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS chat_records (
@@ -108,6 +110,9 @@ class TraceRootSQLiteClient:
                     summarization TEXT DEFAULT '-',
                     created_issue TEXT DEFAULT '-',
                     created_pr TEXT DEFAULT '-',
+                    summarization_chat_id TEXT,
+                    created_issue_chat_id TEXT,
+                    created_pr_chat_id TEXT,
                     pattern_id TEXT NOT NULL,
                     pattern_description TEXT NOT NULL,
                     timestamp TEXT NOT NULL,
@@ -126,7 +131,51 @@ class TraceRootSQLiteClient:
                              "idx_workflow_items_timestamp "
                              "ON workflow_items(timestamp)")
 
+            # Pattern table
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS patterns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pattern_id TEXT NOT NULL UNIQUE,
+                    trace_id TEXT NOT NULL,
+                    pattern_description TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(pattern_description)
+                )
+            """)
+            await db.execute("CREATE INDEX IF NOT EXISTS "
+                             "idx_patterns_pattern_id "
+                             "ON patterns(pattern_id)")
+            await db.execute("CREATE INDEX IF NOT EXISTS "
+                             "idx_patterns_trace_id "
+                             "ON patterns(trace_id)")
+            await db.execute("CREATE INDEX IF NOT EXISTS "
+                             "idx_patterns_description "
+                             "ON patterns(pattern_description)")
+
+    async def _run_migrations(self, db):
+        """Run database migrations to add new columns to existing tables"""
+        try:
+            # Check if the new columns exist in workflow_items table
+            cursor = await db.execute("PRAGMA table_info(workflow_items)")
+            columns = await cursor.fetchall()
+            column_names = [column[1] for column in columns]
+
+            # Add new columns if they don't exist
+            if 'summarization_chat_id' not in column_names:
+                await db.execute("ALTER TABLE workflow_items ADD "
+                                 "COLUMN summarization_chat_id TEXT")
+            if 'created_issue_chat_id' not in column_names:
+                await db.execute("ALTER TABLE workflow_items ADD "
+                                 "COLUMN created_issue_chat_id TEXT")
+            if 'created_pr_chat_id' not in column_names:
+                await db.execute("ALTER TABLE workflow_items ADD "
+                                 "COLUMN created_pr_chat_id TEXT")
+
             await db.commit()
+        except Exception:
+            # If the table doesn't exist yet, migrations
+            # will be handled by table creation
+            pass
 
     async def get_chat_history(
         self,
@@ -517,8 +566,10 @@ class TraceRootSQLiteClient:
             async with aiosqlite.connect(self.db_path) as db:
                 cursor = await db.execute(
                     ("SELECT trace_id, service_name, error_count, "
-                     "summarization, created_issue, created_pr, pattern_id, "
-                     "pattern_description, timestamp FROM "
+                     "summarization, created_issue, created_pr, "
+                     "summarization_chat_id, created_issue_chat_id, "
+                     "created_pr_chat_id, "
+                     "pattern_id, pattern_description, timestamp FROM "
                      "workflow_items WHERE "
                      "user_email = ? ORDER BY timestamp DESC"), (user_email, ))
                 rows = await cursor.fetchall()
@@ -526,16 +577,20 @@ class TraceRootSQLiteClient:
                 if rows:
                     workflow_items = []
                     for row in rows:
-                        pattern = Pattern(pattern_id=row[6],
-                                          pattern_description=row[7])
-                        workflow_item = WorkflowTableData(trace_id=row[0],
-                                                          service_name=row[1],
-                                                          error_count=row[2],
-                                                          summarization=row[3],
-                                                          created_issue=row[4],
-                                                          created_pr=row[5],
-                                                          pattern=pattern,
-                                                          timestamp=row[8])
+                        pattern = Pattern(pattern_id=row[9],
+                                          pattern_description=row[10])
+                        workflow_item = WorkflowTableData(
+                            trace_id=row[0],
+                            service_name=row[1],
+                            error_count=row[2],
+                            summarization=row[3],
+                            created_issue=row[4],
+                            created_pr=row[5],
+                            summarization_chat_id=row[6],
+                            created_issue_chat_id=row[7],
+                            created_pr_chat_id=row[8],
+                            pattern=pattern,
+                            timestamp=row[11])
                         workflow_items.append(workflow_item)
                     return workflow_items
                 return []
@@ -561,16 +616,22 @@ class TraceRootSQLiteClient:
                 await db.execute(
                     ("INSERT OR REPLACE INTO workflow_items "
                      "(user_email, trace_id, service_name, error_count, "
-                     "summarization, created_issue, created_pr, pattern_id, "
-                     "pattern_description, timestamp, updated_at) "
-                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)"
-                     ), (user_email, workflow_item.trace_id,
-                         workflow_item.service_name, workflow_item.error_count,
-                         workflow_item.summarization,
-                         workflow_item.created_issue, workflow_item.created_pr,
-                         workflow_item.pattern.pattern_id,
-                         workflow_item.pattern.pattern_description,
-                         workflow_item.timestamp))
+                     "summarization, created_issue, created_pr, "
+                     "summarization_chat_id, created_issue_chat_id, "
+                     "created_pr_chat_id, "
+                     "pattern_id, pattern_description, timestamp, updated_at) "
+                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                     "CURRENT_TIMESTAMP)"),
+                    (user_email, workflow_item.trace_id,
+                     workflow_item.service_name, workflow_item.error_count,
+                     workflow_item.summarization, workflow_item.created_issue,
+                     workflow_item.created_pr,
+                     workflow_item.summarization_chat_id,
+                     workflow_item.created_issue_chat_id,
+                     workflow_item.created_pr_chat_id,
+                     workflow_item.pattern.pattern_id,
+                     workflow_item.pattern.pattern_description,
+                     workflow_item.timestamp))
                 await db.commit()
                 return True
         except Exception:
@@ -593,6 +654,54 @@ class TraceRootSQLiteClient:
                 await db.execute(
                     ("DELETE FROM workflow_items WHERE user_email = ? "
                      "AND trace_id = ?"), (user_email, trace_id))
+                await db.commit()
+                return True
+        except Exception:
+            return False
+
+    async def check_pattern_exists(
+        self,
+        pattern_description: str,
+    ) -> str | None:
+        """Check if a pattern already exists based on description.
+
+        Args:
+            pattern_description: The pattern description to check
+
+        Returns:
+            The pattern_id if found, None otherwise
+        """
+        await self._init_db()
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                cursor = await db.execute(
+                    ("SELECT pattern_id FROM patterns WHERE "
+                     "pattern_description = ?"), (pattern_description, ))
+                row = await cursor.fetchone()
+                return row[0] if row else None
+        except Exception:
+            return None
+
+    async def insert_pattern(self, pattern_id: str, trace_id: str,
+                             pattern_description: str) -> bool:
+        """Insert a new pattern.
+
+        Args:
+            pattern_id: The UUID for the pattern
+            trace_id: The trace ID associated with the pattern
+            pattern_description: The pattern description
+
+        Returns:
+            True if successful, False otherwise
+        """
+        await self._init_db()
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute(
+                    ("INSERT OR IGNORE INTO patterns "
+                     "(pattern_id, trace_id, pattern_description) "
+                     "VALUES (?, ?, ?)"),
+                    (pattern_id, trace_id, pattern_description))
                 await db.commit()
                 return True
         except Exception:

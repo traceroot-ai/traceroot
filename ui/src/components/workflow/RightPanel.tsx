@@ -44,6 +44,9 @@ interface WorkflowTableData {
   summarization: string;
   created_issue: string;
   created_pr: string;
+  summarization_chat_id?: string | null;
+  created_issue_chat_id?: string | null;
+  created_pr_chat_id?: string | null;
   pattern: Pattern;
   timestamp: string;
 }
@@ -459,7 +462,7 @@ export default function RightPanel() {
             <TableBody>
               {tableData.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6 + (summarization ? 1 : 0) + (issueCreation ? 1 : 0) + (prCreation ? 1 : 0)} className="text-center py-8 text-gray-500">
+                  <TableCell colSpan={6 + (summarization ? 2 : 0) + (issueCreation ? 2 : 0) + (prCreation ? 2 : 0)} className="text-center py-8 text-gray-500">
                     No trace data available for the last 6 hours
                   </TableCell>
                 </TableRow>

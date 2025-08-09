@@ -43,7 +43,7 @@ async def log_node_selector(
         params = {}
     else:
         params = {
-            "temperature": 0.5,
+            "temperature": 0.0,
         }
     response = await client.responses.parse(
         model=model,
