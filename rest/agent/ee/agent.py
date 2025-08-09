@@ -211,15 +211,16 @@ class Agent:
                                            trace_id=trace_id,
                                            pattern_description=pattern.pattern)
         else:
-            pattern_id = existing_pattern_id
-            response_time = datetime.now().astimezone(timezone.utc)
-            return ChatbotResponse(
-                time=response_time,
-                message="pattern_id: " + pattern_id,
-                reference=[],
-                message_type=MessageType.ASSISTANT,
-                chat_id=chat_id,
-            )
+            if not is_github_issue and not is_github_pr:
+                pattern_id = existing_pattern_id
+                response_time = datetime.now().astimezone(timezone.utc)
+                return ChatbotResponse(
+                    time=response_time,
+                    message="pattern_id: " + pattern_id,
+                    reference=[],
+                    message_type=MessageType.ASSISTANT,
+                    chat_id=chat_id,
+                )
 
         context_chunks = self.get_context_messages(context)
         context_messages = [
@@ -287,7 +288,16 @@ class Agent:
         response = responses[0]
         github_client = GitHubClient()
         maybe_return_directly: bool = False
+        github_content: str | None = None
         if is_github_issue:
+            # print("ISSUE CREATED")
+            # return ChatbotResponse(
+            #     time=datetime.now().astimezone(timezone.utc),
+            #     message="Issue created",
+            #     reference=[],
+            #     message_type=MessageType.ASSISTANT,
+            #     chat_id=chat_id,
+            # )
             issue_number = github_client.create_issue(
                 title=response["title"],
                 body=response["body"],
@@ -298,17 +308,26 @@ class Agent:
             url = (f"https://github.com/{response['owner']}/"
                    f"{response['repo_name']}/"
                    f"issues/{issue_number}")
-            content = f"Issue created: {url}"
+            github_content = f"Issue created: {url}"
             action_type = ActionType.GITHUB_CREATE_ISSUE.value
         elif is_github_pr:
             if "file_path_to_change" in response:
+                # print("PR CREATED")
+                # return ChatbotResponse(
+                #     time=datetime.now().astimezone(timezone.utc),
+                #     message="PR created",
+                #     reference=[],
+                #     message_type=MessageType.ASSISTANT,
+                #     chat_id=chat_id,
+                # )
                 pr_number = github_client.create_pr_with_file_changes(
                     title=response["title"],
                     body=response["body"],
                     owner=response["owner"],
                     repo_name=response["repo_name"],
                     base_branch=response["base_branch"],
-                    head_branch=response["head_branch"],
+                    head_branch=response["head_branch"] + "_" +
+                    str(uuid.uuid4()),
                     file_path_to_change=response["file_path_to_change"],
                     file_content_to_change=response["file_content_to_change"],
                     commit_message=response["commit_message"],
@@ -317,7 +336,7 @@ class Agent:
                 url = (f"https://github.com/{response['owner']}/"
                        f"{response['repo_name']}/"
                        f"pull/{pr_number}")
-                content = f"PR created: {url}"
+                github_content = f"PR created: {url}"
                 action_type = ActionType.GITHUB_CREATE_PR.value
             else:
                 maybe_return_directly = True
@@ -328,7 +347,7 @@ class Agent:
                     "chat_id": chat_id,
                     "timestamp": datetime.now().astimezone(timezone.utc),
                     "role": "github",
-                    "content": content,
+                    "content": github_content,
                     "reference": [],
                     "trace_id": trace_id,
                     "chunk_id": 0,
@@ -361,6 +380,9 @@ class Agent:
             summary_content = summary_response.choices[0].message.content
         else:
             summary_content = response["content"]
+
+        if github_content is not None:
+            summary_content = summary_content + "\n\n" + github_content
 
         await db_client.insert_chat_record(
             message={
