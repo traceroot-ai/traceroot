@@ -20,10 +20,11 @@ from rest.agent.filter.structure import filter_log_node, log_node_selector
 from rest.agent.output.chat_output import ChatOutput
 from rest.agent.summarizer.chunk import chunk_summarize
 from rest.agent.typing import LogFeature
+from rest.agent.utils.ai_response_parse import structured_parse
 from rest.client.sqlite_client import TraceRootSQLiteClient
 from rest.config import ChatbotResponse
 from rest.typing import ActionStatus, ActionType, ChatModel, MessageType
-from rest.agent.utils.ai_response_parse import structured_parse
+
 
 class Chat:
 
@@ -251,10 +252,11 @@ class Chat:
     ) -> ChatOutput:
         r"""Chat with context chunks.
         """
-        return await structured_parse(
-            chat_client, model, ChatOutput,
-            messages=messages, temperature=0.8
-        )
+        return await structured_parse(chat_client,
+                                      model,
+                                      ChatOutput,
+                                      messages=messages,
+                                      temperature=0.8)
 
     def get_context_messages(self, context: str) -> list[str]:
         r"""Get the context message.

@@ -3,7 +3,6 @@ from openai import AsyncOpenAI
 from rest.agent.output.feature import (LogFeatureSelectorOutput,
                                        SpanFeatureSelectorOutput)
 from rest.agent.typing import LogFeature, SpanFeature
-from rest.typing import ChatModel
 from rest.agent.utils.ai_response_parse import structured_parse
 
 LOG_FEATURE_SELECTOR_PROMPT = (
@@ -43,9 +42,11 @@ async def log_feature_selector(
         },
     ]
     response: LogFeatureSelectorOutput = await structured_parse(
-        client, model, LogFeatureSelectorOutput,
-        messages= messages, temperature=0.5
-    )
+        client,
+        model,
+        LogFeatureSelectorOutput,
+        messages=messages,
+        temperature=0.5)
     return response.log_features
 
 
@@ -65,7 +66,9 @@ async def span_feature_selector(
         },
     ]
     response: SpanFeatureSelectorOutput = await structured_parse(
-        client, model, SpanFeatureSelectorOutput,
-        messages= messages, temperature=0.5
-    )
+        client,
+        model,
+        SpanFeatureSelectorOutput,
+        messages=messages,
+        temperature=0.5)
     return response.span_features
