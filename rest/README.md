@@ -3,9 +3,9 @@
 ## Install Python Dependencies
 
 ```bash
+# In the traceroot directory
 python3.11 -m venv venv
 source venv/bin/activate
-cd traceroot
 pip install -e .
 ```
 
