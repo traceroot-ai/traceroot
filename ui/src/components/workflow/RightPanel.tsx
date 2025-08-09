@@ -11,6 +11,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 
 interface WorkflowCheckbox {
   summarization: boolean;
@@ -20,10 +27,43 @@ interface WorkflowCheckbox {
 
 interface WorkflowTableData {
   service_name: string;
+  trace_id: string;
   error_count: number;
   summarization: string;
   created_issue: string;
   created_pr: string;
+}
+
+interface SummarizationCellProps {
+  text: string;
+}
+
+function SummarizationCell({ text }: SummarizationCellProps) {
+  const maxLength = 20;
+  const shouldTruncate = text.length > maxLength;
+  const truncatedText = shouldTruncate ? `${text.substring(0, maxLength)}...` : text;
+
+  if (!shouldTruncate) {
+    return <span>{text}</span>;
+  }
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <span className="cursor-pointer underline">
+          {truncatedText}
+        </span>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Full Summarization</DialogTitle>
+        </DialogHeader>
+        <div className="mt-4">
+          <p className="text-sm text-gray-700">{text}</p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export default function RightPanel() {
@@ -31,31 +71,54 @@ export default function RightPanel() {
   const [issueCreation, setIssueCreation] = useState<boolean>(false);
   const [prCreation, setPrCreation] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
+  const [tableData, setTableData] = useState<WorkflowTableData[]>([]);
+  const [dataLoading, setDataLoading] = useState<boolean>(true);
 
-  // Sample data for the table
-  const [tableData] = useState<WorkflowTableData[]>([
-    {
-      service_name: "auth-service",
-      error_count: 12,
-      summarization: "Database connection timeout errors",
-      created_issue: "#123",
-      created_pr: "#456"
-    },
-    {
-      service_name: "payment-service",
-      error_count: 8,
-      summarization: "API rate limit exceeded",
-      created_issue: "#124",
-      created_pr: "#457"
-    },
-    {
-      service_name: "user-service",
-      error_count: 5,
-      summarization: "Memory leak in user session handling",
-      created_issue: "#125",
-      created_pr: "-"
-    }
-  ]);
+  // Load trace data
+  useEffect(() => {
+    const loadTraceData = async () => {
+      try {
+        // Calculate time range: current time and 6 hours ago
+        const endTime = new Date();
+        const startTime = new Date(endTime.getTime() - 6 * 60 * 60 * 1000); // 6 hours ago
+
+        const response = await fetch(
+          `/api/list_trace?startTime=${encodeURIComponent(startTime.toISOString())}&endTime=${encodeURIComponent(endTime.toISOString())}`,
+          {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${process.env.NEXT_PUBLIC_USER_SECRET || 'demo-secret'}`,
+            },
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.data) {
+            // Transform trace data to table format
+            const transformedData: WorkflowTableData[] = data.data.map((trace: any) => ({
+              service_name: trace.service_name || 'Unknown Service',
+              trace_id: trace.id,
+              error_count: (trace.num_error_logs || 0) + (trace.num_critical_logs || 0),
+              summarization: '-',
+              created_issue: '-',
+              created_pr: '-'
+            }));
+            setTableData(transformedData);
+          }
+        } else {
+          console.error('Failed to load trace data:', response.statusText);
+        }
+      } catch (error) {
+        console.error('Error loading trace data:', error);
+      } finally {
+        setDataLoading(false);
+      }
+    };
+
+    loadTraceData();
+  }, []);
 
   // Load initial workflow state
   useEffect(() => {
@@ -187,31 +250,51 @@ export default function RightPanel() {
         </div>
       </div>
 
-      {/* Data Table - separate container with white background */}
+            {/* Data Table - separate container with white background */}
       <div className="w-3/4 max-w-6xl mx-auto bg-white m-5 p-10 rounded-lg font-mono bg-zinc-50">
         <h3 className="text-xl font-semibold mb-4">Results</h3>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Service Name</TableHead>
-              <TableHead>Number of Errors</TableHead>
-              {summarization && <TableHead>Summarization</TableHead>}
-              {issueCreation && <TableHead>Created Issue</TableHead>}
-              {prCreation && <TableHead>Created PR</TableHead>}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {tableData.map((row, index) => (
-              <TableRow key={index}>
-                <TableCell className="font-medium">{row.service_name}</TableCell>
-                <TableCell>{row.error_count}</TableCell>
-                {summarization && <TableCell>{row.summarization}</TableCell>}
-                {issueCreation && <TableCell>{row.created_issue}</TableCell>}
-                {prCreation && <TableCell>{row.created_pr}</TableCell>}
+        {dataLoading ? (
+          <div className="flex justify-center items-center py-8">
+            <p className="text-gray-500">Loading trace data...</p>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Trace ID</TableHead>
+                <TableHead>Service Name</TableHead>
+                <TableHead>Number of Errors</TableHead>
+                {summarization && <TableHead>Summarization</TableHead>}
+                {issueCreation && <TableHead>Created Issue</TableHead>}
+                {prCreation && <TableHead>Created PR</TableHead>}
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {tableData.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={3 + (summarization ? 1 : 0) + (issueCreation ? 1 : 0) + (prCreation ? 1 : 0)} className="text-center py-8 text-gray-500">
+                    No trace data available for the last 6 hours
+                  </TableCell>
+                </TableRow>
+              ) : (
+                tableData.map((row, index) => (
+                  <TableRow key={index}>
+                    <TableCell>{row.trace_id}</TableCell>
+                    <TableCell className="font-medium">{row.service_name}</TableCell>
+                    <TableCell>{row.error_count}</TableCell>
+                    {summarization && (
+                      <TableCell>
+                        <SummarizationCell text={row.summarization} />
+                      </TableCell>
+                    )}
+                    {issueCreation && <TableCell>{row.created_issue}</TableCell>}
+                    {prCreation && <TableCell>{row.created_pr}</TableCell>}
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        )}
       </div>
     </div>
   );
