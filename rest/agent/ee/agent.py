@@ -290,14 +290,14 @@ class Agent:
         maybe_return_directly: bool = False
         github_content: str | None = None
         if is_github_issue:
-            print("ISSUE CREATED")
-            return ChatbotResponse(
-                time=datetime.now().astimezone(timezone.utc),
-                message="Issue created",
-                reference=[],
-                message_type=MessageType.ASSISTANT,
-                chat_id=chat_id,
-            )
+            # print("ISSUE CREATED")
+            # return ChatbotResponse(
+            #     time=datetime.now().astimezone(timezone.utc),
+            #     message="Issue created",
+            #     reference=[],
+            #     message_type=MessageType.ASSISTANT,
+            #     chat_id=chat_id,
+            # )
             issue_number = github_client.create_issue(
                 title=response["title"],
                 body=response["body"],
@@ -312,14 +312,14 @@ class Agent:
             action_type = ActionType.GITHUB_CREATE_ISSUE.value
         elif is_github_pr:
             if "file_path_to_change" in response:
-                print("PR CREATED")
-                return ChatbotResponse(
-                    time=datetime.now().astimezone(timezone.utc),
-                    message="PR created",
-                    reference=[],
-                    message_type=MessageType.ASSISTANT,
-                    chat_id=chat_id,
-                )
+                # print("PR CREATED")
+                # return ChatbotResponse(
+                #     time=datetime.now().astimezone(timezone.utc),
+                #     message="PR created",
+                #     reference=[],
+                #     message_type=MessageType.ASSISTANT,
+                #     chat_id=chat_id,
+                # )
                 pr_number = github_client.create_pr_with_file_changes(
                     title=response["title"],
                     body=response["body"],
