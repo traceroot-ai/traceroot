@@ -23,7 +23,9 @@ async def structured_parse(
     Unified wrapper for responses.parse with consistent temperature & output indexing.
     """
 
-    params: dict[str, Any] = {} if model in SPECIAL_MODELS else {"temperature": temperature}
+    params: dict[str, Any] = (
+        {} if model in SPECIAL_MODELS else {"temperature": temperature}
+    )
     resp = await client.responses.parse(
         model=model,
         input=list(messages),
