@@ -189,14 +189,15 @@ export default function RightPanel() {
 
       {/* Data Table - separate container with white background */}
       <div className="w-3/4 max-w-6xl mx-auto bg-white m-5 p-10 rounded-lg font-mono bg-zinc-50">
+        <h3 className="text-xl font-semibold mb-4">Results</h3>
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Service Name</TableHead>
               <TableHead>Number of Errors</TableHead>
-              <TableHead>Summarization</TableHead>
-              <TableHead>Created Issue</TableHead>
-              <TableHead>Created PR</TableHead>
+              {summarization && <TableHead>Summarization</TableHead>}
+              {issueCreation && <TableHead>Created Issue</TableHead>}
+              {prCreation && <TableHead>Created PR</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -204,9 +205,9 @@ export default function RightPanel() {
               <TableRow key={index}>
                 <TableCell className="font-medium">{row.service_name}</TableCell>
                 <TableCell>{row.error_count}</TableCell>
-                <TableCell>{row.summarization}</TableCell>
-                <TableCell>{row.created_issue}</TableCell>
-                <TableCell>{row.created_pr}</TableCell>
+                {summarization && <TableCell>{row.summarization}</TableCell>}
+                {issueCreation && <TableCell>{row.created_issue}</TableCell>}
+                {prCreation && <TableCell>{row.created_pr}</TableCell>}
               </TableRow>
             ))}
           </TableBody>
