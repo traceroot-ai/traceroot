@@ -10,8 +10,8 @@ except ImportError:
     from rest.client.mongodb_client import TraceRootMongoDBClient
 from rest.client.sqlite_client import TraceRootSQLiteClient
 from rest.config import (DeleteWorkflowRequest, DeleteWorkflowResponse,
-                         GetWorkflowResponse, WorkflowCheckbox, WorkflowRequest,
-                         WorkflowResponse)
+                         GetWorkflowResponse, WorkflowCheckbox,
+                         WorkflowRequest, WorkflowResponse)
 from rest.config.rate_limit import get_rate_limit_config
 
 try:
@@ -68,8 +68,7 @@ class WorkflowRouter:
 
             # Enable the specified workflow checkbox
             success = await self.db_client.insert_workflow(
-                user_email=user_email,
-                checkbox_type=req_data.checkbox_type)
+                user_email=user_email, checkbox_type=req_data.checkbox_type)
 
             response = WorkflowResponse(success=success)
             return response.model_dump()
@@ -90,7 +89,8 @@ class WorkflowRouter:
             request (Request): FastAPI request object
 
         Returns:
-            dict[str, Any]: Dictionary containing success status and workflow configuration.
+            dict[str, Any]: Dictionary containing success status
+                and workflow configuration.
         """
         try:
             # Get user credentials (fake in local mode, real in remote mode)
@@ -98,7 +98,7 @@ class WorkflowRouter:
 
             # Get the workflow configuration from database
             workflow = await self.db_client.get_workflow(user_email=user_email)
-            
+
             # If no workflow found, return default configuration
             if workflow is None:
                 workflow = WorkflowCheckbox()
@@ -133,8 +133,7 @@ class WorkflowRouter:
 
             # Disable the specified workflow checkbox
             success = await self.db_client.delete_workflow(
-                user_email=user_email,
-                checkbox_type=req_data.checkbox_type)
+                user_email=user_email, checkbox_type=req_data.checkbox_type)
 
             response = DeleteWorkflowResponse(success=success)
             return response.model_dump()
