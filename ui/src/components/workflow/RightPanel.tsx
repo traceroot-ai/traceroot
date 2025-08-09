@@ -3,6 +3,14 @@
 import React, { useState, useEffect } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 interface WorkflowCheckbox {
   summarization: boolean;
@@ -10,11 +18,44 @@ interface WorkflowCheckbox {
   pr_creation: boolean;
 }
 
+interface WorkflowTableData {
+  service_name: string;
+  error_count: number;
+  summarization: string;
+  created_issue: string;
+  created_pr: string;
+}
+
 export default function RightPanel() {
   const [summarization, setSummarization] = useState<boolean>(false);
   const [issueCreation, setIssueCreation] = useState<boolean>(false);
   const [prCreation, setPrCreation] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
+
+  // Sample data for the table
+  const [tableData] = useState<WorkflowTableData[]>([
+    {
+      service_name: "auth-service",
+      error_count: 12,
+      summarization: "Database connection timeout errors",
+      created_issue: "#123",
+      created_pr: "#456"
+    },
+    {
+      service_name: "payment-service",
+      error_count: 8,
+      summarization: "API rate limit exceeded",
+      created_issue: "#124",
+      created_pr: "#457"
+    },
+    {
+      service_name: "user-service",
+      error_count: 5,
+      summarization: "Memory leak in user session handling",
+      created_issue: "#125",
+      created_pr: "-"
+    }
+  ]);
 
   // Load initial workflow state
   useEffect(() => {
@@ -144,6 +185,32 @@ export default function RightPanel() {
             </Label>
           </div>
         </div>
+      </div>
+
+      {/* Data Table - separate container with white background */}
+      <div className="w-3/4 max-w-6xl mx-auto bg-white m-5 p-10 rounded-lg font-mono bg-zinc-50">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Service Name</TableHead>
+              <TableHead>Number of Errors</TableHead>
+              <TableHead>Summarization</TableHead>
+              <TableHead>Created Issue</TableHead>
+              <TableHead>Created PR</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {tableData.map((row, index) => (
+              <TableRow key={index}>
+                <TableCell className="font-medium">{row.service_name}</TableCell>
+                <TableCell>{row.error_count}</TableCell>
+                <TableCell>{row.summarization}</TableCell>
+                <TableCell>{row.created_issue}</TableCell>
+                <TableCell>{row.created_pr}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
     </div>
   );
