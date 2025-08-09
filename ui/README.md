@@ -18,7 +18,7 @@ Only run this command once:
 
 ```bash
 npm install
-# Source the environment variables
+# Copy all necessary environment variables to .env.local for nextjs to use
 cp ../.env.development ./.env.local
 ```
 

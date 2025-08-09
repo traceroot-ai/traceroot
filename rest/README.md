@@ -14,6 +14,8 @@ pip install -e .
 Start the server:
 
 ```bash
+set -a
 source .env.development
+set +a
 uvicorn rest.main:app --reload --reload-dir rest
 ```

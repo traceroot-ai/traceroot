@@ -30,8 +30,6 @@ class IntegrateRouter:
 
     def __init__(self, limiter: Limiter):
         self.router = APIRouter()
-
-        # Choose client based on REMOTE_MODE environment variable
         self.local_mode = bool(os.getenv("TRACE_ROOT_LOCAL_MODE", False))
         if self.local_mode:
             self.db_client = TraceRootSQLiteClient()
