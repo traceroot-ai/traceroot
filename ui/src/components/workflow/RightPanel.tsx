@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import {
   Table,
   TableBody,
@@ -25,6 +26,9 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Trash2 } from 'lucide-react';
+import { ChatRequest, ChatResponse } from '@/models/chat';
+import { OPENAI_MODELS, PROVIDERS, CHAT_MODE } from '@/constants/model';
+import { generateUuidHex } from '@/utils/uuid';
 
 interface WorkflowCheckbox {
   summarization: boolean;
@@ -49,14 +53,20 @@ interface WorkflowTableData {
   created_pr_chat_id?: string | null;
   pattern: Pattern;
   timestamp: string;
+  is_duplicate?: boolean;
 }
 
 interface SummarizationCellProps {
   text: string;
+  isDuplicate?: boolean;
 }
 
-function SummarizationCell({ text }: SummarizationCellProps) {
-  const maxLength = 20;
+function SummarizationCell({ text, isDuplicate }: SummarizationCellProps) {
+  if (isDuplicate) {
+    return <Badge variant="outline">DUPLICATED</Badge>;
+  }
+
+  const maxLength = 15;
   const shouldTruncate = text.length > maxLength;
   const truncatedText = shouldTruncate ? `${text.substring(0, maxLength)}...` : text;
 
@@ -83,12 +93,128 @@ function SummarizationCell({ text }: SummarizationCellProps) {
   );
 }
 
+interface IssueCellProps {
+  text: string;
+  isDuplicate?: boolean;
+}
+
+function IssueCell({ text, isDuplicate }: IssueCellProps) {
+  if (isDuplicate) {
+    return <Badge variant="outline">DUPLICATED</Badge>;
+  }
+
+  // Check if the text contains a GitHub issue URL pattern
+  const githubIssueRegex = /https:\/\/github\.com\/[^\/]+\/[^\/]+\/issues\/(\d+)/;
+  const match = text.match(githubIssueRegex);
+
+  if (match) {
+    const issueNumber = match[1];
+    const issueUrl = match[0];
+
+    return (
+      <a
+        href={issueUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-black hover:text-gray-700 underline font-medium"
+      >
+        #{issueNumber}
+      </a>
+    );
+  }
+
+  // If no GitHub issue URL found, display the text normally with truncation if needed
+  const maxLength = 20;
+  const shouldTruncate = text.length > maxLength;
+  const truncatedText = shouldTruncate ? `${text.substring(0, maxLength)}...` : text;
+
+  if (!shouldTruncate) {
+    return <span>{text}</span>;
+  }
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <span className="cursor-pointer underline">
+          {truncatedText}
+        </span>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Created Issue</DialogTitle>
+        </DialogHeader>
+        <div className="mt-4">
+          <p className="text-sm text-gray-700">{text}</p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface PRCellProps {
+  text: string;
+  isDuplicate?: boolean;
+}
+
+function PRCell({ text, isDuplicate }: PRCellProps) {
+  if (isDuplicate) {
+    return <Badge variant="outline">DUPLICATED</Badge>;
+  }
+
+  // Check if the text contains a GitHub PR URL pattern
+  const githubPRRegex = /https:\/\/github\.com\/[^\/]+\/[^\/]+\/pull\/(\d+)/;
+  const match = text.match(githubPRRegex);
+
+  if (match) {
+    const prNumber = match[1];
+    const prUrl = match[0];
+
+    return (
+      <a
+        href={prUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-black hover:text-gray-700 underline font-medium"
+      >
+        #{prNumber}
+      </a>
+    );
+  }
+
+  // If no GitHub PR URL found, display the text normally with truncation if needed
+  const maxLength = 15;
+  const shouldTruncate = text.length > maxLength;
+  const truncatedText = shouldTruncate ? `${text.substring(0, maxLength)}...` : text;
+
+  if (!shouldTruncate) {
+    return <span>{text}</span>;
+  }
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <span className="cursor-pointer underline">
+          {truncatedText}
+        </span>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Created PR</DialogTitle>
+        </DialogHeader>
+        <div className="mt-4">
+          <p className="text-sm text-gray-700">{text}</p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 interface TraceIdCellProps {
   traceId: string;
 }
 
 function TraceIdCell({ traceId }: TraceIdCellProps) {
-  const maxLength = 15;
+  const maxLength = 10;
   const shouldTruncate = traceId.length > maxLength;
   const truncatedText = shouldTruncate ? `${traceId.substring(0, maxLength)}...` : traceId;
 
@@ -118,53 +244,81 @@ export default function RightPanel() {
   const [tableData, setTableData] = useState<WorkflowTableData[]>([]);
   const [dataLoading, setDataLoading] = useState<boolean>(true);
   const [workflowItems, setWorkflowItems] = useState<WorkflowTableData[]>([]);
+  const [workflowItemsLoading, setWorkflowItemsLoading] = useState<boolean>(true);
+  const [processingItems, setProcessingItems] = useState<Set<string>>(new Set());
+  // Local set to track existing workflow item trace IDs
+  const [existingTraceIds, setExistingTraceIds] = useState<Set<string>>(new Set());
+  // Ref to always have the latest workflowItems inside polling closures
+  const workflowItemsRef = useRef<WorkflowTableData[]>([]);
 
-  // Load trace data with polling
+  // Keep ref in sync with state
   useEffect(() => {
-          const loadTraceData = async () => {
-        try {
-          // Calculate time range: current time and 6 hours ago
-          const endTime = new Date();
-          const startTime = new Date(endTime.getTime() - 6 * 60 * 60 * 1000); // 6 hours ago
+    workflowItemsRef.current = workflowItems;
+  }, [workflowItems]);
 
-          const response = await fetch(
-            `/api/list_trace?startTime=${encodeURIComponent(startTime.toISOString())}&endTime=${encodeURIComponent(endTime.toISOString())}`,
-            {
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${process.env.NEXT_PUBLIC_USER_SECRET || 'demo-secret'}`,
+  // Load trace data with polling - ONLY start after workflow items are loaded
+  useEffect(() => {
+    // Don't start polling until workflow items are loaded
+    if (workflowItemsLoading) return;
+
+    const loadTraceData = async () => {
+      try {
+        // Calculate time range: current time and 6 hours ago
+        const endTime = new Date();
+        const startTime = new Date(endTime.getTime() - 6 * 60 * 60 * 1000); // 6 hours ago
+
+        const response = await fetch(
+          `/api/list_trace?startTime=${encodeURIComponent(startTime.toISOString())}&endTime=${encodeURIComponent(endTime.toISOString())}`,
+          {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${process.env.NEXT_PUBLIC_USER_SECRET || 'demo-secret'}`,
+            },
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.data) {
+            // Transform trace data to table format
+            const transformedData: WorkflowTableData[] = data.data.map((trace: any) => ({
+              service_name: trace.service_name || 'Unknown Service',
+              trace_id: trace.id,
+              error_count: (trace.num_error_logs || 0) + (trace.num_critical_logs || 0),
+              summarization: '-',
+              created_issue: '-',
+              created_pr: '-',
+              pattern: {
+                pattern_id: `pattern_${trace.id.slice(-8)}`,
+                pattern_description: '-'
               },
-            }
-          );
+              timestamp: trace.start_time ? new Date(trace.start_time * 1000).toISOString() : new Date().toISOString()
+            }));
 
-          if (response.ok) {
-            const data = await response.json();
-            if (data.success && data.data) {
-              // Transform trace data to table format
-              const transformedData: WorkflowTableData[] = data.data.map((trace: any) => ({
-                service_name: trace.service_name || 'Unknown Service',
-                trace_id: trace.id,
-                error_count: (trace.num_error_logs || 0) + (trace.num_critical_logs || 0),
-                summarization: '-',
-                created_issue: '-',
-                created_pr: '-',
-                pattern: {
-                  pattern_id: `pattern_${trace.id.slice(-8)}`,
-                  pattern_description: '-'
-                },
-                timestamp: trace.start_time ? new Date(trace.start_time * 1000).toISOString() : new Date().toISOString()
-              }));
+            // Filter out specific trace IDs that should be completely skipped
+            const skippedTraceIds = ['33d759cf19dc14fd5aee31eefc9a8646', '37d2f3decf108ddcb4c1fa5473095f01', '78a9982a28a2a6243170a4f430f8d8ca', 'bdaa2c88e4de93c603bf9d22bb456e7b'];
+            const filteredData = transformedData.filter(trace => !skippedTraceIds.includes(trace.trace_id));
 
-              // Check for new traces not in existing workflow items and post them
-              const existingTraceIds = new Set(workflowItems.map(item => item.trace_id));
-              const newTraces = transformedData.filter(trace => !existingTraceIds.has(trace.trace_id));
+            // Check for new traces not in existing local set
+            const newTraces = filteredData.filter(trace => !existingTraceIds.has(trace.trace_id));
 
               if (newTraces.length > 0) {
                 console.log(`Found ${newTraces.length} new traces not in workflow items:`, newTraces.map(t => t.trace_id));
 
+                // Check if service names already exist in current workflow items
+                // Mark new traces as duplicates if their service name already exists
+                const existingServiceNames = new Set(workflowItemsRef.current.map(item => item.service_name));
+                const tracesWithDuplicateCheck = newTraces.map(trace => {
+                  if (existingServiceNames.has(trace.service_name)) {
+                    console.log(`Marking new trace ${trace.trace_id} as duplicate due to existing service name: ${trace.service_name}`);
+                    return { ...trace, is_duplicate: true };
+                  }
+                  return trace;
+                });
+
                 // Post each new trace as a workflow item
-                const postPromises = newTraces.map(async (trace) => {
+                const postPromises = tracesWithDuplicateCheck.map(async (trace) => {
                   try {
                     const response = await fetch('/api/post_workflow_items', {
                       method: 'POST',
@@ -181,6 +335,7 @@ export default function RightPanel() {
                         created_pr: trace.created_pr,
                         pattern: trace.pattern,
                         timestamp: trace.timestamp,
+                        is_duplicate: trace.is_duplicate || false,
                       }),
                     });
 
@@ -211,6 +366,14 @@ export default function RightPanel() {
                   if (successfullyPosted.length > 0) {
                     // Update workflowItems state with the newly added items
                     setWorkflowItems(prevItems => [...prevItems, ...successfullyPosted]);
+
+                    // Add new trace IDs to the local set
+                    setExistingTraceIds(prev => {
+                      const newSet = new Set(prev);
+                      successfullyPosted.forEach(trace => newSet.add(trace.trace_id));
+                      return newSet;
+                    });
+
                     console.log(`Successfully added ${successfullyPosted.length} new workflow items`);
                   }
                 } catch (error) {
@@ -219,15 +382,34 @@ export default function RightPanel() {
               }
 
               // Create unified dataset: merge existing workflow items with current trace data
-              // Use workflow items as the source of truth, but update with fresh trace data
-              const unifiedData = transformedData.map(trace => {
-                const existingItem = workflowItems.find(item => item.trace_id === trace.trace_id);
-                return existingItem || trace; // Use existing workflow item if available, otherwise use trace data
+              // Use workflow items as the source of truth for workflow fields, but update with fresh trace data
+              const unifiedData = filteredData.map(trace => {
+                const existingItem = workflowItemsRef.current.find(item => item.trace_id === trace.trace_id);
+
+                if (existingItem) {
+                  // Merge: use fresh trace data but preserve workflow-specific fields from database
+                  return {
+                    ...trace,  // Fresh data (error_count, timestamp, etc.)
+                    summarization: existingItem.summarization,
+                    created_issue: existingItem.created_issue,
+                    created_pr: existingItem.created_pr,
+                    summarization_chat_id: existingItem.summarization_chat_id,
+                    created_issue_chat_id: existingItem.created_issue_chat_id,
+                    created_pr_chat_id: existingItem.created_pr_chat_id,
+                    is_duplicate: existingItem.is_duplicate, // Preserve duplicate status from database
+                  };
+                } else {
+                  // New item, use trace data with defaults
+                  return trace;
+                }
               });
 
               // Sort by timestamp (newest first)
               unifiedData.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-              setTableData(unifiedData);
+
+              // Mark duplicates by service name
+              const processedData = markDuplicatesByServiceName(unifiedData);
+              setTableData(processedData);
             }
           } else {
             console.error('Failed to load trace data:', response.statusText);
@@ -247,13 +429,8 @@ export default function RightPanel() {
       loadTraceData();
     }, 3000);
 
-    // Cleanup interval on component unmount
-    return () => clearInterval(interval);
-  }, [workflowItems]);
-
-  // Load existing workflow items
-  useEffect(() => {
-    const loadWorkflowItems = async () => {
+    // Set up workflow items refresh every 10 seconds to ensure we have latest data
+    const workflowRefreshInterval = setInterval(async () => {
       try {
         const response = await fetch('/api/get_workflow_items', {
           method: 'GET',
@@ -267,12 +444,53 @@ export default function RightPanel() {
           const data = await response.json();
           if (data.success && data.workflow_items) {
             setWorkflowItems(data.workflow_items);
+            console.log('Refreshed workflow items:', data.workflow_items.length);
+          }
+        }
+      } catch (error) {
+        console.error('Error refreshing workflow items:', error);
+      }
+    }, 10000); // Every 10 seconds
+
+    // Cleanup intervals on component unmount
+    return () => {
+      clearInterval(interval);
+      clearInterval(workflowRefreshInterval);
+    };
+  }, [workflowItemsLoading, existingTraceIds]);
+
+  // Load existing workflow items FIRST and populate local set
+  useEffect(() => {
+    const loadWorkflowItems = async () => {
+      try {
+        setWorkflowItemsLoading(true);
+        const response = await fetch('/api/get_workflow_items', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_USER_SECRET || 'demo-secret'}`,
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.workflow_items) {
+            setWorkflowItems(data.workflow_items);
+
+            // Populate local set with existing trace IDs
+            const traceIdSet = new Set<string>(data.workflow_items.map((item: WorkflowTableData) => item.trace_id));
+            setExistingTraceIds(traceIdSet);
+
+            console.log('Loaded workflow items:', data.workflow_items.length);
+            console.log('Existing trace IDs:', traceIdSet.size);
           }
         } else {
           console.error('Failed to load workflow items:', response.statusText);
         }
       } catch (error) {
         console.error('Error loading workflow items:', error);
+      } finally {
+        setWorkflowItemsLoading(false);
       }
     };
 
@@ -310,6 +528,27 @@ export default function RightPanel() {
 
     loadWorkflowState();
   }, []);
+
+  // Process summarization when checkbox is checked and table data is loaded
+  useEffect(() => {
+    if (summarization && !dataLoading && tableData.length > 0) {
+      processSummarization();
+    }
+  }, [summarization, dataLoading, tableData.length]);
+
+  // Process issue creation when checkbox is checked and table data is loaded
+  useEffect(() => {
+    if (issueCreation && !dataLoading && tableData.length > 0) {
+      processIssueCreation();
+    }
+  }, [issueCreation, dataLoading, tableData.length]);
+
+  // Process PR creation when checkbox is checked and table data is loaded
+  useEffect(() => {
+    if (prCreation && !dataLoading && tableData.length > 0) {
+      processPRCreation();
+    }
+  }, [prCreation, dataLoading, tableData.length]);
 
   const handleCheckboxChange = async (
     checkboxType: 'summarization' | 'issue_creation' | 'pr_creation',
@@ -373,12 +612,665 @@ export default function RightPanel() {
     }
   };
 
+  const generateSummarizationForItem = async (item: WorkflowTableData): Promise<{message: string, chatId: string} | null> => {
+    try {
+      // Calculate reasonable time range for the trace (use current time as fallback)
+      const currentTime = new Date();
+      const sixHoursAgo = new Date(currentTime.getTime() - (6 * 60 * 60 * 1000)); // 6 hours ago
+
+      const chatRequest: ChatRequest = {
+        time: currentTime.getTime(),
+        message: 'Summarize the log errors',
+        message_type: 'user',
+        trace_id: item.trace_id,
+        span_ids: [], // Empty span_ids to avoid span processing issues
+        start_time: sixHoursAgo.getTime(),
+        end_time: currentTime.getTime(),
+        model: OPENAI_MODELS.GPT_4O,
+        mode: CHAT_MODE.AGENT,
+        chat_id: generateUuidHex(), // Generate unique UUID for summarization
+        provider: PROVIDERS.OPENAI,
+      };
+
+      console.log(`Making chat request for trace ${item.trace_id}:`, {
+        trace_id: chatRequest.trace_id,
+        message: chatRequest.message,
+        model: chatRequest.model
+      });
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_USER_SECRET || 'demo-secret'}`,
+        },
+        body: JSON.stringify(chatRequest),
+      });
+
+      if (response.ok) {
+        const chatResponse: ChatResponse = await response.json();
+        if (chatResponse.success && chatResponse.data) {
+          console.log(`Chat API succeeded for trace ${item.trace_id}`);
+          return {
+            message: chatResponse.data.message,
+            chatId: chatResponse.data.chat_id
+          };
+        } else {
+          console.error('Chat API request failed:', chatResponse.error);
+          // Return a fallback message instead of null to avoid blocking the process
+          return {
+            message: `Error summarization failed for trace ${item.trace_id}. Please check the logs manually.`,
+            chatId: ''
+          };
+        }
+      } else {
+        console.error('Chat API request failed:', response.status, response.statusText || 'Unknown error');
+        // Return a fallback message instead of null
+        return {
+          message: `Summarization service unavailable for trace ${item.trace_id}. Please try again later.`,
+          chatId: ''
+        };
+      }
+    } catch (error) {
+      console.error('Error generating summarization:', error);
+      // Return a fallback message instead of null
+      return {
+        message: `Summarization error for trace ${item.trace_id}. Please check the system status.`,
+        chatId: ''
+      };
+    }
+  };
+
+  const generateIssueForItem = async (item: WorkflowTableData): Promise<{message: string, chatId: string} | null> => {
+    try {
+      // Calculate reasonable time range for the trace (use current time as fallback)
+      const currentTime = new Date();
+      const sixHoursAgo = new Date(currentTime.getTime() - (6 * 60 * 60 * 1000)); // 6 hours ago
+
+      const chatRequest: ChatRequest = {
+        time: currentTime.getTime(),
+        message: 'Create a GitHub issue for the error logs',
+        message_type: 'user',
+        trace_id: item.trace_id,
+        span_ids: [], // Empty span_ids to avoid span processing issues
+        start_time: sixHoursAgo.getTime(),
+        end_time: currentTime.getTime(),
+        model: OPENAI_MODELS.GPT_4O,
+        mode: CHAT_MODE.AGENT,
+        chat_id: generateUuidHex(), // Generate unique UUID for issue creation
+        provider: PROVIDERS.OPENAI,
+      };
+
+      console.log(`Making chat request for issue creation for trace ${item.trace_id}:`, {
+        trace_id: chatRequest.trace_id,
+        message: chatRequest.message,
+        model: chatRequest.model
+      });
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_USER_SECRET || 'demo-secret'}`,
+        },
+        body: JSON.stringify(chatRequest),
+      });
+
+      if (response.ok) {
+        const chatResponse: ChatResponse = await response.json();
+        if (chatResponse.success && chatResponse.data) {
+          console.log(`Chat API succeeded for issue creation for trace ${item.trace_id}`);
+          return {
+            message: chatResponse.data.message,
+            chatId: chatResponse.data.chat_id
+          };
+        } else {
+          console.error('Chat API request failed for issue creation:', chatResponse.error);
+          // Return a fallback message instead of null to avoid blocking the process
+          return {
+            message: `Issue creation failed for trace ${item.trace_id}. Please check the logs manually.`,
+            chatId: ''
+          };
+        }
+      } else {
+        console.error('Chat API request failed for issue creation:', response.status, response.statusText || 'Unknown error');
+        // Return a fallback message instead of null
+        return {
+          message: `Issue creation service unavailable for trace ${item.trace_id}. Please try again later.`,
+          chatId: ''
+        };
+      }
+    } catch (error) {
+      console.error('Error generating issue:', error);
+      // Return a fallback message instead of null
+      return {
+        message: `Issue creation error for trace ${item.trace_id}. Please check the system status.`,
+        chatId: ''
+      };
+    }
+  };
+
+  const generatePRForItem = async (item: WorkflowTableData): Promise<{message: string, chatId: string} | null> => {
+    try {
+      // Calculate reasonable time range for the trace (use current time as fallback)
+      const currentTime = new Date();
+      const sixHoursAgo = new Date(currentTime.getTime() - (6 * 60 * 60 * 1000)); // 6 hours ago
+
+      const chatRequest: ChatRequest = {
+        time: currentTime.getTime(),
+        message: 'Create a GitHub PR to fix the error logs',
+        message_type: 'user',
+        trace_id: item.trace_id,
+        span_ids: [], // Empty span_ids to avoid span processing issues
+        start_time: sixHoursAgo.getTime(),
+        end_time: currentTime.getTime(),
+        model: OPENAI_MODELS.GPT_4O,
+        mode: CHAT_MODE.AGENT,
+        chat_id: generateUuidHex(), // Generate unique UUID for PR creation
+        provider: PROVIDERS.OPENAI,
+      };
+
+      console.log(`Making chat request for PR creation for trace ${item.trace_id}:`, {
+        trace_id: chatRequest.trace_id,
+        message: chatRequest.message,
+        model: chatRequest.model
+      });
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_USER_SECRET || 'demo-secret'}`,
+        },
+        body: JSON.stringify(chatRequest),
+      });
+
+      if (response.ok) {
+        const chatResponse: ChatResponse = await response.json();
+        if (chatResponse.success && chatResponse.data) {
+          console.log(`Chat API succeeded for PR creation for trace ${item.trace_id}`);
+          return {
+            message: chatResponse.data.message,
+            chatId: chatResponse.data.chat_id
+          };
+        } else {
+          console.error('Chat API request failed for PR creation:', chatResponse.error);
+          // Return a fallback message instead of null to avoid blocking the process
+          return {
+            message: `PR creation failed for trace ${item.trace_id}. Please check the logs manually.`,
+            chatId: ''
+          };
+        }
+      } else {
+        console.error('Chat API request failed for PR creation:', response.status, response.statusText || 'Unknown error');
+        // Return a fallback message instead of null
+        return {
+          message: `PR creation service unavailable for trace ${item.trace_id}. Please try again later.`,
+          chatId: ''
+        };
+      }
+    } catch (error) {
+      console.error('Error generating PR:', error);
+      // Return a fallback message instead of null
+      return {
+        message: `PR creation error for trace ${item.trace_id}. Please check the system status.`,
+        chatId: ''
+      };
+    }
+  };
+
+  const updateWorkflowItemSummarization = async (traceId: string, summarization: string, chatId?: string) => {
+    try {
+      // Find the existing workflow item to get all required fields
+      const existingItem = workflowItemsRef.current.find(item => item.trace_id === traceId);
+      if (!existingItem) {
+        console.error(`Workflow item not found for trace: ${traceId}`);
+        return false;
+      }
+
+      // Create the complete update data with all required fields
+      const updateData = {
+        trace_id: traceId,
+        service_name: existingItem.service_name,
+        error_count: existingItem.error_count,
+        summarization: summarization,
+        created_issue: existingItem.created_issue || '-',
+        created_pr: existingItem.created_pr || '-',
+        summarization_chat_id: chatId || existingItem.summarization_chat_id,
+        created_issue_chat_id: existingItem.created_issue_chat_id,
+        created_pr_chat_id: existingItem.created_pr_chat_id,
+        pattern: existingItem.pattern,
+        timestamp: existingItem.timestamp
+      };
+
+      const response = await fetch('/api/post_workflow_items', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_USER_SECRET || 'demo-secret'}`,
+        },
+        body: JSON.stringify(updateData),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          console.log(`Successfully updated summarization for trace: ${traceId}`);
+          return true;
+        } else {
+          console.error('Failed to update workflow item:', data.error);
+          return false;
+        }
+      } else {
+        console.error('Failed to update workflow item:', response.status, response.statusText || 'Unknown error');
+        return false;
+      }
+    } catch (error) {
+      console.error('Error updating workflow item:', error);
+      return false;
+    }
+  };
+
+  const updateWorkflowItemIssue = async (traceId: string, createdIssue: string, chatId?: string) => {
+    try {
+      // Find the existing workflow item to get all required fields
+      const existingItem = workflowItemsRef.current.find(item => item.trace_id === traceId);
+      if (!existingItem) {
+        console.error(`Workflow item not found for trace: ${traceId}`);
+        return false;
+      }
+
+      // Create the complete update data with all required fields
+      const updateData = {
+        trace_id: traceId,
+        service_name: existingItem.service_name,
+        error_count: existingItem.error_count,
+        summarization: existingItem.summarization || '-',
+        created_issue: createdIssue,
+        created_pr: existingItem.created_pr || '-',
+        summarization_chat_id: existingItem.summarization_chat_id,
+        created_issue_chat_id: chatId || existingItem.created_issue_chat_id,
+        created_pr_chat_id: existingItem.created_pr_chat_id,
+        pattern: existingItem.pattern,
+        timestamp: existingItem.timestamp
+      };
+
+      const response = await fetch('/api/post_workflow_items', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_USER_SECRET || 'demo-secret'}`,
+        },
+        body: JSON.stringify(updateData),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          console.log(`Successfully updated issue creation for trace: ${traceId}`);
+          return true;
+        } else {
+          console.error('Failed to update workflow item for issue creation:', data.error);
+          return false;
+        }
+      } else {
+        console.error('Failed to update workflow item for issue creation:', response.status, response.statusText || 'Unknown error');
+        return false;
+      }
+    } catch (error) {
+      console.error('Error updating workflow item for issue creation:', error);
+      return false;
+    }
+  };
+
+  const updateWorkflowItemPR = async (traceId: string, createdPR: string, chatId?: string) => {
+    try {
+      // Find the existing workflow item to get all required fields
+      const existingItem = workflowItemsRef.current.find(item => item.trace_id === traceId);
+      if (!existingItem) {
+        console.error(`Workflow item not found for trace: ${traceId}`);
+        return false;
+      }
+
+      // Create the complete update data with all required fields
+      const updateData = {
+        trace_id: traceId,
+        service_name: existingItem.service_name,
+        error_count: existingItem.error_count,
+        summarization: existingItem.summarization || '-',
+        created_issue: existingItem.created_issue || '-',
+        created_pr: createdPR,
+        summarization_chat_id: existingItem.summarization_chat_id,
+        created_issue_chat_id: existingItem.created_issue_chat_id,
+        created_pr_chat_id: chatId || existingItem.created_pr_chat_id,
+        pattern: existingItem.pattern,
+        timestamp: existingItem.timestamp
+      };
+
+      const response = await fetch('/api/post_workflow_items', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_USER_SECRET || 'demo-secret'}`,
+        },
+        body: JSON.stringify(updateData),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          console.log(`Successfully updated PR creation for trace: ${traceId}`);
+          return true;
+        } else {
+          console.error('Failed to update workflow item for PR creation:', data.error);
+          return false;
+        }
+      } else {
+        console.error('Failed to update workflow item for PR creation:', response.status, response.statusText || 'Unknown error');
+        return false;
+      }
+    } catch (error) {
+      console.error('Error updating workflow item for PR creation:', error);
+      return false;
+    }
+  };
+
+  const markDuplicatesByServiceName = (items: WorkflowTableData[]): WorkflowTableData[] => {
+    // Group items by service name
+    const serviceGroups = new Map<string, WorkflowTableData[]>();
+
+    items.forEach(item => {
+      const serviceName = item.service_name;
+      if (!serviceGroups.has(serviceName)) {
+        serviceGroups.set(serviceName, []);
+      }
+      serviceGroups.get(serviceName)!.push(item);
+    });
+
+    // Mark duplicates - keep oldest, mark others as duplicates
+    const processedItems = items.map(item => {
+      const group = serviceGroups.get(item.service_name)!;
+
+      if (group.length === 1) {
+        // Only one item with this service name - not a duplicate
+        return { ...item, is_duplicate: false };
+      }
+
+      // Multiple items with same service name - find the oldest one
+      const sortedGroup = [...group].sort((a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+      const oldestItem = sortedGroup[0];
+
+      return {
+        ...item,
+        is_duplicate: item.trace_id !== oldestItem.trace_id
+      };
+    });
+
+    console.log('Duplicate marking results:', {
+      totalItems: items.length,
+      duplicateCount: processedItems.filter(item => item.is_duplicate).length
+    });
+
+    return processedItems;
+  };
+
+  const processSummarization = async () => {
+    if (!summarization) return;
+
+    // Process traces that are NOT duplicated AND have summarization = "-" (both new and existing)
+    const tracesToProcess = tableData.filter(item => {
+      // Must NOT be a duplicate
+      const isDuplicate = (item as any).is_duplicate === true;
+
+      // Must not be currently processing
+      const isNotProcessing = !processingItems.has(item.trace_id);
+
+      // Must have summarization = "-" (needs summarization)
+      const needsSummarization = item.summarization === '-';
+
+      console.log(`Summarization - Item ${item.trace_id}: isDuplicate=${isDuplicate}, isNotProcessing=${isNotProcessing}, needsSummarization=${needsSummarization}`);
+
+      // ONLY process if not duplicate AND not currently processing AND needs summarization
+      return !isDuplicate && isNotProcessing && needsSummarization;
+    });
+
+    if (tracesToProcess.length === 0) {
+      console.log('No traces need summarization');
+      return;
+    }
+
+    console.log(`Processing summarization for ${tracesToProcess.length} traces:`, tracesToProcess.map(item => item.trace_id));
+
+    // Process each item sequentially to avoid overwhelming the API
+    for (const item of tracesToProcess) {
+      // Mark item as being processed
+      setProcessingItems(prev => new Set([...prev, item.trace_id]));
+
+      try {
+        console.log(`Generating summarization for trace: ${item.trace_id}`);
+        let result = null;
+        if (item.summarization === '-' || item.summarization === null || item.summarization === undefined) {
+          result = await generateSummarizationForItem(item);
+        } else {
+          console.log(`Skipping summarization for trace: ${item.trace_id} because it already has a summarization`);
+        }
+
+        if (result) {
+          // Update the database with both message and chat_id
+          const success = await updateWorkflowItemSummarization(item.trace_id, result.message, result.chatId);
+
+          if (success) {
+            // Update the local state
+            setWorkflowItems(prevItems =>
+              prevItems.map(workflowItem =>
+                workflowItem.trace_id === item.trace_id
+                  ? { ...workflowItem, summarization: result.message, summarization_chat_id: result.chatId }
+                  : workflowItem
+              )
+            );
+
+            setTableData(prevData => {
+              const updatedData = prevData.map(dataItem =>
+                dataItem.trace_id === item.trace_id
+                  ? { ...dataItem, summarization: result.message, summarization_chat_id: result.chatId }
+                  : dataItem
+              );
+              // Reapply duplicate marking after updating summarization
+              return markDuplicatesByServiceName(updatedData);
+            });
+
+            console.log(`Successfully processed summarization for trace: ${item.trace_id} with chat_id: ${result.chatId}`);
+          }
+        } else {
+          console.error(`Failed to generate summarization for trace: ${item.trace_id}`);
+        }
+      } catch (error) {
+        console.error(`Error processing summarization for trace ${item.trace_id}:`, error);
+      } finally {
+        // Remove item from processing set regardless of success or failure
+        setProcessingItems(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(item.trace_id);
+          return newSet;
+        });
+      }
+    }
+  };
+
+  const processIssueCreation = async () => {
+    if (!issueCreation) return;
+
+    // Process traces that are NOT duplicated AND have created_issue = "-" (both new and existing)
+    const tracesToProcess = tableData.filter(item => {
+      // Must NOT be a duplicate
+      const isDuplicate = (item as any).is_duplicate === true;
+
+      // Must not be currently processing
+      const isNotProcessing = !processingItems.has(item.trace_id);
+
+      // Must have created_issue = "-" (needs issue creation)
+      const needsIssueCreation = item.created_issue === '-';
+
+      console.log(`Issue Creation - Item ${item.trace_id}: isDuplicate=${isDuplicate}, isNotProcessing=${isNotProcessing}, needsIssueCreation=${needsIssueCreation}`);
+
+      // ONLY process if not duplicate AND not currently processing AND needs issue creation
+      return !isDuplicate && isNotProcessing && needsIssueCreation;
+    });
+
+    if (tracesToProcess.length === 0) {
+      console.log('No traces need issue creation');
+      return;
+    }
+
+    console.log(`Processing issue creation for ${tracesToProcess.length} traces:`, tracesToProcess.map(item => item.trace_id));
+
+    // Process each item sequentially to avoid overwhelming the API
+    for (const item of tracesToProcess) {
+      // Mark item as being processed
+      setProcessingItems(prev => new Set([...prev, item.trace_id]));
+
+      try {
+        console.log(`Generating issue for trace: ${item.trace_id}`);
+        let result = null;
+        if (item.created_issue === '-' || item.created_issue === null || item.created_issue === undefined) {
+          result = await generateIssueForItem(item);
+        } else {
+          console.log(`Skipping issue creation for trace: ${item.trace_id} because it already has an issue`);
+        }
+
+        if (result) {
+          // Update the database with both message and chat_id
+          const success = await updateWorkflowItemIssue(item.trace_id, result.message, result.chatId);
+
+          if (success) {
+            // Update the local state
+            setWorkflowItems(prevItems =>
+              prevItems.map(workflowItem =>
+                workflowItem.trace_id === item.trace_id
+                  ? { ...workflowItem, created_issue: result.message, created_issue_chat_id: result.chatId }
+                  : workflowItem
+              )
+            );
+
+            setTableData(prevData => {
+              const updatedData = prevData.map(dataItem =>
+                dataItem.trace_id === item.trace_id
+                  ? { ...dataItem, created_issue: result.message, created_issue_chat_id: result.chatId }
+                  : dataItem
+              );
+              // Reapply duplicate marking after updating issue creation
+              return markDuplicatesByServiceName(updatedData);
+            });
+
+            console.log(`Successfully processed issue creation for trace: ${item.trace_id} with chat_id: ${result.chatId}`);
+          }
+        } else {
+          console.error(`Failed to generate issue for trace: ${item.trace_id}`);
+        }
+      } catch (error) {
+        console.error(`Error processing issue creation for trace ${item.trace_id}:`, error);
+      } finally {
+        // Remove item from processing set regardless of success or failure
+        setProcessingItems(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(item.trace_id);
+          return newSet;
+        });
+      }
+    }
+  };
+
+  const processPRCreation = async () => {
+    if (!prCreation) return;
+
+    // Process traces that are NOT duplicated AND have created_pr = "-" (both new and existing)
+    const tracesToProcess = tableData.filter(item => {
+      // Must NOT be a duplicate
+      const isDuplicate = (item as any).is_duplicate === true;
+
+      // Must not be currently processing
+      const isNotProcessing = !processingItems.has(item.trace_id);
+
+      // Must have created_pr = "-" (needs PR creation)
+      const needsPRCreation = item.created_pr === '-';
+
+      console.log(`PR Creation - Item ${item.trace_id}: isDuplicate=${isDuplicate}, isNotProcessing=${isNotProcessing}, needsPRCreation=${needsPRCreation}`);
+
+      // ONLY process if not duplicate AND not currently processing AND needs PR creation
+      return !isDuplicate && isNotProcessing && needsPRCreation;
+    });
+
+    if (tracesToProcess.length === 0) {
+      console.log('No traces need PR creation');
+      return;
+    }
+
+    console.log(`Processing PR creation for ${tracesToProcess.length} traces:`, tracesToProcess.map(item => item.trace_id));
+
+    // Process each item sequentially to avoid overwhelming the API
+    for (const item of tracesToProcess) {
+      // Mark item as being processed
+      setProcessingItems(prev => new Set([...prev, item.trace_id]));
+
+      try {
+        console.log(`Generating PR for trace: ${item.trace_id}`);
+        let result = null;
+        if (item.created_pr === '-' || item.created_pr === null || item.created_pr === undefined) {
+          result = await generatePRForItem(item);
+        } else {
+          console.log(`Skipping PR creation for trace: ${item.trace_id} because it already has a PR`);
+        }
+
+        if (result) {
+          // Update the database with both message and chat_id
+          const success = await updateWorkflowItemPR(item.trace_id, result.message, result.chatId);
+
+          if (success) {
+            // Update the local state
+            setWorkflowItems(prevItems =>
+              prevItems.map(workflowItem =>
+                workflowItem.trace_id === item.trace_id
+                  ? { ...workflowItem, created_pr: result.message, created_pr_chat_id: result.chatId }
+                  : workflowItem
+              )
+            );
+
+            setTableData(prevData => {
+              const updatedData = prevData.map(dataItem =>
+                dataItem.trace_id === item.trace_id
+                  ? { ...dataItem, created_pr: result.message, created_pr_chat_id: result.chatId }
+                  : dataItem
+              );
+              // Reapply duplicate marking after updating PR creation
+              return markDuplicatesByServiceName(updatedData);
+            });
+
+            console.log(`Successfully processed PR creation for trace: ${item.trace_id} with chat_id: ${result.chatId}`);
+          }
+        } else {
+          console.error(`Failed to generate PR for trace: ${item.trace_id}`);
+        }
+      } catch (error) {
+        console.error(`Error processing PR creation for trace ${item.trace_id}:`, error);
+      } finally {
+        // Remove item from processing set regardless of success or failure
+        setProcessingItems(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(item.trace_id);
+          return newSet;
+        });
+      }
+    }
+  };
+
   return (
     <div className="min-h-full flex flex-col p-2">
       {/* Container with 75% width and max-width constraint */}
       <div className="w-4/5 max-w-6xl mx-auto bg-white m-5 p-10 rounded-lg font-mono bg-zinc-50">
         <h2 className="scroll-m-20 mb-5 text-3xl font-semibold first:mt-0">
-          Workflow
+          Workflow (Experimental)
         </h2>
         <h3 className="leading-7 [&:not(:first-child)]:mb-5">
           Let TraceRoot.AI agents automatically summarize error logs and create issues or PRs for you.
@@ -479,11 +1371,19 @@ export default function RightPanel() {
                     <TableCell>{row.error_count}</TableCell>
                     {summarization && (
                       <TableCell>
-                        <SummarizationCell text={row.summarization} />
+                        <SummarizationCell text={row.summarization} isDuplicate={row.is_duplicate} />
                       </TableCell>
                     )}
-                    {issueCreation && <TableCell>{row.created_issue}</TableCell>}
-                    {prCreation && <TableCell>{row.created_pr}</TableCell>}
+                    {issueCreation && (
+                      <TableCell>
+                        <IssueCell text={row.created_issue} isDuplicate={row.is_duplicate} />
+                      </TableCell>
+                    )}
+                    {prCreation && (
+                      <TableCell>
+                        <PRCell text={row.created_pr} isDuplicate={row.is_duplicate} />
+                      </TableCell>
+                    )}
                     <TableCell>
                       <Button
                         variant="ghost"

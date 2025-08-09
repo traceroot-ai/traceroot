@@ -515,6 +515,7 @@ class ExploreRouter:
                 service_name=None,
                 log_group_name=log_group_name,
             )
+        print(start_time, end_time, log_group_name)
         selected_trace: Trace | None = None
         for trace in traces:
             if trace.id == trace_id:
