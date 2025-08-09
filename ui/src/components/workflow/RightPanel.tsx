@@ -282,7 +282,7 @@ export default function RightPanel() {
         </div>
       </div>
 
-            {/* Data Table - separate container with white background */}
+      {/* Data Table - separate container with white background */}
       <div className="w-3/4 max-w-6xl mx-auto bg-white m-5 p-10 rounded-lg font-mono bg-zinc-50">
         <h3 className="text-xl font-semibold mb-4">Results</h3>
         {dataLoading ? (
