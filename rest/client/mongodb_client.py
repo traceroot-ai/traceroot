@@ -2,6 +2,7 @@ from typing import Any, Optional
 
 from rest.config import (ChatMetadata, ChatMetadataHistory, PaymentRecord,
                          UserSubscription, WorkflowCheckbox)
+from rest.config.workflow import WorkflowItemRequest, WorkflowTableData
 
 
 class TraceRootMongoDBClient:
@@ -153,6 +154,42 @@ class TraceRootMongoDBClient:
         Args:
             user_email: The user email
             checkbox_type: The checkbox type to disable
+
+        Returns:
+            True if successful, False otherwise
+        """
+
+    async def get_workflow_items(
+            self, user_email: str) -> list[WorkflowTableData] | None:
+        """Get all workflow items for a user.
+
+        Args:
+            user_email: The user email
+
+        Returns:
+            List of WorkflowTableData objects if found, empty
+                list if none found, None on error
+        """
+
+    async def insert_workflow_item(self, user_email: str,
+                                   workflow_item: WorkflowItemRequest) -> bool:
+        """Insert or update a workflow item for a user.
+
+        Args:
+            user_email: The user email
+            workflow_item: The workflow item data
+
+        Returns:
+            True if successful, False otherwise
+        """
+
+    async def delete_workflow_item(self, user_email: str,
+                                   trace_id: str) -> bool:
+        """Delete a workflow item for a user by trace_id.
+
+        Args:
+            user_email: The user email
+            trace_id: The trace ID to delete
 
         Returns:
             True if successful, False otherwise

@@ -6,6 +6,8 @@ from typing import Any
 import aiosqlite
 
 from rest.config import ChatMetadata, ChatMetadataHistory, WorkflowCheckbox
+from rest.config.workflow import (Pattern, WorkflowItemRequest,
+                                  WorkflowTableData)
 
 DB_PATH = os.getenv("SQLITE_DB_PATH", "traceroot.db")
 
@@ -94,6 +96,35 @@ class TraceRootSQLiteClient:
             await db.execute("CREATE INDEX IF NOT EXISTS "
                              "idx_workflow_config_user_email "
                              "ON workflow_config(user_email)")
+
+            # Workflow items table
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS workflow_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_email TEXT NOT NULL,
+                    trace_id TEXT NOT NULL,
+                    service_name TEXT NOT NULL,
+                    error_count INTEGER DEFAULT 0,
+                    summarization TEXT DEFAULT '-',
+                    created_issue TEXT DEFAULT '-',
+                    created_pr TEXT DEFAULT '-',
+                    pattern_id TEXT NOT NULL,
+                    pattern_description TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_email, trace_id)
+                )
+            """)
+            await db.execute("CREATE INDEX IF NOT EXISTS "
+                             "idx_workflow_items_user_email "
+                             "ON workflow_items(user_email)")
+            await db.execute("CREATE INDEX IF NOT EXISTS "
+                             "idx_workflow_items_trace_id "
+                             "ON workflow_items(trace_id)")
+            await db.execute("CREATE INDEX IF NOT EXISTS "
+                             "idx_workflow_items_timestamp "
+                             "ON workflow_items(timestamp)")
 
             await db.commit()
 
@@ -467,5 +498,102 @@ class TraceRootSQLiteClient:
                 else:
                     # No existing configuration, nothing to delete
                     return True
+        except Exception:
+            return False
+
+    async def get_workflow_items(
+            self, user_email: str) -> list[WorkflowTableData] | None:
+        """Get all workflow items for a user.
+
+        Args:
+            user_email: The user email
+
+        Returns:
+            List of WorkflowTableData objects if found,
+                empty list if none found, None on error
+        """
+        await self._init_db()
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                cursor = await db.execute(
+                    ("SELECT trace_id, service_name, error_count, "
+                     "summarization, created_issue, created_pr, pattern_id, "
+                     "pattern_description, timestamp FROM "
+                     "workflow_items WHERE "
+                     "user_email = ? ORDER BY timestamp DESC"), (user_email, ))
+                rows = await cursor.fetchall()
+
+                if rows:
+                    workflow_items = []
+                    for row in rows:
+                        pattern = Pattern(pattern_id=row[6],
+                                          pattern_description=row[7])
+                        workflow_item = WorkflowTableData(trace_id=row[0],
+                                                          service_name=row[1],
+                                                          error_count=row[2],
+                                                          summarization=row[3],
+                                                          created_issue=row[4],
+                                                          created_pr=row[5],
+                                                          pattern=pattern,
+                                                          timestamp=row[8])
+                        workflow_items.append(workflow_item)
+                    return workflow_items
+                return []
+        except Exception:
+            return None
+
+    async def insert_workflow_item(self, user_email: str,
+                                   workflow_item: WorkflowItemRequest) -> bool:
+        """Insert or update a workflow item for a user.
+
+        Args:
+            user_email: The user email
+            workflow_item: The workflow item data
+
+        Returns:
+            True if successful, False otherwise
+        """
+        await self._init_db()
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                # Use INSERT OR REPLACE to handle duplicates based on
+                # unique constraint
+                await db.execute(
+                    ("INSERT OR REPLACE INTO workflow_items "
+                     "(user_email, trace_id, service_name, error_count, "
+                     "summarization, created_issue, created_pr, pattern_id, "
+                     "pattern_description, timestamp, updated_at) "
+                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)"
+                     ), (user_email, workflow_item.trace_id,
+                         workflow_item.service_name, workflow_item.error_count,
+                         workflow_item.summarization,
+                         workflow_item.created_issue, workflow_item.created_pr,
+                         workflow_item.pattern.pattern_id,
+                         workflow_item.pattern.pattern_description,
+                         workflow_item.timestamp))
+                await db.commit()
+                return True
+        except Exception:
+            return False
+
+    async def delete_workflow_item(self, user_email: str,
+                                   trace_id: str) -> bool:
+        """Delete a workflow item for a user by trace_id.
+
+        Args:
+            user_email: The user email
+            trace_id: The trace ID to delete
+
+        Returns:
+            True if successful, False otherwise
+        """
+        await self._init_db()
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute(
+                    ("DELETE FROM workflow_items WHERE user_email = ? "
+                     "AND trace_id = ?"), (user_email, trace_id))
+                await db.commit()
+                return True
         except Exception:
             return False
