@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Telescope, LibraryBig, Settings, ArrowRightFromLine, ArrowLeftFromLine } from "lucide-react";
+import { Telescope, LibraryBig, Settings, ArrowRightFromLine, ArrowLeftFromLine, Workflow } from "lucide-react";
 import { FaUser } from 'react-icons/fa';
 import { RxCross1 } from 'react-icons/rx';
 
@@ -102,11 +102,29 @@ function IntegrateComponent() {
       asChild
       isActive={pathname === '/integrate'}
       tooltip="Integration"
-      className={`flex items-center rounded-md p-2 mb-1 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-1"}`}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
     >
-      <Link href="/integrate" className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-1"}`}>
+      <Link href="/integrate" className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
         <LibraryBig className="!w-6 !h-6" />
         {state === "expanded" && <span>Integrate</span>}
+      </Link>
+    </SidebarMenuButton>
+  );
+}
+
+function WorkflowComponent() {
+  const { state } = useSidebar();
+  const pathname = usePathname();
+  return (
+    <SidebarMenuButton
+      asChild
+      isActive={pathname === '/workflow'}
+      tooltip="Workflow"
+      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+    >
+      <Link href="/workflow" className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
+        <Workflow className="!w-6 !h-6" />
+        {state === "expanded" && <span>Workflow</span>}
       </Link>
     </SidebarMenuButton>
   );
@@ -188,10 +206,10 @@ function ProfileComponent() {
           {state === "expanded" && (
             <div className="flex flex-col flex-1 min-w-0 text-left">
               <span className="text-xs font-medium truncate">
-                {user?.given_name || user?.email?.split('@')[0] || 'NA'}
+                {user?.given_name || user?.email?.split('@')[0] || 'First Name'}
               </span>
               <span className="text-xs truncate">
-                {user?.family_name || 'NA'}
+                {user?.family_name || 'Last Name'}
               </span>
             </div>
           )}
@@ -210,7 +228,7 @@ function ProfileComponent() {
               )}
             </div>
             <DialogTitle className="text-center">
-              {user?.given_name ? `Hello ${user.given_name}!` : user?.email ? `Hello ${user.email}!` : 'Welcome'}
+              {user?.given_name ? `Hello ${user.given_name}!` : user?.email ? `Hello ${user.email}!` : 'Welcome!'}
             </DialogTitle>
           </div>
         </DialogHeader>
@@ -269,7 +287,7 @@ function ProfileComponent() {
 
           <DialogFooter className="flex justify-center">
             {!user ? (
-              <Button asChild>
+              <Button asChild className="mx-auto">
                 <a
                   href="https://traceroot.ai"
                   target="_blank"
@@ -337,9 +355,14 @@ export default function AppSidebar() {
                 <ExploreComponent />
               </SidebarMenuItem>
 
-              <SidebarMenuItem>
+              <SidebarMenuItem className="mb-1">
+                <WorkflowComponent />
+              </SidebarMenuItem>
+
+              <SidebarMenuItem className="mb-1">
                 <IntegrateComponent />
               </SidebarMenuItem>
+
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
