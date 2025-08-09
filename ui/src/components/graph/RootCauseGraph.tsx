@@ -452,14 +452,23 @@ export default function RootCauseGraph({
             }}
           />
           
-          {/* Simple node label */}
-          <text
-            y={size + 16}
-            textAnchor="middle"
-            className="text-xs font-medium fill-gray-700 pointer-events-none select-none"
-          >
-            {node.label.length > 10 ? `${node.label.substring(0, 8)}...` : node.label}
-          </text>
+          {/* Node labels: show full base label and full function name (if present) */}
+          {(() => {
+            const baseLabel = node.label;
+            const functionLabel = node.functionName && node.functionName !== baseLabel ? node.functionName : undefined;
+            return (
+              <g className="pointer-events-none select-none" textAnchor="middle">
+                <text y={size + 14} className="text-[10px] font-medium fill-gray-700">
+                  {baseLabel}
+                </text>
+                {functionLabel && (
+                  <text y={size + 26} className="text-[10px] fill-gray-500">
+                    {functionLabel}
+                  </text>
+                )}
+              </g>
+            );
+          })()}
           
           {/* Error count indicator */}
           {node.metadata.errorCount > 0 && (

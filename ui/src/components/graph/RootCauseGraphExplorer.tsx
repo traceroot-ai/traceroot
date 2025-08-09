@@ -98,6 +98,7 @@ export default function RootCauseGraphExplorer({
           type: 'function',
           status: 'error',
           position: { x: 400, y: 100 },
+          functionName: '__main__.__main__',
           metadata: { errorCount: 5, latency: 200 }
         },
         {
@@ -106,6 +107,7 @@ export default function RootCauseGraphExplorer({
           type: 'function',
           status: 'error',
           position: { x: 200, y: 250 },
+          functionName: '__main__.helper_function',
           metadata: { errorCount: 3, latency: 150 }
         },
         {
@@ -114,6 +116,7 @@ export default function RootCauseGraphExplorer({
           type: 'function', 
           status: 'error',
           position: { x: 400, y: 400 },
+          functionName: '__main__.logging_function',
           metadata: { errorCount: 8, latency: 300 }
         },
         {
@@ -122,6 +125,7 @@ export default function RootCauseGraphExplorer({
           type: 'service',
           status: 'critical',
           position: { x: 300, y: 550 },
+          functionName: 'example.service_call',
           metadata: { errorCount: 12, latency: 1190 }
         },
         {
@@ -130,6 +134,7 @@ export default function RootCauseGraphExplorer({
           type: 'function',
           status: 'error', 
           position: { x: 600, y: 250 },
+          functionName: '__main__.db_query',
           metadata: { errorCount: 6, latency: 180 }
         },
         {
@@ -138,6 +143,7 @@ export default function RootCauseGraphExplorer({
           type: 'function',
           status: 'error',
           position: { x: 800, y: 400 },
+          functionName: '__main__.cache_lookup',
           metadata: { errorCount: 4, latency: 220 }
         }
       ],
