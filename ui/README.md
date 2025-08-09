@@ -18,6 +18,8 @@ Only run this command once:
 
 ```bash
 npm install
+# Source the environment variables
+cp ../.env.development ./.env.local
 ```
 
 Then run the following command to start the development server:
