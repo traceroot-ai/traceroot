@@ -1,7 +1,7 @@
 from typing import Any, Optional
 
 from rest.config import (ChatMetadata, ChatMetadataHistory, PaymentRecord,
-                         UserSubscription)
+                         UserSubscription, WorkflowCheckbox)
 
 
 class TraceRootMongoDBClient:
@@ -114,3 +114,46 @@ class TraceRootMongoDBClient:
         payment_record: PaymentRecord,
     ) -> bool:
         pass
+
+    async def get_workflow(
+        self,
+        user_email: str,
+    ) -> Optional[WorkflowCheckbox]:
+        """Get workflow configuration for a user.
+
+        Args:
+            user_email: The user email to look up
+
+        Returns:
+            WorkflowCheckbox object if found, None otherwise
+        """
+
+    async def insert_workflow(
+        self,
+        user_email: str,
+        checkbox_type: str,
+    ) -> bool:
+        """Insert or update workflow configuration for a user.
+
+        Args:
+            user_email: The user email
+            checkbox_type: The checkbox type to enable
+
+        Returns:
+            True if successful, False otherwise
+        """
+
+    async def delete_workflow(
+        self,
+        user_email: str,
+        checkbox_type: str,
+    ) -> bool:
+        """Delete workflow configuration for a user.
+
+        Args:
+            user_email: The user email
+            checkbox_type: The checkbox type to disable
+
+        Returns:
+            True if successful, False otherwise
+        """

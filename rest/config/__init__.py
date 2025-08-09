@@ -13,6 +13,9 @@ from .subscription import (GetSubscriptionRequest, GetSubscriptionResponse,
                            SubscriptionResponse, UpdateSubscriptionRequest,
                            UpdateSubscriptionResponse, UserSubscription)
 from .trace import ListTraceRequest, ListTraceResponse, Span, Trace
+from .workflow import (DeleteWorkflowRequest, DeleteWorkflowResponse,
+                       GetWorkflowResponse, WorkflowCheckbox, WorkflowRequest,
+                       WorkflowResponse)
 
 __all__ = [
     "ListTraceRequest",
@@ -49,4 +52,10 @@ __all__ = [
     "GetSubscriptionResponse",
     "UserSubscription",
     "PaymentRecord",
+    "WorkflowRequest",
+    "WorkflowResponse",
+    "DeleteWorkflowRequest",
+    "DeleteWorkflowResponse",
+    "GetWorkflowResponse",
+    "WorkflowCheckbox",
 ]
