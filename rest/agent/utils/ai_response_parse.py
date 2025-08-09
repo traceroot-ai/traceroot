@@ -22,7 +22,8 @@ async def structured_parse(
     temperature: float = 0.5,
 ) -> T:
     """
-    Unified wrapper for responses.parse with consistent temperature & output indexing.
+    Unified wrapper for responses.parse with consistent temperature 
+    & output indexing.
     """
 
     if model in SPECIAL_MODELS:
