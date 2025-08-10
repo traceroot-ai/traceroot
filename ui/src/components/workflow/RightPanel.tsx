@@ -56,14 +56,64 @@ interface WorkflowTableData {
   is_duplicate?: boolean;
 }
 
+function FancyLoadingSpinner({ type }: { type: 'summarization' | 'issue' | 'pr' }) {
+  const colors = {
+    summarization: {
+      gradient: 'from-purple-400 via-pink-500 to-red-500',
+      glow: 'shadow-purple-500/50',
+      ring: 'ring-purple-500/30'
+    },
+    issue: {
+      gradient: 'from-blue-400 via-cyan-500 to-teal-500',
+      glow: 'shadow-blue-500/50',
+      ring: 'ring-blue-500/30'
+    },
+    pr: {
+      gradient: 'from-green-400 via-emerald-500 to-cyan-500',
+      glow: 'shadow-green-500/50',
+      ring: 'ring-green-500/30'
+    }
+  };
+
+  const color = colors[type];
+
+  return (
+    <div className="flex items-center space-x-3">
+      {/* Main spinner with gradient and glow */}
+      <div className="relative">
+        <div className={`absolute inset-0 rounded-full bg-gradient-to-r ${color.gradient} opacity-75 blur-sm animate-pulse`}></div>
+        <div className={`relative w-5 h-5 rounded-full bg-gradient-to-r ${color.gradient} animate-spin shadow-lg ${color.glow}`}>
+          <div className="absolute inset-1 rounded-full bg-white/20 backdrop-blur-sm"></div>
+          <div className="absolute inset-2 rounded-full bg-white/40"></div>
+        </div>
+      </div>
+
+      {/* Animated dots */}
+      <div className="flex space-x-1">
+        <div className={`w-1.5 h-1.5 rounded-full bg-gradient-to-r ${color.gradient} animate-bounce`} style={{ animationDelay: '0ms' }}></div>
+        <div className={`w-1.5 h-1.5 rounded-full bg-gradient-to-r ${color.gradient} animate-bounce`} style={{ animationDelay: '150ms' }}></div>
+        <div className={`w-1.5 h-1.5 rounded-full bg-gradient-to-r ${color.gradient} animate-bounce`} style={{ animationDelay: '300ms' }}></div>
+      </div>
+
+      {/* Pulsing ring */}
+      <div className={`absolute w-8 h-8 rounded-full ring-2 ${color.ring} animate-ping opacity-20 pointer-events-none`}></div>
+    </div>
+  );
+}
+
 interface SummarizationCellProps {
   text: string;
   isDuplicate?: boolean;
+  isLoading?: boolean;
 }
 
-function SummarizationCell({ text, isDuplicate }: SummarizationCellProps) {
+function SummarizationCell({ text, isDuplicate, isLoading }: SummarizationCellProps) {
   if (isDuplicate) {
     return <Badge variant="outline">DUPLICATED</Badge>;
+  }
+
+  if (isLoading && text === '-') {
+    return <FancyLoadingSpinner type="summarization" />;
   }
 
   const maxLength = 15;
@@ -96,11 +146,16 @@ function SummarizationCell({ text, isDuplicate }: SummarizationCellProps) {
 interface IssueCellProps {
   text: string;
   isDuplicate?: boolean;
+  isLoading?: boolean;
 }
 
-function IssueCell({ text, isDuplicate }: IssueCellProps) {
+function IssueCell({ text, isDuplicate, isLoading }: IssueCellProps) {
   if (isDuplicate) {
     return <Badge variant="outline">DUPLICATED</Badge>;
+  }
+
+  if (isLoading && text === '-') {
+    return <FancyLoadingSpinner type="issue" />;
   }
 
   // Check if the text contains a GitHub issue URL pattern
@@ -154,11 +209,16 @@ function IssueCell({ text, isDuplicate }: IssueCellProps) {
 interface PRCellProps {
   text: string;
   isDuplicate?: boolean;
+  isLoading?: boolean;
 }
 
-function PRCell({ text, isDuplicate }: PRCellProps) {
+function PRCell({ text, isDuplicate, isLoading }: PRCellProps) {
   if (isDuplicate) {
     return <Badge variant="outline">DUPLICATED</Badge>;
+  }
+
+  if (isLoading && text === '-') {
+    return <FancyLoadingSpinner type="pr" />;
   }
 
   // Check if the text contains a GitHub PR URL pattern
@@ -246,6 +306,9 @@ export default function RightPanel() {
   const [workflowItems, setWorkflowItems] = useState<WorkflowTableData[]>([]);
   const [workflowItemsLoading, setWorkflowItemsLoading] = useState<boolean>(true);
   const [processingItems, setProcessingItems] = useState<Set<string>>(new Set());
+  const [processingSummarization, setProcessingSummarization] = useState<Set<string>>(new Set());
+  const [processingIssues, setProcessingIssues] = useState<Set<string>>(new Set());
+  const [processingPRs, setProcessingPRs] = useState<Set<string>>(new Set());
   // Local set to track existing workflow item trace IDs
   const [existingTraceIds, setExistingTraceIds] = useState<Set<string>>(new Set());
   // Ref to always have the latest workflowItems inside polling closures
@@ -296,12 +359,8 @@ export default function RightPanel() {
               timestamp: trace.start_time ? new Date(trace.start_time * 1000).toISOString() : new Date().toISOString()
             }));
 
-            // Filter out specific trace IDs that should be completely skipped
-            const skippedTraceIds = ['33d759cf19dc14fd5aee31eefc9a8646', '37d2f3decf108ddcb4c1fa5473095f01', '78a9982a28a2a6243170a4f430f8d8ca', 'bdaa2c88e4de93c603bf9d22bb456e7b'];
-            const filteredData = transformedData.filter(trace => !skippedTraceIds.includes(trace.trace_id));
-
             // Check for new traces not in existing local set
-            const newTraces = filteredData.filter(trace => !existingTraceIds.has(trace.trace_id));
+            const newTraces = transformedData.filter(trace => !existingTraceIds.has(trace.trace_id));
 
               if (newTraces.length > 0) {
                 console.log(`Found ${newTraces.length} new traces not in workflow items:`, newTraces.map(t => t.trace_id));
@@ -383,7 +442,7 @@ export default function RightPanel() {
 
               // Create unified dataset: merge existing workflow items with current trace data
               // Use workflow items as the source of truth for workflow fields, but update with fresh trace data
-              const unifiedData = filteredData.map(trace => {
+              const unifiedData = transformedData.map(trace => {
                 const existingItem = workflowItemsRef.current.find(item => item.trace_id === trace.trace_id);
 
                 if (existingItem) {
@@ -1024,8 +1083,8 @@ export default function RightPanel() {
       // Must NOT be a duplicate
       const isDuplicate = (item as any).is_duplicate === true;
 
-      // Must not be currently processing
-      const isNotProcessing = !processingItems.has(item.trace_id);
+      // Must not be currently processing summarization
+      const isNotProcessing = !processingSummarization.has(item.trace_id);
 
       // Must have summarization = "-" (needs summarization)
       const needsSummarization = item.summarization === '-';
@@ -1045,8 +1104,8 @@ export default function RightPanel() {
 
     // Process each item sequentially to avoid overwhelming the API
     for (const item of tracesToProcess) {
-      // Mark item as being processed
-      setProcessingItems(prev => new Set([...prev, item.trace_id]));
+      // Mark item as being processed for summarization
+      setProcessingSummarization(prev => new Set([...prev, item.trace_id]));
 
       try {
         console.log(`Generating summarization for trace: ${item.trace_id}`);
@@ -1089,8 +1148,8 @@ export default function RightPanel() {
       } catch (error) {
         console.error(`Error processing summarization for trace ${item.trace_id}:`, error);
       } finally {
-        // Remove item from processing set regardless of success or failure
-        setProcessingItems(prev => {
+        // Remove item from summarization processing set regardless of success or failure
+        setProcessingSummarization(prev => {
           const newSet = new Set(prev);
           newSet.delete(item.trace_id);
           return newSet;
@@ -1107,8 +1166,8 @@ export default function RightPanel() {
       // Must NOT be a duplicate
       const isDuplicate = (item as any).is_duplicate === true;
 
-      // Must not be currently processing
-      const isNotProcessing = !processingItems.has(item.trace_id);
+      // Must not be currently processing issues
+      const isNotProcessing = !processingIssues.has(item.trace_id);
 
       // Must have created_issue = "-" (needs issue creation)
       const needsIssueCreation = item.created_issue === '-';
@@ -1128,8 +1187,8 @@ export default function RightPanel() {
 
     // Process each item sequentially to avoid overwhelming the API
     for (const item of tracesToProcess) {
-      // Mark item as being processed
-      setProcessingItems(prev => new Set([...prev, item.trace_id]));
+      // Mark item as being processed for issue creation
+      setProcessingIssues(prev => new Set([...prev, item.trace_id]));
 
       try {
         console.log(`Generating issue for trace: ${item.trace_id}`);
@@ -1172,8 +1231,8 @@ export default function RightPanel() {
       } catch (error) {
         console.error(`Error processing issue creation for trace ${item.trace_id}:`, error);
       } finally {
-        // Remove item from processing set regardless of success or failure
-        setProcessingItems(prev => {
+        // Remove item from issue processing set regardless of success or failure
+        setProcessingIssues(prev => {
           const newSet = new Set(prev);
           newSet.delete(item.trace_id);
           return newSet;
@@ -1190,8 +1249,8 @@ export default function RightPanel() {
       // Must NOT be a duplicate
       const isDuplicate = (item as any).is_duplicate === true;
 
-      // Must not be currently processing
-      const isNotProcessing = !processingItems.has(item.trace_id);
+      // Must not be currently processing PRs
+      const isNotProcessing = !processingPRs.has(item.trace_id);
 
       // Must have created_pr = "-" (needs PR creation)
       const needsPRCreation = item.created_pr === '-';
@@ -1211,8 +1270,8 @@ export default function RightPanel() {
 
     // Process each item sequentially to avoid overwhelming the API
     for (const item of tracesToProcess) {
-      // Mark item as being processed
-      setProcessingItems(prev => new Set([...prev, item.trace_id]));
+      // Mark item as being processed for PR creation
+      setProcessingPRs(prev => new Set([...prev, item.trace_id]));
 
       try {
         console.log(`Generating PR for trace: ${item.trace_id}`);
@@ -1255,8 +1314,8 @@ export default function RightPanel() {
       } catch (error) {
         console.error(`Error processing PR creation for trace ${item.trace_id}:`, error);
       } finally {
-        // Remove item from processing set regardless of success or failure
-        setProcessingItems(prev => {
+        // Remove item from PR processing set regardless of success or failure
+        setProcessingPRs(prev => {
           const newSet = new Set(prev);
           newSet.delete(item.trace_id);
           return newSet;
@@ -1355,7 +1414,7 @@ export default function RightPanel() {
               {tableData.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6 + (summarization ? 2 : 0) + (issueCreation ? 2 : 0) + (prCreation ? 2 : 0)} className="text-center py-8 text-gray-500">
-                    No trace data available for the last 6 hours
+                    No trace data available
                   </TableCell>
                 </TableRow>
               ) : (
@@ -1371,17 +1430,29 @@ export default function RightPanel() {
                     <TableCell>{row.error_count}</TableCell>
                     {summarization && (
                       <TableCell>
-                        <SummarizationCell text={row.summarization} isDuplicate={row.is_duplicate} />
+                        <SummarizationCell
+                          text={row.summarization}
+                          isDuplicate={row.is_duplicate}
+                          isLoading={processingSummarization.has(row.trace_id)}
+                        />
                       </TableCell>
                     )}
                     {issueCreation && (
                       <TableCell>
-                        <IssueCell text={row.created_issue} isDuplicate={row.is_duplicate} />
+                        <IssueCell
+                          text={row.created_issue}
+                          isDuplicate={row.is_duplicate}
+                          isLoading={processingIssues.has(row.trace_id)}
+                        />
                       </TableCell>
                     )}
                     {prCreation && (
                       <TableCell>
-                        <PRCell text={row.created_pr} isDuplicate={row.is_duplicate} />
+                        <PRCell
+                          text={row.created_pr}
+                          isDuplicate={row.is_duplicate}
+                          isLoading={processingPRs.has(row.trace_id)}
+                        />
                       </TableCell>
                     )}
                     <TableCell>
