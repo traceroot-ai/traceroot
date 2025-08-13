@@ -117,15 +117,15 @@ function WorkflowComponent() {
   const pathname = usePathname();
   return (
     <SidebarMenuButton
-      disabled
-      isActive={false}
-      tooltip="Workflow (Coming Soon)"
-      className={`flex items-center rounded-md p-2 mb-2 opacity-50 cursor-not-allowed ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      asChild
+      isActive={pathname === '/workflow'}
+      tooltip="Workflow"
+      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
     >
-      <div className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
+      <Link href="/workflow" className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
         <Workflow className="!w-6 !h-6" />
         {state === "expanded" && <span>Workflow</span>}
-      </div>
+      </Link>
     </SidebarMenuButton>
   );
 }
@@ -355,9 +355,9 @@ export default function AppSidebar() {
                 <ExploreComponent />
               </SidebarMenuItem>
 
-              {/* <SidebarMenuItem className="mb-1">
+              <SidebarMenuItem className="mb-1">
                 <WorkflowComponent />
-              </SidebarMenuItem> */}
+              </SidebarMenuItem>
 
               <SidebarMenuItem className="mb-1">
                 <IntegrateComponent />
