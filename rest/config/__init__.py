@@ -12,9 +12,11 @@ from .subscription import (GetSubscriptionRequest, GetSubscriptionResponse,
                            PaymentRecordResponse, SubscriptionRequest,
                            SubscriptionResponse, UpdateSubscriptionRequest,
                            UpdateSubscriptionResponse, UserSubscription)
-from .trace import ListTraceRequest, ListTraceResponse, Span, Trace
+from .trace import (ListTraceRawRequest, ListTraceRequest, ListTraceResponse,
+                    Span, Trace)
 
 __all__ = [
+    "ListTraceRawRequest",
     "ListTraceRequest",
     "ListTraceResponse",
     "Trace",

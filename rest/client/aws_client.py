@@ -48,6 +48,9 @@ class TraceRootAWSClient:
         log_group_name: str,
         service_name: str | None = None,
         service_environment: str | None = None,
+        categories: list[str] | None = None,
+        values: list[str] | None = None,
+        operations: list[str] | None = None,
     ) -> list[Trace]:
         pass
 

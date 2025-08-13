@@ -3,12 +3,74 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, Field, field_validator
 
 
+class ListTraceRawRequest(BaseModel):
+    r"""Raw request model for listing traces from FastAPI query parameters.
+    """
+    start_time: datetime
+    end_time: datetime
+    service_name: str | None = None
+    categories: str | None = None
+    values: str | None = None
+    operations: str | None = None
+
+    @field_validator('start_time', 'end_time')
+    @classmethod
+    def ensure_utc_timezone(cls, v: datetime) -> datetime:
+        r"""Ensure datetime is timezone-aware and in UTC.
+
+        Args:
+            v: datetime value from request
+
+        Returns:
+            datetime in UTC timezone
+        """
+        if v.tzinfo is None:
+            # If timezone-naive, assume UTC
+            return v.replace(tzinfo=timezone.utc)
+        else:
+            # If timezone-aware, convert to UTC
+            return v.astimezone(timezone.utc)
+
+    def to_list_trace_request(self, request) -> 'ListTraceRequest':
+        r"""Convert raw request to ListTraceRequest with proper list parsing.
+
+        Args:
+            request: FastAPI request object to parse multi-value parameters
+
+        Returns:
+            ListTraceRequest with properly parsed list parameters
+        """
+        # Handle multiple values for the same parameter name
+        query_params = request.query_params
+        categories = []
+        values = []
+        operations = []
+
+        for key, value in query_params.multi_items():
+            if key == 'categories':
+                categories.append(value)
+            elif key == 'values':
+                values.append(value)
+            elif key == 'operations':
+                operations.append(value)
+
+        return ListTraceRequest(start_time=self.start_time,
+                                end_time=self.end_time,
+                                service_name=self.service_name,
+                                categories=categories,
+                                values=values,
+                                operations=operations)
+
+
 class ListTraceRequest(BaseModel):
     r"""Request model for listing traces.
     """
     start_time: datetime
     end_time: datetime
     service_name: str | None = None
+    categories: list[str] = []
+    values: list[str] = []
+    operations: list[str] = []
 
     @field_validator('start_time', 'end_time')
     @classmethod

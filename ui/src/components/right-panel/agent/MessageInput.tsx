@@ -17,6 +17,7 @@ import {
 } from '../../../constants/model';
 import { Badge } from '../../ui/badge';
 import { Button } from '../../ui/button';
+import { Spinner } from '../../ui/shadcn-io/spinner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -162,7 +163,7 @@ export default function MessageInput({
             />
             {isLoading && (
               <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                <div className="w-4 h-4 border-1 border-neutral-500 border-t-transparent rounded-full animate-spin"></div>
+                <Spinner variant="infinite" className="w-4 h-4 text-neutral-500" />
               </div>
             )}
           </div>
@@ -250,7 +251,7 @@ export default function MessageInput({
               disabled={!inputMessage.trim() || isLoading}
             >
               {isLoading ? (
-                <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-xl animate-spin"></div>
+                <Spinner variant="infinite" className="w-4 h-4 text-white" />
               ) : (
                 <Send className="w-4 h-4" />
               )}

@@ -21,6 +21,9 @@ export async function GET(request: Request): Promise<NextResponse<TraceResponse>
         const { searchParams } = new URL(request.url);
         const startTime = searchParams.get('startTime');
         const endTime = searchParams.get('endTime');
+        const categories = searchParams.getAll('categories');
+        const values = searchParams.getAll('values');
+        const operations = searchParams.getAll('operations');
 
         // Check if REST_API_ENDPOINT environment variable is set
         const restApiEndpoint = process.env.REST_API_ENDPOINT;
@@ -39,8 +42,29 @@ export async function GET(request: Request): Promise<NextResponse<TraceResponse>
 
                 const startTimeValue = startTime || threeHoursAgo.toISOString();
                 const endTimeValue = endTime || now.toISOString();
-                // Construct the API URL
-                const apiUrl = `${restApiEndpoint}/v1/explore/list-traces?start_time=${encodeURIComponent(startTimeValue)}&end_time=${encodeURIComponent(endTimeValue)}`;
+
+                // Construct the API URL with categories and values
+                let apiUrl = `${restApiEndpoint}/v1/explore/list-traces?start_time=${encodeURIComponent(startTimeValue)}&end_time=${encodeURIComponent(endTimeValue)}`;
+
+                // TODO: improve this
+                // Add categories, values, and operations parameters if provided
+                if (categories.length > 0) {
+                    categories.forEach(category => {
+                        apiUrl += `&categories=${encodeURIComponent(category)}`;
+                    });
+                }
+
+                if (values.length > 0) {
+                    values.forEach(value => {
+                        apiUrl += `&values=${encodeURIComponent(value)}`;
+                    });
+                }
+
+                if (operations.length > 0) {
+                    operations.forEach(operation => {
+                        apiUrl += `&operations=${encodeURIComponent(operation)}`;
+                    });
+                }
 
                 const response = await fetch(apiUrl, {
                     method: 'GET',

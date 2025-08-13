@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Telescope, LibraryBig, Settings, ArrowRightFromLine, ArrowLeftFromLine, Workflow } from "lucide-react";
+import { Telescope, LibraryBig, Settings, ArrowRightFromLine, ArrowLeftFromLine, Mail, BookText } from "lucide-react";
 import { FaUser } from 'react-icons/fa';
 import { RxCross1 } from 'react-icons/rx';
 
@@ -44,7 +44,7 @@ function LogoComponent() {
       <Link href="/" className={`flex items-center group ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
         <svg
           xmlns="http://www.w3.org/2000/svg"
-          className="h-10 w-10 flex-shrink-0"
+          className="h-11.5 w-11.5 flex-shrink-0"
           viewBox="0 0 32 32"
           fill="none"
           stroke="#0a0a0a"
@@ -112,20 +112,43 @@ function IntegrateComponent() {
   );
 }
 
-function WorkflowComponent() {
+function ContactComponent() {
   const { state } = useSidebar();
-  const pathname = usePathname();
+
   return (
     <SidebarMenuButton
       asChild
-      isActive={pathname === '/workflow'}
-      tooltip="Workflow"
+      isActive={false}
+      tooltip="Contact"
       className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
     >
-      <Link href="/workflow" className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
-        <Workflow className="!w-6 !h-6" />
-        {state === "expanded" && <span>Workflow</span>}
-      </Link>
+      <a
+        href="https://traceroot.ai" target="_blank" rel="noopener noreferrer"
+        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+      >
+        <Mail className="!w-6 !h-6" />
+        {state === "expanded" && <span>Contact</span>}
+      </a>
+    </SidebarMenuButton>
+  );
+}
+
+function DocumentationComponent() {
+  const { state } = useSidebar();
+  return (
+    <SidebarMenuButton
+      asChild
+      isActive={false}
+      tooltip="Docs"
+      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+    >
+      <a
+        href="https://docs.traceroot.ai" target="_blank" rel="noopener noreferrer"
+        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+      >
+        <BookText className="!w-6 !h-6" />
+        {state === "expanded" && <span>Docs</span>}
+      </a>
     </SidebarMenuButton>
   );
 }
@@ -162,13 +185,13 @@ function ProfileComponent() {
   if (isLoading) {
     return (
       <div className="flex items-center gap-2">
-        <div className="w-8 h-8 rounded-md bg-gray-100 dark:bg-gray-800 flex items-center justify-center animate-pulse">
-          <div className="w-4 h-4 bg-gray-300 dark:bg-gray-600 rounded-md"></div>
+        <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center animate-pulse">
+          <div className="w-4 h-4 bg-gray-400 dark:bg-gray-300 rounded-full"></div>
         </div>
         {state === "expanded" && (
           <div className="flex flex-col animate-pulse">
-            <div className="h-3 bg-gray-300 dark:bg-gray-600 rounded-md w-16 mb-1"></div>
-            <div className="h-2 bg-gray-300 dark:bg-gray-600 rounded-md w-20"></div>
+            <div className="font-semibold text-sm bg-gray-400 dark:bg-gray-300 rounded-full w-16 mb-1"></div>
+            <div className="font-semibold text-sm bg-gray-400 dark:bg-gray-300 rounded-full w-20"></div>
           </div>
         )}
       </div>
@@ -327,9 +350,9 @@ function ExpandCollapseButton() {
       className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
     >
       {state === "collapsed" ? (
-        <ArrowRightFromLine className="!w-5 !h-5" />
+        <ArrowRightFromLine className="!w-5.5 !h-5.5" />
       ) : (
-        <ArrowLeftFromLine className="!w-5 !h-5" />
+        <ArrowLeftFromLine className="!w-5.5 !h-5.5" />
       )}
       {state === "expanded" && <span>Collapse</span>}
     </SidebarMenuButton>
@@ -356,10 +379,6 @@ export default function AppSidebar() {
               </SidebarMenuItem>
 
               <SidebarMenuItem className="mb-1">
-                <WorkflowComponent />
-              </SidebarMenuItem>
-
-              <SidebarMenuItem className="mb-1">
                 <IntegrateComponent />
               </SidebarMenuItem>
 
@@ -370,6 +389,13 @@ export default function AppSidebar() {
 
       <SidebarFooter>
         <ExpandCollapseButton />
+        <ContactComponent />
+        <DocumentationComponent />
+        {!showSettings && (
+          <>
+            <Separator />
+          </>
+        )}
         {showSettings && (
           <>
             <SettingsComponent />

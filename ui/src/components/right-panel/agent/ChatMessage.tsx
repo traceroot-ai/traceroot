@@ -4,6 +4,7 @@ import { GoCopy } from "react-icons/go";
 import { FaGithub } from "react-icons/fa";
 import { useUser } from '../../../hooks/useUser';
 import { Reference } from '../../../models/chat';
+import { Spinner } from '../../ui/shadcn-io/spinner';
 
 interface Message {
   id: string;
@@ -336,55 +337,9 @@ export default function ChatMessage({ messages, isLoading, userAvatarUrl, messag
           <div className="w-8 h-8 rounded-full bg-zinc-700 dark:bg-zinc-200 flex items-center justify-center flex-shrink-0 animate-pulse">
             <RiRobot2Line className="w-5 h-5 text-white dark:text-zinc-700" />
           </div>
-          <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg px-4 py-2 min-w-[80px] flex justify-center items-center">
-            <div className="typing-indicator">
-              <span></span>
-              <span></span>
-              <span></span>
+            <div className="flex items-center justify-center py-1 px-2">
+              <Spinner variant="infinite" className="w-7 h-7 text-gray-500 dark:text-gray-400" />
             </div>
-            <style jsx>{`
-              .typing-indicator {
-                display: flex;
-                align-items: center;
-                gap: 4px;
-                padding: 4px 0;
-              }
-              .typing-indicator span {
-                height: 8px;
-                width: 8px;
-                background: #6B7280;
-                border-radius: 50%;
-                display: inline-block;
-                animation: typing 1.4s infinite ease-in-out both;
-              }
-              .typing-indicator span:nth-child(1) {
-                animation-delay: 0s;
-              }
-              .typing-indicator span:nth-child(2) {
-                animation-delay: 0.2s;
-              }
-              .typing-indicator span:nth-child(3) {
-                animation-delay: 0.4s;
-              }
-              @keyframes typing {
-                0% {
-                  transform: scale(0.6);
-                  opacity: 0.6;
-                }
-                50% {
-                  transform: scale(1);
-                  opacity: 1;
-                }
-                100% {
-                  transform: scale(0.6);
-                  opacity: 0.6;
-                }
-              }
-              .dark .typing-indicator span {
-                background: #64748b;
-              }
-            `}</style>
-          </div>
         </div>
       )}
       {messages.map((message) => (
