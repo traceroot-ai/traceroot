@@ -4,13 +4,14 @@ import { useState, useCallback, useEffect } from 'react';
 import Trace from '@/components/explore/Trace';
 import ResizablePanel from '@/components/resizable/ResizablePanel';
 import RightPanelSwitch from '@/components/right-panel/RightPanelSwitch';
-import { Span } from '@/models/trace';
+import { Span, Trace as TraceType } from '@/models/trace';
 
 export default function Explore() {
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
   const [timeRange, setTimeRange] = useState<{ start: Date; end: Date } | null>(null);
   const [currentTraceSpans, setCurrentTraceSpans] = useState<Span[]>([]);
+  const [allTraces, setAllTraces] = useState<TraceType[]>([]);
 
   // Helper function to get all span IDs from a trace recursively
   const getAllSpanIds = (spans: Span[]): string[] => {
@@ -60,6 +61,10 @@ export default function Explore() {
     setTimeRange({ start: startTime, end: endTime });
   }, []);
 
+  const handleTracesUpdate = useCallback((traces: TraceType[]) => {
+    setAllTraces(traces);
+  }, []);
+
   // Callback to receive current trace spans from RightPanelSwitch
   const handleTraceSpansUpdate = useCallback((spans: Span[]) => {
     setCurrentTraceSpans(spans || []);
@@ -73,6 +78,7 @@ export default function Explore() {
           onTraceSelect={handleTraceSelect}
           onSpanSelect={handleSpanSelect}
           onTraceData={handleTraceData}
+          onTracesUpdate={handleTracesUpdate}
           selectedTraceId={selectedTraceId}
         />
       }
@@ -82,6 +88,7 @@ export default function Explore() {
           spanIds={selectedSpanIds}
           traceQueryStartTime={timeRange?.start}
           traceQueryEndTime={timeRange?.end}
+          allTraces={allTraces}
           onTraceSelect={handleTraceSelect}
           onSpanClear={handleSpanClear}
           onTraceSpansUpdate={handleTraceSpansUpdate}

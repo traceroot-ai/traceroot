@@ -13,6 +13,7 @@ import { ViewType } from '../ModeToggle';
 import { useUser } from '@/hooks/useUser';
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/shadcn-io/spinner";
 
 interface LogDetailProps {
   traceId: string;
@@ -381,7 +382,9 @@ export default function LogDetail({
       <div className="bg-white dark:bg-gray-900 pt-0 px-4 pb-6 overflow-y-auto overflow-x-visible">
         {loading && (
           <div className="bg-zinc-50 dark:bg-zinc-900 p-4 rounded-md border border-gray-200 dark:border-gray-700">
-            <p className="font-mono text-neutral-700 dark:text-neutral-300">Loading logs...</p>
+            <div className="flex flex-col items-center justify-center py-1 space-y-1">
+              <Spinner variant="infinite" className="w-8 h-8 text-gray-500 dark:text-gray-300" />
+            </div>
           </div>
         )}
         {error && (

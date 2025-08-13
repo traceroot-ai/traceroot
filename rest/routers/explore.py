@@ -35,7 +35,8 @@ from rest.config import (ChatbotResponse, ChatHistoryResponse, ChatMetadata,
                          CodeResponse, GetChatHistoryRequest,
                          GetChatMetadataHistoryRequest, GetChatMetadataRequest,
                          GetLogByTraceIdRequest, GetLogByTraceIdResponse,
-                         ListTraceRequest, ListTraceResponse, Trace, TraceLogs)
+                         ListTraceRawRequest, ListTraceRequest,
+                         ListTraceResponse, Trace, TraceLogs)
 from rest.config.rate_limit import get_rate_limit_config
 from rest.typing import (ActionStatus, ActionType, ChatMode, ChatModel,
                          MessageType, Provider, Reference, ResourceType)
@@ -240,13 +241,14 @@ class ExploreRouter:
     async def list_traces(
             self,
             request: Request,
-            req_data: ListTraceRequest = Depends(),
+            raw_req: ListTraceRawRequest = Depends(),
     ) -> dict[str, Any]:
         r"""Get trace data with optional timestamp filtering or trace ID.
 
         Args:
-            req_data (ListTraceRequest): Request object containing start
-                time, end time, and service name.
+            request (Request): FastAPI request object
+            raw_req (ListTraceRawRequest): Raw request data from
+                query parameters
 
         Returns:
             dict[str, Any]: Dictionary containing list of trace data.
@@ -254,11 +256,18 @@ class ExploreRouter:
         _, _, user_sub = get_user_credentials(request)
         log_group_name = hash_user_sub(user_sub)
 
+        # Convert raw request to proper ListTraceRequest
+        # with correct list parsing
+        req_data: ListTraceRequest = raw_req.to_list_trace_request(request)
         start_time = req_data.start_time
         end_time = req_data.end_time
         service_name = req_data.service_name
+        categories = req_data.categories
+        values = req_data.values
+        operations = req_data.operations
 
-        keys = (start_time, end_time, service_name, log_group_name)
+        keys = (start_time, end_time, service_name, tuple(categories),
+                tuple(values), tuple(operations), log_group_name)
         cached_traces: list[Trace] | None = await self.cache.get(keys)
         if cached_traces:
             resp = ListTraceResponse(traces=cached_traces)
@@ -270,6 +279,9 @@ class ExploreRouter:
                 end_time=end_time,
                 log_group_name=log_group_name,
                 service_name=service_name,
+                categories=categories,
+                values=values,
+                operations=operations,
             )
             # Cache the traces for 10 minutes
             await self.cache.set(keys, traces)

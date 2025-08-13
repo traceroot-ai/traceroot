@@ -31,8 +31,9 @@ interface SearchBarProps {
 const CATEGORIES = [
   { label: 'service', value: 'service_name' },
   { label: 'env', value: 'service_environment' },
-  { label: 'duration', value: 'duration' },
+  { label: 'latency', value: 'latency' },
   { label: 'percentile', value: 'percentile' },
+  { label: 'custom', value: 'custom' },
 ];
 
 const OPERATIONS = [
@@ -50,12 +51,15 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [currentCriterion, setCurrentCriterion] = useState<Partial<SearchCriterion>>({});
   const [inputValue, setInputValue] = useState('');
+  const [customCategoryValue, setCustomCategoryValue] = useState('');
 
   const handleAddCriterion = () => {
-    if (currentCriterion.category && currentCriterion.operation && inputValue.trim()) {
+    const categoryValue = currentCriterion.category === 'custom' ? customCategoryValue.trim() : currentCriterion.category;
+
+    if (categoryValue && currentCriterion.operation && inputValue.trim()) {
       const newCriterion: SearchCriterion = {
         id: Date.now().toString(),
-        category: currentCriterion.category,
+        category: categoryValue,
         operation: currentCriterion.operation,
         value: inputValue.trim(),
         logicalOperator: criteria.length > 0 ? (currentCriterion.logicalOperator || 'AND') : undefined
@@ -65,6 +69,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
       setCriteria(newCriteria);
       setCurrentCriterion({});
       setInputValue('');
+      setCustomCategoryValue('');
       onSearch(newCriteria);
     }
   };
@@ -82,7 +87,8 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
   };
 
   const getCategoryLabel = (value: string) => {
-    return CATEGORIES.find(cat => cat.value === value)?.label || value;
+    const category = CATEGORIES.find(cat => cat.value === value);
+    return category ? category.label : value;
   };
 
   const getOperationLabel = (value: string) => {
@@ -156,6 +162,9 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
                 value={currentCriterion.category || ''}
                 onValueChange={(value) => {
                   setCurrentCriterion({ ...currentCriterion, category: value });
+                  if (value !== 'custom') {
+                    setCustomCategoryValue('');
+                  }
                 }}
               >
                 {CATEGORIES.map((category) => (
@@ -170,6 +179,18 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Custom category input (only show when custom is selected) */}
+          {currentCriterion.category === 'custom' && (
+            <Input
+              type="text"
+              value={customCategoryValue}
+              onChange={(e) => setCustomCategoryValue(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder=""
+              className="w-26 min-w-[80px] h-6.5 text-xs"
+            />
+          )}
 
           {/* Operation selector */}
           <DropdownMenu>
@@ -252,7 +273,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder=""
-            className="w-45 min-w-[80px] h-6.5 text-xs"
+            className="w-28 min-w-[80px] h-6.5 text-xs"
           />
 
           {/* cross button */}
@@ -266,6 +287,8 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
               setCurrentCriterion({});
               // Clear input value
               setInputValue('');
+              // Clear custom category value
+              setCustomCategoryValue('');
               // Call parent clear function
               onClear();
             }}

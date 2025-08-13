@@ -43,6 +43,9 @@ class TraceRootJaegerClient:
         log_group_name: str,
         service_name: Optional[str] = None,
         service_environment: Optional[str] = None,
+        categories: list[str] | None = None,
+        values: list[str] | None = None,
+        operations: list[str] | None = None,
     ) -> list[Trace]:
         """Get recent traces from Jaeger.
 
@@ -53,6 +56,11 @@ class TraceRootJaegerClient:
             service_name (str, optional): Filter by service name if provided
             service_environment (str, optional): Filter by
                 service environment if provided
+            categories (list[str], optional): Filter by categories
+                if provided
+            values (list[str], optional): Filter by values if provided
+            operations (list[str], optional): Filter operations
+                for values if provided
 
         Returns:
             list[Trace]: List of traces
@@ -107,6 +115,31 @@ class TraceRootJaegerClient:
         # Sort traces by start_time in descending order (newest first)
         traces.sort(key=lambda trace: trace.start_time, reverse=True)
         return traces
+
+    async def get_trace_with_spans_by_ids(
+        self,
+        trace_ids: list[str],
+        categories: list[str] | None = None,
+        values: list[str] | None = None,
+        operations: list[str] | None = None,
+    ) -> dict[str, list[Span]]:
+        """Get trace with spans by trace IDs.
+
+        Args:
+            trace_ids (list[str]): List of trace IDs to fetch
+            categories (list[str], optional): Filter by categories if provided
+            values (list[str], optional): Filter by values if provided
+            operations (list[str], optional): Filter by operations
+                for values if provided
+
+        Returns:
+            dict[str, list[Span]]: Dictionary of trace_id and list of spans.
+
+        Note:
+            This method signature is provided for interface consistency.
+            Implementation not provided as requested.
+        """
+        # Implementation not provided as requested
 
     async def get_logs_by_trace_id(
         self,
