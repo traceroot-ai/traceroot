@@ -19,7 +19,7 @@ export default function RightPanel() {
         <h3 className="leading-7 [&:not(:first-child)]:mb-5">
           Let TraceRoot AI agents automatically summarize error logs and create issues or PRs for you.
         </h3>
-        
+
         <div className="space-y-5 p-1">
           <div className="flex items-center space-x-2">
             <Checkbox

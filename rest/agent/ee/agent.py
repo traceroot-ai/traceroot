@@ -273,7 +273,6 @@ class Agent:
             action_type = ActionType.GITHUB_CREATE_ISSUE.value
         elif is_github_pr:
             if "file_path_to_change" in response:
-                breakpoint()
                 pr_number = github_client.create_pr_with_file_changes(
                     title=response["title"],
                     body=response["body"],
