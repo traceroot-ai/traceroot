@@ -50,8 +50,8 @@ TraceRoot accelerates the debugging process with AI-powered insights. It integra
 The fastest and most reliable way to start with TraceRoot is by signing up for free to [TraceRoot Cloud](https://auth.traceroot.ai/) for a **7-day trial**.
 You’ll get:
 
-- **150k** traces + logs storage with **30-day retention**
-- **1.5M** LLM tokens
+- **100k** traces + logs storage with **30-day retention**
+- **1M** LLM tokens
 - AI agent with chat mode
 
 ### Self-hosting TraceRoot (Advanced)
@@ -91,10 +91,6 @@ Here is an overview for our AI Agent Framework:
     <img src="misc/images/context-model.png" alt="Context Model" width="90%" max-width="1200px">
   </a>
 </div>
-
-### Chunking
-
-TODO
 
 ### Explainability
 
