@@ -192,7 +192,8 @@ deactivate
 pytest test
 ```
 
-For uv users you can run 
+For uv users you can run
+
 ```bash
 git clone https://github.com/traceroot-ai/traceroot.git
 cd traceroot
