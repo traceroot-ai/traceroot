@@ -7,7 +7,7 @@ name = "traceroot-framework"
 version = "0.0.1"
 description = "TraceRoot - Comprehensive AI-powered tracing, monitoring and REST API solution"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "Zecheng Zhang"},
