@@ -191,3 +191,29 @@ deactivate
 # Run unit tests
 pytest test
 ```
+
+For uv users you can run 
+```bash
+git clone https://github.com/traceroot-ai/traceroot.git
+cd traceroot
+
+# Create and activate a virtual environment
+uv sync
+source .venv/bin/activate
+
+# The following command installs a pre-commit hook into the local git repo,
+# so every commit gets auto-formatted and linted.
+pre-commit install
+
+# Run TraceRoot's pre-commit before push
+pre-commit run --all-files
+
+# Or
+pre-commit run --files <file_name>
+
+# Exit the virtual environment
+deactivate
+
+# Run unit tests
+pytest test
+```
