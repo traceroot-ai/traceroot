@@ -3,7 +3,7 @@ from openai import AsyncOpenAI
 from rest.agent.output.feature import (LogFeatureSelectorOutput,
                                        SpanFeatureSelectorOutput)
 from rest.agent.typing import LogFeature, SpanFeature
-from rest.typing import NO_TEMPERATURE_MODEL, TEMPERATURE, ChatModel
+from rest.typing import NO_TEMPERATURE_MODEL, TEMPERATURE
 
 LOG_FEATURE_SELECTOR_PROMPT = (
     "You are a helpful assistant that can select related "
@@ -53,11 +53,7 @@ async def log_feature_selector(
         text_format=LogFeatureSelectorOutput,
         **params,
     )
-    if model in {
-            ChatModel.GPT_5.value,
-            ChatModel.GPT_5_MINI.value,
-            ChatModel.O4_MINI.value,
-    }:
+    if model in NO_TEMPERATURE_MODEL:
         response: LogFeatureSelectorOutput = response.output[1].content[
             0].parsed
     else:
@@ -93,11 +89,7 @@ async def span_feature_selector(
         text_format=SpanFeatureSelectorOutput,
         **params,
     )
-    if model in {
-            ChatModel.GPT_5.value,
-            ChatModel.GPT_5_MINI.value,
-            ChatModel.O4_MINI.value,
-    }:
+    if model in NO_TEMPERATURE_MODEL:
         response: SpanFeatureSelectorOutput = response.output[1].content[
             0].parsed
     else:
