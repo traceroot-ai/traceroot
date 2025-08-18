@@ -63,16 +63,17 @@ def apply_operation(log_value: str, filter_value: str,
     log_value_lower = log_value.lower()
     filter_value_lower = filter_value.lower()
 
-    if operation == FeatureOps.EQUAL:
-        return log_value_lower == filter_value_lower
-    elif operation == FeatureOps.NOT_EQUAL:
-        return log_value_lower != filter_value_lower
-    elif operation == FeatureOps.CONTAINS:
-        return filter_value_lower in log_value_lower
-    elif operation == FeatureOps.NOT_CONTAINS:
-        return filter_value_lower not in log_value_lower
-    else:
-        return False
+    match operation:
+        case FeatureOps.EQUAL:
+            return log_value_lower == filter_value_lower
+        case FeatureOps.NOT_EQUAL:
+            return log_value_lower != filter_value_lower
+        case FeatureOps.CONTAINS:
+            return filter_value_lower in log_value_lower
+        case FeatureOps.NOT_CONTAINS:
+            return filter_value_lower not in log_value_lower
+        case _:
+            return False
 
 
 def get_log_feature_value(
@@ -96,6 +97,23 @@ def get_log_feature_value(
         feature_mapping[LogFeature.LOG_SOURCE_CODE_LINES_BELOW] = "\n".join(
             log.log_source_code_lines_below)
     return feature_mapping.get(feature, "")
+
+
+def _matches_filters(
+    log: LogNode,
+    feature_types: list[LogFeature],
+    feature_values: list[str],
+    feature_ops: list[FeatureOps],
+    node: SpanNode,
+) -> bool:
+    r"""Check if a log matches all filter criteria."""
+    for feature_type, feature_value, feature_op in zip(feature_types,
+                                                       feature_values,
+                                                       feature_ops):
+        log_value = get_log_feature_value(log, feature_type)
+        if not apply_operation(str(log_value), str(feature_value), feature_op):
+            return False
+    return True
 
 
 def filter_log_node(
@@ -125,24 +143,17 @@ def filter_log_node(
             match the criteria.
     """
 
-    def matches_filters(log: LogNode) -> bool:
-        r"""Check if a log matches all filter criteria."""
-        for feature_type, feature_value, feature_op in zip(
-                feature_types, feature_values, feature_ops):
-            log_value = get_log_feature_value(log, feature_type)
-            if not apply_operation(str(log_value), str(feature_value),
-                                   feature_op):
-                return False
-        return True
-
     # Validate input parameters
     if len(feature_types) != len(feature_values) or len(feature_types) != len(
             feature_ops):
         raise ValueError("feature_types, feature_values, "
-                         "and feature_ops "
-                         "must have the same length")
+                         "and feature_ops must "
+                         "have the same length")
     # Filter logs in the current node
-    filtered_logs = [log for log in node.logs if matches_filters(log)]
+    filtered_logs = [
+        log for log in node.logs if _matches_filters(
+            log, feature_types, feature_values, feature_ops, node)
+    ]
 
     # Recursively filter child nodes
     filtered_children = []
