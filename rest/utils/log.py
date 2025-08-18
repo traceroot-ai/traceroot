@@ -53,6 +53,9 @@ def _load_json(message: str, ) -> tuple[LogEntry, str] | tuple[None, None]:
     time_obj = time_obj.replace(tzinfo=timezone.utc)
     time = time_obj.timestamp()
     level = json_data['level'].upper()
+    # For now for WARN to WARNING for typescript case
+    if level == "WARN":
+        level = "WARNING"
     message = json_data['message']
 
     if 'stack_trace' in json_data:

@@ -9,7 +9,7 @@ except ImportError:
 
 from rest.agent.context.tree import SpanNode
 from rest.config import ChatbotResponse
-from rest.typing import ChatModel
+from rest.typing import ChatModel, Provider
 
 
 class Agent:
@@ -26,11 +26,14 @@ class Agent:
         db_client: TraceRootMongoDBClient,
         timestamp: datetime,
         tree: SpanNode,
+        user_sub: str,
         chat_history: list[dict] | None = None,
         openai_token: str | None = None,
         github_token: str | None = None,
         github_file_tasks: set[tuple[str, str, str, str]] | None = None,
         is_github_issue: bool = False,
         is_github_pr: bool = False,
+        provider: Provider | None = None,
+        groq_token: str | None = None,
     ) -> ChatbotResponse:
         pass

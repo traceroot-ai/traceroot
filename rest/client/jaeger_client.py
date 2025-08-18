@@ -41,8 +41,10 @@ class TraceRootJaegerClient:
         start_time: datetime,
         end_time: datetime,
         log_group_name: str,
-        service_name: Optional[str] = None,
-        service_environment: Optional[str] = None,
+        service_name_values: list[str] | None = None,
+        service_name_operations: list[str] | None = None,
+        service_environment_values: list[str] | None = None,
+        service_environment_operations: list[str] | None = None,
         categories: list[str] | None = None,
         values: list[str] | None = None,
         operations: list[str] | None = None,
@@ -53,11 +55,16 @@ class TraceRootJaegerClient:
             start_time (datetime): Start time of the trace
             end_time (datetime): End time of the trace
             log_group_name (str): The log group name
-            service_name (str, optional): Filter by service name if provided
-            service_environment (str, optional): Filter by
-                service environment if provided
+            service_name_values (list[str], optional): Filter values for
+                service names if provided
+            service_name_operations (list[str], optional): Filter operations
+                for service names if provided
+            service_environment_values (list[str], optional): Filter values for
+                service environments if provided
+            service_environment_operations (list[str], optional): Filter
+                operations for service environments if provided
             categories (list[str], optional): Filter by categories
-                if provided
+                if provided (service names are now included in categories)
             values (list[str], optional): Filter by values if provided
             operations (list[str], optional): Filter operations
                 for values if provided
@@ -74,11 +81,11 @@ class TraceRootJaegerClient:
         end_time_us = int(end_time.timestamp() * 1_000_000)
 
         # Determine which services to query
-        if service_name:
-            # Use the provided service name
-            services = [service_name]
+        if categories:
+            # Use the provided categories which now include service names
+            services = categories
         else:
-            # Get available services if service_name is not provided
+            # Get available services if categories are not provided
             current_time = datetime.now(timezone.utc)
             time_window_seconds = int(
                 (current_time - start_time).total_seconds())

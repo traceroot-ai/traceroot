@@ -6,7 +6,6 @@ import { BsLightning } from "react-icons/bs";
 import { RiRobot2Line } from "react-icons/ri";
 import { FaCode } from "react-icons/fa6";
 import Link from 'next/link';
-import { shouldShowPaymentFeatures } from '@/utils/stripe-config';
 import { Button } from '@/components/ui/button';
 
 export default function Home() {
@@ -16,8 +15,6 @@ export default function Home() {
   const [isQuickstartHovered, setIsQuickstartHovered] = useState(false);
   const [isMonitorHovered, setIsMonitorHovered] = useState(false);
   const [isSettingsHovered, setIsSettingsHovered] = useState(false);
-
-  const showPaymentFeatures = shouldShowPaymentFeatures();
 
   return (
     <div className="min-h-screen flex items-center justify-center relative">
@@ -167,28 +164,26 @@ export default function Home() {
             </div>
 
             {/* Only show settings link if Stripe is configured */}
-            {showPaymentFeatures && (
-              <div className="bg-zinc-100 rounded-lg p-3 border border-zinc-200/50">
-                <p className="text-gray-800 text-md">
-                  Manage your account and subscription settings by visiting &nbsp;
-                  <Link
-                    href="/settings"
-                    className="inline-flex items-center gap-2 font-bold text-black hover:text-zinc-700 underline decoration-black/30 hover:decoration-zinc-700 transition-all duration-200"
-                    onMouseEnter={() => setIsSettingsHovered(true)}
-                    onMouseLeave={() => setIsSettingsHovered(false)}
-                  >
-                    Navigate to Settings
-                    <span className="transition-transform duration-600 ease-in-out">
-                      {isSettingsHovered ? (
-                        <GoArrowRight className="w-4 h-4 animate-pulse" />
-                      ) : (
-                        <GoArrowUpRight className="w-4 h-4" />
-                      )}
-                    </span>
-                  </Link>
-                </p>
-              </div>
-            )}
+            <div className="bg-zinc-100 rounded-lg p-3 border border-zinc-200/50">
+              <p className="text-gray-800 text-md">
+                Manage your account and subscription settings by visiting &nbsp;
+                <Link
+                  href="/settings"
+                  className="inline-flex items-center gap-2 font-bold text-black hover:text-zinc-700 underline decoration-black/30 hover:decoration-zinc-700 transition-all duration-200"
+                  onMouseEnter={() => setIsSettingsHovered(true)}
+                  onMouseLeave={() => setIsSettingsHovered(false)}
+                >
+                  Navigate to Settings
+                  <span className="transition-transform duration-600 ease-in-out">
+                    {isSettingsHovered ? (
+                      <GoArrowRight className="w-4 h-4 animate-pulse" />
+                    ) : (
+                      <GoArrowUpRight className="w-4 h-4" />
+                    )}
+                  </span>
+                </Link>
+              </p>
+            </div>
           </div>
         </div>
       </div>

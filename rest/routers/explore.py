@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -35,12 +36,18 @@ from rest.config import (ChatbotResponse, ChatHistoryResponse, ChatMetadata,
                          CodeResponse, GetChatHistoryRequest,
                          GetChatMetadataHistoryRequest, GetChatMetadataRequest,
                          GetLogByTraceIdRequest, GetLogByTraceIdResponse,
+                         GetTracesAndLogsSinceDateRequest,
+                         GetTracesAndLogsSinceDateResponse,
                          ListTraceRawRequest, ListTraceRequest,
-                         ListTraceResponse, Trace, TraceLogs)
+                         ListTraceResponse, Trace, TraceLogs,
+                         TracesAndLogsStatistics)
 from rest.config.rate_limit import get_rate_limit_config
 from rest.typing import (ActionStatus, ActionType, ChatMode, ChatModel,
-                         MessageType, Provider, Reference, ResourceType)
+                         MessageType, Operation, Provider, Reference,
+                         ResourceType)
 from rest.utils.trace import collect_spans_latency_recursively
+from rest.utils.traces_and_logs_tracking import (
+    get_traces_and_logs_tracker, get_user_traces_and_logs_since_payment)
 
 try:
     from rest.utils.ee.auth import get_user_credentials, hash_user_sub
@@ -68,9 +75,11 @@ class ExploreRouter:
         self.observe_client = observe_client
         self.chat = Chat()
         self.agent = Agent()
+        self.logger = logging.getLogger(__name__)
 
         # Choose client based on TRACE_ROOT_LOCAL_MODE environment variable
-        self.local_mode = bool(os.getenv("TRACE_ROOT_LOCAL_MODE", False))
+        self.local_mode = os.getenv("TRACE_ROOT_LOCAL_MODE",
+                                    "false").lower() == "true"
         if self.local_mode:
             self.db_client = TraceRootSQLiteClient()
         else:
@@ -104,6 +113,11 @@ class ExploreRouter:
         self.router.get("/get-line-context-content")(self.limiter.limit(
             self.rate_limit_config.get_line_context_content_limit)(
                 self.get_line_context_content))
+        # New traces and logs tracking endpoint
+        # TODO (xinwei): follow the design principle of the other endpoints
+        self.router.get("/get-traces-and-logs-since-date")(
+            self.limiter.limit("20/minute")(
+                self.get_traces_and_logs_since_date))
 
     async def handle_github_file(
         self,
@@ -261,13 +275,61 @@ class ExploreRouter:
         req_data: ListTraceRequest = raw_req.to_list_trace_request(request)
         start_time = req_data.start_time
         end_time = req_data.end_time
-        service_name = req_data.service_name
-        categories = req_data.categories
-        values = req_data.values
-        operations = req_data.operations
+        categories = req_data.categories.copy()  # Make a copy to modify
+        values = req_data.values.copy()
+        operations = req_data.operations.copy()
 
-        keys = (start_time, end_time, service_name, tuple(categories),
-                tuple(values), tuple(operations), log_group_name)
+        keys = (start_time, end_time, tuple(categories), tuple(values),
+                tuple(operations), log_group_name)
+
+        # Extract service names and service environment
+        # values from categories/values/operations
+        service_name_values = []
+        service_name_operations = []
+        service_environment_values = []
+        service_environment_operations = []
+
+        # Create lists to hold remaining categories/values/operations
+        # after extraction
+        remaining_categories = []
+        remaining_values = []
+        remaining_operations = []
+
+        # Process each category/value/operation triplet
+        for i, category in enumerate(categories):
+            if i < len(values) and i < len(operations):
+                value = values[i]
+                operation = operations[i]
+
+                if category == "service_name":
+                    service_name_values.append(value)
+                    service_name_operations.append(operation)
+                elif category == "service_environment":
+                    service_environment_values.append(value)
+                    service_environment_operations.append(operation)
+                else:
+                    # Keep non-service categories
+                    remaining_categories.append(category)
+                    remaining_values.append(value)
+                    remaining_operations.append(operation)
+            else:
+                # Keep categories without corresponding values/operations
+                remaining_categories.append(category)
+
+        # Update categories/values/operations with remaining items
+        categories = remaining_categories
+        values = remaining_values
+        operations = remaining_operations
+
+        # Convert operations to Operation enum
+        operations = [Operation(op) for op in operations]
+        service_name_operations = [
+            Operation(op) for op in service_name_operations
+        ]
+        service_environment_operations = [
+            Operation(op) for op in service_environment_operations
+        ]
+
         cached_traces: list[Trace] | None = await self.cache.get(keys)
         if cached_traces:
             resp = ListTraceResponse(traces=cached_traces)
@@ -278,7 +340,10 @@ class ExploreRouter:
                 start_time=start_time,
                 end_time=end_time,
                 log_group_name=log_group_name,
-                service_name=service_name,
+                service_name_values=service_name_values,
+                service_name_operations=service_name_operations,
+                service_environment_values=service_environment_values,
+                service_environment_operations=service_environment_operations,
                 categories=categories,
                 values=values,
                 operations=operations,
@@ -486,12 +551,14 @@ class ExploreRouter:
                 openai_token=openai_token,
                 model=ChatModel.GPT_4_1_MINI,  # Use GPT-4.1-mini for title
                 first_chat=first_chat,
+                user_sub=user_sub,
             ),
             is_github_related(
                 user_message=message,
                 client=self.chat.chat_client,
                 openai_token=openai_token,
                 model=ChatModel.GPT_4O,
+                user_sub=user_sub,
             ))
 
         # Get the title of the chat if it's the first chat ####################
@@ -521,11 +588,18 @@ class ExploreRouter:
         if cached_traces:
             traces = cached_traces
         else:
+            # TODO: pass search in chat request
             traces: list[Trace] = await self.observe_client.get_recent_traces(
                 start_time=start_time,
                 end_time=end_time,
-                service_name=None,
                 log_group_name=log_group_name,
+                service_name_values=None,
+                service_name_operations=None,
+                service_environment_values=None,
+                service_environment_operations=None,
+                categories=None,
+                values=None,
+                operations=None,
             )
         selected_trace: Trace | None = None
         for trace in traces:
@@ -699,6 +773,7 @@ class ExploreRouter:
                         client=self.chat.chat_client,
                         openai_token=openai_token,
                         model=model,
+                        user_sub=user_sub,
                     )
                 issue_message = separate_issue_and_pr_output.issue_message
                 pr_message = separate_issue_and_pr_output.pr_message
@@ -712,6 +787,7 @@ class ExploreRouter:
                     chat_history=chat_history,
                     timestamp=orig_time,
                     tree=node,
+                    user_sub=user_sub,
                     openai_token=openai_token,
                     github_token=github_token,
                     github_file_tasks=github_task_keys,
@@ -730,6 +806,7 @@ class ExploreRouter:
                     chat_history=chat_history,
                     timestamp=orig_time,
                     tree=node,
+                    user_sub=user_sub,
                     openai_token=openai_token,
                     github_token=github_token,
                     github_file_tasks=github_task_keys,
@@ -746,6 +823,7 @@ class ExploreRouter:
                     client=self.chat.chat_client,
                     openai_token=openai_token,
                     model=model,
+                    user_sub=user_sub,
                 )
                 return summary_response.model_dump()
             elif issue_response:
@@ -764,6 +842,54 @@ class ExploreRouter:
                 chat_history=chat_history,
                 timestamp=orig_time,
                 tree=node,
+                user_sub=user_sub,
                 openai_token=openai_token,
             )
             return response.model_dump()
+
+    async def get_traces_and_logs_since_date(
+        self,
+        request: Request,
+        req_data: GetTracesAndLogsSinceDateRequest = Depends(),
+    ) -> dict[str, Any]:
+        """
+        Get traces and logs statistics for a customer since a specific date.
+
+        Args:
+            req_data: Request object containing the since_date
+
+        Returns:
+            dict: Traces and logs statistics including trace count, log count,
+                and period info
+        """
+        _, _, user_sub = get_user_credentials(request)
+
+        try:
+            # Get comprehensive traces and logs data since the specified date
+            usage_data = await get_user_traces_and_logs_since_payment(
+                user_sub=user_sub,
+                last_payment_date=req_data.since_date,
+                observe_client=self.observe_client)
+
+            # Convert to TracesAndLogsStatistics model
+            usage_stats = TracesAndLogsStatistics(**usage_data)
+            resp = GetTracesAndLogsSinceDateResponse(
+                traces_and_logs=usage_stats)
+
+            # Update Autumn with the total usage
+            tracker = get_traces_and_logs_tracker()
+            await tracker.set_traces_and_logs_usage(
+                customer_id=user_sub, value=usage_stats.trace__log)
+
+            self.logger.info(
+                f"Retrieved traces and logs statistics for user {user_sub}: "
+                f"{usage_stats.trace_count} traces, "
+                f"{usage_stats.log_count} logs ({usage_stats.trace__log} "
+                f"total) over {usage_stats.days_since_payment} days")
+
+            return resp.model_dump()
+
+        except Exception as e:
+            self.logger.error(f"Error getting traces and logs usage: {e}")
+            raise HTTPException(status_code=500,
+                                detail="Failed to get traces and logs usage")

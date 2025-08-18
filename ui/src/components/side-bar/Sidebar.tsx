@@ -33,7 +33,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useUser } from '../../hooks/useUser';
-import { shouldShowPaymentFeatures } from '@/utils/stripe-config';
 
 
 function LogoComponent() {
@@ -360,8 +359,6 @@ function ExpandCollapseButton() {
 }
 
 export default function AppSidebar() {
-  const showSettings = shouldShowPaymentFeatures();
-
   return (
     <Sidebar collapsible="icon" className="relative">
       <SidebarHeader>
@@ -389,19 +386,8 @@ export default function AppSidebar() {
 
       <SidebarFooter>
         <ExpandCollapseButton />
-        <ContactComponent />
-        <DocumentationComponent />
-        {!showSettings && (
-          <>
-            <Separator />
-          </>
-        )}
-        {showSettings && (
-          <>
-            <SettingsComponent />
-            <Separator />
-          </>
-        )}
+        <SettingsComponent />
+        <Separator />
         <ProfileComponent />
       </SidebarFooter>
     </Sidebar>

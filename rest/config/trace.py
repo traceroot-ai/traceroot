@@ -8,7 +8,6 @@ class ListTraceRawRequest(BaseModel):
     """
     start_time: datetime
     end_time: datetime
-    service_name: str | None = None
     categories: str | None = None
     values: str | None = None
     operations: str | None = None
@@ -49,6 +48,9 @@ class ListTraceRawRequest(BaseModel):
         for key, value in query_params.multi_items():
             if key == 'categories':
                 categories.append(value)
+            elif key == 'service_name':
+                # Merge service_name into categories
+                categories.append(value)
             elif key == 'values':
                 values.append(value)
             elif key == 'operations':
@@ -56,7 +58,6 @@ class ListTraceRawRequest(BaseModel):
 
         return ListTraceRequest(start_time=self.start_time,
                                 end_time=self.end_time,
-                                service_name=self.service_name,
                                 categories=categories,
                                 values=values,
                                 operations=operations)
@@ -67,7 +68,6 @@ class ListTraceRequest(BaseModel):
     """
     start_time: datetime
     end_time: datetime
-    service_name: str | None = None
     categories: list[str] = []
     values: list[str] = []
     operations: list[str] = []

@@ -31,19 +31,17 @@ interface SearchBarProps {
 const CATEGORIES = [
   { label: 'service', value: 'service_name' },
   { label: 'env', value: 'service_environment' },
-  { label: 'latency', value: 'latency' },
-  { label: 'percentile', value: 'percentile' },
-  { label: 'custom', value: 'custom' },
+  { label: 'log', value: 'log' },
 ];
 
 const OPERATIONS = [
   { label: '=', value: '=' },
-  { label: 'contains', value: 'contains' },
+  // { label: 'contains', value: 'contains' },
 ];
 
 const LOGICAL_OPERATORS = [
   { label: 'AND', value: 'AND' },
-  { label: 'OR', value: 'OR' }
+  // { label: 'OR', value: 'OR' }
 ];
 
 const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
@@ -51,10 +49,10 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [currentCriterion, setCurrentCriterion] = useState<Partial<SearchCriterion>>({});
   const [inputValue, setInputValue] = useState('');
-  const [customCategoryValue, setCustomCategoryValue] = useState('');
+  const [logCategoryValue, setLogCategoryValue] = useState('');
 
   const handleAddCriterion = () => {
-    const categoryValue = currentCriterion.category === 'custom' ? customCategoryValue.trim() : currentCriterion.category;
+    const categoryValue = currentCriterion.category === 'log' ? logCategoryValue.trim() : currentCriterion.category;
 
     if (categoryValue && currentCriterion.operation && inputValue.trim()) {
       const newCriterion: SearchCriterion = {
@@ -69,7 +67,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
       setCriteria(newCriteria);
       setCurrentCriterion({});
       setInputValue('');
-      setCustomCategoryValue('');
+      setLogCategoryValue('');
       onSearch(newCriteria);
     }
   };
@@ -162,8 +160,8 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
                 value={currentCriterion.category || ''}
                 onValueChange={(value) => {
                   setCurrentCriterion({ ...currentCriterion, category: value });
-                  if (value !== 'custom') {
-                    setCustomCategoryValue('');
+                  if (value !== 'log') {
+                    setLogCategoryValue('');
                   }
                 }}
               >
@@ -180,12 +178,12 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Custom category input (only show when custom is selected) */}
-          {currentCriterion.category === 'custom' && (
+          {/* Log category input (only show when log is selected) */}
+          {currentCriterion.category === 'log' && (
             <Input
               type="text"
-              value={customCategoryValue}
-              onChange={(e) => setCustomCategoryValue(e.target.value)}
+              value={logCategoryValue}
+              onChange={(e) => setLogCategoryValue(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder=""
               className="w-26 min-w-[80px] h-6.5 text-xs"
@@ -287,8 +285,8 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
               setCurrentCriterion({});
               // Clear input value
               setInputValue('');
-              // Clear custom category value
-              setCustomCategoryValue('');
+              // Clear log category value
+              setLogCategoryValue('');
               // Call parent clear function
               onClear();
             }}

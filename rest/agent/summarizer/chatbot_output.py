@@ -2,6 +2,7 @@ from openai import AsyncOpenAI
 
 from rest.config import ChatbotResponse
 from rest.typing import ChatModel
+from rest.utils.token_tracking import track_tokens_for_user
 
 SYSTEM_PROMPT = (
     "You are a helpful TraceRoot.AI assistant that summarizes the response "
@@ -33,6 +34,7 @@ async def summarize_chatbot_output(
     client: AsyncOpenAI,
     openai_token: str | None = None,
     model: ChatModel = ChatModel.GPT_4_1_MINI,
+    user_sub: str | None = None,
 ) -> ChatbotResponse:
     if openai_token is not None:
         client = AsyncOpenAI(api_key=openai_token)
@@ -53,4 +55,10 @@ async def summarize_chatbot_output(
         text_format=ChatbotResponse,
         temperature=0.5,
     )
+
+    if user_sub:
+        await track_tokens_for_user(user_sub=user_sub,
+                                    openai_response=response,
+                                    model=str(model))
+
     return response.output[0].content[0].parsed
