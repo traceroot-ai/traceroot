@@ -56,11 +56,13 @@ class ListTraceRawRequest(BaseModel):
             elif key == 'operations':
                 operations.append(value)
 
-        return ListTraceRequest(start_time=self.start_time,
-                                end_time=self.end_time,
-                                categories=categories,
-                                values=values,
-                                operations=operations)
+        return ListTraceRequest(
+            start_time=self.start_time,
+            end_time=self.end_time,
+            categories=categories,
+            values=values,
+            operations=operations
+        )
 
 
 class ListTraceRequest(BaseModel):

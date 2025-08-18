@@ -27,27 +27,48 @@ except ImportError:
 
 from rest.agent.context.tree import SpanNode, build_heterogeneous_tree
 from rest.agent.summarizer.chatbot_output import summarize_chatbot_output
-from rest.agent.summarizer.github import (SeparateIssueAndPrInput,
-                                          separate_issue_and_pr)
+from rest.agent.summarizer.github import SeparateIssueAndPrInput, separate_issue_and_pr
 from rest.agent.summarizer.title import summarize_title
 from rest.client.sqlite_client import TraceRootSQLiteClient
-from rest.config import (ChatbotResponse, ChatHistoryResponse, ChatMetadata,
-                         ChatMetadataHistory, ChatRequest, CodeRequest,
-                         CodeResponse, GetChatHistoryRequest,
-                         GetChatMetadataHistoryRequest, GetChatMetadataRequest,
-                         GetLogByTraceIdRequest, GetLogByTraceIdResponse,
-                         GetTracesAndLogsSinceDateRequest,
-                         GetTracesAndLogsSinceDateResponse,
-                         ListTraceRawRequest, ListTraceRequest,
-                         ListTraceResponse, Trace, TraceLogs,
-                         TracesAndLogsStatistics)
+from rest.config import (
+    ChatbotResponse,
+    ChatHistoryResponse,
+    ChatMetadata,
+    ChatMetadataHistory,
+    ChatRequest,
+    CodeRequest,
+    CodeResponse,
+    GetChatHistoryRequest,
+    GetChatMetadataHistoryRequest,
+    GetChatMetadataRequest,
+    GetLogByTraceIdRequest,
+    GetLogByTraceIdResponse,
+    GetTracesAndLogsSinceDateRequest,
+    GetTracesAndLogsSinceDateResponse,
+    ListTraceRawRequest,
+    ListTraceRequest,
+    ListTraceResponse,
+    Trace,
+    TraceLogs,
+    TracesAndLogsStatistics,
+)
 from rest.config.rate_limit import get_rate_limit_config
-from rest.typing import (ActionStatus, ActionType, ChatMode, ChatModel,
-                         MessageType, Operation, Provider, Reference,
-                         ResourceType)
+from rest.typing import (
+    ActionStatus,
+    ActionType,
+    ChatMode,
+    ChatModel,
+    MessageType,
+    Operation,
+    Provider,
+    Reference,
+    ResourceType,
+)
 from rest.utils.trace import collect_spans_latency_recursively
 from rest.utils.traces_and_logs_tracking import (
-    get_traces_and_logs_tracker, get_user_traces_and_logs_since_payment)
+    get_traces_and_logs_tracker,
+    get_user_traces_and_logs_since_payment,
+)
 
 try:
     from rest.utils.ee.auth import get_user_credentials, hash_user_sub
@@ -78,8 +99,7 @@ class ExploreRouter:
         self.logger = logging.getLogger(__name__)
 
         # Choose client based on TRACE_ROOT_LOCAL_MODE environment variable
-        self.local_mode = os.getenv("TRACE_ROOT_LOCAL_MODE",
-                                    "false").lower() == "true"
+        self.local_mode = os.getenv("TRACE_ROOT_LOCAL_MODE", "false").lower() == "true"
         if self.local_mode:
             self.db_client = TraceRootSQLiteClient()
         else:
@@ -95,29 +115,38 @@ class ExploreRouter:
     def _setup_routes(self):
         r"""Set up API routes"""
         # Apply rate limiting to routes using configuration
-        self.router.get("/list-traces")(self.limiter.limit(
-            self.rate_limit_config.list_traces_limit)(self.list_traces))
-        self.router.get("/get-logs-by-trace-id")(self.limiter.limit(
-            self.rate_limit_config.get_logs_limit)(self.get_logs_by_trace_id))
-        self.router.post("/post-chat")(self.limiter.limit(
-            self.rate_limit_config.post_chat_limit)(self.post_chat))
-        self.router.get("/get-chat-metadata-history")(self.limiter.limit(
-            self.rate_limit_config.get_chat_metadata_history_limit)(
-                self.get_chat_metadata_history))
-        self.router.get("/get-chat-metadata")(self.limiter.limit(
-            self.rate_limit_config.get_chat_metadata_limit)(
-                self.get_chat_metadata))
-        self.router.get("/get-chat-history")(self.limiter.limit(
-            self.rate_limit_config.get_chat_history_limit)(
-                self.get_chat_history))
-        self.router.get("/get-line-context-content")(self.limiter.limit(
-            self.rate_limit_config.get_line_context_content_limit)(
-                self.get_line_context_content))
+        self.router.get("/list-traces")(
+            self.limiter.limit(self.rate_limit_config.list_traces_limit
+                               )(self.list_traces)
+        )
+        self.router.get("/get-logs-by-trace-id")(
+            self.limiter.limit(self.rate_limit_config.get_logs_limit
+                               )(self.get_logs_by_trace_id)
+        )
+        self.router.post("/post-chat")(
+            self.limiter.limit(self.rate_limit_config.post_chat_limit)(self.post_chat)
+        )
+        self.router.get("/get-chat-metadata-history")(
+            self.limiter.limit(self.rate_limit_config.get_chat_metadata_history_limit
+                               )(self.get_chat_metadata_history)
+        )
+        self.router.get("/get-chat-metadata")(
+            self.limiter.limit(self.rate_limit_config.get_chat_metadata_limit
+                               )(self.get_chat_metadata)
+        )
+        self.router.get("/get-chat-history")(
+            self.limiter.limit(self.rate_limit_config.get_chat_history_limit
+                               )(self.get_chat_history)
+        )
+        self.router.get("/get-line-context-content")(
+            self.limiter.limit(self.rate_limit_config.get_line_context_content_limit
+                               )(self.get_line_context_content)
+        )
         # New traces and logs tracking endpoint
         # TODO (xinwei): follow the design principle of the other endpoints
         self.router.get("/get-traces-and-logs-since-date")(
-            self.limiter.limit("20/minute")(
-                self.get_traces_and_logs_since_date))
+            self.limiter.limit("20/minute")(self.get_traces_and_logs_since_date)
+        )
 
     async def handle_github_file(
         self,
@@ -128,7 +157,8 @@ class ExploreRouter:
         line_num: int,
         github_token: str | None,
         line_context_len: int = 100,
-    ) -> dict[str, Any]:
+    ) -> dict[str,
+              Any]:
         r"""Handle GitHub file content and cache it.
 
         Args:
@@ -163,7 +193,9 @@ class ExploreRouter:
         # File content is cached, get context lines from file content
         if file_content is not None:
             context_lines = await self.github.get_line_context_content(
-                file_content, line_num)
+                file_content,
+                line_num
+            )
             # Cache the context lines
             await self.cache.set(context_key, context_lines)
             if context_lines is not None:
@@ -198,9 +230,11 @@ class ExploreRouter:
             line_context_len=line_context_len,
         )
         if context_lines is None:
-            error_message = (f"Failed to get line context content "
-                             f"for line number {line_num} "
-                             f"in {owner}/{repo}@{ref}")
+            error_message = (
+                f"Failed to get line context content "
+                f"for line number {line_num} "
+                f"in {owner}/{repo}@{ref}"
+            )
             response = CodeResponse(
                 line=None,
                 lines_above=None,
@@ -220,10 +254,11 @@ class ExploreRouter:
         return response.model_dump()
 
     async def get_line_context_content(
-            self,
-            request: Request,
-            req_data: CodeRequest = Depends(),
-    ) -> dict[str, Any]:
+        self,
+        request: Request,
+        req_data: CodeRequest = Depends(),
+    ) -> dict[str,
+              Any]:
         """Get file line context content from GitHub URL.
         This is called to show the code in the UI.
 
@@ -253,10 +288,11 @@ class ExploreRouter:
         )
 
     async def list_traces(
-            self,
-            request: Request,
-            raw_req: ListTraceRawRequest = Depends(),
-    ) -> dict[str, Any]:
+        self,
+        request: Request,
+        raw_req: ListTraceRawRequest = Depends(),
+    ) -> dict[str,
+              Any]:
         r"""Get trace data with optional timestamp filtering or trace ID.
 
         Args:
@@ -279,8 +315,14 @@ class ExploreRouter:
         values = req_data.values.copy()
         operations = req_data.operations.copy()
 
-        keys = (start_time, end_time, tuple(categories), tuple(values),
-                tuple(operations), log_group_name)
+        keys = (
+            start_time,
+            end_time,
+            tuple(categories),
+            tuple(values),
+            tuple(operations),
+            log_group_name
+        )
 
         # Extract service names and service environment
         # values from categories/values/operations
@@ -323,9 +365,7 @@ class ExploreRouter:
 
         # Convert operations to Operation enum
         operations = [Operation(op) for op in operations]
-        service_name_operations = [
-            Operation(op) for op in service_name_operations
-        ]
+        service_name_operations = [Operation(op) for op in service_name_operations]
         service_environment_operations = [
             Operation(op) for op in service_environment_operations
         ]
@@ -356,15 +396,17 @@ class ExploreRouter:
             raise HTTPException(status_code=400, detail=str(e))
 
     async def get_chat_history(
-            self,
-            request: Request,
-            req_data: GetChatHistoryRequest = Depends(),
-    ) -> dict[str, Any]:
+        self,
+        request: Request,
+        req_data: GetChatHistoryRequest = Depends(),
+    ) -> dict[str,
+              Any]:
         # Get user credentials (fake in local mode, real in remote mode)
         _, _, _ = get_user_credentials(request)
 
-        history: list[dict[str, Any]] = await self.db_client.get_chat_history(
-            chat_id=req_data.chat_id)
+        history: list[dict[str,
+                           Any]
+                      ] = await self.db_client.get_chat_history(chat_id=req_data.chat_id)
         chat_history = ChatHistoryResponse(history=[])
         for item in history:
             # For user only shows the user message
@@ -408,14 +450,16 @@ class ExploreRouter:
                     chunk_id=chunk_id,
                     action_type=action_type,
                     status=status,
-                ))
+                )
+            )
         return chat_history.model_dump()
 
     async def get_logs_by_trace_id(
-            self,
-            request: Request,
-            req_data: GetLogByTraceIdRequest = Depends(),
-    ) -> dict[str, Any]:
+        self,
+        request: Request,
+        req_data: GetLogByTraceIdRequest = Depends(),
+    ) -> dict[str,
+              Any]:
         r"""Get trace logs by trace ID.
 
         Args:
@@ -429,12 +473,10 @@ class ExploreRouter:
         _, _, user_sub = get_user_credentials(request)
         log_group_name = hash_user_sub(user_sub)
         # Try to get cached logs
-        keys = (req_data.trace_id, req_data.start_time, req_data.end_time,
-                log_group_name)
+        keys = (req_data.trace_id, req_data.start_time, req_data.end_time, log_group_name)
         cached_logs: TraceLogs | None = await self.cache.get(keys)
         if cached_logs:
-            resp = GetLogByTraceIdResponse(trace_id=req_data.trace_id,
-                                           logs=cached_logs)
+            resp = GetLogByTraceIdResponse(trace_id=req_data.trace_id, logs=cached_logs)
             return resp.model_dump()
 
         try:
@@ -446,8 +488,7 @@ class ExploreRouter:
             )
             # Cache the logs for 10 minutes
             await self.cache.set(keys, logs)
-            resp = GetLogByTraceIdResponse(trace_id=req_data.trace_id,
-                                           logs=logs)
+            resp = GetLogByTraceIdResponse(trace_id=req_data.trace_id, logs=logs)
             return resp.model_dump()
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -456,23 +497,26 @@ class ExploreRouter:
         self,
         request: Request,
         req_data: GetChatMetadataHistoryRequest = Depends(),
-    ) -> dict[str, Any]:
+    ) -> dict[str,
+              Any]:
         # Get user credentials (fake in local mode, real in remote mode)
         _, _, _ = get_user_credentials(request)
         chat_metadata_history: ChatMetadataHistory = await (
-            self.db_client.get_chat_metadata_history(
-                trace_id=req_data.trace_id))
+            self.db_client.get_chat_metadata_history(trace_id=req_data.trace_id)
+        )
         return chat_metadata_history.model_dump()
 
     async def get_chat_metadata(
-            self,
-            request: Request,
-            req_data: GetChatMetadataRequest = Depends(),
-    ) -> dict[str, Any]:
+        self,
+        request: Request,
+        req_data: GetChatMetadataRequest = Depends(),
+    ) -> dict[str,
+              Any]:
         # Get user credentials (fake in local mode, real in remote mode)
         _, _, _ = get_user_credentials(request)
         chat_metadata: ChatMetadata | None = await (
-            self.db_client.get_chat_metadata(chat_id=req_data.chat_id))
+            self.db_client.get_chat_metadata(chat_id=req_data.chat_id)
+        )
         if chat_metadata is None:
             return {}
         return chat_metadata.model_dump()
@@ -487,7 +531,8 @@ class ExploreRouter:
         self,
         request: Request,
         req_data: ChatRequest,
-    ) -> dict[str, Any]:
+    ) -> dict[str,
+              Any]:
         # Get basic information ###############################################
         user_email, _, user_sub = get_user_credentials(request)
         log_group_name = hash_user_sub(user_sub)
@@ -530,8 +575,10 @@ class ExploreRouter:
         if openai_token is None and self.chat.local_mode:
             response = ChatbotResponse(
                 time=orig_time,
-                message=("OpenAI token is not found, please "
-                         "add it in the settings page."),
+                message=(
+                    "OpenAI token is not found, please "
+                    "add it in the settings page."
+                ),
                 reference=[],
                 message_type=MessageType.ASSISTANT,
                 chat_id=chat_id,
@@ -569,7 +616,8 @@ class ExploreRouter:
                     "timestamp": orig_time,
                     "chat_title": title,
                     "trace_id": trace_id,
-                })
+                }
+            )
 
         # Get whether the user message is related to GitHub ###################
         set_github_related(github_related)
@@ -665,8 +713,7 @@ class ExploreRouter:
                                 github_token,
                                 line_context_len,
                             )
-                            github_task_keys.add(
-                                (owner, repo_name, file_path, ref))
+                            github_task_keys.add((owner, repo_name, file_path, ref))
                             github_tasks.append(task)
                             log_entries_to_update.append(log_entry)
 
@@ -687,16 +734,15 @@ class ExploreRouter:
                         "chunk_id": i // batch_size,
                         "action_type": ActionType.GITHUB_GET_FILE.value,
                         "status": ActionStatus.PENDING.value,
-                    })
+                    }
+                )
 
                 # Execute batch in parallel
-                batch_results = await asyncio.gather(*batch_tasks,
-                                                     return_exceptions=True)
+                batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
 
                 # Process results and update log entries
                 num_failed = 0
-                for log_entry, code_response in zip(batch_log_entries,
-                                                    batch_results):
+                for log_entry, code_response in zip(batch_log_entries, batch_results):
                     # Handle exceptions gracefully
                     if isinstance(code_response, Exception):
                         num_failed += 1
@@ -739,12 +785,12 @@ class ExploreRouter:
                         ActionType.GITHUB_GET_FILE.value,
                         "status":
                         ActionStatus.SUCCESS.value,
-                    })
+                    }
+                )
 
         chat_history = await self.db_client.get_chat_history(chat_id=chat_id)
 
-        node: SpanNode = build_heterogeneous_tree(selected_trace.spans[0],
-                                                  logs.logs)
+        node: SpanNode = build_heterogeneous_tree(selected_trace.spans[0], logs.logs)
 
         if len(span_ids) > 0:
             # Use BFS to find the first span matching any of target span_ids
@@ -851,7 +897,8 @@ class ExploreRouter:
         self,
         request: Request,
         req_data: GetTracesAndLogsSinceDateRequest = Depends(),
-    ) -> dict[str, Any]:
+    ) -> dict[str,
+              Any]:
         """
         Get traces and logs statistics for a customer since a specific date.
 
@@ -869,27 +916,32 @@ class ExploreRouter:
             usage_data = await get_user_traces_and_logs_since_payment(
                 user_sub=user_sub,
                 last_payment_date=req_data.since_date,
-                observe_client=self.observe_client)
+                observe_client=self.observe_client
+            )
 
             # Convert to TracesAndLogsStatistics model
             usage_stats = TracesAndLogsStatistics(**usage_data)
-            resp = GetTracesAndLogsSinceDateResponse(
-                traces_and_logs=usage_stats)
+            resp = GetTracesAndLogsSinceDateResponse(traces_and_logs=usage_stats)
 
             # Update Autumn with the total usage
             tracker = get_traces_and_logs_tracker()
             await tracker.set_traces_and_logs_usage(
-                customer_id=user_sub, value=usage_stats.trace__log)
+                customer_id=user_sub,
+                value=usage_stats.trace__log
+            )
 
             self.logger.info(
                 f"Retrieved traces and logs statistics for user {user_sub}: "
                 f"{usage_stats.trace_count} traces, "
                 f"{usage_stats.log_count} logs ({usage_stats.trace__log} "
-                f"total) over {usage_stats.days_since_payment} days")
+                f"total) over {usage_stats.days_since_payment} days"
+            )
 
             return resp.model_dump()
 
         except Exception as e:
             self.logger.error(f"Error getting traces and logs usage: {e}")
-            raise HTTPException(status_code=500,
-                                detail="Failed to get traces and logs usage")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to get traces and logs usage"
+            )

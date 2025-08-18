@@ -1,10 +1,13 @@
 from datetime import datetime, timezone
 
-from rest.agent.context.tree import (LogNode, SpanNode,
-                                     build_heterogeneous_tree,
-                                     convert_log_entry_to_log_node,
-                                     convert_span_to_span_node,
-                                     create_logs_map)
+from rest.agent.context.tree import (
+    LogNode,
+    SpanNode,
+    build_heterogeneous_tree,
+    convert_log_entry_to_log_node,
+    convert_span_to_span_node,
+    create_logs_map,
+)
 from rest.agent.typing import LogFeature, SpanFeature
 from rest.config.log import LogEntry
 from rest.config.trace import Span
@@ -47,8 +50,10 @@ def test_log_node_to_dict_all_features():
         log_message="Error occurred",
         log_line_number=100,
         log_source_code_line="raise Exception()",
-        log_source_code_lines_above=["try:", "    do_something()"],
-        log_source_code_lines_below=["except:", "    handle_error()"],
+        log_source_code_lines_above=["try:",
+                                     "    do_something()"],
+        log_source_code_lines_below=["except:",
+                                     "    handle_error()"],
     )
 
     all_features = list(LogFeature)
@@ -62,8 +67,10 @@ def test_log_node_to_dict_all_features():
         "log message value": "Error occurred",
         "line number": "100",
         "log line source code": "raise Exception()",
-        "lines above log source code": ["try:", "    do_something()"],
-        "lines below log source code": ["except:", "    handle_error()"],
+        "lines above log source code": ["try:",
+                                        "    do_something()"],
+        "lines below log source code": ["except:",
+                                        "    handle_error()"],
     }
 
     assert result == expected
@@ -85,7 +92,8 @@ def test_log_node_to_dict_subset_features():
     )
 
     features = [
-        LogFeature.LOG_LEVEL, LogFeature.LOG_MESSAGE_VALUE,
+        LogFeature.LOG_LEVEL,
+        LogFeature.LOG_MESSAGE_VALUE,
         LogFeature.LOG_LINE_NUMBER
     ]
     result = log_node.to_dict(features)
@@ -291,7 +299,8 @@ def test_create_logs_map_multiple_dicts():
     result = create_logs_map(trace_logs)
 
     expected = {
-        "span1": [log_entry1, log_entry2],
+        "span1": [log_entry1,
+                  log_entry2],
         "span2": [log_entry1],
     }
     assert result == expected
@@ -310,13 +319,7 @@ def test_convert_log_entry_basic():
 
     result = convert_log_entry_to_log_node(log_entry)
 
-    assert result.log_utc_timestamp == datetime(2023,
-                                                1,
-                                                1,
-                                                12,
-                                                0,
-                                                0,
-                                                tzinfo=timezone.utc)
+    assert result.log_utc_timestamp == datetime(2023, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     assert result.log_level == "DEBUG"
     assert result.log_file_name == "debug.py"
     assert result.log_func_name == "debug_func"
@@ -337,16 +340,15 @@ def test_convert_log_entry_with_source_code():
         file_name="info.py",
         line_number=30,
         line="logger.info('Info message')",
-        lines_above=["def info_func():", "    # some setup"],
+        lines_above=["def info_func():",
+                     "    # some setup"],
         lines_below=["    return True"],
     )
 
     result = convert_log_entry_to_log_node(log_entry)
 
     assert result.log_source_code_line == "logger.info('Info message')"
-    assert result.log_source_code_lines_above == [
-        "def info_func():", "    # some setup"
-    ]
+    assert result.log_source_code_lines_above == ["def info_func():", "    # some setup"]
     assert result.log_source_code_lines_below == ["    return True"]
 
 
@@ -479,10 +481,8 @@ def test_convert_span_sorts_logs_by_timestamp():
     result = convert_span_to_span_node(span, logs_map)
 
     assert len(result.logs) == 2
-    assert result.logs[
-        0].log_message == "First log"  # Earlier timestamp should be first
-    assert result.logs[
-        1].log_message == "Second log"  # Later timestamp should be second
+    assert result.logs[0].log_message == "First log"  # Earlier timestamp should be first
+    assert result.logs[1].log_message == "Second log"  # Later timestamp should be second
 
 
 def test_convert_span_sorts_children_by_start_time():

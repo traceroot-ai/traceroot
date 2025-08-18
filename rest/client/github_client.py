@@ -63,20 +63,23 @@ class GitHubClient:
 
         try:
             # Try to get existing file
-            file_content = repo.get_contents(file_path_to_change,
-                                             ref=head_branch)
+            file_content = repo.get_contents(file_path_to_change, ref=head_branch)
             # Update existing file
-            repo.update_file(path=file_path_to_change,
-                             message=commit_message,
-                             content=file_content_to_change,
-                             sha=file_content.sha,
-                             branch=head_branch)
+            repo.update_file(
+                path=file_path_to_change,
+                message=commit_message,
+                content=file_content_to_change,
+                sha=file_content.sha,
+                branch=head_branch
+            )
         except Exception:
             # File doesn't exist, create new file
-            repo.create_file(path=file_path_to_change,
-                             message=commit_message,
-                             content=file_content_to_change,
-                             branch=head_branch)
+            repo.create_file(
+                path=file_path_to_change,
+                message=commit_message,
+                content=file_content_to_change,
+                branch=head_branch
+            )
 
         pr = repo.create_pull(
             title=title,
@@ -94,7 +97,8 @@ class GitHubClient:
         file_path: str,
         ref: str = "main",
         github_token: str | None = None,
-    ) -> tuple[list[str] | None, str | None]:
+    ) -> tuple[list[str] | None,
+               str | None]:
         r"""Get file content from a GitHub repository.
 
         Args:
@@ -131,17 +135,18 @@ class GitHubClient:
                     message = f"GitHub authentication failed (401): {e}"
                 elif e.status == 403:
                     # Check if this is a rate limit error
-                    if "rate limit" in str(e).lower() or "abuse" in str(
-                            e).lower():
+                    if "rate limit" in str(e).lower() or "abuse" in str(e).lower():
                         message = f"GitHub rate limit exceeded (403): {e}"
                     else:
                         message = (
                             f"GitHub access forbidden (403) for repository "
-                            f"{owner}/{repo_name}")
+                            f"{owner}/{repo_name}"
+                        )
                 elif e.status == 404:
                     message = (
                         f"GitHub resource not found (404): Repository "
-                        f"{owner}/{repo_name} or file {file_path} not found")
+                        f"{owner}/{repo_name} or file {file_path} not found"
+                    )
                 else:
                     message = f"GitHub API error ({e.status}): {e}"
                 return None, message
@@ -158,7 +163,9 @@ class GitHubClient:
         lines: list[str],
         line_number: int,
         line_context_len: int = 5,
-    ) -> tuple[list[str], str, list[str]] | None:
+    ) -> tuple[list[str],
+               str,
+               list[str]] | None:
         """
         Get specific line content with context from a GitHub repository file.
 
@@ -182,10 +189,11 @@ class GitHubClient:
             return None
 
         # Calculate context range with edge case handling
-        start_line = max(1, line_number -
-                         line_context_len)  # Don't go below line 1
-        end_line = min(total_lines, line_number +
-                       line_context_len)  # Don't exceed total lines
+        start_line = max(1, line_number - line_context_len)  # Don't go below line 1
+        end_line = min(
+            total_lines,
+            line_number + line_context_len
+        )  # Don't exceed total lines
 
         # Extract lines above the target line (convert to 0-based indexing)
         lines_above = lines[start_line - 1:line_number - 1]
