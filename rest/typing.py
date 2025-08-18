@@ -4,19 +4,17 @@ from pydantic import BaseModel, Field
 
 
 class Reference(BaseModel):
-    r"""Reference to log, trace (span), source code, etc.
-    """
+    r"""Reference to log, trace (span), source code, etc."""
+
     number: int = Field(description="The number of the reference.")
-    span_id: str | None = Field(description=("Original Span ID if it's "
-                                             "related to the answer."))
-    span_function_name: str | None = Field(description=("Function name of the "
-                                                        "span if it's related "
-                                                        "to the answer."))
-    line_number: int | None = Field(
-        description=("Line number of the source code "
-                     "if it's related to the answer."))
-    log_message: str | None = Field(description=("Log message if it's "
-                                                 "related to the answer."))
+    span_id: str | None = Field(
+        description=("Original Span ID if it's related to the answer."))
+    span_function_name: str | None = Field(description=(
+        "Function name of the span if it's related to the answer."))
+    line_number: int | None = Field(description=(
+        "Line number of the source code if it's related to the answer."))
+    log_message: str | None = Field(
+        description=("Log message if it's related to the answer."))
 
     def __str__(self) -> str:
         return f"[{self.number}]: {self.span_id} {self.line_number}"
@@ -56,6 +54,7 @@ class ChatMode(str, Enum):
 
 class ResourceType(str, Enum):
     """Enumeration of supported resource types for tokens."""
+
     GITHUB = "github"
     NOTION = "notion"
     SLACK = "slack"
@@ -66,7 +65,8 @@ class ResourceType(str, Enum):
 
 class TokenResource(BaseModel):
     """Pydantic model containing a token and its associated
-resource type."""
+    resource type."""
+
     token: str | None = None
     resource_type: ResourceType = Field(alias="resourceType")
 
@@ -92,3 +92,6 @@ class Provider(str, Enum):
     OPENAI = "openai"
     CUSTOM = "custom"
     GROQ = "groq"
+
+
+NO_TEMPERATURE_MODEL = {"gpt-5", "gpt-5-mini", "gpt-o4-mini"}

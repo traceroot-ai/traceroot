@@ -5,7 +5,7 @@ from openai import AsyncOpenAI
 from rest.agent.context.tree import LogNode, SpanNode
 from rest.agent.output.structure import LogNodeSelectorOutput
 from rest.agent.typing import FeatureOps, LogFeature
-from rest.typing import ChatModel
+from rest.typing import NO_TEMPERATURE_MODEL
 
 LOG_NODE_SELECTOR_PROMPT = (
     "You are a helpful assistant that can select related "
@@ -36,10 +36,7 @@ async def log_node_selector(
             "content": user_message
         },
     ]
-    if model in {
-            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
-            ChatModel.O4_MINI.value
-    }:
+    if model in NO_TEMPERATURE_MODEL:
         params = {}
     else:
         params = {
@@ -51,10 +48,7 @@ async def log_node_selector(
         text_format=LogNodeSelectorOutput,
         **params,
     )
-    if model in {
-            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
-            ChatModel.O4_MINI.value
-    }:
+    if model in NO_TEMPERATURE_MODEL:
         response: LogNodeSelectorOutput = response.output[1].content[0].parsed
     else:
         response: LogNodeSelectorOutput = response.output[0].content[0].parsed
@@ -97,9 +91,9 @@ def get_log_feature_value(
         LogFeature.LOG_SOURCE_CODE_LINE: log.log_source_code_line,
     }
     if is_github_pr:
-        feature_mapping[LogFeature.LOG_SOURCE_CODE_LINES_ABOVE] = '\n'.join(
+        feature_mapping[LogFeature.LOG_SOURCE_CODE_LINES_ABOVE] = "\n".join(
             log.log_source_code_lines_above)
-        feature_mapping[LogFeature.LOG_SOURCE_CODE_LINES_BELOW] = '\n'.join(
+        feature_mapping[LogFeature.LOG_SOURCE_CODE_LINES_BELOW] = "\n".join(
             log.log_source_code_lines_below)
     return feature_mapping.get(feature, "")
 
