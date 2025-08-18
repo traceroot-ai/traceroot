@@ -29,6 +29,7 @@ from rest.client.github_client import GitHubClient
 from rest.config import ChatbotResponse
 from rest.typing import (ActionStatus, ActionType, ChatModel, MessageType,
                          Provider)
+from rest.utils.token_tracking import track_tokens_for_user
 
 
 class Agent:
@@ -91,6 +92,7 @@ class Agent:
         db_client: TraceRootMongoDBClient,
         timestamp: datetime,
         tree: SpanNode,
+        user_sub: str,
         chat_history: list[dict] | None = None,
         openai_token: str | None = None,
         github_token: str | None = None,
@@ -242,7 +244,7 @@ class Agent:
         # TODO: support multiple chunks
         responses = await asyncio.gather(*[
             self.chat_with_context_chunks(messages, model, client, provider,
-                                          groq_token)
+                                          user_sub, groq_token)
             for messages in all_messages
         ])
         response = responses[0]
@@ -319,6 +321,11 @@ class Agent:
                 ],
             )
 
+            # Track token usage for this OpenAI call
+            await track_tokens_for_user(user_sub=user_sub,
+                                        openai_response=summary_response,
+                                        model=str(model))
+
             summary_content = summary_response.choices[0].message.content
         else:
             summary_content = response["content"]
@@ -350,6 +357,7 @@ class Agent:
         model: ChatModel,
         chat_client: AsyncOpenAI,
         provider: Provider,
+        user_sub: str,
         groq_token: str | None = None,
     ) -> dict[str, Any]:
         r"""Chat with context chunks."""
@@ -364,6 +372,11 @@ class Agent:
                     get_openai_tool_schema(create_pr_with_file_changes),
                 ],
             )
+            # Track token usage for Groq call
+            await track_tokens_for_user(user_sub=user_sub,
+                                        openai_response=response,
+                                        model=str(model))
+
             tool_calls = response.choices[0].message.tool_calls
             if tool_calls is None or len(tool_calls) == 0:
                 return {"content": response.choices[0].message.content}
@@ -381,6 +394,11 @@ class Agent:
                     get_openai_tool_schema(create_pr_with_file_changes),
                 ],
             )
+            # Track token usage for this OpenAI call
+            await track_tokens_for_user(user_sub=user_sub,
+                                        openai_response=response,
+                                        model=str(model))
+
             tool_calls = response.choices[0].message.tool_calls
             if tool_calls is None or len(tool_calls) == 0:
                 return {"content": response.choices[0].message.content}
