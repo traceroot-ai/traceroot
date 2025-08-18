@@ -2,8 +2,15 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from rest.typing import (ActionStatus, ActionType, ChatMode, ChatModel,
-                         MessageType, Provider, Reference)
+from rest.typing import (
+    ActionStatus,
+    ActionType,
+    ChatMode,
+    ChatModel,
+    MessageType,
+    Provider,
+    Reference,
+)
 
 
 class ChatRequest(BaseModel):
