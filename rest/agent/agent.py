@@ -71,7 +71,8 @@ AGENT_SYSTEM_PROMPT = (
     "making changes. PLEASE DON'T DELETE TOO MUCH CODE DIRECTLY.\n"
     "11. If creating a PR, please create a short head branch name for "
     "the PR. Please make sure the head branch name is concise and to "
-    "the point.")
+    "the point."
+)
 
 
 class Agent:
