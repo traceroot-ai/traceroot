@@ -33,7 +33,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useUser } from '../../hooks/useUser';
-import { shouldShowPaymentFeatures } from '@/utils/stripe-config';
 
 
 function LogoComponent() {
@@ -139,7 +138,7 @@ function DocumentationComponent() {
     <SidebarMenuButton
       asChild
       isActive={false}
-      tooltip="Docs"
+      tooltip="Documentation"
       className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
     >
       <a
@@ -147,7 +146,7 @@ function DocumentationComponent() {
         className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
       >
         <BookText className="!w-6 !h-6" />
-        {state === "expanded" && <span>Docs</span>}
+        {state === "expanded" && <span>Documentation</span>}
       </a>
     </SidebarMenuButton>
   );
@@ -360,8 +359,6 @@ function ExpandCollapseButton() {
 }
 
 export default function AppSidebar() {
-  const showSettings = shouldShowPaymentFeatures();
-
   return (
     <Sidebar collapsible="icon" className="relative">
       <SidebarHeader>
@@ -389,19 +386,10 @@ export default function AppSidebar() {
 
       <SidebarFooter>
         <ExpandCollapseButton />
-        <ContactComponent />
         <DocumentationComponent />
-        {!showSettings && (
-          <>
-            <Separator />
-          </>
-        )}
-        {showSettings && (
-          <>
-            <SettingsComponent />
-            <Separator />
-          </>
-        )}
+        <ContactComponent />
+        <SettingsComponent />
+        <Separator />
         <ProfileComponent />
       </SidebarFooter>
     </Sidebar>

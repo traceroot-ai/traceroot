@@ -7,13 +7,11 @@ from .integrate import (DeleteIntegrateRequest, DeleteIntegrateResponse,
                         IntegrateRequest, IntegrateResponse)
 from .log import (GetLogByTraceIdRequest, GetLogByTraceIdResponse, LogEntry,
                   TraceLogs)
-from .subscription import (GetSubscriptionRequest, GetSubscriptionResponse,
-                           PaymentRecord, PaymentRecordRequest,
-                           PaymentRecordResponse, SubscriptionRequest,
-                           SubscriptionResponse, UpdateSubscriptionRequest,
-                           UpdateSubscriptionResponse, UserSubscription)
 from .trace import (ListTraceRawRequest, ListTraceRequest, ListTraceResponse,
                     Span, Trace)
+from .traces_and_logs import (GetTracesAndLogsSinceDateRequest,
+                              GetTracesAndLogsSinceDateResponse,
+                              TracesAndLogsStatistics)
 
 __all__ = [
     "ListTraceRawRequest",
@@ -41,14 +39,7 @@ __all__ = [
     "DeleteIntegrateResponse",
     "GetIntegrateRequest",
     "GetIntegrateResponse",
-    "SubscriptionRequest",
-    "SubscriptionResponse",
-    "UpdateSubscriptionRequest",
-    "UpdateSubscriptionResponse",
-    "PaymentRecordRequest",
-    "PaymentRecordResponse",
-    "GetSubscriptionRequest",
-    "GetSubscriptionResponse",
-    "UserSubscription",
-    "PaymentRecord",
+    "GetTracesAndLogsSinceDateRequest",
+    "GetTracesAndLogsSinceDateResponse",
+    "TracesAndLogsStatistics",
 ]

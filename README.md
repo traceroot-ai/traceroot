@@ -21,7 +21,7 @@
 
 - Visit the [TraceRoot website](https://traceroot.ai) to start debugging your production issues.
 - Explore the [TraceRoot documentation](https://docs.traceroot.ai) to get started with the TraceRoot library.
-- Join our [Discord community](https://discord.gg/tPyffEZvvJ) for discussions.
+- Join our [Discord community](https://discord.gg/tPyffEZvvJ) to learn more and discuss on AI Agent for observability, debugging, tracing and root cause analysis.
 
 ## About
 
@@ -41,7 +41,7 @@ TraceRoot accelerates the debugging process with AI-powered insights. It integra
 | 🤖 LLM Flexibility                                | Bring your own model (OpenAI, Anthropic, local LLMs) for AI-powered debugging |
 | 🌐 Distributed Services                           | Cross-platform support with distributed setup for enterprise-scale debugging  |
 | 💻 AI Debugging Interface                         | Cursor-like interface specialized for debugging with AI assistance            |
-| 🔌 Integration Support                            | Native integration with GitHub, Notion, and other development tools           |
+| 🔌 Integration Support                            | Native integration with GitHub, Notion, Slack, and other tools                |
 
 ## Getting started with TraceRoot
 
@@ -50,9 +50,11 @@ TraceRoot accelerates the debugging process with AI-powered insights. It integra
 The fastest and most reliable way to start with TraceRoot is by signing up for free to [TraceRoot Cloud](https://auth.traceroot.ai/) for a **7-day trial**.
 You’ll get:
 
-- **100k** traces + logs storage with **30-day retention**
-- **1M** LLM tokens
+- **150k** traces + logs storage with **30-day retention**
+- **1.5M** LLM tokens
 - AI agent with chat mode
+
+Usually new features will be available in TraceRoot Cloud first, and then they will be released to the self-hosted version.
 
 ### Self-hosting TraceRoot (Advanced)
 
@@ -62,14 +64,15 @@ If you want to self-host TraceRoot, you can deploy a starter instance in one lin
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/traceroot-ai/traceroot/HEAD/bin/deploy-starter)"
 ```
 
-Open source deployments should scale to a certain point, after which we
-recommend [migrating to TraceRoot Cloud](https://traceroot.ai).
+Open source deployments should scale to a certain point and may not cover all the features, thus we recommend [migrating to TraceRoot Cloud](https://traceroot.ai).
 
-This will start the UI at [http://localhost:3000](http://localhost:3000) and the API at [http://localhost:8000](http://localhost:8000).
+In general the open source version will start the UI at [http://localhost:3000](http://localhost:3000) and the API at [http://localhost:8000](http://localhost:8000).
+
+If you don't want to use Docker, please refer to the [DEVELOPMENT.md](DEVELOPMENT.md) for more details to setup the environment manually.
 
 ## Setting up TraceRoot
 
-Whether you're using [TraceRoot Cloud](https://traceroot.ai) or self-hosting, you'll need our SDK:
+Whether you're using [TraceRoot Cloud](https://traceroot.ai) or our open source version, it's required to use our SDK:
 
 ### Available SDKs
 
@@ -91,6 +94,10 @@ Here is an overview for our AI Agent Framework:
     <img src="misc/images/context-model.png" alt="Context Model" width="90%" max-width="1200px">
   </a>
 </div>
+
+### Chunking
+
+TODO
 
 ### Explainability
 

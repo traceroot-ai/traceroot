@@ -67,6 +67,8 @@ dependencies = [
     "aiosqlite==0.21.0",
     "stripe==12.3.0",
     "docstring_parser==0.17.0",
+    "autumn-py==2.2.2",
+    "aiohttp==3.12.15",
 ]
 
 [project.optional-dependencies]
@@ -112,6 +114,7 @@ all = [
     "ruff==0.12.4",
     "mypy==1.17.0",
     "pre-commit==4.2.0",
+    "aiohttp==3.12.15",
 ]
 
 [project.urls]
@@ -127,4 +130,4 @@ traceroot-api = "rest.main:main"
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["rest*", "traceroot*", "test*", "ui*", "experiments*", "infra*"]
+include = ["rest*", "test*", "ui*"]
