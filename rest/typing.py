@@ -94,4 +94,9 @@ class Provider(str, Enum):
     GROQ = "groq"
 
 
+class Operation(str, Enum):
+    EQUAL = "="
+    CONTAINS = "contains"
+
+
 NO_TEMPERATURE_MODEL = {"gpt-5", "gpt-5-mini", "gpt-o4-mini"}

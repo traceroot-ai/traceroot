@@ -4,6 +4,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
 from rest.agent.utils.openai_tools import get_openai_tool_schema
+from rest.utils.token_tracking import track_tokens_for_user
 
 GITHUB_PROMPT = (
     "You are a helpful assistant that can summarize whether "
@@ -71,6 +72,7 @@ async def is_github_related(
     client: AsyncOpenAI,
     openai_token: str | None = None,
     model: str = "gpt-4.1-mini",
+    user_sub: str | None = None,
 ) -> GithubRelatedOutput:
     if openai_token is not None:
         client = AsyncOpenAI(api_key=openai_token)
@@ -93,6 +95,12 @@ async def is_github_related(
     if 'gpt' in model:
         kwargs["temperature"] = 0.3
     response = await client.chat.completions.create(**kwargs)
+
+    if user_sub:
+        await track_tokens_for_user(user_sub=user_sub,
+                                    openai_response=response,
+                                    model=model)
+
     if response.choices[0].message.tool_calls is None:
         return GithubRelatedOutput(
             is_github_issue=False,
@@ -117,6 +125,7 @@ async def separate_issue_and_pr(
     client: AsyncOpenAI,
     openai_token: str | None = None,
     model: str = "gpt-4.1-mini",
+    user_sub: str | None = None,
 ) -> tuple[str, str]:
     if openai_token is not None:
         client = AsyncOpenAI(api_key=openai_token)
@@ -136,6 +145,12 @@ async def separate_issue_and_pr(
         "tools": [get_openai_tool_schema(SeparateIssueAndPrInput)],
     }
     response = await client.chat.completions.create(**kwargs)
+
+    if user_sub:
+        await track_tokens_for_user(user_sub=user_sub,
+                                    openai_response=response,
+                                    model=model)
+
     # TODO: Improve the default values here
     if response.choices[0].message.tool_calls is None:
         return SeparateIssueAndPrInput(

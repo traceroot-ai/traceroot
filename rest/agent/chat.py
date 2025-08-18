@@ -23,6 +23,7 @@ from rest.agent.typing import LogFeature
 from rest.client.sqlite_client import TraceRootSQLiteClient
 from rest.config import ChatbotResponse
 from rest.typing import ActionStatus, ActionType, ChatModel, MessageType
+from rest.utils.token_tracking import track_tokens_for_user
 
 
 class Chat:
@@ -79,6 +80,7 @@ class Chat:
         db_client: TraceRootMongoDBClient | TraceRootSQLiteClient,
         timestamp: datetime,
         tree: SpanNode,
+        user_sub: str,
         chat_history: list[dict] | None = None,
         openai_token: str | None = None,
     ) -> ChatbotResponse:
@@ -197,7 +199,7 @@ class Chat:
                 })
 
         responses: list[ChatOutput] = await asyncio.gather(*[
-            self.chat_with_context_chunks(messages, model, client)
+            self.chat_with_context_chunks(messages, model, client, user_sub)
             for messages in all_messages
         ])
 
@@ -218,6 +220,7 @@ class Chat:
                 response_references=response_references,
                 client=client,
                 model=model,
+                user_sub=user_sub,
             )
             response_content = response.answer
             response_references = response.reference
@@ -248,6 +251,7 @@ class Chat:
         messages: list[dict[str, str]],
         model: ChatModel,
         chat_client: AsyncOpenAI,
+        user_sub: str,
     ) -> ChatOutput:
         r"""Chat with context chunks.
         """
@@ -266,6 +270,12 @@ class Chat:
             text_format=ChatOutput,
             **params,
         )
+
+        # Track token usage for this API call
+        await track_tokens_for_user(user_sub=user_sub,
+                                    openai_response=response,
+                                    model=str(model))
+
         if model in {
                 ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
                 ChatModel.O4_MINI.value

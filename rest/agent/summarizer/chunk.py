@@ -4,6 +4,7 @@ from openai import AsyncOpenAI
 
 from rest.agent.output.chat_output import ChatOutput
 from rest.typing import ChatModel, Reference
+from rest.utils.token_tracking import track_tokens_for_user
 
 SYSTEM_PROMPT = (
     "You are a helpful TraceRoot.AI assistant that summarizes the response "
@@ -34,6 +35,7 @@ async def chunk_summarize(
     response_references: list[list[Reference]],
     client: AsyncOpenAI,
     model: ChatModel,
+    user_sub: str,
 ) -> ChatOutput:
     r"""Summarize the response answers and references into
     a single ChatOutput.
@@ -64,4 +66,10 @@ async def chunk_summarize(
         text_format=ChatOutput,
         temperature=0.8,
     )
+
+    # Track token usage for this API call
+    await track_tokens_for_user(user_sub=user_sub,
+                                openai_response=response,
+                                model=str(model))
+
     return response.output[0].content[0].parsed
