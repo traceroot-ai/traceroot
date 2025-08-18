@@ -3,7 +3,17 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from rest.client.ee.aws_client import TraceRootAWSClient
+# Try to import the AWS client, skip tests if not available
+try:
+    from rest.client.ee.aws_client import TraceRootAWSClient
+    aws_client_available = True
+except ImportError:
+    aws_client_available = False
+    TraceRootAWSClient = None
+
+# Skip all tests in this module if AWS client is not available
+pytestmark = pytest.mark.skipif(
+    not aws_client_available, reason="rest.client.ee.aws_client not available")
 
 
 @pytest.mark.asyncio
