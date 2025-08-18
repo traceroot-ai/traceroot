@@ -119,39 +119,31 @@
   body {
     @apply bg-background text-foreground;
   }
-  
   /* Enhanced dark mode support */
   html {
     @apply scroll-smooth;
   }
-  
   /* Form elements dark mode support */
   input, textarea, select {
     @apply bg-background text-foreground;
   }
-  
   /* Code blocks and pre elements */
   pre, code {
     @apply bg-muted text-muted-foreground;
   }
-  
   /* Scrollbar styling for dark mode */
   ::-webkit-scrollbar {
     @apply w-2 h-2;
   }
-  
   ::-webkit-scrollbar-track {
     @apply bg-muted;
   }
-  
   ::-webkit-scrollbar-thumb {
     @apply bg-muted-foreground/30 rounded-full;
   }
-  
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-muted-foreground/50;
   }
-  
   /* Selection styling */
   ::selection {
     @apply bg-primary/20 text-foreground;
@@ -163,17 +155,14 @@
   .dark-mode-transition {
     @apply transition-colors duration-200 ease-in-out;
   }
-  
   /* Enhanced card styling for dark mode */
   .card-enhanced {
     @apply bg-card border-border shadow-sm dark:shadow-none;
   }
-  
   /* Enhanced button variants for better dark mode contrast */
   .btn-ghost-enhanced {
     @apply hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/80;
   }
-  
   /* Enhanced input styling */
   .input-enhanced {
     @apply bg-background border-input focus:border-ring focus:ring-1 focus:ring-ring;
@@ -185,11 +174,9 @@
   .text-primary-enhanced {
     @apply text-primary dark:text-primary;
   }
-  
   .bg-enhanced {
     @apply bg-background dark:bg-background;
   }
-  
   .border-enhanced {
     @apply border-border dark:border-border;
   }
