@@ -354,7 +354,7 @@ class Agent:
     ) -> dict[str, Any]:
         r"""Chat with context chunks."""
         if provider == Provider.GROQ:
-            model = "openai/gpt-oss-120b"
+            model = ChatModel.GPT_OSS_120B
             client = AsyncGroq(api_key=groq_token)
             response = await client.chat.completions.create(
                 model=model,
@@ -372,7 +372,7 @@ class Agent:
         else:
             # Force using o4-mini for if not using gpt-5
             if model != ChatModel.GPT_5:
-                model = "o4-mini"
+                model = ChatModel.O4_MINI
             response = await chat_client.chat.completions.create(
                 model=model,
                 messages=messages,
