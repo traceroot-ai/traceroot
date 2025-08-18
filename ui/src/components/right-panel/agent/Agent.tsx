@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { RiRobot2Line } from "react-icons/ri";
 import { DEFAULT_MODEL, type ChatModel, DEFAULT_PROVIDER, type Provider } from '../../../constants/model';
 import { ChatRequest, ChatResponse, MessageType, ChatHistoryResponse, Reference } from '@/models/chat';
 import { useUser } from '@/hooks/useUser';

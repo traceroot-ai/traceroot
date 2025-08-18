@@ -1,20 +1,32 @@
-from .chat import (ChatbotResponse, ChatHistoryResponse, ChatMetadata,
-                   ChatMetadataHistory, ChatRequest, GetChatHistoryRequest,
-                   GetChatMetadataHistoryRequest, GetChatMetadataRequest)
+from .chat import (
+    ChatbotResponse,
+    ChatHistoryResponse,
+    ChatMetadata,
+    ChatMetadataHistory,
+    ChatRequest,
+    GetChatHistoryRequest,
+    GetChatMetadataHistoryRequest,
+    GetChatMetadataRequest,
+)
 from .code import CodeRequest, CodeResponse
-from .integrate import (DeleteIntegrateRequest, DeleteIntegrateResponse,
-                        GetIntegrateRequest, GetIntegrateResponse,
-                        IntegrateRequest, IntegrateResponse)
-from .log import (GetLogByTraceIdRequest, GetLogByTraceIdResponse, LogEntry,
-                  TraceLogs)
-from .subscription import (GetSubscriptionRequest, GetSubscriptionResponse,
-                           PaymentRecord, PaymentRecordRequest,
-                           PaymentRecordResponse, SubscriptionRequest,
-                           SubscriptionResponse, UpdateSubscriptionRequest,
-                           UpdateSubscriptionResponse, UserSubscription)
-from .trace import ListTraceRequest, ListTraceResponse, Span, Trace
+from .integrate import (
+    DeleteIntegrateRequest,
+    DeleteIntegrateResponse,
+    GetIntegrateRequest,
+    GetIntegrateResponse,
+    IntegrateRequest,
+    IntegrateResponse,
+)
+from .log import GetLogByTraceIdRequest, GetLogByTraceIdResponse, LogEntry, TraceLogs
+from .trace import ListTraceRawRequest, ListTraceRequest, ListTraceResponse, Span, Trace
+from .traces_and_logs import (
+    GetTracesAndLogsSinceDateRequest,
+    GetTracesAndLogsSinceDateResponse,
+    TracesAndLogsStatistics,
+)
 
 __all__ = [
+    "ListTraceRawRequest",
     "ListTraceRequest",
     "ListTraceResponse",
     "Trace",
@@ -39,14 +51,7 @@ __all__ = [
     "DeleteIntegrateResponse",
     "GetIntegrateRequest",
     "GetIntegrateResponse",
-    "SubscriptionRequest",
-    "SubscriptionResponse",
-    "UpdateSubscriptionRequest",
-    "UpdateSubscriptionResponse",
-    "PaymentRecordRequest",
-    "PaymentRecordResponse",
-    "GetSubscriptionRequest",
-    "GetSubscriptionResponse",
-    "UserSubscription",
-    "PaymentRecord",
+    "GetTracesAndLogsSinceDateRequest",
+    "GetTracesAndLogsSinceDateResponse",
+    "TracesAndLogsStatistics",
 ]

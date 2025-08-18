@@ -8,8 +8,11 @@ import requests
 from rest.config.log import LogEntry, TraceLogs
 from rest.config.trace import Span, Trace
 from rest.utils.datetime import ensure_utc_datetime
-from rest.utils.trace import (accumulate_num_logs_to_traces, construct_traces,
-                              sort_spans_recursively)
+from rest.utils.trace import (
+    accumulate_num_logs_to_traces,
+    construct_traces,
+    sort_spans_recursively,
+)
 
 LIMIT = 1000
 
@@ -41,8 +44,13 @@ class TraceRootJaegerClient:
         start_time: datetime,
         end_time: datetime,
         log_group_name: str,
-        service_name: Optional[str] = None,
-        service_environment: Optional[str] = None,
+        service_name_values: list[str] | None = None,
+        service_name_operations: list[str] | None = None,
+        service_environment_values: list[str] | None = None,
+        service_environment_operations: list[str] | None = None,
+        categories: list[str] | None = None,
+        values: list[str] | None = None,
+        operations: list[str] | None = None,
     ) -> list[Trace]:
         """Get recent traces from Jaeger.
 
@@ -50,9 +58,19 @@ class TraceRootJaegerClient:
             start_time (datetime): Start time of the trace
             end_time (datetime): End time of the trace
             log_group_name (str): The log group name
-            service_name (str, optional): Filter by service name if provided
-            service_environment (str, optional): Filter by
-                service environment if provided
+            service_name_values (list[str], optional): Filter values for
+                service names if provided
+            service_name_operations (list[str], optional): Filter operations
+                for service names if provided
+            service_environment_values (list[str], optional): Filter values for
+                service environments if provided
+            service_environment_operations (list[str], optional): Filter
+                operations for service environments if provided
+            categories (list[str], optional): Filter by categories
+                if provided (service names are now included in categories)
+            values (list[str], optional): Filter by values if provided
+            operations (list[str], optional): Filter operations
+                for values if provided
 
         Returns:
             list[Trace]: List of traces
@@ -66,16 +84,14 @@ class TraceRootJaegerClient:
         end_time_us = int(end_time.timestamp() * 1_000_000)
 
         # Determine which services to query
-        if service_name:
-            # Use the provided service name
-            services = [service_name]
+        if categories:
+            # Use the provided categories which now include service names
+            services = categories
         else:
-            # Get available services if service_name is not provided
+            # Get available services if categories are not provided
             current_time = datetime.now(timezone.utc)
-            time_window_seconds = int(
-                (current_time - start_time).total_seconds())
-            services = await self._get_services(
-                lookback_seconds=time_window_seconds)
+            time_window_seconds = int((current_time - start_time).total_seconds())
+            services = await self._get_services(lookback_seconds=time_window_seconds)
             if not services:
                 return []
 
@@ -107,6 +123,32 @@ class TraceRootJaegerClient:
         # Sort traces by start_time in descending order (newest first)
         traces.sort(key=lambda trace: trace.start_time, reverse=True)
         return traces
+
+    async def get_trace_with_spans_by_ids(
+        self,
+        trace_ids: list[str],
+        categories: list[str] | None = None,
+        values: list[str] | None = None,
+        operations: list[str] | None = None,
+    ) -> dict[str,
+              list[Span]]:
+        """Get trace with spans by trace IDs.
+
+        Args:
+            trace_ids (list[str]): List of trace IDs to fetch
+            categories (list[str], optional): Filter by categories if provided
+            values (list[str], optional): Filter by values if provided
+            operations (list[str], optional): Filter by operations
+                for values if provided
+
+        Returns:
+            dict[str, list[Span]]: Dictionary of trace_id and list of spans.
+
+        Note:
+            This method signature is provided for interface consistency.
+            Implementation not provided as requested.
+        """
+        # Implementation not provided as requested
 
     async def get_logs_by_trace_id(
         self,
@@ -219,11 +261,13 @@ class TraceRootJaegerClient:
                 commit_id = event["commit_id"]
 
                 if (github_owner and github_repo and commit_id and file_name):
-                    git_url = (f"https://github.com/"
-                               f"{github_owner}/"
-                               f"{github_repo}/tree/"
-                               f"{commit_id}/"
-                               f"{file_name}?plain=1#L{line_number}")
+                    git_url = (
+                        f"https://github.com/"
+                        f"{github_owner}/"
+                        f"{github_repo}/tree/"
+                        f"{commit_id}/"
+                        f"{file_name}?plain=1#L{line_number}"
+                    )
 
                 # Create LogEntry object
                 log_entry = LogEntry(
@@ -261,7 +305,8 @@ class TraceRootJaegerClient:
     async def _get_trace_by_id(
         self,
         trace_id: str,
-    ) -> Optional[dict[str, Any]]:
+    ) -> Optional[dict[str,
+                       Any]]:
         """Get a specific trace by its ID from Jaeger.
 
         Args:
@@ -292,8 +337,7 @@ class TraceRootJaegerClient:
         try:
             params = {"lookback": f"{lookback_seconds}s"}
 
-            response = await self._make_request(f"{self.services_url}",
-                                                params=params)
+            response = await self._make_request(f"{self.services_url}", params=params)
 
             if response and "data" in response:
                 return response["data"]
@@ -308,7 +352,8 @@ class TraceRootJaegerClient:
         start_time: int,
         end_time: int,
         limit: int,
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str,
+                   Any]]:
         """Get traces from Jaeger API."""
         try:
             params = {
@@ -318,8 +363,7 @@ class TraceRootJaegerClient:
                 "limit": limit,
             }
 
-            response = await self._make_request(f"{self.traces_url}",
-                                                params=params)
+            response = await self._make_request(f"{self.traces_url}", params=params)
 
             if response and "data" in response:
                 return response["data"]
@@ -330,7 +374,8 @@ class TraceRootJaegerClient:
 
     async def _convert_jaeger_trace_to_trace(
         self,
-        trace_data: dict[str, Any],
+        trace_data: dict[str,
+                         Any],
     ) -> Optional[Trace]:
         """Convert Jaeger trace data to our Trace model."""
         try:
@@ -346,8 +391,7 @@ class TraceRootJaegerClient:
             # Convert spans to individual Span objects (without hierarchy)
             spans_dict: dict[str, Span] = {}
             for span_data in spans_data:
-                span: Span | None = self._convert_jaeger_span_to_span(
-                    span_data)
+                span: Span | None = self._convert_jaeger_span_to_span(span_data)
                 if span:
                     spans_dict[span.id] = span
 
@@ -355,7 +399,7 @@ class TraceRootJaegerClient:
                 return None
 
             # Build parent-child relationships using parentSpanID
-            root_spans = self._build_span_hierarchy(spans_data, spans_dict)
+            root_spans: list[Span] = self._build_span_hierarchy(spans_data, spans_dict)
 
             # Calculate trace start time, end time, and duration
             start_times = [span.start_time for span in spans_dict.values()]
@@ -400,8 +444,10 @@ class TraceRootJaegerClient:
 
     def _build_span_hierarchy(
         self,
-        spans_data: list[dict[str, Any]],
-        spans_dict: dict[str, Span],
+        spans_data: list[dict[str,
+                              Any]],
+        spans_dict: dict[str,
+                         Span],
     ) -> list[Span]:
         """Build hierarchical span structure from flat span data.
 
@@ -452,7 +498,8 @@ class TraceRootJaegerClient:
 
     def _convert_jaeger_span_to_span(
         self,
-        span_data: dict[str, Any],
+        span_data: dict[str,
+                        Any],
     ) -> Span | None:
         """Convert Jaeger span data to our Span model."""
         try:
@@ -464,6 +511,7 @@ class TraceRootJaegerClient:
             num_warning_logs: int = 0
             num_error_logs: int = 0
             num_critical_logs: int = 0
+            telemetry_sdk_language: str | None = None
 
             for tag in span_data.get("tags", []):
                 if tag.get("key") == "num_debug_logs":
@@ -476,6 +524,8 @@ class TraceRootJaegerClient:
                     num_error_logs = int(tag.get("value"))
                 if tag.get("key") == "num_critical_logs":
                     num_critical_logs = int(tag.get("value"))
+                if tag.get("key") == "telemetry.sdk.language":
+                    telemetry_sdk_language = tag.get("value")
 
             # Convert microseconds to seconds (float)
             start_time = span_data.get("startTime", 0) / 1_000_000.0
@@ -487,6 +537,7 @@ class TraceRootJaegerClient:
             # For now, set to 0 as Jaeger doesn't directly provide log counts
             span = Span(
                 id=span_id,
+                parent_id=None,
                 name=operation_name,
                 start_time=start_time,
                 end_time=end_time,
@@ -496,6 +547,7 @@ class TraceRootJaegerClient:
                 num_warning_logs=num_warning_logs,
                 num_error_logs=num_error_logs,
                 num_critical_logs=num_critical_logs,
+                telemetry_sdk_language=telemetry_sdk_language,
                 spans=[],  # Will be populated by _build_span_hierarchy
             )
 
@@ -504,10 +556,10 @@ class TraceRootJaegerClient:
             print(f"Error converting Jaeger span: {e}")
             return None
 
-    async def _make_request(
-            self,
-            url: str,
-            params: Optional[dict] = None) -> Optional[dict[str, Any]]:
+    async def _make_request(self,
+                            url: str,
+                            params: Optional[dict] = None) -> Optional[dict[str,
+                                                                            Any]]:
         """Make HTTP request to Jaeger API."""
         loop = asyncio.get_event_loop()
 

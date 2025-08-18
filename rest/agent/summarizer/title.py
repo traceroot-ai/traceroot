@@ -1,5 +1,7 @@
 from openai import AsyncOpenAI
 
+from rest.utils.token_tracking import track_tokens_for_user
+
 TITLE_PROMPT = (
     "You are a helpful assistant that can summarize the title of the "
     "chat. You are given user's question and please summarize the "
@@ -9,7 +11,8 @@ TITLE_PROMPT = (
     "and to the point. Please limit the summary to at most 15 words. "
     "Notice that please don't add words like 'Title: ' etc to the "
     "final title. The final title is just the title. Also please "
-    "don't include any punctuations.")
+    "don't include any punctuations."
+)
 
 
 async def summarize_title(
@@ -18,6 +21,7 @@ async def summarize_title(
     openai_token: str | None = None,
     model: str = "gpt-4o-mini",
     first_chat: bool = False,
+    user_sub: str | None = None,
 ) -> str | None:
     if not first_chat:
         return None
@@ -36,4 +40,10 @@ async def summarize_title(
             },
         ],
     )
+    if user_sub:
+        await track_tokens_for_user(
+            user_sub=user_sub,
+            openai_response=response,
+            model=model
+        )
     return response.choices[0].message.content

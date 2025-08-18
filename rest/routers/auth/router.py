@@ -1,6 +1,5 @@
 import base64
 import json
-from datetime import datetime
 from typing import Dict
 
 from fastapi import APIRouter, HTTPException, Request
@@ -16,7 +15,6 @@ try:
     from rest.client.ee.mongodb_client import TraceRootMongoDBClient
 except ImportError:
     from rest.client.mongodb_client import TraceRootMongoDBClient
-from rest.config.subscription import UserSubscription
 
 
 class AuthState(BaseModel):
@@ -53,7 +51,8 @@ async def auth_callback(request: Request, state: str) -> JSONResponse:
             "given_name": id_claims.get("given_name"),
             "family_name": id_claims.get("family_name"),
             "token_use": access_claims.get("token_use"),
-            "scope": access_claims.get("scope", "").split(),
+            "scope": access_claims.get("scope",
+                                       "").split(),
             "company": id_claims.get("custom:company"),
             "title": id_claims.get("custom:title"),
         }
@@ -71,22 +70,30 @@ async def auth_callback(request: Request, state: str) -> JSONResponse:
             max_age=3600 * 12  # 12 hours
         )
 
-        # Create trial subscription for new users
-        user_email = user_info.get("email")
-        if user_email:
-            existing_subscription = await db_client.get_subscription(
-                user_email, )
-            if not existing_subscription:
-                now = datetime.utcnow().isoformat()
-                subscription = UserSubscription(user_email=user_email,
-                                                hasAccess=True,
-                                                subscription_plan="starter",
-                                                start_date=now,
-                                                is_trial=True,
-                                                trial_start_date=now)
-                await db_client.create_subscription(subscription)
+        # Set ID token cookie for user identification
+        # (contains email and other user claims)
+        response.set_cookie(
+            key="id_token",
+            value=id_token,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            max_age=3600 * 12  # 12 hours
+        )
 
         return response
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/logout")
+async def logout(request: Request) -> JSONResponse:
+    """Logout endpoint that clears authentication cookies."""
+    response = JSONResponse({"status": "success", "message": "Logged out successfully"})
+
+    # Clear both authentication cookies
+    response.delete_cookie(key="session")
+    response.delete_cookie(key="id_token")
+
+    return response

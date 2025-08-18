@@ -13,6 +13,7 @@ interface RightPanelSwitchProps {
   spanIds?: string[];
   traceQueryStartTime?: Date;
   traceQueryEndTime?: Date;
+  allTraces?: TraceModel[];
   onTraceSelect?: (traceId: string) => void;
   onSpanClear?: () => void;
   onTraceSpansUpdate?: (spans: Span[]) => void;
@@ -23,6 +24,7 @@ export default function RightPanelSwitch({
   spanIds = [],
   traceQueryStartTime,
   traceQueryEndTime,
+  allTraces = [],
   onTraceSelect,
   onSpanClear,
   onTraceSpansUpdate
@@ -35,54 +37,24 @@ export default function RightPanelSwitch({
   const [traceEndTimes, setTraceEndTimes] = useState<Date[]>([]);
   const [traceIDs, setTraceIDs] = useState<string[]>([]);
   const [tracePercentiles, setTracePercentiles] = useState<string[]>([]);
-  const [allTraces, setAllTraces] = useState<TraceModel[]>([]);
 
-  // Fetch traces only when time range changes, not when traceId changes
+  // Update trace data when allTraces prop changes
   useEffect(() => {
-    const fetchTraces = async () => {
-      try {
-        // Use provided time range or generate default timestamps (last 10 minutes)
-        // At the first loading, it's possible that the time range is not set,
-        // so we use the default time range as 10 minutes.
-        const endTime = traceQueryEndTime || new Date();
-        const startTime = traceQueryStartTime || new Date(endTime.getTime() - 10 * 60 * 1000);
-
-        const response = await fetch(`/api/list_trace?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}`, {
-          headers: {
-            'Authorization': `Bearer ${getAuthState()}`,
-          },
-        });
-        const result = await response.json();
-        if (result.success) {
-          // Get all trace data
-          const traces = result.data as TraceModel[];
-          setAllTraces(traces);
-          setTraceIDs(traces.map(t => t.id));
-          setTraceDurations(traces.map(t => t.duration));
-          setTraceStartTimes(traces.map(t => new Date(t.start_time * 1000)));
-          setTraceEndTimes(traces.map(t => new Date(t.end_time * 1000)));
-          setTracePercentiles(traces.map(t => t.percentile));
-        } else {
-          // Clear all trace data on error
-          setAllTraces([]);
-          setTraceDurations([]);
-          setTraceStartTimes([]);
-          setTraceEndTimes([]);
-          setTraceIDs([]);
-          setTracePercentiles([]);
-        }
-      } catch {
-        // Clear all trace data on error
-        setAllTraces([]);
-        setTraceDurations([]);
-        setTraceStartTimes([]);
-        setTraceEndTimes([]);
-        setTraceIDs([]);
-        setTracePercentiles([]);
-      }
-    };
-    fetchTraces();
-  }, [traceQueryStartTime, traceQueryEndTime]);
+    if (allTraces && allTraces.length > 0) {
+      setTraceIDs(allTraces.map(t => t.id));
+      setTraceDurations(allTraces.map(t => t.duration));
+      setTraceStartTimes(allTraces.map(t => new Date(t.start_time * 1000)));
+      setTraceEndTimes(allTraces.map(t => new Date(t.end_time * 1000)));
+      setTracePercentiles(allTraces.map(t => t.percentile));
+    } else {
+      // Clear all trace data when no traces provided
+      setTraceDurations([]);
+      setTraceStartTimes([]);
+      setTraceEndTimes([]);
+      setTraceIDs([]);
+      setTracePercentiles([]);
+    }
+  }, [allTraces]);
 
   // Update spans when traceId changes, using already fetched trace data
   useEffect(() => {

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Telescope, LibraryBig, Settings, ArrowRightFromLine, ArrowLeftFromLine } from "lucide-react";
+import { Telescope, LibraryBig, Settings, ArrowRightFromLine, ArrowLeftFromLine, Mail, BookText } from "lucide-react";
 import { FaUser } from 'react-icons/fa';
 import { RxCross1 } from 'react-icons/rx';
 
@@ -33,7 +33,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useUser } from '../../hooks/useUser';
-import { shouldShowPaymentFeatures } from '@/utils/stripe-config';
 
 
 function LogoComponent() {
@@ -44,7 +43,7 @@ function LogoComponent() {
       <Link href="/" className={`flex items-center group ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
         <svg
           xmlns="http://www.w3.org/2000/svg"
-          className="h-10 w-10 flex-shrink-0"
+          className="h-11.5 w-11.5 flex-shrink-0"
           viewBox="0 0 32 32"
           fill="none"
           stroke="#0a0a0a"
@@ -102,12 +101,53 @@ function IntegrateComponent() {
       asChild
       isActive={pathname === '/integrate'}
       tooltip="Integration"
-      className={`flex items-center rounded-md p-2 mb-1 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-1"}`}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
     >
-      <Link href="/integrate" className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-1"}`}>
+      <Link href="/integrate" className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
         <LibraryBig className="!w-6 !h-6" />
         {state === "expanded" && <span>Integrate</span>}
       </Link>
+    </SidebarMenuButton>
+  );
+}
+
+function ContactComponent() {
+  const { state } = useSidebar();
+
+  return (
+    <SidebarMenuButton
+      asChild
+      isActive={false}
+      tooltip="Contact"
+      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+    >
+      <a
+        href="https://traceroot.ai" target="_blank" rel="noopener noreferrer"
+        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+      >
+        <Mail className="!w-6 !h-6" />
+        {state === "expanded" && <span>Contact</span>}
+      </a>
+    </SidebarMenuButton>
+  );
+}
+
+function DocumentationComponent() {
+  const { state } = useSidebar();
+  return (
+    <SidebarMenuButton
+      asChild
+      isActive={false}
+      tooltip="Documentation"
+      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+    >
+      <a
+        href="https://docs.traceroot.ai" target="_blank" rel="noopener noreferrer"
+        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+      >
+        <BookText className="!w-6 !h-6" />
+        {state === "expanded" && <span>Documentation</span>}
+      </a>
     </SidebarMenuButton>
   );
 }
@@ -144,13 +184,13 @@ function ProfileComponent() {
   if (isLoading) {
     return (
       <div className="flex items-center gap-2">
-        <div className="w-8 h-8 rounded-md bg-gray-100 dark:bg-gray-800 flex items-center justify-center animate-pulse">
-          <div className="w-4 h-4 bg-gray-300 dark:bg-gray-600 rounded-md"></div>
+        <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center animate-pulse">
+          <div className="w-4 h-4 bg-gray-400 dark:bg-gray-300 rounded-full"></div>
         </div>
         {state === "expanded" && (
           <div className="flex flex-col animate-pulse">
-            <div className="h-3 bg-gray-300 dark:bg-gray-600 rounded-md w-16 mb-1"></div>
-            <div className="h-2 bg-gray-300 dark:bg-gray-600 rounded-md w-20"></div>
+            <div className="font-semibold text-sm bg-gray-400 dark:bg-gray-300 rounded-full w-16 mb-1"></div>
+            <div className="font-semibold text-sm bg-gray-400 dark:bg-gray-300 rounded-full w-20"></div>
           </div>
         )}
       </div>
@@ -188,10 +228,10 @@ function ProfileComponent() {
           {state === "expanded" && (
             <div className="flex flex-col flex-1 min-w-0 text-left">
               <span className="text-xs font-medium truncate">
-                {user?.given_name || user?.email?.split('@')[0] || 'NA'}
+                {user?.given_name || user?.email?.split('@')[0] || 'First Name'}
               </span>
               <span className="text-xs truncate">
-                {user?.family_name || 'NA'}
+                {user?.family_name || 'Last Name'}
               </span>
             </div>
           )}
@@ -210,7 +250,7 @@ function ProfileComponent() {
               )}
             </div>
             <DialogTitle className="text-center">
-              {user?.given_name ? `Hello ${user.given_name}!` : user?.email ? `Hello ${user.email}!` : 'Welcome'}
+              {user?.given_name ? `Hello ${user.given_name}!` : user?.email ? `Hello ${user.email}!` : 'Welcome!'}
             </DialogTitle>
           </div>
         </DialogHeader>
@@ -269,7 +309,7 @@ function ProfileComponent() {
 
           <DialogFooter className="flex justify-center">
             {!user ? (
-              <Button asChild>
+              <Button asChild className="mx-auto">
                 <a
                   href="https://traceroot.ai"
                   target="_blank"
@@ -309,9 +349,9 @@ function ExpandCollapseButton() {
       className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
     >
       {state === "collapsed" ? (
-        <ArrowRightFromLine className="!w-5 !h-5" />
+        <ArrowRightFromLine className="!w-5.5 !h-5.5" />
       ) : (
-        <ArrowLeftFromLine className="!w-5 !h-5" />
+        <ArrowLeftFromLine className="!w-5.5 !h-5.5" />
       )}
       {state === "expanded" && <span>Collapse</span>}
     </SidebarMenuButton>
@@ -319,8 +359,6 @@ function ExpandCollapseButton() {
 }
 
 export default function AppSidebar() {
-  const showSettings = shouldShowPaymentFeatures();
-
   return (
     <Sidebar collapsible="icon" className="relative">
       <SidebarHeader>
@@ -337,9 +375,10 @@ export default function AppSidebar() {
                 <ExploreComponent />
               </SidebarMenuItem>
 
-              <SidebarMenuItem>
+              <SidebarMenuItem className="mb-1">
                 <IntegrateComponent />
               </SidebarMenuItem>
+
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -347,12 +386,10 @@ export default function AppSidebar() {
 
       <SidebarFooter>
         <ExpandCollapseButton />
-        {showSettings && (
-          <>
-            <SettingsComponent />
-            <Separator />
-          </>
-        )}
+        <DocumentationComponent />
+        <ContactComponent />
+        <SettingsComponent />
+        <Separator />
         <ProfileComponent />
       </SidebarFooter>
     </Sidebar>

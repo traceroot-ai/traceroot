@@ -18,6 +18,8 @@ Only run this command once:
 
 ```bash
 npm install
+# Copy all necessary environment variables to .env.local for nextjs to use
+cp ../.env.development ./.env.local
 ```
 
 Then run the following command to start the development server:

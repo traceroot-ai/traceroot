@@ -3,7 +3,6 @@
     <img src="misc/images/traceroot_logo.png" alt="TraceRoot Logo" width="70%">
   </a>
 </div>
-
 <div align="center">
 
 [![Testing Status][testing-image]][testing-url]
@@ -18,11 +17,15 @@
 
 </div>
 
-🔍 TraceRoot helps engineers debug production issues 10x faster using AI-powered analysis of traces, logs, and code context.
+🔍 **TraceRoot** helps engineers debug production issues **10× faster** using AI-powered analysis of traces, logs, and code context.
 
-- Check out [traceroot.ai website](https://traceroot.ai) to start using TraceRoot to debug your production issues.
-- Visit the [traceroot docs](https://docs.traceroot.ai) to get started with traceroot library.
-- Join our [Discord](https://discord.gg/tPyffEZvvJ) for discussion
+- Visit the [TraceRoot website](https://traceroot.ai) to start debugging your production issues.
+- Explore the [TraceRoot documentation](https://docs.traceroot.ai) to get started with the TraceRoot library.
+- Join our [Discord community](https://discord.gg/tPyffEZvvJ) to learn more and discuss on AI Agent for observability, debugging, tracing and root cause analysis.
+
+## About
+
+TraceRoot accelerates the debugging process with AI-powered insights. It integrates seamlessly into your development workflow, providing real-time trace and log analysis, code context understanding, and intelligent assistance.
 
 ## Demo
 
@@ -38,89 +41,47 @@
 | 🤖 LLM Flexibility                                | Bring your own model (OpenAI, Anthropic, local LLMs) for AI-powered debugging |
 | 🌐 Distributed Services                           | Cross-platform support with distributed setup for enterprise-scale debugging  |
 | 💻 AI Debugging Interface                         | Cursor-like interface specialized for debugging with AI assistance            |
-| 🔌 Integration Support                            | Native integration with GitHub, Notion, and other development tools           |
+| 🔌 Integration Support                            | Native integration with GitHub, Notion, Slack, and other tools                |
 
 ## Getting started with TraceRoot
 
 ### TraceRoot Cloud (Recommended)
 
-The fastest and most reliable way to get started with TraceRoot is signing up
-for free to [TraceRoot Cloud](https://auth.traceroot.ai/) for a 7 day trial.
-You will have 150k trace + logs storage with 30d retentions, 1.5M LLM tokens,
-and AI agent with chat mode.
+The fastest and most reliable way to start with TraceRoot is by signing up for free to [TraceRoot Cloud](https://auth.traceroot.ai/) for a **7-day trial**.
+You’ll get:
 
-### Self-hosting the open-source deploy (Advanced)
+- **150k** traces + logs storage with **30-day retention**
+- **1.5M** LLM tokens
+- AI agent with chat mode
 
-#### Installation
+Usually new features will be available in TraceRoot Cloud first, and then they will be released to the self-hosted version.
 
-You can install the latest version of TraceRoot with the following command:
+### Self-hosting TraceRoot (Advanced)
 
-Install the dependencies locally:
-
-```bash
-git clone https://github.com/traceroot-ai/traceroot.git
-cd traceroot
-
-# Create and activate a virtual environment
-python3.11 -m venv venv
-source venv/bin/activate
-
-# Install TraceRoot with dependencies excluding optional dependencies
-pip install --upgrade pip
-pip install -e .
-```
-
-#### Local Usage
-
-For local usage, all of your data will be stored locally.
-
-Run the below command to intialize environment variables.
+If you want to self-host TraceRoot, you can deploy a starter instance in one line on Linux with Docker:
 
 ```bash
-source .env.development
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/traceroot-ai/traceroot/HEAD/bin/deploy-starter)"
 ```
 
-You can use the TraceRoot framework locally by following the [README.md in the `ui` directory](ui/README.md) and [README.md in the `rest` directory](rest/README.md).
+Open source deployments should scale to a certain point and may not cover all the features, thus we recommend [migrating to TraceRoot Cloud](https://traceroot.ai).
 
-Also, you can build the latest docker image and run the docker container by following the [README.md in the `docker` directory](docker/public/README.md).
+In general the open source version will start the UI at [http://localhost:3000](http://localhost:3000) and the API at [http://localhost:8000](http://localhost:8000).
 
-This will start the UI at [http://localhost:3000](http://localhost:3000) and the API at [http://localhost:8000](http://localhost:8000).
-
-Before using the TraceRoot framework, you need to setup the Jaeger docker container at first. It will be used to store the traces and logs and capture the traces and logs from our SDK which is integrated with your applications.
-
-```bash
-docker run -d --name jaeger \
-  -e COLLECTOR_OTLP_ENABLED=true \
-  -p 16686:16686 \
-  -p 14268:14268 \
-  -p 14250:14250 \
-  -p 4317:4317 \
-  -p 4318:4318 \
-  cr.jaegertracing.io/jaegertracing/jaeger:2.8.0
-```
-
-In local mode, the first step is to go to the integration page and connect with your GitHub account (optional) with your GitHub token.
-You also need to put your LLM API key in the integration page.
+If you don't want to use Docker, please refer to the [DEVELOPMENT.md](DEVELOPMENT.md) for more details to setup the environment manually.
 
 ## Setting up TraceRoot
 
-Whether you're using [TraceRoot Cloud](https://traceroot.ai) or self-hosting, you'll need our SDK:
+Whether you're using [TraceRoot Cloud](https://traceroot.ai) or our open source version, it's required to use our SDK:
 
-```bash
-pip install traceroot==0.0.4a7
-```
+### Available SDKs
 
-Create `.traceroot-config.yaml` in your project root:
+| Language              | Repository                                                           |
+| --------------------- | -------------------------------------------------------------------- |
+| Python                | [traceroot-sdk](https://github.com/traceroot-ai/traceroot-sdk)       |
+| JavaScript/TypeScript | [traceroot-sdk-ts](https://github.com/traceroot-ai/traceroot-sdk-ts) |
 
-```yaml
-local_mode: true  # set to false for cloud version
-service_name: "your-service-name"
-github_owner: "your-github-owner"
-github_repo_name: "your-github-repo-name"
-github_commit_hash: "your-github-commit-hash"
-```
-
-For more details or the SDK usage and examples, please checkout this [Quickstart](https://docs.traceroot.ai/quickstart).
+For more details on SDK usage and examples, please check out this [Quickstart](https://docs.traceroot.ai/quickstart).
 
 ## AI Agent Framework
 
@@ -156,7 +117,7 @@ If you find our exploratory TraceRoot useful in your research, please consider c
 }
 ```
 
-[company-website-image]: https://img.shields.io/badge/website-traceroot.ai-148740
+[company-website-image]: https://img.shields.io/badge/website-traceroot.ai-black
 [company-website-url]: https://traceroot.ai
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
 [discord-url]: https://discord.gg/tPyffEZvvJ
@@ -165,7 +126,7 @@ If you find our exploratory TraceRoot useful in your research, please consider c
 [npm-image]: https://img.shields.io/npm/v/traceroot-sdk-ts?style=flat-square&logo=npm&logoColor=fff
 [npm-url]: https://www.npmjs.com/package/traceroot-sdk-ts
 [pypi-image]: https://badge.fury.io/py/traceroot.svg
-[pypi-sdk-downloads-image]: https://img.shields.io/pypi/dm/traceroot
+[pypi-sdk-downloads-image]: https://static.pepy.tech/badge/traceroot
 [pypi-sdk-downloads-url]: https://pypi.python.org/pypi/traceroot
 [pypi-url]: https://pypi.python.org/pypi/traceroot
 [testing-image]: https://github.com/traceroot-ai/traceroot/actions/workflows/test.yml/badge.svg

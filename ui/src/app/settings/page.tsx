@@ -2,65 +2,202 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { FaUser, FaCreditCard, FaHistory, FaBuilding, FaBriefcase } from 'react-icons/fa';
-import { HiMail } from 'react-icons/hi';
+import { FaCreditCard, FaHistory, FaCrown, FaRobot, FaChartLine } from 'react-icons/fa';
 import { useUser } from '../../hooks/useUser';
-import { useUserSubscription } from '../../hooks/useUserSubscription';
-import { createPortalSession } from '../../utils/stripe';
+import { useCustomer } from 'autumn-js/react';
 import { toast } from 'react-hot-toast';
-import { shouldShowPaymentFeatures } from '@/utils/stripe-config';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { user, avatarLetter, isLoading: userLoading } = useUser();
-  const {
-    subscription,
-    currentPlan: currentPlanDisplay,
-    hasActiveSubscription,
-    isLoading: subscriptionLoading
-  } = useUserSubscription();
+  const { user, isLoading: userLoading, getAuthState } = useUser();
+  const { customer, isLoading: customerLoading, error: customerError, openBillingPortal } = useCustomer();
 
-  const [isChangeHovered, setIsChangeHovered] = useState(false);
-  const [isManageBillingHovered, setIsManageBillingHovered] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [tracesAndLogsData, setTracesAndLogsData] = useState(null);
+  const [isLoadingTracesAndLogs, setIsLoadingTracesAndLogs] = useState(true);
 
-  const isLoading = userLoading || subscriptionLoading;
-  const showPaymentFeatures = shouldShowPaymentFeatures();
+  const isLoading = userLoading || customerLoading;
 
-  useEffect(() => {
-    // Redirect to home if Stripe is not configured
-    if (!showPaymentFeatures) {
-      router.push('/');
-      return;
+  // Get LLM token information from Autumn customer data
+  const getLLMTokenInfo = () => {
+    if (!customer?.features?.llm_tokens) {
+      return { limit: 0, usage: 0, remaining: 0, percentage: 0 };
     }
-  }, [showPaymentFeatures, router]);
 
-  // Don't render anything if Stripe is not configured
-  if (!showPaymentFeatures) {
-    return null;
+    const llmTokenFeature = customer.features.llm_tokens;
+
+    const limit = llmTokenFeature.included_usage || 0;
+    const usage = llmTokenFeature.usage || 0;
+    const remaining = llmTokenFeature.balance || 0;
+    const percentage = limit > 0 ? Math.min(100, (usage / limit) * 100) : 0;
+
+    return { limit, usage, remaining, percentage };
+  };
+
+  // Get traces and logs information from Autumn customer data
+  function getTracesAndLogsInfo() {
+    // If still loading, show loading state
+    if (isLoadingTracesAndLogs) {
+      return { limit: 0, usage: 0, remaining: 0, percentage: 0, isLoading: true };
+    }
+
+    // Use API data if available, fallback to Autumn data
+    const tracesAndLogsFeature = customer?.features?.trace__log;
+
+    if (!tracesAndLogsFeature) {
+      return null;
+    }
+
+    const limit = tracesAndLogsFeature.included_usage || 0;
+    const usage = tracesAndLogsFeature.usage || 0; // This now contains fresh data from API
+    const remaining = tracesAndLogsFeature.balance || 0;
+    const percentage = limit > 0 ? Math.min(100, (usage / limit) * 100) : 0;
+
+    return { limit, usage, remaining, percentage, isLoading: false };
   }
 
-  // Format the date nicely
-  const formatDate = (dateStr: string) => {
+  // Fetch traces and logs usage from backend API
+  const fetchTracesAndLogsUsage = async () => {
     try {
-      return new Date(dateStr).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
+      setIsLoadingTracesAndLogs(true);
+      const authState = getAuthState();
+
+      if (!authState || !customer?.products) {
+        setIsLoadingTracesAndLogs(false);
+        return;
+      }
+
+      // Get the last payment date from customer subscription
+      const activeProduct = customer.products.find(product =>
+        product.status === 'active' || product.status === 'trialing'
+      );
+
+      if (!activeProduct) {
+        setIsLoadingTracesAndLogs(false);
+        return;
+      }
+
+      const sinceDate = activeProduct.current_period_start
+        ? new Date(activeProduct.current_period_start).toISOString()
+        : new Date().toISOString(); // Fallback to current date
+
+      // Use GET with query parameters
+      const url = new URL('/api/get_traces_and_logs_usage', window.location.origin);
+      console.log('sinceDate', sinceDate);
+      url.searchParams.set('since_date', sinceDate);
+
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${authState}`,
+        },
       });
-    } catch (e) {
-      console.error('Error formatting date:', e);
-      return 'Invalid Date';
+
+      if (response.ok) {
+        const data = await response.json();
+        setTracesAndLogsData(data.traces_and_logs);
+
+        // Update customer data with fresh usage info
+        if (customer?.features?.trace__log && data.traces_and_logs) {
+          customer.features.trace__log.usage = data.traces_and_logs.trace__log;
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching traces and logs usage:', error);
+    } finally {
+      setIsLoadingTracesAndLogs(false);
     }
+  };
+
+  // TODO (xinwei): properly fix this please, right now it is reloading
+  // whenever we go to another page and back which is not ideal
+  // useEffect to fetch data when customer is loaded
+  useEffect(() => {
+    if (customer && !isLoading) {
+      fetchTracesAndLogsUsage();
+    }
+  }, [customer, isLoading]);
+
+  // Format numbers with commas for better readability
+  const formatNumber = (num: number) => {
+    return new Intl.NumberFormat('en-US').format(num);
+  };
+
+  // Get color based on usage percentage
+  const getUsageColor = (percentage: number) => {
+    if (percentage >= 90) return 'text-red-600';
+    if (percentage >= 75) return 'text-yellow-600';
+    return 'text-green-600';
+  };
+
+  // Get current active product from Autumn customer data
+  const getCurrentPlan = () => {
+    console.log('customer', customer);
+    if (!customer?.products || customer.products.length === 0) {
+      return 'Free';
+    }
+
+    // Find the currently active product (including trialing status)
+    const activeProduct = customer.products.find(product =>
+      product.status === 'active' || product.status === 'trialing'
+    );
+
+    return activeProduct?.name || 'Free';
+  };
+
+  // Check if customer has active subscription
+  const hasActiveSubscription = () => {
+    if (!customer?.products || customer.products.length === 0) {
+      return false;
+    }
+
+    return customer.products.some(product =>
+      product.status === 'active' || product.status === 'trialing'
+    );
+  };
+
+  // Check if customer is on trial
+  const isOnTrial = () => {
+    if (!customer?.products || customer.products.length === 0) {
+      return false;
+    }
+
+    return customer.products.some(product =>
+      product.status === 'trialing'
+    );
+  };
+
+  // Get trial end date if on trial
+  const getTrialEndDate = () => {
+    if (!customer?.products || customer.products.length === 0) {
+      return null;
+    }
+
+    const trialProduct = customer.products.find(product =>
+      product.status === 'trialing'
+    );
+
+    // Debug: log the trial product to see available fields
+    if (trialProduct) {
+      console.log('Trial product:', trialProduct);
+      console.log('Trial product keys:', Object.keys(trialProduct));
+    }
+
+    // Check multiple possible field names for trial end date
+    return trialProduct?.trial_ends_at ||
+           trialProduct?.current_period_end ||
+           null;
   };
 
   // Capitalize the plan name for display
   const formatPlanName = (plan: string | null | undefined) => {
-    if (!plan) return 'None';
+    if (!plan) return 'Free';
     return plan.charAt(0).toUpperCase() + plan.slice(1);
   };
 
-  // Handle manage billing click
+  // Handle manage billing click using Autumn's openBillingPortal
   const handleManageBilling = async () => {
     if (!user?.email) {
       toast.error('Please sign in to manage billing');
@@ -71,13 +208,12 @@ export default function SettingsPage() {
       setIsProcessing(true);
       toast.loading('Redirecting to billing portal...', { id: 'billing-redirect' });
 
-      const portalUrl = await createPortalSession(user.email);
+      await openBillingPortal({
+        returnUrl: `${window.location.origin}/settings`
+      });
 
       toast.dismiss('billing-redirect');
       toast.success('Redirecting to billing portal...');
-
-      // Redirect to Stripe Customer Portal
-      window.location.href = portalUrl;
     } catch (error) {
       console.error('Error opening billing portal:', error);
       toast.dismiss('billing-redirect');
@@ -99,232 +235,450 @@ export default function SettingsPage() {
     }
   };
 
+  // Get subscription status based on Autumn customer data
+  const getSubscriptionStatus = () => {
+    if (!customer) {
+      return { status: 'Loading...', variant: 'secondary' as const };
+    }
+
+    if (!hasActiveSubscription()) {
+      return { status: 'No Subscription', variant: 'secondary' as const };
+    }
+
+    if (isOnTrial()) {
+      return { status: 'Trial', variant: 'secondary' as const };
+    }
+
+    return { status: 'Active', variant: 'default' as const };
+  };
+
+  const currentPlan = getCurrentPlan();
+  const subscriptionStatus = getSubscriptionStatus();
+  const hasAccess = hasActiveSubscription();
+  const trialEndDate = getTrialEndDate();
+
+  // Calculate trial days remaining
+  const getTrialDaysRemaining = () => {
+    if (!trialEndDate) return null;
+
+    const now = new Date();
+    const endDate = new Date(trialEndDate);
+    const diffTime = endDate.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    return Math.max(0, diffDays);
+  };
+
+  const trialDaysRemaining = getTrialDaysRemaining();
+
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-4"></div>
-          <p className="text-gray-700">Loading settings...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading settings...</p>
         </div>
       </div>
     );
   }
 
-  // Default user data when not logged in
-  const defaultEmail = "user@example.com";
-  const displayEmail = user?.email || defaultEmail;
-  const displayAvatarLetter = avatarLetter || displayEmail.charAt(0).toUpperCase();
-
-  // Plan badge color based on plan type - using green, black, white theme
-  const getPlanBadgeColor = (plan: string) => {
-    switch (plan.toLowerCase()) {
-      case 'pro':
-        return 'bg-green-100 text-green-800 border-green-300';
-      case 'startups':
-        return 'bg-black text-white border-gray-800';
-      case 'starter':
-        return 'bg-gray-100 text-gray-800 border-gray-300';
-      case 'n/a':
-      default:
-        return 'bg-gray-50 text-gray-600 border-gray-200';
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-white p-6">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-black mb-2">Settings</h1>
-          <p className="text-gray-600">Manage your settings</p>
-        </div>
+    <div className="min-h-full flex flex-col p-4">
+      {/* Container with similar styling to integrate page */}
+      <div className="w-3/4 max-w-4xl mx-auto bg-white m-5 p-10 rounded-lg font-mono bg-zinc-50">
+        <h2 className="scroll-m-20 mb-5 text-3xl font-semibold first:mt-0">
+          Settings
+        </h2>
+        <p className="leading-7 [&:not(:first-child)]:mb-5">
+          Manage your account settings and subscription preferences.
+        </p>
 
-        {/* Profile Information Section */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center">
-              <FaUser className="text-green-600" size={14} />
-            </div>
-            <h2 className="text-xl font-semibold text-black">Profile Information</h2>
-          </div>
-          <p className="text-gray-600 mb-6">Your account details and basic information</p>
-
-          <div className="flex items-center gap-4">
-            {/* Avatar */}
-            <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center border border-green-200">
-              {displayAvatarLetter ? (
-                <span className="text-green-600 font-semibold text-xl">
-                  {displayAvatarLetter}
-                </span>
-              ) : (
-                <FaUser className="text-green-600" size={24} />
-              )}
-            </div>
-
-            {/* User Info */}
-            <div className="flex flex-col space-y-2">
-              {user?.given_name && user?.family_name && (
-                <div className="flex items-center gap-2">
-                  <FaUser className="text-gray-400" size={20} />
-                  <span className="text-black font-medium">{user.given_name} {user.family_name}</span>
+        {/* Access Lost Warning */}
+        {customer && !hasAccess && (
+          <Card className="mb-6 border-destructive bg-destructive/5">
+            <CardContent className="pt-6">
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-destructive" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
                 </div>
-              )}
-              <div className="flex items-center gap-2">
-                <HiMail className="text-gray-400" size={20} />
-                <span className="text-black font-medium">{displayEmail}</span>
-              </div>
-              {user?.company && (
-                <div className="flex items-center gap-2">
-                  <FaBuilding className="text-gray-400" size={20} />
-                  <span className="text-black font-medium">{user.company}</span>
-                </div>
-              )}
-              {user?.title && (
-                <div className="flex items-center gap-2">
-                  <FaBriefcase className="text-gray-400" size={20} />
-                  <span className="text-black font-medium">{user.title}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Account & Subscription Section */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center">
-              <FaCreditCard className="text-green-600" size={14} />
-            </div>
-            <h2 className="text-xl font-semibold text-black">Account & Subscription</h2>
-          </div>
-          <p className="text-gray-600 mb-6">Manage your plan and billing</p>
-
-          <div className="space-y-4">
-            {/* Access Lost Warning */}
-            {subscription && !subscription.hasAccess && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-                <div className="flex items-start">
-                  <div className="flex-shrink-0">
-                    <svg className="h-5 w-5 text-red-600" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                  <div className="ml-3">
-                    <h3 className="text-sm font-medium text-red-800">
-                      Subscription Access Lost
-                    </h3>
-                    <div className="mt-2 text-sm text-red-700">
-                      <p>
-                        Your subscription has expired or been cancelled. You no longer have access to premium features.
-                        To restore access, please upgrade your subscription.
-                      </p>
-                    </div>
-                    <div className="mt-4">
-                      <button
-                        onClick={() => router.push('/pricing')}
-                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                      >
-                        Upgrade Now
-                      </button>
-                    </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-medium text-destructive">
+                    Subscription Access Lost
+                  </h3>
+                  <p className="mt-2 text-sm text-destructive/80">
+                    Your subscription has expired or been cancelled. You no longer have access to premium features.
+                    To restore access, please upgrade your subscription.
+                  </p>
+                  <div className="mt-4">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => router.push('/pricing')}
+                    >
+                      Upgrade Now
+                    </Button>
                   </div>
                 </div>
               </div>
-            )}
+            </CardContent>
+          </Card>
+        )}
 
-            {/* Current Plan */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-black font-medium">Current Plan:</span>
-                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${getPlanBadgeColor(currentPlanDisplay || 'n/a')}`}>
-                  {formatPlanName(currentPlanDisplay)}
-                </span>
-                {subscription?.is_trial ? (
-                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 border border-blue-200">
-                    Trial ({subscription.trial_days_remaining} days left)
-                  </span>
-                ) : hasActiveSubscription && (
-                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 border border-green-200">
-                    Active
-                  </span>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 p-3">
+          {/* Subscription Status Card */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center space-x-2.5">
+                <FaCrown className="text-foreground" size={20} />
+                <CardTitle className="text-base font-semibold">CURRENT PLAN</CardTitle>
+              </div>
+            </CardHeader>
+
+            <CardContent className="space-y-4">
+              {/* Plan Details - Structured Layout */}
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Plan Name</div>
+                    <div className="text-sm font-medium mt-1">{formatPlanName(currentPlan)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Status</div>
+                    <div className="text-sm font-medium mt-1">{subscriptionStatus.status}</div>
+                  </div>
+                </div>
+
+                {customer?.products && customer.products.length > 0 && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-xs text-muted-foreground uppercase tracking-wide">Start Date</div>
+                      <div className="text-sm font-medium mt-1">
+                        {(() => {
+                          if (!customer.created_at) return 'N/A';
+
+                          try {
+                            const date = new Date(customer.created_at);
+                            if (isNaN(date.getTime())) {
+                              return 'N/A';
+                            }
+                            return date.toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit'
+                            });
+                          } catch (error) {
+                            return 'N/A';
+                          }
+                        })()}
+                      </div>
+                    </div>
+                    {isOnTrial() && trialDaysRemaining !== null && (
+                      <div>
+                        <div className="text-xs text-muted-foreground uppercase tracking-wide">Trial Remaining</div>
+                        <div className="text-sm font-medium mt-1">
+                          {trialDaysRemaining} days
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
+            </CardContent>
+          </Card>
 
-              <button
-                className="px-6 py-2 bg-black text-white font-medium rounded-lg hover:bg-gray-800 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-                onMouseEnter={() => setIsChangeHovered(true)}
-                onMouseLeave={() => setIsChangeHovered(false)}
-                onClick={() => router.push('/pricing')}
-              >
-                {subscription?.is_trial ? 'Upgrade Plan' : 'Change plan'}
-              </button>
-            </div>
+          {/* LLM Token Usage Card */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center space-x-2.5">
+                <FaRobot className="text-foreground" size={20} />
+                <CardTitle className="text-base font-semibold">LLM TOKEN USAGE</CardTitle>
+              </div>
+            </CardHeader>
 
-            {/* Subscription Details */}
-            {subscription && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-200">
-                <div>
-                  <p className="text-sm text-gray-500">Subscription Start Date</p>
-                  <p className="text-sm font-medium text-black">
-                    {formatDate(subscription.start_date)}
-                  </p>
+            <CardContent className="space-y-4">
+              {(() => {
+                const tokenInfo = getLLMTokenInfo();
+
+                if (tokenInfo.limit === 0 && tokenInfo.remaining === 0) {
+                  return (
+                    <div className="text-center py-4">
+                      <div className="text-sm text-muted-foreground">
+                        No LLM token quota configured
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        Contact support to set up LLM token tracking
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-3">
+                    {/* Usage Progress Bar */}
+                    {tokenInfo.limit > 0 && (
+                      <div>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-xs text-muted-foreground uppercase tracking-wide">
+                            This Month
+                          </span>
+                          <span className={`text-xs font-medium ${getUsageColor(tokenInfo.percentage)}`}>
+                            {tokenInfo.percentage.toFixed(1)}% used
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full transition-all duration-300 ${
+                              tokenInfo.percentage >= 90
+                                ? 'bg-red-500'
+                                : tokenInfo.percentage >= 75
+                                  ? 'bg-yellow-500'
+                                  : 'bg-green-500'
+                            }`}
+                            style={{ width: `${Math.min(100, tokenInfo.percentage)}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Token Statistics */}
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                      <div>
+                        <div className="text-xs text-muted-foreground uppercase tracking-wide">
+                          Used
+                        </div>
+                        <div className="text-sm font-medium mt-1">
+                          {formatNumber(tokenInfo.usage)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground uppercase tracking-wide">
+                          Remaining
+                        </div>
+                        <div className={`text-sm font-medium mt-1 ${getUsageColor(tokenInfo.percentage)}`}>
+                          {formatNumber(tokenInfo.remaining)}
+                        </div>
+                      </div>
+                      {/* <div>
+                        <div className="text-xs text-muted-foreground uppercase tracking-wide">
+                          Total
+                        </div>
+                        <div className="text-sm font-medium mt-1">
+                          {formatNumber(tokenInfo.limit)}
+                        </div>
+                      </div> */}
+                    </div>
+
+                    {/* Warning for high usage */}
+                    {tokenInfo.percentage >= 80 && (
+                      <div className={`text-xs p-2 rounded ${
+                        tokenInfo.percentage >= 90
+                          ? 'bg-red-50 text-red-700 border border-red-200'
+                          : 'bg-yellow-50 text-yellow-700 border border-yellow-200'
+                      }`}>
+                        {tokenInfo.percentage >= 90
+                          ? '⚠️ You\'re running low on LLM tokens. Consider upgrading your plan.'
+                          : '💡 You\'ve used most of your LLM tokens this month.'
+                        }
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+
+          {/* Traces and Logs Usage Card */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center space-x-2.5">
+                <FaChartLine className="text-foreground" size={20} />
+                <CardTitle className="text-base font-semibold">TRACES & LOGS USAGE</CardTitle>
+              </div>
+            </CardHeader>
+
+            <CardContent className="space-y-4">
+              {(() => {
+                const tracesLogsInfo = getTracesAndLogsInfo();
+
+                if (tracesLogsInfo === null) {
+                  return (
+                    <div className="text-center py-4">
+                      <div className="text-sm text-muted-foreground">
+                        No traces & logs quota configured
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        Contact support to set up traces & logs tracking
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (tracesLogsInfo.isLoading) {
+                  return (
+                    <div className="text-center py-4">
+                      <div className="text-sm text-muted-foreground">
+                        Loading traces & logs usage...
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (tracesLogsInfo.limit === 0 && tracesLogsInfo.remaining === 0) {
+                  return (
+                    <div className="text-center py-4">
+                      <div className="text-sm text-muted-foreground">
+                        No traces & logs quota configured
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        Contact support to set up traces & logs tracking
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-3">
+                    {/* Usage Progress Bar */}
+                    {tracesLogsInfo.limit > 0 && (
+                      <div>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-xs text-muted-foreground uppercase tracking-wide">
+                            This Month
+                          </span>
+                          <span className={`text-xs font-medium ${getUsageColor(tracesLogsInfo.percentage)}`}>
+                            {tracesLogsInfo.percentage.toFixed(1)}% used
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full transition-all duration-300 ${
+                              tracesLogsInfo.percentage >= 90
+                                ? 'bg-red-500'
+                                : tracesLogsInfo.percentage >= 75
+                                  ? 'bg-yellow-500'
+                                  : 'bg-green-500'
+                            }`}
+                            style={{ width: `${Math.min(100, tracesLogsInfo.percentage)}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Traces & Logs Statistics */}
+                    <div className="grid grid-cols-2 gap-4 text-center">
+                      <div>
+                        <div className="text-xs text-muted-foreground uppercase tracking-wide">
+                          Used
+                        </div>
+                        <div className="text-sm font-medium mt-1">
+                          {formatNumber(tracesLogsInfo.usage)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground uppercase tracking-wide">
+                          Remaining
+                        </div>
+                        <div className={`text-sm font-medium mt-1 ${getUsageColor(tracesLogsInfo.percentage)}`}>
+                          {formatNumber(tracesLogsInfo.remaining)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Warning for high usage */}
+                    {tracesLogsInfo.percentage >= 80 && (
+                      <div className={`text-xs p-2 rounded ${
+                        tracesLogsInfo.percentage >= 90
+                          ? 'bg-red-50 text-red-700 border border-red-200'
+                          : 'bg-yellow-50 text-yellow-700 border border-yellow-200'
+                      }`}>
+                        {tracesLogsInfo.percentage >= 90
+                          ? '⚠️ You\'re running low on traces & logs quota. Consider upgrading your plan.'
+                          : '💡 You\'ve used most of your traces & logs quota this month.'
+                        }
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+
+          {/* Quick Actions Card */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center space-x-2.5">
+                <FaCreditCard className="text-foreground" size={24} />
+                <div className="flex-1 min-w-0">
+                  <CardTitle className="text-base font-semibold">Account Actions</CardTitle>
+                  <CardDescription className="text-sm">
+                    Manage your subscription and billing
+                  </CardDescription>
                 </div>
               </div>
-            )}
+            </CardHeader>
 
-            {/* Billing Management */}
-            {user?.email && (
-              <div className="pt-4 border-t border-gray-200">
-                <button
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                  onMouseEnter={() => setIsManageBillingHovered(true)}
-                  onMouseLeave={() => setIsManageBillingHovered(false)}
+            <CardContent className="space-y-3">
+              <Button
+                onClick={() => router.push('/pricing')}
+                className="w-full"
+                variant={isOnTrial() ? "default" : "outline"}
+              >
+                {isOnTrial() ? 'Upgrade Plan' : 'Change Plan'}
+              </Button>
+
+              {user?.email && (
+                <Button
                   onClick={handleManageBilling}
                   disabled={isProcessing}
+                  className="w-full gap-2"
+                  variant="secondary"
                 >
                   <FaCreditCard size={16} />
                   {isProcessing ? 'Opening...' : 'Manage Billing'}
-                </button>
-                <p className="text-xs text-gray-500 mt-2">
-                  Update payment methods, view invoices, and manage your subscription
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
+                </Button>
+              )}
 
-        {/* Payment History Section */}
-        {subscription?.payment_history && subscription.payment_history.length > 0 && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center">
-                <FaHistory className="text-green-600" size={14} />
-              </div>
-              <h2 className="text-xl font-semibold text-black">Recent Payments</h2>
-            </div>
-            <p className="text-gray-600 mb-6">Your recent payment history</p>
+              <p className="text-xs text-muted-foreground text-center">
+                Update payment methods, view invoices, and manage your subscription
+              </p>
+            </CardContent>
+          </Card>
 
-            <div className="space-y-3">
-              {subscription.payment_history.slice(-3).reverse().map((payment, index) => (
-                <div key={payment.stripe_payment_id} className="flex items-center justify-between py-3 px-4 bg-gray-50 rounded-lg border border-gray-100">
-                  <div>
-                    <p className="text-sm font-medium text-black">
-                      ${(payment.amount / 100).toFixed(2)}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {new Date(payment.date).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-gray-500">
-                      Payment ID: {payment.stripe_payment_id.slice(-8)}
-                    </p>
+          {/* Payment History Card - Using Autumn customer invoices if available */}
+          {customer?.invoices && customer.invoices.length > 0 && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center space-x-2.5">
+                  <FaHistory className="text-foreground" size={20} />
+                  <div className="flex-1 min-w-0">
+                    <CardTitle className="text-base font-semibold">RECENT PAYMENTS</CardTitle>
+                    <CardDescription className="text-sm">
+                      Your recent payment history
+                    </CardDescription>
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
+              </CardHeader>
+
+              <CardContent>
+                <div className="space-y-3">
+                  {customer.invoices.slice(-3).reverse().map((invoice: any, index) => (
+                    <div key={invoice.id || invoice.stripe_id || index} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-b-0">
+                      <div className="text-sm font-medium">
+                        ${((invoice.amount_paid || invoice.amount || 0) / 100).toFixed(2)}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {invoice.created ? new Date(invoice.created * 1000).toLocaleDateString() :
+                         invoice.date ? new Date(invoice.date).toLocaleDateString() : 'N/A'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </div>
     </div>
   );

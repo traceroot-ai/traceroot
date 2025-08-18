@@ -14,6 +14,7 @@ import { MdErrorOutline } from "react-icons/md";
 import { FaPython } from "react-icons/fa";
 import { SiTypescript } from "react-icons/si";
 import { Badge } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/shadcn-io/spinner";
 import {
   Tooltip,
   TooltipContent,
@@ -24,6 +25,7 @@ interface TraceProps {
   onTraceSelect?: (traceId: string | null) => void;
   onSpanSelect?: (spanIds: string[]) => void;
   onTraceData?: (startTime: Date, endTime: Date) => void;
+  onTracesUpdate?: (traces: TraceType[]) => void;
   selectedTraceId?: string | null;
   traceQueryStartTime?: Date;
   traceQueryEndTime?: Date;
@@ -58,13 +60,13 @@ export const Trace: React.FC<TraceProps> = ({
   onTraceSelect,
   onSpanSelect,
   onTraceData,
+  onTracesUpdate,
   selectedTraceId: externalSelectedTraceId,
   traceQueryStartTime,
   traceQueryEndTime
 }) => {
   const { getAuthState } = useUser();
   const [traces, setTraces] = useState<TraceType[]>([]);
-  const [filteredTraces, setFilteredTraces] = useState<TraceType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>(TIME_RANGES[0]);
@@ -72,6 +74,7 @@ export const Trace: React.FC<TraceProps> = ({
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
   const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
   const [searchCriteria, setSearchCriteria] = useState<SearchCriterion[]>([]);
+  const [filteredTraces, setFilteredTraces] = useState<TraceType[]>([]);
   const timeRangeRef = useRef<{ start: Date; end: Date } | null>(null);
 
   const handleTimeRangeSelect = (range: TimeRange) => {
@@ -182,10 +185,12 @@ export const Trace: React.FC<TraceProps> = ({
 
   const handleSearch = (criteria: SearchCriterion[]) => {
     setSearchCriteria(criteria);
+    setLoading(true); // Trigger a new API call when search criteria change
   };
 
   const handleClearSearch = () => {
     setSearchCriteria([]);
+    setLoading(true); // Trigger a new API call when search is cleared
   };
 
   useEffect(() => {
@@ -211,7 +216,17 @@ export const Trace: React.FC<TraceProps> = ({
           end: new Date(endTime)
         };
 
-        const response = await fetch(`/api/list_trace?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}`, {
+        // Build API URL with search criteria
+        let apiUrl = `/api/list_trace?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}`;
+
+        // Add search criteria to the API call
+        searchCriteria.forEach(criterion => {
+          apiUrl += `&categories=${encodeURIComponent(criterion.category)}`;
+          apiUrl += `&values=${encodeURIComponent(criterion.value)}`;
+          apiUrl += `&operations=${encodeURIComponent(criterion.operation)}`;
+        });
+
+        const response = await fetch(apiUrl, {
           headers: {
             'Authorization': `Bearer ${getAuthState()}`,
           },
@@ -224,6 +239,7 @@ export const Trace: React.FC<TraceProps> = ({
 
         setTraces(result.data);
         onTraceData?.(timeRangeRef.current.start, timeRangeRef.current.end);
+        onTracesUpdate?.(result.data);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred while fetching traces');
       } finally {
@@ -232,7 +248,7 @@ export const Trace: React.FC<TraceProps> = ({
     };
 
     fetchTraces();
-  }, [selectedTimeRange, loading, traceQueryStartTime, traceQueryEndTime, getAuthState, onTraceData]);
+  }, [selectedTimeRange, loading, traceQueryStartTime, traceQueryEndTime, getAuthState, onTraceData, searchCriteria]);
 
   useEffect(() => {
     setLoading(true);
@@ -327,15 +343,8 @@ export const Trace: React.FC<TraceProps> = ({
         {/* Content container with zinc-50 background */}
         <div className="mt-4 bg-zinc-50 dark:bg-zinc-900 p-2.5 rounded-lg">
           {loading && (
-            <div className="flex flex-col items-center justify-center py-5 space-y-4">
-              {/* Loading text with animated dots */}
-              <div className="flex items-center space-x-1 text-sm text-gray-600 dark:text-gray-300">
-                <div className="flex space-x-1">
-                  <div className="w-1 h-1 bg-gray-500 dark:bg-gray-400 rounded-full loading-dot-1"></div>
-                  <div className="w-1 h-1 bg-gray-500 dark:bg-gray-400 rounded-full loading-dot-2"></div>
-                  <div className="w-1 h-1 bg-gray-500 dark:bg-gray-400 rounded-full loading-dot-3"></div>
-                </div>
-              </div>
+            <div className="flex flex-col items-center justify-center py-1 space-y-1">
+              <Spinner variant="infinite" className="w-8 h-8 text-gray-500 dark:text-gray-300" />
             </div>
           )}
 
@@ -343,11 +352,7 @@ export const Trace: React.FC<TraceProps> = ({
             <div className="text-sm text-red-500 dark:text-red-400">{error}</div>
           )}
 
-          {!loading && !error && filteredTraces.length === 0 && traces.length > 0 && (
-            <div className="text-sm text-gray-500 dark:text-gray-400">No traces match your search criteria</div>
-          )}
-
-          {!loading && !error && traces.length === 0 && (
+          {!loading && !error && filteredTraces.length === 0 && (
             <div className="text-muted-foreground text-sm">No Information Found</div>
           )}
 
@@ -377,21 +382,21 @@ export const Trace: React.FC<TraceProps> = ({
                           {/* Python Icon - show when telemetry_sdk_language includes "python" */}
                           {trace.telemetry_sdk_language.includes("python") && (
                             <div className="w-5 h-5 flex items-center justify-center mr-2">
-                              <FaPython className="text-neutral-700 dark:text-neutral-300 mr-2" size={14} />
+                              <FaPython className="text-neutral-800 dark:text-neutral-200 mr-2" size={14} />
                             </div>
                           )}
 
                           {/* TypeScript Icon - show when telemetry_sdk_language includes "ts" */}
                           {trace.telemetry_sdk_language.includes("ts") && (
                             <div className="w-5 h-5 flex items-center justify-center mr-2">
-                              <SiTypescript className="text-neutral-700 dark:text-neutral-300 mr-2" size={14} />
+                              <SiTypescript className="text-neutral-800 dark:text-neutral-200 mr-2" size={14} />
                             </div>
                           )}
 
                           {/* JavaScript Icon - show when telemetry_sdk_language includes "js" */}
                           {trace.telemetry_sdk_language.includes("js") && (
                             <div className="w-5 h-5 flex items-center justify-center mr-2">
-                              <IoLogoJavascript className="text-neutral-700 dark:text-neutral-300 mr-2" size={14} />
+                              <IoLogoJavascript className="text-neutral-800 dark:text-neutral-200 mr-2" size={14} />
                             </div>
                           )}
                         </>
@@ -402,7 +407,7 @@ export const Trace: React.FC<TraceProps> = ({
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Badge
-                              variant="outline"
+                              variant="default"
                               className="min-w-16 h-6 mr-2 justify-center font-mono font-normal max-w-fit"
                             >
                               {(trace.service_name || "Unknown Service").slice(0, 9) + '......'}
@@ -414,7 +419,7 @@ export const Trace: React.FC<TraceProps> = ({
                         </Tooltip>
                       ) : (
                         <Badge
-                          variant="outline"
+                          variant="default"
                           className="min-w-16 h-6 mr-2 justify-center font-mono font-normal max-w-fit"
                         >
                           {trace.service_name || "Trace"}
@@ -423,7 +428,7 @@ export const Trace: React.FC<TraceProps> = ({
 
                       {/* Environment */}
                       <Badge
-                        variant="secondary"
+                        variant="outline"
                         className="h-6 mr-2 justify-center font-mono font-normal"
                       >
                         {trace.service_environment || "Unknown Environment"}

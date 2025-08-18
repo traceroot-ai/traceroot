@@ -17,21 +17,6 @@ from rest.routers.explore import ExploreRouter
 from rest.routers.integrate import IntegrateRouter
 
 try:
-    from rest.routers.ee.stripe_checkout import StripeCheckoutRouter
-except ImportError:
-    from rest.routers.stripe_checkout import StripeCheckoutRouter
-
-try:
-    from rest.routers.ee.stripe_webhook import StripeWebhookRouter
-except ImportError:
-    from rest.routers.stripe_webhook import StripeWebhookRouter
-
-try:
-    from rest.routers.ee.subscription import SubscriptionRouter
-except ImportError:
-    from rest.routers.subscription import SubscriptionRouter
-
-try:
     from rest.routers.ee.verify import VerifyRouter
 except ImportError:
     from rest.routers.verify import VerifyRouter
@@ -52,8 +37,7 @@ class App:
             RateLimitExceeded,
             _rate_limit_exceeded_handler,
         )
-
-        self.local_mode = bool(os.getenv("TRACE_ROOT_LOCAL_MODE", False))
+        self.local_mode = os.getenv("TRACE_ROOT_LOCAL_MODE", "false").lower() == "true"
 
         # Add CORS middleware
         self.add_middleware()
@@ -93,30 +77,6 @@ class App:
             tags=["auth"],
         )
 
-        # Add subscription router
-        self.subscription_router = SubscriptionRouter(self.limiter)
-        self.app.include_router(
-            self.subscription_router.router,
-            prefix="/v1/subscriptions",
-            tags=["subscriptions"],
-        )
-
-        # Add Stripe webhook router
-        self.stripe_webhook_router = StripeWebhookRouter(self.limiter)
-        self.app.include_router(
-            self.stripe_webhook_router.router,
-            prefix="/api/webhooks",
-            tags=["webhooks"],
-        )
-
-        # Add Stripe checkout router
-        self.stripe_checkout_router = StripeCheckoutRouter()
-        self.app.include_router(
-            self.stripe_checkout_router.router,
-            prefix="/api",
-            tags=["checkout"],
-        )
-
     def add_middleware(self):
         allow_origins = [
             "https://test.traceroot.ai",  # MVP
@@ -131,6 +91,11 @@ class App:
             CORSMiddleware,
             allow_origins=allow_origins,
             allow_credentials=True,
-            allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+            allow_methods=["GET",
+                           "POST",
+                           "PUT",
+                           "DELETE",
+                           "OPTIONS",
+                           "PATCH"],
             allow_headers=["*"],
         )

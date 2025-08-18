@@ -85,7 +85,6 @@ ENV DB_CHAT_COLLECTION=agent_chat
 ENV DB_CHAT_METADATA_COLLECTION=chat_metadata
 ENV DB_CONNECTION_TOKENS_COLLECTION=connection_tokens
 ENV DB_TRACEROOT_TOKENS_COLLECTION=traceroot_tokens
-ENV DB_SUBSCRIPTIONS_COLLECTION=user_subscriptions
 ENV OPENAI_API_KEY=""
 ENV DB_PASSWORD=""
 ENV DB_USER_NAME=traceroot
@@ -106,7 +105,6 @@ ENV NEXT_PUBLIC_APP_URL="http://localhost:3000"
 ENV REST_API_ENDPOINT="http://localhost:8000"
 ENV NEXT_PUBLIC_REST_API_ENDPOINT="http://localhost:8000"
 ENV JAEGER_URL="http://host.docker.internal:16686"
-ENV NEXT_PUBLIC_STRIPE_MODE="disabled"
 
 # Set local mode to true
 ENV TRACE_ROOT_LOCAL_MODE=true
@@ -115,30 +113,8 @@ ENV NEXT_PUBLIC_LOCAL_MODE=true
 # Expose ports
 EXPOSE 3000 8000
 
-# Create startup script
-RUN cat > /app/start.sh << 'EOF'
-#!/bin/bash
-set -e
-
-echo "Starting TraceRoot services..."
-
-# Start Next.js frontend in background
-echo "Building and starting Next.js frontend on port 3000..."
-cd /app/traceroot/ui
-rm -rf .next
-npm run build
-PORT=3000 npm start &
-
-# Start FastAPI backend
-echo "Starting FastAPI backend with uvicorn..."
-cd /app/traceroot
-source venv/bin/activate
-uvicorn rest.main:app --host 0.0.0.0 --port 8000 &
-
-sleep 30
-
-EOF
-
+# Copy and use the startup script
+COPY docker/public/start.sh /app/start.sh
 # Make startup script executable
 RUN chmod +x /app/start.sh
 

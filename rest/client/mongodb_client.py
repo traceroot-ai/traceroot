@@ -1,7 +1,6 @@
-from typing import Any, Optional
+from typing import Any
 
-from rest.config import (ChatMetadata, ChatMetadataHistory, PaymentRecord,
-                         UserSubscription)
+from rest.config import ChatMetadata, ChatMetadataHistory
 
 
 class TraceRootMongoDBClient:
@@ -62,7 +61,8 @@ class TraceRootMongoDBClient:
     async def insert_traceroot_token(
         self,
         token: str,
-        user_credentials: dict[str, Any],
+        user_credentials: dict[str,
+                               Any],
         delete_existing: bool = False,
     ) -> bool:
         pass
@@ -82,35 +82,6 @@ class TraceRootMongoDBClient:
     async def get_credentials_by_token(
         self,
         token: str,
-    ) -> dict[str, Any] | None:
-        pass
-
-    # Subscription management methods
-    async def create_subscription(
-        self,
-        subscription: UserSubscription,
-    ) -> bool:
-        pass
-
-    async def update_subscription(
-        self,
-        user_email: str,
-        hasAccess: bool,
-        subscription_plan: str,
-        start_date: str,
-        payment_email: str = None,
-    ) -> bool:
-        pass
-
-    async def get_subscription(
-        self,
-        user_email: str,
-    ) -> Optional[UserSubscription]:
-        pass
-
-    async def add_payment_to_subscription(
-        self,
-        user_email: str,
-        payment_record: PaymentRecord,
-    ) -> bool:
+    ) -> dict[str,
+              Any] | None:
         pass

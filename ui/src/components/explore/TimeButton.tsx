@@ -19,6 +19,7 @@ export const TIME_RANGES: TimeRange[] = [
   { label: 'Last 30 Minutes', minutes: 30 },
   { label: 'Last 6 Hours', minutes: 6 * 60 },
   { label: 'Last 12 Hours', minutes: 12 * 60 },
+  { label: 'Last 1 Day', minutes: 24 * 60 },
   { label: 'Last 3 Days', minutes: 3 * 24 * 60 },
   { label: 'Last 7 Days', minutes: 7 * 24 * 60 },
   { label: 'Last 14 Days', minutes: 14 * 24 * 60 },

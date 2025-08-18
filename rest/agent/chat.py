@@ -14,8 +14,7 @@ from copy import deepcopy
 
 from rest.agent.chunk.sequential import sequential_chunk
 from rest.agent.context.tree import SpanNode
-from rest.agent.filter.feature import (log_feature_selector,
-                                       span_feature_selector)
+from rest.agent.filter.feature import log_feature_selector, span_feature_selector
 from rest.agent.filter.structure import filter_log_node, log_node_selector
 from rest.agent.output.chat_output import ChatOutput
 from rest.agent.summarizer.chunk import chunk_summarize
@@ -23,6 +22,7 @@ from rest.agent.typing import LogFeature
 from rest.client.sqlite_client import TraceRootSQLiteClient
 from rest.config import ChatbotResponse
 from rest.typing import ActionStatus, ActionType, ChatModel, MessageType
+from rest.utils.token_tracking import track_tokens_for_user
 
 
 class Chat:
@@ -62,13 +62,15 @@ class Chat:
             "in the reference.\n"
             "7. Please include all reference for each answer. If each answer "
             "has a reference, please MAKE SURE you also include the reference "
-            "in the reference list.")
+            "in the reference list."
+        )
         # ;) :) :D :P :] :[ :| :/ :]
         if self.local_mode:
             self.system_prompt += (
                 "8. If user wants to create a GitHub PR or issue, say that "
                 "you cannot do that and suggest them to use "
-                "https://traceroot.ai production service instead.")
+                "https://traceroot.ai production service instead."
+            )
 
     async def chat(
         self,
@@ -79,6 +81,7 @@ class Chat:
         db_client: TraceRootMongoDBClient | TraceRootSQLiteClient,
         timestamp: datetime,
         tree: SpanNode,
+        user_sub: str,
         chat_history: list[dict] | None = None,
         openai_token: str | None = None,
     ) -> ChatbotResponse:
@@ -106,7 +109,8 @@ class Chat:
             client = self.chat_client
 
         # Select only necessary log and span features #########################
-        (log_features, span_features,
+        (log_features,
+         span_features,
          log_node_selector_output) = await asyncio.gather(
              log_feature_selector(
                  user_message=user_message,
@@ -127,8 +131,10 @@ class Chat:
 
         # TODO: Make this more robust
         try:
-            if (LogFeature.LOG_LEVEL in log_node_selector_output.log_features
-                    and len(log_node_selector_output.log_features) == 1):
+            if (
+                LogFeature.LOG_LEVEL in log_node_selector_output.log_features
+                and len(log_node_selector_output.log_features) == 1
+            ):
                 tree = filter_log_node(
                     feature_types=log_node_selector_output.log_features,
                     feature_values=log_node_selector_output.log_feature_values,
@@ -150,21 +156,20 @@ class Chat:
             deepcopy(context_chunks[i]) for i in range(len(context_chunks))
         ]
         for i, message in enumerate(context_chunks):
-            context_messages[i] = (f"{message}\n\nHere are my questions: "
-                                   f"{user_message}")
+            context_messages[i] = (
+                f"{message}\n\nHere are my questions: "
+                f"{user_message}"
+            )
         messages = [{"role": "system", "content": self.system_prompt}]
         # Remove github messages from chat history
-        chat_history = [
-            chat for chat in chat_history if chat["role"] != "github"
-        ]
+        chat_history = [chat for chat in chat_history if chat["role"] != "github"]
         if chat_history is not None:
             # Only append the last 10 chat history records
             for record in chat_history[-10:]:
                 # We only need to include the user message
                 # (without the context information) in the
                 # chat history
-                if "user_message" in record and record[
-                        "user_message"] is not None:
+                if "user_message" in record and record["user_message"] is not None:
                     content = record["user_message"]
                 else:
                     content = record["content"]
@@ -174,14 +179,11 @@ class Chat:
                 })
         # To handle potential chunking calls, we need to create multiple
         # messages for each context chunk
-        all_messages: list[list[dict[str, str]]] = [
-            deepcopy(messages) for _ in range(len(context_messages))
-        ]
+        all_messages: list[list[dict[str,
+                                     str]]
+                           ] = [deepcopy(messages) for _ in range(len(context_messages))]
         for i in range(len(context_messages)):
-            all_messages[i].append({
-                "role": "user",
-                "content": context_messages[i]
-            })
+            all_messages[i].append({"role": "user", "content": context_messages[i]})
             await db_client.insert_chat_record(
                 message={
                     "chat_id": chat_id,
@@ -194,12 +196,17 @@ class Chat:
                     "chunk_id": i,
                     "action_type": ActionType.AGENT_CHAT.value,
                     "status": ActionStatus.PENDING.value,
-                })
+                }
+            )
 
-        responses: list[ChatOutput] = await asyncio.gather(*[
-            self.chat_with_context_chunks(messages, model, client)
-            for messages in all_messages
-        ])
+        responses: list[ChatOutput] = await asyncio.gather(
+            *[
+                self.chat_with_context_chunks(messages,
+                                              model,
+                                              client,
+                                              user_sub) for messages in all_messages
+            ]
+        )
 
         response_time = datetime.now().astimezone(timezone.utc)
         if len(responses) == 1:
@@ -210,14 +217,13 @@ class Chat:
             # Summarize the response answers and references into a single
             # ChatOutput
             response_answers = [response.answer for response in responses]
-            response_references = [
-                response.reference for response in responses
-            ]
+            response_references = [response.reference for response in responses]
             response = await chunk_summarize(
                 response_answers=response_answers,
                 response_references=response_references,
                 client=client,
                 model=model,
+                user_sub=user_sub,
             )
             response_content = response.answer
             response_references = response.reference
@@ -233,7 +239,8 @@ class Chat:
                 "chunk_id": 0,
                 "action_type": ActionType.AGENT_CHAT.value,
                 "status": ActionStatus.SUCCESS.value,
-            })
+            }
+        )
 
         return ChatbotResponse(
             time=response_time,
@@ -245,19 +252,47 @@ class Chat:
 
     async def chat_with_context_chunks(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str,
+                            str]],
         model: ChatModel,
         chat_client: AsyncOpenAI,
+        user_sub: str,
     ) -> ChatOutput:
         r"""Chat with context chunks.
         """
+        if model in {
+            ChatModel.GPT_5.value,
+            ChatModel.GPT_5_MINI.value,
+            ChatModel.O4_MINI.value
+        }:
+            params = {}
+        else:
+            params = {
+                "temperature": 0.8,
+            }
         response = await chat_client.responses.parse(
             model=model,
             input=messages,
             text_format=ChatOutput,
-            temperature=0.8,
+            **params,
         )
-        return response.output[0].content[0].parsed
+
+        # Track token usage for this API call
+        await track_tokens_for_user(
+            user_sub=user_sub,
+            openai_response=response,
+            model=str(model)
+        )
+
+        if model in {
+            ChatModel.GPT_5.value,
+            ChatModel.GPT_5_MINI.value,
+            ChatModel.O4_MINI.value
+        }:
+            content = response.output[1].content[0]
+        else:
+            content = response.output[0].content[0]
+        return content.parsed
 
     def get_context_messages(self, context: str) -> list[str]:
         r"""Get the context message.
@@ -265,13 +300,19 @@ class Chat:
         # Make this more efficient.
         context_chunks = list(sequential_chunk(context))
         if len(context_chunks) == 1:
-            return [(f"\n\nHere is the structure of the tree with related "
-                     "information:\n\n"
-                     f"{context}")]
+            return [
+                (
+                    f"\n\nHere is the structure of the tree with related "
+                    "information:\n\n"
+                    f"{context}"
+                )
+            ]
         messages: list[str] = []
         for i, chunk in enumerate(context_chunks):
-            messages.append(f"\n\nHere is the structure of the tree "
-                            f"with related information of the "
-                            f"{i+1}th chunk of the tree:\n\n"
-                            f"{chunk}")
+            messages.append(
+                f"\n\nHere is the structure of the tree "
+                f"with related information of the "
+                f"{i+1}th chunk of the tree:\n\n"
+                f"{chunk}"
+            )
         return messages

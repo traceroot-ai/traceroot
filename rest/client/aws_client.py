@@ -31,14 +31,16 @@ class TraceRootAWSClient:
     async def get_trace_with_spans_by_ids(
         self,
         trace_ids: list[str],
-    ) -> dict[str, list[Span]]:
+    ) -> dict[str,
+              list[Span]]:
         pass
 
     async def _batch_get_traces(
         self,
         trace_ids: list[str],
         next_token: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str,
+              Any]:
         pass
 
     async def get_recent_traces(
@@ -46,8 +48,15 @@ class TraceRootAWSClient:
         start_time: datetime,
         end_time: datetime,
         log_group_name: str,
-        service_name: str | None = None,
-        service_environment: str | None = None,
+        service_names: list[str] | None = None,
+        service_name_values: list[str] | None = None,
+        service_name_operations: list[str] | None = None,
+        service_environments: list[str] | None = None,
+        service_environment_values: list[str] | None = None,
+        service_environment_operations: list[str] | None = None,
+        categories: list[str] | None = None,
+        values: list[str] | None = None,
+        operations: list[str] | None = None,
     ) -> list[Trace]:
         pass
 

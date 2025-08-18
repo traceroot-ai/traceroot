@@ -1,0 +1,188 @@
+#!/bin/bash
+set -e
+
+# TraceRoot Starter Deploy Script
+# This script sets up TraceRoot locally with minimal configuration
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Function to print colored output
+print_message() {
+    echo -e "${GREEN}[TraceRoot]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[TraceRoot Warning]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[TraceRoot Error]${NC} $1"
+}
+
+print_info() {
+    echo -e "${BLUE}[TraceRoot Info]${NC} $1"
+}
+
+# Check if Docker is installed and running
+check_docker() {
+    if ! command -v docker &> /dev/null; then
+        print_error "Docker is not installed. Please install Docker first:"
+        print_info "Visit: https://docs.docker.com/get-docker/"
+        exit 1
+    fi
+
+    if ! docker info &> /dev/null; then
+        print_error "Docker is not running. Please start Docker first."
+        exit 1
+    fi
+
+    print_message "Docker is installed and running ✓"
+}
+
+# Function to stop and remove existing containers
+cleanup_existing() {
+    print_message "Cleaning up existing TraceRoot containers..."
+
+    # Stop and remove TraceRoot container if it exists
+    if docker ps -a --format 'table {{.Names}}' | grep -q "^traceroot$"; then
+        docker stop traceroot &> /dev/null || true
+        docker rm traceroot &> /dev/null || true
+        print_message "Removed existing TraceRoot container"
+    fi
+
+    # Stop and remove Jaeger container if it exists
+    if docker ps -a --format 'table {{.Names}}' | grep -q "^jaeger$"; then
+        docker stop jaeger &> /dev/null || true
+        docker rm jaeger &> /dev/null || true
+        print_message "Removed existing Jaeger container"
+    fi
+}
+
+# Function to start Jaeger
+start_jaeger() {
+    print_message "Starting Jaeger (tracing backend)..."
+
+    docker run -d --name jaeger \
+        -e COLLECTOR_OTLP_ENABLED=true \
+        -p 16686:16686 \
+        -p 14268:14268 \
+        -p 14250:14250 \
+        -p 4317:4317 \
+        -p 4318:4318 \
+        cr.jaegertracing.io/jaegertracing/jaeger:2.8.0 &> /dev/null
+
+    print_message "Jaeger started successfully ✓"
+    print_info "Jaeger UI will be available at: http://localhost:16686"
+}
+
+# Function to build and start TraceRoot
+start_traceroot() {
+    print_message "Building and starting TraceRoot (this may take 5-10 minutes)..."
+
+    # Create a temporary directory for the build
+    TEMP_DIR=$(mktemp -d)
+    cd "$TEMP_DIR"
+
+    # Clone the repository
+    print_info "Cloning TraceRoot repository..."
+    git clone https://github.com/traceroot-ai/traceroot.git &> /dev/null
+    cd traceroot
+
+    # Build the Docker image
+    print_info "Building Docker image..."
+    docker build --no-cache --build-arg LOCAL_BUILD=false -t traceroot-starter -f ./docker/public/Dockerfile . &> /dev/null
+
+    # Run the container
+    print_info "Starting TraceRoot container..."
+    docker run -d --name traceroot \
+        --add-host=host.docker.internal:host-gateway \
+        -p 3000:3000 \
+        -p 8000:8000 \
+        traceroot-starter &> /dev/null
+
+    # Cleanup temp directory
+    cd /
+    rm -rf "$TEMP_DIR"
+
+    print_message "TraceRoot started successfully ✓"
+}
+
+# Function to wait for services to be ready
+wait_for_services() {
+    print_message "Waiting for services to be ready..."
+
+    # Wait for frontend (max 5 minutes)
+    print_info "Checking frontend service..."
+    for i in {1..60}; do
+        if curl -s http://localhost:3000 &> /dev/null; then
+            print_message "Frontend is ready ✓"
+            break
+        fi
+        if [ $i -eq 60 ]; then
+            print_warning "Frontend is taking longer than expected to start"
+            print_info "You can check the logs with: docker logs traceroot"
+        fi
+        sleep 5
+    done
+
+    # Wait for backend (max 5 minutes)
+    print_info "Checking backend service..."
+    for i in {1..60}; do
+        if curl -s http://localhost:8000/docs &> /dev/null; then
+            print_message "Backend is ready ✓"
+            break
+        fi
+        if [ $i -eq 60 ]; then
+            print_warning "Backend is taking longer than expected to start"
+            print_info "You can check the logs with: docker logs traceroot"
+        fi
+        sleep 5
+    done
+}
+
+# Function to display final instructions
+show_success_message() {
+    echo ""
+    echo "🎉 TraceRoot is now running!"
+    echo ""
+    echo "📱 Frontend (UI):     http://localhost:3000"
+    echo "🔧 Backend (API):     http://localhost:8000"
+    echo "📊 Jaeger (Tracing):  http://localhost:16686"
+    echo ""
+    echo "📖 Next steps:"
+    echo "1. Visit http://localhost:3000 to access the TraceRoot UI"
+    echo "2. Install the TraceRoot SDK in your application:"
+    echo "   pip install traceroot"
+    echo "3. Check out the documentation: https://docs.traceroot.ai"
+    echo ""
+    echo "🔧 Useful commands:"
+    echo "• View logs:    docker logs traceroot"
+    echo "• Stop:         docker stop traceroot jaeger"
+    echo "• Restart:      docker restart traceroot jaeger"
+    echo "• Remove:       docker rm -f traceroot jaeger"
+    echo ""
+    echo "Need help? Join our Discord: https://discord.gg/tPyffEZvvJ"
+}
+
+# Main execution
+main() {
+    echo ""
+    echo "🔍 Welcome to TraceRoot Starter Deploy!"
+    echo "This will set up TraceRoot locally for development and testing."
+    echo ""
+
+    check_docker
+    cleanup_existing
+    start_jaeger
+    start_traceroot
+    wait_for_services
+    show_success_message
+}
+
+# Run main function
+main

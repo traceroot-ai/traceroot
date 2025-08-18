@@ -198,7 +198,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
     try {
       const tokenResource: TokenResource = {
         token: authSecret,
-        resourceType: getResourceType(integration.name),
+        resourceType: getResourceType(integration.id),
       };
 
       const response = await fetch('/api/post_connect', {
@@ -274,7 +274,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
           'Authorization': `Bearer ${authState}`,
         },
         body: JSON.stringify({
-          resource_type: getResourceType(integration.name)
+          resource_type: getResourceType(integration.id)
         }),
       });
 

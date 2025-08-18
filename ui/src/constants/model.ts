@@ -17,6 +17,8 @@ export const DEFAULT_PROVIDER: Provider = PROVIDERS.OPENAI;
 
 // OpenAI models
 export const OPENAI_MODELS = {
+  GPT_5: 'gpt-5',
+  GPT_5_MINI: 'gpt-5-mini',
   GPT_4O: 'gpt-4o',
   GPT_4O_MINI: 'gpt-4o-mini',
   O4_MINI: 'o4-mini',
@@ -46,6 +48,8 @@ export type ChatModel = typeof CHAT_MODELS[keyof typeof CHAT_MODELS];
 
 // Model display names
 export const OPENAI_MODEL_DISPLAY_NAMES: Record<keyof typeof OPENAI_MODELS, string> = {
+  GPT_5: 'GPT-5',
+  GPT_5_MINI: 'GPT-5 Mini',
   GPT_4O: 'GPT-4o',
   GPT_4O_MINI: 'GPT-4o Mini',
   O4_MINI: 'o4-mini',

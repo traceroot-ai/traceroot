@@ -7,7 +7,7 @@ name = "traceroot-framework"
 version = "0.0.1"
 description = "TraceRoot - Comprehensive AI-powered tracing, monitoring and REST API solution"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "Zecheng Zhang"},
@@ -51,10 +51,10 @@ dependencies = [
     "python-jose[cryptography]==3.5.0",
     "python-multipart==0.0.20",
     "requests==2.32.4",
-    "openai==1.97.1",
+    "openai==1.99.2",
     "pymongo==4.13.2",
     "boto3==1.39.11",
-    "numpy==2.3.1",
+    "numpy==2.2.0",
     "asgiref==3.9.1",
     "slowapi==0.1.9",
     "aiocache==0.12.3",
@@ -63,10 +63,12 @@ dependencies = [
     "python-dotenv==1.1.1",
     "pydantic-settings==2.10.1",
     "dotenv==0.9.9",
-    "traceroot==0.0.4a5",
+    "traceroot==0.0.4a9",
     "aiosqlite==0.21.0",
     "stripe==12.3.0",
     "docstring_parser==0.17.0",
+    "autumn-py==2.2.2",
+    "aiohttp==3.12.15",
 ]
 
 [project.optional-dependencies]
@@ -89,10 +91,10 @@ all = [
     "python-jose[cryptography]==3.5.0",
     "python-multipart==0.0.20",
     "requests==2.32.4",
-    "openai==1.97.1",
+    "openai==1.99.2",
     "pymongo==4.13.2",
     "boto3==1.39.11",
-    "numpy==2.3.1",
+    "numpy==2.2.0",
     "asgiref==3.9.1",
     "slowapi==0.1.9",
     "aiocache==0.12.3",
@@ -101,7 +103,7 @@ all = [
     "python-dotenv==1.1.1",
     "pydantic-settings==2.10.1",
     "dotenv==0.9.9",
-    "traceroot==0.0.4a5",
+    "traceroot==0.0.4a9",
     "aiosqlite==0.21.0",
     "stripe==12.3.0",
     "docstring_parser==0.17.0",
@@ -112,6 +114,7 @@ all = [
     "ruff==0.12.4",
     "mypy==1.17.0",
     "pre-commit==4.2.0",
+    "aiohttp==3.12.15",
 ]
 
 [project.urls]
@@ -127,4 +130,14 @@ traceroot-api = "rest.main:main"
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["rest*", "traceroot*", "test*", "ui*", "experiments*", "infra*"]
+include = ["rest*", "test*", "ui*"]
+
+[tool.isort]
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+line_length = 90
+
+[tool.flake8]
+max-line-length = 90
