@@ -130,4 +130,4 @@ traceroot-api = "rest.main:main"
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["rest*", "traceroot*", "test*", "ui*", "experiments*", "infra*"]
+include = ["rest*", "test*", "ui*"]
