@@ -32,11 +32,16 @@ class AuthSettings(BaseModel):
     def from_env(cls) -> "AuthSettings":
         """Create settings from environment variables."""
         settings = cls(
-            COGNITO_CLIENT_ID=os.getenv("COGNITO_CLIENT_ID", ""),
-            COGNITO_USER_POOL_ID=os.getenv("COGNITO_USER_POOL_ID", ""),
-            COGNITO_CLIENT_SECRET=os.getenv("COGNITO_CLIENT_SECRET", ""),
-            COGNITO_ISSUER=os.getenv("COGNITO_ISSUER", ""),
-            AWS_REGION=os.getenv("AWS_REGION", "us-west-2"),
+            COGNITO_CLIENT_ID=os.getenv("COGNITO_CLIENT_ID",
+                                        ""),
+            COGNITO_USER_POOL_ID=os.getenv("COGNITO_USER_POOL_ID",
+                                           ""),
+            COGNITO_CLIENT_SECRET=os.getenv("COGNITO_CLIENT_SECRET",
+                                            ""),
+            COGNITO_ISSUER=os.getenv("COGNITO_ISSUER",
+                                     ""),
+            AWS_REGION=os.getenv("AWS_REGION",
+                                 "us-west-2"),
         )
 
         # Log configuration
@@ -44,8 +49,10 @@ class AuthSettings(BaseModel):
         logger.info(f"COGNITO_CLIENT_ID: {settings.COGNITO_CLIENT_ID}")
         logger.info(f"COGNITO_USER_POOL_ID: {settings.COGNITO_USER_POOL_ID}")
         if settings.COGNITO_CLIENT_SECRET:
-            logger.info(f"COGNITO_CLIENT_SECRET: "
-                        f"{'*' * len(settings.COGNITO_CLIENT_SECRET)}")
+            logger.info(
+                f"COGNITO_CLIENT_SECRET: "
+                f"{'*' * len(settings.COGNITO_CLIENT_SECRET)}"
+            )
         else:
             logger.info("COGNITO_CLIENT_SECRET is not set.")
         logger.info(f"COGNITO_ISSUER: {settings.COGNITO_ISSUER}")
@@ -53,17 +60,25 @@ class AuthSettings(BaseModel):
 
         # Validate required settings
         if not settings.COGNITO_CLIENT_ID:
-            logger.warning("COGNITO_CLIENT_ID is not set. "
-                           "Authentication features may not work properly.")
+            logger.warning(
+                "COGNITO_CLIENT_ID is not set. "
+                "Authentication features may not work properly."
+            )
         if not settings.COGNITO_USER_POOL_ID:
-            logger.warning("COGNITO_USER_POOL_ID is not set. "
-                           "Authentication features may not work properly.")
+            logger.warning(
+                "COGNITO_USER_POOL_ID is not set. "
+                "Authentication features may not work properly."
+            )
         if not settings.COGNITO_CLIENT_SECRET:
-            logger.warning("COGNITO_CLIENT_SECRET is not set. "
-                           "Authentication features may not work properly.")
+            logger.warning(
+                "COGNITO_CLIENT_SECRET is not set. "
+                "Authentication features may not work properly."
+            )
         if not settings.COGNITO_ISSUER:
-            logger.warning("COGNITO_ISSUER is not set. "
-                           "Authentication features may not work properly.")
+            logger.warning(
+                "COGNITO_ISSUER is not set. "
+                "Authentication features may not work properly."
+            )
 
         return settings
 

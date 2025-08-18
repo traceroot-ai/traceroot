@@ -17,17 +17,22 @@ from groq import AsyncGroq
 
 from rest.agent.chunk.sequential import sequential_chunk
 from rest.agent.context.tree import SpanNode
-from rest.agent.filter.feature import (SpanFeature, log_feature_selector,
-                                       span_feature_selector)
-from rest.agent.filter.structure import (LogNodeSelectorOutput,
-                                         filter_log_node, log_node_selector)
+from rest.agent.filter.feature import (
+    SpanFeature,
+    log_feature_selector,
+    span_feature_selector,
+)
+from rest.agent.filter.structure import (
+    LogNodeSelectorOutput,
+    filter_log_node,
+    log_node_selector,
+)
 from rest.agent.github_tools import create_issue, create_pr_with_file_changes
 from rest.agent.typing import LogFeature
 from rest.agent.utils.openai_tools import get_openai_tool_schema
 from rest.client.github_client import GitHubClient
 from rest.config import ChatbotResponse
-from rest.typing import (ActionStatus, ActionType, ChatModel, MessageType,
-                         Provider)
+from rest.typing import ActionStatus, ActionType, ChatModel, MessageType, Provider
 from rest.utils.token_tracking import track_tokens_for_user
 
 AGENT_SYSTEM_PROMPT = (
@@ -97,7 +102,10 @@ class Agent:
         chat_history: list[dict] | None = None,
         openai_token: str | None = None,
         github_token: str | None = None,
-        github_file_tasks: set[tuple[str, str, str, str]] | None = None,
+        github_file_tasks: set[tuple[str,
+                                     str,
+                                     str,
+                                     str]] | None = None,
         is_github_issue: bool = False,
         is_github_pr: bool = False,
         provider: Provider | None = None,
@@ -125,21 +133,24 @@ class Agent:
             groq_token (str | None): The Groq API key to use.
         """
         if not is_github_issue and not is_github_pr:
-            raise ValueError(
-                "Either is_github_issue or is_github_pr must be True.")
+            raise ValueError("Either is_github_issue or is_github_pr must be True.")
         if model == ChatModel.AUTO:
             model = ChatModel.GPT_4O
 
         if github_file_tasks is not None:
-            github_str = "\n".join([
-                f"({task[0]}, {task[1]}, {task[2]}, {task[3]})"
-                for task in github_file_tasks
-            ])
-            github_message = (f"Here are the github file tasks: {github_str} "
-                              "where the first element is the owner, the "
-                              "second element is the repo name, and the "
-                              "third element is the file path, and the "
-                              "fourth element is the base branch.")
+            github_str = "\n".join(
+                [
+                    f"({task[0]}, {task[1]}, {task[2]}, {task[3]})"
+                    for task in github_file_tasks
+                ]
+            )
+            github_message = (
+                f"Here are the github file tasks: {github_str} "
+                "where the first element is the owner, the "
+                "second element is the repo name, and the "
+                "third element is the file path, and the "
+                "fourth element is the base branch."
+            )
 
         # Use local client to avoid race conditions in concurrent calls
         if openai_token is not None:
@@ -152,12 +163,16 @@ class Agent:
             log_features,
             span_features,
             log_node_selector_output,
-        ) = await self._selector_handler(user_message, client, model)
+        ) = await self._selector_handler(user_message,
+                                         client,
+                                         model)
 
         # TODO: Make this more robust
         try:
-            if (LogFeature.LOG_LEVEL in log_node_selector_output.log_features
-                    and len(log_node_selector_output.log_features) == 1):
+            if (
+                LogFeature.LOG_LEVEL in log_node_selector_output.log_features
+                and len(log_node_selector_output.log_features) == 1
+            ):
                 tree = filter_log_node(
                     feature_types=log_node_selector_output.log_features,
                     feature_values=log_node_selector_output.log_feature_values,
@@ -200,12 +215,11 @@ class Agent:
                 updated_message = message
             context_messages[i] = (
                 f"{updated_message}\n\nHere are my questions: "
-                f"{user_message}\n\n{github_message}")
+                f"{user_message}\n\n{github_message}"
+            )
         messages = [{"role": "system", "content": self.system_prompt}]
         # Remove github messages from chat history
-        chat_history = [
-            chat for chat in chat_history if chat["role"] != "github"
-        ]
+        chat_history = [chat for chat in chat_history if chat["role"] != "github"]
         if chat_history is not None:
             # Only append the last 10 chat history records
             for record in chat_history[-10:]:
@@ -220,14 +234,11 @@ class Agent:
                     "role": record["role"],
                     "content": content,
                 })
-        all_messages: list[list[dict[str, str]]] = [
-            deepcopy(messages) for _ in range(len(context_messages))
-        ]
+        all_messages: list[list[dict[str,
+                                     str]]
+                           ] = [deepcopy(messages) for _ in range(len(context_messages))]
         for i in range(len(context_messages)):
-            all_messages[i].append({
-                "role": "user",
-                "content": context_messages[i]
-            })
+            all_messages[i].append({"role": "user", "content": context_messages[i]})
             await db_client.insert_chat_record(
                 message={
                     "chat_id": chat_id,
@@ -240,14 +251,22 @@ class Agent:
                     "chunk_id": i,
                     "action_type": ActionType.AGENT_CHAT.value,
                     "status": ActionStatus.PENDING.value,
-                })
+                }
+            )
 
         # TODO: support multiple chunks
-        responses = await asyncio.gather(*[
-            self.chat_with_context_chunks(messages, model, client, provider,
-                                          user_sub, groq_token)
-            for messages in all_messages
-        ])
+        responses = await asyncio.gather(
+            *[
+                self.chat_with_context_chunks(
+                    messages,
+                    model,
+                    client,
+                    provider,
+                    user_sub,
+                    groq_token
+                ) for messages in all_messages
+            ]
+        )
         response = responses[0]
         github_client = GitHubClient()
         maybe_return_directly: bool = False
@@ -259,9 +278,11 @@ class Agent:
                 repo_name=response["repo_name"],
                 github_token=github_token,
             )
-            url = (f"https://github.com/{response['owner']}/"
-                   f"{response['repo_name']}/"
-                   f"issues/{issue_number}")
+            url = (
+                f"https://github.com/{response['owner']}/"
+                f"{response['repo_name']}/"
+                f"issues/{issue_number}"
+            )
             content = f"Issue created: {url}"
             action_type = ActionType.GITHUB_CREATE_ISSUE.value
         elif is_github_pr:
@@ -278,9 +299,11 @@ class Agent:
                     commit_message=response["commit_message"],
                     github_token=github_token,
                 )
-                url = (f"https://github.com/{response['owner']}/"
-                       f"{response['repo_name']}/"
-                       f"pull/{pr_number}")
+                url = (
+                    f"https://github.com/{response['owner']}/"
+                    f"{response['repo_name']}/"
+                    f"pull/{pr_number}"
+                )
                 content = f"PR created: {url}"
                 action_type = ActionType.GITHUB_CREATE_PR.value
             else:
@@ -298,7 +321,8 @@ class Agent:
                     "chunk_id": 0,
                     "action_type": action_type,
                     "status": ActionStatus.SUCCESS.value,
-                })
+                }
+            )
 
         response_time = datetime.now().astimezone(timezone.utc)
         if not maybe_return_directly:
@@ -308,24 +332,29 @@ class Agent:
                     {
                         "role":
                         "system",
-                        "content": ("You are a helpful assistant "
-                                    "that can summarize the "
-                                    "created issue or the "
-                                    "created PR."),
+                        "content": (
+                            "You are a helpful assistant "
+                            "that can summarize the "
+                            "created issue or the "
+                            "created PR."
+                        ),
                     },
                     {
                         "role":
                         "user",
-                        "content": ("Here is the created issueor"
-                                    f"the created PR:{response}"),
+                        "content":
+                        ("Here is the created issueor "
+                         f"the created PR:{response}"),
                     },
                 ],
             )
 
             # Track token usage for this OpenAI call
-            await track_tokens_for_user(user_sub=user_sub,
-                                        openai_response=summary_response,
-                                        model=str(model))
+            await track_tokens_for_user(
+                user_sub=user_sub,
+                openai_response=summary_response,
+                model=str(model)
+            )
 
             summary_content = summary_response.choices[0].message.content
         else:
@@ -342,7 +371,8 @@ class Agent:
                 "chunk_id": 0,
                 "action_type": ActionType.AGENT_CHAT.value,
                 "status": ActionStatus.SUCCESS.value,
-            })
+            }
+        )
 
         return ChatbotResponse(
             time=response_time,
@@ -354,13 +384,15 @@ class Agent:
 
     async def chat_with_context_chunks(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str,
+                            str]],
         model: ChatModel,
         chat_client: AsyncOpenAI,
         provider: Provider,
         user_sub: str,
         groq_token: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str,
+              Any]:
         r"""Chat with context chunks."""
         if provider == Provider.GROQ:
             model = ChatModel.GPT_OSS_120B
@@ -374,9 +406,11 @@ class Agent:
                 ],
             )
             # Track token usage for Groq call
-            await track_tokens_for_user(user_sub=user_sub,
-                                        openai_response=response,
-                                        model=str(model))
+            await track_tokens_for_user(
+                user_sub=user_sub,
+                openai_response=response,
+                model=str(model)
+            )
 
             tool_calls = response.choices[0].message.tool_calls
             if tool_calls is None or len(tool_calls) == 0:
@@ -396,9 +430,11 @@ class Agent:
                 ],
             )
             # Track token usage for this OpenAI call
-            await track_tokens_for_user(user_sub=user_sub,
-                                        openai_response=response,
-                                        model=str(model))
+            await track_tokens_for_user(
+                user_sub=user_sub,
+                openai_response=response,
+                model=str(model)
+            )
 
             tool_calls = response.choices[0].message.tool_calls
             if tool_calls is None or len(tool_calls) == 0:
@@ -412,20 +448,31 @@ class Agent:
         # TODO: Make this more efficient.
         context_chunks = list(sequential_chunk(context))
         if len(context_chunks) == 1:
-            return [(f"\n\nHere is the structure of the tree with related "
-                     "information:\n\n"
-                     f"{context}")]
+            return [
+                (
+                    f"\n\nHere is the structure of the tree with related "
+                    "information:\n\n"
+                    f"{context}"
+                )
+            ]
         messages: list[str] = []
         for i, chunk in enumerate(context_chunks):
-            messages.append(f"\n\nHere is the structure of the tree "
-                            f"with related information of the "
-                            f"{i + 1}th chunk of the tree:\n\n"
-                            f"{chunk}")
+            messages.append(
+                f"\n\nHere is the structure of the tree "
+                f"with related information of the "
+                f"{i + 1}th chunk of the tree:\n\n"
+                f"{chunk}"
+            )
         return messages
 
     async def _selector_handler(
-        self, user_message, client, model
-    ) -> tuple[list[LogFeature], list[SpanFeature], LogNodeSelectorOutput]:
+        self,
+        user_message,
+        client,
+        model
+    ) -> tuple[list[LogFeature],
+               list[SpanFeature],
+               LogNodeSelectorOutput]:
         return await asyncio.gather(
             log_feature_selector(
                 user_message=user_message,

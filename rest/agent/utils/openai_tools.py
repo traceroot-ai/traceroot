@@ -73,8 +73,9 @@ def get_openai_tool_schema(func: Callable) -> dict[str, Any]:
         param_kind = p.kind
         param_annotation = p.annotation
         # Variable parameters are not supported
-        if (param_kind == Parameter.VAR_POSITIONAL
-                or param_kind == Parameter.VAR_KEYWORD):
+        if (
+            param_kind == Parameter.VAR_POSITIONAL or param_kind == Parameter.VAR_KEYWORD
+        ):
             continue
         # If the parameter type is not specified, it defaults to typing.Any
         if param_annotation is Parameter.empty:
@@ -100,10 +101,11 @@ def get_openai_tool_schema(func: Callable) -> dict[str, Any]:
 
     docstring = parse(func.__doc__ or "")
     for param in docstring.params:
-        if (name := param.arg_name) in parameters_dict["properties"] and (
-                description := param.description):
+        if (
+            (name := param.arg_name) in parameters_dict["properties"]
+            and (description := param.description)
+        ):
             parameters_dict["properties"][name]["description"] = description
-
     short_description = docstring.short_description or ""
     long_description = docstring.long_description or ""
     if long_description:
@@ -138,12 +140,12 @@ def _remove_title_recursively(data, parent_key=None):
     if isinstance(data, dict):
         # Only remove 'title' if it's not an argument name
         if parent_key not in [
-                "properties",
-                "$defs",
-                "items",
-                "allOf",
-                "oneOf",
-                "anyOf",
+            "properties",
+            "$defs",
+            "items",
+            "allOf",
+            "oneOf",
+            "anyOf",
         ]:
             data.pop("title", None)
 

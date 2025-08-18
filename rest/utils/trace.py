@@ -46,20 +46,23 @@ def accumulate_logs(span_data: dict) -> dict:
         for child_span in span.spans:
             # Add child span's log counts to parent span
             if child_span.num_debug_logs is not None:
-                span.num_debug_logs = (span.num_debug_logs
-                                       or 0) + child_span.num_debug_logs
+                span.num_debug_logs = (
+                    span.num_debug_logs or 0
+                ) + child_span.num_debug_logs
             if child_span.num_info_logs is not None:
-                span.num_info_logs = (span.num_info_logs
-                                      or 0) + child_span.num_info_logs
+                span.num_info_logs = (span.num_info_logs or 0) + child_span.num_info_logs
             if child_span.num_warning_logs is not None:
-                span.num_warning_logs = (span.num_warning_logs
-                                         or 0) + child_span.num_warning_logs
+                span.num_warning_logs = (
+                    span.num_warning_logs or 0
+                ) + child_span.num_warning_logs
             if child_span.num_error_logs is not None:
-                span.num_error_logs = (span.num_error_logs
-                                       or 0) + child_span.num_error_logs
+                span.num_error_logs = (
+                    span.num_error_logs or 0
+                ) + child_span.num_error_logs
             if child_span.num_critical_logs is not None:
-                span.num_critical_logs = (span.num_critical_logs
-                                          or 0) + child_span.num_critical_logs
+                span.num_critical_logs = (
+                    span.num_critical_logs or 0
+                ) + child_span.num_critical_logs
 
     # Process each trace in the span_data dictionary
     for _, spans in span_data.items():
@@ -78,8 +81,7 @@ def accumulate_num_logs_to_traces(traces: list[Trace]) -> None:
             (modified in-place).
     """
 
-    def accumulate_span_logs_recursively(
-            span: Span) -> tuple[int, int, int, int, int]:
+    def accumulate_span_logs_recursively(span: Span) -> tuple[int, int, int, int, int]:
         r"""Recursively accumulate logs from a span and all its children.
         Also updates the span's own log counts to include children's logs.
 
@@ -99,7 +101,10 @@ def accumulate_num_logs_to_traces(traces: list[Trace]) -> None:
 
         # Recursively accumulate from all child spans
         for child_span in span.spans:
-            (child_debug, child_info, child_warning, child_error,
+            (child_debug,
+             child_info,
+             child_warning,
+             child_error,
              child_critical) = accumulate_span_logs_recursively(child_span)
             debug_logs += child_debug
             info_logs += child_info
@@ -123,16 +128,17 @@ def accumulate_num_logs_to_traces(traces: list[Trace]) -> None:
 
             # Accumulate log counts from all child spans recursively
             for span in trace.spans:
-                (debug_logs, info_logs, warning_logs, error_logs,
+                (debug_logs,
+                 info_logs,
+                 warning_logs,
+                 error_logs,
                  critical_logs) = accumulate_span_logs_recursively(span)
 
                 trace.num_debug_logs = (trace.num_debug_logs or 0) + debug_logs
                 trace.num_info_logs = (trace.num_info_logs or 0) + info_logs
-                trace.num_warning_logs = (trace.num_warning_logs
-                                          or 0) + warning_logs
+                trace.num_warning_logs = (trace.num_warning_logs or 0) + warning_logs
                 trace.num_error_logs = (trace.num_error_logs or 0) + error_logs
-                trace.num_critical_logs = (trace.num_critical_logs
-                                           or 0) + critical_logs
+                trace.num_critical_logs = (trace.num_critical_logs or 0) + critical_logs
 
 
 def accumulate_telemetry_languages_to_traces(traces: list[Trace]) -> None:
@@ -201,8 +207,7 @@ def construct_traces(
     """
     traces: list[Trace] = []
     end_times: list[float] = [
-        start_time + duration
-        for start_time, duration in zip(start_times, durations)
+        start_time + duration for start_time, duration in zip(start_times, durations)
     ]
 
     # Compute percentiles once for all durations
@@ -249,12 +254,16 @@ def construct_traces(
                 num_error_logs=0,
                 num_critical_logs=0,
                 telemetry_sdk_language=set(),
-            ))
+            )
+        )
     return traces
 
 
 def collect_spans_latency_recursively(
-        spans: list[Span], spans_latency_dict: dict[str, float]) -> None:
+    spans: list[Span],
+    spans_latency_dict: dict[str,
+                             float]
+) -> None:
     """Recursively collect span latencies from all
     spans and their children.
     """

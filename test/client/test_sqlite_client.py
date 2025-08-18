@@ -29,7 +29,8 @@ async def test_sqlite_client():
             "content": "Hello, how are you?",
             "user_content": "Hello, how are you?",
             "trace_id": "trace_456",
-            "span_ids": ["span_1", "span_2"],
+            "span_ids": ["span_1",
+                         "span_2"],
             "start_time": datetime.now(),
             "end_time": datetime.now(),
             "model": "gpt-3.5-turbo",
@@ -94,21 +95,21 @@ async def test_sqlite_client():
         assert len(metadata_history.history) > 0
 
         # Test 3: Integration tokens
-        await client.insert_integration_token("user@example.com",
-                                              "github_token_123", "github")
+        await client.insert_integration_token(
+            "user@example.com",
+            "github_token_123",
+            "github"
+        )
 
-        token = await client.get_integration_token("user@example.com",
-                                                   "github")
+        token = await client.get_integration_token("user@example.com", "github")
         assert token is not None
 
         # Test token deletion
-        deleted = await client.delete_integration_token(
-            "user@example.com", "github")
+        deleted = await client.delete_integration_token("user@example.com", "github")
         assert deleted
 
         # Verify deletion
-        token = await client.get_integration_token("user@example.com",
-                                                   "github")
+        token = await client.get_integration_token("user@example.com", "github")
         assert token is None
 
     finally:

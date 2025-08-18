@@ -19,7 +19,8 @@ class TraceRootSQLiteClient:
         """Initialize the database tables if they don't exist"""
         async with aiosqlite.connect(self.db_path) as db:
             # Chat records table
-            await db.execute("""
+            await db.execute(
+                """
                 CREATE TABLE IF NOT EXISTS chat_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     chat_id TEXT NOT NULL,
@@ -41,10 +42,12 @@ class TraceRootSQLiteClient:
                     context TEXT,
                     reference TEXT
                 )
-            """)
+            """
+            )
 
             # Chat metadata table
-            await db.execute("""
+            await db.execute(
+                """
                 CREATE TABLE IF NOT EXISTS chat_metadata (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     chat_id TEXT NOT NULL UNIQUE,
@@ -52,10 +55,12 @@ class TraceRootSQLiteClient:
                     chat_title TEXT NOT NULL,
                     trace_id TEXT NOT NULL
                 )
-            """)
+            """
+            )
 
             # Connection tokens table
-            await db.execute("""
+            await db.execute(
+                """
                 CREATE TABLE IF NOT EXISTS connection_tokens (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_email TEXT NOT NULL,
@@ -63,21 +68,26 @@ class TraceRootSQLiteClient:
                     token TEXT NOT NULL,
                     UNIQUE(user_email, token_type)
                 )
-            """)
+            """
+            )
 
             # Create indexes for better performance
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_chat_records_chat_id "
-                "ON chat_records(chat_id)")
+                "ON chat_records(chat_id)"
+            )
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_chat_records_timestamp "
-                "ON chat_records(timestamp)")
+                "ON chat_records(timestamp)"
+            )
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_chat_metadata_trace_id "
-                "ON chat_metadata(trace_id)")
+                "ON chat_metadata(trace_id)"
+            )
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_connection_tokens_user_email "
-                "ON connection_tokens(user_email)")
+                "ON connection_tokens(user_email)"
+            )
 
             await db.commit()
 
@@ -93,8 +103,13 @@ class TraceRootSQLiteClient:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
-                ("SELECT * FROM chat_records WHERE chat_id = ? "
-                 "ORDER BY timestamp ASC"), (chat_id, ))
+                (
+                    "SELECT * FROM chat_records WHERE chat_id = ? "
+                    "ORDER BY timestamp ASC"
+                ),
+                (chat_id,
+                 )
+            )
             rows = await cursor.fetchall()
 
             items = []
@@ -145,22 +160,40 @@ class TraceRootSQLiteClient:
                 reference = json.dumps(reference)
 
             await db.execute(
-                ("INSERT INTO chat_records (\n"
-                 "    chat_id, timestamp, role, content, "
-                 "user_content, trace_id, span_ids,\n"
-                 "    start_time, end_time, model, mode, message_type,\n"
-                 "    chunk_id, action_type, status, user_message,\n"
-                 "    context, reference\n"
-                 ") VALUES (\n"
-                 "    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?\n"
-                 ")"), (message["chat_id"], timestamp, message.get(
-                     "role", ""), message.get("content", ""),
-                        message.get("user_content"), message.get("trace_id"),
-                        span_ids, start_time, end_time, message.get("model"),
-                        message.get("mode"), message.get("message_type"),
-                        message.get("chunk_id"), message.get("action_type"),
-                        message.get("status"), message.get("user_message"),
-                        message.get("context"), reference))
+                (
+                    "INSERT INTO chat_records (\n"
+                    "    chat_id, timestamp, role, content, "
+                    "user_content, trace_id, span_ids,\n"
+                    "    start_time, end_time, model, mode, message_type,\n"
+                    "    chunk_id, action_type, status, user_message,\n"
+                    "    context, reference\n"
+                    ") VALUES (\n"
+                    "    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?\n"
+                    ")"
+                ),
+                (
+                    message["chat_id"],
+                    timestamp,
+                    message.get("role",
+                                ""),
+                    message.get("content",
+                                ""),
+                    message.get("user_content"),
+                    message.get("trace_id"),
+                    span_ids,
+                    start_time,
+                    end_time,
+                    message.get("model"),
+                    message.get("mode"),
+                    message.get("message_type"),
+                    message.get("chunk_id"),
+                    message.get("action_type"),
+                    message.get("status"),
+                    message.get("user_message"),
+                    message.get("context"),
+                    reference
+                )
+            )
             await db.commit()
 
     async def insert_chat_metadata(self, metadata: dict[str, Any]):
@@ -185,8 +218,16 @@ class TraceRootSQLiteClient:
                 INSERT OR REPLACE INTO chat_metadata (
                     chat_id, timestamp, chat_title, trace_id
                 ) VALUES (?, ?, ?, ?)
-            """, (metadata["chat_id"], timestamp, metadata.get(
-                    "chat_title", ""), metadata.get("trace_id", "")))
+            """,
+                (
+                    metadata["chat_id"],
+                    timestamp,
+                    metadata.get("chat_title",
+                                 ""),
+                    metadata.get("trace_id",
+                                 "")
+                )
+            )
             await db.commit()
 
     async def get_chat_metadata_history(
@@ -198,7 +239,10 @@ class TraceRootSQLiteClient:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
-                "SELECT * FROM chat_metadata WHERE trace_id = ?", (trace_id, ))
+                "SELECT * FROM chat_metadata WHERE trace_id = ?",
+                (trace_id,
+                 )
+            )
             rows = await cursor.fetchall()
 
             items = []
@@ -206,8 +250,7 @@ class TraceRootSQLiteClient:
                 item = dict(row)
                 # Convert timestamp string back to datetime
                 if item["timestamp"]:
-                    item["timestamp"] = datetime.fromisoformat(
-                        item["timestamp"])
+                    item["timestamp"] = datetime.fromisoformat(item["timestamp"])
                 items.append(ChatMetadata(**item))
 
             return ChatMetadataHistory(history=items)
@@ -218,7 +261,10 @@ class TraceRootSQLiteClient:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
-                "SELECT * FROM chat_metadata WHERE chat_id = ?", (chat_id, ))
+                "SELECT * FROM chat_metadata WHERE chat_id = ?",
+                (chat_id,
+                 )
+            )
             row = await cursor.fetchone()
 
             if row is None:
@@ -234,7 +280,8 @@ class TraceRootSQLiteClient:
     async def insert_traceroot_token(
         self,
         token: str,
-        user_credentials: dict[str, Any],
+        user_credentials: dict[str,
+                               Any],
         delete_existing: bool = False,
     ):
         """
@@ -244,8 +291,12 @@ class TraceRootSQLiteClient:
         """
         return
 
-    async def insert_integration_token(self, user_email: str, token: str,
-                                       token_type: str):
+    async def insert_integration_token(
+        self,
+        user_email: str,
+        token: str,
+        token_type: str
+    ):
         """
         Args:
             user_email (str): The user's email address
@@ -258,9 +309,14 @@ class TraceRootSQLiteClient:
         async with aiosqlite.connect(self.db_path) as db:
             # Use INSERT OR REPLACE to handle existing tokens
             await db.execute(
-                ("INSERT OR REPLACE INTO connection_tokens (user_email, "
-                 "token_type, token) VALUES (?, ?, ?)"),
-                (user_email, token_type, token))
+                (
+                    "INSERT OR REPLACE INTO connection_tokens (user_email, "
+                    "token_type, token) VALUES (?, ?, ?)"
+                ),
+                (user_email,
+                 token_type,
+                 token)
+            )
             await db.commit()
 
     async def delete_integration_token(
@@ -280,8 +336,13 @@ class TraceRootSQLiteClient:
 
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
-                ("DELETE FROM connection_tokens WHERE user_email "
-                 "= ? AND token_type = ?"), (user_email, token_type))
+                (
+                    "DELETE FROM connection_tokens WHERE user_email "
+                    "= ? AND token_type = ?"
+                ),
+                (user_email,
+                 token_type)
+            )
             await db.commit()
             return cursor.rowcount > 0
 
@@ -308,9 +369,13 @@ class TraceRootSQLiteClient:
 
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
-                ("SELECT token FROM connection_tokens WHERE "
-                 "user_email = ? AND token_type = ?"),
-                (user_email, token_type))
+                (
+                    "SELECT token FROM connection_tokens WHERE "
+                    "user_email = ? AND token_type = ?"
+                ),
+                (user_email,
+                 token_type)
+            )
             row = await cursor.fetchone()
             return row[0] if row else None
 
@@ -321,8 +386,9 @@ class TraceRootSQLiteClient:
         """
         return
 
-    async def get_traceroot_credentials_by_token(
-            self, token: str) -> dict[str, Any] | None:
+    async def get_traceroot_credentials_by_token(self,
+                                                 token: str) -> dict[str,
+                                                                     Any] | None:
         """
         Query traceroot credentials by token.
 

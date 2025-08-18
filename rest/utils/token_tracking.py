@@ -20,21 +20,23 @@ class TokenTracker:
         if not self.autumn_token:
             logger.warning(
                 "AUTUMN_SECRET_KEY not found in environment variables. "
-                "Token tracking will be disabled.")
+                "Token tracking will be disabled."
+            )
             self.autumn = None
         else:
             try:
                 self.autumn = Autumn(token=self.autumn_token)
-                logger.info(
-                    "TokenTracker initialized successfully with Autumn.")
+                logger.info("TokenTracker initialized successfully with Autumn.")
             except Exception as e:
                 logger.error(f"Failed to initialize Autumn client: {e}")
                 self.autumn = None
 
-    async def track_llm_tokens(self,
-                               customer_id: str,
-                               token_count: int,
-                               model: Optional[str] = None) -> bool:
+    async def track_llm_tokens(
+        self,
+        customer_id: str,
+        token_count: int,
+        model: Optional[str] = None
+    ) -> bool:
         """
         Track LLM token usage for a customer.
 
@@ -47,28 +49,28 @@ class TokenTracker:
             bool: True if tracking was successful, False otherwise
         """
         if not self.autumn:
-            logger.warning(
-                "Autumn client not available. Skipping token tracking.")
+            logger.warning("Autumn client not available. Skipping token tracking.")
             return False
 
         if token_count <= 0:
-            logger.warning(
-                f"Invalid token count: {token_count}. Skipping tracking.")
+            logger.warning(f"Invalid token count: {token_count}. Skipping tracking.")
             return False
 
         try:
-            await self.autumn.track(customer_id=customer_id,
-                                    feature_id="llm_tokens",
-                                    value=token_count)
+            await self.autumn.track(
+                customer_id=customer_id,
+                feature_id="llm_tokens",
+                value=token_count
+            )
 
             logger.info(
                 f"Successfully tracked {token_count} tokens for customer "
-                f"{customer_id}" + (f" using model {model}" if model else ""))
+                f"{customer_id}" + (f" using model {model}" if model else "")
+            )
             return True
 
         except Exception as e:
-            logger.error(
-                f"Failed to track tokens for customer {customer_id}: {e}")
+            logger.error(f"Failed to track tokens for customer {customer_id}: {e}")
             return False
 
     async def check_token_access(self, customer_id: str) -> bool:
@@ -82,22 +84,23 @@ class TokenTracker:
             bool: True if customer has access, False otherwise
         """
         if not self.autumn:
-            logger.warning(
-                "Autumn client not available. Allowing access by default.")
+            logger.warning("Autumn client not available. Allowing access by default.")
             return True
 
         try:
-            result = await self.autumn.check(customer_id=customer_id,
-                                             feature_id="llm_tokens")
+            result = await self.autumn.check(
+                customer_id=customer_id,
+                feature_id="llm_tokens"
+            )
 
-            logger.info(f"Token access check for customer {customer_id}: "
-                        f"{result.allowed}")
+            logger.info(
+                f"Token access check for customer {customer_id}: "
+                f"{result.allowed}"
+            )
             return result.allowed
 
         except Exception as e:
-            logger.error(
-                f"Failed to check token access for customer {customer_id}: {e}"
-            )
+            logger.error(f"Failed to check token access for customer {customer_id}: {e}")
             # Default to allowing access if check fails
             return True
 
@@ -122,7 +125,8 @@ class TokenTracker:
 
                 logger.debug(
                     f"Token usage - Prompt: {prompt_tokens}, "
-                    f"Completion: {completion_tokens}, Total: {total_tokens}")
+                    f"Completion: {completion_tokens}, Total: {total_tokens}"
+                )
 
                 return total_tokens
             else:
@@ -146,9 +150,11 @@ def get_token_tracker() -> TokenTracker:
     return _token_tracker
 
 
-async def track_tokens_for_user(user_sub: str,
-                                openai_response: Any,
-                                model: Optional[str] = None) -> bool:
+async def track_tokens_for_user(
+    user_sub: str,
+    openai_response: Any,
+    model: Optional[str] = None
+) -> bool:
     """
     Convenience function to track tokens for a user.
 
@@ -164,9 +170,11 @@ async def track_tokens_for_user(user_sub: str,
     token_count = tracker.extract_token_usage(openai_response)
 
     if token_count > 0:
-        return await tracker.track_llm_tokens(customer_id=user_sub,
-                                              token_count=token_count,
-                                              model=model)
+        return await tracker.track_llm_tokens(
+            customer_id=user_sub,
+            token_count=token_count,
+            model=model
+        )
 
     return False
 

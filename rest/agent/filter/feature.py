@@ -1,7 +1,6 @@
 from openai import AsyncOpenAI
 
-from rest.agent.output.feature import (LogFeatureSelectorOutput,
-                                       SpanFeatureSelectorOutput)
+from rest.agent.output.feature import LogFeatureSelectorOutput, SpanFeatureSelectorOutput
 from rest.agent.typing import LogFeature, SpanFeature
 from rest.typing import ChatModel
 
@@ -13,7 +12,8 @@ LOG_FEATURE_SELECTOR_PROMPT = (
     "user's message.\n"
     "Please return the log features in a list of strings.\n"
     "Please only include the log features that are necessary to answer "
-    "the user's message!")
+    "the user's message!"
+)
 
 SPAN_FEATURE_SELECTOR_PROMPT = (
     "You are a helpful assistant that can select related "
@@ -23,7 +23,8 @@ SPAN_FEATURE_SELECTOR_PROMPT = (
     "user's message.\n"
     "Please return the span features in a list of strings.\n"
     "Please only include the span features that are necessary to answer "
-    "the user's message!")
+    "the user's message!"
+)
 
 
 async def log_feature_selector(
@@ -42,8 +43,9 @@ async def log_feature_selector(
         },
     ]
     if model in {
-            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
-            ChatModel.O4_MINI.value
+        ChatModel.GPT_5.value,
+        ChatModel.GPT_5_MINI.value,
+        ChatModel.O4_MINI.value
     }:
         params = {}
     else:
@@ -57,14 +59,13 @@ async def log_feature_selector(
         **params,
     )
     if model in {
-            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
-            ChatModel.O4_MINI.value
+        ChatModel.GPT_5.value,
+        ChatModel.GPT_5_MINI.value,
+        ChatModel.O4_MINI.value
     }:
-        response: LogFeatureSelectorOutput = response.output[1].content[
-            0].parsed
+        response: LogFeatureSelectorOutput = response.output[1].content[0].parsed
     else:
-        response: LogFeatureSelectorOutput = response.output[0].content[
-            0].parsed
+        response: LogFeatureSelectorOutput = response.output[0].content[0].parsed
     return response.log_features
 
 
@@ -84,8 +85,9 @@ async def span_feature_selector(
         },
     ]
     if model in {
-            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
-            ChatModel.O4_MINI.value
+        ChatModel.GPT_5.value,
+        ChatModel.GPT_5_MINI.value,
+        ChatModel.O4_MINI.value
     }:
         params = {}
     else:
@@ -99,12 +101,11 @@ async def span_feature_selector(
         **params,
     )
     if model in {
-            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
-            ChatModel.O4_MINI.value
+        ChatModel.GPT_5.value,
+        ChatModel.GPT_5_MINI.value,
+        ChatModel.O4_MINI.value
     }:
-        response: SpanFeatureSelectorOutput = response.output[1].content[
-            0].parsed
+        response: SpanFeatureSelectorOutput = response.output[1].content[0].parsed
     else:
-        response: SpanFeatureSelectorOutput = response.output[0].content[
-            0].parsed
+        response: SpanFeatureSelectorOutput = response.output[0].content[0].parsed
     return response.span_features

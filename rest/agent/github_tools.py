@@ -13,10 +13,18 @@ class CreateIssueInput(BaseModel):
 class CreatePRWithFileChangesInput(BaseModel):
     r"""Create PR with file changes output.
     """
-    title: str = Field(description=("The title of the PR. Please make sure "
-                                    "the title is concise and to the point."))
-    body: str = Field(description=("The body of the PR. Please make sure "
-                                   "the body is concise and to the point."))
+    title: str = Field(
+        description=(
+            "The title of the PR. Please make sure "
+            "the title is concise and to the point."
+        )
+    )
+    body: str = Field(
+        description=(
+            "The body of the PR. Please make sure "
+            "the body is concise and to the point."
+        )
+    )
     owner: str = Field(description=("The owner of the repository."))
     repo_name: str = Field(description=("The name of the repository."))
     base_branch: str = Field(description=("The base branch of the PR."))
@@ -24,11 +32,16 @@ class CreatePRWithFileChangesInput(BaseModel):
     file_path_to_change: str = Field(description=("The file path to change."))
     file_content_to_change: str = Field(
         description=("The content that you want "
-                     "to change to that file."))
-    commit_message: str = Field(description=("The commit message of the PR. "
-                                             "Please make sure the commit "
-                                             "message is concise and to the "
-                                             "point."))
+                     "to change to that file.")
+    )
+    commit_message: str = Field(
+        description=(
+            "The commit message of the PR. "
+            "Please make sure the commit "
+            "message is concise and to the "
+            "point."
+        )
+    )
 
 
 def create_issue(
