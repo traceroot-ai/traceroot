@@ -340,32 +340,6 @@ function ProfileComponent() {
   );
 }
 
-// function DarkModeToggle() {
-//   const { theme, setTheme } = useTheme();
-//   const { state } = useSidebar();
-
-//   const toggleDarkMode = () => {
-//     setTheme(theme === "dark" ? "light" : "dark");
-//   };
-
-//   return (
-//     <SidebarMenuButton
-//       tooltip={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
-//       onClick={toggleDarkMode}
-//       className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
-//     >
-//       {theme === "dark" ? (
-//         <Sun className="!w-5 !h-5" />
-//       ) : (
-//         <Moon className="!w-5 !h-5" />
-//       )}
-//       {state === "expanded" && (
-//         <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
-//       )}
-//     </SidebarMenuButton>
-//   );
-// }
-
 function DarkModeToggle() {
   const { theme, setTheme } = useTheme();
   const { state } = useSidebar();
