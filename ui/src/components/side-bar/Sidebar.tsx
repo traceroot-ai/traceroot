@@ -138,7 +138,7 @@ function DocumentationComponent() {
     <SidebarMenuButton
       asChild
       isActive={false}
-      tooltip="Docs"
+      tooltip="Documentation"
       className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
     >
       <a
@@ -146,7 +146,7 @@ function DocumentationComponent() {
         className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
       >
         <BookText className="!w-6 !h-6" />
-        {state === "expanded" && <span>Docs</span>}
+        {state === "expanded" && <span>Documentation</span>}
       </a>
     </SidebarMenuButton>
   );
@@ -386,6 +386,8 @@ export default function AppSidebar() {
 
       <SidebarFooter>
         <ExpandCollapseButton />
+        <DocumentationComponent />
+        <ContactComponent />
         <SettingsComponent />
         <Separator />
         <ProfileComponent />
