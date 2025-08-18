@@ -313,7 +313,7 @@ class Agent:
                     {
                         "role":
                         "user",
-                        "content": ("Here is the created issueor "
+                        "content": ("Here is the created issueor"
                                     f"the created PR:{response}"),
                     },
                 ],
@@ -370,9 +370,12 @@ class Agent:
             else:
                 arguments = tool_calls[0].function.arguments
         else:
-            # Force using o4-mini for if not using gpt-5
-            if model != ChatModel.GPT_5:
-                model = ChatModel.O4_MINI
+            default_model = ChatModel.O4_MINI
+            accepted_models = {ChatModel.GPT_5, ChatModel.O4_MINI}
+
+            if model not in accepted_models:
+                model = default_model
+
             response = await chat_client.chat.completions.create(
                 model=model,
                 messages=messages,
@@ -384,8 +387,8 @@ class Agent:
             tool_calls = response.choices[0].message.tool_calls
             if tool_calls is None or len(tool_calls) == 0:
                 return {"content": response.choices[0].message.content}
-            else:
-                arguments = tool_calls[0].function.arguments
+
+            arguments = tool_calls[0].function.arguments
         return json.loads(arguments)
 
     def get_context_messages(self, context: str) -> list[str]:
