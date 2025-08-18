@@ -3,7 +3,7 @@ from openai import AsyncOpenAI
 from rest.agent.output.feature import (LogFeatureSelectorOutput,
                                        SpanFeatureSelectorOutput)
 from rest.agent.typing import LogFeature, SpanFeature
-from rest.typing import ChatModel
+from rest.typing import NO_TEMPERATURE_MODEL, TEMPERATURE, ChatModel
 
 LOG_FEATURE_SELECTOR_PROMPT = (
     "You are a helpful assistant that can select related "
@@ -41,14 +41,11 @@ async def log_feature_selector(
             "content": user_message
         },
     ]
-    if model in {
-            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
-            ChatModel.O4_MINI.value
-    }:
+    if model in NO_TEMPERATURE_MODEL:
         params = {}
     else:
         params = {
-            "temperature": 0.5,
+            "temperature": TEMPERATURE,
         }
     response = await client.responses.parse(
         model=model,
@@ -57,8 +54,9 @@ async def log_feature_selector(
         **params,
     )
     if model in {
-            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
-            ChatModel.O4_MINI.value
+            ChatModel.GPT_5.value,
+            ChatModel.GPT_5_MINI.value,
+            ChatModel.O4_MINI.value,
     }:
         response: LogFeatureSelectorOutput = response.output[1].content[
             0].parsed
@@ -83,14 +81,11 @@ async def span_feature_selector(
             "content": user_message
         },
     ]
-    if model in {
-            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
-            ChatModel.O4_MINI.value
-    }:
+    if model in NO_TEMPERATURE_MODEL:
         params = {}
     else:
         params = {
-            "temperature": 0.5,
+            "temperature": TEMPERATURE,
         }
     response = await client.responses.parse(
         model=model,
@@ -99,8 +94,9 @@ async def span_feature_selector(
         **params,
     )
     if model in {
-            ChatModel.GPT_5.value, ChatModel.GPT_5_MINI.value,
-            ChatModel.O4_MINI.value
+            ChatModel.GPT_5.value,
+            ChatModel.GPT_5_MINI.value,
+            ChatModel.O4_MINI.value,
     }:
         response: SpanFeatureSelectorOutput = response.output[1].content[
             0].parsed

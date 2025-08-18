@@ -1,4 +1,5 @@
 from enum import Enum
+from typing import Set
 
 from pydantic import BaseModel, Field
 
@@ -94,4 +95,5 @@ class Provider(str, Enum):
     GROQ = "groq"
 
 
-NO_TEMPERATURE_MODEL = {"gpt-5", "gpt-5-mini", "gpt-o4-mini"}
+NO_TEMPERATURE_MODEL: Set[str] = {"gpt-5", "gpt-5-mini", "gpt-o4-mini"}
+TEMPERATURE: float = 0.5

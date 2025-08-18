@@ -5,7 +5,7 @@ from openai import AsyncOpenAI
 from rest.agent.context.tree import LogNode, SpanNode
 from rest.agent.output.structure import LogNodeSelectorOutput
 from rest.agent.typing import FeatureOps, LogFeature
-from rest.typing import NO_TEMPERATURE_MODEL
+from rest.typing import NO_TEMPERATURE_MODEL, TEMPERATURE
 
 LOG_NODE_SELECTOR_PROMPT = (
     "You are a helpful assistant that can select related "
@@ -40,7 +40,7 @@ async def log_node_selector(
         params = {}
     else:
         params = {
-            "temperature": 0.5,
+            "temperature": TEMPERATURE,
         }
     response = await client.responses.parse(
         model=model,
@@ -138,9 +138,9 @@ def filter_log_node(
     # Validate input parameters
     if len(feature_types) != len(feature_values) or len(feature_types) != len(
             feature_ops):
-        raise ValueError("feature_types, feature_values, and "
-                         "feature_ops must have the same length")
-
+        raise ValueError("feature_types, feature_values, "
+                         "and feature_ops "
+                         "must have the same length")
     # Filter logs in the current node
     filtered_logs = [log for log in node.logs if matches_filters(log)]
 
