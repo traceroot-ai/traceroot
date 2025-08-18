@@ -7,7 +7,7 @@ name = "traceroot-framework"
 version = "0.0.1"
 description = "TraceRoot - Comprehensive AI-powered tracing, monitoring and REST API solution"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "Zecheng Zhang"},
@@ -54,7 +54,7 @@ dependencies = [
     "openai==1.99.2",
     "pymongo==4.13.2",
     "boto3==1.39.11",
-    "numpy==2.3.1",
+    "numpy==2.2.0",
     "asgiref==3.9.1",
     "slowapi==0.1.9",
     "aiocache==0.12.3",
@@ -92,7 +92,7 @@ all = [
     "openai==1.99.2",
     "pymongo==4.13.2",
     "boto3==1.39.11",
-    "numpy==2.3.1",
+    "numpy==2.2.0",
     "asgiref==3.9.1",
     "slowapi==0.1.9",
     "aiocache==0.12.3",
