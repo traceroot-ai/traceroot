@@ -75,10 +75,12 @@ def _load_json(message: str, ) -> tuple[LogEntry, str] | tuple[None, None]:
     commit_id = json_data['github_commit_hash']
     span_id = json_data['span_id']
 
-    github_url = (f"https://github.com/"
-                  f"{github_owner}/"
-                  f"{github_repo}/tree/"
-                  f"{commit_id}/")
+    github_url = (
+        f"https://github.com/"
+        f"{github_owner}/"
+        f"{github_repo}/tree/"
+        f"{commit_id}/"
+    )
     github_url = f"{github_url}{file_path}?plain=1#L{line_number}"
 
     log_entry = LogEntry(
@@ -94,8 +96,7 @@ def _load_json(message: str, ) -> tuple[LogEntry, str] | tuple[None, None]:
     return log_entry, span_id
 
 
-def _string_manipulation(
-        message: str) -> tuple[LogEntry, str] | tuple[None, None]:
+def _string_manipulation(message: str) -> tuple[LogEntry, str] | tuple[None, None]:
     if "no-trace" in message:
         return None, None
 
@@ -124,10 +125,12 @@ def _string_manipulation(
     github_owner = items[4]
     github_repo = items[5]
     commit_id = items[3]
-    github_url = (f"https://github.com/"
-                  f"{github_owner}/"
-                  f"{github_repo}/tree/"
-                  f"{commit_id}/")
+    github_url = (
+        f"https://github.com/"
+        f"{github_owner}/"
+        f"{github_repo}/tree/"
+        f"{commit_id}/"
+    )
 
     # File name, function name, and line number
     stack = items[9]

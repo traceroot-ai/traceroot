@@ -18,7 +18,8 @@ LOG_NODE_SELECTOR_PROMPT = (
     "Also notice that each log feature corresponds to the feature value "
     "and operation at the same index in the lists.\n"
     "NOTICE: For now you are only allowed to select one log feature!\n"
-    "Please be strict and only select the necessary one log feature!")
+    "Please be strict and only select the necessary one log feature!"
+)
 
 
 async def log_node_selector(
@@ -55,8 +56,7 @@ async def log_node_selector(
     return response
 
 
-def apply_operation(log_value: str, filter_value: str,
-                    operation: FeatureOps) -> bool:
+def apply_operation(log_value: str, filter_value: str, operation: FeatureOps) -> bool:
     r"""Apply the filtering operation between log value
     and filter value.
     """
@@ -91,10 +91,10 @@ def get_log_feature_value(
         LogFeature.LOG_SOURCE_CODE_LINE: log.log_source_code_line,
     }
     if is_github_pr:
-        feature_mapping[LogFeature.LOG_SOURCE_CODE_LINES_ABOVE] = "\n".join(
-            log.log_source_code_lines_above)
-        feature_mapping[LogFeature.LOG_SOURCE_CODE_LINES_BELOW] = "\n".join(
-            log.log_source_code_lines_below)
+        feature_mapping[LogFeature.LOG_SOURCE_CODE_LINES_ABOVE
+                        ] = "\n".join(log.log_source_code_lines_above)
+        feature_mapping[LogFeature.LOG_SOURCE_CODE_LINES_BELOW
+                        ] = "\n".join(log.log_source_code_lines_below)
     return feature_mapping.get(feature, "")
 
 
@@ -130,16 +130,17 @@ def filter_log_node(
         for feature_type, feature_value, feature_op in zip(
                 feature_types, feature_values, feature_ops):
             log_value = get_log_feature_value(log, feature_type)
-            if not apply_operation(str(log_value), str(feature_value),
-                                   feature_op):
+            if not apply_operation(str(log_value), str(feature_value), feature_op):
                 return False
         return True
 
     # Validate input parameters
-    if len(feature_types) != len(feature_values) or len(feature_types) != len(
-            feature_ops):
-        raise ValueError("feature_types, feature_values, and "
-                         "feature_ops must have the same length")
+    if len(feature_types) != len(feature_values) or len(feature_types
+                                                        ) != len(feature_ops):
+        raise ValueError(
+            "feature_types, feature_values, and "
+            "feature_ops must have the same length"
+        )
 
     # Filter logs in the current node
     filtered_logs = [log for log in node.logs if matches_filters(log)]
@@ -147,8 +148,12 @@ def filter_log_node(
     # Recursively filter child nodes
     filtered_children = []
     for child in node.children_spans:
-        filtered_child = filter_log_node(feature_types, feature_values,
-                                         feature_ops, child)
+        filtered_child = filter_log_node(
+            feature_types,
+            feature_values,
+            feature_ops,
+            child
+        )
         # Only include child if it has logs or children after filtering
         if filtered_child.logs or filtered_child.children_spans:
             filtered_children.append(filtered_child)

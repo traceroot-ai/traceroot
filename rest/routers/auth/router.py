@@ -51,7 +51,8 @@ async def auth_callback(request: Request, state: str) -> JSONResponse:
             "given_name": id_claims.get("given_name"),
             "family_name": id_claims.get("family_name"),
             "token_use": access_claims.get("token_use"),
-            "scope": access_claims.get("scope", "").split(),
+            "scope": access_claims.get("scope",
+                                       "").split(),
             "company": id_claims.get("custom:company"),
             "title": id_claims.get("custom:title"),
         }
@@ -89,10 +90,7 @@ async def auth_callback(request: Request, state: str) -> JSONResponse:
 @router.post("/logout")
 async def logout(request: Request) -> JSONResponse:
     """Logout endpoint that clears authentication cookies."""
-    response = JSONResponse({
-        "status": "success",
-        "message": "Logged out successfully"
-    })
+    response = JSONResponse({"status": "success", "message": "Logged out successfully"})
 
     # Clear both authentication cookies
     response.delete_cookie(key="session")

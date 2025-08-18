@@ -31,8 +31,7 @@ def get_user_id_key(request: Request) -> str:
 
 def get_api_key_key(request: Request) -> str:
     """Extract API key from request for rate limiting."""
-    api_key = request.headers.get("x-api-key") or request.headers.get(
-        "authorization")
+    api_key = request.headers.get("x-api-key") or request.headers.get("authorization")
     if api_key:
         # Remove 'Bearer ' prefix if present
         if api_key.startswith("Bearer "):
@@ -44,8 +43,10 @@ def get_api_key_key(request: Request) -> str:
 
 
 def create_advanced_limiter(
-        redis_url: Optional[str] = None,
-        key_func: Optional[Callable[[Request], str]] = None) -> Limiter:
+    redis_url: Optional[str] = None,
+    key_func: Optional[Callable[[Request],
+                                str]] = None
+) -> Limiter:
     """Create a Limiter with advanced configuration.
 
     Args:
@@ -79,20 +80,17 @@ def create_advanced_limiter(
 # Example configurations
 def create_ip_based_limiter(redis_url: Optional[str] = None) -> Limiter:
     """Create limiter that rate limits by IP address."""
-    return create_advanced_limiter(redis_url=redis_url,
-                                   key_func=get_remote_address)
+    return create_advanced_limiter(redis_url=redis_url, key_func=get_remote_address)
 
 
 def create_user_based_limiter(redis_url: Optional[str] = None) -> Limiter:
     """Create limiter that rate limits by user ID."""
-    return create_advanced_limiter(redis_url=redis_url,
-                                   key_func=get_user_id_key)
+    return create_advanced_limiter(redis_url=redis_url, key_func=get_user_id_key)
 
 
 def create_api_key_limiter(redis_url: Optional[str] = None) -> Limiter:
     """Create limiter that rate limits by API key."""
-    return create_advanced_limiter(redis_url=redis_url,
-                                   key_func=get_api_key_key)
+    return create_advanced_limiter(redis_url=redis_url, key_func=get_api_key_key)
 
 
 # Environment-based configuration

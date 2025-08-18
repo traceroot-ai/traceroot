@@ -37,8 +37,7 @@ class App:
             RateLimitExceeded,
             _rate_limit_exceeded_handler,
         )
-        self.local_mode = os.getenv("TRACE_ROOT_LOCAL_MODE",
-                                    "false").lower() == "true"
+        self.local_mode = os.getenv("TRACE_ROOT_LOCAL_MODE", "false").lower() == "true"
 
         # Add CORS middleware
         self.add_middleware()
@@ -92,6 +91,11 @@ class App:
             CORSMiddleware,
             allow_origins=allow_origins,
             allow_credentials=True,
-            allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+            allow_methods=["GET",
+                           "POST",
+                           "PUT",
+                           "DELETE",
+                           "OPTIONS",
+                           "PATCH"],
             allow_headers=["*"],
         )

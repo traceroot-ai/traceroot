@@ -8,8 +8,11 @@ import requests
 from rest.config.log import LogEntry, TraceLogs
 from rest.config.trace import Span, Trace
 from rest.utils.datetime import ensure_utc_datetime
-from rest.utils.trace import (accumulate_num_logs_to_traces, construct_traces,
-                              sort_spans_recursively)
+from rest.utils.trace import (
+    accumulate_num_logs_to_traces,
+    construct_traces,
+    sort_spans_recursively,
+)
 
 LIMIT = 1000
 
@@ -87,10 +90,8 @@ class TraceRootJaegerClient:
         else:
             # Get available services if categories are not provided
             current_time = datetime.now(timezone.utc)
-            time_window_seconds = int(
-                (current_time - start_time).total_seconds())
-            services = await self._get_services(
-                lookback_seconds=time_window_seconds)
+            time_window_seconds = int((current_time - start_time).total_seconds())
+            services = await self._get_services(lookback_seconds=time_window_seconds)
             if not services:
                 return []
 
@@ -129,7 +130,8 @@ class TraceRootJaegerClient:
         categories: list[str] | None = None,
         values: list[str] | None = None,
         operations: list[str] | None = None,
-    ) -> dict[str, list[Span]]:
+    ) -> dict[str,
+              list[Span]]:
         """Get trace with spans by trace IDs.
 
         Args:
@@ -259,11 +261,13 @@ class TraceRootJaegerClient:
                 commit_id = event["commit_id"]
 
                 if (github_owner and github_repo and commit_id and file_name):
-                    git_url = (f"https://github.com/"
-                               f"{github_owner}/"
-                               f"{github_repo}/tree/"
-                               f"{commit_id}/"
-                               f"{file_name}?plain=1#L{line_number}")
+                    git_url = (
+                        f"https://github.com/"
+                        f"{github_owner}/"
+                        f"{github_repo}/tree/"
+                        f"{commit_id}/"
+                        f"{file_name}?plain=1#L{line_number}"
+                    )
 
                 # Create LogEntry object
                 log_entry = LogEntry(
@@ -301,7 +305,8 @@ class TraceRootJaegerClient:
     async def _get_trace_by_id(
         self,
         trace_id: str,
-    ) -> Optional[dict[str, Any]]:
+    ) -> Optional[dict[str,
+                       Any]]:
         """Get a specific trace by its ID from Jaeger.
 
         Args:
@@ -332,8 +337,7 @@ class TraceRootJaegerClient:
         try:
             params = {"lookback": f"{lookback_seconds}s"}
 
-            response = await self._make_request(f"{self.services_url}",
-                                                params=params)
+            response = await self._make_request(f"{self.services_url}", params=params)
 
             if response and "data" in response:
                 return response["data"]
@@ -348,7 +352,8 @@ class TraceRootJaegerClient:
         start_time: int,
         end_time: int,
         limit: int,
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str,
+                   Any]]:
         """Get traces from Jaeger API."""
         try:
             params = {
@@ -358,8 +363,7 @@ class TraceRootJaegerClient:
                 "limit": limit,
             }
 
-            response = await self._make_request(f"{self.traces_url}",
-                                                params=params)
+            response = await self._make_request(f"{self.traces_url}", params=params)
 
             if response and "data" in response:
                 return response["data"]
@@ -370,7 +374,8 @@ class TraceRootJaegerClient:
 
     async def _convert_jaeger_trace_to_trace(
         self,
-        trace_data: dict[str, Any],
+        trace_data: dict[str,
+                         Any],
     ) -> Optional[Trace]:
         """Convert Jaeger trace data to our Trace model."""
         try:
@@ -386,8 +391,7 @@ class TraceRootJaegerClient:
             # Convert spans to individual Span objects (without hierarchy)
             spans_dict: dict[str, Span] = {}
             for span_data in spans_data:
-                span: Span | None = self._convert_jaeger_span_to_span(
-                    span_data)
+                span: Span | None = self._convert_jaeger_span_to_span(span_data)
                 if span:
                     spans_dict[span.id] = span
 
@@ -395,8 +399,7 @@ class TraceRootJaegerClient:
                 return None
 
             # Build parent-child relationships using parentSpanID
-            root_spans: list[Span] = self._build_span_hierarchy(
-                spans_data, spans_dict)
+            root_spans: list[Span] = self._build_span_hierarchy(spans_data, spans_dict)
 
             # Calculate trace start time, end time, and duration
             start_times = [span.start_time for span in spans_dict.values()]
@@ -441,8 +444,10 @@ class TraceRootJaegerClient:
 
     def _build_span_hierarchy(
         self,
-        spans_data: list[dict[str, Any]],
-        spans_dict: dict[str, Span],
+        spans_data: list[dict[str,
+                              Any]],
+        spans_dict: dict[str,
+                         Span],
     ) -> list[Span]:
         """Build hierarchical span structure from flat span data.
 
@@ -493,7 +498,8 @@ class TraceRootJaegerClient:
 
     def _convert_jaeger_span_to_span(
         self,
-        span_data: dict[str, Any],
+        span_data: dict[str,
+                        Any],
     ) -> Span | None:
         """Convert Jaeger span data to our Span model."""
         try:
@@ -550,10 +556,10 @@ class TraceRootJaegerClient:
             print(f"Error converting Jaeger span: {e}")
             return None
 
-    async def _make_request(
-            self,
-            url: str,
-            params: Optional[dict] = None) -> Optional[dict[str, Any]]:
+    async def _make_request(self,
+                            url: str,
+                            params: Optional[dict] = None) -> Optional[dict[str,
+                                                                            Any]]:
         """Make HTTP request to Jaeger API."""
         loop = asyncio.get_event_loop()
 

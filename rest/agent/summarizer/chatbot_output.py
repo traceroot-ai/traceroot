@@ -25,7 +25,8 @@ SYSTEM_PROMPT = (
     "5. Please don't mention you are unsure or the provided data is "
     "insufficient. Please be confident and provide the best answer you "
     "can.\n"
-    "6. You need to corresponds the reference to the answer.")
+    "6. You need to corresponds the reference to the answer."
+)
 
 
 async def summarize_chatbot_output(
@@ -38,17 +39,22 @@ async def summarize_chatbot_output(
 ) -> ChatbotResponse:
     if openai_token is not None:
         client = AsyncOpenAI(api_key=openai_token)
-    messages = [{
-        "role": "system",
-        "content": SYSTEM_PROMPT,
-    }, {
-        "role":
-        "user",
-        "content": (f"Here are the first issue response: "
-                    f"{issue_response.model_dump_json()}\n\n"
-                    f"Here are the second PR response: "
-                    f"{pr_response.model_dump_json()}")
-    }]
+    messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT,
+        },
+        {
+            "role":
+            "user",
+            "content": (
+                f"Here are the first issue response: "
+                f"{issue_response.model_dump_json()}\n\n"
+                f"Here are the second PR response: "
+                f"{pr_response.model_dump_json()}"
+            )
+        }
+    ]
     response = await client.responses.parse(
         model=model,
         input=messages,
@@ -57,8 +63,10 @@ async def summarize_chatbot_output(
     )
 
     if user_sub:
-        await track_tokens_for_user(user_sub=user_sub,
-                                    openai_response=response,
-                                    model=str(model))
+        await track_tokens_for_user(
+            user_sub=user_sub,
+            openai_response=response,
+            model=str(model)
+        )
 
     return response.output[0].content[0].parsed

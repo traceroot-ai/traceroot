@@ -24,23 +24,27 @@ class TracesAndLogsTracker:
         if not self.autumn_token:
             logger.warning(
                 "AUTUMN_SECRET_KEY not found in environment variables. "
-                "Traces and logs tracking will be disabled.")
+                "Traces and logs tracking will be disabled."
+            )
             self.autumn = None
         else:
             try:
                 self.autumn = Autumn(token=self.autumn_token)
                 logger.info(
                     "TracesAndLogsTracker initialized successfully with "
-                    "Autumn.")
+                    "Autumn."
+                )
             except Exception as e:
                 logger.error(f"Failed to initialize Autumn client: {e}")
                 self.autumn = None
 
-    async def track_traces_and_logs(self,
-                                    customer_id: str,
-                                    trace_count: int,
-                                    log_count: int,
-                                    period_days: Optional[int] = None) -> bool:
+    async def track_traces_and_logs(
+        self,
+        customer_id: str,
+        trace_count: int,
+        log_count: int,
+        period_days: Optional[int] = None
+    ) -> bool:
         """
         Track traces and logs usage for a customer.
 
@@ -57,33 +61,41 @@ class TracesAndLogsTracker:
         if not self.autumn:
             logger.warning(
                 "Autumn client not available. Skipping traces and logs "
-                "tracking.")
+                "tracking."
+            )
             return False
 
         if trace_count < 0 or log_count < 0:
             logger.warning(
                 f"Invalid counts - traces: {trace_count}, logs: {log_count}. "
-                "Skipping tracking.")
+                "Skipping tracking."
+            )
             return False
 
         try:
             # Track combined traces and logs using the single feature ID that
             # exists in Autumn
             total_traces_and_logs = trace_count + log_count
-            await self.autumn.track(customer_id=customer_id,
-                                    feature_id="trace__log",
-                                    value=total_traces_and_logs)
+            await self.autumn.track(
+                customer_id=customer_id,
+                feature_id="trace__log",
+                value=total_traces_and_logs
+            )
 
-            logger.info(f"Successfully tracked traces and logs for customer "
-                        f"{customer_id}: "
-                        f"{trace_count} traces, {log_count} logs, "
-                        f"{total_traces_and_logs} total items" +
-                        (f" over {period_days} days" if period_days else ""))
+            logger.info(
+                f"Successfully tracked traces and logs for customer "
+                f"{customer_id}: "
+                f"{trace_count} traces, {log_count} logs, "
+                f"{total_traces_and_logs} total items" +
+                (f" over {period_days} days" if period_days else "")
+            )
             return True
 
         except Exception as e:
-            logger.error(f"Failed to track traces and logs for customer "
-                         f"{customer_id}: {e}")
+            logger.error(
+                f"Failed to track traces and logs for customer "
+                f"{customer_id}: {e}"
+            )
             return False
 
     async def check_traces_and_logs_access(self, customer_id: str) -> bool:
@@ -97,29 +109,31 @@ class TracesAndLogsTracker:
             bool: True if customer has access, False otherwise
         """
         if not self.autumn:
-            logger.warning(
-                "Autumn client not available. Allowing access by default.")
+            logger.warning("Autumn client not available. Allowing access by default.")
             return True
 
         try:
             # Check access for the single trace__log feature
-            result = await self.autumn.check(customer_id=customer_id,
-                                             feature_id="trace__log")
+            result = await self.autumn.check(
+                customer_id=customer_id,
+                feature_id="trace__log"
+            )
 
             logger.info(
                 f"Traces and logs access check for customer {customer_id}: "
-                f"allowed={result.allowed}")
+                f"allowed={result.allowed}"
+            )
             return result.allowed
 
         except Exception as e:
             logger.error(
                 f"Failed to check traces and logs access for customer "
-                f"{customer_id}: {e}")
+                f"{customer_id}: {e}"
+            )
             # Default to allowing access if check fails
             return True
 
-    async def set_traces_and_logs_usage(self, customer_id: str,
-                                        value: int) -> bool:
+    async def set_traces_and_logs_usage(self, customer_id: str, value: int) -> bool:
         """
         Set the traces and logs usage directly in Autumn.
 
@@ -131,8 +145,7 @@ class TracesAndLogsTracker:
             bool: True if setting usage was successful
         """
         if not self.autumn:
-            logger.warning(
-                "Autumn client not available. Skipping usage update.")
+            logger.warning("Autumn client not available. Skipping usage update.")
             return False
 
         try:
@@ -142,17 +155,20 @@ class TracesAndLogsTracker:
                 value=value,
             )
 
-            logger.info(f"Successfully set traces and logs usage for customer "
-                        f"{customer_id} to {value}")
+            logger.info(
+                f"Successfully set traces and logs usage for customer "
+                f"{customer_id} to {value}"
+            )
             return True
 
         except Exception as e:
-            logger.error(f"Failed to set traces and logs usage for customer "
-                         f"{customer_id}: {e}")
+            logger.error(
+                f"Failed to set traces and logs usage for customer "
+                f"{customer_id}: {e}"
+            )
             return False
 
-    def extract_traces_and_logs_from_traces(
-            self, traces: list[Trace]) -> tuple[int, int]:
+    def extract_traces_and_logs_from_traces(self, traces: list[Trace]) -> tuple[int, int]:
         """
         Extract trace and log counts from a list of traces.
 
@@ -168,15 +184,17 @@ class TracesAndLogsTracker:
 
             for trace in traces:
                 # Sum all log types for this trace
-                trace_logs = ((trace.num_debug_logs or 0) +
-                              (trace.num_info_logs or 0) +
-                              (trace.num_warning_logs or 0) +
-                              (trace.num_error_logs or 0) +
-                              (trace.num_critical_logs or 0))
+                trace_logs = (
+                    (trace.num_debug_logs or 0) + (trace.num_info_logs or 0) +
+                    (trace.num_warning_logs or 0) + (trace.num_error_logs or 0) +
+                    (trace.num_critical_logs or 0)
+                )
                 total_log_count += trace_logs
 
-            logger.debug(f"Extracted traces and logs - Traces: {trace_count}, "
-                         f"Logs: {total_log_count}")
+            logger.debug(
+                f"Extracted traces and logs - Traces: {trace_count}, "
+                f"Logs: {total_log_count}"
+            )
 
             return trace_count, total_log_count
 
@@ -185,8 +203,12 @@ class TracesAndLogsTracker:
             return 0, 0
 
     async def get_customer_traces_and_logs_since_date(
-            self, customer_id: str, since_date: datetime,
-            observe_client: Any) -> tuple[int, int]:
+        self,
+        customer_id: str,
+        since_date: datetime,
+        observe_client: Any
+    ) -> tuple[int,
+               int]:
         """
         Get customer's traces and logs since a specific date.
 
@@ -209,21 +231,23 @@ class TracesAndLogsTracker:
                 log_group_name=log_group_name,
             )
 
-            trace_count, log_count = self.extract_traces_and_logs_from_traces(
-                traces)
+            trace_count, log_count = self.extract_traces_and_logs_from_traces(traces)
 
             days_since = (end_time - since_date).days
-            logger.info(f"Customer {customer_id} traces and logs since "
-                        f"{since_date.isoformat()}: "
-                        f"{trace_count} traces, {log_count} logs over "
-                        f"{days_since} days")
+            logger.info(
+                f"Customer {customer_id} traces and logs since "
+                f"{since_date.isoformat()}: "
+                f"{trace_count} traces, {log_count} logs over "
+                f"{days_since} days"
+            )
 
             return trace_count, log_count
 
         except Exception as e:
             logger.error(
                 f"Failed to get traces and logs for customer {customer_id} "
-                f"since {since_date}: {e}")
+                f"since {since_date}: {e}"
+            )
             return 0, 0
 
 
@@ -239,8 +263,11 @@ def get_traces_and_logs_tracker() -> TracesAndLogsTracker:
     return _traces_and_logs_tracker
 
 
-async def track_traces_and_logs_since_date(user_sub: str, since_date: datetime,
-                                           observe_client: Any) -> bool:
+async def track_traces_and_logs_since_date(
+    user_sub: str,
+    since_date: datetime,
+    observe_client: Any
+) -> bool:
     """
     Convenience function to track traces and logs for a user since a specific
     date.
@@ -263,10 +290,12 @@ async def track_traces_and_logs_since_date(user_sub: str, since_date: datetime,
 
     if trace_count > 0 or log_count > 0:
         days_since = (datetime.now(timezone.utc) - since_date).days
-        return await tracker.track_traces_and_logs(customer_id=user_sub,
-                                                   trace_count=trace_count,
-                                                   log_count=log_count,
-                                                   period_days=days_since)
+        return await tracker.track_traces_and_logs(
+            customer_id=user_sub,
+            trace_count=trace_count,
+            log_count=log_count,
+            period_days=days_since
+        )
 
     return False
 
@@ -286,8 +315,11 @@ async def check_user_traces_and_logs_access(user_sub: str) -> bool:
 
 
 async def get_user_traces_and_logs_since_payment(
-        user_sub: str, last_payment_date: datetime,
-        observe_client: Any) -> dict[str, Any]:
+    user_sub: str,
+    last_payment_date: datetime,
+    observe_client: Any
+) -> dict[str,
+          Any]:
     """
     Get comprehensive traces and logs data for a user since their last payment.
 
@@ -325,8 +357,7 @@ async def get_user_traces_and_logs_since_payment(
         }
 
     except Exception as e:
-        logger.error(
-            f"Failed to get traces and logs since payment for {user_sub}: {e}")
+        logger.error(f"Failed to get traces and logs since payment for {user_sub}: {e}")
         return {
             "customer_id": user_sub,
             "error": str(e),

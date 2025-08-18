@@ -32,29 +32,17 @@ class LogNode(BaseModel):
 
     def to_dict(self, features: list[LogFeature]) -> dict[str, str]:
         feature_mapping = {
-            LogFeature.LOG_UTC_TIMESTAMP:
-            str(self.log_utc_timestamp),
-            LogFeature.LOG_LEVEL:
-            self.log_level,
-            LogFeature.LOG_FILE_NAME:
-            self.log_file_name,
-            LogFeature.LOG_FUNC_NAME:
-            self.log_func_name,
-            LogFeature.LOG_MESSAGE_VALUE:
-            self.log_message,
-            LogFeature.LOG_LINE_NUMBER:
-            str(self.log_line_number),
-            LogFeature.LOG_SOURCE_CODE_LINE:
-            self.log_source_code_line,
-            LogFeature.LOG_SOURCE_CODE_LINES_ABOVE:
-            self.log_source_code_lines_above,
-            LogFeature.LOG_SOURCE_CODE_LINES_BELOW:
-            self.log_source_code_lines_below,
+            LogFeature.LOG_UTC_TIMESTAMP: str(self.log_utc_timestamp),
+            LogFeature.LOG_LEVEL: self.log_level,
+            LogFeature.LOG_FILE_NAME: self.log_file_name,
+            LogFeature.LOG_FUNC_NAME: self.log_func_name,
+            LogFeature.LOG_MESSAGE_VALUE: self.log_message,
+            LogFeature.LOG_LINE_NUMBER: str(self.log_line_number),
+            LogFeature.LOG_SOURCE_CODE_LINE: self.log_source_code_line,
+            LogFeature.LOG_SOURCE_CODE_LINES_ABOVE: self.log_source_code_lines_above,
+            LogFeature.LOG_SOURCE_CODE_LINES_BELOW: self.log_source_code_lines_below,
         }
-        return {
-            feature.value: feature_mapping[feature]
-            for feature in features
-        }
+        return {feature.value: feature_mapping[feature] for feature in features}
 
 
 class SpanNode(BaseModel):
@@ -80,10 +68,11 @@ class SpanNode(BaseModel):
     children_spans: list["SpanNode"] = []
 
     def to_dict(
-            self,
-            span_features: list[SpanFeature] = list(SpanFeature),
-            log_features: list[LogFeature] = list(LogFeature),
-    ) -> dict[str, Any]:
+        self,
+        span_features: list[SpanFeature] = list(SpanFeature),
+        log_features: list[LogFeature] = list(LogFeature),
+    ) -> dict[str,
+              Any]:
         res = {"span_id": self.span_id, "func_full_name": self.func_full_name}
         feature_mapping = {
             SpanFeature.SPAN_LATENCY: str(self.span_latency),
@@ -97,8 +86,7 @@ class SpanNode(BaseModel):
         for log in self.logs:
             events.append((log.log_utc_timestamp.timestamp(), log))
         for child_span in self.children_spans:
-            events.append(
-                (child_span.span_utc_start_time.timestamp(), child_span))
+            events.append((child_span.span_utc_start_time.timestamp(), child_span))
         events.sort(key=lambda x: x[0])
         log_count = 0
         for _, obj in events:
@@ -112,7 +100,9 @@ class SpanNode(BaseModel):
 
 def create_logs_map(
     trace_logs: list[dict[str,
-                          list[LogEntry]]], ) -> dict[str, list[LogEntry]]:
+                          list[LogEntry]]],
+) -> dict[str,
+          list[LogEntry]]:
     r"""Create a mapping from span_id to list of LogEntry objects."""
     logs_map = {}
     for logs_dict in trace_logs:
@@ -143,7 +133,8 @@ def convert_log_entry_to_log_node(log_entry: LogEntry) -> LogNode:
 
 def convert_span_to_span_node(
     span: Span,
-    logs_map: dict[str, list[LogEntry]],
+    logs_map: dict[str,
+                   list[LogEntry]],
 ) -> SpanNode:
     r"""Convert Span to SpanNode recursively."""
     # Convert logs for this span
@@ -183,7 +174,10 @@ def convert_span_to_span_node(
 
 
 def build_heterogeneous_tree(
-        span: Span, trace_logs: list[dict[str, list[LogEntry]]]) -> SpanNode:
+    span: Span,
+    trace_logs: list[dict[str,
+                          list[LogEntry]]]
+) -> SpanNode:
     r"""Build a heterogeneous tree from a trace and trace logs.
     """
     # Create logs mapping

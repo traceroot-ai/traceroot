@@ -61,7 +61,8 @@ class TraceRootMongoDBClient:
     async def insert_traceroot_token(
         self,
         token: str,
-        user_credentials: dict[str, Any],
+        user_credentials: dict[str,
+                               Any],
         delete_existing: bool = False,
     ) -> bool:
         pass
@@ -81,5 +82,6 @@ class TraceRootMongoDBClient:
     async def get_credentials_by_token(
         self,
         token: str,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str,
+              Any] | None:
         pass

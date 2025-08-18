@@ -8,13 +8,17 @@ class Reference(BaseModel):
 
     number: int = Field(description="The number of the reference.")
     span_id: str | None = Field(
-        description=("Original Span ID if it's related to the answer."))
-    span_function_name: str | None = Field(description=(
-        "Function name of the span if it's related to the answer."))
-    line_number: int | None = Field(description=(
-        "Line number of the source code if it's related to the answer."))
+        description=("Original Span ID if it's related to the answer.")
+    )
+    span_function_name: str | None = Field(
+        description=("Function name of the span if it's related to the answer.")
+    )
+    line_number: int | None = Field(
+        description=("Line number of the source code if it's related to the answer.")
+    )
     log_message: str | None = Field(
-        description=("Log message if it's related to the answer."))
+        description=("Log message if it's related to the answer.")
+    )
 
     def __str__(self) -> str:
         return f"[{self.number}]: {self.span_id} {self.line_number}"
