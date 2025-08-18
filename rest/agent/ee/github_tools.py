@@ -55,6 +55,11 @@ def create_issue(
     )
 
 
+# Jason: 2025/08/18
+# I don't understand why the function has to be called
+# ..._with_file_changes since the PR always has some
+# changes already.
+# Should we rename it to create_pr to avoid confusion?
 def create_pr_with_file_changes(
     title: str,
     body: str,
