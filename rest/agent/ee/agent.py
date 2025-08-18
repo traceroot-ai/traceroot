@@ -32,6 +32,7 @@ from rest.typing import (ActionStatus, ActionType, ChatModel, MessageType,
 
 
 class Agent:
+    MAX_CHAT_RECORD: int = 10
 
     def __init__(self):
         api_key = os.getenv("OPENAI_API_KEY")
@@ -205,7 +206,7 @@ class Agent:
         ]
         if chat_history is not None:
             # Only append the last 10 chat history records
-            for record in chat_history[-10:]:
+            for record in chat_history[-Agent.MAX_CHAT_RECORD:]:
                 # We only need to include the user message
                 # (without the context information) in the
                 # chat history
@@ -313,7 +314,7 @@ class Agent:
                     {
                         "role":
                         "user",
-                        "content": ("Here is the created issueor "
+                        "content": ("Here is the created issueor"
                                     f"the created PR:{response}"),
                     },
                 ],
