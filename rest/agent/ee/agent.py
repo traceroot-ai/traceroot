@@ -19,9 +19,10 @@ from rest.agent.chunk.sequential import sequential_chunk
 from rest.agent.context.tree import SpanNode
 from rest.agent.ee.github_tools import (create_issue,
                                         create_pr_with_file_changes)
-from rest.agent.filter.feature import (log_feature_selector,
+from rest.agent.filter.feature import (SpanFeature, log_feature_selector,
                                        span_feature_selector)
-from rest.agent.filter.structure import filter_log_node, log_node_selector
+from rest.agent.filter.structure import (LogNodeSelectorOutput,
+                                         filter_log_node, log_node_selector)
 from rest.agent.typing import LogFeature
 from rest.agent.utils.openai_tools import get_openai_tool_schema
 from rest.client.github_client import GitHubClient
@@ -121,8 +122,8 @@ class Agent:
             groq_token (str | None): The Groq API key to use.
         """
         if not is_github_issue and not is_github_pr:
-            raise ValueError("Either is_github_issue or "
-                             "is_github_pr must be True.")
+            raise ValueError(
+                "Either is_github_issue or is_github_pr must be True.")
         if model == ChatModel.AUTO:
             model = ChatModel.GPT_4O
 
@@ -144,24 +145,11 @@ class Agent:
             client = self.chat_client
 
         # Select only necessary log and span features #########################
-        (log_features, span_features,
-         log_node_selector_output) = await asyncio.gather(
-             log_feature_selector(
-                 user_message=user_message,
-                 client=client,
-                 model=model,
-             ),
-             span_feature_selector(
-                 user_message=user_message,
-                 client=client,
-                 model=model,
-             ),
-             log_node_selector(
-                 user_message=user_message,
-                 client=client,
-                 model=model,
-             ),
-         )
+        (
+            log_features,
+            span_features,
+            log_node_selector_output,
+        ) = await self._selector_handler(user_message, client, model)
 
         # TODO: Make this more robust
         try:
@@ -198,11 +186,13 @@ class Agent:
         ]
         for i, message in enumerate(context_chunks):
             if is_github_issue:
-                updated_message = (f"{message}\nFor now please "
-                                   f"create an GitHub issue.\n")
+                updated_message = f"""
+                    {message}\nFor now please create an GitHub issue.\n
+                """
             elif is_github_pr:
-                updated_message = (f"{message}\nFor now please "
-                                   f"create a GitHub PR.\n")
+                updated_message = f"""
+                    {message}\nFor now please create a GitHub PR.\n
+                """
             else:
                 updated_message = message
             context_messages[i] = (
@@ -318,13 +308,13 @@ class Agent:
                         "content": ("You are a helpful assistant "
                                     "that can summarize the "
                                     "created issue or the "
-                                    "created PR.")
+                                    "created PR."),
                     },
                     {
                         "role":
                         "user",
-                        "content": (f"Here is the created issue or "
-                                    f"the created PR: {response}")
+                        "content": ("Here is the created issueor "
+                                    f"the created PR:{response}"),
                     },
                 ],
             )
@@ -362,8 +352,7 @@ class Agent:
         provider: Provider,
         groq_token: str | None = None,
     ) -> dict[str, Any]:
-        r"""Chat with context chunks.
-        """
+        r"""Chat with context chunks."""
         if provider == Provider.GROQ:
             model = "openai/gpt-oss-120b"
             client = AsyncGroq(api_key=groq_token)
@@ -400,8 +389,7 @@ class Agent:
         return json.loads(arguments)
 
     def get_context_messages(self, context: str) -> list[str]:
-        r"""Get the context message.
-        """
+        r"""Get the context message."""
         # TODO: Make this more efficient.
         context_chunks = list(sequential_chunk(context))
         if len(context_chunks) == 1:
@@ -412,6 +400,27 @@ class Agent:
         for i, chunk in enumerate(context_chunks):
             messages.append(f"\n\nHere is the structure of the tree "
                             f"with related information of the "
-                            f"{i+1}th chunk of the tree:\n\n"
+                            f"{i + 1}th chunk of the tree:\n\n"
                             f"{chunk}")
         return messages
+
+    async def _selector_handler(
+        self, user_message, client, model
+    ) -> tuple[list[LogFeature], list[SpanFeature], LogNodeSelectorOutput]:
+        return await asyncio.gather(
+            log_feature_selector(
+                user_message=user_message,
+                client=client,
+                model=model,
+            ),
+            span_feature_selector(
+                user_message=user_message,
+                client=client,
+                model=model,
+            ),
+            log_node_selector(
+                user_message=user_message,
+                client=client,
+                model=model,
+            ),
+        )
