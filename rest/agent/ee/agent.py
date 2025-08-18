@@ -180,7 +180,7 @@ class Agent:
 
         context = f"{json.dumps(tree, indent=4)}"
 
-        context_chunks = self.get_context_messages(context)
+        context_chunks = self._get_context_messages(context)
         context_messages = [
             deepcopy(context_chunks[i]) for i in range(len(context_chunks))
         ]
@@ -391,7 +391,7 @@ class Agent:
             arguments = tool_calls[0].function.arguments
         return json.loads(arguments)
 
-    def get_context_messages(self, context: str) -> list[str]:
+    def _get_context_messages(self, context: str) -> list[str]:
         r"""Get the context message."""
         # TODO: Make this more efficient.
         context_chunks = list(sequential_chunk(context))
