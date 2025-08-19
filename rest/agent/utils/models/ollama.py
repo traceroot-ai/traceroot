@@ -17,22 +17,28 @@ class Ollama:
     def __init__(self, model: str):
         self.model = model
 
-    def chat_completions(self,
-                         messages: list[Message],
-                         tools: list[Callable] = []) -> ollama.ChatResponse:
+    def chat_completions(
+        self,
+        messages: list[Message],
+        tools: list[Callable] = []
+    ) -> ollama.ChatResponse:
         msgs = self._convert_message(messages, tools=tools)
         response = ollama.chat(model=self.model, tools=[], messages=msgs)
         return response
 
-    def _convert_message(self, messages: list[Message],
-                         tools: list[Callable]) -> list[dict[str, str]]:
+    def _convert_message(self,
+                         messages: list[Message],
+                         tools: list[Callable]) -> list[dict[str,
+                                                             str]]:
         ollama_messsages = []
         for m in messages:
-            ollama_messsages.append({
-                "role": m.role,
-                "content": m.content,
-                "tools": self._convert_tools(tools),
-            })
+            ollama_messsages.append(
+                {
+                    "role": m.role,
+                    "content": m.content,
+                    "tools": self._convert_tools(tools),
+                }
+            )
         return ollama_messsages
 
     def _convert_tools(self, tools: list[Callable]):
@@ -56,8 +62,10 @@ class Ollama:
             param_kind = p.kind
             param_annotation = p.annotation
 
-            if (param_kind == Parameter.VAR_POSITIONAL
-                    or param_kind == Parameter.VAR_KEYWORD):
+            if (
+                param_kind == Parameter.VAR_POSITIONAL
+                or param_kind == Parameter.VAR_KEYWORD
+            ):
                 continue
 
             if param_annotation is Parameter.empty:
@@ -66,8 +74,7 @@ class Ollama:
             if param_default is Parameter.empty:
                 fields[param_name] = (param_type, FieldInfo())
             else:
-                fields[param_name] = (param_type,
-                                      FieldInfo(default=param_default))
+                fields[param_name] = (param_type, FieldInfo(default=param_default))
 
         def _create_mol(name, field):
             return create_model(name, **field)
@@ -78,9 +85,9 @@ class Ollama:
         docstring = parse(tool.__doc__ or "")
         for param in docstring.params:
             if (name := param.arg_name) in parameters_dict["properties"] and (
-                    description := param.description):
-                parameters_dict["properties"][name][
-                    "description"] = description
+                description := param.description
+            ):
+                parameters_dict["properties"][name]["description"] = description
 
         short_description = docstring.short_description or ""
         long_description = docstring.long_description or ""
