@@ -27,7 +27,8 @@ SYSTEM_PROMPT = (
     "6. Please don't mention you are unsure or the provided data is "
     "insufficient. Please be confident and provide the best answer you "
     "can.\n"
-    "7. You need to corresponds the reference to the answer.")
+    "7. You need to corresponds the reference to the answer."
+)
 
 
 async def chunk_summarize(
@@ -43,23 +44,25 @@ async def chunk_summarize(
     reference = []
     for ref in response_references:
         if len(ref) > 0:
-            ref_str = "\n".join(
-                [json.dumps(r.model_dump(), indent=4) for r in ref])
+            ref_str = "\n".join([json.dumps(r.model_dump(), indent=4) for r in ref])
             reference.append(ref_str)
         else:
             reference.append("[]")
     reference = "\n\n".join(reference)
     answer = "\n\n".join(response_answers)
-    messages = [{
-        "role": "system",
-        "content": SYSTEM_PROMPT,
-    }, {
-        "role":
-        "user",
-        "content":
-        f"Here are the response answers: {answer}\n\n"
-        f"Here are the response references: {reference}"
-    }]
+    messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT,
+        },
+        {
+            "role":
+            "user",
+            "content":
+            f"Here are the response answers: {answer}\n\n"
+            f"Here are the response references: {reference}"
+        }
+    ]
     response = await client.responses.parse(
         model=model,
         input=messages,
@@ -68,8 +71,10 @@ async def chunk_summarize(
     )
 
     # Track token usage for this API call
-    await track_tokens_for_user(user_sub=user_sub,
-                                openai_response=response,
-                                model=str(model))
+    await track_tokens_for_user(
+        user_sub=user_sub,
+        openai_response=response,
+        model=str(model)
+    )
 
     return response.output[0].content[0].parsed

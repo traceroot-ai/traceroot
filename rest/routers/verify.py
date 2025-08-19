@@ -21,10 +21,10 @@ class VerifyRouter:
         self,
         request: Request,
         token: str,
-    ) -> dict[str, Any]:
+    ) -> dict[str,
+              Any]:
         print("get_credentials")
 
 
-def generate_user_credentials(hashed_user_sub: str,
-                              user_email: str) -> dict[str, Any]:
+def generate_user_credentials(hashed_user_sub: str, user_email: str) -> dict[str, Any]:
     pass

@@ -36,5 +36,6 @@ def verify_cognito_token(token: str, token_use: str = "access"):
 def generate_user_credentials(
     user_sub: str,
     user_email: str,
-) -> dict[str, Any]:
+) -> dict[str,
+          Any]:
     pass
