@@ -1,20 +1,29 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css";
-import AppSidebar from "@/components/side-bar/Sidebar";
-import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import './globals.css';
+import AppSidebar from '@/components/side-bar/Sidebar';
+import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { Toaster } from 'react-hot-toast';
-import { AutumnProvider } from "autumn-js/react";
+import { AutumnProvider } from 'autumn-js/react';
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: "TraceRoot.AI",
-  description: "Agentic debugging tool",
+  title: 'TraceRoot.AI',
+  description: 'Agentic debugging tool',
   icons: {
-    icon: "/favicon.ico",
+    icon: '/favicon.ico',
   },
 };
+
+function MockAutumnProvider({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
+}
+
+const Provider =
+  process.env.NEXT_PUBLIC_LOCAL_MODE === 'true'
+    ? MockAutumnProvider
+    : AutumnProvider;
 
 export default function RootLayout({
   children,
@@ -24,12 +33,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.className} h-screen overflow-hidden`}>
-        <AutumnProvider>
+        <Provider>
           <SidebarProvider defaultOpen={false}>
             <AppSidebar />
-            <SidebarInset>
-              {children}
-            </SidebarInset>
+            <SidebarInset>{children}</SidebarInset>
           </SidebarProvider>
           <Toaster
             position="top-right"
@@ -61,7 +68,7 @@ export default function RootLayout({
               },
             }}
           />
-        </AutumnProvider>
+        </Provider>
       </body>
     </html>
   );

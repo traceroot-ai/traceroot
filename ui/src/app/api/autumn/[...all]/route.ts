@@ -1,4 +1,4 @@
-import { autumnHandler } from "autumn-js/next";
+import { autumnHandler } from 'autumn-js/next';
 import { cookies } from 'next/headers';
 import { jwtDecode } from 'jwt-decode';
 
@@ -6,13 +6,20 @@ import { jwtDecode } from 'jwt-decode';
 interface CognitoJwtClaims {
   sub: string;
   email: string;
-  'given_name'?: string;
-  'family_name'?: string;
+  given_name?: string;
+  family_name?: string;
   [key: string]: any;
 }
 
 export const { GET, POST } = autumnHandler({
   identify: async (request) => {
+    if (
+      process.env.NEXT_PUBLIC_LOCAL_MODE === 'true' ||
+      process.env.TRACE_ROOT_LOCAL_MODE === 'true'
+    ) {
+      console.log('⚠️ Autumn is disabled in local mode');
+      return { sub: 'local-user', email: 'local@example.com' }; // return mock user
+    }
     try {
       // Get the cookies - we need both session (access token) and id_token
       const cookieStore = await cookies();
