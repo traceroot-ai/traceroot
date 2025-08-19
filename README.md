@@ -103,10 +103,6 @@ TODO
 
 Please checkout the [README.md in the `rest/agent` directory](rest/agent/README.md) for more details.
 
-### UI enhancement
-- Add 3rd part oauth
-- Switch themes
-
 ## Citation
 
 If you find our exploratory TraceRoot useful in your research, please consider citing:
