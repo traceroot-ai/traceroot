@@ -382,30 +382,12 @@ class Agent:
                 groq_token
             )
         else:
-            # Force using o4-mini for if not using gpt-5
-            if model != ChatModel.GPT_5:
-                model = ChatModel.O4_MINI
-            response = await chat_client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=[
-                    get_openai_tool_schema(create_issue),
-                    get_openai_tool_schema(create_pr_with_file_changes),
-                ],
+            return await self._chat_with_context_openai(
+                messages,
+                model,
+                user_sub,
+                chat_client
             )
-            # Track token usage for this OpenAI call
-            await track_tokens_for_user(
-                user_sub=user_sub,
-                openai_response=response,
-                model=str(model)
-            )
-
-            tool_calls = response.choices[0].message.tool_calls
-            if tool_calls is None or len(tool_calls) == 0:
-                return {"content": response.choices[0].message.content}
-            else:
-                arguments = tool_calls[0].function.arguments
-        return json.loads(arguments)
 
     def get_context_messages(self, context: str) -> list[str]:
         r"""Get the context message."""
@@ -536,6 +518,42 @@ class Agent:
             ],
         )
         # Track token usage for Groq call
+        await track_tokens_for_user(
+            user_sub=user_sub,
+            openai_response=response,
+            model=str(model)
+        )
+
+        tool_calls = response.choices[0].message.tool_calls
+        if tool_calls is None or len(tool_calls) == 0:
+            return {"content": response.choices[0].message.content}
+        else:
+            arguments = tool_calls[0].function.arguments
+            return json.loads(arguments)
+
+    async def _chat_with_context_openai(
+        self,
+        messages: list[dict[str,
+                            str]],
+        model: ChatModel,
+        user_sub: str,
+        chat_client: AsyncOpenAI,
+    ):
+
+        allowed_model = {ChatModel.GPT_5, ChatModel.O4_MINI}
+
+        if model not in allowed_model:
+            model = ChatModel.O4_MINI
+
+        response = await chat_client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=[
+                get_openai_tool_schema(create_issue),
+                get_openai_tool_schema(create_pr_with_file_changes),
+            ],
+        )
+        # Track token usage for this OpenAI call
         await track_tokens_for_user(
             user_sub=user_sub,
             openai_response=response,
