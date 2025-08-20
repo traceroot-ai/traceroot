@@ -1,20 +1,14 @@
 # abstract class of tool
 from abc import ABC, abstractmethod
-from typing import Any, Callable
+from typing import Callable
 
 
 class Tool(ABC):
 
-    def __init__(
-        self,
-        func: Callable,
-        description: str,
-        parameters: dict[str,
-                         Any]
-    ) -> None:
-        self.tool = func
-        self.description = description
-        self.parameters = parameters
+    def __init__(self, ) -> None:
+        self.tool: Callable
+        self.description = ""
+        self.parameters = {}
 
         # arguments should pass to run
         self.arguments = {}
