@@ -1,6 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { DEFAULT_MODEL, type ChatModel, DEFAULT_PROVIDER, type Provider } from '../../../constants/model';
-import { ChatRequest, ChatResponse, MessageType, ChatHistoryResponse, Reference } from '@/models/chat';
+import {
+  DEFAULT_MODEL,
+  type ChatModel,
+  DEFAULT_PROVIDER,
+  type Provider,
+} from '../../../constants/model';
+import {
+  ChatRequest,
+  ChatResponse,
+  MessageType,
+  ChatHistoryResponse,
+  Reference,
+} from '@/models/chat';
 import { useUser } from '@/hooks/useUser';
 import { generateUuidHex } from '@/utils/uuid';
 import { formatUTCAsLocal } from '@/utils/timezone';
@@ -26,13 +37,20 @@ interface AgentProps {
   queryEndTime?: Date;
 }
 
-export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStartTime, queryEndTime }: AgentProps) {
+export default function Agent({
+  traceId,
+  spanIds = [],
+  userAvatarUrl,
+  queryStartTime,
+  queryEndTime,
+}: AgentProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState<ChatModel>(DEFAULT_MODEL);
   const [selectedMode, setSelectedMode] = useState<Mode>('agent');
-  const [selectedProvider, setSelectedProvider] = useState<Provider>(DEFAULT_PROVIDER);
+  const [selectedProvider, setSelectedProvider] =
+    useState<Provider>(DEFAULT_PROVIDER);
   const [chatId, setChatId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const topBarRef = useRef<TopBarRef>(null);
@@ -77,11 +95,14 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
       setIsLoading(true);
 
       // Fetch the chat history for the selected chat
-      const response = await fetch(`/api/get_chat_history?chat_id=${encodeURIComponent(chatId)}`, {
-        headers: {
-          'Authorization': `Bearer ${getAuthState()}`,
-        },
-      });
+      const response = await fetch(
+        `/api/get_chat_history?chat_id=${encodeURIComponent(chatId)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${getAuthState()}`,
+          },
+        }
+      );
 
       if (!response.ok) {
         throw new Error(`Failed to fetch chat history: ${response.status}`);
@@ -91,16 +112,20 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
 
       if (chatHistoryResponse && chatHistoryResponse.history) {
         // Sort the chat history by timestamp (from small to large)
-        const sortedHistory = [...chatHistoryResponse.history].sort((a, b) => a.time - b.time);
+        const sortedHistory = [...chatHistoryResponse.history].sort(
+          (a, b) => a.time - b.time
+        );
 
         // Convert ChatHistoryResponse to Message format, maintaining chronological order
-        const historyMessages: Message[] = sortedHistory.map((historyItem, index) => ({
-          id: `${chatId}-${index}`,
-          content: historyItem.message,
-          role: historyItem.message_type,
-          timestamp: formatUTCAsLocal(historyItem.time),
-          references: historyItem.reference,
-        }));
+        const historyMessages: Message[] = sortedHistory.map(
+          (historyItem, index) => ({
+            id: `${chatId}-${index}`,
+            content: historyItem.message,
+            role: historyItem.message_type,
+            timestamp: formatUTCAsLocal(historyItem.time),
+            references: historyItem.reference,
+          })
+        );
 
         // Set the messages in reverse order (most recent first) for display
         setMessages([...historyMessages].reverse());
@@ -150,7 +175,7 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
       role: 'user',
       timestamp: new Date(), // Use Date object directly - no conversion needed for local timestamps
     };
-    setMessages(prev => [userMessage, ...prev]);
+    setMessages((prev) => [userMessage, ...prev]);
     const currentMessage = inputMessage;
     setInputMessage('');
     setIsLoading(true);
@@ -158,22 +183,28 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
     // Function to fetch chat history and filter for GitHub messages
     const fetchGitHubMessages = async () => {
       try {
-        const historyResponse = await fetch(`/api/get_chat_history?chat_id=${encodeURIComponent(currentChatId)}`, {
-          headers: {
-            'Authorization': `Bearer ${getAuthState()}`,
-          },
-        });
+        const historyResponse = await fetch(
+          `/api/get_chat_history?chat_id=${encodeURIComponent(currentChatId)}`,
+          {
+            headers: {
+              Authorization: `Bearer ${getAuthState()}`,
+            },
+          }
+        );
 
         if (historyResponse.ok) {
-          const chatHistoryResponse: ChatHistoryResponse = await historyResponse.json();
+          const chatHistoryResponse: ChatHistoryResponse =
+            await historyResponse.json();
 
           if (chatHistoryResponse && chatHistoryResponse.history) {
             // Sort the chat history by timestamp (from small to large)
-            const sortedHistory = [...chatHistoryResponse.history].sort((a, b) => a.time - b.time);
+            const sortedHistory = [...chatHistoryResponse.history].sort(
+              (a, b) => a.time - b.time
+            );
 
             // Convert ChatHistoryResponse to Message format, focusing on GitHub messages
             const historyMessages: Message[] = sortedHistory
-              .filter(historyItem => historyItem.message_type === 'github') // Only GitHub messages
+              .filter((historyItem) => historyItem.message_type === 'github') // Only GitHub messages
               .map((historyItem, index) => ({
                 id: `${currentChatId}-github-${historyItem.time}-${index}`,
                 content: historyItem.message,
@@ -183,14 +214,17 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
               }));
 
             // Filter out messages that are already in the current messages state
-            setMessages(prev => {
-              const existingMessageIds = new Set(prev.map(msg => msg.id));
+            setMessages((prev) => {
+              const existingMessageIds = new Set(prev.map((msg) => msg.id));
               const newGitHubMessages = historyMessages
-                .filter(msg => !existingMessageIds.has(msg.id))
+                .filter((msg) => !existingMessageIds.has(msg.id))
                 .reverse(); // Most recent first for display
 
               if (newGitHubMessages.length > 0) {
-                console.log('Adding new GitHub messages:', newGitHubMessages.length);
+                console.log(
+                  'Adding new GitHub messages:',
+                  newGitHubMessages.length
+                );
                 // Refresh TopBar metadata when new GitHub messages are added
                 topBarRef.current?.refreshMetadata();
                 return [...newGitHubMessages, ...prev];
@@ -230,7 +264,7 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getAuthState()}`,
+          Authorization: `Bearer ${getAuthState()}`,
         },
         body: JSON.stringify(chatRequest),
       });
@@ -254,23 +288,25 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
           timestamp: formatUTCAsLocal(chatResponse.data.time),
           references: chatResponse.data.reference,
         };
-        setMessages(prev => [assistantMessage, ...prev]);
+        setMessages((prev) => [assistantMessage, ...prev]);
 
         // Refresh TopBar metadata when assistant message is posted
         topBarRef.current?.refreshMetadata();
       } else {
-        throw new Error(chatResponse.error || 'Failed to get response from chat API');
+        throw new Error(
+          chatResponse.error || 'Failed to get response from chat API'
+        );
       }
-
     } catch (error) {
       console.error('Error processing message:', error);
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        content: 'Sorry, I encountered an error while processing your request. Please try again.',
+        content:
+          'Sorry, I encountered an error while processing your request. Please try again.',
         role: 'assistant',
         timestamp: new Date(),
       };
-      setMessages(prev => [errorMessage, ...prev]);
+      setMessages((prev) => [errorMessage, ...prev]);
 
       // Refresh TopBar metadata when error message is posted
       topBarRef.current?.refreshMetadata();
@@ -285,7 +321,7 @@ export default function Agent({ traceId, spanIds = [], userAvatarUrl, queryStart
   };
 
   return (
-    <div className="h-full bg-white dark:bg-gray-800 flex flex-col">
+    <div className="h-full bg-white dark:bg-zinc-800 flex flex-col">
       {/* Top bar */}
       <TopBar
         chatId={chatId}
