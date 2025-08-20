@@ -386,9 +386,9 @@ function SettingsWithAutumn() {
     new Intl.NumberFormat('en-US').format(num);
 
   const getUsageColor = (percentage: number) => {
-    if (percentage >= 90) return 'text-red-600';
-    if (percentage >= 75) return 'text-yellow-600';
-    return 'text-green-600';
+    if (percentage >= 90) return 'text-destructive';
+    if (percentage >= 75) return 'text-yellow-600 dark:text-yellow-400';
+    return 'text-green-600 dark:text-green-400';
   };
 
   const getCurrentPlan = () => {
@@ -515,7 +515,8 @@ function SettingsWithAutumn() {
 
   return (
     <div className="min-h-full flex flex-col p-4">
-      <div className="w-3/4 max-w-4xl mx-auto bg-white m-5 p-10 rounded-lg font-mono bg-zinc-50">
+      {/* Container with similar styling to integrate page */}
+      <div className="w-3/4 max-w-4xl mx-auto bg-background dark:bg-background m-5 p-10 rounded-lg font-mono border border-border shadow-sm">
         <h2 className="scroll-m-20 mb-5 text-3xl font-semibold first:mt-0">
           Settings
         </h2>
@@ -675,14 +676,14 @@ function SettingsWithAutumn() {
                             {tokenInfo.percentage.toFixed(1)}% used
                           </span>
                         </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div className="w-full bg-muted rounded-full h-2">
                           <div
                             className={`h-2 rounded-full transition-all duration-300 ${
                               tokenInfo.percentage >= 90
-                                ? 'bg-red-500'
+                                ? 'bg-destructive'
                                 : tokenInfo.percentage >= 75
-                                  ? 'bg-yellow-500'
-                                  : 'bg-green-500'
+                                  ? 'bg-yellow-500 dark:bg-yellow-600'
+                                  : 'bg-green-500 dark:bg-green-600'
                             }`}
                             style={{
                               width: `${Math.min(100, tokenInfo.percentage)}%`,
@@ -712,13 +713,11 @@ function SettingsWithAutumn() {
                       </div>
                     </div>
                     {tokenInfo.percentage >= 80 && (
-                      <div
-                        className={`text-xs p-2 rounded ${
-                          tokenInfo.percentage >= 90
-                            ? 'bg-red-50 text-red-700 border border-red-200'
-                            : 'bg-yellow-50 text-yellow-700 border border-yellow-200'
-                        }`}
-                      >
+                      <div className={`text-xs p-2 rounded border ${
+                        tokenInfo.percentage >= 90
+                          ? 'bg-destructive/10 text-destructive border-destructive/20 dark:bg-destructive/5 dark:text-destructive dark:border-destructive/10'
+                          : 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-300 dark:border-yellow-500/20'
+                      }`}>
                         {tokenInfo.percentage >= 90
                           ? "⚠️ You're running low on LLM tokens. Consider upgrading your plan."
                           : "💡 You've used most of your LLM tokens this month."}
@@ -793,14 +792,14 @@ function SettingsWithAutumn() {
                             {tracesLogsInfo.percentage.toFixed(1)}% used
                           </span>
                         </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div className="w-full bg-muted rounded-full h-2">
                           <div
                             className={`h-2 rounded-full transition-all duration-300 ${
                               tracesLogsInfo.percentage >= 90
-                                ? 'bg-red-500'
+                                ? 'bg-destructive'
                                 : tracesLogsInfo.percentage >= 75
-                                  ? 'bg-yellow-500'
-                                  : 'bg-green-500'
+                                  ? 'bg-yellow-500 dark:bg-yellow-600'
+                                  : 'bg-green-500 dark:bg-green-600'
                             }`}
                             style={{
                               width: `${Math.min(100, tracesLogsInfo.percentage)}%`,
@@ -830,13 +829,11 @@ function SettingsWithAutumn() {
                       </div>
                     </div>
                     {tracesLogsInfo.percentage >= 80 && (
-                      <div
-                        className={`text-xs p-2 rounded ${
-                          tracesLogsInfo.percentage >= 90
-                            ? 'bg-red-50 text-red-700 border border-red-200'
-                            : 'bg-yellow-50 text-yellow-700 border border-yellow-200'
-                        }`}
-                      >
+                      <div className={`text-xs p-2 rounded border ${
+                        tracesLogsInfo.percentage >= 90
+                          ? 'bg-destructive/10 text-destructive border-destructive/20 dark:bg-destructive/5 dark:text-destructive dark:border-destructive/10'
+                          : 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-300 dark:border-yellow-500/20'
+                      }`}>
                         {tracesLogsInfo.percentage >= 90
                           ? "⚠️ You're running low on traces & logs quota. Consider upgrading your plan."
                           : "💡 You've used most of your traces & logs quota this month."}
@@ -907,29 +904,14 @@ function SettingsWithAutumn() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {customer.invoices
-                    .slice(-3)
-                    .reverse()
-                    .map((invoice: any, index: number) => (
-                      <div
-                        key={invoice.id || invoice.stripe_id || index}
-                        className="flex items-center justify-between py-2 border-b border-gray-100 last:border-b-0"
-                      >
-                        <div className="text-sm font-medium">
-                          $
-                          {(
-                            (invoice.amount_paid || invoice.amount || 0) / 100
-                          ).toFixed(2)}
-                        </div>
-                        <div className="text-sm text-muted-foreground">
-                          {invoice.created
-                            ? new Date(
-                                invoice.created * 1000
-                              ).toLocaleDateString()
-                            : invoice.date
-                              ? new Date(invoice.date).toLocaleDateString()
-                              : 'N/A'}
-                        </div>
+                  {customer.invoices.slice(-3).reverse().map((invoice: any, index) => (
+                    <div key={invoice.id || invoice.stripe_id || index} className="flex items-center justify-between py-2 border-b border-border last:border-b-0">
+                      <div className="text-sm font-medium">
+                        ${((invoice.amount_paid || invoice.amount || 0) / 100).toFixed(2)}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {invoice.created ? new Date(invoice.created * 1000).toLocaleDateString() :
+                         invoice.date ? new Date(invoice.date).toLocaleDateString() : 'N/A'}
                       </div>
                     ))}
                 </div>
