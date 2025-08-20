@@ -33,6 +33,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
 import { useUser } from '../../hooks/useUser';
 
 
@@ -343,10 +344,26 @@ function ProfileComponent() {
 function DarkModeToggle() {
   const { theme, setTheme } = useTheme();
   const { state } = useSidebar();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const toggleDarkMode = () => {
     setTheme(theme === "dark" ? "light" : "dark");
   };
+
+  if (!mounted) {
+    return (
+      <SidebarMenuButton
+        className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      >
+        <Moon className="!w-5 !h-5" />
+        {state === "expanded" && <span>Dark Mode</span>}
+      </SidebarMenuButton>
+    );
+  }
 
   return (
     <SidebarMenuButton
