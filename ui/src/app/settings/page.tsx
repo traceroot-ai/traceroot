@@ -23,10 +23,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
-const IS_LOCAL =
-  process.env.NEXT_PUBLIC_LOCAL_MODE === 'true' ||
-  process.env.NODE_ENV !== 'production';
-
+const IS_LOCAL = process.env.NEXT_PUBLIC_LOCAL_MODE === 'true';
 /**
  * Wrapper: choose Local mock (no Autumn) vs Prod (Autumn).
  */
@@ -35,7 +32,7 @@ export default function SettingsPage() {
 }
 
 /**
- * LOCAL MODE: Safe mock UI with no Autumn hooks or API calls.
+ * LOCAL MODE: Safe mock UI without Autumn hooks or API calls.
  * Keeps the layout consistent so the page works offline/without secrets.
  */
 function LocalSettingsPage() {
