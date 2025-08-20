@@ -113,6 +113,14 @@ If you find our exploratory TraceRoot useful in your research, please consider c
 }
 ```
 
+## Contributors
+
+Thanks to all our contributors for helping make TraceRoot better!
+
+<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" />
+</a>
+
 [company-website-image]: https://img.shields.io/badge/website-traceroot.ai-black
 [company-website-url]: https://traceroot.ai
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
