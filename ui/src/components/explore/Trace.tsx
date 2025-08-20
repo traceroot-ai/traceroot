@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { Trace as TraceType, Span as SpanType } from '@/models/trace';
+import React, { useEffect, useState, useRef } from 'react';
+import { Trace as TraceType } from '@/models/trace';
 import Span from './span/Span';
 import TimeButton, { TimeRange, TIME_RANGES } from './TimeButton';
 import RefreshButton from './RefreshButton';
@@ -74,7 +74,6 @@ export const Trace: React.FC<TraceProps> = ({
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
   const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
   const [searchCriteria, setSearchCriteria] = useState<SearchCriterion[]>([]);
-  const [filteredTraces, setFilteredTraces] = useState<TraceType[]>([]);
   const timeRangeRef = useRef<{ start: Date; end: Date } | null>(null);
 
   const handleTimeRangeSelect = (range: TimeRange) => {
@@ -87,101 +86,7 @@ export const Trace: React.FC<TraceProps> = ({
     setLoading(true);
   };
 
-  const filterTraces = useCallback((traces: TraceType[], criteria: SearchCriterion[]) => {
-    if (criteria.length === 0) {
-      return traces;
-    }
 
-    return traces.filter(trace => {
-      let result = true;
-      let currentLogicalOperator: 'AND' | 'OR' | null = null;
-
-      for (const criterion of criteria) {
-        let conditionMet = false;
-
-        // Get the value to compare against
-        let traceValue: string | number | undefined;
-        switch (criterion.category) {
-          case 'service_name':
-            traceValue = trace.service_name;
-            break;
-          case 'service_environment':
-            traceValue = trace.service_environment;
-            break;
-          case 'duration':
-            traceValue = trace.duration;
-            break;
-          case 'percentile':
-            traceValue = trace.percentile;
-            break;
-          case 'span_name':
-            // Check if any span name matches
-            const checkSpanName = (spans: SpanType[]): boolean => {
-              return spans.some(span => {
-                if (span.name && performOperation(span.name, criterion.operation, criterion.value)) {
-                  return true;
-                }
-                return span.spans && span.spans.length > 0 ? checkSpanName(span.spans) : false;
-              });
-            };
-            conditionMet = checkSpanName(trace.spans);
-            break;
-          case 'start_time':
-            traceValue = trace.start_time;
-            break;
-          case 'end_time':
-            traceValue = trace.end_time;
-            break;
-          default:
-            conditionMet = false;
-            break;
-        }
-
-        // Skip span_name as it's handled separately
-        if (criterion.category !== 'span_name' && traceValue !== undefined) {
-          conditionMet = performOperation(traceValue, criterion.operation, criterion.value);
-        }
-
-        // Apply logical operator
-        if (currentLogicalOperator === 'AND') {
-          result = result && conditionMet;
-        } else if (currentLogicalOperator === 'OR') {
-          result = result || conditionMet;
-        } else {
-          // First condition
-          result = conditionMet;
-        }
-
-        currentLogicalOperator = criterion.logicalOperator || null;
-      }
-
-      return result;
-    });
-  }, []);
-
-  const performOperation = (value: string | number, operation: string, searchValue: string): boolean => {
-    if (value === undefined || value === null) return false;
-
-    const stringValue = String(value).toLowerCase();
-    const searchStringValue = searchValue.toLowerCase();
-
-    switch (operation) {
-      case '=':
-        return stringValue === searchStringValue;
-      case 'contains':
-        return stringValue.includes(searchStringValue);
-      case '>':
-        return parseFloat(String(value)) > parseFloat(searchValue);
-      case '<':
-        return parseFloat(String(value)) < parseFloat(searchValue);
-      case '>=':
-        return parseFloat(String(value)) >= parseFloat(searchValue);
-      case '<=':
-        return parseFloat(String(value)) <= parseFloat(searchValue);
-      default:
-        return false;
-    }
-  };
 
   const handleSearch = (criteria: SearchCriterion[]) => {
     setSearchCriteria(criteria);
@@ -248,21 +153,11 @@ export const Trace: React.FC<TraceProps> = ({
     };
 
     fetchTraces();
-  }, [selectedTimeRange, loading, traceQueryStartTime, traceQueryEndTime, getAuthState, onTraceData, searchCriteria]);
+  }, [selectedTimeRange, loading, traceQueryStartTime, traceQueryEndTime, searchCriteria]);
 
   useEffect(() => {
     setLoading(true);
   }, []);
-
-  // Initialize filteredTraces when traces change
-  useEffect(() => {
-    if (traces.length > 0) {
-      const filtered = filterTraces(traces, searchCriteria);
-      setFilteredTraces(filtered);
-    } else {
-      setFilteredTraces([]);
-    }
-  }, [traces, searchCriteria, filterTraces]);
 
   const getPercentileTag = (percentile: string) => {
     // Ensure the percentile is a valid key
@@ -352,13 +247,13 @@ export const Trace: React.FC<TraceProps> = ({
             <div className="text-sm text-red-500 dark:text-red-400">{error}</div>
           )}
 
-          {!loading && !error && filteredTraces.length === 0 && (
+          {!loading && !error && traces.length === 0 && (
             <div className="text-muted-foreground text-sm">No Information Found</div>
           )}
 
-          {!loading && !error && filteredTraces.length > 0 && (
+          {!loading && !error && traces.length > 0 && (
           <div className="space-y-1.5 transition-all duration-100 ease-in-out">
-            {filteredTraces.map((trace, index) => (
+            {traces.map((trace, index) => (
               <div key={trace.id} className="relative">
                 {/* Trace Block */}
                 <div
@@ -381,23 +276,17 @@ export const Trace: React.FC<TraceProps> = ({
                         <>
                           {/* Python Icon - show when telemetry_sdk_language includes "python" */}
                           {trace.telemetry_sdk_language.includes("python") && (
-                            <div className="w-5 h-5 flex items-center justify-center mr-2">
-                              <FaPython className="text-neutral-800 dark:text-neutral-200 mr-2" size={14} />
-                            </div>
+                            <FaPython className="text-neutral-800 dark:text-neutral-200 mr-2" size={14} />
                           )}
 
                           {/* TypeScript Icon - show when telemetry_sdk_language includes "ts" */}
                           {trace.telemetry_sdk_language.includes("ts") && (
-                            <div className="w-5 h-5 flex items-center justify-center mr-2">
-                              <SiTypescript className="text-neutral-800 dark:text-neutral-200 mr-2" size={14} />
-                            </div>
+                            <SiTypescript className="text-neutral-800 dark:text-neutral-200 mr-2" size={14} />
                           )}
 
                           {/* JavaScript Icon - show when telemetry_sdk_language includes "js" */}
                           {trace.telemetry_sdk_language.includes("js") && (
-                            <div className="w-5 h-5 flex items-center justify-center mr-2">
-                              <IoLogoJavascript className="text-neutral-800 dark:text-neutral-200 mr-2" size={14} />
-                            </div>
+                            <IoLogoJavascript className="text-neutral-800 dark:text-neutral-200 mr-2" size={14} />
                           )}
                         </>
                       )}
@@ -408,9 +297,9 @@ export const Trace: React.FC<TraceProps> = ({
                           <TooltipTrigger asChild>
                             <Badge
                               variant="default"
-                              className="min-w-16 h-6 mr-2 justify-center font-mono font-normal max-w-fit"
+                              className="min-w-16 h-6 mr-2 justify-center font-mono font-normal max-w-32 whitespace-nowrap overflow-hidden text-ellipsis"
                             >
-                              {(trace.service_name || "Unknown Service").slice(0, 9) + '......'}
+                              {(trace.service_name || "Unknown Service").slice(0, 10) + '...'}
                             </Badge>
                           </TooltipTrigger>
                           <TooltipContent>
@@ -420,7 +309,7 @@ export const Trace: React.FC<TraceProps> = ({
                       ) : (
                         <Badge
                           variant="default"
-                          className="min-w-16 h-6 mr-2 justify-center font-mono font-normal max-w-fit"
+                          className="min-w-16 h-6 mr-2 justify-center font-mono font-normal max-w-32 whitespace-nowrap overflow-hidden text-ellipsis"
                         >
                           {trace.service_name || "Trace"}
                         </Badge>
