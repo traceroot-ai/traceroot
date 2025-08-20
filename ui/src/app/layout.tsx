@@ -4,7 +4,8 @@ import './globals.css';
 import AppSidebar from '@/components/side-bar/Sidebar';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { Toaster } from 'react-hot-toast';
-import { AutumnProvider } from 'autumn-js/react';
+import { AutumnProvider } from "autumn-js/react";
+import { ThemeProvider } from "@/components/theme-provider";
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -33,6 +34,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.className} h-screen overflow-hidden`}>
+         <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
         <Provider>
           <SidebarProvider defaultOpen={false}>
             <AppSidebar />
@@ -51,24 +58,25 @@ export default function RootLayout({
                 iconTheme: {
                   primary: '#4ade80',
                   secondary: '#fff',
+                  },
                 },
-              },
-              error: {
-                duration: 5000,
-                iconTheme: {
-                  primary: '#ef4444',
-                  secondary: '#fff',
+                error: {
+                  duration: 5000,
+                  iconTheme: {
+                    primary: '#ef4444',
+                    secondary: '#fff',
+                  },
                 },
-              },
-              loading: {
-                iconTheme: {
-                  primary: '#3b82f6',
-                  secondary: '#fff',
+                loading: {
+                  iconTheme: {
+                    primary: '#3b82f6',
+                    secondary: '#fff',
+                  },
                 },
-              },
-            }}
-          />
-        </Provider>
+              }}
+            />
+          </Provider>
+        </ThemeProvider>
       </body>
     </html>
   );
