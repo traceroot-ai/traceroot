@@ -286,7 +286,7 @@ class Agent:
             )
         elif is_github_pr:
             if "file_path_to_change" in response:
-                url, content, action_type = self._pr_handler(
+                _, content, action_type = self._pr_handler(
                     response, github_token, github_client
                 )
             else:
@@ -376,28 +376,11 @@ class Agent:
               Any]:
         r"""Chat with context chunks."""
         if provider == Provider.GROQ:
-            model = ChatModel.GPT_OSS_120B
-            client = AsyncGroq(api_key=groq_token)
-            response = await client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=[
-                    get_openai_tool_schema(create_issue),
-                    get_openai_tool_schema(create_pr_with_file_changes),
-                ],
+            return await self._chat_with_context_chunks_gorq(
+                messages,
+                user_sub,
+                groq_token
             )
-            # Track token usage for Groq call
-            await track_tokens_for_user(
-                user_sub=user_sub,
-                openai_response=response,
-                model=str(model)
-            )
-
-            tool_calls = response.choices[0].message.tool_calls
-            if tool_calls is None or len(tool_calls) == 0:
-                return {"content": response.choices[0].message.content}
-            else:
-                arguments = tool_calls[0].function.arguments
         else:
             # Force using o4-mini for if not using gpt-5
             if model != ChatModel.GPT_5:
@@ -534,3 +517,34 @@ class Agent:
         content = f"Issue created: {url}"
         action_type = ActionType.GITHUB_CREATE_ISSUE.value
         return [content, action_type]
+
+    async def _chat_with_context_chunks_gorq(
+        self,
+        messages: list[dict[str,
+                            str]],
+        user_sub: str,
+        groq_token: str | None = None,
+    ):
+        model = ChatModel.GPT_OSS_120B
+        client = AsyncGroq(api_key=groq_token)
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=[
+                get_openai_tool_schema(create_issue),
+                get_openai_tool_schema(create_pr_with_file_changes),
+            ],
+        )
+        # Track token usage for Groq call
+        await track_tokens_for_user(
+            user_sub=user_sub,
+            openai_response=response,
+            model=str(model)
+        )
+
+        tool_calls = response.choices[0].message.tool_calls
+        if tool_calls is None or len(tool_calls) == 0:
+            return {"content": response.choices[0].message.content}
+        else:
+            arguments = tool_calls[0].function.arguments
+            return json.loads(arguments)
