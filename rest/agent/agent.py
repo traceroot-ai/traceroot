@@ -297,25 +297,9 @@ class Agent:
             action_type = ActionType.GITHUB_CREATE_ISSUE.value
         elif is_github_pr:
             if "file_path_to_change" in response:
-                pr_number = github_client.create_pr_with_file_changes(
-                    title=response["title"],
-                    body=response["body"],
-                    owner=response["owner"],
-                    repo_name=response["repo_name"],
-                    base_branch=response["base_branch"],
-                    head_branch=response["head_branch"],
-                    file_path_to_change=response["file_path_to_change"],
-                    file_content_to_change=response["file_content_to_change"],
-                    commit_message=response["commit_message"],
-                    github_token=github_token,
+                url, content, action_type = (
+                    self._pr_handler(response, github_token, github_client)
                 )
-                url = (
-                    f"https://github.com/{response['owner']}/"
-                    f"{response['repo_name']}/"
-                    f"pull/{pr_number}"
-                )
-                content = f"PR created: {url}"
-                action_type = ActionType.GITHUB_CREATE_PR.value
             else:
                 maybe_return_directly = True
 
@@ -509,3 +493,32 @@ class Agent:
             return f"""
                 {message}\nFor now please create a GitHub PR.\n
             """
+
+    def _pr_handler(
+        self,
+        response: dict[str,
+                       Any],
+        github_token: str | None,
+        github_client: GitHubClient
+    ):
+        pr_number = github_client.create_pr_with_file_changes(
+            title=response["title"],
+            body=response["body"],
+            owner=response["owner"],
+            repo_name=response["repo_name"],
+            base_branch=response["base_branch"],
+            head_branch=response["head_branch"],
+            file_path_to_change=response["file_path_to_change"],
+            file_content_to_change=response["file_content_to_change"],
+            commit_message=response["commit_message"],
+            github_token=github_token,
+        )
+        url = (
+            f"https://github.com/{response['owner']}/"
+            f"{response['repo_name']}/"
+            f"pull/{pr_number}"
+        )
+        content = f"PR created: {url}"
+        action_type = ActionType.GITHUB_CREATE_PR.value
+
+        return [url, content, action_type]
