@@ -11,6 +11,7 @@ except ImportError:
 
 import json
 from copy import deepcopy
+from enum import Enum
 from typing import Any
 
 from groq import AsyncGroq
@@ -74,19 +75,26 @@ AGENT_SYSTEM_PROMPT = (
     "the point."
 )
 
+MAX_PREV_RECORD = 10
+
+
+class ISSUE_TYPE(Enum):
+    GITHUB_ISSUE = 1
+    GITHUB_PR = 2
+
 
 class Agent:
 
     def __init__(self):
         api_key = os.getenv("OPENAI_API_KEY")
+
+        self.local_mode: bool = False if api_key else True
+
         if api_key is None:
             # This means that is using the local mode
             # and user needs to provide the token within
             # the integrate section at first
             api_key = "fake_openai_api_key"
-            self.local_mode = True
-        else:
-            self.local_mode = False
         self.chat_client = AsyncOpenAI(api_key=api_key)
         self.system_prompt = AGENT_SYSTEM_PROMPT
 
@@ -133,11 +141,13 @@ class Agent:
             provider (Provider): The provider to use.
             groq_token (str | None): The Groq API key to use.
         """
-        if not is_github_issue and not is_github_pr:
+        if not (is_github_issue or is_github_pr):
             raise ValueError("Either is_github_issue or is_github_pr must be True.")
+
         if model == ChatModel.AUTO:
             model = ChatModel.GPT_4O
 
+        # shall we rename this github_file_tasks it is very confusing
         if github_file_tasks is not None:
             github_str = "\n".join(
                 [
@@ -154,10 +164,7 @@ class Agent:
             )
 
         # Use local client to avoid race conditions in concurrent calls
-        if openai_token is not None:
-            client = AsyncOpenAI(api_key=openai_token)
-        else:
-            client = self.chat_client
+        client = AsyncOpenAI(api_key=openai_token) if openai_token else self.chat_client
 
         # Select only necessary log and span features #########################
         (
@@ -203,17 +210,19 @@ class Agent:
         context_messages = [
             deepcopy(context_chunks[i]) for i in range(len(context_chunks))
         ]
-        for i, message in enumerate(context_chunks):
+        for i, msg in enumerate(context_chunks):
             if is_github_issue:
-                updated_message = f"""
-                    {message}\nFor now please create an GitHub issue.\n
-                """
+                updated_message = self._context_chunk_msg_handler(
+                    msg,
+                    ISSUE_TYPE.GITHUB_ISSUE
+                )
             elif is_github_pr:
-                updated_message = f"""
-                    {message}\nFor now please create a GitHub PR.\n
-                """
+                updated_message = self._context_chunk_msg_handler(
+                    msg,
+                    ISSUE_TYPE.GITHUB_PR
+                )
             else:
-                updated_message = message
+                updated_message = msg
             context_messages[i] = (
                 f"{updated_message}\n\nHere are my questions: "
                 f"{user_message}\n\n{github_message}"
@@ -223,7 +232,7 @@ class Agent:
         chat_history = [chat for chat in chat_history if chat["role"] != "github"]
         if chat_history is not None:
             # Only append the last 10 chat history records
-            for record in chat_history[-10:]:
+            for record in chat_history[-MAX_PREV_RECORD:]:
                 # We only need to include the user message
                 # (without the context information) in the
                 # chat history
@@ -341,11 +350,9 @@ class Agent:
                         ),
                     },
                     {
-                        "role":
-                        "user",
+                        "role": "user",
                         "content":
-                        ("Here is the created issueor "
-                         f"the created PR:{response}"),
+                        (f"Here is the created issueor the created PR:{response}"),
                     },
                 ],
             )
@@ -491,3 +498,14 @@ class Agent:
                 model=model,
             ),
         )
+
+    def _context_chunk_msg_handler(self, message: str, issue_type: ISSUE_TYPE):
+        if issue_type == ISSUE_TYPE.GITHUB_ISSUE:
+            return f"""
+                {message}\nFor now please create an GitHub issue.\n
+            """
+
+        if issue_type == ISSUE_TYPE.GITHUB_PR:
+            return f"""
+                {message}\nFor now please create a GitHub PR.\n
+            """
