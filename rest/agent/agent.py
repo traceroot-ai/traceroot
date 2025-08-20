@@ -281,24 +281,13 @@ class Agent:
         github_client = GitHubClient()
         maybe_return_directly: bool = False
         if is_github_issue:
-            issue_number = github_client.create_issue(
-                title=response["title"],
-                body=response["body"],
-                owner=response["owner"],
-                repo_name=response["repo_name"],
-                github_token=github_token,
+            content, action_type = self._issue_handler(
+                response, github_token, github_client
             )
-            url = (
-                f"https://github.com/{response['owner']}/"
-                f"{response['repo_name']}/"
-                f"issues/{issue_number}"
-            )
-            content = f"Issue created: {url}"
-            action_type = ActionType.GITHUB_CREATE_ISSUE.value
         elif is_github_pr:
             if "file_path_to_change" in response:
-                url, content, action_type = (
-                    self._pr_handler(response, github_token, github_client)
+                url, content, action_type = self._pr_handler(
+                    response, github_token, github_client
                 )
             else:
                 maybe_return_directly = True
@@ -499,7 +488,7 @@ class Agent:
         response: dict[str,
                        Any],
         github_token: str | None,
-        github_client: GitHubClient
+        github_client: GitHubClient,
     ):
         pr_number = github_client.create_pr_with_file_changes(
             title=response["title"],
@@ -522,3 +511,26 @@ class Agent:
         action_type = ActionType.GITHUB_CREATE_PR.value
 
         return [url, content, action_type]
+
+    def _issue_handler(
+        self,
+        response: dict[str,
+                       Any],
+        github_token: str | None,
+        github_client: GitHubClient,
+    ):
+        issue_number = github_client.create_issue(
+            title=response["title"],
+            body=response["body"],
+            owner=response["owner"],
+            repo_name=response["repo_name"],
+            github_token=github_token,
+        )
+        url = (
+            f"https://github.com/{response['owner']}/"
+            f"{response['repo_name']}/"
+            f"issues/{issue_number}"
+        )
+        content = f"Issue created: {url}"
+        action_type = ActionType.GITHUB_CREATE_ISSUE.value
+        return [content, action_type]
