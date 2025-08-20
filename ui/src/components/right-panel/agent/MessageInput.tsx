@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send } from "lucide-react";
-import { CiChat2 } from "react-icons/ci";
-import { GiBrain } from "react-icons/gi";
-import { RiRobot2Line } from "react-icons/ri";
-import { MdCloudQueue } from "react-icons/md";
+import { Send } from 'lucide-react';
+import { CiChat2 } from 'react-icons/ci';
+import { GiBrain } from 'react-icons/gi';
+import { RiRobot2Line } from 'react-icons/ri';
+import { MdCloudQueue } from 'react-icons/md';
 import {
   CHAT_MODEL_DISPLAY_NAMES,
   CHAT_MODELS,
@@ -13,7 +13,7 @@ import {
   type Provider,
   DEFAULT_PROVIDER,
   getModelsByProvider,
-  getDefaultModelForProvider
+  getDefaultModelForProvider,
 } from '../../../constants/model';
 import { Badge } from '../../ui/badge';
 import { Button } from '../../ui/button';
@@ -55,7 +55,7 @@ export default function MessageInput({
   selectedProvider = DEFAULT_PROVIDER,
   setSelectedProvider,
   traceId,
-  spanIds = []
+  spanIds = [],
 }: MessageInputProps) {
   const [textareaHeight, setTextareaHeight] = useState('auto');
 
@@ -80,15 +80,16 @@ export default function MessageInput({
     const maxHeight = lineHeight * 5; // Maximum 5 lines
 
     // Set the height based on content, but clamp between min and max
-    const newHeight = Math.min(Math.max(textarea.scrollHeight, minHeight), maxHeight);
+    const newHeight = Math.min(
+      Math.max(textarea.scrollHeight, minHeight),
+      maxHeight
+    );
     textarea.style.height = `${newHeight}px`;
   };
 
   useEffect(() => {
     adjustTextareaHeight();
   }, [inputMessage]);
-
-
 
   const handleModelSelect = (model: string) => {
     setSelectedModel(model as ChatModel);
@@ -120,7 +121,7 @@ export default function MessageInput({
   };
 
   return (
-    <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+    <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-zinc-800">
       <form onSubmit={onSendMessage} className="p-3">
         <div className="mb-1 text-xs text-gray-500 dark:text-gray-400 pb-1 px-1 flex gap-2 items-center">
           {traceId && (
@@ -155,15 +156,20 @@ export default function MessageInput({
                   }
                 }
               }}
-              placeholder={isLoading ? "Agent is thinking..." : "Type your message..."}
-              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 resize-none leading-relaxed overflow-y-auto text-sm"
+              placeholder={
+                isLoading ? 'Agent is thinking...' : 'Type your message...'
+              }
+              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-zinc-700 px-4 py-2 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 resize-none leading-relaxed overflow-y-auto text-sm"
               style={{ height: textareaHeight }}
               disabled={isLoading}
               rows={1}
             />
             {isLoading && (
               <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                <Spinner variant="infinite" className="w-4 h-4 text-neutral-500" />
+                <Spinner
+                  variant="infinite"
+                  className="w-4 h-4 text-neutral-500"
+                />
               </div>
             )}
           </div>
@@ -172,15 +178,24 @@ export default function MessageInput({
               {/* Mode selector */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="gap-2 bg-zinc-50 dark:bg-zinc-900">
-                    {React.createElement(getModeIcon(selectedMode), { className: "w-4 h-4" })}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-2 bg-zinc-50 dark:bg-zinc-900"
+                  >
+                    {React.createElement(getModeIcon(selectedMode), {
+                      className: 'w-4 h-4',
+                    })}
                     <span className="text-xs">
                       {getModeDisplayName(selectedMode)}
                     </span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="top" align="start">
-                  <DropdownMenuRadioGroup value={selectedMode} onValueChange={handleModeSelect}>
+                  <DropdownMenuRadioGroup
+                    value={selectedMode}
+                    onValueChange={handleModeSelect}
+                  >
                     <DropdownMenuRadioItem value="agent">
                       <RiRobot2Line className="w-4 h-4" />
                       Agent
@@ -197,7 +212,11 @@ export default function MessageInput({
               {setSelectedProvider && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="gap-2 bg-zinc-50 dark:bg-zinc-900">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-2 bg-zinc-50 dark:bg-zinc-900"
+                    >
                       <MdCloudQueue className="w-4 h-4" />
                       <span className="text-xs">
                         {PROVIDER_DISPLAY_NAMES[selectedProvider]}
@@ -205,12 +224,12 @@ export default function MessageInput({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent side="top" align="start">
-                    <DropdownMenuRadioGroup value={selectedProvider} onValueChange={handleProviderSelect}>
+                    <DropdownMenuRadioGroup
+                      value={selectedProvider}
+                      onValueChange={handleProviderSelect}
+                    >
                       {Object.entries(PROVIDERS).map(([key, value]) => (
-                        <DropdownMenuRadioItem
-                          key={value}
-                          value={value}
-                        >
+                        <DropdownMenuRadioItem key={value} value={value}>
                           {PROVIDER_DISPLAY_NAMES[value]}
                         </DropdownMenuRadioItem>
                       ))}
@@ -222,7 +241,11 @@ export default function MessageInput({
               {/* Brain icon and model display */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="gap-2 bg-zinc-50 dark:bg-zinc-900">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-2 bg-zinc-50 dark:bg-zinc-900"
+                  >
                     <GiBrain className="w-4 h-4" />
                     <span className="text-xs">
                       {CHAT_MODEL_DISPLAY_NAMES[selectedModel]}
@@ -230,12 +253,12 @@ export default function MessageInput({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="top" align="start">
-                  <DropdownMenuRadioGroup value={selectedModel} onValueChange={handleModelSelect}>
+                  <DropdownMenuRadioGroup
+                    value={selectedModel}
+                    onValueChange={handleModelSelect}
+                  >
                     {availableModels.map((model) => (
-                      <DropdownMenuRadioItem
-                        key={model}
-                        value={model}
-                      >
+                      <DropdownMenuRadioItem key={model} value={model}>
                         {CHAT_MODEL_DISPLAY_NAMES[model]}
                       </DropdownMenuRadioItem>
                     ))}
