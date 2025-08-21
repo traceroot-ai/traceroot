@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from rest.config.log import LogEntry, TraceLogs
+from rest.utils.constants import SKIP_LOG_FIELDS
 
 
 def process_log_events(all_events: list[dict[str, Any]]) -> TraceLogs:
@@ -56,7 +57,18 @@ def _load_json(message: str, ) -> tuple[LogEntry, str] | tuple[None, None]:
     # For now for WARN to WARNING for typescript case
     if level == "WARN":
         level = "WARNING"
-    message = json_data['message']
+    # Create a filtered JSON message with original message and non-skipped fields
+    filtered_data = {'message': json_data['message']}
+
+    # Add other data fields that are not in the skip list
+    for key, value in json_data.items():
+        if key not in SKIP_LOG_FIELDS and key != 'message':
+            filtered_data[key] = value
+
+    if len(filtered_data) > 1:
+        message = json.dumps(filtered_data)
+    else:
+        message = json_data['message']
 
     if 'stack_trace' in json_data:
         stack = json_data['stack_trace']
