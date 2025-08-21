@@ -13,21 +13,35 @@ interface CognitoJwtClaims {
 
 export const { GET, POST } = autumnHandler({
   identify: async (request) => {
+    console.log('🔍 Autumn identify function called', { requestUrl: request?.url });
     try {
       // Get the cookies - we need both session (access token) and id_token
       const cookieStore = await cookies();
       const sessionCookie = cookieStore.get('session');
       const idTokenCookie = cookieStore.get('id_token');
 
+      console.log('📝 Cookie status:', {
+        hasSessionCookie: !!sessionCookie?.value,
+        hasIdTokenCookie: !!idTokenCookie?.value
+      });
+
       if (!sessionCookie?.value || !idTokenCookie?.value) {
-        throw new Error('No session or ID token cookie found');
+        console.error('❌ Missing required cookies');
+        return null;
       }
 
       // Use ID token for user identification (contains email and user claims)
       const idToken = idTokenCookie.value;
+      console.log('🔑 ID token retrieved successfully');
 
       // Decode the JWT token to get user information
       const decodedToken = jwtDecode<CognitoJwtClaims>(idToken);
+      console.log('👤 Decoded token claims:', {
+        sub: decodedToken.sub,
+        email: decodedToken.email,
+        hasGivenName: !!decodedToken['given_name'],
+        hasFamilyName: !!decodedToken['family_name']
+      });
 
       // Extract user information from the token claims
       const customerId = decodedToken.sub; // Cognito User Sub ID
@@ -35,22 +49,18 @@ export const { GET, POST } = autumnHandler({
       const givenName = decodedToken['given_name'];
       const familyName = decodedToken['family_name'];
 
-      return {
+      const result = {
         customerId,
         customerData: {
-          name: `${givenName || ''} ${familyName || ''}`.trim() || '',
-          email: email || '',
+          name: `${givenName || ''} ${familyName || ''}`.trim() || undefined,
+          email: email || undefined,
         },
       };
+      console.log('✅ Returning user data:', result);
+      return result;
     } catch (error) {
       console.error('Error in Autumn identify:', error);
-      return {
-        customerId: 'customer_id', // Fallback customer ID
-        customerData: {
-          name: '',
-          email: '',
-        },
-      };
+      return null;
     }
   },
 });
