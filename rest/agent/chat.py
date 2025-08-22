@@ -1,8 +1,8 @@
 import asyncio
-import os
-from datetime import datetime, timezone
 import json
+import os
 from copy import deepcopy
+from datetime import datetime, timezone
 
 from openai import AsyncOpenAI
 
@@ -16,6 +16,8 @@ from rest.agent.context.tree import SpanNode
 from rest.agent.filter.feature import log_feature_selector, span_feature_selector
 from rest.agent.filter.structure import filter_log_node, log_node_selector
 from rest.agent.output.chat_output import ChatOutput
+# ✅ Use centralized prompt definitions
+from rest.agent.prompts import CHAT_SYSTEM_PROMPT, LOCAL_MODE_APPENDIX
 from rest.agent.summarizer.chunk import chunk_summarize
 from rest.agent.typing import LogFeature
 from rest.client.sqlite_client import TraceRootSQLiteClient
@@ -23,11 +25,9 @@ from rest.config import ChatbotResponse
 from rest.typing import ActionStatus, ActionType, ChatModel, MessageType
 from rest.utils.token_tracking import track_tokens_for_user
 
-# ✅ Use centralized prompt definitions
-from rest.agent.prompts import CHAT_SYSTEM_PROMPT, LOCAL_MODE_APPENDIX
-
 
 class Chat:
+
     def __init__(self):
         api_key = os.getenv("OPENAI_API_KEY")
         if api_key is None:

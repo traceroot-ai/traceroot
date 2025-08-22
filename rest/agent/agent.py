@@ -28,14 +28,13 @@ from rest.agent.filter.structure import (
     log_node_selector,
 )
 from rest.agent.github_tools import create_issue, create_pr_with_file_changes
+from rest.agent.prompts import AGENT_SYSTEM_PROMPT
 from rest.agent.typing import LogFeature
 from rest.agent.utils.openai_tools import get_openai_tool_schema
 from rest.client.github_client import GitHubClient
 from rest.config import ChatbotResponse
 from rest.typing import ActionStatus, ActionType, ChatModel, MessageType, Provider
 from rest.utils.token_tracking import track_tokens_for_user
-
-from rest.agent.prompts import CHAT_SYSTEM_PROMPT, LOCAL_MODE_APPENDIX
 
 
 class Agent:
