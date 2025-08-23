@@ -10,8 +10,9 @@ from typing import Any, Optional
 from autumn import Autumn
 
 from rest.config.trace import Trace
+
 try:
-    from rest.utils.ee.auth import  hash_user_sub
+    from rest.utils.ee.auth import hash_user_sub
 except ImportError:
     from rest.utils.auth import hash_user_sub
 
