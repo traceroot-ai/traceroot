@@ -37,7 +37,7 @@ class App:
             RateLimitExceeded,
             _rate_limit_exceeded_handler,
         )
-        self.local_mode = os.getenv("TRACE_ROOT_LOCAL_MODE", "false").lower() == "true"
+        self.local_mode = os.getenv("REST_LOCAL_MODE", "false").lower() == "true"
 
         # Add CORS middleware
         self.add_middleware()
