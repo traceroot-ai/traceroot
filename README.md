@@ -1,6 +1,6 @@
 <div align="center">
   <a href="https://traceroot.ai/">
-    <img src="misc/images/traceroot_logo.png" alt="TraceRoot Logo" width="70%">
+    <img src="misc/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 </div>
 <div align="center">
