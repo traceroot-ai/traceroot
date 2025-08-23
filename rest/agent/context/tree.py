@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 # third-party
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 # local
 from rest.agent.typing import LogFeature, SpanFeature
@@ -83,7 +83,7 @@ class SpanNode(BaseModel):
             SpanFeature.SPAN_UTC_END_TIME: str(self.span_utc_end_time),
         }
         for feature in span_features:
-            res[feature.value] = feature_mapping[feature]
+            span_dict[feature.value] = feature_mapping[feature]
 
         events: list[tuple[datetime, LogNode | "SpanNode"]] = []
         for log in self.logs:
@@ -94,13 +94,14 @@ class SpanNode(BaseModel):
         log_count = 0
         for _, obj in events:
             if isinstance(obj, LogNode):
-                res[f"log_{log_count}"] = obj.to_dict(log_features)
+                span_dict[f"log_{log_count}"] = obj.to_dict(log_features)
                 log_count += 1
             else:
-                res[obj.span_id] = obj.to_dict(span_features, log_features)
-        return res
-    
-# TODO: consider moving to rest/agent/utils/context_helpers.py 
+                span_dict[obj.span_id] = obj.to_dict(span_features, log_features)
+        return span_dict
+
+
+# TODO: consider moving to rest/agent/utils/context_helpers.py
 def create_logs_map(
     trace_logs: list[dict[str,
                           list[LogEntry]]],
