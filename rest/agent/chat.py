@@ -1,5 +1,7 @@
 import asyncio
+import json
 import os
+from copy import deepcopy
 from datetime import datetime, timezone
 
 from openai import AsyncOpenAI
@@ -9,14 +11,13 @@ try:
 except ImportError:
     from rest.client.mongodb_client import TraceRootMongoDBClient
 
-import json
-from copy import deepcopy
-
 from rest.agent.chunk.sequential import sequential_chunk
 from rest.agent.context.tree import SpanNode
 from rest.agent.filter.feature import log_feature_selector, span_feature_selector
 from rest.agent.filter.structure import filter_log_node, log_node_selector
 from rest.agent.output.chat_output import ChatOutput
+# ✅ Use centralized prompt definitions
+from rest.agent.prompts import CHAT_SYSTEM_PROMPT, LOCAL_MODE_APPENDIX
 from rest.agent.summarizer.chunk import chunk_summarize
 from rest.agent.typing import LogFeature
 from rest.client.sqlite_client import TraceRootSQLiteClient
@@ -30,47 +31,20 @@ class Chat:
     def __init__(self):
         api_key = os.getenv("OPENAI_API_KEY")
         if api_key is None:
-            # This means that is using the local mode
-            # and user needs to provide the token within
-            # the integrate section at first
+            # Local mode (no real key)
             api_key = "fake_openai_api_key"
             self.local_mode = True
         else:
             self.local_mode = False
+
         self.chat_client = AsyncOpenAI(api_key=api_key)
-        self.system_prompt = (
-            "You are a helpful TraceRoot.AI assistant that is the best "
-            "assistant for debugging with logs, traces, metrics and source "
-            "code. You will be provided with a tree of spans where each span "
-            "has span related information and maybe logs (and maybe the "
-            "source code and context for the logs) logged within the span.\n"
-            "Please answer user's question based on the given data. Keep your "
-            "answer concise and to the point. You also need to follow "
-            "following rules:\n"
-            "1. Please remember you are a TraceRoot AI agent. You are not "
-            "allowed to hallucinate or make up information. "
-            "2. If you are very unsure about the answer, you should answer "
-            "that you don't know.\n"
-            "3. Please provide insightful answer other than just simply "
-            "returning the information directly.\n"
-            "4. Be more like a real and very helpful person.\n"
-            "5. If there is any reference to the answer, ALWAYS directly "
-            "write the reference such as [1], [2], [3] etc. at the end of "
-            "the line of the corresponding answer to indicate the reference.\n"
-            "6. If there is any reference, please make sure at least and at "
-            "most either of log, trace (span) and source code is provided. "
-            "in the reference.\n"
-            "7. Please include all reference for each answer. If each answer "
-            "has a reference, please MAKE SURE you also include the reference "
-            "in the reference list."
-        )
-        # ;) :) :D :P :] :[ :| :/ :]
+
+        # ✅ Load system prompt from prompts module
+        self.system_prompt = CHAT_SYSTEM_PROMPT
+
+        # ✅ Append local-only instructions when needed
         if self.local_mode:
-            self.system_prompt += (
-                "8. If user wants to create a GitHub PR or issue, say that "
-                "you cannot do that and suggest them to use "
-                "https://traceroot.ai production service instead."
-            )
+            self.system_prompt += LOCAL_MODE_APPENDIX
 
     async def chat(
         self,
@@ -85,30 +59,14 @@ class Chat:
         chat_history: list[dict] | None = None,
         openai_token: str | None = None,
     ) -> ChatbotResponse:
-        """
-        Args:
-            chat_id (str): The ID of the chat.
-            user_message (str): The message from the user.
-            model (ChatModel): The model to use.
-            db_client (TraceRootMongoDBClient | TraceRootSQLiteClient):
-                The database client.
-            timestamp (datetime): The timestamp of the user message.
-            tree (dict[str, Any] | None): The tree of the trace.
-            chat_history (list[dict] | None): The history of the
-                chat where there are keys including chat_id, timestamp, role
-                and content.
-            openai_token (str | None): The OpenAI token to use.
-        """
+        """Main chat entrypoint for TraceRoot assistant."""
         if model == ChatModel.AUTO:
             model = ChatModel.GPT_4O
 
         # Use local client to avoid race conditions in concurrent calls
-        if openai_token is not None:
-            client = AsyncOpenAI(api_key=openai_token)
-        else:
-            client = self.chat_client
+        client = AsyncOpenAI(api_key=openai_token) if openai_token else self.chat_client
 
-        # Select only necessary log and span features #########################
+        # Select only necessary log and span features #
         (log_features,
          span_features,
          log_node_selector_output) = await asyncio.gather(
