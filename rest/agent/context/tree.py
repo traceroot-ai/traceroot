@@ -1,8 +1,11 @@
+# standard library
 from datetime import datetime, timezone
 from typing import Any
 
+# third-party
 from pydantic import BaseModel
 
+# local
 from rest.agent.typing import LogFeature, SpanFeature
 from rest.config import LogEntry, Span
 
@@ -73,14 +76,14 @@ class SpanNode(BaseModel):
         log_features: list[LogFeature] = list(LogFeature),
     ) -> dict[str,
               Any]:
-        res = {"span_id": self.span_id, "func_full_name": self.func_full_name}
+        span_dict = {"span_id": self.span_id, "func_full_name": self.func_full_name}
         feature_mapping = {
             SpanFeature.SPAN_LATENCY: str(self.span_latency),
             SpanFeature.SPAN_UTC_START_TIME: str(self.span_utc_start_time),
             SpanFeature.SPAN_UTC_END_TIME: str(self.span_utc_end_time),
         }
         for feature in span_features:
-            res[feature.value] = feature_mapping[feature]
+            span_dict[feature.value] = feature_mapping[feature]
 
         events: list[tuple[datetime, LogNode | "SpanNode"]] = []
         for log in self.logs:
@@ -91,20 +94,21 @@ class SpanNode(BaseModel):
         log_count = 0
         for _, obj in events:
             if isinstance(obj, LogNode):
-                res[f"log_{log_count}"] = obj.to_dict(log_features)
+                span_dict[f"log_{log_count}"] = obj.to_dict(log_features)
                 log_count += 1
             else:
-                res[obj.span_id] = obj.to_dict(span_features, log_features)
-        return res
+                span_dict[obj.span_id] = obj.to_dict(span_features, log_features)
+        return span_dict
 
 
+# TODO: consider moving to rest/agent/utils/context_helpers.py
 def create_logs_map(
     trace_logs: list[dict[str,
                           list[LogEntry]]],
 ) -> dict[str,
           list[LogEntry]]:
     r"""Create a mapping from span_id to list of LogEntry objects."""
-    logs_map = {}
+    logs_map: dict[str, list[LogEntry]] = {}
     for logs_dict in trace_logs:
         for span_id, log_entries in logs_dict.items():
             if span_id not in logs_map:
@@ -138,7 +142,7 @@ def convert_span_to_span_node(
 ) -> SpanNode:
     r"""Convert Span to SpanNode recursively."""
     # Convert logs for this span
-    span_logs = []
+    span_logs: list[LogNode] = []
     if span.id in logs_map:
         for log_entry in logs_map[span.id]:
             log_node = convert_log_entry_to_log_node(log_entry)
@@ -148,7 +152,7 @@ def convert_span_to_span_node(
     span_logs.sort(key=lambda log: log.log_utc_timestamp)
 
     # Convert child spans recursively
-    children_spans = []
+    children_spans: list[SpanNode] = []
     for child_span in span.spans:
         child_span_node = convert_span_to_span_node(child_span, logs_map)
         children_spans.append(child_span_node)
