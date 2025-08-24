@@ -2,8 +2,8 @@ from enum import Enum
 
 
 class LogFeature(Enum):
-    r"""Log feature.
-    """
+    r"""Log feature."""
+
     # Log related features
     LOG_UTC_TIMESTAMP = "log utc timestamp"
     LOG_LEVEL = "log level"
@@ -18,8 +18,8 @@ class LogFeature(Enum):
 
 
 class SpanFeature(Enum):
-    r"""Span feature.
-    """
+    r"""Span feature."""
+
     # Span related features
     SPAN_LATENCY = "span latency"
     SPAN_UTC_START_TIME = "span utc start time"
@@ -27,9 +27,14 @@ class SpanFeature(Enum):
 
 
 class FeatureOps(Enum):
-    r"""Feature operations.
-    """
+    r"""Feature operations."""
+
     EQUAL = "equal"
     NOT_EQUAL = "not equal"
     CONTAINS = "contains"
     NOT_CONTAINS = "not contains"
+
+
+class ISSUE_TYPE(Enum):
+    GITHUB_ISSUE = 1
+    GITHUB_PR = 2
