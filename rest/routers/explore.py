@@ -98,8 +98,8 @@ class ExploreRouter:
         self.agent = Agent()
         self.logger = logging.getLogger(__name__)
 
-        # Choose client based on TRACE_ROOT_LOCAL_MODE environment variable
-        self.local_mode = os.getenv("TRACE_ROOT_LOCAL_MODE", "false").lower() == "true"
+        # Choose client based on REST_LOCAL_MODE environment variable
+        self.local_mode = os.getenv("REST_LOCAL_MODE", "false").lower() == "true"
         if self.local_mode:
             self.db_client = TraceRootSQLiteClient()
         else:
