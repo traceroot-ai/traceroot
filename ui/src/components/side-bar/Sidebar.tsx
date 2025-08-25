@@ -48,6 +48,7 @@ import { useUser } from '../../hooks/useUser';
 
 function LogoComponent() {
   const { state } = useSidebar();
+  const { theme } = useTheme();
 
   return (
     <div
@@ -58,27 +59,37 @@ function LogoComponent() {
         href="/"
         className={`flex items-center group ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-2'}`}
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-11.5 w-11.5 flex-shrink-0"
-          viewBox="0 0 32 32"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <circle cx="16" cy="8" r="2.5"></circle>
-          <circle cx="10" cy="16" r="2.5"></circle>
-          <circle cx="22" cy="16" r="2.5"></circle>
-          <line x1="16" y1="10.5" x2="16" y2="12.5"></line>
-          <line x1="16" y1="12.5" x2="12" y2="14.5"></line>
-          <line x1="16" y1="12.5" x2="20" y2="14.5"></line>
-          <line x1="10" y1="18.5" x2="10" y2="21.5"></line>
-          <line x1="22" y1="18.5" x2="22" y2="21.5"></line>
-          <circle cx="10" cy="24" r="2.5"></circle>
-          <circle cx="22" cy="24" r="2.5"></circle>
-        </svg>
+        <div className={`${theme === 'dark' ? 'bg-white' : 'bg-black'} rounded-xl p-1.5`}>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className={`h-7 w-7 ${theme === 'dark' ? 'text-black' : 'text-white'}`}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.25"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+            <circle cx="12" cy="4" r="2.5" />
+            <circle cx="6" cy="12" r="2.5" />
+
+            {/* Right node */}
+            <circle cx="18" cy="12" r="2.5" />
+
+            {/* Connecting lines from root */}
+            <line x1="12" y1="6.5" x2="12" y2="8.5" />
+            <line x1="12" y1="8.5" x2="8" y2="10.5" />
+            <line x1="12" y1="8.5" x2="16" y2="10.5" />
+
+            {/* Connecting lines to leaf nodes */}
+            <line x1="6" y1="14.5" x2="6" y2="17.5" />
+            <line x1="18" y1="14.5" x2="18" y2="17.5" />
+
+            {/* Leaf nodes */}
+            <circle cx="6" cy="20" r="2.5" />
+            <circle cx="18" cy="20" r="2.5" />
+          </svg>
+        </div>
         {state === 'expanded' && (
           <div className="flex flex-col">
             <span className="font-semibold text-sm text-neutral-800 dark:text-neutral-200">
