@@ -1,5 +1,6 @@
 from openai import AsyncOpenAI
 
+from rest.typing import ChatModel
 from rest.utils.token_tracking import track_tokens_for_user
 
 TITLE_PROMPT = (
@@ -19,7 +20,7 @@ async def summarize_title(
     user_message: str,
     client: AsyncOpenAI,
     openai_token: str | None = None,
-    model: str = "gpt-4o-mini",
+    model: str = ChatModel.GPT_5_MINI.value,
     first_chat: bool = False,
     user_sub: str | None = None,
 ) -> str | None:
