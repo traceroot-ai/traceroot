@@ -6,6 +6,8 @@
 
 <div align="center">
 
+[![Product Hunt](https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1004840&theme=dark&t=1756093935224)](https://www.producthunt.com/products/traceroot-ai?embed=true&utm_source=badge-featured&utm_medium=badge&utm_source=badge-traceroot-ai)
+
 [![Testing Status][testing-image]][testing-url]
 [![Documentation][docs-image]][docs-url]
 [![Discord][discord-image]][discord-url]
