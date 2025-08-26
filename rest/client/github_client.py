@@ -18,6 +18,7 @@ class GitHubClient:
     ) -> int:
         r"""Create an issue.
         """
+
         def _create_issue() -> int:
             if github_token:
                 github = Github(github_token, retry=None)
@@ -26,7 +27,7 @@ class GitHubClient:
             repo = github.get_repo(f"{owner}/{repo_name}")
             issue = repo.create_issue(title=title, body=body)
             return issue.number
-        
+
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _create_issue)
 
@@ -45,6 +46,7 @@ class GitHubClient:
     ) -> int:
         r"""Create a PR with file changes.
         """
+
         def _create_pr() -> int:
             if github_token:
                 github = Github(github_token, retry=None)
@@ -95,7 +97,7 @@ class GitHubClient:
 
             print(f"PR created: {pr.html_url}")
             return pr.number
-        
+
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _create_pr)
 
