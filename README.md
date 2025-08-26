@@ -6,7 +6,7 @@
 
 <div align="center">
 
-[![Product Hunt](https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1004840&theme=light&period=daily&t=1756191789618)](https://www.producthunt.com/products/traceroot-ai?embed=true&utm_source=badge-top-post-badge&utm_medium=badge&utm_source=badge-traceroot-ai)
+[![Product Hunt](https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1004840&theme=dark&period=daily&t=1756191789618)](https://www.producthunt.com/products/traceroot-ai?embed=true&utm_source=badge-top-post-badge&utm_medium=badge&utm_source=badge-traceroot-ai)
 
 [![Testing Status][testing-image]][testing-url]
 [![Documentation][docs-image]][docs-url]
