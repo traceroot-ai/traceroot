@@ -16,7 +16,6 @@ from rest.agent.context.tree import SpanNode
 from rest.agent.filter.feature import log_feature_selector, span_feature_selector
 from rest.agent.filter.structure import filter_log_node, log_node_selector
 from rest.agent.output.chat_output import ChatOutput
-# ✅ Use centralized prompt definitions
 from rest.agent.prompts import CHAT_SYSTEM_PROMPT, LOCAL_MODE_APPENDIX
 from rest.agent.summarizer.chunk import chunk_summarize
 from rest.agent.typing import LogFeature
@@ -38,11 +37,7 @@ class Chat:
             self.local_mode = False
 
         self.chat_client = AsyncOpenAI(api_key=api_key)
-
-        # ✅ Load system prompt from prompts module
         self.system_prompt = CHAT_SYSTEM_PROMPT
-
-        # ✅ Append local-only instructions when needed
         if self.local_mode:
             self.system_prompt += LOCAL_MODE_APPENDIX
 

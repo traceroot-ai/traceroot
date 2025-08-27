@@ -1,5 +1,3 @@
-# rest/agent/prompts/__init__.py
-
 from .agent_prompts import AGENT_SYSTEM_PROMPT
 from .chat_prompts import CHAT_SYSTEM_PROMPT, LOCAL_MODE_APPENDIX
 
