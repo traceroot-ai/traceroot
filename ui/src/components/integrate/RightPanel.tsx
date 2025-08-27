@@ -76,32 +76,48 @@ const initialIntegrations: Integration[] = [
     connected: false,
     docs: 'https://console.groq.com/docs/quickstart',
     token: null,
-  }
+  },
 ];
 
 export default function RightPanel() {
-  const [integrations, setIntegrations] = useState<Integration[]>(initialIntegrations);
+  const [integrations, setIntegrations] =
+    useState<Integration[]>(initialIntegrations);
   const { user, getAuthState } = useUser();
 
   // Function to fetch token for a specific integration
-  const fetchIntegrationToken = async (resourceType: ResourceType): Promise<string | null> => {
+  const fetchIntegrationToken = async (
+    resourceType: ResourceType
+  ): Promise<string | null> => {
     try {
       const user_secret = getAuthState();
-      if ((!process.env.NEXT_PUBLIC_LOCAL_MODE || process.env.NEXT_PUBLIC_LOCAL_MODE !== 'true') && !user_secret) {
-        console.warn('No user secret found, skipping token fetch for:', resourceType);
+      if (
+        (!process.env.NEXT_PUBLIC_LOCAL_MODE ||
+          process.env.NEXT_PUBLIC_LOCAL_MODE !== 'true') &&
+        !user_secret
+      ) {
+        console.warn(
+          'No user secret found, skipping token fetch for:',
+          resourceType
+        );
         return null;
       }
 
-      const response = await fetch(`/api/get_connect?resourceType=${resourceType}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user_secret}`,
-        },
-      });
+      const response = await fetch(
+        `/api/get_connect?resourceType=${resourceType}`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${user_secret}`,
+          },
+        }
+      );
 
       if (!response.ok) {
-        console.error(`Failed to fetch token for ${resourceType}:`, response.statusText);
+        console.error(
+          `Failed to fetch token for ${resourceType}:`,
+          response.statusText
+        );
         return null;
       }
 
@@ -126,14 +142,21 @@ export default function RightPanel() {
       fetchIntegrationToken(ResourceType.SLACK),
       fetchIntegrationToken(ResourceType.OPENAI),
       fetchIntegrationToken(ResourceType.GROQ),
-      fetchIntegrationToken(ResourceType.TRACEROOT)
+      fetchIntegrationToken(ResourceType.TRACEROOT),
     ];
 
     try {
-      const [githubToken, notionToken, slackToken, openaiToken, groqToken, tracerootToken] = await Promise.all(tokenPromises);
+      const [
+        githubToken,
+        notionToken,
+        slackToken,
+        openaiToken,
+        groqToken,
+        tracerootToken,
+      ] = await Promise.all(tokenPromises);
 
-      setIntegrations(prevIntegrations =>
-        prevIntegrations.map(integration => {
+      setIntegrations((prevIntegrations) =>
+        prevIntegrations.map((integration) => {
           let token = null;
           let connected = false;
 
@@ -167,7 +190,7 @@ export default function RightPanel() {
           return {
             ...integration,
             token,
-            connected
+            connected,
           };
         })
       );
@@ -182,8 +205,8 @@ export default function RightPanel() {
   }, [user]);
 
   const handleUpdateIntegration = (updatedIntegration: Integration) => {
-    setIntegrations(prevIntegrations =>
-      prevIntegrations.map(integration =>
+    setIntegrations((prevIntegrations) =>
+      prevIntegrations.map((integration) =>
         integration.id === updatedIntegration.id
           ? { ...updatedIntegration, connected: !!updatedIntegration.token }
           : integration
@@ -194,12 +217,13 @@ export default function RightPanel() {
   return (
     <div className="min-h-full flex flex-col p-4">
       {/* Container with 75% width and max-width constraint */}
-      <div className="w-3/4 max-w-6xl mx-auto bg-white m-5 p-10 rounded-lg font-mono bg-zinc-50">
+      <div className="w-3/4 max-w-6xl mx-auto m-5 p-10 rounded-lg font-mono bg-zinc-50 dark:bg-zinc-800">
         <h2 className="scroll-m-20 mb-5 text-3xl font-semibold first:mt-0">
           Integrations & Sources
         </h2>
         <p className="leading-7 [&:not(:first-child)]:mb-5">
-          Integrate tools and sources to TraceRoot.AI to enable AI-powered insights and actions.
+          Integrate tools and sources to TraceRoot.AI to enable AI-powered
+          insights and actions.
         </p>
         <div className="grid grid-cols-2 md:grid-cols-2 gap-5 p-3">
           {integrations.map((integration) => (

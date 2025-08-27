@@ -117,7 +117,7 @@ const Span: React.FC<SpanProps> = ({
         )}
 
         <div
-          className={`mt-1 space-y-1.5 overflow-hidden transition-all duration-100 ease-in-out ${isExpanded ? 'max-h-[3000px] opacity-100' : 'max-h-0 opacity-0'}`}
+          className={`mt-1 space-y-1.5 overflow-hidden transition-all duration-100 ease-in-out ${isExpanded ? 'max-h-none opacity-100' : 'max-h-0 opacity-0'}`}
           style={{
             width: `${childWidthPercentage}%`,
             marginLeft: `${100 - childWidthPercentage}%`,

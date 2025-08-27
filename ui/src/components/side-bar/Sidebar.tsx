@@ -1,8 +1,18 @@
-"use client";
+'use client';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Telescope, LibraryBig, Settings, ArrowRightFromLine, ArrowLeftFromLine, Mail, BookText } from "lucide-react";
+import {
+  Telescope,
+  LibraryBig,
+  Settings,
+  ArrowRightFromLine,
+  ArrowLeftFromLine,
+  Mail,
+  BookText,
+  Moon,
+  Sun,
+} from 'lucide-react';
 import { FaUser } from 'react-icons/fa';
 import { RxCross1 } from 'react-icons/rx';
 
@@ -18,9 +28,9 @@ import {
   SidebarGroupLabel,
   SidebarGroupContent,
   useSidebar,
-} from "@/components/ui/sidebar";
-import { Separator } from "@/components/ui/separator";
-import { Button } from "@/components/ui/button";
+} from '@/components/ui/sidebar';
+import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogClose,
@@ -29,44 +39,65 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useTheme } from 'next-themes';
+import { useEffect, useState } from 'react';
 import { useUser } from '../../hooks/useUser';
-
 
 function LogoComponent() {
   const { state } = useSidebar();
+  const { theme } = useTheme();
 
   return (
-    <div className={`flex items-center rounded-md m-2 hover:bg-sidebar-accent transition-colors ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
-      <Link href="/" className={`flex items-center group ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="h-11.5 w-11.5 flex-shrink-0"
-          viewBox="0 0 32 32"
-          fill="none"
-          stroke="#0a0a0a"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          {/* <rect x="0" y="0" width="32" height="32" rx="8" ry="8" fill="#e5e5e5" stroke="none"/> */}
-          <circle cx="16" cy="8" r="2.5"></circle>
-          <circle cx="10" cy="16" r="2.5"></circle>
-          <circle cx="22" cy="16" r="2.5"></circle>
-          <line x1="16" y1="10.5" x2="16" y2="12.5"></line>
-          <line x1="16" y1="12.5" x2="12" y2="14.5"></line>
-          <line x1="16" y1="12.5" x2="20" y2="14.5"></line>
-          <line x1="10" y1="18.5" x2="10" y2="21.5"></line>
-          <line x1="22" y1="18.5" x2="22" y2="21.5"></line>
-          <circle cx="10" cy="24" r="2.5"></circle>
-          <circle cx="22" cy="24" r="2.5"></circle>
-        </svg>
-        {state === "expanded" && (
+    <div
+      className={`flex items-center rounded-md m-2 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors
+    ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-2'}`}
+    >
+      <Link
+        href="/"
+        className={`flex items-center group ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-2'}`}
+      >
+        <div className={`${theme === 'dark' ? 'bg-white' : 'bg-black'} rounded-xl p-1.5`}>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className={`h-7 w-7 ${theme === 'dark' ? 'text-black' : 'text-white'}`}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.25"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+            <circle cx="12" cy="4" r="2.5" />
+            <circle cx="6" cy="12" r="2.5" />
+
+            {/* Right node */}
+            <circle cx="18" cy="12" r="2.5" />
+
+            {/* Connecting lines from root */}
+            <line x1="12" y1="6.5" x2="12" y2="8.5" />
+            <line x1="12" y1="8.5" x2="8" y2="10.5" />
+            <line x1="12" y1="8.5" x2="16" y2="10.5" />
+
+            {/* Connecting lines to leaf nodes */}
+            <line x1="6" y1="14.5" x2="6" y2="17.5" />
+            <line x1="18" y1="14.5" x2="18" y2="17.5" />
+
+            {/* Leaf nodes */}
+            <circle cx="6" cy="20" r="2.5" />
+            <circle cx="18" cy="20" r="2.5" />
+          </svg>
+        </div>
+        {state === 'expanded' && (
           <div className="flex flex-col">
-            <span className="font-semibold text-sm">TraceRoot.AI</span>
-            <span className="font-semibold text-sm text-[#fb923c]">YCombinator</span>
+            <span className="font-semibold text-sm text-neutral-800 dark:text-neutral-200">
+              TraceRoot.AI
+            </span>
+            <span className="font-semibold text-sm text-[#fb923c]">
+              YCombinator
+            </span>
           </div>
         )}
       </Link>
@@ -83,11 +114,14 @@ function ExploreComponent() {
       asChild
       isActive={pathname === '/explore'}
       tooltip="Exploration"
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-2'}`}
     >
-      <Link href="/explore" className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
+      <Link
+        href="/explore"
+        className={`flex items-center w-full ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-2'}`}
+      >
         <Telescope className="!w-6 !h-6" />
-        {state === "expanded" && <span>Explore</span>}
+        {state === 'expanded' && <span>Explore</span>}
       </Link>
     </SidebarMenuButton>
   );
@@ -101,11 +135,14 @@ function IntegrateComponent() {
       asChild
       isActive={pathname === '/integrate'}
       tooltip="Integration"
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-2'}`}
     >
-      <Link href="/integrate" className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
+      <Link
+        href="/integrate"
+        className={`flex items-center w-full ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-2'}`}
+      >
         <LibraryBig className="!w-6 !h-6" />
-        {state === "expanded" && <span>Integrate</span>}
+        {state === 'expanded' && <span>Integrate</span>}
       </Link>
     </SidebarMenuButton>
   );
@@ -119,14 +156,16 @@ function ContactComponent() {
       asChild
       isActive={false}
       tooltip="Contact"
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-2'}`}
     >
       <a
-        href="https://traceroot.ai" target="_blank" rel="noopener noreferrer"
-        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+        href="https://traceroot.ai"
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`flex items-center w-full ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-2'}`}
       >
         <Mail className="!w-6 !h-6" />
-        {state === "expanded" && <span>Contact</span>}
+        {state === 'expanded' && <span>Contact</span>}
       </a>
     </SidebarMenuButton>
   );
@@ -139,14 +178,16 @@ function DocumentationComponent() {
       asChild
       isActive={false}
       tooltip="Documentation"
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-2'}`}
     >
       <a
-        href="https://docs.traceroot.ai" target="_blank" rel="noopener noreferrer"
-        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+        href="https://docs.traceroot.ai"
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`flex items-center w-full ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-2'}`}
       >
         <BookText className="!w-6 !h-6" />
-        {state === "expanded" && <span>Documentation</span>}
+        {state === 'expanded' && <span>Documentation</span>}
       </a>
     </SidebarMenuButton>
   );
@@ -161,11 +202,14 @@ function SettingsComponent() {
       asChild
       isActive={pathname === '/settings'}
       tooltip="Settings"
-      className={`flex items-center rounded-md p-2 mb-1 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-1"}`}
+      className={`flex items-center rounded-md p-2 mb-1 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-1'}`}
     >
-      <Link href="/settings" className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-1"}`}>
+      <Link
+        href="/settings"
+        className={`flex items-center w-full ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-1'}`}
+      >
         <Settings className="!w-6 !h-6" />
-        {state === "expanded" && <span>Settings</span>}
+        {state === 'expanded' && <span>Settings</span>}
       </Link>
     </SidebarMenuButton>
   );
@@ -187,7 +231,7 @@ function ProfileComponent() {
         <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center animate-pulse">
           <div className="w-4 h-4 bg-gray-400 dark:bg-gray-300 rounded-full"></div>
         </div>
-        {state === "expanded" && (
+        {state === 'expanded' && (
           <div className="flex flex-col animate-pulse">
             <div className="font-semibold text-sm bg-gray-400 dark:bg-gray-300 rounded-full w-16 mb-1"></div>
             <div className="font-semibold text-sm bg-gray-400 dark:bg-gray-300 rounded-full w-20"></div>
@@ -203,7 +247,7 @@ function ProfileComponent() {
         <Button
           variant="ghost"
           className={`flex items-center gap-2 hover:bg-sidebar-accent transition-colors h-auto p-2 ${
-            state === "collapsed" ? "justify-center" : "justify-start"
+            state === 'collapsed' ? 'justify-center' : 'justify-start'
           }`}
         >
           <div
@@ -219,13 +263,10 @@ function ProfileComponent() {
                 {avatarLetter}
               </span>
             ) : (
-              <FaUser
-                className="text-sidebar-foreground"
-                size={14}
-              />
+              <FaUser className="text-sidebar-foreground" size={14} />
             )}
           </div>
-          {state === "expanded" && (
+          {state === 'expanded' && (
             <div className="flex flex-col flex-1 min-w-0 text-left">
               <span className="text-xs font-medium truncate">
                 {user?.given_name || user?.email?.split('@')[0] || 'First Name'}
@@ -250,7 +291,11 @@ function ProfileComponent() {
               )}
             </div>
             <DialogTitle className="text-center">
-              {user?.given_name ? `Hello ${user.given_name}!` : user?.email ? `Hello ${user.email}!` : 'Welcome!'}
+              {user?.given_name
+                ? `Hello ${user.given_name}!`
+                : user?.email
+                  ? `Hello ${user.email}!`
+                  : 'Welcome!'}
             </DialogTitle>
           </div>
         </DialogHeader>
@@ -323,10 +368,7 @@ function ProfileComponent() {
                 <DialogClose asChild>
                   <Button variant="outline">Close</Button>
                 </DialogClose>
-                <Button
-                  onClick={handleSignOut}
-                  variant="destructive"
-                >
+                <Button onClick={handleSignOut} variant="destructive">
                   <RxCross1 className="mr-2 h-4 w-4" />
                   Sign Out
                 </Button>
@@ -339,21 +381,65 @@ function ProfileComponent() {
   );
 }
 
+function DarkModeToggle() {
+  const { theme, setTheme } = useTheme();
+  const { state } = useSidebar();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const toggleDarkMode = () => {
+    setTheme(theme === 'dark' ? 'light' : 'dark');
+  };
+
+  if (!mounted) {
+    return (
+      <SidebarMenuButton
+        className={`flex items-center rounded-md p-2 mb-2 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-2'}`}
+      >
+        <Moon className="!w-5 !h-5" />
+        {state === 'expanded' && <span>Dark Mode</span>}
+      </SidebarMenuButton>
+    );
+  }
+
+  return (
+    <SidebarMenuButton
+      tooltip={
+        theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'
+      }
+      onClick={toggleDarkMode}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-2'}`}
+    >
+      {theme === 'dark' ? (
+        <Sun className="!w-5 !h-5" />
+      ) : (
+        <Moon className="!w-5 !h-5" />
+      )}
+      {state === 'expanded' && (
+        <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+      )}
+    </SidebarMenuButton>
+  );
+}
+
 function ExpandCollapseButton() {
   const { state, toggleSidebar } = useSidebar();
 
   return (
     <SidebarMenuButton
-      tooltip={state === "collapsed" ? "Expand" : "Collapse"}
+      tooltip={state === 'collapsed' ? 'Expand' : 'Collapse'}
       onClick={toggleSidebar}
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-2'}`}
     >
-      {state === "collapsed" ? (
+      {state === 'collapsed' ? (
         <ArrowRightFromLine className="!w-5.5 !h-5.5" />
       ) : (
         <ArrowLeftFromLine className="!w-5.5 !h-5.5" />
       )}
-      {state === "expanded" && <span>Collapse</span>}
+      {state === 'expanded' && <span>Collapse</span>}
     </SidebarMenuButton>
   );
 }
@@ -368,7 +454,9 @@ export default function AppSidebar() {
 
       <SidebarContent className="space-y-1">
         <SidebarGroup>
-          <SidebarGroupLabel className="text-sm font-medium mb-2">Platform</SidebarGroupLabel>
+          <SidebarGroupLabel className="text-sm font-medium mb-2">
+            Platform
+          </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem className="mb-1">
@@ -378,7 +466,6 @@ export default function AppSidebar() {
               <SidebarMenuItem className="mb-1">
                 <IntegrateComponent />
               </SidebarMenuItem>
-
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -386,6 +473,7 @@ export default function AppSidebar() {
 
       <SidebarFooter>
         <ExpandCollapseButton />
+        <DarkModeToggle />
         <DocumentationComponent />
         <ContactComponent />
         <SettingsComponent />

@@ -41,7 +41,6 @@ class ChatModel(str, Enum):
     GPT_4O = "gpt-4o"
     GPT_5 = "gpt-5"
     GPT_5_MINI = "gpt-5-mini"
-    GPT_4O_MINI = "gpt-4o-mini"
     O4_MINI = "o4-mini"
     O3 = "o3"
     GPT_4_1 = "gpt-4.1"

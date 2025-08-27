@@ -30,7 +30,7 @@ SPAN_FEATURE_SELECTOR_PROMPT = (
 async def log_feature_selector(
     user_message: str,
     client: AsyncOpenAI,
-    model: str = "gpt-4o-mini",
+    model: str = ChatModel.GPT_5_MINI.value,
 ) -> list[LogFeature]:
     messages = [
         {
@@ -72,7 +72,7 @@ async def log_feature_selector(
 async def span_feature_selector(
     user_message: str,
     client: AsyncOpenAI,
-    model: str = "gpt-4o-mini",
+    model: str = ChatModel.GPT_5_MINI.value,
 ) -> list[SpanFeature]:
     messages = [
         {

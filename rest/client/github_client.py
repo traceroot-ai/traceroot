@@ -8,7 +8,7 @@ class GitHubClient:
     def __init__(self):
         """Initialize GitHub client with token from environment variable."""
 
-    def create_issue(
+    async def create_issue(
         self,
         title: str,
         body: str,
@@ -18,15 +18,20 @@ class GitHubClient:
     ) -> int:
         r"""Create an issue.
         """
-        if github_token:
-            github = Github(github_token, retry=None)
-        else:
-            github = Github(retry=None)
-        repo = github.get_repo(f"{owner}/{repo_name}")
-        issue = repo.create_issue(title=title, body=body)
-        return issue.number
 
-    def create_pr_with_file_changes(
+        def _create_issue() -> int:
+            if github_token:
+                github = Github(github_token, retry=None)
+            else:
+                github = Github(retry=None)
+            repo = github.get_repo(f"{owner}/{repo_name}")
+            issue = repo.create_issue(title=title, body=body)
+            return issue.number
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _create_issue)
+
+    async def create_pr_with_file_changes(
         self,
         title: str,
         body: str,
@@ -41,54 +46,60 @@ class GitHubClient:
     ) -> int:
         r"""Create a PR with file changes.
         """
-        if github_token:
-            github = Github(github_token, retry=None)
-        else:
-            github = Github(retry=None)
-        repo = github.get_repo(f"{owner}/{repo_name}")
 
-        base_ref = repo.get_git_ref(f"heads/{base_branch}")
-        base_sha = base_ref.object.sha
-
-        # Create the new head branch
-        try:
-            repo.create_git_ref(f"refs/heads/{head_branch}", base_sha)
-        except Exception as e:
-            if "Reference already exists" in str(e):
-                # Branch already exists, update it to point to base
-                head_ref = repo.get_git_ref(f"heads/{head_branch}")
-                head_ref.edit(base_sha)
+        def _create_pr() -> int:
+            if github_token:
+                github = Github(github_token, retry=None)
             else:
-                raise e
+                github = Github(retry=None)
+            repo = github.get_repo(f"{owner}/{repo_name}")
 
-        try:
-            # Try to get existing file
-            file_content = repo.get_contents(file_path_to_change, ref=head_branch)
-            # Update existing file
-            repo.update_file(
-                path=file_path_to_change,
-                message=commit_message,
-                content=file_content_to_change,
-                sha=file_content.sha,
-                branch=head_branch
-            )
-        except Exception:
-            # File doesn't exist, create new file
-            repo.create_file(
-                path=file_path_to_change,
-                message=commit_message,
-                content=file_content_to_change,
-                branch=head_branch
+            base_ref = repo.get_git_ref(f"heads/{base_branch}")
+            base_sha = base_ref.object.sha
+
+            # Create a new branch
+            try:
+                repo.create_git_ref(ref=f"refs/heads/{head_branch}", sha=base_sha)
+            except GithubException as e:
+                if e.status == 422:  # Branch already exists
+                    print(f"Branch {head_branch} already exists")
+                else:
+                    raise e
+
+            # Get the current file to update
+            try:
+                file_obj = repo.get_contents(file_path_to_change, ref=base_branch)
+                repo.update_file(
+                    path=file_path_to_change,
+                    message=commit_message,
+                    content=file_content_to_change,
+                    sha=file_obj.sha,
+                    branch=head_branch,
+                )
+            except GithubException as e:
+                if e.status == 404:  # File doesn't exist, create it
+                    repo.create_file(
+                        path=file_path_to_change,
+                        message=commit_message,
+                        content=file_content_to_change,
+                        branch=head_branch,
+                    )
+                else:
+                    raise e
+
+            # Create a pull request
+            pr = repo.create_pull(
+                title=title,
+                body=body,
+                base=base_branch,
+                head=head_branch,
             )
 
-        pr = repo.create_pull(
-            title=title,
-            body=body,
-            base=base_branch,
-            head=head_branch,
-        )
-        print(f"PR created: {pr.html_url}")
-        return pr.number
+            print(f"PR created: {pr.html_url}")
+            return pr.number
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, _create_pr)
 
     async def get_file_content(
         self,

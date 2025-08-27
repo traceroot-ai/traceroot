@@ -28,52 +28,14 @@ from rest.agent.filter.structure import (
     log_node_selector,
 )
 from rest.agent.github_tools import create_issue, create_pr_with_file_changes
-from rest.agent.typing import ISSUE_TYPE, LogFeature
+from rest.agent.prompts import AGENT_SYSTEM_PROMPT
+from rest.agent.typing import LogFeature, ISSUE_TYPE
 from rest.agent.utils.openai_tools import get_openai_tool_schema
 from rest.client.github_client import GitHubClient
 from rest.config import ChatbotResponse
 from rest.constants import MAX_PREV_RECORD
 from rest.typing import ActionStatus, ActionType, ChatModel, MessageType, Provider
 from rest.utils.token_tracking import track_tokens_for_user
-
-AGENT_SYSTEM_PROMPT = (
-    "You are a helpful TraceRoot.AI assistant that is the best "
-    "assistant for debugging with logs, traces, metrics and source "
-    "code. You will be provided with a tree of spans where each span "
-    "has span related information and maybe logs (and maybe the "
-    "source code and context for the logs) logged within the span.\n"
-    "Please answer user's question based on the given data. Keep your "
-    "answer concise and to the point. You also need to follow "
-    "following rules:\n"
-    "1. Please remember you are a TraceRoot AI agent. You are not "
-    "allowed to hallucinate or make up information. "
-    "2. If you are very unsure about the answer, you should answer "
-    "that you don't know.\n"
-    "3. Please provide insightful answer other than just simply "
-    "returning the information directly.\n"
-    "4. Be more like a real and very helpful person.\n"
-    "5. If there is any reference to the answer, ALWAYS directly "
-    "write the reference such as [1], [2], [3] etc. at the end of "
-    "the line of the corresponding answer to indicate the reference.\n"
-    "6. If there is any reference, please make sure at least and at "
-    "most either of log, trace (span) and source code is provided. "
-    "in the reference.\n"
-    "7. Please include all reference for each answer. If each answer "
-    "has a reference, please MAKE SURE you also include the reference "
-    "in the reference list.\n"
-    "8. You are equipped with two functions to either create an "
-    "issue or a PR. You can use the function to create an issue or "
-    "a PR if the user asks you to do so.\n"
-    "9. If creating a PR, please infer the issue or PR information "
-    "from the github related tuples.\n"
-    "10. If creating a PR, please try your best to create "
-    "file changes in the PR. Please copy the original code, "
-    "lines Keep the original code as much as possible before "
-    "making changes. PLEASE DON'T DELETE TOO MUCH CODE DIRECTLY.\n"
-    "11. If creating a PR, please create a short head branch name for "
-    "the PR. Please make sure the head branch name is concise and to "
-    "the point."
-)
 
 
 class Agent:
@@ -272,13 +234,39 @@ class Agent:
         github_client = GitHubClient()
         maybe_return_directly: bool = False
         if is_github_issue:
+
             content, action_type = self._issue_handler(
                 response, github_token, github_client
             )
+            issue_number = await github_client.create_issue(
+                title=response["title"],
+                body=response["body"],
+                owner=response["owner"],
+                repo_name=response["repo_name"],
+                github_token=github_token,
+            )
         elif is_github_pr:
             if "file_path_to_change" in response:
+
                 _, content, action_type = self._pr_handler(
                     response, github_token, github_client
+                )
+                pr_number = await github_client.create_pr_with_file_changes(
+                    title=response["title"],
+                    body=response["body"],
+                    owner=response["owner"],
+                    repo_name=response["repo_name"],
+                    base_branch=response["base_branch"],
+                    head_branch=response["head_branch"],
+                    file_path_to_change=response["file_path_to_change"],
+                    file_content_to_change=response["file_content_to_change"],
+                    commit_message=response["commit_message"],
+                    github_token=github_token,
+                )
+                url = (
+                    f"https://github.com/{response['owner']}/"
+                    f"{response['repo_name']}/"
+                    f"pull/{pr_number}"
                 )
             else:
                 maybe_return_directly = True
