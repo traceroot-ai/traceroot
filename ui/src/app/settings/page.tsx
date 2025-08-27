@@ -693,10 +693,10 @@ export default function SettingsPage() {
               <div className="flex items-center space-x-2.5">
                 <FaCreditCard className="text-foreground" size={24} />
                 <div className="flex-1 min-w-0">
-                  <CardTitle className="text-base font-semibold">
+                  <CardTitle className="text-sm font-semibold">
                     Account Actions
                   </CardTitle>
-                  <CardDescription className="text-sm">
+                  <CardDescription className="text-xs">
                     Manage your subscription and billing
                   </CardDescription>
                 </div>
