@@ -450,20 +450,26 @@ export const Trace: React.FC<TraceProps> = ({
                         />
 
                         <div
-                          className="space-y-2"
-                          style={{ width: '97%', marginLeft: '3%' }}
+                          className="overflow-y-auto"
+                          style={{
+                            width: '97%',
+                            marginLeft: '3%',
+                            maxHeight: '500px', // ✅ Enables vertical scroll
+                          }}
                         >
-                          {trace.spans.map((span) => (
-                            <Span
-                              key={span.id}
-                              span={span}
-                              widthPercentage={97}
-                              isSelected={selectedSpanIds.includes(span.id)}
-                              selectedSpanId={selectedSpanId}
-                              selectedSpanIds={selectedSpanIds}
-                              onSpanSelect={handleSpanSelect}
-                            />
-                          ))}
+                          <div className="space-y-2">
+                            {trace.spans.map((span) => (
+                              <Span
+                                key={span.id}
+                                span={span}
+                                widthPercentage={97}
+                                isSelected={selectedSpanIds.includes(span.id)}
+                                selectedSpanId={selectedSpanId}
+                                selectedSpanIds={selectedSpanIds}
+                                onSpanSelect={handleSpanSelect}
+                              />
+                            ))}
+                          </div>
                         </div>
                       </div>
                     )}
