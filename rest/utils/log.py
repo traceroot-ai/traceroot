@@ -7,10 +7,10 @@ from rest.utils.constants import SKIP_LOG_FIELDS
 
 
 def process_log_events(all_events: list[dict[str, Any]]) -> TraceLogs:
-    """Process AWS CloudWatch log events into structured TraceLogs.
+    """Process log events into structured TraceLogs with proper chronological ordering.
 
     Args:
-        all_events: List of raw CloudWatch log events
+        all_events: List of raw log events (from CloudWatch, Jaeger, etc.)
 
     Returns:
         TraceLogs: Structured trace logs with LogEntry objects
@@ -41,6 +41,16 @@ def process_log_events(all_events: list[dict[str, Any]]) -> TraceLogs:
     # Add the last span logs to the logs
     if span_logs is not None:
         logs.append(span_logs)
+
+    # Sort log entries within each span by timestamp,
+    # then by line number for identical timestamps
+    # It's possible that the same timestamp is used for multiple log entries
+    # for example in the typescript sdk a batch of logs are sent at the same time
+    # This ensures proper chronological order even when logs have
+    # identical timestamps
+    for span_log_dict in logs:
+        for span_id, log_entries in span_log_dict.items():
+            log_entries.sort(key=lambda entry: (entry.time, entry.line_number))
 
     trace_logs = TraceLogs(logs=logs)
     return trace_logs
