@@ -234,12 +234,12 @@ class Agent:
         github_client = GitHubClient()
         maybe_return_directly: bool = False
         if is_github_issue:
-            content, action_type = self._issue_handler(
+            content, action_type = await self._issue_handler(
                 response, github_token, github_client
             )
         elif is_github_pr:
             if "file_path_to_change" in response:
-                _, content, action_type = self._pr_handler(
+                _, content, action_type = await self._pr_handler(
                     response, github_token, github_client
                 )
             else:
@@ -401,7 +401,7 @@ class Agent:
                 {message}\nFor now please create a GitHub PR.\n
             """
 
-    def _pr_handler(
+    async def _pr_handler(
         self,
         response: dict[str,
                        Any],
@@ -410,7 +410,7 @@ class Agent:
     ) -> Tuple[str,
                str,
                str]:
-        pr_number = github_client.create_pr_with_file_changes(
+        pr_number = await github_client.create_pr_with_file_changes(
             title=response["title"],
             body=response["body"],
             owner=response["owner"],
@@ -432,7 +432,7 @@ class Agent:
 
         return url, content, action_type
 
-    def _issue_handler(
+    async def _issue_handler(
         self,
         response: dict[str,
                        Any],
@@ -440,7 +440,7 @@ class Agent:
         github_client: GitHubClient,
     ) -> Tuple[str,
                str]:
-        issue_number = github_client.create_issue(
+        issue_number = await github_client.create_issue(
             title=response["title"],
             body=response["body"],
             owner=response["owner"],

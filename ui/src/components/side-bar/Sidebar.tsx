@@ -59,35 +59,35 @@ function LogoComponent() {
         href="/"
         className={`flex items-center group ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-2'}`}
       >
-        <div className={`${theme === 'dark' ? 'bg-white' : 'bg-black'} rounded-xl p-1.5`}>
+        <div className={`${theme === 'dark' ? 'bg-white' : 'bg-black'} rounded-lg p-1.5`}>
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              className={`h-7 w-7 ${theme === 'dark' ? 'text-black' : 'text-white'}`}
-              viewBox="0 0 24 24"
+              className={`h-6 w-6 ${theme === 'dark' ? 'text-black' : 'text-white'}`}
+              viewBox="0 0 22 22"
               fill="none"
               stroke="currentColor"
               strokeWidth="1.25"
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-            <circle cx="12" cy="4" r="2.5" />
-            <circle cx="6" cy="12" r="2.5" />
+            <circle cx="11" cy="3" r="2.5" />
+            <circle cx="5" cy="11" r="2.5" />
 
             {/* Right node */}
-            <circle cx="18" cy="12" r="2.5" />
+            <circle cx="17" cy="11" r="2.5" />
 
             {/* Connecting lines from root */}
-            <line x1="12" y1="6.5" x2="12" y2="8.5" />
-            <line x1="12" y1="8.5" x2="8" y2="10.5" />
-            <line x1="12" y1="8.5" x2="16" y2="10.5" />
+            <line x1="11" y1="5.5" x2="11" y2="7.5" />
+            <line x1="11" y1="7.5" x2="7" y2="9.5" />
+            <line x1="11" y1="7.5" x2="15" y2="9.5" />
 
             {/* Connecting lines to leaf nodes */}
-            <line x1="6" y1="14.5" x2="6" y2="17.5" />
-            <line x1="18" y1="14.5" x2="18" y2="17.5" />
+            <line x1="5" y1="13.5" x2="5" y2="16.5" />
+            <line x1="17" y1="13.5" x2="17" y2="16.5" />
 
             {/* Leaf nodes */}
-            <circle cx="6" cy="20" r="2.5" />
-            <circle cx="18" cy="20" r="2.5" />
+            <circle cx="5" cy="19" r="2.5" />
+            <circle cx="17" cy="19" r="2.5" />
           </svg>
         </div>
         {state === 'expanded' && (
