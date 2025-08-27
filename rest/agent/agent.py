@@ -29,7 +29,7 @@ from rest.agent.filter.structure import (
 )
 from rest.agent.github_tools import create_issue, create_pr_with_file_changes
 from rest.agent.prompts import AGENT_SYSTEM_PROMPT
-from rest.agent.typing import LogFeature, ISSUE_TYPE
+from rest.agent.typing import ISSUE_TYPE, LogFeature
 from rest.agent.utils.openai_tools import get_openai_tool_schema
 from rest.client.github_client import GitHubClient
 from rest.config import ChatbotResponse
@@ -234,39 +234,13 @@ class Agent:
         github_client = GitHubClient()
         maybe_return_directly: bool = False
         if is_github_issue:
-
             content, action_type = self._issue_handler(
                 response, github_token, github_client
             )
-            issue_number = await github_client.create_issue(
-                title=response["title"],
-                body=response["body"],
-                owner=response["owner"],
-                repo_name=response["repo_name"],
-                github_token=github_token,
-            )
         elif is_github_pr:
             if "file_path_to_change" in response:
-
                 _, content, action_type = self._pr_handler(
                     response, github_token, github_client
-                )
-                pr_number = await github_client.create_pr_with_file_changes(
-                    title=response["title"],
-                    body=response["body"],
-                    owner=response["owner"],
-                    repo_name=response["repo_name"],
-                    base_branch=response["base_branch"],
-                    head_branch=response["head_branch"],
-                    file_path_to_change=response["file_path_to_change"],
-                    file_content_to_change=response["file_content_to_change"],
-                    commit_message=response["commit_message"],
-                    github_token=github_token,
-                )
-                url = (
-                    f"https://github.com/{response['owner']}/"
-                    f"{response['repo_name']}/"
-                    f"pull/{pr_number}"
                 )
             else:
                 maybe_return_directly = True
