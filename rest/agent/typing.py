@@ -36,5 +36,5 @@ class FeatureOps(Enum):
 
 
 class ISSUE_TYPE(Enum):
-    GITHUB_ISSUE = 1
-    GITHUB_PR = 2
+    GITHUB_ISSUE = "github_issue"
+    GITHUB_PR = "github_pr"

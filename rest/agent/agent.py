@@ -11,7 +11,7 @@ except ImportError:
 
 import json
 from copy import deepcopy
-from typing import Any
+from typing import Any, Tuple
 
 from groq import AsyncGroq
 
@@ -445,7 +445,9 @@ class Agent:
                        Any],
         github_token: str | None,
         github_client: GitHubClient,
-    ):
+    ) -> Tuple[str,
+               str,
+               str]:
         pr_number = github_client.create_pr_with_file_changes(
             title=response["title"],
             body=response["body"],
@@ -466,7 +468,7 @@ class Agent:
         content = f"PR created: {url}"
         action_type = ActionType.GITHUB_CREATE_PR.value
 
-        return [url, content, action_type]
+        return url, content, action_type
 
     def _issue_handler(
         self,
@@ -474,7 +476,8 @@ class Agent:
                        Any],
         github_token: str | None,
         github_client: GitHubClient,
-    ):
+    ) -> Tuple[str,
+               str]:
         issue_number = github_client.create_issue(
             title=response["title"],
             body=response["body"],
@@ -489,7 +492,7 @@ class Agent:
         )
         content = f"Issue created: {url}"
         action_type = ActionType.GITHUB_CREATE_ISSUE.value
-        return [content, action_type]
+        return content, action_type
 
     async def _chat_with_context_chunks_gorq(
         self,
@@ -530,7 +533,6 @@ class Agent:
         user_sub: str,
         chat_client: AsyncOpenAI,
     ):
-
         allowed_model = {ChatModel.GPT_5, ChatModel.O4_MINI}
 
         if model not in allowed_model:
