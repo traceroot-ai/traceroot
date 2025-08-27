@@ -8,14 +8,23 @@ import httpx
 
 class GitHubClient:
 
-    def __init__(self, token: str, app_name: str = "my-async-app", timeout: int = 30):
-        """Initialize async GitHub client."""
+    def __init__(
+        self,
+        token: str | None = None,
+        app_name: str = "my-async-app",
+        timeout: int = 30
+    ):
+        """Initialize async GitHub client (token optional)."""
         self.base_url = "https://api.github.com"
         self.headers = {
-            "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "User-Agent": app_name,
         }
+
+        # Add token only if provided
+        if token:
+            self.headers["Authorization"] = f"Bearer {token}"
+
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
             headers=self.headers,
