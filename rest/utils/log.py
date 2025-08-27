@@ -50,7 +50,9 @@ def process_log_events(all_events: list[dict[str, Any]]) -> TraceLogs:
     # identical timestamps
     for span_log_dict in logs:
         for span_id, log_entries in span_log_dict.items():
-            log_entries.sort(key=lambda entry: (entry.time, entry.line_number))
+            log_entries.sort(
+                key=lambda entry: (entry.time, getattr(entry, 'line_number', 0))
+            )
 
     trace_logs = TraceLogs(logs=logs)
     return trace_logs
