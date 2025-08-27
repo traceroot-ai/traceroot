@@ -143,3 +143,6 @@ line_length = 90
 
 [tool.flake8]
 max-line-length = 90
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
