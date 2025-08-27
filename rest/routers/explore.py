@@ -75,11 +75,7 @@ try:
 except ImportError:
     from rest.utils.auth import get_user_credentials, hash_user_sub
 
-try:
-    from rest.agent.ee.agent import Agent
-except ImportError:
-    from rest.agent.agent import Agent
-
+from rest.agent.agent import Agent
 from rest.agent.summarizer.github import is_github_related, set_github_related
 from rest.utils.github import parse_github_url
 
