@@ -11,7 +11,7 @@ except ImportError:
 
 import json
 from copy import deepcopy
-from typing import Any
+from typing import Any, Tuple
 
 from groq import AsyncGroq
 
@@ -29,10 +29,11 @@ from rest.agent.filter.structure import (
 )
 from rest.agent.github_tools import create_issue, create_pr_with_file_changes
 from rest.agent.prompts import AGENT_SYSTEM_PROMPT
-from rest.agent.typing import LogFeature
+from rest.agent.typing import ISSUE_TYPE, LogFeature
 from rest.agent.utils.openai_tools import get_openai_tool_schema
 from rest.client.github_client import GitHubClient
 from rest.config import ChatbotResponse
+from rest.constants import MAX_PREV_RECORD
 from rest.typing import ActionStatus, ActionType, ChatModel, MessageType, Provider
 from rest.utils.token_tracking import track_tokens_for_user
 
@@ -41,14 +42,12 @@ class Agent:
 
     def __init__(self):
         api_key = os.getenv("OPENAI_API_KEY")
+
         if api_key is None:
             # This means that is using the local mode
             # and user needs to provide the token within
             # the integrate section at first
             api_key = "fake_openai_api_key"
-            self.local_mode = True
-        else:
-            self.local_mode = False
         self.chat_client = AsyncOpenAI(api_key=api_key)
         self.system_prompt = AGENT_SYSTEM_PROMPT
 
@@ -95,11 +94,13 @@ class Agent:
             provider (Provider): The provider to use.
             groq_token (str | None): The Groq API key to use.
         """
-        if not is_github_issue and not is_github_pr:
+        if not (is_github_issue or is_github_pr):
             raise ValueError("Either is_github_issue or is_github_pr must be True.")
+
         if model == ChatModel.AUTO:
             model = ChatModel.GPT_4O
 
+        # shall we rename this github_file_tasks it is very confusing
         if github_file_tasks is not None:
             github_str = "\n".join(
                 [
@@ -116,10 +117,7 @@ class Agent:
             )
 
         # Use local client to avoid race conditions in concurrent calls
-        if openai_token is not None:
-            client = AsyncOpenAI(api_key=openai_token)
-        else:
-            client = self.chat_client
+        client = AsyncOpenAI(api_key=openai_token) if openai_token else self.chat_client
 
         # Select only necessary log and span features #########################
         (
@@ -165,17 +163,19 @@ class Agent:
         context_messages = [
             deepcopy(context_chunks[i]) for i in range(len(context_chunks))
         ]
-        for i, message in enumerate(context_chunks):
+        for i, msg in enumerate(context_chunks):
             if is_github_issue:
-                updated_message = f"""
-                    {message}\nFor now please create an GitHub issue.\n
-                """
+                updated_message = self._context_chunk_msg_handler(
+                    msg,
+                    ISSUE_TYPE.GITHUB_ISSUE
+                )
             elif is_github_pr:
-                updated_message = f"""
-                    {message}\nFor now please create a GitHub PR.\n
-                """
+                updated_message = self._context_chunk_msg_handler(
+                    msg,
+                    ISSUE_TYPE.GITHUB_PR
+                )
             else:
-                updated_message = message
+                updated_message = msg
             context_messages[i] = (
                 f"{updated_message}\n\nHere are my questions: "
                 f"{user_message}\n\n{github_message}"
@@ -185,7 +185,7 @@ class Agent:
         chat_history = [chat for chat in chat_history if chat["role"] != "github"]
         if chat_history is not None:
             # Only append the last 10 chat history records
-            for record in chat_history[-10:]:
+            for record in chat_history[-MAX_PREV_RECORD:]:
                 # We only need to include the user message
                 # (without the context information) in the
                 # chat history
@@ -234,41 +234,14 @@ class Agent:
         github_client = GitHubClient()
         maybe_return_directly: bool = False
         if is_github_issue:
-            issue_number = await github_client.create_issue(
-                title=response["title"],
-                body=response["body"],
-                owner=response["owner"],
-                repo_name=response["repo_name"],
-                github_token=github_token,
+            content, action_type = self._issue_handler(
+                response, github_token, github_client
             )
-            url = (
-                f"https://github.com/{response['owner']}/"
-                f"{response['repo_name']}/"
-                f"issues/{issue_number}"
-            )
-            content = f"Issue created: {url}"
-            action_type = ActionType.GITHUB_CREATE_ISSUE.value
         elif is_github_pr:
             if "file_path_to_change" in response:
-                pr_number = await github_client.create_pr_with_file_changes(
-                    title=response["title"],
-                    body=response["body"],
-                    owner=response["owner"],
-                    repo_name=response["repo_name"],
-                    base_branch=response["base_branch"],
-                    head_branch=response["head_branch"],
-                    file_path_to_change=response["file_path_to_change"],
-                    file_content_to_change=response["file_content_to_change"],
-                    commit_message=response["commit_message"],
-                    github_token=github_token,
+                _, content, action_type = self._pr_handler(
+                    response, github_token, github_client
                 )
-                url = (
-                    f"https://github.com/{response['owner']}/"
-                    f"{response['repo_name']}/"
-                    f"pull/{pr_number}"
-                )
-                content = f"PR created: {url}"
-                action_type = ActionType.GITHUB_CREATE_PR.value
             else:
                 maybe_return_directly = True
 
@@ -303,11 +276,9 @@ class Agent:
                         ),
                     },
                     {
-                        "role":
-                        "user",
+                        "role": "user",
                         "content":
-                        ("Here is the created issueor "
-                         f"the created PR:{response}"),
+                        (f"Here is the created issueor the created PR:{response}"),
                     },
                 ],
             )
@@ -358,53 +329,18 @@ class Agent:
               Any]:
         r"""Chat with context chunks."""
         if provider == Provider.GROQ:
-            model = ChatModel.GPT_OSS_120B
-            client = AsyncGroq(api_key=groq_token)
-            response = await client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=[
-                    get_openai_tool_schema(create_issue),
-                    get_openai_tool_schema(create_pr_with_file_changes),
-                ],
+            return await self._chat_with_context_chunks_gorq(
+                messages,
+                user_sub,
+                groq_token
             )
-            # Track token usage for Groq call
-            await track_tokens_for_user(
-                user_sub=user_sub,
-                openai_response=response,
-                model=str(model)
-            )
-
-            tool_calls = response.choices[0].message.tool_calls
-            if tool_calls is None or len(tool_calls) == 0:
-                return {"content": response.choices[0].message.content}
-            else:
-                arguments = tool_calls[0].function.arguments
         else:
-            # Force using o4-mini for if not using gpt-5
-            if model != ChatModel.GPT_5:
-                model = ChatModel.O4_MINI
-            response = await chat_client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=[
-                    get_openai_tool_schema(create_issue),
-                    get_openai_tool_schema(create_pr_with_file_changes),
-                ],
+            return await self._chat_with_context_openai(
+                messages,
+                model,
+                user_sub,
+                chat_client
             )
-            # Track token usage for this OpenAI call
-            await track_tokens_for_user(
-                user_sub=user_sub,
-                openai_response=response,
-                model=str(model)
-            )
-
-            tool_calls = response.choices[0].message.tool_calls
-            if tool_calls is None or len(tool_calls) == 0:
-                return {"content": response.choices[0].message.content}
-            else:
-                arguments = tool_calls[0].function.arguments
-        return json.loads(arguments)
 
     def get_context_messages(self, context: str) -> list[str]:
         r"""Get the context message."""
@@ -453,3 +389,135 @@ class Agent:
                 model=model,
             ),
         )
+
+    def _context_chunk_msg_handler(self, message: str, issue_type: ISSUE_TYPE):
+        if issue_type == ISSUE_TYPE.GITHUB_ISSUE:
+            return f"""
+                {message}\nFor now please create an GitHub issue.\n
+            """
+
+        if issue_type == ISSUE_TYPE.GITHUB_PR:
+            return f"""
+                {message}\nFor now please create a GitHub PR.\n
+            """
+
+    def _pr_handler(
+        self,
+        response: dict[str,
+                       Any],
+        github_token: str | None,
+        github_client: GitHubClient,
+    ) -> Tuple[str,
+               str,
+               str]:
+        pr_number = github_client.create_pr_with_file_changes(
+            title=response["title"],
+            body=response["body"],
+            owner=response["owner"],
+            repo_name=response["repo_name"],
+            base_branch=response["base_branch"],
+            head_branch=response["head_branch"],
+            file_path_to_change=response["file_path_to_change"],
+            file_content_to_change=response["file_content_to_change"],
+            commit_message=response["commit_message"],
+            github_token=github_token,
+        )
+        url = (
+            f"https://github.com/{response['owner']}/"
+            f"{response['repo_name']}/"
+            f"pull/{pr_number}"
+        )
+        content = f"PR created: {url}"
+        action_type = ActionType.GITHUB_CREATE_PR.value
+
+        return url, content, action_type
+
+    def _issue_handler(
+        self,
+        response: dict[str,
+                       Any],
+        github_token: str | None,
+        github_client: GitHubClient,
+    ) -> Tuple[str,
+               str]:
+        issue_number = github_client.create_issue(
+            title=response["title"],
+            body=response["body"],
+            owner=response["owner"],
+            repo_name=response["repo_name"],
+            github_token=github_token,
+        )
+        url = (
+            f"https://github.com/{response['owner']}/"
+            f"{response['repo_name']}/"
+            f"issues/{issue_number}"
+        )
+        content = f"Issue created: {url}"
+        action_type = ActionType.GITHUB_CREATE_ISSUE.value
+        return content, action_type
+
+    async def _chat_with_context_chunks_gorq(
+        self,
+        messages: list[dict[str,
+                            str]],
+        user_sub: str,
+        groq_token: str | None = None,
+    ):
+        model = ChatModel.GPT_OSS_120B
+        client = AsyncGroq(api_key=groq_token)
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=[
+                get_openai_tool_schema(create_issue),
+                get_openai_tool_schema(create_pr_with_file_changes),
+            ],
+        )
+        # Track token usage for Groq call
+        await track_tokens_for_user(
+            user_sub=user_sub,
+            openai_response=response,
+            model=str(model)
+        )
+
+        tool_calls = response.choices[0].message.tool_calls
+        if tool_calls is None or len(tool_calls) == 0:
+            return {"content": response.choices[0].message.content}
+        else:
+            arguments = tool_calls[0].function.arguments
+            return json.loads(arguments)
+
+    async def _chat_with_context_openai(
+        self,
+        messages: list[dict[str,
+                            str]],
+        model: ChatModel,
+        user_sub: str,
+        chat_client: AsyncOpenAI,
+    ):
+        allowed_model = {ChatModel.GPT_5, ChatModel.O4_MINI}
+
+        if model not in allowed_model:
+            model = ChatModel.O4_MINI
+
+        response = await chat_client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=[
+                get_openai_tool_schema(create_issue),
+                get_openai_tool_schema(create_pr_with_file_changes),
+            ],
+        )
+        # Track token usage for this OpenAI call
+        await track_tokens_for_user(
+            user_sub=user_sub,
+            openai_response=response,
+            model=str(model)
+        )
+
+        tool_calls = response.choices[0].message.tool_calls
+        if tool_calls is None or len(tool_calls) == 0:
+            return {"content": response.choices[0].message.content}
+        else:
+            arguments = tool_calls[0].function.arguments
+            return json.loads(arguments)
