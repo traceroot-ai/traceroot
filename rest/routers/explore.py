@@ -968,7 +968,7 @@ class ExploreRouter:
         log_search_values: list[str],
         log_search_operations: list[Operation]
     ) -> list[Trace]:
-        """Filter traces by log content.
+        """Filter traces by log content using CloudWatch Insights.
 
         Args:
             traces: List of traces to filter
@@ -981,30 +981,39 @@ class ExploreRouter:
         Returns:
             Filtered list of traces that contain the searched log content
         """
-        filtered_traces = []
+        if not log_search_values:
+            return traces
 
-        for trace in traces:
-            # Check if this trace has logs containing any of the search terms
-            try:
-                # For now, support only the first search term
-                search_term = log_search_values[0] if log_search_values else None
+        search_term = log_search_values[0]
 
-                # Get logs for this trace with search filtering at CloudWatch level
-                trace_logs = await self.observe_client.get_logs_by_trace_id(
-                    trace_id=trace.id,
-                    start_time=start_time,
-                    end_time=end_time,
-                    log_group_name=log_group_name,
-                    log_search_term=search_term
-                )
+        try:
+            # Use CloudWatch Insights to find trace IDs
+            # from logs containing search term
+            # TODO: change all of this to JSON format
+            # Log format: timestamp;level;service;function;
+            # org;project;env;trace_id;span_id;details
+            # Extract trace_id (field 8, 0-indexed field 7)
+            # from semicolon-separated logs
 
-                # If we get any logs back, the trace contains the search term
-                if trace_logs.logs and any(log_dict for log_dict in trace_logs.logs):
-                    filtered_traces.append(trace)
+            # Single query to get all matching trace IDs
+            matching_trace_ids = await self.observe_client.get_trace_ids_from_logs(
+                start_time=start_time,
+                end_time=end_time,
+                log_group_name=log_group_name,
+                search_term=search_term
+            )
 
-            except Exception as e:
-                # If we can't get logs for a trace, exclude it from results
-                self.logger.warning(f"Failed to get logs for trace {trace.id}: {e}")
-                continue
+            if not matching_trace_ids:
+                return []
 
-        return filtered_traces
+            # Convert to set for fast O(1) lookup
+            trace_id_set = set(matching_trace_ids)
+
+            # Filter traces by matching trace IDs
+            filtered_traces = [trace for trace in traces if trace.id in trace_id_set]
+            return filtered_traces
+
+        except Exception as e:
+            self.logger.error(f"Failed to filter traces by log content: {e}")
+            # Fallback: return all traces if log filtering fails
+            return traces
