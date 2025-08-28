@@ -48,6 +48,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
   >({});
   const [inputValue, setInputValue] = useState("");
   const [metadataCategoryValue, setMetadataCategoryValue] = useState("");
+  const [metadataValue, setMetadataValue] = useState("");
   const [logSearchValue, setLogSearchValue] = useState("");
 
   const handleAddCriterion = () => {
@@ -56,6 +57,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
 
     if (currentCriterion.category === "metadata") {
       categoryValue = metadataCategoryValue.trim();
+      searchValue = metadataValue.trim();
     } else if (currentCriterion.category === "log") {
       searchValue = logSearchValue.trim();
     }
@@ -74,6 +76,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
       setCurrentCriterion({});
       setInputValue("");
       setMetadataCategoryValue("");
+      setMetadataValue("");
       setLogSearchValue("");
       onSearch(newCriteria);
     }
@@ -187,6 +190,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
                   });
                   if (value !== "metadata") {
                     setMetadataCategoryValue("");
+                    setMetadataValue("");
                   }
                   if (value !== "log") {
                     setLogSearchValue("");
@@ -221,6 +225,19 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Metadata category input (only show when metadata is selected) */}
+          {currentCriterion.category === "metadata" && (
+            <Input
+              type="text"
+              value={metadataCategoryValue}
+              onChange={(e) => setMetadataCategoryValue(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="category"
+              className="w-26 min-w-[80px] h-6.5"
+              style={{ fontSize: "12px" }}
+            />
+          )}
 
           {/* Operation selector */}
           <DropdownMenu>
@@ -293,14 +310,14 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Metadata category input (only show when metadata is selected) */}
+          {/* Metadata value input (only show when metadata is selected) */}
           {currentCriterion.category === "metadata" && (
             <Input
               type="text"
-              value={metadataCategoryValue}
-              onChange={(e) => setMetadataCategoryValue(e.target.value)}
+              value={metadataValue}
+              onChange={(e) => setMetadataValue(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder=""
+              placeholder="value"
               className="w-26 min-w-[80px] h-6.5"
               style={{ fontSize: "12px" }}
             />
@@ -346,6 +363,8 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
               setInputValue("");
               // Clear metadata category value
               setMetadataCategoryValue("");
+              // Clear metadata value
+              setMetadataValue("");
               // Clear log search value
               setLogSearchValue("");
               // Call parent clear function
