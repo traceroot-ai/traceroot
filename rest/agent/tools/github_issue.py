@@ -9,6 +9,8 @@ class CreateGitIssue(Tool):
 
     def __init__(self, **kwargs) -> None:
 
+        self.name = "CreateGitIssue"
+
         self.description = """
             This tool helps you to create a github issue.
         """

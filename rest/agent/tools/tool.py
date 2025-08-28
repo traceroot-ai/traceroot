@@ -7,12 +7,20 @@ class Tool(ABC):
 
     def __init__(self, **kwargs) -> None:
         self.tool: Callable
+
+        self.name = ""
         self.description = ""
         self.parameters = {}
 
         # arguments should pass to run
         self.arguments = {}
         self.values = {}
+
+    def get_name(self) -> str:
+        """
+            get tool name
+        """
+        return self.name
 
     @abstractmethod
     def run(self) -> dict[str, Any]:
