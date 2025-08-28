@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import LogPanelSwitch from './log/LogPanelSwitch';
-import Agent from './agent/Agent';
-import TracePanelSwitch from './trace/TracePanelSwitch';
-import ModeToggle, { ViewType } from './ModeToggle';
-import { Span, Trace as TraceModel } from '@/models/trace';
-import { useUser } from '@/hooks/useUser';
+import React, { useState, useEffect } from "react";
+import LogPanelSwitch from "./log/LogPanelSwitch";
+import Agent from "./agent/Agent";
+import TracePanelSwitch from "./trace/TracePanelSwitch";
+import ModeToggle, { ViewType } from "./ModeToggle";
+import { Span, Trace as TraceModel } from "@/models/trace";
+import { useUser } from "@/hooks/useUser";
 
 interface RightPanelSwitchProps {
   traceId?: string;
@@ -27,10 +27,10 @@ export default function RightPanelSwitch({
   allTraces = [],
   onTraceSelect,
   onSpanClear,
-  onTraceSpansUpdate
+  onTraceSpansUpdate,
 }: RightPanelSwitchProps) {
   const { getAuthState } = useUser();
-  const [viewType, setViewType] = useState<ViewType>('log');
+  const [viewType, setViewType] = useState<ViewType>("log");
   const [spans, setSpans] = useState<Span[] | undefined>(undefined);
   const [traceDurations, setTraceDurations] = useState<number[]>([]);
   const [traceStartTimes, setTraceStartTimes] = useState<Date[]>([]);
@@ -41,11 +41,11 @@ export default function RightPanelSwitch({
   // Update trace data when allTraces prop changes
   useEffect(() => {
     if (allTraces && allTraces.length > 0) {
-      setTraceIDs(allTraces.map(t => t.id));
-      setTraceDurations(allTraces.map(t => t.duration));
-      setTraceStartTimes(allTraces.map(t => new Date(t.start_time * 1000)));
-      setTraceEndTimes(allTraces.map(t => new Date(t.end_time * 1000)));
-      setTracePercentiles(allTraces.map(t => t.percentile));
+      setTraceIDs(allTraces.map((t) => t.id));
+      setTraceDurations(allTraces.map((t) => t.duration));
+      setTraceStartTimes(allTraces.map((t) => new Date(t.start_time * 1000)));
+      setTraceEndTimes(allTraces.map((t) => new Date(t.end_time * 1000)));
+      setTracePercentiles(allTraces.map((t) => t.percentile));
     } else {
       // Clear all trace data when no traces provided
       setTraceDurations([]);
@@ -59,7 +59,9 @@ export default function RightPanelSwitch({
   // Update spans when traceId changes, using already fetched trace data
   useEffect(() => {
     if (traceId && allTraces.length > 0) {
-      const trace: TraceModel | undefined = allTraces.find((t: TraceModel) => t.id === traceId);
+      const trace: TraceModel | undefined = allTraces.find(
+        (t: TraceModel) => t.id === traceId,
+      );
       const newSpans = trace ? trace.spans : undefined;
       setSpans(newSpans);
       // Notify parent of spans update for validation
@@ -76,7 +78,7 @@ export default function RightPanelSwitch({
 
       {/* View content */}
       <div className="flex-1 overflow-hidden">
-        {viewType === 'log' ? (
+        {viewType === "log" ? (
           <LogPanelSwitch
             traceId={traceId}
             spanIds={spanIds}
@@ -91,7 +93,7 @@ export default function RightPanelSwitch({
             onTraceSelect={onTraceSelect}
             viewType={viewType}
           />
-        ) : viewType === 'agent' ? (
+        ) : viewType === "agent" ? (
           <Agent
             traceId={traceId}
             spanIds={spanIds}

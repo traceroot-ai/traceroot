@@ -1,72 +1,72 @@
-'use client';
+"use client";
 
-import { Suspense } from 'react';
-import { PricingTable } from 'autumn-js/react';
+import { Suspense } from "react";
+import { PricingTable } from "autumn-js/react";
 
 // Product details configuration to match Autumn documentation style
 const productDetails = [
   {
-    id: 'starter',
-    description: '7-day free trial, then choose to continue at $19/month',
+    id: "starter",
+    description: "7-day free trial, then choose to continue at $19/month",
     items: [
       {
-        primaryText: '100k trace + logs',
+        primaryText: "100k trace + logs",
       },
       {
-        primaryText: '1M LLM tokens',
+        primaryText: "1M LLM tokens",
       },
       {
-        primaryText: '30d retention',
+        primaryText: "30d retention",
       },
       {
-        primaryText: 'Source code visible in UI',
+        primaryText: "Source code visible in UI",
       },
       {
-        primaryText: 'AI agent with chat mode only',
+        primaryText: "AI agent with chat mode only",
       },
     ],
   },
   {
-    id: 'pro',
-    description: 'For all your extra messaging needs',
-    recommendText: 'Popular',
+    id: "pro",
+    description: "For all your extra messaging needs",
+    recommendText: "Popular",
     items: [
       {
-        primaryText: 'Everything in Starter',
+        primaryText: "Everything in Starter",
       },
       {
-        primaryText: 'Unlimited users',
+        primaryText: "Unlimited users",
       },
       {
-        primaryText: 'AI agent has chat + agent mode',
+        primaryText: "AI agent has chat + agent mode",
       },
       {
-        primaryText: 'Optional full codebase access (GitHub integration)',
+        primaryText: "Optional full codebase access (GitHub integration)",
       },
       {
-        primaryText: 'AI Agent auto-triaging production issues',
+        primaryText: "AI Agent auto-triaging production issues",
       },
     ],
   },
   {
-    id: 'startups',
-    description: 'For those of you who are really serious',
+    id: "startups",
+    description: "For those of you who are really serious",
     items: [
       {
-        primaryText: 'Everything in Pro',
+        primaryText: "Everything in Pro",
       },
       {
-        primaryText: '5M trace + logs',
+        primaryText: "5M trace + logs",
       },
       {
-        primaryText: '50M LLM tokens',
+        primaryText: "50M LLM tokens",
       },
       {
         primaryText:
-          'Slack & Notion integration, full GitHub support with ticket/PR context',
+          "Slack & Notion integration, full GitHub support with ticket/PR context",
       },
       {
-        primaryText: 'SOC2 & ISO27001 reports, BAA available (HIPAA)',
+        primaryText: "SOC2 & ISO27001 reports, BAA available (HIPAA)",
       },
     ],
   },

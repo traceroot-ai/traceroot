@@ -13,13 +13,15 @@ export const getTimezoneOffsetMs = (): number => {
 };
 
 // Convert UTC timestamp to local timestamp by adjusting for timezone offset
-export const convertUTCToLocal = (utcTimestamp: number | string | Date): Date => {
+export const convertUTCToLocal = (
+  utcTimestamp: number | string | Date,
+): Date => {
   let utcMs: number;
 
   if (utcTimestamp instanceof Date) {
     // If it's a Date, get the UTC milliseconds
     utcMs = utcTimestamp.getTime();
-  } else if (typeof utcTimestamp === 'string') {
+  } else if (typeof utcTimestamp === "string") {
     // Parse string timestamp
     const parsed = new Date(utcTimestamp);
     utcMs = parsed.getTime();
@@ -37,7 +39,9 @@ export const convertUTCToLocal = (utcTimestamp: number | string | Date): Date =>
 };
 
 // Format a UTC timestamp as local time string
-export const formatUTCAsLocal = (utcTimestamp: number | string | Date): string => {
+export const formatUTCAsLocal = (
+  utcTimestamp: number | string | Date,
+): string => {
   try {
     const localDate = convertUTCToLocal(utcTimestamp);
 
@@ -48,15 +52,15 @@ export const formatUTCAsLocal = (utcTimestamp: number | string | Date): string =
     const minutes = localDate.getMinutes();
     const seconds = localDate.getSeconds();
     const milliseconds = localDate.getMilliseconds();
-    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const ampm = hours >= 12 ? "PM" : "AM";
     const displayHours = hours % 12 || 12;
 
-    const result = `${month}/${day}/${year}, ${displayHours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')} ${ampm}`;
+    const result = `${month}/${day}/${year}, ${displayHours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")} ${ampm}`;
 
     return result;
   } catch (error) {
-    console.error('Error formatting UTC as local:', error);
-    return 'Invalid date';
+    console.error("Error formatting UTC as local:", error);
+    return "Invalid date";
   }
 };
 
@@ -67,6 +71,8 @@ export const getTimezoneInfo = () => {
     timezoneName: Intl.DateTimeFormat().resolvedOptions().timeZone,
     offsetMinutes: now.getTimezoneOffset(),
     offsetHours: now.getTimezoneOffset() / 60,
-    isDST: now.getTimezoneOffset() < (new Date(now.getFullYear(), 0, 1)).getTimezoneOffset()
+    isDST:
+      now.getTimezoneOffset() <
+      new Date(now.getFullYear(), 0, 1).getTimezoneOffset(),
   };
 };

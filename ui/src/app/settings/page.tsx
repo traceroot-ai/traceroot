@@ -1,25 +1,25 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   FaCreditCard,
   FaHistory,
   FaCrown,
   FaRobot,
   FaChartLine,
-} from 'react-icons/fa';
-import { useUser } from '../../hooks/useUser';
-import { useCustomer } from 'autumn-js/react';
-import { toast } from 'react-hot-toast';
+} from "react-icons/fa";
+import { useUser } from "../../hooks/useUser";
+import { useCustomer } from "autumn-js/react";
+import { toast } from "react-hot-toast";
 import {
   Card,
   CardHeader,
   CardTitle,
   CardDescription,
   CardContent,
-} from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -95,7 +95,7 @@ export default function SettingsPage() {
       // Get the last payment date from customer subscription
       const activeProduct = customer.products.find(
         (product) =>
-          product.status === 'active' || product.status === 'trialing'
+          product.status === "active" || product.status === "trialing",
       );
 
       if (!activeProduct) {
@@ -109,14 +109,14 @@ export default function SettingsPage() {
 
       // Use GET with query parameters
       const url = new URL(
-        '/api/get_traces_and_logs_usage',
-        window.location.origin
+        "/api/get_traces_and_logs_usage",
+        window.location.origin,
       );
-      console.log('sinceDate', sinceDate);
-      url.searchParams.set('since_date', sinceDate);
+      console.log("sinceDate", sinceDate);
+      url.searchParams.set("since_date", sinceDate);
 
       const response = await fetch(url.toString(), {
-        method: 'GET',
+        method: "GET",
         headers: {
           Authorization: `Bearer ${authState}`,
         },
@@ -132,7 +132,7 @@ export default function SettingsPage() {
         }
       }
     } catch (error) {
-      console.error('Error fetching traces and logs usage:', error);
+      console.error("Error fetching traces and logs usage:", error);
     } finally {
       setIsLoadingTracesAndLogs(false);
     }
@@ -149,29 +149,29 @@ export default function SettingsPage() {
 
   // Format numbers with commas for better readability
   const formatNumber = (num: number) => {
-    return new Intl.NumberFormat('en-US').format(num);
+    return new Intl.NumberFormat("en-US").format(num);
   };
 
   // Get color based on usage percentage
   const getUsageColor = (percentage: number) => {
-    if (percentage >= 90) return 'text-destructive';
-    if (percentage >= 75) return 'text-yellow-600 dark:text-yellow-400';
-    return 'text-green-600 dark:text-green-400';
+    if (percentage >= 90) return "text-destructive";
+    if (percentage >= 75) return "text-yellow-600 dark:text-yellow-400";
+    return "text-green-600 dark:text-green-400";
   };
 
   // Get current active product from Autumn customer data
   const getCurrentPlan = () => {
-    console.log('customer', customer);
+    console.log("customer", customer);
     if (!customer?.products || customer.products.length === 0) {
-      return 'Free';
+      return "Free";
     }
 
     // Find the currently active product (including trialing status)
     const activeProduct = customer.products.find(
-      (product) => product.status === 'active' || product.status === 'trialing'
+      (product) => product.status === "active" || product.status === "trialing",
     );
 
-    return activeProduct?.name || 'Free';
+    return activeProduct?.name || "Free";
   };
 
   // Check if customer has active subscription
@@ -181,7 +181,7 @@ export default function SettingsPage() {
     }
 
     return customer.products.some(
-      (product) => product.status === 'active' || product.status === 'trialing'
+      (product) => product.status === "active" || product.status === "trialing",
     );
   };
 
@@ -191,7 +191,7 @@ export default function SettingsPage() {
       return false;
     }
 
-    return customer.products.some((product) => product.status === 'trialing');
+    return customer.products.some((product) => product.status === "trialing");
   };
 
   // Get trial end date if on trial
@@ -201,13 +201,13 @@ export default function SettingsPage() {
     }
 
     const trialProduct = customer.products.find(
-      (product) => product.status === 'trialing'
+      (product) => product.status === "trialing",
     );
 
     // Debug: log the trial product to see available fields
     if (trialProduct) {
-      console.log('Trial product:', trialProduct);
-      console.log('Trial product keys:', Object.keys(trialProduct));
+      console.log("Trial product:", trialProduct);
+      console.log("Trial product keys:", Object.keys(trialProduct));
     }
 
     // Check multiple possible field names for trial end date
@@ -218,54 +218,54 @@ export default function SettingsPage() {
 
   // Capitalize the plan name for display
   const formatPlanName = (plan: string | null | undefined) => {
-    if (!plan) return 'Free';
+    if (!plan) return "Free";
     return plan.charAt(0).toUpperCase() + plan.slice(1);
   };
 
   // Handle manage billing click using Autumn's openBillingPortal
   const handleManageBilling = async () => {
     if (!user?.email) {
-      toast.error('Please sign in to manage billing');
+      toast.error("Please sign in to manage billing");
       return;
     }
 
     try {
       setIsProcessing(true);
-      toast.loading('Redirecting to billing portal...', {
-        id: 'billing-redirect',
+      toast.loading("Redirecting to billing portal...", {
+        id: "billing-redirect",
       });
 
       await openBillingPortal({
         returnUrl: `${window.location.origin}/settings`,
       });
 
-      toast.dismiss('billing-redirect');
-      toast.success('Redirecting to billing portal...');
+      toast.dismiss("billing-redirect");
+      toast.success("Redirecting to billing portal...");
     } catch (error) {
-      console.error('Error opening billing portal:', error);
-      toast.dismiss('billing-redirect');
+      console.error("Error opening billing portal:", error);
+      toast.dismiss("billing-redirect");
 
       // More specific error messages
       const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error occurred';
+        error instanceof Error ? error.message : "Unknown error occurred";
 
       if (
-        errorMessage.includes('configuration') ||
-        errorMessage.includes('portal')
+        errorMessage.includes("configuration") ||
+        errorMessage.includes("portal")
       ) {
         toast.error(
-          'Billing portal is not configured yet. Please contact support for subscription management.',
+          "Billing portal is not configured yet. Please contact support for subscription management.",
           {
             duration: 6000,
-          }
+          },
         );
-      } else if (errorMessage.includes('customer')) {
+      } else if (errorMessage.includes("customer")) {
         toast.error(
-          'Unable to find your billing information. Please contact support.'
+          "Unable to find your billing information. Please contact support.",
         );
       } else {
         toast.error(
-          'Failed to open billing portal. Please try again or contact support.'
+          "Failed to open billing portal. Please try again or contact support.",
         );
       }
     } finally {
@@ -276,18 +276,18 @@ export default function SettingsPage() {
   // Get subscription status based on Autumn customer data
   const getSubscriptionStatus = () => {
     if (!customer) {
-      return { status: 'Loading...', variant: 'secondary' as const };
+      return { status: "Loading...", variant: "secondary" as const };
     }
 
     if (!hasActiveSubscription()) {
-      return { status: 'No Subscription', variant: 'secondary' as const };
+      return { status: "No Subscription", variant: "secondary" as const };
     }
 
     if (isOnTrial()) {
-      return { status: 'Trial', variant: 'secondary' as const };
+      return { status: "Trial", variant: "secondary" as const };
     }
 
-    return { status: 'Active', variant: 'default' as const };
+    return { status: "Active", variant: "default" as const };
   };
 
   const currentPlan = getCurrentPlan();
@@ -362,7 +362,7 @@ export default function SettingsPage() {
                     <Button
                       variant="destructive"
                       size="sm"
-                      onClick={() => router.push('/pricing')}
+                      onClick={() => router.push("/pricing")}
                     >
                       Upgrade Now
                     </Button>
@@ -415,20 +415,20 @@ export default function SettingsPage() {
                       </div>
                       <div className="text-sm font-medium mt-1">
                         {(() => {
-                          if (!customer.created_at) return 'N/A';
+                          if (!customer.created_at) return "N/A";
 
                           try {
                             const date = new Date(customer.created_at);
                             if (isNaN(date.getTime())) {
-                              return 'N/A';
+                              return "N/A";
                             }
-                            return date.toLocaleDateString('en-US', {
-                              year: 'numeric',
-                              month: '2-digit',
-                              day: '2-digit',
+                            return date.toLocaleDateString("en-US", {
+                              year: "numeric",
+                              month: "2-digit",
+                              day: "2-digit",
                             });
                           } catch (error) {
-                            return 'N/A';
+                            return "N/A";
                           }
                         })()}
                       </div>
@@ -496,10 +496,10 @@ export default function SettingsPage() {
                           <div
                             className={`h-2 rounded-full transition-all duration-300 ${
                               tokenInfo.percentage >= 90
-                                ? 'bg-destructive'
+                                ? "bg-destructive"
                                 : tokenInfo.percentage >= 75
-                                  ? 'bg-yellow-500 dark:bg-yellow-600'
-                                  : 'bg-green-500 dark:bg-green-600'
+                                  ? "bg-yellow-500 dark:bg-yellow-600"
+                                  : "bg-green-500 dark:bg-green-600"
                             }`}
                             style={{
                               width: `${Math.min(100, tokenInfo.percentage)}%`,
@@ -544,8 +544,8 @@ export default function SettingsPage() {
                       <div
                         className={`text-xs p-2 rounded border ${
                           tokenInfo.percentage >= 90
-                            ? 'bg-destructive/10 text-destructive border-destructive/20 dark:bg-destructive/5 dark:text-destructive dark:border-destructive/10'
-                            : 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-300 dark:border-yellow-500/20'
+                            ? "bg-destructive/10 text-destructive border-destructive/20 dark:bg-destructive/5 dark:text-destructive dark:border-destructive/10"
+                            : "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-300 dark:border-yellow-500/20"
                         }`}
                       >
                         {tokenInfo.percentage >= 90
@@ -632,10 +632,10 @@ export default function SettingsPage() {
                           <div
                             className={`h-2 rounded-full transition-all duration-300 ${
                               tracesLogsInfo.percentage >= 90
-                                ? 'bg-destructive'
+                                ? "bg-destructive"
                                 : tracesLogsInfo.percentage >= 75
-                                  ? 'bg-yellow-500 dark:bg-yellow-600'
-                                  : 'bg-green-500 dark:bg-green-600'
+                                  ? "bg-yellow-500 dark:bg-yellow-600"
+                                  : "bg-green-500 dark:bg-green-600"
                             }`}
                             style={{
                               width: `${Math.min(100, tracesLogsInfo.percentage)}%`,
@@ -672,8 +672,8 @@ export default function SettingsPage() {
                       <div
                         className={`text-xs p-2 rounded border ${
                           tracesLogsInfo.percentage >= 90
-                            ? 'bg-destructive/10 text-destructive border-destructive/20 dark:bg-destructive/5 dark:text-destructive dark:border-destructive/10'
-                            : 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-300 dark:border-yellow-500/20'
+                            ? "bg-destructive/10 text-destructive border-destructive/20 dark:bg-destructive/5 dark:text-destructive dark:border-destructive/10"
+                            : "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-300 dark:border-yellow-500/20"
                         }`}
                       >
                         {tracesLogsInfo.percentage >= 90
@@ -705,11 +705,11 @@ export default function SettingsPage() {
 
             <CardContent className="space-y-3">
               <Button
-                onClick={() => router.push('/pricing')}
+                onClick={() => router.push("/pricing")}
                 className="w-full"
-                variant={isOnTrial() ? 'default' : 'outline'}
+                variant={isOnTrial() ? "default" : "outline"}
               >
-                {isOnTrial() ? 'Upgrade Plan' : 'Change Plan'}
+                {isOnTrial() ? "Upgrade Plan" : "Change Plan"}
               </Button>
 
               {user?.email && (
@@ -720,7 +720,7 @@ export default function SettingsPage() {
                   variant="secondary"
                 >
                   <FaCreditCard size={16} />
-                  {isProcessing ? 'Opening...' : 'Manage Billing'}
+                  {isProcessing ? "Opening..." : "Manage Billing"}
                 </Button>
               )}
 
@@ -767,11 +767,11 @@ export default function SettingsPage() {
                         <div className="text-sm text-muted-foreground">
                           {invoice.created
                             ? new Date(
-                                invoice.created * 1000
+                                invoice.created * 1000,
                               ).toLocaleDateString()
                             : invoice.date
                               ? new Date(invoice.date).toLocaleDateString()
-                              : 'N/A'}
+                              : "N/A"}
                         </div>
                       </div>
                     ))}

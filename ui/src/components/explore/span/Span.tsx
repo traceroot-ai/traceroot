@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Span as SpanType } from '@/models/trace';
-import { TRACE_ENTRY_COLOR } from '@/constants/colors';
-import { fadeInAnimationStyles } from '@/constants/animations';
+import React, { useState, useEffect } from "react";
+import { Span as SpanType } from "@/models/trace";
+import { TRACE_ENTRY_COLOR } from "@/constants/colors";
+import { fadeInAnimationStyles } from "@/constants/animations";
 import { IoWarningOutline, IoLogoJavascript } from "react-icons/io5";
 import { MdErrorOutline } from "react-icons/md";
 import { FaPython } from "react-icons/fa";
@@ -47,7 +47,7 @@ const Span: React.FC<SpanProps> = ({
   selectedSpanIds = [],
   level = 0,
   parentHasMoreSiblings = [],
-  isRepeated = false
+  isRepeated = false,
 }) => {
   const childWidthPercentage = Math.max(widthPercentage, 10);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -84,11 +84,13 @@ const Span: React.FC<SpanProps> = ({
 
   const renderChildSpans = (childSpans: SpanType[]) => {
     // Identify repeated leaf spans among siblings
-    const leafSpans = childSpans.filter(childSpan => !childSpan.spans || childSpan.spans.length === 0);
+    const leafSpans = childSpans.filter(
+      (childSpan) => !childSpan.spans || childSpan.spans.length === 0,
+    );
     const spanNameCounts = new Map<string, number>();
 
     // Count occurrences of each span name among leaf spans
-    leafSpans.forEach(leafSpan => {
+    leafSpans.forEach((leafSpan) => {
       const count = spanNameCounts.get(leafSpan.name) || 0;
       spanNameCounts.set(leafSpan.name, count + 1);
     });
@@ -109,19 +111,19 @@ const Span: React.FC<SpanProps> = ({
             className="absolute top-0 w-px"
             style={{
               left: `${100 - childWidthPercentage}%`, // Position at the left edge of child spans
-              height: '100%',
-              background: '#e5e7eb',
+              height: "100%",
+              background: "#e5e7eb",
               zIndex: 0,
             }}
           />
         )}
 
         <div
-          className={`mt-1 space-y-1.5 overflow-hidden transition-all duration-100 ease-in-out ${isExpanded ? 'max-h-none opacity-100' : 'max-h-0 opacity-0'}`}
+          className={`mt-1 space-y-1.5 overflow-hidden transition-all duration-100 ease-in-out ${isExpanded ? "max-h-none opacity-100" : "max-h-0 opacity-0"}`}
           style={{
             width: `${childWidthPercentage}%`,
             marginLeft: `${100 - childWidthPercentage}%`,
-            willChange: 'max-height, opacity'
+            willChange: "max-height, opacity",
           }}
         >
           {childSpans.map((childSpan, index) => {
@@ -153,37 +155,46 @@ const Span: React.FC<SpanProps> = ({
     <>
       {level === 0 && <style>{fadeInAnimationStyles}</style>}
       <div
-        className={`relative space-y-1.5 transition-all duration-100 ease-in-out ${isExpanded ? 'animate-fadeIn' : ''}`}
+        className={`relative space-y-1.5 transition-all duration-100 ease-in-out ${isExpanded ? "animate-fadeIn" : ""}`}
         style={{
           width: `${widthPercentage}%`,
           marginLeft: `${100 - widthPercentage}%`,
           opacity: isExpanded ? 1 : 0,
-          transform: `translateY(${isExpanded ? '0' : '-10px'})`,
-          willChange: 'opacity, transform',
+          transform: `translateY(${isExpanded ? "0" : "-10px"})`,
+          willChange: "opacity, transform",
         }}
       >
         <div
           onClick={handleSpanClick}
           className={`h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-300 ease-in-out hover:scale-[1.01] hover:shadow-sm ${
             isSelected
-              ? 'bg-zinc-100 dark:bg-zinc-900'
-              : 'bg-white dark:bg-zinc-900'
+              ? "bg-zinc-100 dark:bg-zinc-900"
+              : "bg-white dark:bg-zinc-900"
           }`}
         >
           <div className="flex items-center h-full">
             {/* Python Icon - show when telemetry_sdk_language is "python" */}
             {span.telemetry_sdk_language === "python" && (
-              <FaPython className="text-neutral-700 dark:text-neutral-300 mr-2" size={14} />
+              <FaPython
+                className="text-neutral-700 dark:text-neutral-300 mr-2"
+                size={14}
+              />
             )}
 
             {/* TypeScript Icon - show when telemetry_sdk_language is "ts" */}
             {span.telemetry_sdk_language === "ts" && (
-              <SiTypescript className="text-neutral-700 dark:text-neutral-300 mr-2" size={14} />
+              <SiTypescript
+                className="text-neutral-700 dark:text-neutral-300 mr-2"
+                size={14}
+              />
             )}
 
             {/* JavaScript Icon - show when telemetry_sdk_language is "js" */}
             {span.telemetry_sdk_language === "js" && (
-              <IoLogoJavascript className="text-neutral-700 dark:text-neutral-300 mr-2" size={14} />
+              <IoLogoJavascript
+                className="text-neutral-700 dark:text-neutral-300 mr-2"
+                size={14}
+              />
             )}
 
             {/* Span Tag */}
@@ -219,7 +230,7 @@ const Span: React.FC<SpanProps> = ({
                     variant="outline"
                     className="h-6 mr-1 justify-center font-mono font-normal max-w-fit"
                   >
-                    {span.name.slice(0, 35) + '...'}
+                    {span.name.slice(0, 35) + "..."}
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -238,7 +249,8 @@ const Span: React.FC<SpanProps> = ({
             {/* Logs */}
 
             {/* Error icon for error/critical logs */}
-            {((span.num_error_logs ?? 0) > 0 || (span.num_critical_logs ?? 0) > 0) && (
+            {((span.num_error_logs ?? 0) > 0 ||
+              (span.num_critical_logs ?? 0) > 0) && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Badge
@@ -255,7 +267,7 @@ const Span: React.FC<SpanProps> = ({
             )}
 
             {/* Warning icon for warning logs */}
-            {((span.num_warning_logs ?? 0) > 0) && (
+            {(span.num_warning_logs ?? 0) > 0 && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Badge

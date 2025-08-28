@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect } from "react";
 
 interface User {
   user_id?: string;
@@ -19,7 +19,7 @@ export function useUser() {
 
   const loadUserFromStorage = () => {
     try {
-      const userData = localStorage.getItem('user');
+      const userData = localStorage.getItem("user");
       if (userData) {
         const parsedUser = JSON.parse(userData);
         setUser(parsedUser);
@@ -27,7 +27,7 @@ export function useUser() {
         setUser(null);
       }
     } catch (error) {
-      console.error('Error parsing user data from localStorage:', error);
+      console.error("Error parsing user data from localStorage:", error);
       setUser(null);
     } finally {
       setIsLoading(false);
@@ -41,7 +41,7 @@ export function useUser() {
     // Listen for storage changes (for cross-tab synchronization)
     // It's async that user credentials are updated to the storage which can be very late
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'user') {
+      if (e.key === "user") {
         loadUserFromStorage();
       }
     };
@@ -51,24 +51,24 @@ export function useUser() {
       loadUserFromStorage();
     };
 
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('userDataUpdated', handleCustomStorageChange);
+    window.addEventListener("storage", handleStorageChange);
+    window.addEventListener("userDataUpdated", handleCustomStorageChange);
 
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('userDataUpdated', handleCustomStorageChange);
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("userDataUpdated", handleCustomStorageChange);
     };
   }, []);
 
   const logout = () => {
-    localStorage.removeItem('user');
-    localStorage.removeItem('auth_state');
+    localStorage.removeItem("user");
+    localStorage.removeItem("auth_state");
     setUser(null);
-    window.dispatchEvent(new CustomEvent('userDataUpdated'));
+    window.dispatchEvent(new CustomEvent("userDataUpdated"));
   };
 
   const getAuthState = () => {
-    return localStorage.getItem('auth_state');
+    return localStorage.getItem("auth_state");
   };
 
   const avatarLetter = user?.email?.charAt(0)?.toUpperCase() || null;
@@ -79,6 +79,6 @@ export function useUser() {
     avatarLetter,
     logout,
     getAuthState,
-    isAuthenticated: !!user
+    isAuthenticated: !!user,
   };
 }

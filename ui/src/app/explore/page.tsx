@@ -1,15 +1,17 @@
-'use client';
+"use client";
 
-import { useState, useCallback, useEffect } from 'react';
-import Trace from '@/components/explore/Trace';
-import ResizablePanel from '@/components/resizable/ResizablePanel';
-import RightPanelSwitch from '@/components/right-panel/RightPanelSwitch';
-import { Span, Trace as TraceType } from '@/models/trace';
+import { useState, useCallback, useEffect } from "react";
+import Trace from "@/components/explore/Trace";
+import ResizablePanel from "@/components/resizable/ResizablePanel";
+import RightPanelSwitch from "@/components/right-panel/RightPanelSwitch";
+import { Span, Trace as TraceType } from "@/models/trace";
 
 export default function Explore() {
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
-  const [timeRange, setTimeRange] = useState<{ start: Date; end: Date } | null>(null);
+  const [timeRange, setTimeRange] = useState<{ start: Date; end: Date } | null>(
+    null,
+  );
   const [currentTraceSpans, setCurrentTraceSpans] = useState<Span[]>([]);
   const [allTraces, setAllTraces] = useState<TraceType[]>([]);
 
@@ -17,7 +19,7 @@ export default function Explore() {
   const getAllSpanIds = (spans: Span[]): string[] => {
     const spanIds: string[] = [];
     const collectSpanIds = (spanList: Span[]) => {
-      spanList.forEach(span => {
+      spanList.forEach((span) => {
         spanIds.push(span.id);
         if (span.spans && span.spans.length > 0) {
           collectSpanIds(span.spans);
@@ -30,9 +32,15 @@ export default function Explore() {
 
   // Validate selected spans when trace changes
   useEffect(() => {
-    if (selectedTraceId && currentTraceSpans.length > 0 && selectedSpanIds.length > 0) {
+    if (
+      selectedTraceId &&
+      currentTraceSpans.length > 0 &&
+      selectedSpanIds.length > 0
+    ) {
       const validSpanIds = getAllSpanIds(currentTraceSpans);
-      const validSelectedSpans = selectedSpanIds.filter(spanId => validSpanIds.includes(spanId));
+      const validSelectedSpans = selectedSpanIds.filter((spanId) =>
+        validSpanIds.includes(spanId),
+      );
 
       // If some selected spans are no longer valid, update the selection
       if (validSelectedSpans.length !== selectedSpanIds.length) {

@@ -1,39 +1,39 @@
 // Provider definitions
 export const PROVIDERS = {
-  OPENAI: 'openai',
-  CUSTOM: 'custom',
-  GROQ: 'groq',
+  OPENAI: "openai",
+  CUSTOM: "custom",
+  GROQ: "groq",
 } as const;
 
 export type Provider = (typeof PROVIDERS)[keyof typeof PROVIDERS];
 
 export const PROVIDER_DISPLAY_NAMES: Record<Provider, string> = {
-  [PROVIDERS.OPENAI]: 'OpenAI',
-  [PROVIDERS.CUSTOM]: 'Custom',
-  [PROVIDERS.GROQ]: 'Groq',
+  [PROVIDERS.OPENAI]: "OpenAI",
+  [PROVIDERS.CUSTOM]: "Custom",
+  [PROVIDERS.GROQ]: "Groq",
 };
 
 export const DEFAULT_PROVIDER: Provider = PROVIDERS.OPENAI;
 
 // OpenAI models
 export const OPENAI_MODELS = {
-  GPT_5: 'gpt-5',
-  GPT_5_MINI: 'gpt-5-mini',
-  GPT_4O: 'gpt-4o',
-  O4_MINI: 'o4-mini',
-  O3: 'o3',
-  GPT_4_1_MINI: 'gpt-4.1-mini',
-  GPT_4_1: 'gpt-4.1',
-  AUTO: 'auto',
+  GPT_5: "gpt-5",
+  GPT_5_MINI: "gpt-5-mini",
+  GPT_4O: "gpt-4o",
+  O4_MINI: "o4-mini",
+  O3: "o3",
+  GPT_4_1_MINI: "gpt-4.1-mini",
+  GPT_4_1: "gpt-4.1",
+  AUTO: "auto",
 } as const;
 
 // Custom models
 export const CUSTOM_MODELS = {
-  GPT_OSS_120B: 'openai/gpt-oss-120b',
+  GPT_OSS_120B: "openai/gpt-oss-120b",
 } as const;
 
 export const GROQ_MODELS = {
-  GPT_OSS_120B: 'openai/gpt-oss-120b',
+  GPT_OSS_120B: "openai/gpt-oss-120b",
 } as const;
 
 // Combined models (for backward compatibility)
@@ -50,28 +50,28 @@ export const OPENAI_MODEL_DISPLAY_NAMES: Record<
   keyof typeof OPENAI_MODELS,
   string
 > = {
-  GPT_5: 'GPT-5',
-  GPT_5_MINI: 'GPT-5 Mini',
-  GPT_4O: 'GPT-4o',
-  O4_MINI: 'o4-mini',
-  O3: 'o3',
-  GPT_4_1_MINI: 'GPT-4.1 Mini',
-  GPT_4_1: 'GPT-4.1',
-  AUTO: 'Auto',
+  GPT_5: "GPT-5",
+  GPT_5_MINI: "GPT-5 Mini",
+  GPT_4O: "GPT-4o",
+  O4_MINI: "o4-mini",
+  O3: "o3",
+  GPT_4_1_MINI: "GPT-4.1 Mini",
+  GPT_4_1: "GPT-4.1",
+  AUTO: "Auto",
 };
 
 export const CUSTOM_MODEL_DISPLAY_NAMES: Record<
   keyof typeof CUSTOM_MODELS,
   string
 > = {
-  GPT_OSS_120B: 'GPT OSS 120B',
+  GPT_OSS_120B: "GPT OSS 120B",
 };
 
 export const GROQ_MODEL_DISPLAY_NAMES: Record<
   keyof typeof GROQ_MODELS,
   string
 > = {
-  GPT_OSS_120B: 'GPT OSS 120B',
+  GPT_OSS_120B: "GPT OSS 120B",
 };
 
 export const CHAT_MODEL_DISPLAY_NAMES: Record<ChatModel, string> = {
@@ -79,19 +79,19 @@ export const CHAT_MODEL_DISPLAY_NAMES: Record<ChatModel, string> = {
     Object.entries(OPENAI_MODELS).map(([key, value]) => [
       value,
       OPENAI_MODEL_DISPLAY_NAMES[key as keyof typeof OPENAI_MODELS],
-    ])
+    ]),
   ),
   ...Object.fromEntries(
     Object.entries(CUSTOM_MODELS).map(([key, value]) => [
       value,
       CUSTOM_MODEL_DISPLAY_NAMES[key as keyof typeof CUSTOM_MODELS],
-    ])
+    ]),
   ),
   ...Object.fromEntries(
     Object.entries(GROQ_MODELS).map(([key, value]) => [
       value,
       GROQ_MODEL_DISPLAY_NAMES[key as keyof typeof GROQ_MODELS],
-    ])
+    ]),
   ),
 } as Record<ChatModel, string>;
 
@@ -125,8 +125,8 @@ export const getDefaultModelForProvider = (provider: Provider): ChatModel => {
 };
 
 export const CHAT_MODE = {
-  AGENT: 'agent',
-  CHAT: 'chat',
+  AGENT: "agent",
+  CHAT: "chat",
 } as const;
 
 export type ChatMode = (typeof CHAT_MODE)[keyof typeof CHAT_MODE];

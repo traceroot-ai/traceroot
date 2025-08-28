@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import React from 'react';
-import TraceOverview from './TraceOverview';
-import TraceDetail from './TraceDetail';
-import { Span } from '@/models/trace';
+import React from "react";
+import TraceOverview from "./TraceOverview";
+import TraceDetail from "./TraceDetail";
+import { Span } from "@/models/trace";
 
 interface TracePanelSwitchProps {
   traceId?: string;
@@ -30,14 +30,20 @@ export default function TracePanelSwitch({
   traceEndTimes = [],
   traceIDs = [],
   tracePercentiles = [],
-  onTraceSelect
+  onTraceSelect,
 }: TracePanelSwitchProps) {
   // Find the percentile for the selected trace
-  const getTracePercentile = (selectedTraceId: string | undefined): string | undefined => {
-    if (!selectedTraceId || traceIDs.length === 0 || tracePercentiles.length === 0) {
+  const getTracePercentile = (
+    selectedTraceId: string | undefined,
+  ): string | undefined => {
+    if (
+      !selectedTraceId ||
+      traceIDs.length === 0 ||
+      tracePercentiles.length === 0
+    ) {
       return undefined;
     }
-    const traceIndex = traceIDs.findIndex(id => id === selectedTraceId);
+    const traceIndex = traceIDs.findIndex((id) => id === selectedTraceId);
     return traceIndex !== -1 ? tracePercentiles[traceIndex] : undefined;
   };
 

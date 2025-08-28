@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import React from 'react';
+import React from "react";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -23,10 +23,7 @@ export default function ResizablePanelComponent({
   defaultLeftWidth = 45,
 }: ResizablePanelProps) {
   return (
-    <ResizablePanelGroup
-      direction="horizontal"
-      className="h-screen"
-    >
+    <ResizablePanelGroup direction="horizontal" className="h-screen">
       <ResizablePanel
         defaultSize={defaultLeftWidth}
         minSize={minLeftWidth}
@@ -35,9 +32,7 @@ export default function ResizablePanelComponent({
         {leftPanel}
       </ResizablePanel>
       <ResizableHandle />
-      <ResizablePanel>
-        {rightPanel}
-      </ResizablePanel>
+      <ResizablePanel>{rightPanel}</ResizablePanel>
     </ResizablePanelGroup>
   );
 }

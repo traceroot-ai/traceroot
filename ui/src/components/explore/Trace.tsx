@@ -1,29 +1,29 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState, useRef } from 'react';
-import { Trace as TraceType } from '@/models/trace';
-import Span from './span/Span';
-import TimeButton, { TimeRange, TIME_RANGES } from './TimeButton';
-import RefreshButton from './RefreshButton';
-import SearchBar, { SearchCriterion } from './SearchBar';
+import React, { useEffect, useState, useRef } from "react";
+import { Trace as TraceType } from "@/models/trace";
+import Span from "./span/Span";
+import TimeButton, { TimeRange, TIME_RANGES } from "./TimeButton";
+import RefreshButton from "./RefreshButton";
+import SearchBar, { SearchCriterion } from "./SearchBar";
 import {
   PERCENTILE_COLORS,
   getPercentileColor,
   PercentileKey,
-} from '@/constants/colors';
-import { fadeInAnimationStyles } from '@/constants/animations';
-import { useUser } from '@/hooks/useUser';
-import { IoWarningOutline, IoLogoJavascript } from 'react-icons/io5';
-import { MdErrorOutline } from 'react-icons/md';
-import { FaPython } from 'react-icons/fa';
-import { SiTypescript } from 'react-icons/si';
-import { Badge } from '@/components/ui/badge';
-import { Spinner } from '@/components/ui/shadcn-io/spinner';
+} from "@/constants/colors";
+import { fadeInAnimationStyles } from "@/constants/animations";
+import { useUser } from "@/hooks/useUser";
+import { IoWarningOutline, IoLogoJavascript } from "react-icons/io5";
+import { MdErrorOutline } from "react-icons/md";
+import { FaPython } from "react-icons/fa";
+import { SiTypescript } from "react-icons/si";
+import { Badge } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/shadcn-io/spinner";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@/components/ui/tooltip';
+} from "@/components/ui/tooltip";
 
 interface TraceProps {
   onTraceSelect?: (traceId: string | null) => void;
@@ -38,39 +38,39 @@ interface TraceProps {
 export function formatDateTime(ts: number) {
   const date = new Date(ts * 1000);
   const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
   ];
 
   const y = date.getFullYear();
   const m = months[date.getMonth()];
   const d = date.getDate();
-  const h = String(date.getHours()).padStart(2, '0');
-  const min = String(date.getMinutes()).padStart(2, '0');
-  const s = String(date.getSeconds()).padStart(2, '0');
+  const h = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  const s = String(date.getSeconds()).padStart(2, "0");
 
   // Add ordinal suffix to day
   const getOrdinalSuffix = (day: number) => {
-    if (day >= 11 && day <= 13) return 'th';
+    if (day >= 11 && day <= 13) return "th";
     switch (day % 10) {
       case 1:
-        return 'st';
+        return "st";
       case 2:
-        return 'nd';
+        return "nd";
       case 3:
-        return 'rd';
+        return "rd";
       default:
-        return 'th';
+        return "th";
     }
   };
 
@@ -91,7 +91,7 @@ export const Trace: React.FC<TraceProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>(
-    TIME_RANGES[0]
+    TIME_RANGES[0],
   );
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
@@ -135,7 +135,7 @@ export const Trace: React.FC<TraceProps> = ({
           endTime = new Date();
           startTime = new Date(endTime);
           startTime.setMinutes(
-            endTime.getMinutes() - selectedTimeRange.minutes
+            endTime.getMinutes() - selectedTimeRange.minutes,
           );
         }
 
@@ -162,7 +162,7 @@ export const Trace: React.FC<TraceProps> = ({
         const result = await response.json();
 
         if (!result.success) {
-          throw new Error(result.error || 'Failed to fetch traces');
+          throw new Error(result.error || "Failed to fetch traces");
         }
 
         setTraces(result.data);
@@ -172,7 +172,7 @@ export const Trace: React.FC<TraceProps> = ({
         setError(
           err instanceof Error
             ? err.message
-            : 'An error occurred while fetching traces'
+            : "An error occurred while fetching traces",
         );
       } finally {
         setLoading(false);
@@ -203,8 +203,8 @@ export const Trace: React.FC<TraceProps> = ({
         className="inline-flex w-12 h-5 mr-2 text-xs font-mono items-center justify-center rounded-md"
         style={{
           background: `${color}`,
-          color: 'black',
-          boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.2)',
+          color: "black",
+          boxShadow: "inset 0 1px 1px rgba(255, 255, 255, 0.2)",
         }}
       >
         {percentile}
@@ -300,8 +300,8 @@ export const Trace: React.FC<TraceProps> = ({
                     <div
                       className={`relative h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-100 ease-in-out hover:scale-[1.005] hover:shadow-sm animate-fadeIn ${
                         selectedTraceId === trace.id
-                          ? 'bg-zinc-100 dark:bg-zinc-900'
-                          : 'bg-white dark:bg-zinc-800'
+                          ? "bg-zinc-100 dark:bg-zinc-900"
+                          : "bg-white dark:bg-zinc-800"
                       }`}
                       style={{
                         animationDelay: `${index * 5}ms`,
@@ -318,7 +318,7 @@ export const Trace: React.FC<TraceProps> = ({
                               <>
                                 {/* Python Icon - show when telemetry_sdk_language includes "python" */}
                                 {trace.telemetry_sdk_language.includes(
-                                  'python'
+                                  "python",
                                 ) && (
                                   <FaPython
                                     className="text-neutral-800 dark:text-neutral-200 mr-2"
@@ -328,7 +328,7 @@ export const Trace: React.FC<TraceProps> = ({
 
                                 {/* TypeScript Icon - show when telemetry_sdk_language includes "ts" */}
                                 {trace.telemetry_sdk_language.includes(
-                                  'ts'
+                                  "ts",
                                 ) && (
                                   <SiTypescript
                                     className="text-neutral-800 dark:text-neutral-200 mr-2"
@@ -338,7 +338,7 @@ export const Trace: React.FC<TraceProps> = ({
 
                                 {/* JavaScript Icon - show when telemetry_sdk_language includes "js" */}
                                 {trace.telemetry_sdk_language.includes(
-                                  'js'
+                                  "js",
                                 ) && (
                                   <IoLogoJavascript
                                     className="text-neutral-800 dark:text-neutral-200 mr-2"
@@ -349,7 +349,7 @@ export const Trace: React.FC<TraceProps> = ({
                             )}
 
                           {/* Tags */}
-                          {(trace.service_name || 'Unknown Service').length >
+                          {(trace.service_name || "Unknown Service").length >
                           25 ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -358,12 +358,12 @@ export const Trace: React.FC<TraceProps> = ({
                                   className="min-w-16 h-6 mr-2 justify-center font-mono font-normal max-w-32 whitespace-nowrap overflow-hidden text-ellipsis"
                                 >
                                   {(
-                                    trace.service_name || 'Unknown Service'
-                                  ).slice(0, 10) + '...'}
+                                    trace.service_name || "Unknown Service"
+                                  ).slice(0, 10) + "..."}
                                 </Badge>
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>{trace.service_name || 'Unknown Service'}</p>
+                                <p>{trace.service_name || "Unknown Service"}</p>
                               </TooltipContent>
                             </Tooltip>
                           ) : (
@@ -371,7 +371,7 @@ export const Trace: React.FC<TraceProps> = ({
                               variant="default"
                               className="min-w-16 h-6 mr-2 justify-center font-mono font-normal max-w-32 whitespace-nowrap overflow-hidden text-ellipsis"
                             >
-                              {trace.service_name || 'Trace'}
+                              {trace.service_name || "Trace"}
                             </Badge>
                           )}
 
@@ -380,7 +380,7 @@ export const Trace: React.FC<TraceProps> = ({
                             variant="outline"
                             className="h-6 mr-2 justify-center font-mono font-normal"
                           >
-                            {trace.service_environment || 'Unknown Environment'}
+                            {trace.service_environment || "Unknown Environment"}
                           </Badge>
 
                           {/* Error icon for error/critical logs */}
@@ -442,9 +442,9 @@ export const Trace: React.FC<TraceProps> = ({
                         <div
                           className="absolute top-0 w-px"
                           style={{
-                            left: '3%',
-                            height: '100%',
-                            background: '#e5e7eb',
+                            left: "3%",
+                            height: "100%",
+                            background: "#e5e7eb",
                             zIndex: -1,
                           }}
                         />
@@ -452,9 +452,9 @@ export const Trace: React.FC<TraceProps> = ({
                         <div
                           className="overflow-y-auto"
                           style={{
-                            width: '97%',
-                            marginLeft: '3%',
-                            maxHeight: '500px', // ✅ Enables vertical scroll
+                            width: "97%",
+                            marginLeft: "3%",
+                            maxHeight: "500px", // ✅ Enables vertical scroll
                           }}
                         >
                           <div className="space-y-2">

@@ -1,16 +1,16 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState, useRef } from 'react';
-import { TraceLog, LogEntry } from '@/models/log';
-import { Span } from '@/models/trace';
+import React, { useEffect, useState, useRef } from "react";
+import { TraceLog, LogEntry } from "@/models/log";
+import { Span } from "@/models/trace";
 import { FaGithub } from "react-icons/fa";
 import { IoCopyOutline } from "react-icons/io5";
 import { Plus, Minus } from "lucide-react";
-import { fadeInAnimationStyles } from '@/constants/animations';
-import ShowCodeToggle from './ShowCodeToggle';
-import CodeContext from './CodeContext';
-import { ViewType } from '../ModeToggle';
-import { useUser } from '@/hooks/useUser';
+import { fadeInAnimationStyles } from "@/constants/animations";
+import ShowCodeToggle from "./ShowCodeToggle";
+import CodeContext from "./CodeContext";
+import { ViewType } from "../ModeToggle";
+import { useUser } from "@/hooks/useUser";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/shadcn-io/spinner";
@@ -30,14 +30,16 @@ export default function LogDetail({
   traceQueryStartTime,
   traceQueryEndTime,
   segments,
-  viewType
+  viewType,
 }: LogDetailProps) {
   const [allLogs, setAllLogs] = useState<TraceLog | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCode, setShowCode] = useState(false);
   const [, forceUpdate] = useState({});
-  const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
+  const [expandedEntries, setExpandedEntries] = useState<Set<string>>(
+    new Set(),
+  );
   const { getAuthState } = useUser();
 
   useEffect(() => {
@@ -73,7 +75,7 @@ export default function LogDetail({
 
   // Reset showCode when viewType is not 'log'
   useEffect(() => {
-    if (viewType && viewType !== 'log') {
+    if (viewType && viewType !== "log") {
       setShowCode(false);
       // Clear code data from all log entries
       if (allLogs) {
@@ -102,29 +104,34 @@ export default function LogDetail({
       setError(null);
       try {
         // Build URL with query parameters
-        const url = new URL('/api/get_trace_log', window.location.origin);
-        url.searchParams.append('traceId', traceId);
+        const url = new URL("/api/get_trace_log", window.location.origin);
+        url.searchParams.append("traceId", traceId);
 
         const endTime = traceQueryEndTime || new Date();
-        const startTime = traceQueryStartTime || new Date(endTime.getTime() - 10 * 60 * 1000); // 10 minutes before endTime
+        const startTime =
+          traceQueryStartTime || new Date(endTime.getTime() - 10 * 60 * 1000); // 10 minutes before endTime
 
-        url.searchParams.append('start_time', startTime.toISOString());
-        url.searchParams.append('end_time', endTime.toISOString());
+        url.searchParams.append("start_time", startTime.toISOString());
+        url.searchParams.append("end_time", endTime.toISOString());
 
         const response = await fetch(url.toString(), {
           headers: {
-            'Authorization': `Bearer ${getAuthState()}`,
+            Authorization: `Bearer ${getAuthState()}`,
           },
         });
         const result = await response.json();
         if (!result.success) {
-          throw new Error(result.error || 'Failed to fetch logs');
+          throw new Error(result.error || "Failed to fetch logs");
         }
         // Always store the full logs data
         setAllLogs(result.data);
       } catch (err) {
-        console.error('LogDetail fetchLogs - error:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred while fetching logs');
+        console.error("LogDetail fetchLogs - error:", err);
+        setError(
+          err instanceof Error
+            ? err.message
+            : "An error occurred while fetching logs",
+        );
       } finally {
         setLoading(false);
       }
@@ -152,11 +159,13 @@ export default function LogDetail({
     // Get all span IDs that exist in current trace
     const existingSpanIds = new Set<string>();
     traceData.forEach((spanLog: any) => {
-      Object.keys(spanLog).forEach(spanId => existingSpanIds.add(spanId));
+      Object.keys(spanLog).forEach((spanId) => existingSpanIds.add(spanId));
     });
 
     // Check if any of the selected spanIds exist in the current trace
-    const hasValidSpanIds = spanIds.some(spanId => existingSpanIds.has(spanId));
+    const hasValidSpanIds = spanIds.some((spanId) =>
+      existingSpanIds.has(spanId),
+    );
     if (!hasValidSpanIds) {
       return {};
     }
@@ -176,23 +185,40 @@ export default function LogDetail({
 
   const formatTimestamp = (timestamp: number) => {
     const date = new Date(timestamp * 1000);
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
 
     const y = date.getFullYear();
     const m = months[date.getMonth()];
     const d = date.getDate();
-    const h = String(date.getHours()).padStart(2, '0');
-    const min = String(date.getMinutes()).padStart(2, '0');
-    const s = String(date.getSeconds()).padStart(2, '0');
+    const h = String(date.getHours()).padStart(2, "0");
+    const min = String(date.getMinutes()).padStart(2, "0");
+    const s = String(date.getSeconds()).padStart(2, "0");
 
     // Add ordinal suffix to day
     const getOrdinalSuffix = (day: number) => {
-      if (day >= 11 && day <= 13) return 'th';
+      if (day >= 11 && day <= 13) return "th";
       switch (day % 10) {
-        case 1: return 'st';
-        case 2: return 'nd';
-        case 3: return 'rd';
-        default: return 'th';
+        case 1:
+          return "st";
+        case 2:
+          return "nd";
+        case 3:
+          return "rd";
+        default:
+          return "th";
       }
     };
 
@@ -201,18 +227,18 @@ export default function LogDetail({
 
   const getLogLevelColor = (level: string) => {
     switch (level) {
-      case 'CRITICAL':
-        return 'font-medium text-[#7f1d1d]';
-      case 'ERROR':
-        return 'font-medium text-[#dc2626]';
-      case 'WARNING':
-        return 'font-medium text-[#fb923c]';
-      case 'INFO':
-        return 'font-medium text-[#64748b]';
-      case 'DEBUG':
-        return 'font-medium text-[#a855f7]';
+      case "CRITICAL":
+        return "font-medium text-[#7f1d1d]";
+      case "ERROR":
+        return "font-medium text-[#dc2626]";
+      case "WARNING":
+        return "font-medium text-[#fb923c]";
+      case "INFO":
+        return "font-medium text-[#64748b]";
+      case "DEBUG":
+        return "font-medium text-[#a855f7]";
       default:
-        return 'font-medium text-[#64748b]';
+        return "font-medium text-[#64748b]";
     }
   };
 
@@ -224,7 +250,7 @@ export default function LogDetail({
     return {
       width: `${width}%`,
       marginLeft: `${leftMargin}%`,
-      marginRight: `${rightMargin}%`
+      marginRight: `${rightMargin}%`,
     };
   };
 
@@ -244,7 +270,10 @@ export default function LogDetail({
   };
 
   // Build flat list of log entries in the order of SpanLogs in LogFile
-  const buildOrderedLogEntries = (logs: TraceLog | null, traceId: string | undefined) => {
+  const buildOrderedLogEntries = (
+    logs: TraceLog | null,
+    traceId: string | undefined,
+  ) => {
     const result: { entry: LogEntry; spanId: string }[] = [];
     if (!logs || !traceId || !logs[traceId]) return result;
     logs[traceId].forEach((spanLog: any) => {
@@ -263,13 +292,15 @@ export default function LogDetail({
   const orderedLogEntries = buildOrderedLogEntries(logs, traceId);
 
   // Calculate log level statistics
-  const calculateLogStats = (logEntries: { entry: LogEntry; spanId: string }[]) => {
+  const calculateLogStats = (
+    logEntries: { entry: LogEntry; spanId: string }[],
+  ) => {
     const stats = {
       DEBUG: 0,
       INFO: 0,
       WARNING: 0,
       ERROR: 0,
-      CRITICAL: 0
+      CRITICAL: 0,
     };
 
     logEntries.forEach(({ entry }) => {
@@ -296,7 +327,7 @@ export default function LogDetail({
   };
 
   const toggleExpandEntry = (entryKey: string) => {
-    setExpandedEntries(prev => {
+    setExpandedEntries((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(entryKey)) {
         newSet.delete(entryKey);
@@ -311,7 +342,7 @@ export default function LogDetail({
     if (message.length <= maxLength) {
       return message;
     }
-    return message.substring(0, maxLength) + '......';
+    return message.substring(0, maxLength) + "......";
   };
 
   const isMessageExpandable = (message: string, maxLength: number = 500) => {
@@ -321,7 +352,7 @@ export default function LogDetail({
   // Format message with smart line breaks for long content
   const formatMessage = (message: string, maxLineLength: number = 80) => {
     // Split message into existing lines first
-    const existingLines = message.split('\n');
+    const existingLines = message.split("\n");
     const processedLines: string[] = [];
 
     // Process each line individually
@@ -333,14 +364,14 @@ export default function LogDetail({
       }
 
       // For long lines, add smart breaks while preserving leading whitespace
-      const leadingWhitespace = line.match(/^\s*/)?.[0] || '';
+      const leadingWhitespace = line.match(/^\s*/)?.[0] || "";
       const trimmedLine = line.trimStart();
-      const words = trimmedLine.split(' ');
+      const words = trimmedLine.split(" ");
       const wrappedLines: string[] = [];
-      let currentLine = '';
+      let currentLine = "";
 
       for (const word of words) {
-        const wordWithSpace = (currentLine ? ' ' : '') + word;
+        const wordWithSpace = (currentLine ? " " : "") + word;
         const potentialLine = leadingWhitespace + currentLine + wordWithSpace;
 
         if (potentialLine.length <= maxLineLength) {
@@ -360,7 +391,7 @@ export default function LogDetail({
       processedLines.push(...wrappedLines);
     }
 
-    return processedLines.join('\n');
+    return processedLines.join("\n");
   };
 
   const copyToClipboard = async (text: string) => {
@@ -368,11 +399,11 @@ export default function LogDetail({
       await navigator.clipboard.writeText(text);
     } catch (err) {
       // Fallback for older browsers
-      const textArea = document.createElement('textarea');
+      const textArea = document.createElement("textarea");
       textArea.value = text;
       document.body.appendChild(textArea);
       textArea.select();
-      document.execCommand('copy');
+      document.execCommand("copy");
       document.body.removeChild(textArea);
     }
   };
@@ -383,7 +414,10 @@ export default function LogDetail({
         {loading && (
           <div className="bg-zinc-50 dark:bg-zinc-900 p-4 rounded-md border border-gray-200 dark:border-gray-700">
             <div className="flex flex-col items-center justify-center py-1 space-y-1">
-              <Spinner variant="infinite" className="w-8 h-8 text-gray-500 dark:text-gray-300" />
+              <Spinner
+                variant="infinite"
+                className="w-8 h-8 text-gray-500 dark:text-gray-300"
+              />
             </div>
           </div>
         )}
@@ -404,7 +438,7 @@ export default function LogDetail({
                       <Badge
                         variant="secondary"
                         className="h-6 px-2 py-1.5 font-normal text-white"
-                        style={{ backgroundColor: '#a855f7'}}
+                        style={{ backgroundColor: "#a855f7" }}
                       >
                         DEBUG: {logStats.DEBUG}
                       </Badge>
@@ -415,7 +449,7 @@ export default function LogDetail({
                       <Badge
                         variant="secondary"
                         className="h-6 px-2 py-1.5 font-normal text-white"
-                        style={{ backgroundColor: '#64748b' }}
+                        style={{ backgroundColor: "#64748b" }}
                       >
                         INFO: {logStats.INFO}
                       </Badge>
@@ -426,7 +460,7 @@ export default function LogDetail({
                       <Badge
                         variant="secondary"
                         className="h-6 px-2 py-1.5 font-normal text-white"
-                        style={{ backgroundColor: '#fb923c' }}
+                        style={{ backgroundColor: "#fb923c" }}
                       >
                         WARNING: {logStats.WARNING}
                       </Badge>
@@ -437,7 +471,7 @@ export default function LogDetail({
                       <Badge
                         variant="secondary"
                         className="h-6 px-2 py-1.5 font-normal text-white"
-                        style={{ backgroundColor: '#dc2626' }}
+                        style={{ backgroundColor: "#dc2626" }}
                       >
                         ERROR: {logStats.ERROR}
                       </Badge>
@@ -448,7 +482,7 @@ export default function LogDetail({
                       <Badge
                         variant="secondary"
                         className="h-6 px-2 py-1.5 font-normal text-white"
-                        style={{ backgroundColor: '#7f1d1d' }}
+                        style={{ backgroundColor: "#7f1d1d" }}
                       >
                         CRITICAL: {logStats.CRITICAL}
                       </Badge>
@@ -465,91 +499,104 @@ export default function LogDetail({
                 />
               </div>
             </div>
-            <div className={`space-y-1 overflow-y-auto ${showCode ? "pb-20" : "pb-25"}`}>
+            <div
+              className={`space-y-1 overflow-y-auto ${showCode ? "pb-20" : "pb-25"}`}
+            >
               {orderedLogEntries.map(({ entry, spanId }, idx) => {
-              const githubLink = getGitHubLink(entry);
-              const entryKey = `${spanId}-${idx}`;
-              const isExpanded = expandedEntries.has(entryKey);
-              const formattedMessage = formatMessage(entry.message);
-              const messageExpandable = isMessageExpandable(formattedMessage);
-              const displayMessage = messageExpandable && !isExpanded ? truncateMessage(formattedMessage) : formattedMessage;
-              return (
-                <div
-                  key={entryKey}
-                  className={`relative p-1.5 rounded bg-white dark:bg-zinc-900 border border-gray-200 dark:border-gray-700 transform transition-all duration-100 ease-in-out hover:shadow animate-fadeIn`}
-                  style={{
-                    ...getLogStyle(spanDepthMap[spanId] ?? 0),
-                    animationDelay: `${idx * 3}ms`
-                  }}
-                >
-                  <div className="flex items-start min-w-0">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex font-mono items-center space-x-2 text-xs flex-wrap min-w-0">
-                        <span className={`font-medium ${getLogLevelColor(entry.level)}`}>{entry.level}</span>
-                        <span className="text-gray-500 dark:text-gray-400">
-                          {formatTimestamp(entry.time)}
-                        </span>
-                        <span className="text-gray-400 dark:text-gray-500 font-mono">
-                          {entry.file_name}:{entry.line_number}
-                        </span>
-                        <span className="text-neutral-600 dark:text-neutral-300 italic">
-                          {entry.function_name}
-                        </span>
-                        {githubLink && (
-                          <a
-                            href={githubLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-neutral-500 dark:text-neutral-300 hover:text-neutral-600 dark:hover:text-neutral-400 transition-colors"
-                            title="View on GitHub"
+                const githubLink = getGitHubLink(entry);
+                const entryKey = `${spanId}-${idx}`;
+                const isExpanded = expandedEntries.has(entryKey);
+                const formattedMessage = formatMessage(entry.message);
+                const messageExpandable = isMessageExpandable(formattedMessage);
+                const displayMessage =
+                  messageExpandable && !isExpanded
+                    ? truncateMessage(formattedMessage)
+                    : formattedMessage;
+                return (
+                  <div
+                    key={entryKey}
+                    className={`relative p-1.5 rounded bg-white dark:bg-zinc-900 border border-gray-200 dark:border-gray-700 transform transition-all duration-100 ease-in-out hover:shadow animate-fadeIn`}
+                    style={{
+                      ...getLogStyle(spanDepthMap[spanId] ?? 0),
+                      animationDelay: `${idx * 3}ms`,
+                    }}
+                  >
+                    <div className="flex items-start min-w-0">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex font-mono items-center space-x-2 text-xs flex-wrap min-w-0">
+                          <span
+                            className={`font-medium ${getLogLevelColor(entry.level)}`}
                           >
-                            <FaGithub className="inline-block" />
-                          </a>
-                                                )}
-                        <div className="relative font-mono p-1 bg-zinc-50 dark:bg-zinc-900 rounded text-neutral-800 dark:text-neutral-300 text-xs min-w-0 max-w-full overflow-hidden min-h-[1.5rem]">
+                            {entry.level}
+                          </span>
+                          <span className="text-gray-500 dark:text-gray-400">
+                            {formatTimestamp(entry.time)}
+                          </span>
+                          <span className="text-gray-400 dark:text-gray-500 font-mono">
+                            {entry.file_name}:{entry.line_number}
+                          </span>
+                          <span className="text-neutral-600 dark:text-neutral-300 italic">
+                            {entry.function_name}
+                          </span>
+                          {githubLink && (
+                            <a
+                              href={githubLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-neutral-500 dark:text-neutral-300 hover:text-neutral-600 dark:hover:text-neutral-400 transition-colors"
+                              title="View on GitHub"
+                            >
+                              <FaGithub className="inline-block" />
+                            </a>
+                          )}
+                          <div className="relative font-mono p-1 bg-zinc-50 dark:bg-zinc-900 rounded text-neutral-800 dark:text-neutral-300 text-xs min-w-0 max-w-full overflow-hidden min-h-[1.5rem]">
+                            <Button
+                              onClick={() => copyToClipboard(entry.message)}
+                              variant="ghost"
+                              size="icon"
+                              className="absolute top-0.5 right-0.5 h-5 w-5 opacity-70 hover:opacity-100 transition-opacity z-10"
+                              title="Copy message"
+                            >
+                              <IoCopyOutline className="w-3 h-3" />
+                            </Button>
+                            <span className="whitespace-pre-wrap break-all word-break-break-all overflow-wrap-anywhere m-0 max-w-full pr-7 block">
+                              {displayMessage}
+                            </span>
+                          </div>
+                        </div>
+                        {/* Show code context if available */}
+                        <CodeContext entry={entry} showCode={showCode} />
+                      </div>
+                      {/* Expand/Collapse Icon - Only show if message is expandable */}
+                      {messageExpandable && (
+                        <div className="ml-2 flex-shrink-0 bg-zinc-100 dark:bg-zinc-800 rounded-md">
                           <Button
-                            onClick={() => copyToClipboard(entry.message)}
+                            onClick={() => toggleExpandEntry(entryKey)}
                             variant="ghost"
                             size="icon"
-                            className="absolute top-0.5 right-0.5 h-5 w-5 opacity-70 hover:opacity-100 transition-opacity z-10"
-                            title="Copy message"
+                            title={isExpanded ? "Collapse" : "Expand"}
+                            className="h-8 w-8"
                           >
-                            <IoCopyOutline className="w-3 h-3" />
+                            {isExpanded ? (
+                              <Minus className="w-3 h-3 transition-transform duration-200 ease-in-out" />
+                            ) : (
+                              <Plus className="w-3 h-3 transition-transform duration-200 ease-in-out" />
+                            )}
                           </Button>
-                          <span className="whitespace-pre-wrap break-all word-break-break-all overflow-wrap-anywhere m-0 max-w-full pr-7 block">{displayMessage}</span>
                         </div>
-                      </div>
-                      {/* Show code context if available */}
-                      <CodeContext entry={entry} showCode={showCode} />
+                      )}
                     </div>
-                    {/* Expand/Collapse Icon - Only show if message is expandable */}
-                    {messageExpandable && (
-                      <div className="ml-2 flex-shrink-0 bg-zinc-100 dark:bg-zinc-800 rounded-md">
-                        <Button
-                          onClick={() => toggleExpandEntry(entryKey)}
-                          variant="ghost"
-                          size="icon"
-                          title={isExpanded ? "Collapse" : "Expand"}
-                          className="h-8 w-8"
-                        >
-                          {isExpanded ? (
-                            <Minus className="w-3 h-3 transition-transform duration-200 ease-in-out" />
-                          ) : (
-                            <Plus className="w-3 h-3 transition-transform duration-200 ease-in-out" />
-                          )}
-                        </Button>
-                      </div>
-                    )}
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
             </div>
           </div>
         )}
         {!loading && !error && traceId && orderedLogEntries.length === 0 && (
           <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-            <p className="text-gray-600 dark:text-gray-300">No logs found for this trace or span</p>
+            <p className="text-gray-600 dark:text-gray-300">
+              No logs found for this trace or span
+            </p>
           </div>
         )}
       </div>

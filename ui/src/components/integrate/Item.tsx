@@ -1,20 +1,26 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { TbEye, TbEyeOff } from 'react-icons/tb';
+import React, { useState, useEffect } from "react";
+import { TbEye, TbEyeOff } from "react-icons/tb";
 import { FiCopy } from "react-icons/fi";
 import { FaGithub } from "react-icons/fa";
 import { SiNotion, SiSlack, SiOpenai, SiAnthropic } from "react-icons/si";
-import { Groq } from '@lobehub/icons';
+import { Groq } from "@lobehub/icons";
 import { FaCheck } from "react-icons/fa";
-import { Integration } from '@/types/integration';
-import { TokenResource, ResourceType } from '@/models/integrate';
-import { useUser } from '@/hooks/useUser';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
+import { Integration } from "@/types/integration";
+import { TokenResource, ResourceType } from "@/models/integrate";
+import { useUser } from "@/hooks/useUser";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 
 interface ItemProps {
   integration: Integration;
@@ -22,36 +28,36 @@ interface ItemProps {
 }
 
 export default function Item({ integration, onUpdateIntegration }: ItemProps) {
-  const [authSecret, setAuthSecret] = useState('');
+  const [authSecret, setAuthSecret] = useState("");
   const [showSecret, setShowSecret] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showError, setShowError] = useState(false);
-  const [displayToken, setDisplayToken] = useState<string>('');
+  const [displayToken, setDisplayToken] = useState<string>("");
   const [isEditing, setIsEditing] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const { user, getAuthState } = useUser();
 
   // Initialize display token from integration
   useEffect(() => {
-    setDisplayToken(integration.token || '');
+    setDisplayToken(integration.token || "");
   }, [integration.token]);
 
   const renderIcon = (iconName: string, size: number = 24) => {
     const getIconElement = () => {
       switch (iconName) {
-        case 'github':
+        case "github":
           return <FaGithub size={size} className="text-foreground" />;
-        case 'notion':
+        case "notion":
           return <SiNotion size={size} className="text-foreground" />;
-        case 'slack':
+        case "slack":
           return <SiSlack size={size} className="text-foreground" />;
-        case 'openai':
+        case "openai":
           return <SiOpenai size={size} className="text-foreground" />;
-        case 'groq':
+        case "groq":
           return <Groq size={size} className="text-foreground" />;
-        case 'anthropic':
+        case "anthropic":
           return <SiAnthropic size={size} className="text-foreground" />;
-        case 'traceroot':
+        case "traceroot":
           return (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -76,7 +82,11 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
             </svg>
           );
         default:
-          return <span className="text-lg font-semibold text-foreground">{iconName}</span>;
+          return (
+            <span className="text-lg font-semibold text-foreground">
+              {iconName}
+            </span>
+          );
       }
     };
 
@@ -91,17 +101,17 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
 
   const getResourceType = (integrationName: string): ResourceType => {
     switch (integrationName.toLowerCase()) {
-      case 'github':
+      case "github":
         return ResourceType.GITHUB;
-      case 'notion':
+      case "notion":
         return ResourceType.NOTION;
-      case 'slack':
+      case "slack":
         return ResourceType.SLACK;
-      case 'openai':
+      case "openai":
         return ResourceType.OPENAI;
-      case 'groq':
+      case "groq":
         return ResourceType.GROQ;
-      case 'traceroot':
+      case "traceroot":
         return ResourceType.TRACEROOT;
       default:
         return ResourceType.GITHUB;
@@ -113,7 +123,10 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
     const authState = getAuthState();
     // Show error if there is no NEXT_PUBLIC_LOCAL_MODE or
     // NEXT_PUBLIC_LOCAL_MODE is not set or not 'true', and no authState
-    if (!process.env.NEXT_PUBLIC_LOCAL_MODE || process.env.NEXT_PUBLIC_LOCAL_MODE !== 'true') {
+    if (
+      !process.env.NEXT_PUBLIC_LOCAL_MODE ||
+      process.env.NEXT_PUBLIC_LOCAL_MODE !== "true"
+    ) {
       if (!authState) {
         setShowError(true);
         setTimeout(() => setShowError(false), 2000);
@@ -126,15 +139,15 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
 
     try {
       // Use the existing post_connect endpoint with null token to generate TraceRoot token
-      const response = await fetch('/api/post_connect', {
-        method: 'POST',
+      const response = await fetch("/api/post_connect", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authState}`,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authState}`,
         },
         body: JSON.stringify({
           token: null,
-          resourceType: ResourceType.TRACEROOT
+          resourceType: ResourceType.TRACEROOT,
         }),
       });
 
@@ -144,26 +157,26 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         // Update the display token with the generated token
         const newToken = result.token;
         setDisplayToken(newToken);
-        setAuthSecret(''); // Clear the input field
+        setAuthSecret(""); // Clear the input field
         setIsEditing(false); // Reset editing state
 
         // Update the integration with the new token
         const updatedIntegration: Integration = {
           ...integration,
           token: newToken,
-          connected: true
+          connected: true,
         };
 
         if (onUpdateIntegration) {
           onUpdateIntegration(updatedIntegration);
         }
       } else {
-        console.error('Failed to generate token:', result.error);
+        console.error("Failed to generate token:", result.error);
         setShowError(true);
         setTimeout(() => setShowError(false), 2000);
       }
     } catch (error) {
-      console.error('Error generating token:', error);
+      console.error("Error generating token:", error);
       setShowError(true);
       setTimeout(() => setShowError(false), 2000);
     } finally {
@@ -184,7 +197,10 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
     const authState = getAuthState();
     // Show error if there is no NEXT_PUBLIC_LOCAL_MODE or
     // NEXT_PUBLIC_LOCAL_MODE is not set or not 'true', and no authState
-    if (!process.env.NEXT_PUBLIC_LOCAL_MODE || process.env.NEXT_PUBLIC_LOCAL_MODE !== 'true') {
+    if (
+      !process.env.NEXT_PUBLIC_LOCAL_MODE ||
+      process.env.NEXT_PUBLIC_LOCAL_MODE !== "true"
+    ) {
       if (!authState) {
         setShowError(true);
         setTimeout(() => setShowError(false), 2000);
@@ -201,11 +217,11 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         resourceType: getResourceType(integration.id),
       };
 
-      const response = await fetch('/api/post_connect', {
-        method: 'POST',
+      const response = await fetch("/api/post_connect", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authState}`,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authState}`,
         },
         body: JSON.stringify(tokenResource),
       });
@@ -216,26 +232,26 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         // Update the display token with the returned token or the input token
         const newToken = result.token || authSecret;
         setDisplayToken(newToken);
-        setAuthSecret(''); // Clear the input field
+        setAuthSecret(""); // Clear the input field
         setIsEditing(false); // Reset editing state
 
         // Update the integration with the new token
         const updatedIntegration: Integration = {
           ...integration,
           token: newToken,
-          connected: true
+          connected: true,
         };
 
         if (onUpdateIntegration) {
           onUpdateIntegration(updatedIntegration);
         }
       } else {
-        console.error('Failed to save configuration:', result.error);
+        console.error("Failed to save configuration:", result.error);
         setShowError(true);
         setTimeout(() => setShowError(false), 2000);
       }
     } catch (error) {
-      console.error('Error saving configuration:', error);
+      console.error("Error saving configuration:", error);
       setShowError(true);
       setTimeout(() => setShowError(false), 2000);
     } finally {
@@ -246,8 +262,8 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
   const handleCancel = async () => {
     // If there's no token to remove, just reset the form
     if (!displayToken) {
-      setAuthSecret('');
-      setDisplayToken('');
+      setAuthSecret("");
+      setDisplayToken("");
       setShowError(false);
       return;
     }
@@ -255,7 +271,10 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
     const authState = getAuthState();
     // Show error if there is no NEXT_PUBLIC_LOCAL_MODE or
     // NEXT_PUBLIC_LOCAL_MODE is not set or not 'true', and no authState
-    if (!process.env.NEXT_PUBLIC_LOCAL_MODE || process.env.NEXT_PUBLIC_LOCAL_MODE !== 'true') {
+    if (
+      !process.env.NEXT_PUBLIC_LOCAL_MODE ||
+      process.env.NEXT_PUBLIC_LOCAL_MODE !== "true"
+    ) {
       if (!authState) {
         setShowError(true);
         setTimeout(() => setShowError(false), 2000);
@@ -267,14 +286,14 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
     setShowError(false);
 
     try {
-      const response = await fetch('/api/delete_connect', {
-        method: 'DELETE',
+      const response = await fetch("/api/delete_connect", {
+        method: "DELETE",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authState}`,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authState}`,
         },
         body: JSON.stringify({
-          resource_type: getResourceType(integration.id)
+          resource_type: getResourceType(integration.id),
         }),
       });
 
@@ -282,8 +301,8 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
 
       if (result.success) {
         // Reset form and clear token
-        setAuthSecret('');
-        setDisplayToken('');
+        setAuthSecret("");
+        setDisplayToken("");
         setShowError(false);
         setIsEditing(false); // Reset editing state
 
@@ -291,19 +310,19 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         const updatedIntegration: Integration = {
           ...integration,
           token: null,
-          connected: false
+          connected: false,
         };
 
         if (onUpdateIntegration) {
           onUpdateIntegration(updatedIntegration);
         }
       } else {
-        console.error('Failed to remove configuration:', result.error);
+        console.error("Failed to remove configuration:", result.error);
         setShowError(true);
         setTimeout(() => setShowError(false), 2000);
       }
     } catch (error) {
-      console.error('Error removing configuration:', error);
+      console.error("Error removing configuration:", error);
       setShowError(true);
       setTimeout(() => setShowError(false), 2000);
     } finally {
@@ -312,7 +331,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
   };
 
   const handleCopyToken = async () => {
-    const tokenToCopy = isEditing ? authSecret : (displayToken || authSecret);
+    const tokenToCopy = isEditing ? authSecret : displayToken || authSecret;
     if (tokenToCopy) {
       try {
         await navigator.clipboard.writeText(tokenToCopy);
@@ -320,7 +339,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         // Reset the copied state after 2 seconds
         setTimeout(() => setIsCopied(false), 2000);
       } catch (err) {
-        console.error('Failed to copy token:', err);
+        console.error("Failed to copy token:", err);
       }
     }
   };
@@ -331,7 +350,9 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         <div className="flex items-center space-x-2.5">
           {renderIcon(integration.icon)}
           <div className="flex-1 min-w-0">
-            <CardTitle className="text-base font-semibold truncate">{integration.name}</CardTitle>
+            <CardTitle className="text-base font-semibold truncate">
+              {integration.name}
+            </CardTitle>
             <CardDescription className="text-sm underline truncate">
               <a
                 href={integration.docs}
@@ -357,12 +378,16 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
                 : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 text-xs px-2 py-0.5"
             }
           >
-            {integration.connected ? 'Connected' : 'Disconnected'}
+            {integration.connected ? "Connected" : "Disconnected"}
           </Badge>
 
           {/* Category Tags - Show max 3, then +N */}
           {integration.categories.slice(0, 3).map((category, index) => (
-            <Badge key={index} variant="outline" className="text-xs px-1.5 py-0.5">
+            <Badge
+              key={index}
+              variant="outline"
+              className="text-xs px-1.5 py-0.5"
+            >
               {category}
             </Badge>
           ))}
@@ -377,32 +402,40 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         <div className="space-y-6">
           <div className="relative font-mono">
             <Input
-              type={showSecret ? 'text' : 'password'}
-              value={isEditing ? authSecret : (displayToken || authSecret)}
+              type={showSecret ? "text" : "password"}
+              value={isEditing ? authSecret : displayToken || authSecret}
               onChange={(e) => {
                 // Only allow editing if not TraceRoot
-                if (integration.id !== 'traceroot') {
+                if (integration.id !== "traceroot") {
                   setAuthSecret(e.target.value);
                   if (!isEditing) setIsEditing(true);
                 }
               }}
               onFocus={() => {
                 // Only allow editing if not TraceRoot
-                if (integration.id !== 'traceroot' && displayToken && !isEditing) {
+                if (
+                  integration.id !== "traceroot" &&
+                  displayToken &&
+                  !isEditing
+                ) {
                   setAuthSecret(displayToken);
                   setIsEditing(true);
                 }
               }}
-              placeholder={integration.id === 'traceroot' ? 'Generate the TraceRoot token' : `Enter your ${integration.name} Authentication`}
-              readOnly={integration.id === 'traceroot'}
+              placeholder={
+                integration.id === "traceroot"
+                  ? "Generate the TraceRoot token"
+                  : `Enter your ${integration.name} Authentication`
+              }
+              readOnly={integration.id === "traceroot"}
               aria-invalid={showError}
               className={`${
-                integration.id === 'traceroot' ? 'pr-20' : 'pr-10'
-              } ${integration.id === 'traceroot' ? 'cursor-not-allowed' : ''}`}
+                integration.id === "traceroot" ? "pr-20" : "pr-10"
+              } ${integration.id === "traceroot" ? "cursor-not-allowed" : ""}`}
             />
 
             {/* Copy button for TraceRoot only */}
-            {integration.id === 'traceroot' && (
+            {integration.id === "traceroot" && (
               <Button
                 type="button"
                 variant="ghost"
@@ -426,7 +459,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
           </div>
 
           <div className="flex gap-2">
-            {integration.id === 'traceroot' ? (
+            {integration.id === "traceroot" ? (
               <Button
                 onClick={handleGenerateToken}
                 disabled={isLoading}
@@ -434,7 +467,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
                 size="sm"
                 className="flex-1"
               >
-                {isLoading ? 'Generating...' : 'Generate'}
+                {isLoading ? "Generating..." : "Generate"}
               </Button>
             ) : (
               <Button
@@ -444,7 +477,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
                 size="sm"
                 className="flex-1"
               >
-                {isLoading ? 'Saving...' : 'Save'}
+                {isLoading ? "Saving..." : "Save"}
               </Button>
             )}
             <Button
@@ -454,7 +487,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
               size="sm"
               className="flex-1"
             >
-              {isLoading ? 'Removing...' : 'Remove'}
+              {isLoading ? "Removing..." : "Remove"}
             </Button>
           </div>
         </div>

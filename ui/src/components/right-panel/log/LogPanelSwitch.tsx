@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import React from 'react';
-import LogOverview from './LogOverview';
-import LogDetail from './LogDetail';
-import { Span } from '@/models/trace';
-import { ViewType } from '../ModeToggle';
+import React from "react";
+import LogOverview from "./LogOverview";
+import LogDetail from "./LogDetail";
+import { Span } from "@/models/trace";
+import { ViewType } from "../ModeToggle";
 
 interface LogPanelSwitchProps {
   traceId?: string;
@@ -33,7 +33,7 @@ export default function LogPanelSwitch({
   traceIDs = [],
   tracePercentiles = [],
   onTraceSelect,
-  viewType
+  viewType,
 }: LogPanelSwitchProps) {
   return (
     <div className="h-screen flex flex-col">

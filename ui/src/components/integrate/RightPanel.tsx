@@ -1,80 +1,80 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import Item from './Item';
-import { Integration } from '@/types/integration';
-import { useUser } from '@/hooks/useUser';
-import { ResourceType } from '@/models/integrate';
+import React, { useState, useEffect } from "react";
+import Item from "./Item";
+import { Integration } from "@/types/integration";
+import { useUser } from "@/hooks/useUser";
+import { ResourceType } from "@/models/integrate";
 
 const initialIntegrations: Integration[] = [
   {
-    id: 'traceroot',
-    name: 'TraceRoot.AI',
-    description: 'TraceRoot.AI Token',
-    icon: 'traceroot',
-    categories: ['Debugging', 'Tracing'],
+    id: "traceroot",
+    name: "TraceRoot.AI",
+    description: "TraceRoot.AI Token",
+    icon: "traceroot",
+    categories: ["Debugging", "Tracing"],
     connected: false,
-    docs: 'https://docs.traceroot.ai/',
+    docs: "https://docs.traceroot.ai/",
     token: null,
   },
   {
-    id: 'github',
-    name: 'GitHub',
-    description: 'GitHub Token',
-    icon: 'github',
-    categories: ['Code', 'Knowledge'],
+    id: "github",
+    name: "GitHub",
+    description: "GitHub Token",
+    icon: "github",
+    categories: ["Code", "Knowledge"],
     connected: false,
-    docs: 'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token',
+    docs: "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token",
     token: null,
   },
   {
-    id: 'notion',
-    name: 'Notion',
-    description: 'Notion Integration',
-    icon: 'notion',
-    categories: ['Knowledge'],
+    id: "notion",
+    name: "Notion",
+    description: "Notion Integration",
+    icon: "notion",
+    categories: ["Knowledge"],
     connected: false,
-    docs: 'https://developers.notion.com/docs/create-a-notion-integration',
+    docs: "https://developers.notion.com/docs/create-a-notion-integration",
     token: null,
   },
   {
-    id: 'slack',
-    name: 'Slack',
-    description: 'Slack Token',
-    icon: 'slack',
-    categories: ['Communication', 'Knowledge'],
+    id: "slack",
+    name: "Slack",
+    description: "Slack Token",
+    icon: "slack",
+    categories: ["Communication", "Knowledge"],
     connected: false,
-    docs: 'https://api.slack.com/authentication/token-types#bot',
+    docs: "https://api.slack.com/authentication/token-types#bot",
     token: null,
   },
   {
-    id: 'openai',
-    name: 'OpenAI',
-    description: 'OpenAI Token',
-    icon: 'openai',
-    categories: ['LLM', 'Agent'],
+    id: "openai",
+    name: "OpenAI",
+    description: "OpenAI Token",
+    icon: "openai",
+    categories: ["LLM", "Agent"],
     connected: false,
-    docs: 'https://platform.openai.com/docs/api-reference/authentication',
+    docs: "https://platform.openai.com/docs/api-reference/authentication",
     token: null,
   },
   {
-    id: 'anthropic',
-    name: 'Anthropic',
-    description: 'Anthropic API Key',
-    icon: 'anthropic',
-    categories: ['LLM', 'Agent'],
+    id: "anthropic",
+    name: "Anthropic",
+    description: "Anthropic API Key",
+    icon: "anthropic",
+    categories: ["LLM", "Agent"],
     connected: false,
-    docs: 'https://docs.anthropic.com/en/api/admin-api/apikeys/get-api-key',
+    docs: "https://docs.anthropic.com/en/api/admin-api/apikeys/get-api-key",
     token: null,
   },
   {
-    id: 'groq',
-    name: 'Groq',
-    description: 'Groq API Key',
-    icon: 'groq',
-    categories: ['LLM'],
+    id: "groq",
+    name: "Groq",
+    description: "Groq API Key",
+    icon: "groq",
+    categories: ["LLM"],
     connected: false,
-    docs: 'https://console.groq.com/docs/quickstart',
+    docs: "https://console.groq.com/docs/quickstart",
     token: null,
   },
 ];
@@ -86,18 +86,18 @@ export default function RightPanel() {
 
   // Function to fetch token for a specific integration
   const fetchIntegrationToken = async (
-    resourceType: ResourceType
+    resourceType: ResourceType,
   ): Promise<string | null> => {
     try {
       const user_secret = getAuthState();
       if (
         (!process.env.NEXT_PUBLIC_LOCAL_MODE ||
-          process.env.NEXT_PUBLIC_LOCAL_MODE !== 'true') &&
+          process.env.NEXT_PUBLIC_LOCAL_MODE !== "true") &&
         !user_secret
       ) {
         console.warn(
-          'No user secret found, skipping token fetch for:',
-          resourceType
+          "No user secret found, skipping token fetch for:",
+          resourceType,
         );
         return null;
       }
@@ -105,18 +105,18 @@ export default function RightPanel() {
       const response = await fetch(
         `/api/get_connect?resourceType=${resourceType}`,
         {
-          method: 'GET',
+          method: "GET",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
             Authorization: `Bearer ${user_secret}`,
           },
-        }
+        },
       );
 
       if (!response.ok) {
         console.error(
           `Failed to fetch token for ${resourceType}:`,
-          response.statusText
+          response.statusText,
         );
         return null;
       }
@@ -161,27 +161,27 @@ export default function RightPanel() {
           let connected = false;
 
           switch (integration.id) {
-            case 'github':
+            case "github":
               token = githubToken;
               connected = !!githubToken;
               break;
-            case 'notion':
+            case "notion":
               token = notionToken;
               connected = !!notionToken;
               break;
-            case 'slack':
+            case "slack":
               token = slackToken;
               connected = !!slackToken;
               break;
-            case 'openai':
+            case "openai":
               token = openaiToken;
               connected = !!openaiToken;
               break;
-            case 'groq':
+            case "groq":
               token = groqToken;
               connected = !!groqToken;
               break;
-            case 'traceroot':
+            case "traceroot":
               token = tracerootToken;
               connected = !!tracerootToken;
               break;
@@ -192,10 +192,10 @@ export default function RightPanel() {
             token,
             connected,
           };
-        })
+        }),
       );
     } catch (error) {
-      console.error('Error fetching integration tokens:', error);
+      console.error("Error fetching integration tokens:", error);
     }
   };
 
@@ -209,8 +209,8 @@ export default function RightPanel() {
       prevIntegrations.map((integration) =>
         integration.id === updatedIntegration.id
           ? { ...updatedIntegration, connected: !!updatedIntegration.token }
-          : integration
-      )
+          : integration,
+      ),
     );
   };
 
