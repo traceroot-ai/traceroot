@@ -22,6 +22,7 @@ class TraceRootAWSClient:
         start_time: datetime,
         end_time: datetime,
         log_group_name: str | None = None,
+        log_search_term: str | None = None,
     ) -> TraceLogs:
         pass
 
