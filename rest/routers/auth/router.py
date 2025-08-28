@@ -64,8 +64,6 @@ async def auth_callback(request: Request, state: str) -> JSONResponse:
         response.set_cookie(
             key="session",
             value=access_token,
-            # httponly=True,
-            # secure=True,
             samesite="lax",
             domain=".traceroot.ai",
             max_age=3600 * 12  # 12 hours
@@ -76,8 +74,6 @@ async def auth_callback(request: Request, state: str) -> JSONResponse:
         response.set_cookie(
             key="id_token",
             value=id_token,
-            # httponly=True,
-            # secure=True,
             samesite="lax",
             domain=".traceroot.ai",
             max_age=3600 * 12  # 12 hours
@@ -95,13 +91,7 @@ async def logout(request: Request) -> JSONResponse:
     response = JSONResponse({"status": "success", "message": "Logged out successfully"})
 
     # Clear both authentication cookies
-    response.delete_cookie(
-        key="session",
-        domain=".traceroot.ai",
-    )
-    response.delete_cookie(
-        key="id_token",
-        domain=".traceroot.ai",
-    )
+    response.delete_cookie(key="session")
+    response.delete_cookie(key="id_token")
 
     return response
