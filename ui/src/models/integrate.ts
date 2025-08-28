@@ -4,7 +4,7 @@ export enum ResourceType {
   SLACK = "slack",
   OPENAI = "openai",
   GROQ = "groq",
-  TRACEROOT = "traceroot"
+  TRACEROOT = "traceroot",
 }
 
 export interface TokenResource {

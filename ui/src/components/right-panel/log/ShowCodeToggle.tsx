@@ -1,19 +1,19 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { FaCode } from 'react-icons/fa';
-import { LogEntry } from '@/models/log';
-import { CodeResponse } from '@/models/code';
-import { useUser } from '@/hooks/useUser';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
+import React, { useState, useEffect } from "react";
+import { FaCode } from "react-icons/fa";
+import { LogEntry } from "@/models/log";
+import { CodeResponse } from "@/models/code";
+import { useUser } from "@/hooks/useUser";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
+} from "@/components/ui/dialog";
 
 interface ShowCodeToggleProps {
   logEntries: { entry: LogEntry; spanId: string }[];
@@ -22,7 +22,12 @@ interface ShowCodeToggleProps {
   onShowCodeChange: (showCode: boolean) => void;
 }
 
-export default function ShowCodeToggle({ logEntries, onLogEntriesUpdate, showCode, onShowCodeChange }: ShowCodeToggleProps) {
+export default function ShowCodeToggle({
+  logEntries,
+  onLogEntriesUpdate,
+  showCode,
+  onShowCodeChange,
+}: ShowCodeToggleProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const { getAuthState } = useUser();
@@ -49,7 +54,12 @@ export default function ShowCodeToggle({ logEntries, onLogEntriesUpdate, showCod
   // Ensure code data is cleared when component mounts or log entries change if showCode is false
   // This handles cases where user switches between panels and returns with existing code data
   useEffect(() => {
-    if (!showCode && logEntries.some(({ entry }) => entry.line || entry.lines_above || entry.lines_below)) {
+    if (
+      !showCode &&
+      logEntries.some(
+        ({ entry }) => entry.line || entry.lines_above || entry.lines_below,
+      )
+    ) {
       clearCodeDataFromLogEntries();
       if (onLogEntriesUpdate) {
         onLogEntriesUpdate();
@@ -86,11 +96,11 @@ export default function ShowCodeToggle({ logEntries, onLogEntriesUpdate, showCod
     setErrorMessage(null);
     try {
       // Get unique git URLs from log entries
-      const uniqueGitUrls = [...new Set(
-        logEntries
-          .map(({ entry }) => entry.git_url)
-          .filter(url => url) // Filter out null/undefined URLs
-      )];
+      const uniqueGitUrls = [
+        ...new Set(
+          logEntries.map(({ entry }) => entry.git_url).filter((url) => url), // Filter out null/undefined URLs
+        ),
+      ];
 
       // Get user secret for authentication
       const user_secret = getAuthState();
@@ -99,18 +109,21 @@ export default function ShowCodeToggle({ logEntries, onLogEntriesUpdate, showCod
       const promises = uniqueGitUrls.map(async (gitUrl) => {
         try {
           const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           };
 
           // Add Authorization header if user secret is available
           if (user_secret) {
-            headers['Authorization'] = `Bearer ${user_secret}`;
+            headers["Authorization"] = `Bearer ${user_secret}`;
           }
 
           console.log(`Fetching code content for ${gitUrl}`);
-          const response = await fetch(`/api/get_line_context_content?url=${encodeURIComponent(gitUrl!)}`, {
-            headers,
-          });
+          const response = await fetch(
+            `/api/get_line_context_content?url=${encodeURIComponent(gitUrl!)}`,
+            {
+              headers,
+            },
+          );
           const data: CodeResponse = await response.json();
           return { gitUrl, data };
         } catch (error) {
@@ -131,7 +144,7 @@ export default function ShowCodeToggle({ logEntries, onLogEntriesUpdate, showCod
 
       // If there are errors, show popup and don't proceed with showing code
       if (errors.length > 0) {
-        setErrorMessage(errors.join('\n'));
+        setErrorMessage(errors.join("\n"));
         setIsLoading(false);
         return;
       }
@@ -172,8 +185,8 @@ export default function ShowCodeToggle({ logEntries, onLogEntriesUpdate, showCod
         }
       }
     } catch (error) {
-      console.error('Error fetching code content:', error);
-      setErrorMessage('Failed to fetch code content. Please try again.');
+      console.error("Error fetching code content:", error);
+      setErrorMessage("Failed to fetch code content. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -191,21 +204,26 @@ export default function ShowCodeToggle({ logEntries, onLogEntriesUpdate, showCod
           checked={showCode}
           onCheckedChange={handleToggle}
           disabled={isLoading}
-          title={showCode ? 'Hide code context' : 'Show code context'}
+          title={showCode ? "Hide code context" : "Show code context"}
         />
         <Label
           htmlFor="show-code-toggle"
           className="flex items-center space-x-2 text-sm cursor-pointer"
         >
-          <FaCode className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+          <FaCode className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
         </Label>
       </div>
 
       {/* Error Dialog */}
-      <Dialog open={!!errorMessage} onOpenChange={(open) => !open && closeErrorPopup()}>
+      <Dialog
+        open={!!errorMessage}
+        onOpenChange={(open) => !open && closeErrorPopup()}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-red-600 dark:text-red-400">Code Loading Error</DialogTitle>
+            <DialogTitle className="text-red-600 dark:text-red-400">
+              Code Loading Error
+            </DialogTitle>
             <DialogDescription className="text-red-700 dark:text-red-300 whitespace-pre-line">
               {errorMessage}
             </DialogDescription>

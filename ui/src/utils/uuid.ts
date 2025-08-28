@@ -7,5 +7,5 @@ export function generateUuidHex(): string {
   const uuid = crypto.randomUUID();
 
   // Remove dashes to get the hex format like Python's uuid.hex
-  return uuid.replace(/-/g, '');
+  return uuid.replace(/-/g, "");
 }

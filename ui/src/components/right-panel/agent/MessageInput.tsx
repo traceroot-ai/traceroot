@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Send } from 'lucide-react';
-import { CiChat2 } from 'react-icons/ci';
-import { GiBrain } from 'react-icons/gi';
-import { RiRobot2Line } from 'react-icons/ri';
-import { MdCloudQueue } from 'react-icons/md';
+import React, { useState, useRef, useEffect } from "react";
+import { Send } from "lucide-react";
+import { CiChat2 } from "react-icons/ci";
+import { GiBrain } from "react-icons/gi";
+import { RiRobot2Line } from "react-icons/ri";
+import { MdCloudQueue } from "react-icons/md";
 import {
   CHAT_MODEL_DISPLAY_NAMES,
   CHAT_MODELS,
@@ -14,19 +14,19 @@ import {
   DEFAULT_PROVIDER,
   getModelsByProvider,
   getDefaultModelForProvider,
-} from '../../../constants/model';
-import { Badge } from '../../ui/badge';
-import { Button } from '../../ui/button';
-import { Spinner } from '../../ui/shadcn-io/spinner';
+} from "../../../constants/model";
+import { Badge } from "../../ui/badge";
+import { Button } from "../../ui/button";
+import { Spinner } from "../../ui/shadcn-io/spinner";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
-} from '../../ui/dropdown-menu';
+} from "../../ui/dropdown-menu";
 
-type Mode = 'agent' | 'chat';
+type Mode = "agent" | "chat";
 
 interface MessageInputProps {
   inputMessage: string;
@@ -57,7 +57,7 @@ export default function MessageInput({
   traceId,
   spanIds = [],
 }: MessageInputProps) {
-  const [textareaHeight, setTextareaHeight] = useState('auto');
+  const [textareaHeight, setTextareaHeight] = useState("auto");
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -72,7 +72,7 @@ export default function MessageInput({
     if (!textarea) return;
 
     // Reset height to auto to get the correct scrollHeight
-    textarea.style.height = 'auto';
+    textarea.style.height = "auto";
 
     // Get the computed line height
     const lineHeight = parseInt(window.getComputedStyle(textarea).lineHeight);
@@ -82,7 +82,7 @@ export default function MessageInput({
     // Set the height based on content, but clamp between min and max
     const newHeight = Math.min(
       Math.max(textarea.scrollHeight, minHeight),
-      maxHeight
+      maxHeight,
     );
     textarea.style.height = `${newHeight}px`;
   };
@@ -113,11 +113,11 @@ export default function MessageInput({
   };
 
   const getModeIcon = (mode: Mode) => {
-    return mode === 'agent' ? RiRobot2Line : CiChat2;
+    return mode === "agent" ? RiRobot2Line : CiChat2;
   };
 
   const getModeDisplayName = (mode: Mode) => {
-    return mode === 'agent' ? 'Agent' : 'Chat';
+    return mode === "agent" ? "Agent" : "Chat";
   };
 
   return (
@@ -148,7 +148,7 @@ export default function MessageInput({
                 adjustTextareaHeight();
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   if (!isLoading && inputMessage.trim()) {
                     // Manually trigger form submit
@@ -157,7 +157,7 @@ export default function MessageInput({
                 }
               }}
               placeholder={
-                isLoading ? 'Agent is thinking...' : 'Type your message...'
+                isLoading ? "Agent is thinking..." : "Type your message..."
               }
               className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-zinc-700 px-4 py-2 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 resize-none leading-relaxed overflow-y-auto text-sm"
               style={{ height: textareaHeight }}
@@ -184,7 +184,7 @@ export default function MessageInput({
                     className="gap-2 bg-zinc-50 dark:bg-zinc-900"
                   >
                     {React.createElement(getModeIcon(selectedMode), {
-                      className: 'w-4 h-4',
+                      className: "w-4 h-4",
                     })}
                     <span className="text-xs">
                       {getModeDisplayName(selectedMode)}

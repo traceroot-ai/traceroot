@@ -3,7 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import AppSidebar from "@/components/side-bar/Sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
-import { Toaster } from 'react-hot-toast';
+import { Toaster } from "react-hot-toast";
 import { AutumnProvider } from "autumn-js/react";
 import { ThemeProvider } from "@/components/theme-provider";
 
@@ -34,36 +34,34 @@ export default function RootLayout({
           <AutumnProvider>
             <SidebarProvider defaultOpen={false}>
               <AppSidebar />
-              <SidebarInset>
-                {children}
-              </SidebarInset>
+              <SidebarInset>{children}</SidebarInset>
             </SidebarProvider>
             <Toaster
               position="top-right"
               toastOptions={{
                 duration: 4000,
                 style: {
-                  background: '#363636',
-                  color: '#fff',
+                  background: "#363636",
+                  color: "#fff",
                 },
                 success: {
                   duration: 3000,
                   iconTheme: {
-                    primary: '#4ade80',
-                    secondary: '#fff',
+                    primary: "#4ade80",
+                    secondary: "#fff",
                   },
                 },
                 error: {
                   duration: 5000,
                   iconTheme: {
-                    primary: '#ef4444',
-                    secondary: '#fff',
+                    primary: "#ef4444",
+                    secondary: "#fff",
                   },
                 },
                 loading: {
                   iconTheme: {
-                    primary: '#3b82f6',
-                    secondary: '#fff',
+                    primary: "#3b82f6",
+                    secondary: "#fff",
                   },
                 },
               }}

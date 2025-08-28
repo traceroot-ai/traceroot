@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { GoArrowRight, GoArrowUpRight } from 'react-icons/go';
-import { BsLightning } from 'react-icons/bs';
-import { RiRobot2Line } from 'react-icons/ri';
-import { FaCode } from 'react-icons/fa6';
-import Link from 'next/link';
-import { Button } from '@/components/ui/button';
+import React, { useState } from "react";
+import { GoArrowRight, GoArrowUpRight } from "react-icons/go";
+import { BsLightning } from "react-icons/bs";
+import { RiRobot2Line } from "react-icons/ri";
+import { FaCode } from "react-icons/fa6";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
 export default function Home() {
   const [isDocsHovered, setIsDocsHovered] = useState(false);
@@ -26,7 +26,7 @@ export default function Home() {
              backdrop-blur-xl text-neutral-800 dark:text-neutral-200 font-semibold text-sm
              transition-colors duration-300"
           onClick={() =>
-            window.open('https://cal.com/traceroot/30min', '_blank')
+            window.open("https://cal.com/traceroot/30min", "_blank")
           }
           onMouseEnter={() => setIsContactHovered(true)}
           onMouseLeave={() => setIsContactHovered(false)}
@@ -45,7 +45,7 @@ export default function Home() {
           className="w-auto bg-zinc-50 dark:bg-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700
              backdrop-blur-xl text-neutral-800 dark:text-neutral-200 font-semibold text-sm
              transition-colors duration-300"
-          onClick={() => window.open('https://docs.traceroot.ai', '_blank')}
+          onClick={() => window.open("https://docs.traceroot.ai", "_blank")}
           onMouseEnter={() => setIsDocsHovered(true)}
           onMouseLeave={() => setIsDocsHovered(false)}
         >
@@ -73,10 +73,10 @@ export default function Home() {
               variant="outline"
               className="bg-zinc-800 hover:bg-zinc-800 text-white hover:text-white font-mono px-4 py-4.5 rounded-lg"
               onClick={() =>
-                window.open('https://www.ycombinator.com', '_blank')
+                window.open("https://www.ycombinator.com", "_blank")
               }
             >
-              Backed by{' '}
+              Backed by{" "}
               <span className="bg-orange-500 text-white font-mono px-2 py-1 rounded text-sm">
                 Y
               </span>
