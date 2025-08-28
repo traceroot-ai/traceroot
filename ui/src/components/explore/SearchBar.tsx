@@ -1,26 +1,26 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { IoMdClose} from "react-icons/io";
+import React, { useState } from "react";
+import { IoMdClose } from "react-icons/io";
 import { TbCategory } from "react-icons/tb";
 import { LuSquareEqual } from "react-icons/lu";
-import { ChevronDownIcon } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { ChevronDownIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from "@/components/ui/dropdown-menu";
 
 export interface SearchCriterion {
   id: string;
   category: string;
   operation: string;
   value: string;
-  logicalOperator?: 'AND' | 'OR';
+  logicalOperator?: "AND" | "OR";
 }
 
 interface SearchBarProps {
@@ -29,74 +29,81 @@ interface SearchBarProps {
 }
 
 const CATEGORIES = [
-  { label: 'service', value: 'service_name' },
-  { label: 'env', value: 'service_environment' },
-  { label: 'log', value: 'log' },
+  { label: "service", value: "service_name" },
+  { label: "env", value: "service_environment" },
+  { label: "metadata", value: "metadata" },
+  { label: "log", value: "log" },
 ];
 
 const OPERATIONS = [
-  { label: '=', value: '=' },
-  // { label: 'contains', value: 'contains' },
-];
-
-const LOGICAL_OPERATORS = [
-  { label: 'AND', value: 'AND' },
-  // { label: 'OR', value: 'OR' }
+  { label: "=", value: "=" },
+  { label: "contains", value: "contains" },
 ];
 
 const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
   const [criteria, setCriteria] = useState<SearchCriterion[]>([]);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [currentCriterion, setCurrentCriterion] = useState<Partial<SearchCriterion>>({});
-  const [inputValue, setInputValue] = useState('');
-  const [logCategoryValue, setLogCategoryValue] = useState('');
+  const [currentCriterion, setCurrentCriterion] = useState<
+    Partial<SearchCriterion>
+  >({});
+  const [inputValue, setInputValue] = useState("");
+  const [metadataCategoryValue, setMetadataCategoryValue] = useState("");
+  const [logSearchValue, setLogSearchValue] = useState("");
 
   const handleAddCriterion = () => {
-    const categoryValue = currentCriterion.category === 'log' ? logCategoryValue.trim() : currentCriterion.category;
+    let categoryValue = currentCriterion.category;
+    let searchValue = inputValue.trim();
 
-    if (categoryValue && currentCriterion.operation && inputValue.trim()) {
+    if (currentCriterion.category === "metadata") {
+      categoryValue = metadataCategoryValue.trim();
+    } else if (currentCriterion.category === "log") {
+      searchValue = logSearchValue.trim();
+    }
+
+    if (categoryValue && currentCriterion.operation && searchValue) {
       const newCriterion: SearchCriterion = {
         id: Date.now().toString(),
         category: categoryValue,
         operation: currentCriterion.operation,
-        value: inputValue.trim(),
-        logicalOperator: criteria.length > 0 ? (currentCriterion.logicalOperator || 'AND') : undefined
+        value: searchValue,
+        logicalOperator: criteria.length > 0 ? "AND" : undefined,
       };
 
       const newCriteria = [...criteria, newCriterion];
       setCriteria(newCriteria);
       setCurrentCriterion({});
-      setInputValue('');
-      setLogCategoryValue('');
+      setInputValue("");
+      setMetadataCategoryValue("");
+      setLogSearchValue("");
       onSearch(newCriteria);
     }
   };
 
   const handleRemoveCriterion = (id: string) => {
-    const newCriteria = criteria.filter(c => c.id !== id);
+    const newCriteria = criteria.filter((c) => c.id !== id);
     setCriteria(newCriteria);
     onSearch(newCriteria);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
+    if (e.key === "Enter") {
       handleAddCriterion();
     }
   };
 
   const getCategoryLabel = (value: string) => {
-    const category = CATEGORIES.find(cat => cat.value === value);
+    const category = CATEGORIES.find((cat) => cat.value === value);
     return category ? category.label : value;
   };
 
   const getOperationLabel = (value: string) => {
-    return OPERATIONS.find(op => op.value === value)?.label || value;
+    return OPERATIONS.find((op) => op.value === value)?.label || value;
   };
 
   return (
     <div className="relative flex items-start gap-2 justify-start">
       <div
-        className={`flex flex-col gap-2 px-2 py-1 border rounded-md transition-all duration-200 min-h-[2rem] max-h-[10rem] ${criteria.length === 0 ? 'justify-center' : ''} w-auto max-w-md`}
+        className={`flex flex-col gap-2 px-2 py-1 border rounded-md transition-all duration-200 min-h-[2rem] max-h-[10rem] ${criteria.length === 0 ? "justify-center" : ""} w-auto max-w-md`}
         onClick={() => setIsExpanded(true)}
       >
         {/* Search criteria blocks */}
@@ -144,51 +151,76 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
                 className="px-2 py-1 text-xs h-auto whitespace-nowrap font-medium"
               >
                 <span className="hidden md:inline">
-                  {currentCriterion.category ? getCategoryLabel(currentCriterion.category) : <TbCategory className="w-4 h-4" />}
+                  {currentCriterion.category ? (
+                    getCategoryLabel(currentCriterion.category)
+                  ) : (
+                    <TbCategory className="w-4 h-4" />
+                  )}
                 </span>
                 <span className="hidden sm:inline md:hidden">
-                  {currentCriterion.category ? getCategoryLabel(currentCriterion.category).substring(0, 8) : <TbCategory className="w-4 h-4" />}
+                  {currentCriterion.category ? (
+                    getCategoryLabel(currentCriterion.category).substring(0, 8)
+                  ) : (
+                    <TbCategory className="w-4 h-4" />
+                  )}
                 </span>
                 <span className="sm:hidden">
-                  {currentCriterion.category ? getCategoryLabel(currentCriterion.category).substring(0, 3) : <TbCategory className="w-4 h-4" />}
+                  {currentCriterion.category ? (
+                    getCategoryLabel(currentCriterion.category).substring(0, 3)
+                  ) : (
+                    <TbCategory className="w-4 h-4" />
+                  )}
                 </span>
                 <ChevronDownIcon className="ml-1 size-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-48">
               <DropdownMenuRadioGroup
-                value={currentCriterion.category || ''}
+                value={currentCriterion.category || ""}
                 onValueChange={(value) => {
-                  setCurrentCriterion({ ...currentCriterion, category: value });
-                  if (value !== 'log') {
-                    setLogCategoryValue('');
+                  // Reset operation when changing category
+                  const newOperation = value === "log" ? "contains" : "=";
+                  setCurrentCriterion({
+                    ...currentCriterion,
+                    category: value,
+                    operation: newOperation,
+                  });
+                  if (value !== "metadata") {
+                    setMetadataCategoryValue("");
+                  }
+                  if (value !== "log") {
+                    setLogSearchValue("");
                   }
                 }}
               >
-                {CATEGORIES.map((category) => (
-                  <DropdownMenuRadioItem
-                    key={category.value}
-                    value={category.value}
-                    className="text-xs"
-                  >
-                    {category.label}
-                  </DropdownMenuRadioItem>
-                ))}
+                {CATEGORIES.map((category) => {
+                  // Check if this category is already selected
+                  const isAlreadySelected = criteria.some((c) => {
+                    // For metadata and log, check exact category match
+                    if (
+                      category.value === "metadata" ||
+                      category.value === "log"
+                    ) {
+                      return c.category === category.value;
+                    }
+                    // For service_name and service_environment, check the base category
+                    return c.category === category.value;
+                  });
+
+                  return (
+                    <DropdownMenuRadioItem
+                      key={category.value}
+                      value={category.value}
+                      className={`text-xs ${isAlreadySelected ? "opacity-50 cursor-not-allowed" : ""}`}
+                      disabled={isAlreadySelected}
+                    >
+                      {category.label}
+                    </DropdownMenuRadioItem>
+                  );
+                })}
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-
-          {/* Log category input (only show when log is selected) */}
-          {currentCriterion.category === 'log' && (
-            <Input
-              type="text"
-              value={logCategoryValue}
-              onChange={(e) => setLogCategoryValue(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder=""
-              className="w-26 min-w-[80px] h-6.5 text-xs"
-            />
-          )}
 
           {/* Operation selector */}
           <DropdownMenu>
@@ -199,25 +231,56 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
                 className="px-1 py-1 text-xs h-auto whitespace-nowrap font-medium"
               >
                 <span className="hidden md:inline">
-                  {currentCriterion.operation ? getOperationLabel(currentCriterion.operation) : <LuSquareEqual className="w-4 h-4" />}
+                  {currentCriterion.operation ? (
+                    getOperationLabel(currentCriterion.operation)
+                  ) : currentCriterion.category === "log" ? (
+                    "contains"
+                  ) : (
+                    <LuSquareEqual className="w-4 h-4" />
+                  )}
                 </span>
                 <span className="hidden sm:inline md:hidden">
-                  {currentCriterion.operation ? getOperationLabel(currentCriterion.operation) : <LuSquareEqual className="w-4 h-4" />}
+                  {currentCriterion.operation ? (
+                    getOperationLabel(currentCriterion.operation)
+                  ) : currentCriterion.category === "log" ? (
+                    "contains"
+                  ) : (
+                    <LuSquareEqual className="w-4 h-4" />
+                  )}
                 </span>
                 <span className="sm:hidden">
-                  {currentCriterion.operation ? getOperationLabel(currentCriterion.operation) : <LuSquareEqual className="w-4 h-4" />}
+                  {currentCriterion.operation ? (
+                    getOperationLabel(currentCriterion.operation)
+                  ) : currentCriterion.category === "log" ? (
+                    "contains"
+                  ) : (
+                    <LuSquareEqual className="w-4 h-4" />
+                  )}
                 </span>
                 <ChevronDownIcon className="ml-1 size-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-32">
               <DropdownMenuRadioGroup
-                value={currentCriterion.operation || ''}
+                value={
+                  currentCriterion.operation ||
+                  (currentCriterion.category === "log" ? "contains" : "")
+                }
                 onValueChange={(value) => {
-                  setCurrentCriterion({ ...currentCriterion, operation: value });
+                  setCurrentCriterion({
+                    ...currentCriterion,
+                    operation: value,
+                  });
                 }}
               >
-                {OPERATIONS.map((operation) => (
+                {OPERATIONS.filter((operation) => {
+                  // For log category, only show 'contains' operation
+                  if (currentCriterion.category === "log") {
+                    return operation.value === "contains";
+                  }
+                  // For other categories, show '=' operation
+                  return operation.value === "=";
+                }).map((operation) => (
                   <DropdownMenuRadioItem
                     key={operation.value}
                     value={operation.value}
@@ -230,49 +293,45 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Logical operator selector (only show if there are existing criteria) */}
-          {criteria.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="px-1 py-1 text-xs whitespace-nowrap font-medium h-7 min-h-[2.5rem]"
-                >
-                  {currentCriterion.logicalOperator || 'AND'}
-                  <ChevronDownIcon className="ml-1 size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-20">
-                <DropdownMenuRadioGroup
-                  value={currentCriterion.logicalOperator || 'AND'}
-                  onValueChange={(value) => {
-                    setCurrentCriterion({ ...currentCriterion, logicalOperator: value as 'AND' | 'OR' });
-                  }}
-                >
-                  {LOGICAL_OPERATORS.map((operator) => (
-                    <DropdownMenuRadioItem
-                      key={operator.value}
-                      value={operator.value}
-                      className="text-xs"
-                    >
-                      {operator.label}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+          {/* Metadata category input (only show when metadata is selected) */}
+          {currentCriterion.category === "metadata" && (
+            <Input
+              type="text"
+              value={metadataCategoryValue}
+              onChange={(e) => setMetadataCategoryValue(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder=""
+              className="w-26 min-w-[80px] h-6.5"
+              style={{ fontSize: "12px" }}
+            />
           )}
 
-          {/* Value input */}
-          <Input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder=""
-            className="w-28 min-w-[80px] h-6.5 text-xs"
-          />
+          {/* Log search input (only show when log is selected) */}
+          {currentCriterion.category === "log" && (
+            <Input
+              type="text"
+              value={logSearchValue}
+              onChange={(e) => setLogSearchValue(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder=""
+              className="w-32 min-w-[120px] h-6.5"
+              style={{ fontSize: "12px" }}
+            />
+          )}
+
+          {/* Value input (hide when metadata or log category is selected) */}
+          {currentCriterion.category !== "metadata" &&
+            currentCriterion.category !== "log" && (
+              <Input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder=""
+                className="w-28 min-w-[80px] h-6.5"
+                style={{ fontSize: "12px" }}
+              />
+            )}
 
           {/* cross button */}
           <Button
@@ -284,9 +343,11 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
               // Clear current criterion being built
               setCurrentCriterion({});
               // Clear input value
-              setInputValue('');
-              // Clear log category value
-              setLogCategoryValue('');
+              setInputValue("");
+              // Clear metadata category value
+              setMetadataCategoryValue("");
+              // Clear log search value
+              setLogSearchValue("");
               // Call parent clear function
               onClear();
             }}

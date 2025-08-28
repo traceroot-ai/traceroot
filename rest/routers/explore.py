@@ -320,12 +320,14 @@ class ExploreRouter:
             log_group_name
         )
 
-        # Extract service names and service environment
+        # Extract service names, service environment, and log search
         # values from categories/values/operations
         service_name_values = []
         service_name_operations = []
         service_environment_values = []
         service_environment_operations = []
+        log_search_values = []
+        log_search_operations = []
 
         # Create lists to hold remaining categories/values/operations
         # after extraction
@@ -345,6 +347,9 @@ class ExploreRouter:
                 elif category == "service_environment":
                     service_environment_values.append(value)
                     service_environment_operations.append(operation)
+                elif category == "log":
+                    log_search_values.append(value)
+                    log_search_operations.append(operation)
                 else:
                     # Keep non-service categories
                     remaining_categories.append(category)
@@ -384,6 +389,18 @@ class ExploreRouter:
                 values=values,
                 operations=operations,
             )
+
+            # Filter traces by log content if log search is specified
+            if log_search_values:
+                traces = await self._filter_traces_by_log_content(
+                    traces=traces,
+                    start_time=start_time,
+                    end_time=end_time,
+                    log_group_name=log_group_name,
+                    log_search_values=log_search_values,
+                    log_search_operations=log_search_operations
+                )
+
             # Cache the traces for 10 minutes
             await self.cache.set(keys, traces)
             resp = ListTraceResponse(traces=traces)
@@ -941,3 +958,53 @@ class ExploreRouter:
                 status_code=500,
                 detail="Failed to get traces and logs usage"
             )
+
+    async def _filter_traces_by_log_content(
+        self,
+        traces: list[Trace],
+        start_time: datetime,
+        end_time: datetime,
+        log_group_name: str,
+        log_search_values: list[str],
+        log_search_operations: list[Operation]
+    ) -> list[Trace]:
+        """Filter traces by log content.
+
+        Args:
+            traces: List of traces to filter
+            start_time: Start time for log query
+            end_time: End time for log query
+            log_group_name: Log group name
+            log_search_values: List of search terms to look for in logs
+            log_search_operations: List of operations (currently only '=' supported)
+
+        Returns:
+            Filtered list of traces that contain the searched log content
+        """
+        filtered_traces = []
+
+        for trace in traces:
+            # Check if this trace has logs containing any of the search terms
+            try:
+                # For now, support only the first search term
+                search_term = log_search_values[0] if log_search_values else None
+
+                # Get logs for this trace with search filtering at CloudWatch level
+                trace_logs = await self.observe_client.get_logs_by_trace_id(
+                    trace_id=trace.id,
+                    start_time=start_time,
+                    end_time=end_time,
+                    log_group_name=log_group_name,
+                    log_search_term=search_term
+                )
+
+                # If we get any logs back, the trace contains the search term
+                if trace_logs.logs and any(log_dict for log_dict in trace_logs.logs):
+                    filtered_traces.append(trace)
+
+            except Exception as e:
+                # If we can't get logs for a trace, exclude it from results
+                self.logger.warning(f"Failed to get logs for trace {trace.id}: {e}")
+                continue
+
+        return filtered_traces
