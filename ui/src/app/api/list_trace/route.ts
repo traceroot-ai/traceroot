@@ -3,6 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { Trace, TraceResponse } from '@/models/trace';
 
+const FETCH_TIMEOUT = 30000; // 30 seconds
+
 export async function GET(request: Request): Promise<NextResponse<TraceResponse>> {
     try {
         // Extract user_secret from Authorization header
@@ -66,13 +68,19 @@ export async function GET(request: Request): Promise<NextResponse<TraceResponse>
                     });
                 }
 
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
                 const response = await fetch(apiUrl, {
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${userSecret}`,
                     },
+                    signal: controller.signal,
                 });
+
+                clearTimeout(timeoutId);
 
                 if (!response.ok) {
                     throw new Error(`REST API request failed: ${response.status} ${response.statusText}`);
@@ -88,7 +96,14 @@ export async function GET(request: Request): Promise<NextResponse<TraceResponse>
                     data: traces
                 });
             } catch (apiError) {
-                console.error('Error fetching from REST API:', apiError);
+                const errorMessage = apiError instanceof Error ? apiError.message : 'Unknown error';
+
+                if (apiError instanceof Error && apiError.name === 'AbortError') {
+                    console.error('REST API request timed out after 30 seconds');
+                } else {
+                    console.error('Error fetching from REST API:', errorMessage);
+                }
+
                 // Fall back to file-based approach if REST API fails
                 console.log('Falling back to file-based trace data');
             }
