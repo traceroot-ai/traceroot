@@ -14,6 +14,8 @@ interface RightPanelSwitchProps {
   traceQueryStartTime?: Date;
   traceQueryEndTime?: Date;
   allTraces?: TraceModel[];
+  logSearchValue?: string;
+  metadataSearchTerms?: { category: string; value: string }[];
   onTraceSelect?: (traceId: string) => void;
   onSpanClear?: () => void;
   onTraceSpansUpdate?: (spans: Span[]) => void;
@@ -25,6 +27,8 @@ export default function RightPanelSwitch({
   traceQueryStartTime,
   traceQueryEndTime,
   allTraces = [],
+  logSearchValue = "",
+  metadataSearchTerms = [],
   onTraceSelect,
   onSpanClear,
   onTraceSpansUpdate,
@@ -90,6 +94,8 @@ export default function RightPanelSwitch({
             traceEndTimes={traceEndTimes}
             traceIDs={traceIDs}
             tracePercentiles={tracePercentiles}
+            logSearchValue={logSearchValue}
+            metadataSearchTerms={metadataSearchTerms}
             onTraceSelect={onTraceSelect}
             viewType={viewType}
           />

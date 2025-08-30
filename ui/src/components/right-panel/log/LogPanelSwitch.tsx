@@ -17,6 +17,8 @@ interface LogPanelSwitchProps {
   traceEndTimes?: Date[];
   traceIDs?: string[];
   tracePercentiles?: string[];
+  logSearchValue?: string;
+  metadataSearchTerms?: { category: string; value: string }[];
   onTraceSelect?: (traceId: string) => void;
   viewType?: ViewType;
 }
@@ -32,6 +34,8 @@ export default function LogPanelSwitch({
   traceEndTimes = [],
   traceIDs = [],
   tracePercentiles = [],
+  logSearchValue = "",
+  metadataSearchTerms = [],
   onTraceSelect,
   viewType,
 }: LogPanelSwitchProps) {
@@ -44,6 +48,8 @@ export default function LogPanelSwitch({
           traceQueryStartTime={traceQueryStartTime}
           traceQueryEndTime={traceQueryEndTime}
           segments={segments}
+          logSearchValue={logSearchValue}
+          metadataSearchTerms={metadataSearchTerms}
           viewType={viewType}
         />
       ) : (

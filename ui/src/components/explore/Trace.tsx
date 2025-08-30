@@ -30,6 +30,10 @@ interface TraceProps {
   onSpanSelect?: (spanIds: string[]) => void;
   onTraceData?: (startTime: Date, endTime: Date) => void;
   onTracesUpdate?: (traces: TraceType[]) => void;
+  onLogSearchValueChange?: (value: string) => void;
+  onMetadataSearchTermsChange?: (
+    terms: { category: string; value: string }[],
+  ) => void;
   selectedTraceId?: string | null;
   traceQueryStartTime?: Date;
   traceQueryEndTime?: Date;
@@ -82,6 +86,8 @@ export const Trace: React.FC<TraceProps> = ({
   onSpanSelect,
   onTraceData,
   onTracesUpdate,
+  onLogSearchValueChange,
+  onMetadataSearchTermsChange,
   selectedTraceId: externalSelectedTraceId,
   traceQueryStartTime,
   traceQueryEndTime,
@@ -97,6 +103,7 @@ export const Trace: React.FC<TraceProps> = ({
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
   const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
   const [searchCriteria, setSearchCriteria] = useState<SearchCriterion[]>([]);
+  const [logSearchValue, setLogSearchValue] = useState<string>("");
   const timeRangeRef = useRef<{ start: Date; end: Date } | null>(null);
 
   const handleTimeRangeSelect = (range: TimeRange) => {
@@ -116,7 +123,14 @@ export const Trace: React.FC<TraceProps> = ({
 
   const handleClearSearch = () => {
     setSearchCriteria([]);
+    setLogSearchValue("");
+    onLogSearchValueChange?.("");
     setLoading(true); // Trigger a new API call when search is cleared
+  };
+
+  const handleLogSearchValueChange = (value: string) => {
+    setLogSearchValue(value);
+    onLogSearchValueChange?.(value);
   };
 
   useEffect(() => {
@@ -258,7 +272,12 @@ export const Trace: React.FC<TraceProps> = ({
         <div className="space-y-4">
           <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-2">
             <div className="flex-1 min-w-0">
-              <SearchBar onSearch={handleSearch} onClear={handleClearSearch} />
+              <SearchBar
+                onSearch={handleSearch}
+                onClear={handleClearSearch}
+                onLogSearchValueChange={handleLogSearchValueChange}
+                onMetadataSearchTermsChange={onMetadataSearchTermsChange}
+              />
             </div>
             <div className="flex space-x-2 flex-shrink-0 justify-end">
               <RefreshButton onRefresh={handleRefresh} />

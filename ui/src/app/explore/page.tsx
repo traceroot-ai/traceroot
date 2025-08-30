@@ -14,6 +14,10 @@ export default function Explore() {
   );
   const [currentTraceSpans, setCurrentTraceSpans] = useState<Span[]>([]);
   const [allTraces, setAllTraces] = useState<TraceType[]>([]);
+  const [logSearchValue, setLogSearchValue] = useState<string>("");
+  const [metadataSearchTerms, setMetadataSearchTerms] = useState<
+    { category: string; value: string }[]
+  >([]);
 
   // Helper function to get all span IDs from a trace recursively
   const getAllSpanIds = (spans: Span[]): string[] => {
@@ -78,6 +82,19 @@ export default function Explore() {
     setCurrentTraceSpans(spans || []);
   }, []);
 
+  // Callback to receive log search value from SearchBar
+  const handleLogSearchValueChange = useCallback((value: string) => {
+    setLogSearchValue(value);
+  }, []);
+
+  // Callback to receive metadata search terms from SearchBar
+  const handleMetadataSearchTermsChange = useCallback(
+    (terms: { category: string; value: string }[]) => {
+      setMetadataSearchTerms(terms);
+    },
+    [],
+  );
+
   // TODO (xinwei): Add ProtectedRoute
   return (
     <ResizablePanel
@@ -87,6 +104,8 @@ export default function Explore() {
           onSpanSelect={handleSpanSelect}
           onTraceData={handleTraceData}
           onTracesUpdate={handleTracesUpdate}
+          onLogSearchValueChange={handleLogSearchValueChange}
+          onMetadataSearchTermsChange={handleMetadataSearchTermsChange}
           selectedTraceId={selectedTraceId}
         />
       }
@@ -97,6 +116,8 @@ export default function Explore() {
           traceQueryStartTime={timeRange?.start}
           traceQueryEndTime={timeRange?.end}
           allTraces={allTraces}
+          logSearchValue={logSearchValue}
+          metadataSearchTerms={metadataSearchTerms}
           onTraceSelect={handleTraceSelect}
           onSpanClear={handleSpanClear}
           onTraceSpansUpdate={handleTraceSpansUpdate}
