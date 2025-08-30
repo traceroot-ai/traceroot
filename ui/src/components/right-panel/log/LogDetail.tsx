@@ -21,6 +21,8 @@ interface LogDetailProps {
   traceQueryStartTime?: Date;
   traceQueryEndTime?: Date;
   segments?: Span[];
+  logSearchValue?: string;
+  metadataSearchTerms?: { category: string; value: string }[];
   viewType?: ViewType;
 }
 
@@ -30,6 +32,8 @@ export default function LogDetail({
   traceQueryStartTime,
   traceQueryEndTime,
   segments,
+  logSearchValue = "",
+  metadataSearchTerms = [],
   viewType,
 }: LogDetailProps) {
   const [allLogs, setAllLogs] = useState<TraceLog | null>(null);
@@ -408,6 +412,55 @@ export default function LogDetail({
     }
   };
 
+  // Helper function to highlight search terms in text
+  const highlightText = (
+    text: string,
+    logSearchTerm: string,
+    metadataTerms: { category: string; value: string }[],
+  ) => {
+    // Collect all search terms
+    const searchTerms: string[] = [];
+
+    // Add log search term if present
+    if (logSearchTerm.trim()) {
+      searchTerms.push(logSearchTerm);
+    }
+
+    // Add metadata terms (both category and value)
+    metadataTerms.forEach((term) => {
+      if (term.category.trim()) searchTerms.push(term.category);
+      if (term.value.trim()) searchTerms.push(term.value);
+    });
+
+    // If no search terms, return original text
+    if (searchTerms.length === 0) return text;
+
+    // Create regex pattern for all search terms
+    const escapedTerms = searchTerms.map((term) =>
+      term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+    );
+    const regex = new RegExp(`(${escapedTerms.join("|")})`, "gi");
+    const parts = text.split(regex);
+
+    return parts.map((part, index) => {
+      const isSearchTerm = searchTerms.some(
+        (term) => part.toLowerCase() === term.toLowerCase(),
+      );
+
+      if (isSearchTerm) {
+        return (
+          <span
+            key={index}
+            className="bg-yellow-300 dark:bg-yellow-700 py-0.5 rounded-xs font-medium text-black dark:text-white"
+          >
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
+  };
+
   return (
     <div className="h-screen flex flex-col text-xs">
       <div className="bg-white dark:bg-gray-900 pt-0 px-4 pb-6 overflow-y-auto overflow-x-visible">
@@ -560,7 +613,13 @@ export default function LogDetail({
                               <IoCopyOutline className="w-3 h-3" />
                             </Button>
                             <span className="whitespace-pre-wrap break-all word-break-break-all overflow-wrap-anywhere m-0 max-w-full pr-7 block">
-                              {displayMessage}
+                              {logSearchValue || metadataSearchTerms.length > 0
+                                ? highlightText(
+                                    displayMessage,
+                                    logSearchValue,
+                                    metadataSearchTerms,
+                                  )
+                                : displayMessage}
                             </span>
                           </div>
                         </div>

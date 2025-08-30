@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { IoMdClose } from "react-icons/io";
 import { TbCategory } from "react-icons/tb";
 import { LuSquareEqual } from "react-icons/lu";
@@ -26,6 +26,10 @@ export interface SearchCriterion {
 interface SearchBarProps {
   onSearch: (criteria: SearchCriterion[]) => void;
   onClear: () => void;
+  onLogSearchValueChange?: (value: string) => void;
+  onMetadataSearchTermsChange?: (
+    terms: { category: string; value: string }[],
+  ) => void;
 }
 
 const CATEGORIES = [
@@ -40,16 +44,68 @@ const OPERATIONS = [
   { label: "contains", value: "contains" },
 ];
 
-const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
+const SearchBar: React.FC<SearchBarProps> = ({
+  onSearch,
+  onClear,
+  onLogSearchValueChange,
+  onMetadataSearchTermsChange,
+}) => {
   const [criteria, setCriteria] = useState<SearchCriterion[]>([]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [currentCriterion, setCurrentCriterion] = useState<
     Partial<SearchCriterion>
-  >({});
+  >({ category: "log", operation: "contains" });
   const [inputValue, setInputValue] = useState("");
   const [metadataCategoryValue, setMetadataCategoryValue] = useState("");
   const [metadataValue, setMetadataValue] = useState("");
   const [logSearchValue, setLogSearchValue] = useState("");
+
+  // Memoize extracted search terms to prevent unnecessary re-renders
+  const logSearchTerm = useMemo(() => {
+    const logSearchTerms = criteria
+      .filter((criterion) => criterion.category === "log")
+      .map((criterion) => criterion.value);
+    return logSearchTerms.length > 0 ? logSearchTerms[0] : "";
+  }, [criteria]);
+
+  const metadataSearchTerms = useMemo(() => {
+    return criteria
+      .filter(
+        (criterion) =>
+          criterion.category !== "log" &&
+          criterion.category !== "service_name" &&
+          criterion.category !== "service_environment",
+      )
+      .map((criterion) => ({
+        category: criterion.category,
+        value: criterion.value,
+      }));
+  }, [criteria]);
+
+  // Use refs to track previous values and avoid unnecessary calls
+  const prevLogSearchTerm = useRef<string>("");
+  const prevMetadataSearchTerms = useRef<{ category: string; value: string }[]>(
+    [],
+  );
+
+  // Notify parent with search terms only when they actually change
+  useEffect(() => {
+    if (prevLogSearchTerm.current !== logSearchTerm) {
+      prevLogSearchTerm.current = logSearchTerm;
+      onLogSearchValueChange?.(logSearchTerm);
+    }
+  }, [logSearchTerm, onLogSearchValueChange]);
+
+  useEffect(() => {
+    // Compare metadata search terms by JSON string to detect changes
+    const currentTermsStr = JSON.stringify(metadataSearchTerms);
+    const prevTermsStr = JSON.stringify(prevMetadataSearchTerms.current);
+
+    if (prevTermsStr !== currentTermsStr) {
+      prevMetadataSearchTerms.current = metadataSearchTerms;
+      onMetadataSearchTermsChange?.(metadataSearchTerms);
+    }
+  }, [metadataSearchTerms, onMetadataSearchTermsChange]);
 
   const handleAddCriterion = () => {
     let categoryValue = currentCriterion.category;
@@ -77,6 +133,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
       setInputValue("");
       setMetadataCategoryValue("");
       setMetadataValue("");
+      // Clear logSearchValue when adding a criterion
       setLogSearchValue("");
       onSearch(newCriteria);
     }
@@ -85,6 +142,10 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
   const handleRemoveCriterion = (id: string) => {
     const newCriteria = criteria.filter((c) => c.id !== id);
     setCriteria(newCriteria);
+    // If no criteria left, default back to log category
+    if (newCriteria.length === 0) {
+      setCurrentCriterion({ category: "log", operation: "contains" });
+    }
     onSearch(newCriteria);
   };
 
@@ -200,14 +261,15 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
                 {CATEGORIES.map((category) => {
                   // Check if this category is already selected
                   const isAlreadySelected = criteria.some((c) => {
-                    // For metadata and log, check exact category match
-                    if (
-                      category.value === "metadata" ||
-                      category.value === "log"
-                    ) {
-                      return c.category === category.value;
+                    // For metadata, check if any metadata criterion exists
+                    if (category.value === "metadata") {
+                      return (
+                        c.category !== "log" &&
+                        c.category !== "service_name" &&
+                        c.category !== "service_environment"
+                      );
                     }
-                    // For service_name and service_environment, check the base category
+                    // For all other categories (log, service_name, service_environment), check exact match
                     return c.category === category.value;
                   });
 
@@ -357,8 +419,8 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, onClear }) => {
             onClick={() => {
               // Clear all completed criteria
               setCriteria([]);
-              // Clear current criterion being built
-              setCurrentCriterion({});
+              // Clear current criterion being built and reset to default
+              setCurrentCriterion({ category: "log", operation: "contains" });
               // Clear input value
               setInputValue("");
               // Clear metadata category value
