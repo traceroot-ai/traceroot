@@ -20,9 +20,24 @@
     "library": "lucide"
   },
   "navigation": {
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Website",
+          "href": "https://traceroot.ai",
+          "icon": "globe"
+        },
+        {
+          "anchor": "Community",
+          "href": "https://discord.gg/tPyffEZvvJ",
+          "icon": "discord"
+        }
+      ]
+    },
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
+        "icon": "book",
         "groups": [
           {
             "group": "Get Started",
@@ -53,17 +68,25 @@
     "dark": "/logo/dark.svg"
   },
   "navbar": {
+    "links": [
+      {
+        "type": "button",
+        "label": "Examples",
+        "href": "https://github.com/traceroot-ai/traceroot-examples"
+      }
+    ],
     "primary": {
       "type": "button",
       "label": "GitHub",
-      "href": "https://github.com/traceroot-ai/traceroot-examples"
+      "href": "https://github.com/traceroot-ai/traceroot"
     }
   },
   "footer": {
     "socials": {
       "x": "https://x.com/TracerootAI",
       "github": "https://github.com/traceroot-ai",
-      "linkedin": "https://www.linkedin.com/company/traceroot-ai"
+      "linkedin": "https://www.linkedin.com/company/traceroot-ai",
+      "discord": "https://discord.gg/tPyffEZvvJ"
     }
   }
 }
