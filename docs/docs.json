@@ -1,0 +1,65 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "TraceRoot.AI",
+  "colors": {
+    "primary": "#78716c",
+    "light": "#78716c",
+    "dark": "#3f3f46"
+  },
+  "favicon": "/favicon.ico",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "index",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "SDK",
+            "pages": [
+              "sdk/python",
+              "sdk/typescript"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/multi_code_agent",
+              "examples/healthcare_voice_agent"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/light-logo.svg",
+    "dark": "/logo/dark-logo.svg"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Support",
+        "href": "mailto:founders@traceroot.ai"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "GitHub",
+      "href": "https://github.com/traceroot-ai/traceroot-examples"
+    }
+  },
+  "footer": {
+    "socials": {
+      "x": "https://github.com/traceroot-ai",
+      "github": "https://github.com/traceroot-ai",
+      "linkedin": "https://github.com/traceroot-ai"
+    }
+  }
+}

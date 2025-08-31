@@ -1,0 +1,143 @@
+---
+title: "Healthcare Voice Agent"
+description: "A complete guide to building an intelligent healthcare voice agent with TraceRoot.AI for patient interactions and medical documentation."
+icon: "stethoscope"
+---
+
+# Healthcare Voice Agent Monitoring with TraceRoot.AI
+
+This guide explains how to monitor your existing healthcare voice agent built with LangChain and LangGraph using TraceRoot.AI's telemetry collection capabilities.
+
+The TraceRoot.AI platform not only offers a user-friendly interface for visualizing tracing, logging, and metrics data but also features a customizable AI agent that can resolve related issues or answer questions by linking directly to the source code.
+
+
+## 1. Setup Healthcare Voice Agent Project
+
+```bash
+git clone https://github.com/traceroot-ai/traceroot-examples.git
+cd traceroot-examples
+python3 -m venv venv
+source venv/bin/activate
+pip install -r examples/healthcare_voice_agent/requirements.txt
+```
+
+## 2. Setup TraceRoot.AI
+
+To get started, we need to set up TraceRoot.AI.
+
+```bash
+pip install traceroot==0.0.5
+```
+
+Set required credentials given by TraceRoot.AI.
+
+Put the credentials and information in a yaml file called `.traceroot-config.yaml` in the root of your project as described in the [Quickstart](https://docs.traceroot.ai/quickstart)
+
+Here is an example of a `.traceroot-config.yaml` file:
+
+[`.traceroot-config.yaml`](https://github.com/traceroot-ai/traceroot-examples/blob/main/.traceroot-config.yaml)
+
+## 3. Healthcare Voice Agent System Introduction
+
+In this project, we have a healthcare voice agent system that is built with LangChain and LangGraph for a coding agent.
+
+<img
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot-examples/refs/heads/main/examples/healthcare_voice_agent/healthcare_voice_agent_graph.png"
+  alt="Heathcare Voice Agent System"
+  style={{
+    display: "block",
+    margin: "0 auto",
+    maxWidth: "150px",
+    width: "100%",
+    height: "auto"
+  }}
+/>
+
+
+Then system contains five parts:
+
+1. A speech to text agent that transform the patient's question to text.
+
+2. A planning agent the plans the response in general.
+
+3. A doctor search agent that schedules potential appointments with the patient.
+
+4. An response agent that takes in the output of planning agent and the doctor appointments agent and general the final response to patients.
+
+5. A text to speech agent that transforms the final response to voice.
+
+You can run the project by:
+
+```bash
+python examples/healthcare_voice_agent/create_input_audio.py  # Generate test input
+python examples/healthcare_voice_agent/main.py  # Run the system
+```
+
+## 4. Heathercare Voice Agent System Pain Points
+
+1. The healthcare voice agent system is complex and hard to debug. Every agent's input and output are very messy and hard to read.
+
+2. It's hard to understand the multi-agent system tool usage such as the code execution in this healthcare voice agent system.
+
+3. It's unknown which part of the system has the highest latency.
+
+4. It's inconvenient to correlate the logs and traces with the code source.
+
+## 5. TraceRoot.AI Solution
+
+By just adding TraceRoot.AI tracing and logging to the healthcare voice agent system with several lines of code
+
+```python
+logger = traceroot.get_logger()
+
+@traceroot.trace(TraceOptions(trace_params=True, trace_return_value=True))
+def func():
+    logger.info("Hello, world!")
+    pass
+```
+
+We can get the following benefits:
+1. The TraceRoot.AI provide an easy to use SDK to track all tracing, logging and metrics data with just a few lines of code change.
+[`examples/healthcare_voice_agent/main.py`](https://github.com/traceroot-ai/traceroot-examples/blob/main/examples/healthcare_voice_agent/main.py#L83C9-L83C24)
+
+2. TraceRoot.AI provides a user-friendly UI to visualize the tracing, logging and metrics data.
+
+You can view the whole tracing and logging in a structured way
+
+<img
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot-examples/refs/heads/main/images/healthcare_voice_agent/1.png"
+  alt="Tracing and Logging UI 1"
+  style={{ display: "block", margin: "0 auto" }}
+/>
+
+You can click the **Show Code** button to view the code that is related to the logging.
+
+<img
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot-examples/refs/heads/main/images/healthcare_voice_agent/2.png"
+  alt="Tracing and Logging UI 2"
+  style={{ display: "block", margin: "0 auto" }}
+/>
+
+You can also view which agent has the highest latency.
+
+<img
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot-examples/refs/heads/main/images/healthcare_voice_agent/3.png"
+  alt="Tracing and Logging UI 3"
+  style={{ display: "block", margin: "0 auto" }}
+/>
+
+3. TraceRoot.AI has a customized AI agent to help you summarize, analyze, and debug all your logs and traces by resolving aforementioned pain points directly.
+
+<img
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot-examples/refs/heads/main/images/healthcare_voice_agent/4.png"
+  alt="Tracing and Logging UI 4"
+  style={{ display: "block", margin: "0 auto" }}
+/>
+
+You can also ask TraceRoot.AI agent to analyze the final response generated by the multi-agent system
+
+<img
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot-examples/refs/heads/main/images/healthcare_voice_agent/5.png"
+  alt="Tracing and Logging UI 5"
+  style={{ display: "block", margin: "0 auto" }}
+/>
