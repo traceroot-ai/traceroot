@@ -1,13 +1,14 @@
 import os
 from typing import Any, TypedDict
 
-import traceroot
 from code_agent import create_code_agent
 from dotenv import load_dotenv
 from execution_agent import create_execution_agent
 from langgraph.graph import END, StateGraph
 from plan_agent import create_plan_agent
 from summarize_agent import create_summarize_agent
+
+import traceroot
 
 load_dotenv()
 
@@ -47,32 +48,47 @@ class MultiAgentSystem:
 
         # Add edges
         workflow.set_entry_point("planning")
-        workflow.add_conditional_edges("planning", self.should_code, {
-            "code": "coding",
-            "end": "summarize"
-        })
+        workflow.add_conditional_edges(
+            "planning",
+            self.should_code,
+            {
+                "code": "coding",
+                "end": "summarize"
+            }
+        )
 
         workflow.add_edge("coding", "execute")
         workflow.add_edge("execute", "summarize")
-        workflow.add_conditional_edges("summarize", self.should_retry, {
-            "retry": "planning",
-            "end": END
-        })
+        workflow.add_conditional_edges(
+            "summarize",
+            self.should_retry,
+            {
+                "retry": "planning",
+                "end": END
+            }
+        )
 
         return workflow.compile()
 
     def plan_node(self, state: AgentState) -> AgentState:
         # Check if we're coming from a retry (execution failure)
-        is_retry = (state["retry_count"] > 0 or
-                    (state.get("execution_result", {}).get("success") is False
-                     and state.get("code", "") != ""))
+        is_retry = (
+            state["retry_count"] > 0 or (
+                state.get("execution_result",
+                          {}).get("success") is False and state.get("code",
+                                                                    "") != ""
+            )
+        )
 
         if is_retry:
             # Store the previous attempt including summarization
             previous_attempt = {
-                "plan": state.get("plan", ""),
-                "code": state.get("code", ""),
-                "execution_result": state.get("execution_result", {}),
+                "plan": state.get("plan",
+                                  ""),
+                "code": state.get("code",
+                                  ""),
+                "execution_result": state.get("execution_result",
+                                              {}),
                 "summary": state.get("response",
                                      "")  # Include previous summary
             }
@@ -82,8 +98,10 @@ class MultiAgentSystem:
             # Get only the last retry's summarization
             last_summary = previous_attempt.get("summary", "")
             if last_summary:
-                query = (f"{state['query']}\n\n\n"
-                         f"Last attempt summary:\n{last_summary}")
+                query = (
+                    f"{state['query']}\n\n\n"
+                    f"Last attempt summary:\n{last_summary}"
+                )
             else:
                 query = state['query']
 
@@ -105,7 +123,8 @@ class MultiAgentSystem:
             result = self.plan_agent.plan_query(state["query"])
 
             return {
-                **state, "is_coding": result["is_coding"],
+                **state,
+                "is_coding": result["is_coding"],
                 "plan": result["plan"] or "",
                 "response": result["response"] or None
             }
@@ -126,12 +145,12 @@ class MultiAgentSystem:
                     context_parts.append(
                         f"  Error: {exec_result.get('error', 'Unknown error')}"
                     )
-                    context_parts.append(
-                        f"  Stderr: {exec_result.get('stderr', '')}")
+                    context_parts.append(f"  Stderr: {exec_result.get('stderr', '')}")
             # Include the summary from previous attempt
             if attempt.get('summary'):
                 context_parts.append(
-                    f"  Previous Summary: {attempt.get('summary', 'N/A')}")
+                    f"  Previous Summary: {attempt.get('summary', 'N/A')}"
+                )
             context_parts.append("")
         return "\n".join(context_parts)
 
@@ -142,8 +161,7 @@ class MultiAgentSystem:
             last_attempt = state["previous_attempts"][-1]
             last_summary = last_attempt.get("summary", "")
 
-        code = self.code_agent.generate_code(state["query"], state["plan"],
-                                             last_summary)
+        code = self.code_agent.generate_code(state["query"], state["plan"], last_summary)
 
         return {**state, "code": code}
 
@@ -155,7 +173,11 @@ class MultiAgentSystem:
             last_summary = last_attempt.get("summary", "")
 
         execution_result = self.execution_agent.execute_code(
-            state["query"], state["plan"], state["code"], last_summary)
+            state["query"],
+            state["plan"],
+            state["code"],
+            last_summary
+        )
 
         return {**state, "execution_result": execution_result}
 
@@ -169,8 +191,13 @@ class MultiAgentSystem:
 
             # For coding tasks, create summary from all components
             response = self.summarize_agent.create_summary(
-                state["query"], state["plan"], state["code"],
-                state["execution_result"], state["retry_count"], last_summary)
+                state["query"],
+                state["plan"],
+                state["code"],
+                state["execution_result"],
+                state["retry_count"],
+                last_summary
+            )
         else:
             # For non-coding tasks, use the plan agent's response
             response = state["response"]
@@ -187,12 +214,15 @@ class MultiAgentSystem:
         # 1. This was a coding task
         # 2. Execution failed
         # 3. We haven't exceeded max retries
-        if (state["is_coding"]
-                and state["execution_result"].get("success") is False
-                and state["retry_count"] < state["max_retries"]):
+        if (
+            state["is_coding"] and state["execution_result"].get("success") is False
+            and state["retry_count"] < state["max_retries"]
+        ):
 
-            logger.error(f"Execution failed on attempt "
-                         f"{state['retry_count'] + 1}. Retrying...")
+            logger.error(
+                f"Execution failed on attempt "
+                f"{state['retry_count'] + 1}. Retrying..."
+            )
             return "retry"
         else:
             return "end"
@@ -238,8 +268,10 @@ def main():
     system = MultiAgentSystem()
     system.draw_and_save_graph()
 
-    query = ("Given an m x n matrix, return all elements of the matrix "
-             "in spiral order, where m = 1000000000 and n = 1000000000.")
+    query = (
+        "Given an m x n matrix, return all elements of the matrix "
+        "in spiral order, where m = 1000000000 and n = 1000000000."
+    )
     logger.info(f"Processing query:\n{query}")
     system.process_query(query)
 

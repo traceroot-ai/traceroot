@@ -1,7 +1,8 @@
-import traceroot
 from dotenv import load_dotenv
 from langchain.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
+
+import traceroot
 
 load_dotenv()
 
@@ -28,13 +29,22 @@ class CodeAgent:
             "6. If historical context is provided, learn from "
             "previous failures and avoid repeating the same mistakes\n"
             "Your response should be ONLY the Python code "
-            "that solves the problem.")
-        self.code_prompt = ChatPromptTemplate.from_messages([
-            ("system", self.system_prompt),
-            ("human", ("{query}\n\nPlan: {plan}\n\n"
-                       "Historical context: {historical_context}\n\n"
-                       "Please write Python code to implement this."))
-        ])
+            "that solves the problem."
+        )
+        self.code_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system",
+                 self.system_prompt),
+                (
+                    "human",
+                    (
+                        "{query}\n\nPlan: {plan}\n\n"
+                        "Historical context: {historical_context}\n\n"
+                        "Please write Python code to implement this."
+                    )
+                )
+            ]
+        )
 
     @traceroot.trace()
     def generate_code(
@@ -44,15 +54,20 @@ class CodeAgent:
         historical_context: str = "",
     ) -> str:
         formatted_prompt = self.code_prompt.format(
-            query=query, plan=plan, historical_context=historical_context)
+            query=query,
+            plan=plan,
+            historical_context=historical_context
+        )
         logger.info(f"CODE AGENT prompt:\n{formatted_prompt}")
 
         chain = self.code_prompt | self.llm
-        response = chain.invoke({
-            "query": query,
-            "plan": plan,
-            "historical_context": historical_context
-        })
+        response = chain.invoke(
+            {
+                "query": query,
+                "plan": plan,
+                "historical_context": historical_context
+            }
+        )
 
         # Clean up the response to extract just the code
         code = response.content.strip()
