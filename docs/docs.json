@@ -72,7 +72,7 @@
       {
         "type": "button",
         "label": "Examples",
-        "href": "https://github.com/traceroot-ai/traceroot-examples"
+        "href": "https://github.com/traceroot-ai/traceroot/tree/main/examples"
       }
     ],
     "primary": {
