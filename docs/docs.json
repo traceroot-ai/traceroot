@@ -42,36 +42,21 @@
           {
             "group": "Get Started",
             "pages": [
-              {
-                "page": "index",
-                "icon": "play"
-              },
-              {
-                "page": "quickstart",
-                "icon": "zap"
-              }
+              "index",
+              "quickstart"
             ]
           },
           {
             "group": "SDK",
             "pages": [
-              {
-                "page": "sdk/python",
-                "icon": "python"
-              },
-              {
-                "page": "sdk/typescript",
-                "icon": "code"
-              }
+              "sdk/python",
+              "sdk/typescript"
             ]
           },
           {
             "group": "Examples",
             "pages": [
-              {
-                "page": "examples/multi_code_agent",
-                "icon": "bot"
-              }
+              "examples/multi_code_agent"
             ]
           }
         ]
@@ -83,10 +68,17 @@
     "dark": "/logo/dark.svg"
   },
   "navbar": {
+    "links": [
+      {
+        "type": "button",
+        "label": "Examples",
+        "href": "https://github.com/traceroot-ai/traceroot-examples"
+      }
+    ],
     "primary": {
       "type": "button",
       "label": "GitHub",
-      "href": "https://github.com/traceroot-ai/traceroot-examples"
+      "href": "https://github.com/traceroot-ai/traceroot"
     }
   },
   "footer": {
