@@ -38,8 +38,8 @@
     ]
   },
   "logo": {
-    "light": "/logo/light-logo.svg",
-    "dark": "/logo/dark.svg"
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark-logo.svg"
   },
   "navbar": {
     "links": [
