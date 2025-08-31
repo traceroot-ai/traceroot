@@ -42,12 +42,6 @@
     "dark": "/logo/dark.svg"
   },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:founders@traceroot.ai"
-      }
-    ],
     "primary": {
       "type": "button",
       "label": "GitHub",
