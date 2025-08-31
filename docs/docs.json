@@ -30,8 +30,7 @@
           {
             "group": "Examples",
             "pages": [
-              "examples/multi_code_agent",
-              "examples/healthcare_voice_agent"
+              "examples/multi_code_agent"
             ]
           }
         ]
@@ -40,7 +39,7 @@
   },
   "logo": {
     "light": "/logo/light-logo.svg",
-    "dark": "/logo/dark-logo.svg"
+    "dark": "/logo/dark.svg"
   },
   "navbar": {
     "links": [
@@ -57,9 +56,9 @@
   },
   "footer": {
     "socials": {
-      "x": "https://github.com/traceroot-ai",
+      "x": "https://x.com/TracerootAI",
       "github": "https://github.com/traceroot-ai",
-      "linkedin": "https://github.com/traceroot-ai"
+      "linkedin": "https://www.linkedin.com/company/traceroot-ai"
     }
   }
 }
