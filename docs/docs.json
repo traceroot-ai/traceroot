@@ -20,9 +20,24 @@
     "library": "lucide"
   },
   "navigation": {
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Website",
+          "href": "https://traceroot.ai",
+          "icon": "globe"
+        },
+        {
+          "anchor": "Community",
+          "href": "https://discord.gg/your-discord-invite",
+          "icon": "discord"
+        }
+      ]
+    },
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
+        "icon": "book",
         "groups": [
           {
             "group": "Get Started",
