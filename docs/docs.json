@@ -2,6 +2,13 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "TraceRoot.AI",
+  "layout": "wide",
+  "page": {
+    "width": "full"
+  },
+  "sidebar": {
+    "width": "narrow"
+  },
   "colors": {
     "primary": "#78716c",
     "light": "#78716c",
