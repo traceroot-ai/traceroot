@@ -1,185 +1,49 @@
-# TraceRoot SDK for Python
-
-A Python SDK for TraceRoot tracing and logging.
+# Python SDK for TraceRoot
 
 ## Introduction
-
-This SDK allows you to trace functions and utilizes TraceRoot's logger (built upon WatchTower) within the TraceRoot trace. It captures all the context designed for advanced debugging of AI agents.
-
-### OpenTelemetry
-
-The trace is built upon OpenTelemetry, and the traces will be sent to TraceRoot's own endpoint.
+This SDK is a lightweight wrapper around OpenTelemetry, optimized for ease of use.
 
 
 ## Installation
-
-Please install the SDK with the latest version:
-
 ```bash
-python3.11 -m venv venv
-source venv/bin/activate
 pip install traceroot
-# or install the latest version from the source code
-pip install -e .
 ```
 
 ## Configuration
 
-### Cloud Mode
+Then create an [TraceRoot token](https://test.traceroot.ai/integrate) from the dashboard, and add it to your backend `.env` file.
 
-Cloud mode uses TraceRoot's cloud service to store logs and traces.
-
-#### Method 1: Code Configuration
-
-You can configure TraceRoot directly in your Python code at the beginning of your entry file:
-
-```python
-import traceroot
-
-traceroot.init(
-    token="traceroot-********************************",
-    service_name="sdk-example-service",
-    github_owner="traceroot-ai",
-    github_repo_name="traceroot-sdk",
-    github_commit_hash="main"
-)
+```bash .env
+// The token for the TraceRoot API
+TRACEROOT_TOKEN=traceroot-430246
+// The name of the service you are tracking
+TRACEROOT_SERVICE_NAME=traceroot
+// The owner of the GitHub repository
+TRACEROOT_GITHUB_OWNER=xxx
+// The name of the GitHub repository
+TRACEROOT_GITHUB_REPO_NAME=xxx
+// The commit hash of the GitHub repository
+TRACEROOT_GITHUB_COMMIT_HASH=main
+// Enable cloud export of spans (default: `true`)
+TRACEROOT_ENABLE_SPANS_CLOUD_EXPORT=true
+// Enable cloud export of logs (default: `true`)
+TRACEROOT_ENABLE_LOGS_CLOUD_EXPORT=true
+// Enable console export of spans (default: `false`)
+TRACEROOT_ENABLE_SPANS_CONSOLE_EXPORT=false
+// Enable console export of logs (default: `true`)
+TRACEROOT_ENABLE_LOG_CONSOLE_EXPORT=true
 ```
-
-#### Method 2: YAML Configuration File
-
-Create a `.traceroot-config.yaml` file in the root of your project:
-
-```yaml
-token: "traceroot-********************************"
-service_name: "sdk-example-service"
-github_owner: "traceroot-ai"
-github_repo_name: "traceroot-sdk"
-github_commit_hash: "main"
-```
-
-#### Method 3: Environment Variables
-
-You can also provide the configuration in the environment variables. The environment variables are the same as the configuration parameters, but with the prefix `TRACEROOT_`. For example, you can set the `TRACEROOT_TOKEN` environment variable to the `token` for the TraceRoot API.
-
-You can run following example to see how to use the environment variables:
-
-```bash
-TRACEROOT_TOKEN=traceroot-* TRACEROOT_SERVICE_NAME=new_name TRACEROOT_ENABLE_LOG_CLOUD_EXPORT=1 python3 examples/override_example.py
-```
-
-#### Priority of the Configuration
-
-The priority of the configuration is as follows:
-
-1. Environment variables
-2. `traceroot.init(...)` parameters
-3. `.traceroot-config.yaml` file
-
-For example, if you provide the configuration in the environment variables, the configuration in the `.traceroot-config.yaml` file will be overridden.
-
-**Configuration Parameters:**
-
-- `token` - The token for the TraceRoot API (required for cloud mode)
-- `service_name` - The name of the service or program you are tracking
-- `github_owner` - The owner of the GitHub repository (optional)
-- `github_repo_name` - The name of the GitHub repository (optional)
-- `github_commit_hash` - The commit hash of the GitHub repository (optional)
-- `enable_span_cloud_export` - Enable/disable cloud export of spans (default: `true`)
-- `enable_log_cloud_export` - Enable/disable cloud export of logs (default: `true`)
-- `enable_span_console_export` - Enable/disable console export of spans (default: `false`)
-- `enable_log_console_export` - Enable/disable console export of logs (default: `true`)
-
-Notice that during the first import of the traceroot package, the SDK will automatically load the configuration from the `.traceroot-config.yaml` file if it exists. And then if you call `traceroot.init(...)` with any parameters, the parameters will override the configuration in the `.traceroot-config.yaml` file.
-
-### Local Mode
-
-Local mode uses TraceRoot's local database to store logs and traces using Jaeger.
-
-#### Prerequisites
-
-1. Download and run the Jaeger Docker container:
-
-```bash
-docker run cr.jaegertracing.io/jaegertracing/jaeger:2.8.0 --help
-```
-
-2. Start the Jaeger container:
-
-```bash
-docker stop jaeger || true && docker rm jaeger || true && docker run -d --name jaeger \
-  -e COLLECTOR_OTLP_ENABLED=true \
-  -p 16686:16686 \
-  -p 14268:14268 \
-  -p 14250:14250 \
-  -p 4317:4317 \
-  -p 4318:4318 \
-  cr.jaegertracing.io/jaegertracing/jaeger:2.8.0
-
-docker logs -f jaeger
-```
-
-#### Configuration
-
-**Method 1: Code Configuration**
-
-```python
-import traceroot
-
-traceroot.init(
-    service_name="sdk-example-service",
-    github_owner="traceroot-ai",
-    github_repo_name="traceroot-sdk",
-    github_commit_hash="main",
-    local_mode=True
-)
-```
-
-**Method 2: YAML Configuration File**
-
-Create a `.traceroot-config.yaml` file:
-
-```yaml
-service_name: "sdk-example-service"
-github_owner: "traceroot-ai"
-github_repo_name: "traceroot-sdk"
-github_commit_hash: "main"
-local_mode: true
-```
-
-### Cloud and Console Export
-
-You can control export behavior with these settings:
-
-- `enable_span_cloud_export`: If set to `false`, disables cloud export of spans (also disables cloud export of logs)
-- `enable_log_cloud_export`: If set to `false`, only disables cloud export of logs
-- `enable_span_console_export`: Enable to print spans to console
-- `enable_log_console_export`: Enable to print logs to console
 
 ## Usage
 
-### Tracing Functions
-
-Use the `@traceroot.trace()` decorator to trace your functions. You should at least trace the **entry point** of your application. Adding more `@traceroot.trace()` decorators to child functions creates a better tree structure for analysis.
-
-### Function Name
-
+Uses the `@traceroot.trace()` decorator to trace your functions. Uses `logger.info`, `logger.error`, `logger.warn`, `logger.debug`, and `logger.critical` for logging similar to the default Python logger.
 If you specify the `name` parameter in the decorator, it will be used as the span name shown in the TraceRoot.AI platform.
 
-### Logging
-
-Within a traced function, you can use the traceroot logger with methods like `logger.info`, `logger.error`, `logger.warn`, `logger.debug`, and `logger.critical`. Logs within traced functions are properly tracked and visible in the TraceRoot.AI platform.
-
-Here is an example of how to use the `@traceroot.trace()` decorator and logger:
+Here is an example of how to use the TraceRoot decorator and logger:
 
 ```python
 import traceroot
 import asyncio
-
-# Initialize TraceRoot
-traceroot.init(
-    token="traceroot-********************************",
-    service_name="python-example"
-)
 
 logger = traceroot.get_logger()
 
@@ -197,72 +61,3 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
-
-### Synchronous Functions
-
-The decorator also works with synchronous functions:
-
-```python
-import traceroot
-
-traceroot.init(
-    token="traceroot-********************************",
-    service_name="python-example"
-)
-
-logger = traceroot.get_logger()
-
-@traceroot.trace(name="calculate")
-def calculate(x: int, y: int) -> int:
-    logger.info(f"Calculating {x} + {y}")
-    result = x + y
-    logger.info(f"Result: {result}")
-    return result
-
-def main():
-    result = calculate(5, 3)
-    print(f"Final result: {result}")
-
-if __name__ == "__main__":
-    main()
-```
-
-### Class Methods
-
-You can also trace class methods:
-
-```python
-import traceroot
-
-traceroot.init(
-    token="traceroot-********************************",
-    service_name="python-example"
-)
-
-logger = traceroot.get_logger()
-
-class CalculatorService:
-    @traceroot.trace(name="add")
-    def add(self, x: int, y: int) -> int:
-        logger.info(f"Adding {x} and {y}")
-        return x + y
-
-    @traceroot.trace(name="multiply")
-    def multiply(self, x: int, y: int) -> int:
-        logger.info(f"Multiplying {x} and {y}")
-        return x * y
-
-def main():
-    calc = CalculatorService()
-    result1 = calc.add(5, 3)
-    result2 = calc.multiply(result1, 2)
-    logger.info(f"Final result: {result2}")
-
-if __name__ == "__main__":
-    main()
-```
-
-## Example
-
-- For an end-to-end example that uses the TraceRoot SDK for a multi-agent system, please refer to the [Multi-agent System with TraceRoot SDK](https://docs.traceroot.ai/essentials/journey).
-- To see how to override the configuration, please refer to the [Override Example](https://github.com/traceroot-ai/traceroot-sdk/blob/main/examples/override_example.py).
