@@ -52,12 +52,6 @@
               "sdk/python",
               "sdk/typescript"
             ]
-          },
-          {
-            "group": "Examples",
-            "pages": [
-              "examples/multi_code_agent"
-            ]
           }
         ]
       }
