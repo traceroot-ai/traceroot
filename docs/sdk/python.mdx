@@ -9,7 +9,7 @@ This SDK is a lightweight wrapper around OpenTelemetry, optimized for ease of us
 pip install traceroot
 ```
 
-## Configuration
+## Environment Setup
 
 Then create an [TraceRoot token](https://test.traceroot.ai/integrate) from the dashboard, and add it to your backend `.env` file.
 
@@ -42,12 +42,11 @@ TRACEROOT_ENABLE_SPANS_CONSOLE_EXPORT=false
 TRACEROOT_ENABLE_LOG_CONSOLE_EXPORT=true
 ```
 
-## Usage
+## Examples
 
-Uses the `@traceroot.trace()` decorator to trace your functions. Uses `logger.info`, `logger.error`, `logger.warn`, `logger.debug`, and `logger.critical` for logging similar to the default Python logger.
+Uses `@traceroot.trace()` for traces and TraceRoot logger similar to the default Python logger.
+
 If you specify the `name` parameter in the decorator, it will be used as the span name shown in the TraceRoot.AI platform.
-
-Here is an example of how to use the TraceRoot decorator and logger:
 
 ```python
 import traceroot
