@@ -29,7 +29,8 @@ class SummarizeAgent:
             "Focus on what the user wanted to achieve and what was "
             "accomplished. If historical context is provided, "
             "acknowledge the iterative process and explain how "
-            "previous attempts helped improve the final solution.")
+            "previous attempts helped improve the final solution."
+        )
         self.user_prompt = (
             "User Query: {query}\n"
             "Plan: {plan}\n"
@@ -39,10 +40,14 @@ class SummarizeAgent:
             "- Output: {output}\n"
             "- Error: {error}\n"
             "Retry Count: {retry_count}{historical_context}\n"
-            "Please provide a comprehensive summary and final response.")
-        self.summarize_prompt = ChatPromptTemplate.from_messages([
-            ("system", self.system_prompt), ("human", self.user_prompt)
-        ])
+            "Please provide a comprehensive summary and final response."
+        )
+        self.summarize_prompt = ChatPromptTemplate.from_messages(
+            [("system",
+              self.system_prompt),
+             ("human",
+              self.user_prompt)]
+        )
 
     @traceroot.trace()
     def create_summary(
@@ -50,7 +55,8 @@ class SummarizeAgent:
         query: str,
         plan: str,
         code: str,
-        execution_result: Dict[str, Any],
+        execution_result: Dict[str,
+                               Any],
         retry_count: int = 0,
         historical_context: str = "",
     ) -> str:
@@ -67,7 +73,8 @@ class SummarizeAgent:
         if historical_context:
             formatted_historical_context = (
                 f"\n\nHistorical Context from Previous Attempts:\n"
-                f"{historical_context}")
+                f"{historical_context}"
+            )
 
         chain = self.summarize_prompt | self.llm
 
@@ -83,24 +90,18 @@ class SummarizeAgent:
         )
         logger.info(f"SUMMARIZE AGENT prompt:\n{formatted_prompt}")
 
-        response = chain.invoke({
-            "query":
-            query,
-            "plan":
-            plan,
-            "code":
-            code,
-            "success":
-            success,
-            "output":
-            output,
-            "error":
-            error,
-            "retry_count":
-            retry_count,
-            "historical_context":
-            formatted_historical_context
-        })
+        response = chain.invoke(
+            {
+                "query": query,
+                "plan": plan,
+                "code": code,
+                "success": success,
+                "output": output,
+                "error": error,
+                "retry_count": retry_count,
+                "historical_context": formatted_historical_context
+            }
+        )
 
         logger.info(f"Summarized response: {response.content}")
 
