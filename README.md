@@ -21,7 +21,7 @@
 
 </div>
 
-🔍 **TraceRoot** helps engineers debug production issues **10× faster** using AI-powered analysis of traces, logs, and code context.
+**TraceRoot** helps engineers debug production issues **10× faster** using AI-powered analysis of traces, logs, and code context.
 
 - Visit the [TraceRoot website](https://traceroot.ai) to start debugging your production issues.
 - Explore the [TraceRoot documentation](https://docs.traceroot.ai) to get started with the TraceRoot library.
