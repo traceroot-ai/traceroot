@@ -21,25 +21,29 @@ class ExecutionAgent:
         plan: str,
         code: str,
         historical_context: str = "",
-    ) -> dict[str, Any]:
+    ) -> dict[str,
+              Any]:
         """Execute Python code safely and return results"""
         try:
             # Create a temporary file for the code
-            with tempfile.NamedTemporaryFile(mode='w',
-                                             suffix='.py',
-                                             delete=False) as f:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
                 f.write(code)
                 temp_file = f.name
-                logger.warning(f"Created temporary file {temp_file}"
-                               f" for the code:\n{code}")
+                logger.warning(
+                    f"Created temporary file {temp_file}"
+                    f" for the code:\n{code}"
+                )
 
             try:
                 # Execute the code using subprocess for safety
-                result = subprocess.run([sys.executable, temp_file],
-                                        capture_output=True,
-                                        text=True,
-                                        timeout=self.timeout,
-                                        cwd=os.path.dirname(temp_file))
+                result = subprocess.run(
+                    [sys.executable,
+                     temp_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout,
+                    cwd=os.path.dirname(temp_file)
+                )
 
                 execution_result = {
                     "success": result.returncode == 0,
@@ -51,7 +55,8 @@ class ExecutionAgent:
                 if result.returncode != 0:
                     execution_result["stderr"] = (
                         f"Process exited with code {result.returncode} with "
-                        f"stdout: {result.stdout} and stderr: {result.stderr}")
+                        f"stdout: {result.stdout} and stderr: {result.stderr}"
+                    )
 
                 if execution_result["success"]:
                     logger.info(f"Execution result:\n{execution_result}")
