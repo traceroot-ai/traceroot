@@ -253,6 +253,7 @@ const renderMarkdown = (
             }}
           >
             {match}
+
             {hoveredRef?.messageId === messageId &&
               hoveredRef?.refNum === refNumber &&
               reference && (
@@ -289,10 +290,10 @@ const renderMarkdown = (
                     {/* Tooltip arrow */}
                     <div
                       className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0
-        border-l-4 border-r-4 border-t-4
-        border-l-transparent border-r-transparent
-        border-t-gray-300 dark:border-t-zinc-600"
-                    ></div>
+                    border-l-4 border-r-4 border-t-4
+                    border-l-transparent border-r-transparent
+                    border-t-gray-300 dark:border-t-zinc-600"
+                    />
                   </div>
                 </div>
               )}
@@ -485,7 +486,7 @@ export default function ChatMessage({
 
   const handleReferenceHover = (messageId: string, refNum: number | null) => {
     if (refNum === null) {
-      setHoveredRef(null);
+      setTimeout(() => setHoveredRef(null), 150); // small delay
     } else {
       setHoveredRef({ messageId, refNum });
     }
