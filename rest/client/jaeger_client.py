@@ -224,7 +224,6 @@ class TraceRootJaegerClient:
                 log["level"] = field_map.get('log.level', 'INFO').upper()
                 log["message"] = field_map.get('log.message', '')
                 log["stack_trace"] = field_map.get('log.stack_trace', '')
-                # ✅ Safe parsing of line_number and function_name
                 stack_parts = log["stack_trace"].split(':') if log["stack_trace"] else []
                 line_number = None
                 function_name = None
@@ -306,7 +305,6 @@ class TraceRootJaegerClient:
                     span_logs = {span_id: [log_entry]}
 
             except Exception as e:
-                print("error", e)
                 print(f"Error converting event to LogEntry: {e}")
                 continue
 
