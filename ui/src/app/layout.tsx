@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   title: "TraceRoot.AI",
   description: "Agentic debugging tool",
   icons: {
-    icon: "/favicon.png",
+    icon: "/favicon.ico",
   },
 };
 
