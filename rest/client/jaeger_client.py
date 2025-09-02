@@ -224,8 +224,22 @@ class TraceRootJaegerClient:
                 log["level"] = field_map.get('log.level', 'INFO').upper()
                 log["message"] = field_map.get('log.message', '')
                 log["stack_trace"] = field_map.get('log.stack_trace', '')
-                log["line_number"] = int(log["stack_trace"].split(':')[-1])
-                log["function_name"] = log["stack_trace"].split(':')[-2]
+                # ✅ Safe parsing of line_number and function_name
+                stack_parts = log["stack_trace"].split(':') if log["stack_trace"] else []
+                line_number = None
+                function_name = None
+
+                if len(stack_parts) >= 2:
+                    try:
+                        line_number = int(stack_parts[-1]
+                                          ) if stack_parts[-1].isdigit() else None
+                        function_name = stack_parts[-2]
+                    except Exception:
+                        line_number = None
+                        function_name = None
+
+                log["line_number"] = line_number or 0
+                log["function_name"] = function_name or ""
                 log["span_id"] = span_data.get('spanID', '')
                 log["trace_id"] = trace_data.get('traceID', '')
                 log["timestamp"] = span_log["timestamp"]
@@ -292,6 +306,7 @@ class TraceRootJaegerClient:
                     span_logs = {span_id: [log_entry]}
 
             except Exception as e:
+                print("error", e)
                 print(f"Error converting event to LogEntry: {e}")
                 continue
 
