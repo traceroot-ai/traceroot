@@ -79,20 +79,6 @@ github_repo_name: "[YOUR-GITHUB-REPO-NAME]"
 github_commit_hash: "[YOUR-GITHUB-COMMIT-HASH]"
 ```
 
-or you can initialize with the following in your entry file for a Python program:
-
-```python
-import traceroot
-
-traceroot.init(
-    token="[YOUR-GENERATED-TOKEN-AT-PREVIOUS-STEP]",
-    service_name="[YOUR-SERVICE-NAME]",
-    github_owner="[YOUR-GITHUB-OWNER-NAME]",
-    github_repo_name="[YOUR-GITHUB-REPO-NAME]",
-    github_commit_hash="[YOUR-GITHUB-COMMIT-HASH]",
-)
-```
-
 Notice that all github related information is optional.
 
 Then you can start tracing and logging by
