@@ -141,7 +141,7 @@ const renderMarkdown = (
         return (
           <pre
             key={currentIndex++}
-            className="bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md p-3 my-2 overflow-x-auto relative group"
+            className="bg-gray-100 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-600 rounded-md p-3 my-2 overflow-x-auto relative group"
           >
             <button
               onClick={handleCopy}
@@ -256,8 +256,8 @@ const renderMarkdown = (
             {hoveredRef?.messageId === messageId &&
               hoveredRef?.refNum === refNumber &&
               reference && (
-                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 z-[9999] pointer-events-none">
-                  <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg p-3 min-w-[200px] max-w-[400px] text-xs">
+                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 z-[9999]">
+                  <div className="bg-white dark:bg-zinc-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg p-3 min-w-[200px] max-w-[400px] text-xs">
                     <div className="text-gray-900 dark:text-gray-100">
                       {reference.span_id && (
                         <div className="mb-1">
@@ -280,14 +280,19 @@ const renderMarkdown = (
                       {reference.log_message && (
                         <div className="mb-1">
                           <span className="font-semibold">Log:</span>
-                          <div className="mt-1 p-2 bg-gray-100 dark:bg-gray-700 rounded text-xs font-mono">
+                          <div className="mt-1 p-2 bg-gray-100 dark:bg-zinc-700 rounded text-xs font-mono whitespace-pre-wrap max-h-40 overflow-auto">
                             {reference.log_message}
                           </div>
                         </div>
                       )}
                     </div>
                     {/* Tooltip arrow */}
-                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-300 dark:border-t-gray-600"></div>
+                    <div
+                      className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0
+        border-l-4 border-r-4 border-t-4
+        border-l-transparent border-r-transparent
+        border-t-gray-300 dark:border-t-zinc-600"
+                    ></div>
                   </div>
                 </div>
               )}
@@ -402,7 +407,7 @@ const renderMarkdown = (
       component: (match: string, ...args: string[]) => (
         <code
           key={currentIndex++}
-          className="bg-gray-100 dark:bg-gray-600 px-1 py-0.5 rounded text-xs font-mono"
+          className="bg-gray-100 dark:bg-zinc-600 px-1 py-0.5 rounded text-xs font-mono"
         >
           {args[0]}
         </code>
