@@ -100,13 +100,100 @@ Optionally, create an `TRACEROOT_CONFIG_PATH` and add it to your backend `.env` 
 export TRACEROOT_CONFIG_PATH=/path/to/your/traceroot.config.ts
 ```
 
+## Logger
+
+TraceRoot provides a pino-like logging system with support for child loggers, structured console logging, and metadata-based logging that enables searching on the TraceRoot platform.
+
+### Basic Logger Usage
+
+Get a logger instance and start logging:
+
+```typescript
+import * as traceroot from 'traceroot-sdk-ts';
+
+const logger = traceroot.getLogger();
+logger.info('Basic log message');
+logger.info({ userId: 'user123' }, 'User action completed');
+```
+
+### Child Loggers
+
+Create child loggers with persistent context that behaves similar to pino:
+
+```typescript
+import * as traceroot from 'traceroot-sdk-ts';
+
+const logger = traceroot.getLogger();
+
+// Create child loggers with context
+const authLogger = logger.child({ module: 'auth' });
+
+// Context is automatically included in all logs
+authLogger.info('User login started');
+authLogger.info({ userId: 'user123' }, 'Login successful');
+
+// Create nested child loggers
+const loginLogger = authLogger.child({ operation: 'login' });
+loginLogger.info({ userId: 'user123' }, 'Processing login');
+```
+
+### Metadata Logging
+
+All metadata passed to log methods is searchable on the TraceRoot platform:
+
+```typescript
+// These metadata fields will be searchable in TraceRoot:
+logger.info({ userId: 'user123', action: 'login' }, 'User logged in');
+logger.warn({ table: 'users', query: 'SELECT *', duration: 1500 }, 'Slow query detected');
+```
+
+### Log Levels
+
+TraceRoot supports standard log levels with configurable thresholds:
+
+```typescript
+// Configure log level in config.ts or init
+// or override log level for specific logger
+await traceroot.init({
+  service_name: 'my-app',
+  log_level: 'debug', // debug, info, warn, error, critical
+  // ... other config
+});
+
+const logger = traceroot.getLogger();
+logger.debug('Debug message');
+logger.info('Info message');
+logger.warn('Warning message');
+logger.error('Error message');
+
+// Override log level for specific logger
+const debugLogger = traceroot.getLogger('debug-logger', 'debug');
+```
+
+### Console Logging
+
+TraceRoot also supports console logging with a structured format:
+
+Example output:
+```bash
+2024-01-15 10:30:45,123 [INFO] [main-logger] Application started
+2024-01-15 10:30:45,124 [INFO] [auth-logger] User login started
+```
+
+Enable console logging in your configuration:
+```typescript
+...
+    enable_log_console_export: true,
+...
+```
+
 ## Examples
 
 ### TypeScript
 ```typescript
 import * as traceroot from 'traceroot-sdk-ts';
 
-const logger = traceroot.get_logger();
+const logger = traceroot.getLogger();
 
 async function main() {
   const greet = traceroot.traceFunction(
@@ -125,7 +212,7 @@ async function main() {
 
 main().then(async () => {
   await traceroot.forceFlushTracer();
-  await traceroot.shutdownTracing();
+  await traceroot.shutdownTracer();
   await traceroot.forceFlushLogger();
   await traceroot.shutdownLogger();
   process.exit(0);
@@ -137,7 +224,7 @@ main().then(async () => {
 ```typescript
 import * as traceroot from 'traceroot-sdk-ts';
 
-const logger = traceroot.get_logger();
+const logger = traceroot.getLogger();
 
 class GreetingService {
   // @ts-ignore - TypeScript has strict typing issues with decorators, but this works at runtime
@@ -158,21 +245,9 @@ async function main() {
 
 main().then(async () => {
   await traceroot.forceFlushTracer();
-  await traceroot.shutdownTracing();
+  await traceroot.shutdownTracer();
   await traceroot.forceFlushLogger();
   await traceroot.shutdownLogger();
   process.exit(0);
 });
-```
-
-## Development Installation
-If you want to contribute or use the latest features, install from source:
-
-```bash
-git clone https://github.com/traceroot-ai/traceroot-sdk-ts.git
-cd src
-npm install
-npm run build
-npm run format
-npm run lint --fix
 ```
