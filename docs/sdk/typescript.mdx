@@ -9,9 +9,9 @@ npm install traceroot-sdk-ts@latest
 ```
 
 ## Environment Setup
-### Basics
 Create an [TraceRoot token](https://test.traceroot.ai/integrate) from the dashboard, and add it to your `traceroot.config.ts` file in the root of your project.
 
+### TypeScript
 ```typescript
 import type { TraceRootConfigFile } from 'traceroot-sdk-ts/src/config';
 
@@ -52,7 +52,7 @@ const config: TraceRootConfigFile = {
 export default config;
 ```
 
-For JavaScript config,
+### JavaScript
 
 ```javascript
 const config = {
@@ -103,7 +103,7 @@ export TRACEROOT_CONFIG_PATH=/path/to/your/traceroot.config.ts
 
 ## Examples
 
-### TypeScript Example
+### TypeScript
 ```typescript
 import * as traceroot from 'traceroot-sdk-ts';
 
@@ -133,7 +133,7 @@ main().then(async () => {
 });
 ```
 
-### JavaScript Example
+### JavaScript
 
 ```typescript
 import * as traceroot from 'traceroot-sdk-ts';
