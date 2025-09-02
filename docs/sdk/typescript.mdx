@@ -100,6 +100,12 @@ Optionally, create an `TRACEROOT_CONFIG_PATH` and add it to your backend `.env` 
 export TRACEROOT_CONFIG_PATH=/path/to/your/traceroot.config.ts
 ```
 
+Or you can use environment variables directly in the format of `TRACEROOT_<CONFIG_KEY>` such as
+```bash .env
+TRACEROOT_TOKEN=traceroot-430246
+TRACEROOT_SERVICE_NAME=ts-example
+```
+
 ## Logger
 
 TraceRoot provides a pino-like logging system with support for child loggers, structured console logging, and metadata-based logging that enables searching on the TraceRoot platform.
