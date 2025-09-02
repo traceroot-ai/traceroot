@@ -14,31 +14,31 @@ pip install traceroot
 Then create an [TraceRoot token](https://test.traceroot.ai/integrate) from the dashboard, and add it to your backend `.env` file.
 
 ```bash .env
-// The token for the TraceRoot API
+# The token for the TraceRoot API
 TRACEROOT_TOKEN=traceroot-430246
 
-// The name of the service you are tracking
+# The name of the service you are tracking
 TRACEROOT_SERVICE_NAME=traceroot
 
-// The owner of the GitHub repository
+# The owner of the GitHub repository
 TRACEROOT_GITHUB_OWNER=github_owner
 
-// The name of the GitHub repository
+# The name of the GitHub repository
 TRACEROOT_GITHUB_REPO_NAME=github_repo_name
 
-// The commit hash of the GitHub repository
+# The commit hash of the GitHub repository
 TRACEROOT_GITHUB_COMMIT_HASH=main
 
-// Enable cloud export of spans (default: `true`)
+# Enable cloud export of spans (default: `true`)
 TRACEROOT_ENABLE_SPANS_CLOUD_EXPORT=true
 
-// Enable cloud export of logs (default: `true`)
+# Enable cloud export of logs (default: `true`)
 TRACEROOT_ENABLE_LOGS_CLOUD_EXPORT=true
 
-// Enable console export of spans (default: `false`)
+# Enable console export of spans (default: `false`)
 TRACEROOT_ENABLE_SPANS_CONSOLE_EXPORT=false
 
-// Enable console export of logs (default: `true`)
+# Enable console export of logs (default: `true`)
 TRACEROOT_ENABLE_LOG_CONSOLE_EXPORT=true
 ```
 
