@@ -93,11 +93,10 @@ const config = {
 module.exports = config;
 ```
 
-### Indicate the Location of the Config File
+### Environment Variable
 
-You could set the `TRACEROOT_CONFIG_PATH` environment variable to indicate the location of the config file if necessary.
-
-```bash
+Optionally, create an `TRACEROOT_CONFIG_PATH` and add it to your backend `.env` file, if this is needed due to webpack or other bundlers.
+```bash .env
 export TRACEROOT_CONFIG_PATH=/path/to/your/traceroot.config.ts
 ```
 
