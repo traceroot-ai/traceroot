@@ -124,7 +124,7 @@ export default function MessageInput({
             </Badge>
           )}
           {!traceId && (!spanIds || spanIds.length === 0) && (
-            <span>No trace or spans selected</span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono ml-0">No trace or spans selected</span>
           )}
         </div>
         <PromptInput
