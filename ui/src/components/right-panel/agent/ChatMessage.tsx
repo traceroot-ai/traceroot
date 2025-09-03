@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { RiRobot2Line } from 'react-icons/ri';
 import { GoCopy } from 'react-icons/go';
 import { FaGithub } from 'react-icons/fa';
 import { useUser } from '../../../hooks/useUser';
 import { Reference } from '../../../models/chat';
 import { Spinner } from '../../ui/shadcn-io/spinner';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '../../ui/hover-card';
 
 interface Message {
   id: string;
@@ -86,9 +87,7 @@ const getLogLevelColor = (level: string) => {
 const renderMarkdown = (
   text: string,
   messageId: string,
-  references?: Reference[],
-  hoveredRef?: { messageId: string; refNum: number } | null,
-  onReferenceHover?: (messageId: string, refNum: number | null) => void
+  references?: Reference[]
 ): React.ReactNode => {
   let currentIndex = 0;
 
@@ -233,85 +232,63 @@ const renderMarkdown = (
           'refNumber:',
           refNumber,
           'reference found:',
-          !!reference,
-          'hoveredRef:',
-          hoveredRef
+          !!reference
         );
         console.log('Available references:', references);
 
-        return (
-          <span
-            key={currentIndex++}
-            className="relative inline-block cursor-help text-blue-600 dark:text-blue-400 font-medium underline hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
-            onMouseEnter={() => {
-              console.log('Mouse enter on reference:', refNumber);
-              onReferenceHover?.(messageId, refNumber);
-            }}
-            onMouseLeave={() => {
-              console.log('Mouse leave on reference:', refNumber);
-              onReferenceHover?.(messageId, null);
-            }}
-          >
-            {match}
-
-            {hoveredRef?.messageId === messageId &&
-              hoveredRef?.refNum === refNumber &&
-              reference && (
-                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 z-[9999]">
-                  <div className="bg-white dark:bg-zinc-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg p-3 min-w-[200px] max-w-[400px] text-xs">
-                    <div className="text-gray-900 dark:text-gray-100">
-                      {reference.span_id && (
-                        <div className="mb-1">
-                          <span className="font-semibold">Span ID:</span>{' '}
-                          {reference.span_id}
-                        </div>
-                      )}
-                      {reference.span_function_name && (
-                        <div className="mb-1">
-                          <span className="font-semibold">Function:</span>{' '}
-                          {reference.span_function_name}
-                        </div>
-                      )}
-                      {reference.line_number && (
-                        <div className="mb-1">
-                          <span className="font-semibold">Line:</span>{' '}
-                          {reference.line_number}
-                        </div>
-                      )}
-                      {reference.log_message && (
-                        <div className="mb-1">
-                          <span className="font-semibold">Log:</span>
-                          <div className="mt-1 p-2 bg-gray-100 dark:bg-zinc-700 rounded text-xs font-mono whitespace-pre-wrap max-h-40 overflow-auto">
-                            {reference.log_message}
-                          </div>
-                        </div>
-                      )}
+        if (reference) {
+          return (
+            <HoverCard key={currentIndex++}>
+              <HoverCardTrigger asChild>
+                <span className="cursor-pointer text-black dark:text-white font-medium underline hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+                  {match}
+                </span>
+              </HoverCardTrigger>
+              <HoverCardContent className="w-80">
+                <div className="space-y-2">
+                  {reference.span_id && (
+                    <div>
+                      <span className="font-semibold text-sm">Span ID:</span>{' '}
+                      <span className="text-sm">{reference.span_id}</span>
                     </div>
-                    {/* Tooltip arrow */}
-                    <div
-                      className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0
-                    border-l-4 border-r-4 border-t-4
-                    border-l-transparent border-r-transparent
-                    border-t-gray-300 dark:border-t-zinc-600"
-                    />
-                  </div>
-                </div>
-              )}
-            {/* Debug: Always show if no reference found */}
-            {hoveredRef?.messageId === messageId &&
-              hoveredRef?.refNum === refNumber &&
-              !reference && (
-                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 z-[9999] pointer-events-none">
-                  <div className="bg-red-100 dark:bg-red-900 border border-red-300 dark:border-red-600 rounded-lg shadow-lg p-3 min-w-[200px] max-w-[400px] text-xs">
-                    <div className="text-red-900 dark:text-red-100">
-                      No reference data found for [{refNumber}]
+                  )}
+                  {reference.span_function_name && (
+                    <div>
+                      <span className="font-semibold text-sm">Function:</span>{' '}
+                      <span className="text-sm">{reference.span_function_name}</span>
                     </div>
-                    <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-red-300 dark:border-t-red-600"></div>
-                  </div>
+                  )}
+                  {reference.line_number && (
+                    <div>
+                      <span className="font-semibold text-sm">Line:</span>{' '}
+                      <span className="text-sm">{reference.line_number}</span>
+                    </div>
+                  )}
+                  {reference.log_message && (
+                    <div>
+                      <span className="font-semibold text-sm">Log:</span>
+                      <div className="mt-1 p-2 bg-muted rounded text-xs font-mono whitespace-pre-wrap max-h-40 overflow-auto">
+                        {reference.log_message}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-          </span>
-        );
+              </HoverCardContent>
+            </HoverCard>
+          );
+        } else {
+          // Fallback for references without data - simple span without hover card
+          return (
+            <span
+              key={currentIndex++}
+              className="text-black dark:text-white font-medium underline opacity-50 font-sans"
+              style={{ textDecoration: 'underline' }}
+              title={`No reference data found for [${refNumber}]`}
+            >
+              {match}
+            </span>
+          );
+        }
       },
     },
     // Log level patterns - must come before headers to avoid conflicts
@@ -334,9 +311,7 @@ const renderMarkdown = (
           {renderMarkdown(
             args[0],
             messageId,
-            references,
-            hoveredRef,
-            onReferenceHover
+            references
           )}
         </h3>
       ),
@@ -351,9 +326,7 @@ const renderMarkdown = (
           {renderMarkdown(
             args[0],
             messageId,
-            references,
-            hoveredRef,
-            onReferenceHover
+            references
           )}
         </h2>
       ),
@@ -368,9 +341,7 @@ const renderMarkdown = (
           {renderMarkdown(
             args[0],
             messageId,
-            references,
-            hoveredRef,
-            onReferenceHover
+            references
           )}
         </h1>
       ),
@@ -382,9 +353,7 @@ const renderMarkdown = (
           {renderMarkdown(
             args[0],
             messageId,
-            references,
-            hoveredRef,
-            onReferenceHover
+            references
           )}
         </strong>
       ),
@@ -396,9 +365,7 @@ const renderMarkdown = (
           {renderMarkdown(
             args[0],
             messageId,
-            references,
-            hoveredRef,
-            onReferenceHover
+            references
           )}
         </em>
       ),
@@ -479,18 +446,6 @@ export default function ChatMessage({
   messagesEndRef,
 }: ChatMessageProps) {
   const { avatarLetter } = useUser();
-  const [hoveredRef, setHoveredRef] = useState<{
-    messageId: string;
-    refNum: number;
-  } | null>(null);
-
-  const handleReferenceHover = (messageId: string, refNum: number | null) => {
-    if (refNum === null) {
-      setTimeout(() => setHoveredRef(null), 150); // small delay
-    } else {
-      setHoveredRef({ messageId, refNum });
-    }
-  };
 
   return (
     <div className="flex-1 overflow-y-auto p-4 flex flex-col-reverse bg-zinc-50 dark:bg-zinc-900 mt-4 ml-4 mr-4 mb-2 rounded-lg">
@@ -543,9 +498,7 @@ export default function ChatMessage({
               {renderMarkdown(
                 message.content,
                 message.id,
-                message.references,
-                hoveredRef,
-                handleReferenceHover
+                message.references
               )}
             </div>
             <p className="text-xs mt-1 opacity-70">
