@@ -2,6 +2,8 @@ import time
 
 import traceroot
 
+traceroot.init()
+
 logger = traceroot.get_logger()
 
 
