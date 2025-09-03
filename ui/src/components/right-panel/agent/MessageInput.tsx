@@ -4,7 +4,10 @@ import { CiChat2 } from "react-icons/ci";
 import { GiBrain } from "react-icons/gi";
 import { RiRobot2Line } from "react-icons/ri";
 import { MdCloudQueue } from "react-icons/md";
-import { Navbar13, type Navbar13Option } from "@/components/ui/shadcn-io/navbar-13";
+import {
+  Navbar13,
+  type Navbar13Option,
+} from "@/components/ui/shadcn-io/navbar-13";
 import {
   CHAT_MODEL_DISPLAY_NAMES,
   type ChatModel,
@@ -65,7 +68,7 @@ export default function MessageInput({
   spanIds = [],
 }: MessageInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const status: PromptInputStatus = isLoading ? 'streaming' : 'ready';
+  const status: PromptInputStatus = isLoading ? "streaming" : "ready";
 
   useEffect(() => {
     if (!isLoading && inputRef.current) {
@@ -93,19 +96,18 @@ export default function MessageInput({
   // Define mode options for Navbar13
   const modeOptions: Navbar13Option<Mode>[] = [
     {
-      value: 'agent',
-      name: 'Agent',
-      description: 'Advanced functionalities such as GitHub',
+      value: "agent",
+      name: "Agent",
+      description: "Advanced functionalities such as GitHub",
       icon: RiRobot2Line,
     },
     {
-      value: 'chat',
-      name: 'Chat',
-      description: 'Fast summarization and root cause analysis',
+      value: "chat",
+      name: "Chat",
+      description: "Fast summarization and root cause analysis",
       icon: CiChat2,
     },
   ];
-
 
   return (
     <div className="border border-zinc-300 rounded-lg dark:border-zinc-700 bg-white dark:bg-zinc-800 mx-4 mb-2">
@@ -125,7 +127,10 @@ export default function MessageInput({
             <span>No trace or spans selected</span>
           )}
         </div>
-        <PromptInput onSubmit={onSendMessage} className="divide-y-0 border-0 bg-transparent shadow-none rounded-none">
+        <PromptInput
+          onSubmit={onSendMessage}
+          className="divide-y-0 border-0 bg-transparent shadow-none rounded-none"
+        >
           <PromptInputTextarea
             ref={inputRef}
             value={inputMessage}

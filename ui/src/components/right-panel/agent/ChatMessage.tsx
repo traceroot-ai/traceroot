@@ -1,16 +1,20 @@
-import React from 'react';
-import { RiRobot2Line } from 'react-icons/ri';
-import { GoCopy } from 'react-icons/go';
-import { FaGithub } from 'react-icons/fa';
-import { useUser } from '../../../hooks/useUser';
-import { Reference } from '../../../models/chat';
-import { Spinner } from '../../ui/shadcn-io/spinner';
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '../../ui/hover-card';
+import React from "react";
+import { RiRobot2Line } from "react-icons/ri";
+import { GoCopy } from "react-icons/go";
+import { FaGithub } from "react-icons/fa";
+import { useUser } from "../../../hooks/useUser";
+import { Reference } from "../../../models/chat";
+import { Spinner } from "../../ui/shadcn-io/spinner";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "../../ui/hover-card";
 
 interface Message {
   id: string;
   content: string;
-  role: 'user' | 'assistant' | 'github';
+  role: "user" | "assistant" | "github";
   timestamp: Date | string; // Allow both Date and string for formatted timestamps
   references?: Reference[];
 }
@@ -24,41 +28,41 @@ interface ChatMessageProps {
 
 // Helper function to format timestamp like in LogDetail
 const formatTimestamp = (timestamp: Date | string) => {
-  const date = typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
+  const date = typeof timestamp === "string" ? new Date(timestamp) : timestamp;
   const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
   ];
 
   const y = date.getFullYear();
   const m = months[date.getMonth()];
   const d = date.getDate();
-  const h = String(date.getHours()).padStart(2, '0');
-  const min = String(date.getMinutes()).padStart(2, '0');
-  const s = String(date.getSeconds()).padStart(2, '0');
+  const h = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  const s = String(date.getSeconds()).padStart(2, "0");
 
   // Add ordinal suffix to day
   const getOrdinalSuffix = (day: number) => {
-    if (day >= 11 && day <= 13) return 'th';
+    if (day >= 11 && day <= 13) return "th";
     switch (day % 10) {
       case 1:
-        return 'st';
+        return "st";
       case 2:
-        return 'nd';
+        return "nd";
       case 3:
-        return 'rd';
+        return "rd";
       default:
-        return 'th';
+        return "th";
     }
   };
 
@@ -68,18 +72,18 @@ const formatTimestamp = (timestamp: Date | string) => {
 // Helper function to get log level colors
 const getLogLevelColor = (level: string) => {
   switch (level) {
-    case 'CRITICAL':
-      return 'font-medium text-[#7f1d1d]';
-    case 'ERROR':
-      return 'font-medium text-[#dc2626]';
-    case 'WARNING':
-      return 'font-medium text-[#fb923c]';
-    case 'INFO':
-      return 'font-medium text-[#64748b]';
-    case 'DEBUG':
-      return 'font-medium text-[#a855f7]';
+    case "CRITICAL":
+      return "font-medium text-[#7f1d1d]";
+    case "ERROR":
+      return "font-medium text-[#dc2626]";
+    case "WARNING":
+      return "font-medium text-[#fb923c]";
+    case "INFO":
+      return "font-medium text-[#64748b]";
+    case "DEBUG":
+      return "font-medium text-[#a855f7]";
     default:
-      return 'font-medium text-[#64748b]';
+      return "font-medium text-[#64748b]";
   }
 };
 
@@ -87,11 +91,11 @@ const getLogLevelColor = (level: string) => {
 const renderMarkdown = (
   text: string,
   messageId: string,
-  references?: Reference[]
+  references?: Reference[],
 ): React.ReactNode => {
   let currentIndex = 0;
 
-  console.log('🔍 renderMarkdown called with text:', text);
+  console.log("🔍 renderMarkdown called with text:", text);
 
   // Patterns for markdown elements (order matters - code blocks should be processed first)
   const patterns = [
@@ -107,7 +111,7 @@ const renderMarkdown = (
 
         return (
           <span key={currentIndex++}>
-            PR created:{' '}
+            PR created:{" "}
             <a
               href={fullUrl}
               target="_blank"
@@ -133,7 +137,7 @@ const renderMarkdown = (
           try {
             await navigator.clipboard.writeText(trimmedContent);
           } catch (err) {
-            console.error('Failed to copy text: ', err);
+            console.error("Failed to copy text: ", err);
           }
         };
 
@@ -227,14 +231,14 @@ const renderMarkdown = (
 
         // Debug logging
         console.log(
-          'Reference pattern matched:',
+          "Reference pattern matched:",
           match,
-          'refNumber:',
+          "refNumber:",
           refNumber,
-          'reference found:',
-          !!reference
+          "reference found:",
+          !!reference,
         );
-        console.log('Available references:', references);
+        console.log("Available references:", references);
 
         if (reference) {
           return (
@@ -248,19 +252,21 @@ const renderMarkdown = (
                 <div className="space-y-2">
                   {reference.span_id && (
                     <div>
-                      <span className="font-semibold text-sm">Span ID:</span>{' '}
+                      <span className="font-semibold text-sm">Span ID:</span>{" "}
                       <span className="text-sm">{reference.span_id}</span>
                     </div>
                   )}
                   {reference.span_function_name && (
                     <div>
-                      <span className="font-semibold text-sm">Function:</span>{' '}
-                      <span className="text-sm">{reference.span_function_name}</span>
+                      <span className="font-semibold text-sm">Function:</span>{" "}
+                      <span className="text-sm">
+                        {reference.span_function_name}
+                      </span>
                     </div>
                   )}
                   {reference.line_number && (
                     <div>
-                      <span className="font-semibold text-sm">Line:</span>{' '}
+                      <span className="font-semibold text-sm">Line:</span>{" "}
                       <span className="text-sm">{reference.line_number}</span>
                     </div>
                   )}
@@ -282,7 +288,7 @@ const renderMarkdown = (
             <span
               key={currentIndex++}
               className="text-black dark:text-white font-medium underline opacity-50 font-sans"
-              style={{ textDecoration: 'underline' }}
+              style={{ textDecoration: "underline" }}
               title={`No reference data found for [${refNumber}]`}
             >
               {match}
@@ -308,11 +314,7 @@ const renderMarkdown = (
           key={currentIndex++}
           className="text-lg font-bold text-gray-900 dark:text-gray-100 my-1"
         >
-          {renderMarkdown(
-            args[0],
-            messageId,
-            references
-          )}
+          {renderMarkdown(args[0], messageId, references)}
         </h3>
       ),
     },
@@ -323,11 +325,7 @@ const renderMarkdown = (
           key={currentIndex++}
           className="text-xl font-bold text-gray-900 dark:text-gray-100 my-1"
         >
-          {renderMarkdown(
-            args[0],
-            messageId,
-            references
-          )}
+          {renderMarkdown(args[0], messageId, references)}
         </h2>
       ),
     },
@@ -338,11 +336,7 @@ const renderMarkdown = (
           key={currentIndex++}
           className="text-2xl font-bold text-gray-900 dark:text-gray-100 my-1"
         >
-          {renderMarkdown(
-            args[0],
-            messageId,
-            references
-          )}
+          {renderMarkdown(args[0], messageId, references)}
         </h1>
       ),
     },
@@ -350,11 +344,7 @@ const renderMarkdown = (
       regex: /\*\*(.*?)\*\*/g,
       component: (match: string, ...args: string[]) => (
         <strong key={currentIndex++}>
-          {renderMarkdown(
-            args[0],
-            messageId,
-            references
-          )}
+          {renderMarkdown(args[0], messageId, references)}
         </strong>
       ),
     },
@@ -362,11 +352,7 @@ const renderMarkdown = (
       regex: /\*(.*?)\*/g,
       component: (match: string, ...args: string[]) => (
         <em key={currentIndex++}>
-          {renderMarkdown(
-            args[0],
-            messageId,
-            references
-          )}
+          {renderMarkdown(args[0], messageId, references)}
         </em>
       ),
     },
@@ -396,12 +382,12 @@ const renderMarkdown = (
       const match = pattern.regex.exec(remainingText);
       if (match) {
         console.log(
-          'Pattern match found:',
+          "Pattern match found:",
           match[0],
-          'at index:',
+          "at index:",
           match.index,
-          'regex source:',
-          pattern.regex.source
+          "regex source:",
+          pattern.regex.source,
         );
       }
       if (match && match.index < earliestIndex) {
@@ -419,12 +405,12 @@ const renderMarkdown = (
 
       // Add the formatted element
       elements.push(
-        matchingPattern.component(earliestMatch[0], ...earliestMatch.slice(1))
+        matchingPattern.component(earliestMatch[0], ...earliestMatch.slice(1)),
       );
 
       // Update remaining text
       remainingText = remainingText.substring(
-        earliestIndex + earliestMatch[0].length
+        earliestIndex + earliestMatch[0].length,
       );
 
       // Reset regex lastIndex for next iteration
@@ -468,15 +454,15 @@ export default function ChatMessage({
         <div
           key={message.id}
           className={`flex ${
-            message.role === 'user' ? 'justify-end' : 'justify-start'
+            message.role === "user" ? "justify-end" : "justify-start"
           } mb-4 items-start gap-2`}
         >
           {/* Avatar for assistant and github */}
-          {(message.role === 'assistant' || message.role === 'github') && (
+          {(message.role === "assistant" || message.role === "github") && (
             <div
               className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-zinc-600 dark:bg-zinc-200 border border-zinc-600 dark:border-zinc-200`}
             >
-              {message.role === 'github' ? (
+              {message.role === "github" ? (
                 <FaGithub className="w-5 h-5 text-white dark:text-zinc-600" />
               ) : (
                 <RiRobot2Line className="w-5 h-5 text-white dark:text-zinc-600" />
@@ -487,19 +473,15 @@ export default function ChatMessage({
           {/* Message content */}
           <div
             className={`max-w-[70%] max-w-[600px] rounded-lg px-4 py-2 break-words ${
-              message.role === 'user'
-                ? 'bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700'
-                : message.role === 'github'
-                  ? 'bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700'
-                  : 'bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700'
+              message.role === "user"
+                ? "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
+                : message.role === "github"
+                  ? "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
+                  : "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
             }`}
           >
             <div className="whitespace-pre-wrap break-words text-sm">
-              {renderMarkdown(
-                message.content,
-                message.id,
-                message.references
-              )}
+              {renderMarkdown(message.content, message.id, message.references)}
             </div>
             <p className="text-xs mt-1 opacity-70">
               {formatTimestamp(message.timestamp)}
@@ -507,7 +489,7 @@ export default function ChatMessage({
           </div>
 
           {/* Avatar for user */}
-          {message.role === 'user' && (
+          {message.role === "user" && (
             <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
               {userAvatarUrl ? (
                 <img
@@ -518,7 +500,7 @@ export default function ChatMessage({
               ) : (
                 <div className="w-full h-full bg-sidebar-accent/50 flex items-center justify-center bg-zinc-200 dark:bg-zinc-800">
                   <span className="text-sidebar-accent-foreground font-semibold text-sm">
-                    {avatarLetter || 'U'}
+                    {avatarLetter || "U"}
                   </span>
                 </div>
               )}
