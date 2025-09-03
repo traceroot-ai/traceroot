@@ -321,7 +321,7 @@ export default function Agent({
   };
 
   return (
-    <div className="h-full bg-white dark:bg-zinc-800 flex flex-col">
+    <div className="h-full bg-white dark:bg-zinc-950 flex flex-col">
       {/* Top bar */}
       <TopBar
         chatId={chatId}

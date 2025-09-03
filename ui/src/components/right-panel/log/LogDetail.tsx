@@ -463,9 +463,9 @@ export default function LogDetail({
 
   return (
     <div className="h-screen flex flex-col text-xs">
-      <div className="bg-white dark:bg-gray-900 pt-0 px-4 pb-6 overflow-y-auto overflow-x-visible">
+      <div className="bg-white dark:bg-zinc-950 pt-0 px-4 pb-6 overflow-y-auto overflow-x-visible">
         {loading && (
-          <div className="bg-zinc-50 dark:bg-zinc-900 p-4 rounded-md border border-gray-200 dark:border-gray-700">
+          <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-md border border-zinc-200 dark:border-zinc-700">
             <div className="flex flex-col items-center justify-center py-1 space-y-1">
               <Spinner
                 variant="infinite"
@@ -475,7 +475,7 @@ export default function LogDetail({
           </div>
         )}
         {error && (
-          <div className="bg-zinc-50 dark:bg-zinc-900 p-4 rounded-md border border-red-200 dark:border-red-700">
+          <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-md border border-red-200 dark:border-red-700">
             <p className="text-red-700 dark:text-red-300">{error}</p>
           </div>
         )}
@@ -568,7 +568,7 @@ export default function LogDetail({
                 return (
                   <div
                     key={entryKey}
-                    className={`relative p-1.5 rounded bg-white dark:bg-zinc-900 border border-gray-200 dark:border-gray-700 transform transition-all duration-100 ease-in-out hover:shadow animate-fadeIn`}
+                    className={`relative p-1.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 transform transition-all duration-100 ease-in-out hover:shadow animate-fadeIn`}
                     style={{
                       ...getLogStyle(spanDepthMap[spanId] ?? 0),
                       animationDelay: `${idx * 3}ms`,
