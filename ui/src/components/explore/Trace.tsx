@@ -180,6 +180,23 @@ export const Trace: React.FC<TraceProps> = ({
         }
 
         setTraces(result.data);
+
+        // Check if currently selected trace is still in the filtered results
+        if (selectedTraceId) {
+          const isSelectedTraceInResults = result.data.some(
+            (trace: TraceType) => trace.id === selectedTraceId,
+          );
+
+          if (!isSelectedTraceInResults) {
+            // Clear selection if selected trace is not in new results
+            setSelectedTraceId(null);
+            setSelectedSpanId(null);
+            setSelectedSpanIds([]);
+            onTraceSelect?.(null);
+            onSpanSelect?.([]);
+          }
+        }
+
         onTraceData?.(timeRangeRef.current.start, timeRangeRef.current.end);
         onTracesUpdate?.(result.data);
       } catch (err) {
@@ -277,13 +294,15 @@ export const Trace: React.FC<TraceProps> = ({
                 onClear={handleClearSearch}
                 onLogSearchValueChange={handleLogSearchValueChange}
                 onMetadataSearchTermsChange={onMetadataSearchTermsChange}
+                disabled={loading}
               />
             </div>
             <div className="flex space-x-2 flex-shrink-0 justify-end">
-              <RefreshButton onRefresh={handleRefresh} />
+              <RefreshButton onRefresh={handleRefresh} disabled={loading} />
               <TimeButton
                 selectedTimeRange={selectedTimeRange}
                 onTimeRangeSelect={handleTimeRangeSelect}
+                disabled={loading}
               />
             </div>
           </div>
@@ -317,7 +336,7 @@ export const Trace: React.FC<TraceProps> = ({
                   <div key={trace.id} className="relative">
                     {/* Trace Block */}
                     <div
-                      className={`relative h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-100 ease-in-out hover:scale-[1.005] hover:shadow-sm animate-fadeIn ${
+                      className={`relative h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-100 ease-in-out hover:shadow-sm animate-fadeIn ${
                         selectedTraceId === trace.id
                           ? "bg-zinc-100 dark:bg-zinc-900"
                           : "bg-white dark:bg-zinc-800"

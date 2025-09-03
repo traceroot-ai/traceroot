@@ -40,7 +40,7 @@ export default function LogPanelSwitch({
   viewType,
 }: LogPanelSwitchProps) {
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col dark:bg-zinc-950">
       {traceId ? (
         <LogDetail
           traceId={traceId}
