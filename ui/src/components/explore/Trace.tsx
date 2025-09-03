@@ -267,7 +267,7 @@ export const Trace: React.FC<TraceProps> = ({
   return (
     <>
       <style>{fadeInAnimationStyles}</style>
-      <div className="h-screen bg-white dark:bg-zinc-900 text-neutral-800 dark:text-neutral-200 transition-colors duration-300 p-4 overflow-y-auto overflow-x-hidden">
+      <div className="h-screen bg-white dark:bg-zinc-950 text-neutral-800 dark:text-neutral-200 transition-colors duration-300 p-4 overflow-y-auto overflow-x-hidden">
         {/* Search and Time Range Selector */}
         <div className="space-y-4">
           <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-2">

@@ -4,6 +4,7 @@ import { CiChat2 } from "react-icons/ci";
 import { GiBrain } from "react-icons/gi";
 import { RiRobot2Line } from "react-icons/ri";
 import { MdCloudQueue } from "react-icons/md";
+import { Navbar13, type Navbar13Option } from "@/components/ui/shadcn-io/navbar-13";
 import {
   CHAT_MODEL_DISPLAY_NAMES,
   type ChatModel,
@@ -89,20 +90,25 @@ export default function MessageInput({
   // Get available models for current provider
   const availableModels = getModelsByProvider(selectedProvider);
 
-  const handleModeSelect = (mode: string) => {
-    setSelectedMode(mode as Mode);
-  };
+  // Define mode options for Navbar13
+  const modeOptions: Navbar13Option<Mode>[] = [
+    {
+      value: 'agent',
+      name: 'Agent',
+      description: 'Advanced functionalities such as GitHub',
+      icon: RiRobot2Line,
+    },
+    {
+      value: 'chat',
+      name: 'Chat',
+      description: 'Fast summarization and root cause analysis',
+      icon: CiChat2,
+    },
+  ];
 
-  const getModeIcon = (mode: Mode) => {
-    return mode === "agent" ? RiRobot2Line : CiChat2;
-  };
-
-  const getModeDisplayName = (mode: Mode) => {
-    return mode === "agent" ? "Agent" : "Chat";
-  };
 
   return (
-    <div className="border border-gray-200 rounded-lg dark:border-gray-700 bg-white dark:bg-zinc-800 mx-4 mb-2">
+    <div className="border border-zinc-300 rounded-lg dark:border-zinc-700 bg-white dark:bg-zinc-800 mx-4 mb-2">
       <div className="p-3">
         <div className="mb-1 text-xs text-gray-500 dark:text-gray-400 pb-2 flex gap-2 items-center">
           {traceId && (
@@ -143,33 +149,12 @@ export default function MessageInput({
           <PromptInputToolbar className="border-t-0 pt-1 pb-0 px-0">
             <PromptInputTools>
               {/* Mode selector */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <PromptInputButton variant="outline">
-                    {React.createElement(getModeIcon(selectedMode), {
-                      className: "w-4 h-4",
-                    })}
-                    <span className="text-xs">
-                      {getModeDisplayName(selectedMode)}
-                    </span>
-                  </PromptInputButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="top" align="start">
-                  <DropdownMenuRadioGroup
-                    value={selectedMode}
-                    onValueChange={handleModeSelect}
-                  >
-                    <DropdownMenuRadioItem value="agent">
-                      <RiRobot2Line className="w-4 h-4" />
-                      Agent
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="chat">
-                      <CiChat2 className="w-4 h-4" />
-                      Chat
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Navbar13
+                options={modeOptions}
+                selectedValue={selectedMode}
+                onValueChange={setSelectedMode}
+                label=""
+              />
 
               {/* Provider selector */}
               {setSelectedProvider && (

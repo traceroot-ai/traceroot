@@ -158,9 +158,11 @@ export interface PromptInputModelSelectProps extends HTMLAttributes<HTMLDivEleme
 }
 
 export const PromptInputModelSelect = forwardRef<HTMLDivElement, PromptInputModelSelectProps>(
-  ({ children }) => (
+  ({ children }, ref) => (
     <DropdownMenu>
-      {children}
+      <div ref={ref}>
+        {children}
+      </div>
     </DropdownMenu>
   )
 );
