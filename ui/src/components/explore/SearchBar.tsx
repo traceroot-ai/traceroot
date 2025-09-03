@@ -14,6 +14,12 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Kbd } from "@/components/ui/shadcn-io/kbd";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export interface SearchCriterion {
   id: string;
@@ -30,6 +36,7 @@ interface SearchBarProps {
   onMetadataSearchTermsChange?: (
     terms: { category: string; value: string }[],
   ) => void;
+  disabled?: boolean;
 }
 
 const CATEGORIES = [
@@ -49,6 +56,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
   onClear,
   onLogSearchValueChange,
   onMetadataSearchTermsChange,
+  disabled = false,
 }) => {
   const [criteria, setCriteria] = useState<SearchCriterion[]>([]);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -108,6 +116,8 @@ const SearchBar: React.FC<SearchBarProps> = ({
   }, [metadataSearchTerms, onMetadataSearchTermsChange]);
 
   const handleAddCriterion = () => {
+    if (disabled) return;
+
     let categoryValue = currentCriterion.category;
     let searchValue = inputValue.trim();
 
@@ -140,6 +150,8 @@ const SearchBar: React.FC<SearchBarProps> = ({
   };
 
   const handleRemoveCriterion = (id: string) => {
+    if (disabled) return;
+
     const newCriteria = criteria.filter((c) => c.id !== id);
     setCriteria(newCriteria);
     // If no criteria left, default back to log category
@@ -167,8 +179,8 @@ const SearchBar: React.FC<SearchBarProps> = ({
   return (
     <div className="relative flex items-start gap-2 justify-start">
       <div
-        className={`flex flex-col gap-2 px-2 py-1 border rounded-md transition-all duration-200 min-h-[2rem] max-h-[10rem] ${criteria.length === 0 ? "justify-center" : ""} w-auto max-w-md`}
-        onClick={() => setIsExpanded(true)}
+        className={`flex flex-col gap-2 px-2 py-1 border rounded-md transition-all duration-200 min-h-[2rem] max-h-[10rem] ${criteria.length === 0 ? "justify-center" : ""} w-auto max-w-md ${disabled ? "opacity-50 pointer-events-none" : ""}`}
+        onClick={() => !disabled && setIsExpanded(true)}
       >
         {/* Search criteria blocks */}
         {criteria.length > 0 && (
@@ -180,7 +192,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
                     {criterion.logicalOperator}
                   </span>
                 )}
-                <div className="flex items-center space-x-1 bg-gray-100 dark:bg-gray-700 rounded-lg px-3 py-1">
+                <div className="flex items-center space-x-1 bg-gray-100 dark:bg-gray-700 rounded-md px-2 py-1">
                   <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
                     {getCategoryLabel(criterion.category)}
                   </span>
@@ -194,7 +206,8 @@ const SearchBar: React.FC<SearchBarProps> = ({
                     variant="ghost"
                     size="icon"
                     onClick={() => handleRemoveCriterion(criterion.id)}
-                    className="ml-1 h-4 w-4 p-0 text-black dark:text-gray-300 hover:text-red-500 dark:hover:text-red-400"
+                    className="ml-0.5 h-4 w-4 p-0 opacity-70 transition-opacity hover:opacity-100 flex-shrink-0"
+                    disabled={disabled}
                   >
                     <IoMdClose className="w-3 h-3" />
                   </Button>
@@ -374,42 +387,75 @@ const SearchBar: React.FC<SearchBarProps> = ({
 
           {/* Metadata value input (only show when metadata is selected) */}
           {currentCriterion.category === "metadata" && (
-            <Input
-              type="text"
-              value={metadataValue}
-              onChange={(e) => setMetadataValue(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="value"
-              className="w-26 min-w-[80px] h-6.5"
-              style={{ fontSize: "12px" }}
-            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Input
+                  type="text"
+                  value={metadataValue}
+                  onChange={(e) => setMetadataValue(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder="value"
+                  className="w-26 min-w-[80px] h-6.5"
+                  style={{ fontSize: "12px" }}
+                />
+              </TooltipTrigger>
+              <TooltipContent>
+                <div className="flex items-center gap-1">
+                  <span>Press</span>
+                  <Kbd>Enter</Kbd>
+                  <span>to add</span>
+                </div>
+              </TooltipContent>
+            </Tooltip>
           )}
 
           {/* Log search input (only show when log is selected) */}
           {currentCriterion.category === "log" && (
-            <Input
-              type="text"
-              value={logSearchValue}
-              onChange={(e) => setLogSearchValue(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder=""
-              className="w-32 min-w-[120px] h-6.5"
-              style={{ fontSize: "12px" }}
-            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Input
+                  type="text"
+                  value={logSearchValue}
+                  onChange={(e) => setLogSearchValue(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder=""
+                  className="w-32 min-w-[120px] h-6.5"
+                  style={{ fontSize: "12px" }}
+                />
+              </TooltipTrigger>
+              <TooltipContent>
+                <div className="flex items-center gap-1">
+                  <span>Press</span>
+                  <Kbd>Enter</Kbd>
+                  <span>to add</span>
+                </div>
+              </TooltipContent>
+            </Tooltip>
           )}
 
           {/* Value input (hide when metadata or log category is selected) */}
           {currentCriterion.category !== "metadata" &&
             currentCriterion.category !== "log" && (
-              <Input
-                type="text"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder=""
-                className="w-28 min-w-[80px] h-6.5"
-                style={{ fontSize: "12px" }}
-              />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Input
+                    type="text"
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder=""
+                    className="w-28 min-w-[80px] h-6.5"
+                    style={{ fontSize: "12px" }}
+                  />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <div className="flex items-center gap-1">
+                    <span>Press</span>
+                    <Kbd>Enter</Kbd>
+                    <span>to add</span>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
             )}
 
           {/* cross button */}

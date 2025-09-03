@@ -52,7 +52,7 @@ function LogoComponent() {
 
   return (
     <div
-      className={`flex items-center rounded-md m-2 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors
+      className={`flex items-center rounded-md m-2 hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors
     ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
     >
       <Link

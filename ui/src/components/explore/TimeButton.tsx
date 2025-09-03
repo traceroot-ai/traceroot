@@ -31,13 +31,16 @@ export const TIME_RANGES: TimeRange[] = [
 interface TimeButtonProps {
   selectedTimeRange: TimeRange;
   onTimeRangeSelect: (range: TimeRange) => void;
+  disabled?: boolean;
 }
 
 export const TimeButton: React.FC<TimeButtonProps> = ({
   selectedTimeRange,
   onTimeRangeSelect,
+  disabled = false,
 }) => {
   const handleTimeRangeSelect = (value: string) => {
+    if (disabled) return;
     const range = TIME_RANGES.find((r) => r.label === value);
     if (range && range.label !== selectedTimeRange.label) {
       onTimeRangeSelect(range);
@@ -50,6 +53,7 @@ export const TimeButton: React.FC<TimeButtonProps> = ({
         <Button
           variant="outline"
           className="min-h-[2.5rem] text-xs font-medium"
+          disabled={disabled}
         >
           <span className="hidden lg:inline">{selectedTimeRange.label}</span>
           <span className="hidden md:inline lg:hidden">

@@ -64,11 +64,9 @@ export default function Agent({
     scrollToBottom();
   }, [messages]);
 
-  // Reset chat when traceId changes
+  // Reset chat when traceId changes (including when it becomes null/undefined)
   useEffect(() => {
-    if (traceId) {
-      handleNewChat();
-    }
+    handleNewChat();
   }, [traceId]);
 
   const handleNewChat = () => {
