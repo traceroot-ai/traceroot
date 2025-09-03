@@ -191,8 +191,8 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
     };
 
     return (
-      <div className="flex items-center justify-between bg-zinc-50 dark:bg-zinc-900 gap-2 mx-4 mt-1 rounded-md p-1">
-        <div className="flex items-center pl-3">
+      <div className="flex items-center justify-between bg-zinc-50 dark:bg-zinc-900 gap-2 mx-4 mt-0 rounded-md p-1">
+        <div className="flex items-center ml-2">
           {!chatId && (
             <span className="text-xs font-medium font-mono text-neutral-800 dark:text-neutral-300">
               New Chat
