@@ -1,6 +1,0 @@
-token: 'Your_Traceroot_Token'
-# local_mode: true  // only use for local testing
-service_name: 'example'
-github_owner: 'traceroot-ai'
-github_repo_name: 'traceroot-examples'
-github_commit_hash: 'main'

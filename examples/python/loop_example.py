@@ -1,11 +1,13 @@
 import os
 import time
 
+from dotenv import load_dotenv
+
 import traceroot
 
-# Initialize traceroot with override parameters, which will
-# override the parameters in the .traceroot-config.yaml file
-token = os.getenv("TRACEROOT_TOKEN")
+# ---- Traceroot Setup ----
+load_dotenv()  # load from .env
+traceroot.init()  # use global parameters (from env)
 verification_endpoint = "http://localhost:8000/v1/verify/credentials"
 
 traceroot.init(
@@ -14,7 +16,7 @@ traceroot.init(
     github_owner="override-owner",
     github_repo_name="override-repo",
     github_commit_hash="override-commit",
-    token=token,
+    token=os.getenv("TRACEROOT_TOKEN"),
     enable_span_cloud_export=True,
     enable_log_cloud_export=True,
     verification_endpoint=verification_endpoint,
