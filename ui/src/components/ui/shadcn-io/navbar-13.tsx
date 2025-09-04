@@ -56,8 +56,8 @@ export const Navbar13 = React.forwardRef<HTMLDivElement, Navbar13Props<any>>(
           >
             {currentOption && (
               <>
-                <currentOption.icon className="w-4 h-4" />
-                <span className="text-xs">{currentOption.name}</span>
+                <currentOption.icon className="w-4 h-4 dark:text-zinc-200 text-zinc-900" />
+                <span className="text-xs dark:text-zinc-200 text-zinc-900 font-medium">{currentOption.name}</span>
               </>
             )}
           </SelectTrigger>
@@ -72,8 +72,8 @@ export const Navbar13 = React.forwardRef<HTMLDivElement, Navbar13Props<any>>(
                 >
                   <div className="flex flex-col items-start gap-1">
                     <div className="flex items-center gap-2">
-                      <option.icon className="w-4 h-4" />
-                      <span className="font-medium">{option.name}</span>
+                      <option.icon className="w-4 h-4 dark:text-zinc-200 text-zinc-900" />
+                      <span className="font-medium dark:text-zinc-200 text-zinc-900">{option.name}</span>
                     </div>
                     <span className="text-xs text-muted-foreground">
                       {option.description}
