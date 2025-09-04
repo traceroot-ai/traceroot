@@ -76,9 +76,7 @@ export default function MessageInput({
     }
   }, [isLoading]);
 
-  const handleModelSelect = (model: string) => {
-    setSelectedModel(model as ChatModel);
-  };
+
 
   const handleProviderSelect = (provider: string) => {
     const newProvider = provider as Provider;
@@ -108,6 +106,31 @@ export default function MessageInput({
       icon: CiChat2,
     },
   ];
+
+  // Define model options for Navbar13
+  const getModelDescription = (model: ChatModel): string => {
+    switch (model) {
+      case "gpt-5":
+        return "Best performance but slow";
+      case "gpt-4o":
+        return "Fast with reasonable performance";
+      case "gpt-4.1":
+        return "Better performance than GPT-4o";
+      case "auto":
+        return "Balance performance and cost";
+      case "openai/gpt-oss-120b":
+        return "Best open source reasoning model";
+      default:
+        return "";
+    }
+  };
+
+  const modelOptions: Navbar13Option<ChatModel>[] = availableModels.map((model) => ({
+    value: model,
+    name: CHAT_MODEL_DISPLAY_NAMES[model],
+    description: getModelDescription(model),
+    icon: GiBrain,
+  }));
 
   return (
     <div className="border border-zinc-300 rounded-lg dark:border-zinc-700 bg-white dark:bg-zinc-800 mx-4 mb-2">
@@ -187,29 +210,13 @@ export default function MessageInput({
                 </DropdownMenu>
               )}
 
-              {/* Brain icon and model display */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <PromptInputButton variant="outline">
-                    <GiBrain className="w-4 h-4" />
-                    <span className="text-xs">
-                      {CHAT_MODEL_DISPLAY_NAMES[selectedModel]}
-                    </span>
-                  </PromptInputButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="top" align="start">
-                  <DropdownMenuRadioGroup
-                    value={selectedModel}
-                    onValueChange={handleModelSelect}
-                  >
-                    {availableModels.map((model) => (
-                      <DropdownMenuRadioItem key={model} value={model}>
-                        {CHAT_MODEL_DISPLAY_NAMES[model]}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {/* Model selector */}
+              <Navbar13
+                options={modelOptions}
+                selectedValue={selectedModel}
+                onValueChange={setSelectedModel}
+                label=""
+              />
             </PromptInputTools>
 
             <PromptInputSubmit
