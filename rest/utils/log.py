@@ -69,12 +69,11 @@ def _load_json(message: str, ) -> tuple[LogEntry, str] | tuple[None, None]:
     # For now for WARN to WARNING for typescript case
     if level == "WARN":
         level = "WARNING"
-    # Create a filtered JSON message with original message and non-skipped fields
-    filtered_data = {'message': json_data['message']}
 
-    # Add other data fields that are not in the skip list
+    filtered_data = {}
+    # Add data fields that are not in the skip list
     for key, value in json_data.items():
-        if key not in SKIP_LOG_FIELDS and key != 'message':
+        if key not in SKIP_LOG_FIELDS:
             filtered_data[key] = value
 
     if len(filtered_data) > 1:
