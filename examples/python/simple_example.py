@@ -1,7 +1,12 @@
 import time
 
+from dotenv import load_dotenv
+
 import traceroot
 
+# ---- Traceroot Setup ----
+load_dotenv()  # load from .env
+traceroot.init()  # use global parameters (from env)
 logger = traceroot.get_logger()
 
 

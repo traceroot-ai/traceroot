@@ -2,6 +2,7 @@ import os
 from typing import Dict
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
@@ -10,7 +11,11 @@ from rest.main import MultiAgentSystem
 from traceroot.integrations.fastapi import connect_fastapi
 from traceroot.logger import get_logger
 
+# ---- Traceroot Setup ----
+load_dotenv()  # load environment variables from .env
+traceroot.init()  # init using global parameters (from env)
 logger = get_logger()
+# --------------------------
 
 app = FastAPI(title="TraceRoot Multi-Agent Code Server")
 connect_fastapi(app)
