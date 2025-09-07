@@ -219,7 +219,6 @@ function SettingsComponent() {
 
 function ProfileComponent() {
   const { user, avatarLetter, isLoading, logout } = useUser();
-  console.log(user);
   const { state } = useSidebar();
 
   const handleSignOut = () => {

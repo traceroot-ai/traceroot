@@ -24,11 +24,14 @@ interface ChatMessageProps {
   isLoading: boolean;
   userAvatarUrl?: string;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  onSpanSelect?: (spanId: string) => void;
+  onViewTypeChange?: (viewType: "log" | "agent" | "trace") => void;
 }
 
 // Helper function to format timestamp like in LogDetail
 const formatTimestamp = (timestamp: Date | string) => {
   const date = typeof timestamp === "string" ? new Date(timestamp) : timestamp;
+
   const months = [
     "Jan",
     "Feb",
@@ -44,6 +47,8 @@ const formatTimestamp = (timestamp: Date | string) => {
     "Dec",
   ];
 
+  // The API returns UTC datetime values, but Date object methods like getFullYear()
+  // automatically convert to local timezone, which is what we want for display
   const y = date.getFullYear();
   const m = months[date.getMonth()];
   const d = date.getDate();
@@ -92,11 +97,12 @@ const renderMarkdown = (
   text: string,
   messageId: string,
   references?: Reference[],
+  onSpanSelect?: (spanId: string) => void,
+  onViewTypeChange?: (viewType: "log" | "agent" | "trace") => void,
+  openHoverCard?: string | null,
+  setOpenHoverCard?: (id: string | null) => void,
 ): React.ReactNode => {
   let currentIndex = 0;
-
-  console.log("🔍 renderMarkdown called with text:", text);
-
   // Patterns for markdown elements (order matters - code blocks should be processed first)
   const patterns = [
     // PR created pattern - MUST be first to catch it before other patterns
@@ -229,20 +235,16 @@ const renderMarkdown = (
         const refNumber = parseInt(args[0]);
         const reference = references?.find((ref) => ref.number === refNumber);
 
-        // Debug logging
-        console.log(
-          "Reference pattern matched:",
-          match,
-          "refNumber:",
-          refNumber,
-          "reference found:",
-          !!reference,
-        );
-        console.log("Available references:", references);
-
         if (reference) {
+          const hoverCardId = `${messageId}-ref-${refNumber}`;
           return (
-            <HoverCard key={currentIndex++}>
+            <HoverCard
+              key={currentIndex++}
+              open={openHoverCard === hoverCardId}
+              onOpenChange={(open) =>
+                setOpenHoverCard?.(open ? hoverCardId : null)
+              }
+            >
               <HoverCardTrigger asChild>
                 <span className="cursor-pointer text-black dark:text-white font-medium underline hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
                   {match}
@@ -253,7 +255,27 @@ const renderMarkdown = (
                   {reference.span_id && (
                     <div>
                       <span className="font-semibold text-sm">Span ID:</span>{" "}
-                      <span className="text-sm">{reference.span_id}</span>
+                      <button
+                        onClick={(e) => {
+                          // Prevent event bubbling
+                          e.preventDefault();
+                          e.stopPropagation();
+
+                          // Force close the hover card immediately to prevent popup persistence
+                          setOpenHoverCard?.(null);
+
+                          // Small delay to ensure hover card closes completely before view switch
+                          // This prevents visual artifacts during the transition
+                          setTimeout(() => {
+                            onSpanSelect?.(reference.span_id!);
+                            onViewTypeChange?.("log");
+                          }, 100);
+                        }}
+                        className="text-sm text-black dark:text-white hover:text-gray-700 dark:hover:text-gray-300 underline cursor-pointer transition-colors"
+                        title="Click to select this span and switch to log view"
+                      >
+                        {reference.span_id}
+                      </button>
                     </div>
                   )}
                   {reference.span_function_name && (
@@ -314,7 +336,13 @@ const renderMarkdown = (
           key={currentIndex++}
           className="text-lg font-bold text-gray-900 dark:text-gray-100 my-1"
         >
-          {renderMarkdown(args[0], messageId, references)}
+          {renderMarkdown(
+            args[0],
+            messageId,
+            references,
+            onSpanSelect,
+            onViewTypeChange,
+          )}
         </h3>
       ),
     },
@@ -325,7 +353,13 @@ const renderMarkdown = (
           key={currentIndex++}
           className="text-xl font-bold text-gray-900 dark:text-gray-100 my-1"
         >
-          {renderMarkdown(args[0], messageId, references)}
+          {renderMarkdown(
+            args[0],
+            messageId,
+            references,
+            onSpanSelect,
+            onViewTypeChange,
+          )}
         </h2>
       ),
     },
@@ -336,7 +370,13 @@ const renderMarkdown = (
           key={currentIndex++}
           className="text-2xl font-bold text-gray-900 dark:text-gray-100 my-1"
         >
-          {renderMarkdown(args[0], messageId, references)}
+          {renderMarkdown(
+            args[0],
+            messageId,
+            references,
+            onSpanSelect,
+            onViewTypeChange,
+          )}
         </h1>
       ),
     },
@@ -344,7 +384,13 @@ const renderMarkdown = (
       regex: /\*\*(.*?)\*\*/g,
       component: (match: string, ...args: string[]) => (
         <strong key={currentIndex++}>
-          {renderMarkdown(args[0], messageId, references)}
+          {renderMarkdown(
+            args[0],
+            messageId,
+            references,
+            onSpanSelect,
+            onViewTypeChange,
+          )}
         </strong>
       ),
     },
@@ -352,7 +398,13 @@ const renderMarkdown = (
       regex: /\*(.*?)\*/g,
       component: (match: string, ...args: string[]) => (
         <em key={currentIndex++}>
-          {renderMarkdown(args[0], messageId, references)}
+          {renderMarkdown(
+            args[0],
+            messageId,
+            references,
+            onSpanSelect,
+            onViewTypeChange,
+          )}
         </em>
       ),
     },
@@ -380,16 +432,6 @@ const renderMarkdown = (
     // Find the earliest pattern match
     for (const pattern of patterns) {
       const match = pattern.regex.exec(remainingText);
-      if (match) {
-        console.log(
-          "Pattern match found:",
-          match[0],
-          "at index:",
-          match.index,
-          "regex source:",
-          pattern.regex.source,
-        );
-      }
       if (match && match.index < earliestIndex) {
         earliestMatch = match;
         earliestIndex = match.index;
@@ -430,26 +472,18 @@ export default function ChatMessage({
   isLoading,
   userAvatarUrl,
   messagesEndRef,
+  onSpanSelect,
+  onViewTypeChange,
 }: ChatMessageProps) {
   const { avatarLetter } = useUser();
+  // State to control all hover cards in this component
+  // We need controlled state to programmatically close hover cards when clicking span links
+  // This prevents the popup from persisting and moving to the left panel during view transitions
+  const [openHoverCard, setOpenHoverCard] = React.useState<string | null>(null);
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 flex flex-col-reverse bg-zinc-50 dark:bg-zinc-900 mt-2 ml-4 mr-4 mb-2 rounded-lg">
-      <div ref={messagesEndRef} />
-      {/* Loading indicator */}
-      {isLoading && (
-        <div className="flex justify-start mb-4 items-start gap-2">
-          <div className="w-8 h-8 rounded-full bg-zinc-700 dark:bg-zinc-200 flex items-center justify-center flex-shrink-0 animate-pulse">
-            <RiRobot2Line className="w-5 h-5 text-white dark:text-zinc-700" />
-          </div>
-          <div className="flex items-center justify-center py-1 px-2">
-            <Spinner
-              variant="infinite"
-              className="w-7 h-7 text-gray-500 dark:text-gray-400"
-            />
-          </div>
-        </div>
-      )}
+    <div className="flex-1 overflow-y-auto p-4 flex flex-col bg-zinc-50 dark:bg-zinc-900 mt-2 ml-4 mr-4 mb-2 rounded-lg">
+      <div className="flex-1"></div>
       {messages.map((message) => (
         <div
           key={message.id}
@@ -481,7 +515,15 @@ export default function ChatMessage({
             }`}
           >
             <div className="whitespace-pre-wrap break-words text-sm">
-              {renderMarkdown(message.content, message.id, message.references)}
+              {renderMarkdown(
+                message.content,
+                message.id,
+                message.references,
+                onSpanSelect,
+                onViewTypeChange,
+                openHoverCard,
+                setOpenHoverCard,
+              )}
             </div>
             <p className="text-xs mt-1 opacity-70">
               {formatTimestamp(message.timestamp)}
@@ -508,6 +550,21 @@ export default function ChatMessage({
           )}
         </div>
       ))}
+      {/* Loading indicator */}
+      {isLoading && (
+        <div className="flex justify-start mb-4 items-start gap-2">
+          <div className="w-8 h-8 rounded-full bg-zinc-700 dark:bg-zinc-200 flex items-center justify-center flex-shrink-0 animate-pulse">
+            <RiRobot2Line className="w-5 h-5 text-white dark:text-zinc-700" />
+          </div>
+          <div className="flex items-center justify-center py-1 px-2">
+            <Spinner
+              variant="infinite"
+              className="w-7 h-7 text-gray-500 dark:text-gray-400"
+            />
+          </div>
+        </div>
+      )}
+      <div ref={messagesEndRef} />
     </div>
   );
 }

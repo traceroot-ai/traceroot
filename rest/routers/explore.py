@@ -465,6 +465,7 @@ class ExploreRouter:
                     status=status,
                 )
             )
+        print(chat_history.model_dump())
         return chat_history.model_dump()
 
     async def get_logs_by_trace_id(
