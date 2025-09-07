@@ -69,14 +69,13 @@ export default function MessageInput({
 }: MessageInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const status: PromptInputStatus = isLoading ? "streaming" : "ready";
+  const hasTraceOrSpans = !!(traceId || (spanIds && spanIds.length > 0));
 
   useEffect(() => {
     if (!isLoading && inputRef.current) {
       inputRef.current.focus();
     }
   }, [isLoading]);
-
-
 
   const handleProviderSelect = (provider: string) => {
     const newProvider = provider as Provider;
@@ -125,12 +124,14 @@ export default function MessageInput({
     }
   };
 
-  const modelOptions: Navbar13Option<ChatModel>[] = availableModels.map((model) => ({
-    value: model,
-    name: CHAT_MODEL_DISPLAY_NAMES[model],
-    description: getModelDescription(model),
-    icon: GiBrain,
-  }));
+  const modelOptions: Navbar13Option<ChatModel>[] = availableModels.map(
+    (model) => ({
+      value: model,
+      name: CHAT_MODEL_DISPLAY_NAMES[model],
+      description: getModelDescription(model),
+      icon: GiBrain,
+    }),
+  );
 
   return (
     <div className="border border-zinc-300 rounded-lg dark:border-zinc-700 bg-white dark:bg-zinc-800 mx-4 mb-2">
@@ -147,7 +148,9 @@ export default function MessageInput({
             </Badge>
           )}
           {!traceId && (!spanIds || spanIds.length === 0) && (
-            <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono ml-0">No trace or spans selected</span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono ml-0">
+              No trace or spans selected
+            </span>
           )}
         </div>
         <PromptInput
@@ -167,9 +170,13 @@ export default function MessageInput({
               }
             }}
             placeholder={
-              isLoading ? "Agent is thinking..." : "Type your message..."
+              isLoading
+                ? "Agent is thinking..."
+                : hasTraceOrSpans
+                  ? "Type your message..."
+                  : "Select a trace to start chatting"
             }
-            disabled={isLoading}
+            disabled={isLoading || !hasTraceOrSpans}
             minRows={1}
             maxRows={5}
             className="rounded-md border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 focus:ring-1 focus:ring-neutral-500 focus:border-neutral-500 transition-all duration-200"
@@ -221,7 +228,7 @@ export default function MessageInput({
 
             <PromptInputSubmit
               status={status}
-              disabled={!inputMessage.trim()}
+              disabled={!inputMessage.trim() || !hasTraceOrSpans}
               className="bg-neutral-700 dark:bg-neutral-300 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-800"
             >
               {!isLoading && <Send className="w-4 h-4" />}

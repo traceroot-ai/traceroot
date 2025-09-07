@@ -107,6 +107,7 @@ export default function Explore() {
           onLogSearchValueChange={handleLogSearchValueChange}
           onMetadataSearchTermsChange={handleMetadataSearchTermsChange}
           selectedTraceId={selectedTraceId}
+          selectedSpanIds={selectedSpanIds}
         />
       }
       rightPanel={
@@ -121,6 +122,7 @@ export default function Explore() {
           onTraceSelect={handleTraceSelect}
           onSpanClear={handleSpanClear}
           onTraceSpansUpdate={handleTraceSpansUpdate}
+          onSpanSelect={handleSpanSelect}
         />
       }
       minLeftWidth={35}

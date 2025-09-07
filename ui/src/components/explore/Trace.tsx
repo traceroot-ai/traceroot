@@ -35,6 +35,7 @@ interface TraceProps {
     terms: { category: string; value: string }[],
   ) => void;
   selectedTraceId?: string | null;
+  selectedSpanIds?: string[];
   traceQueryStartTime?: Date;
   traceQueryEndTime?: Date;
 }
@@ -89,6 +90,7 @@ export const Trace: React.FC<TraceProps> = ({
   onLogSearchValueChange,
   onMetadataSearchTermsChange,
   selectedTraceId: externalSelectedTraceId,
+  selectedSpanIds: externalSelectedSpanIds,
   traceQueryStartTime,
   traceQueryEndTime,
 }) => {
@@ -280,6 +282,23 @@ export const Trace: React.FC<TraceProps> = ({
       setSelectedTraceId(externalSelectedTraceId || null);
     }
   }, [externalSelectedTraceId, selectedTraceId]);
+
+  // Sync external selectedSpanIds with internal state
+  useEffect(() => {
+    if (
+      externalSelectedSpanIds &&
+      JSON.stringify(externalSelectedSpanIds) !==
+        JSON.stringify(selectedSpanIds)
+    ) {
+      setSelectedSpanIds(externalSelectedSpanIds);
+      // Also set the first span as selected span for consistency
+      if (externalSelectedSpanIds.length > 0) {
+        setSelectedSpanId(externalSelectedSpanIds[0]);
+      } else {
+        setSelectedSpanId(null);
+      }
+    }
+  }, [externalSelectedSpanIds, selectedSpanIds]);
 
   return (
     <>

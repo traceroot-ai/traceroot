@@ -21,7 +21,6 @@ export const OPENAI_MODELS = {
   AUTO: "auto",
 } as const;
 
-
 export const GROQ_MODELS = {
   GPT_OSS_120B: "openai/gpt-oss-120b",
 } as const;
@@ -44,8 +43,6 @@ export const OPENAI_MODEL_DISPLAY_NAMES: Record<
   GPT_4_1: "GPT-4.1",
   AUTO: "Auto",
 };
-
-
 
 export const GROQ_MODEL_DISPLAY_NAMES: Record<
   keyof typeof GROQ_MODELS,
