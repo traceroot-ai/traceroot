@@ -95,15 +95,44 @@ module.exports = config;
 
 ### Environment Variable
 
+```bash .env
+# The token for the TraceRoot API
+TRACEROOT_TOKEN=traceroot-430246
+
+# The name of the service you are tracking
+TRACEROOT_SERVICE_NAME=traceroot
+
+# The owner of the GitHub repository
+TRACEROOT_GITHUB_OWNER=github_owner
+
+# The name of the GitHub repository
+TRACEROOT_GITHUB_REPO_NAME=github_repo_name
+
+# The commit hash of the GitHub repository
+TRACEROOT_GITHUB_COMMIT_HASH=main
+
+# Enable cloud export of spans (default: `true`)
+TRACEROOT_ENABLE_SPAN_CLOUD_EXPORT=true
+
+# Enable cloud export of logs (default: `true`)
+TRACEROOT_ENABLE_LOG_CLOUD_EXPORT=true
+
+# Enable console export of spans (default: `false`)
+TRACEROOT_ENABLE_SPAN_CONSOLE_EXPORT=false
+
+# Enable console export of logs (default: `true`)
+TRACEROOT_ENABLE_LOG_CONSOLE_EXPORT=true
+
+# The environment configuration such as development, staging, production
+TRACEROOT_ENVIRONMENT='development',
+
+# Store all telemetry data locally.
+TRACEROOT_LOCAL_MODE=false
+```
+
 Optionally, create an `TRACEROOT_CONFIG_PATH` and add it to your backend `.env` file, if this is needed due to webpack or other bundlers.
 ```bash .env
 export TRACEROOT_CONFIG_PATH=/path/to/your/traceroot.config.ts
-```
-
-Or you can use environment variables directly in the format of `TRACEROOT_<CONFIG_KEY>` such as
-```bash .env
-TRACEROOT_TOKEN=traceroot-430246
-TRACEROOT_SERVICE_NAME=ts-example
 ```
 
 ## Logger
@@ -151,46 +180,6 @@ All metadata passed to log methods is searchable on the TraceRoot platform:
 // These metadata fields will be searchable in TraceRoot:
 logger.info({ userId: 'user123', action: 'login' }, 'User logged in');
 logger.warn({ table: 'users', query: 'SELECT *', duration: 1500 }, 'Slow query detected');
-```
-
-### Log Levels
-
-TraceRoot supports standard log levels with configurable thresholds:
-
-```typescript
-// Configure log level in config.ts or init
-// or override log level for specific logger
-await traceroot.init({
-  service_name: 'my-app',
-  log_level: 'debug', // debug, info, warn, error, critical
-  // ... other config
-});
-
-const logger = traceroot.getLogger();
-logger.debug('Debug message');
-logger.info('Info message');
-logger.warn('Warning message');
-logger.error('Error message');
-
-// Override log level for specific logger
-const debugLogger = traceroot.getLogger('debug-logger', 'debug');
-```
-
-### Console Logging
-
-TraceRoot also supports console logging with a structured format:
-
-Example output:
-```bash
-2024-01-15 10:30:45,123 [INFO] [main-logger] Application started
-2024-01-15 10:30:45,124 [INFO] [auth-logger] User login started
-```
-
-Enable console logging in your configuration:
-```typescript
-...
-    enable_log_console_export: true,
-...
 ```
 
 ## Examples
