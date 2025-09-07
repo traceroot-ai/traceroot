@@ -1,19 +1,19 @@
-"use client";
+'use client';
 
-import { Button } from "./button";
-import { cn } from "../../lib/utils";
-import { Loader2Icon, SendIcon } from "lucide-react";
-import type { ComponentProps, HTMLAttributes } from "react";
-import React, { forwardRef, useRef, useEffect } from "react";
+import { Button } from './button';
+import { cn } from '../../lib/utils';
+import { Loader2Icon, SendIcon } from 'lucide-react';
+import type { ComponentProps, HTMLAttributes } from 'react';
+import React, { forwardRef, useRef, useEffect } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "./dropdown-menu";
+} from './dropdown-menu';
 
 // Status type for the submit button
-export type PromptInputStatus = "submitted" | "streaming" | "ready" | "error";
+export type PromptInputStatus = 'submitted' | 'streaming' | 'ready' | 'error';
 
 // Main form container
 export type PromptInputProps = HTMLAttributes<HTMLFormElement>;
@@ -23,14 +23,14 @@ export const PromptInput = forwardRef<HTMLFormElement, PromptInputProps>(
     <form
       ref={ref}
       className={cn(
-        "w-full divide-y rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-zinc-800 shadow-sm",
-        className,
+        'w-full divide-y rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-zinc-800 shadow-sm',
+        className
       )}
       {...props}
     />
-  ),
+  )
 );
-PromptInput.displayName = "PromptInput";
+PromptInput.displayName = 'PromptInput';
 
 // Auto-resizing textarea
 export interface PromptInputTextareaProps
@@ -53,12 +53,12 @@ export const PromptInputTextarea = forwardRef<
       onInput,
       ...props
     },
-    ref,
+    ref
   ) => {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const combinedRef = (node: HTMLTextAreaElement) => {
       textareaRef.current = node;
-      if (typeof ref === "function") {
+      if (typeof ref === 'function') {
         ref(node);
       } else if (ref) {
         ref.current = node;
@@ -69,7 +69,7 @@ export const PromptInputTextarea = forwardRef<
       if (!autoResize || !textareaRef.current) return;
 
       const textarea = textareaRef.current;
-      textarea.style.height = "auto";
+      textarea.style.height = 'auto';
 
       const lineHeight = parseInt(window.getComputedStyle(textarea).lineHeight);
       const minHeight = lineHeight * minRows;
@@ -77,16 +77,16 @@ export const PromptInputTextarea = forwardRef<
 
       const newHeight = Math.min(
         Math.max(textarea.scrollHeight, minHeight),
-        maxHeight,
+        maxHeight
       );
 
       textarea.style.height = `${newHeight}px`;
 
       // Show scrollbar only when content exceeds maxHeight
       if (textarea.scrollHeight > maxHeight) {
-        textarea.style.overflowY = "auto";
+        textarea.style.overflowY = 'auto';
       } else {
-        textarea.style.overflowY = "hidden";
+        textarea.style.overflowY = 'hidden';
       }
     };
 
@@ -94,26 +94,51 @@ export const PromptInputTextarea = forwardRef<
       adjustHeight();
     }, [props.value]);
 
+    let debounceTimer: NodeJS.Timeout;
+
     const handleInput: React.FormEventHandler<HTMLTextAreaElement> = (e) => {
       adjustHeight();
       onInput?.(e);
+
+      // clear previous timer
+      clearTimeout(debounceTimer);
+
+      // start a new 500ms debounce
+      debounceTimer = setTimeout(async () => {
+        const value = e.currentTarget.value;
+
+        try {
+          const res = await fetch('/api/fastapi-proxy', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ input: value }),
+          });
+
+          const data = await res.json();
+          console.log('API response:', data);
+        } catch (err) {
+          console.error('API error:', err);
+        }
+      }, 500);
     };
 
     return (
       <textarea
         ref={combinedRef}
         className={cn(
-          "w-full resize-none bg-white dark:bg-zinc-700 px-4 py-2 text-sm leading-relaxed placeholder:text-gray-400 dark:placeholder:text-gray-500 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-hidden border-0",
-          className,
+          'w-full resize-none bg-white dark:bg-zinc-700 px-4 py-2 text-sm leading-relaxed placeholder:text-gray-400 dark:placeholder:text-gray-500 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-hidden border-0',
+          className
         )}
         onInput={handleInput}
         rows={minRows}
         {...props}
       />
     );
-  },
+  }
 );
-PromptInputTextarea.displayName = "PromptInputTextarea";
+PromptInputTextarea.displayName = 'PromptInputTextarea';
 
 // Toolbar container
 export interface PromptInputToolbarProps
@@ -126,13 +151,13 @@ export const PromptInputToolbar = forwardRef<
   <div
     ref={ref}
     className={cn(
-      "flex items-center justify-between gap-2 px-4 py-3",
-      className,
+      'flex items-center justify-between gap-2 px-4 py-3',
+      className
     )}
     {...props}
   />
 ));
-PromptInputToolbar.displayName = "PromptInputToolbar";
+PromptInputToolbar.displayName = 'PromptInputToolbar';
 
 // Tools container (left side of toolbar)
 export interface PromptInputToolsProps extends HTMLAttributes<HTMLDivElement> {}
@@ -143,11 +168,11 @@ export const PromptInputTools = forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("flex items-center gap-3", className)}
+    className={cn('flex items-center gap-3', className)}
     {...props}
   />
 ));
-PromptInputTools.displayName = "PromptInputTools";
+PromptInputTools.displayName = 'PromptInputTools';
 
 // Generic button for tools
 export interface PromptInputButtonProps extends ComponentProps<typeof Button> {}
@@ -155,16 +180,16 @@ export interface PromptInputButtonProps extends ComponentProps<typeof Button> {}
 export const PromptInputButton = forwardRef<
   HTMLButtonElement,
   PromptInputButtonProps
->(({ className, variant = "ghost", size = "sm", ...props }, ref) => (
+>(({ className, variant = 'ghost', size = 'sm', ...props }, ref) => (
   <Button
     ref={ref}
     variant={variant}
     size={size}
-    className={cn("gap-2 bg-zinc-50 dark:bg-zinc-900", className)}
+    className={cn('gap-2 bg-zinc-50 dark:bg-zinc-900', className)}
     {...props}
   />
 ));
-PromptInputButton.displayName = "PromptInputButton";
+PromptInputButton.displayName = 'PromptInputButton';
 
 // Model Select Components
 export interface PromptInputModelSelectProps
@@ -181,7 +206,7 @@ export const PromptInputModelSelect = forwardRef<
     <div ref={ref}>{children}</div>
   </DropdownMenu>
 ));
-PromptInputModelSelect.displayName = "PromptInputModelSelect";
+PromptInputModelSelect.displayName = 'PromptInputModelSelect';
 
 export interface PromptInputModelSelectTriggerProps
   extends ComponentProps<typeof Button> {}
@@ -195,12 +220,12 @@ export const PromptInputModelSelectTrigger = forwardRef<
       ref={ref}
       variant="ghost"
       size="sm"
-      className={cn("gap-2 bg-zinc-50 dark:bg-zinc-900", className)}
+      className={cn('gap-2 bg-zinc-50 dark:bg-zinc-900', className)}
       {...props}
     />
   </DropdownMenuTrigger>
 ));
-PromptInputModelSelectTrigger.displayName = "PromptInputModelSelectTrigger";
+PromptInputModelSelectTrigger.displayName = 'PromptInputModelSelectTrigger';
 
 export interface PromptInputModelSelectValueProps
   extends HTMLAttributes<HTMLSpanElement> {}
@@ -209,11 +234,11 @@ export const PromptInputModelSelectValue = forwardRef<
   HTMLSpanElement,
   PromptInputModelSelectValueProps
 >(({ className, children, ...props }, ref) => (
-  <span ref={ref} className={cn("text-xs", className)} {...props}>
+  <span ref={ref} className={cn('text-xs', className)} {...props}>
     {children}
   </span>
 ));
-PromptInputModelSelectValue.displayName = "PromptInputModelSelectValue";
+PromptInputModelSelectValue.displayName = 'PromptInputModelSelectValue';
 
 export interface PromptInputModelSelectContentProps
   extends HTMLAttributes<HTMLDivElement> {}
@@ -230,10 +255,10 @@ export const PromptInputModelSelectContent = forwardRef<
     {...props}
   />
 ));
-PromptInputModelSelectContent.displayName = "PromptInputModelSelectContent";
+PromptInputModelSelectContent.displayName = 'PromptInputModelSelectContent';
 
 export interface PromptInputModelSelectItemProps
-  extends Omit<HTMLAttributes<HTMLDivElement>, "onSelect"> {
+  extends Omit<HTMLAttributes<HTMLDivElement>, 'onSelect'> {
   value: string;
   onSelect?: (value: string) => void;
 }
@@ -249,7 +274,7 @@ export const PromptInputModelSelectItem = forwardRef<
     {...props}
   />
 ));
-PromptInputModelSelectItem.displayName = "PromptInputModelSelectItem";
+PromptInputModelSelectItem.displayName = 'PromptInputModelSelectItem';
 
 // Submit button with status support
 export interface PromptInputSubmitProps extends ComponentProps<typeof Button> {
@@ -259,15 +284,15 @@ export interface PromptInputSubmitProps extends ComponentProps<typeof Button> {
 export const PromptInputSubmit = forwardRef<
   HTMLButtonElement,
   PromptInputSubmitProps
->(({ className, status = "ready", disabled, children, ...props }, ref) => {
-  const isLoading = status === "submitted" || status === "streaming";
+>(({ className, status = 'ready', disabled, children, ...props }, ref) => {
+  const isLoading = status === 'submitted' || status === 'streaming';
 
   return (
     <Button
       ref={ref}
       type="submit"
       size="icon"
-      className={cn("size-8 shrink-0", className)}
+      className={cn('size-8 shrink-0', className)}
       disabled={disabled || isLoading}
       {...props}
     >
@@ -281,4 +306,4 @@ export const PromptInputSubmit = forwardRef<
     </Button>
   );
 });
-PromptInputSubmit.displayName = "PromptInputSubmit";
+PromptInputSubmit.displayName = 'PromptInputSubmit';
