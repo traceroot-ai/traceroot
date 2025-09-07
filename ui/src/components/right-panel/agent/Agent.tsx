@@ -1,25 +1,25 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from 'react';
 import {
   DEFAULT_MODEL,
   type ChatModel,
   DEFAULT_PROVIDER,
   type Provider,
-} from "../../../constants/model";
+} from '../../../constants/model';
 import {
   ChatRequest,
   ChatResponse,
   MessageType,
   ChatHistoryResponse,
   Reference,
-} from "@/models/chat";
-import { useUser } from "@/hooks/useUser";
-import { generateUuidHex } from "@/utils/uuid";
-import { formatUTCAsLocal } from "@/utils/timezone";
-import TopBar, { TopBarRef } from "./TopBar";
-import MessageInput from "./MessageInput";
-import ChatMessage from "./ChatMessage";
+} from '@/models/chat';
+import { useUser } from '@/hooks/useUser';
+import { generateUuidHex } from '@/utils/uuid';
+import { formatUTCAsLocal } from '@/utils/timezone';
+import TopBar, { TopBarRef } from './TopBar';
+import MessageInput from './MessageInput';
+import ChatMessage from './ChatMessage';
 
-type Mode = "agent" | "chat";
+type Mode = 'agent' | 'chat';
 
 interface Message {
   id: string;
@@ -45,10 +45,10 @@ export default function Agent({
   queryEndTime,
 }: AgentProps) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [inputMessage, setInputMessage] = useState("");
+  const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState<ChatModel>(DEFAULT_MODEL);
-  const [selectedMode, setSelectedMode] = useState<Mode>("agent");
+  const [selectedMode, setSelectedMode] = useState<Mode>('agent');
   const [selectedProvider, setSelectedProvider] =
     useState<Provider>(DEFAULT_PROVIDER);
   const [chatId, setChatId] = useState<string | null>(null);
@@ -57,7 +57,7 @@ export default function Agent({
   const { getAuthState } = useUser();
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   useEffect(() => {
@@ -69,12 +69,28 @@ export default function Agent({
     handleNewChat();
   }, [traceId]);
 
+  // debounced API call
+  useEffect(() => {
+    if (!inputMessage) return;
+
+    const debounceTimer = setTimeout(async () => {
+      try {
+        console.log('Fetching suggestions for:', inputMessage);
+      } catch (err) {
+        console.error('API error:', err);
+      }
+    }, 500);
+
+    // cleanup so only last input triggers
+    return () => clearTimeout(debounceTimer);
+  }, [inputMessage]);
+
   const handleNewChat = () => {
     // Stop any ongoing loading/response generation
     setIsLoading(false);
     // Clear all messages and input
     setMessages([]);
-    setInputMessage("");
+    setInputMessage('');
     // Reset chat_id to null
     setChatId(null);
     // Note: We do not clear selected spans here as they should be managed
@@ -99,7 +115,7 @@ export default function Agent({
           headers: {
             Authorization: `Bearer ${getAuthState()}`,
           },
-        },
+        }
       );
 
       if (!response.ok) {
@@ -111,7 +127,7 @@ export default function Agent({
       if (chatHistoryResponse && chatHistoryResponse.history) {
         // Sort the chat history by timestamp (from small to large)
         const sortedHistory = [...chatHistoryResponse.history].sort(
-          (a, b) => a.time - b.time,
+          (a, b) => a.time - b.time
         );
 
         // Convert ChatHistoryResponse to Message format, maintaining chronological order
@@ -122,7 +138,7 @@ export default function Agent({
             role: historyItem.message_type,
             timestamp: formatUTCAsLocal(historyItem.time),
             references: historyItem.reference,
-          }),
+          })
         );
 
         // Set the messages in reverse order (most recent first) for display
@@ -134,7 +150,7 @@ export default function Agent({
         // Refresh TopBar metadata
         await topBarRef.current?.refreshMetadata();
       } else {
-        console.warn("No chat history found for chat ID:", chatId);
+        console.warn('No chat history found for chat ID:', chatId);
         // Still set the chat ID even if no history is found
         setChatId(chatId);
         setMessages([]);
@@ -143,7 +159,7 @@ export default function Agent({
         await topBarRef.current?.refreshMetadata();
       }
     } catch (error) {
-      console.error("Error loading chat history:", error);
+      console.error('Error loading chat history:', error);
       // Still set the chat ID and clear messages on error
       setChatId(chatId);
       setMessages([]);
@@ -170,12 +186,12 @@ export default function Agent({
     const userMessage: Message = {
       id: Date.now().toString(),
       content: inputMessage,
-      role: "user",
+      role: 'user',
       timestamp: new Date(), // Use Date object directly - no conversion needed for local timestamps
     };
     setMessages((prev) => [userMessage, ...prev]);
     const currentMessage = inputMessage;
-    setInputMessage("");
+    setInputMessage('');
     setIsLoading(true);
 
     // Function to fetch chat history and filter for GitHub messages
@@ -187,7 +203,7 @@ export default function Agent({
             headers: {
               Authorization: `Bearer ${getAuthState()}`,
             },
-          },
+          }
         );
 
         if (historyResponse.ok) {
@@ -197,12 +213,12 @@ export default function Agent({
           if (chatHistoryResponse && chatHistoryResponse.history) {
             // Sort the chat history by timestamp (from small to large)
             const sortedHistory = [...chatHistoryResponse.history].sort(
-              (a, b) => a.time - b.time,
+              (a, b) => a.time - b.time
             );
 
             // Convert ChatHistoryResponse to Message format, focusing on GitHub messages
             const historyMessages: Message[] = sortedHistory
-              .filter((historyItem) => historyItem.message_type === "github") // Only GitHub messages
+              .filter((historyItem) => historyItem.message_type === 'github') // Only GitHub messages
               .map((historyItem, index) => ({
                 id: `${currentChatId}-github-${historyItem.time}-${index}`,
                 content: historyItem.message,
@@ -220,8 +236,8 @@ export default function Agent({
 
               if (newGitHubMessages.length > 0) {
                 console.log(
-                  "Adding new GitHub messages:",
-                  newGitHubMessages.length,
+                  'Adding new GitHub messages:',
+                  newGitHubMessages.length
                 );
                 // Refresh TopBar metadata when new GitHub messages are added
                 topBarRef.current?.refreshMetadata();
@@ -232,7 +248,7 @@ export default function Agent({
           }
         }
       } catch (error) {
-        console.error("Error fetching GitHub messages during loading:", error);
+        console.error('Error fetching GitHub messages during loading:', error);
       }
     };
 
@@ -247,8 +263,8 @@ export default function Agent({
       const chatRequest: ChatRequest = {
         time: new Date().getTime(),
         message: currentMessage,
-        message_type: "user" as MessageType,
-        trace_id: traceId || "",
+        message_type: 'user' as MessageType,
+        trace_id: traceId || '',
         span_ids: spanIds || [],
         start_time: queryStartTime?.getTime() || new Date().getTime(),
         end_time: queryEndTime?.getTime() || new Date().getTime(),
@@ -258,10 +274,10 @@ export default function Agent({
         provider: selectedProvider,
       };
 
-      const response = await fetch("/api/chat", {
-        method: "POST",
+      const response = await fetch('/api/chat', {
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${getAuthState()}`,
         },
         body: JSON.stringify(chatRequest),
@@ -282,7 +298,7 @@ export default function Agent({
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
           content: chatResponse.data.message,
-          role: "assistant",
+          role: 'assistant',
           timestamp: formatUTCAsLocal(chatResponse.data.time),
           references: chatResponse.data.reference,
         };
@@ -292,16 +308,16 @@ export default function Agent({
         topBarRef.current?.refreshMetadata();
       } else {
         throw new Error(
-          chatResponse.error || "Failed to get response from chat API",
+          chatResponse.error || 'Failed to get response from chat API'
         );
       }
     } catch (error) {
-      console.error("Error processing message:", error);
+      console.error('Error processing message:', error);
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         content:
-          "Sorry, I encountered an error while processing your request. Please try again.",
-        role: "assistant",
+          'Sorry, I encountered an error while processing your request. Please try again.',
+        role: 'assistant',
         timestamp: new Date(),
       };
       setMessages((prev) => [errorMessage, ...prev]);
@@ -312,7 +328,7 @@ export default function Agent({
       // Clear the polling interval when loading is complete
       if (pollingInterval) {
         clearInterval(pollingInterval);
-        console.log("Stopped polling for GitHub messages");
+        console.log('Stopped polling for GitHub messages');
       }
       setIsLoading(false);
     }

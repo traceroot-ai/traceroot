@@ -99,29 +99,6 @@ export const PromptInputTextarea = forwardRef<
     const handleInput: React.FormEventHandler<HTMLTextAreaElement> = (e) => {
       adjustHeight();
       onInput?.(e);
-
-      // clear previous timer
-      clearTimeout(debounceTimer);
-
-      // start a new 500ms debounce
-      debounceTimer = setTimeout(async () => {
-        const value = e.currentTarget.value;
-
-        try {
-          const res = await fetch('/api/fastapi-proxy', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ input: value }),
-          });
-
-          const data = await res.json();
-          console.log('API response:', data);
-        } catch (err) {
-          console.error('API error:', err);
-        }
-      }, 500);
     };
 
     return (
