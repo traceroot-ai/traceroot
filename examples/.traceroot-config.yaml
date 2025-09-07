@@ -1,0 +1,6 @@
+# token: 'traceroot-5724dd0ee3574060b7d0f3730694f44*'
+local_mode: true
+service_name: 'example'
+github_owner: 'sidgaikwad'
+github_repo_name: 'traceroot-examples'
+github_commit_hash: 'main'
