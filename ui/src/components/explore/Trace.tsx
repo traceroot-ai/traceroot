@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { Trace as TraceType } from "@/models/trace";
 import Span from "./span/Span";
 import TimeButton, { TimeRange, TIME_RANGES } from "./TimeButton";
@@ -24,6 +24,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { CirclePlus, CircleMinus } from "lucide-react";
 
 interface TraceProps {
   onTraceSelect?: (traceId: string | null) => void;
@@ -106,6 +107,8 @@ export const Trace: React.FC<TraceProps> = ({
   const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
   const [searchCriteria, setSearchCriteria] = useState<SearchCriterion[]>([]);
   const [logSearchValue, setLogSearchValue] = useState<string>("");
+  const [isTraceExpanded, setIsTraceExpanded] = useState<boolean>(true);
+  const [expandedSpans, setExpandedSpans] = useState<Set<string>>(new Set());
   const timeRangeRef = useRef<{ start: Date; end: Date } | null>(null);
 
   const handleTimeRangeSelect = (range: TimeRange) => {
@@ -113,6 +116,8 @@ export const Trace: React.FC<TraceProps> = ({
     setSelectedTraceId(null);
     setSelectedSpanId(null);
     setSelectedSpanIds([]);
+    setIsTraceExpanded(true);
+    setExpandedSpans(new Set());
     onTraceSelect?.(null);
     onSpanSelect?.([]);
     setLoading(true);
@@ -126,6 +131,7 @@ export const Trace: React.FC<TraceProps> = ({
   const handleClearSearch = () => {
     setSearchCriteria([]);
     setLogSearchValue("");
+    setExpandedSpans(new Set());
     onLogSearchValueChange?.("");
     setLoading(true); // Trigger a new API call when search is cleared
   };
@@ -250,11 +256,41 @@ export const Trace: React.FC<TraceProps> = ({
     setSelectedTraceId(newSelectedTraceId);
     onTraceSelect?.(newSelectedTraceId);
 
+    // When selecting a new trace, default to expanded
+    if (newSelectedTraceId && newSelectedTraceId !== selectedTraceId) {
+      setIsTraceExpanded(true);
+    }
+
     // Always clear span selection when trace selection changes
     // This unifies behavior with right panel components
     setSelectedSpanId(null);
     setSelectedSpanIds([]);
     onSpanSelect?.([]);
+  };
+
+  const handleTraceExpandToggle = (
+    traceId: string,
+    event: React.MouseEvent,
+  ) => {
+    event.stopPropagation(); // Prevent trace selection
+    if (selectedTraceId === traceId) {
+      setIsTraceExpanded(!isTraceExpanded);
+    }
+  };
+
+  const handleSpanExpandToggle = (spanId: string, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent span selection
+    setExpandedSpans((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(spanId)) {
+        // If span is in the set (collapsed), remove it (expand it)
+        newSet.delete(spanId);
+      } else {
+        // If span is not in the set (expanded), add it (collapse it)
+        newSet.add(spanId);
+      }
+      return newSet;
+    });
   };
 
   const handleSpanSelect = (spanId: string, childSpanIds: string[]) => {
@@ -272,6 +308,8 @@ export const Trace: React.FC<TraceProps> = ({
     setSelectedTraceId(null);
     setSelectedSpanId(null);
     setSelectedSpanIds([]);
+    setIsTraceExpanded(true);
+    setExpandedSpans(new Set());
     onTraceSelect?.(null);
     onSpanSelect?.([]);
     setLoading(true);
@@ -299,6 +337,36 @@ export const Trace: React.FC<TraceProps> = ({
       }
     }
   }, [externalSelectedSpanIds, selectedSpanIds]);
+
+  // Clean up expand state when traces change
+  useEffect(() => {
+    if (traces.length > 0) {
+      // Collect all valid span IDs from current traces
+      const allValidSpanIds = new Set<string>();
+      traces.forEach((trace) => {
+        const collectSpanIds = (span: any) => {
+          allValidSpanIds.add(span.id);
+          if (span.spans) {
+            span.spans.forEach(collectSpanIds);
+          }
+        };
+        if (trace.spans) {
+          trace.spans.forEach(collectSpanIds);
+        }
+      });
+
+      // Remove any collapsed span IDs that no longer exist
+      setExpandedSpans((prev) => {
+        const newSet = new Set<string>();
+        prev.forEach((spanId) => {
+          if (allValidSpanIds.has(spanId)) {
+            newSet.add(spanId);
+          }
+        });
+        return newSet;
+      });
+    }
+  }, [traces]);
 
   return (
     <>
@@ -368,11 +436,11 @@ export const Trace: React.FC<TraceProps> = ({
                       tabIndex={0}
                     >
                       <div className="flex justify-between items-center h-full">
-                        <div className="flex items-center text-sm">
+                        <div className="flex items-center text-sm min-w-0 flex-1 pr-4">
                           {/* Telemetry SDK Language Icons */}
                           {trace.telemetry_sdk_language &&
                             trace.telemetry_sdk_language.length > 0 && (
-                              <>
+                              <div className="flex items-center flex-shrink-0">
                                 {/* Python Icon - show when telemetry_sdk_language includes "python" */}
                                 {trace.telemetry_sdk_language.includes(
                                   "python",
@@ -402,95 +470,126 @@ export const Trace: React.FC<TraceProps> = ({
                                     size={14}
                                   />
                                 )}
-                              </>
+                              </div>
                             )}
 
-                          {/* Tags */}
-                          {(trace.service_name || "Unknown Service").length >
-                          25 ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Badge
-                                  variant="default"
-                                  className="min-w-16 h-6 mr-2 justify-center font-mono font-normal max-w-32 whitespace-nowrap overflow-hidden text-ellipsis"
-                                >
-                                  {(
-                                    trace.service_name || "Unknown Service"
-                                  ).slice(0, 10) + "..."}
-                                </Badge>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>{trace.service_name || "Unknown Service"}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          ) : (
-                            <Badge
-                              variant="default"
-                              className="min-w-16 h-6 mr-2 justify-center font-mono font-normal max-w-32 whitespace-nowrap overflow-hidden text-ellipsis"
-                            >
-                              {trace.service_name || "Trace"}
-                            </Badge>
-                          )}
+                          {/* Service Name Badge */}
+                          {(() => {
+                            const fullServiceName =
+                              trace.service_name || "Unknown Service";
+                            const shouldShowTooltip =
+                              fullServiceName.length > 25;
+
+                            const badge = (
+                              <Badge
+                                variant="default"
+                                className="min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left"
+                                title={
+                                  shouldShowTooltip
+                                    ? fullServiceName
+                                    : undefined
+                                }
+                              >
+                                {fullServiceName}
+                              </Badge>
+                            );
+
+                            return shouldShowTooltip ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>{badge}</TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{fullServiceName}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              badge
+                            );
+                          })()}
 
                           {/* Environment */}
                           <Badge
                             variant="outline"
-                            className="h-6 mr-2 justify-center font-mono font-normal"
+                            className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
                           >
                             {trace.service_environment || "Unknown Environment"}
                           </Badge>
 
-                          {/* Error icon for error/critical logs */}
-                          {((trace.num_error_logs ?? 0) > 0 ||
-                            (trace.num_critical_logs ?? 0) > 0) && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Badge
-                                  variant="destructive"
-                                  className="h-6 mr-1 px-1 font-light"
-                                >
-                                  <MdErrorOutline
-                                    size={16}
-                                    className="text-white"
-                                  />
-                                </Badge>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>{`${trace.num_error_logs ?? 0} error logs, ${trace.num_critical_logs ?? 0} critical logs`}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
+                          {/* Warning and Error Badges Container */}
+                          <div className="flex items-center flex-shrink-0">
+                            {/* Error icon for error/critical logs */}
+                            {((trace.num_error_logs ?? 0) > 0 ||
+                              (trace.num_critical_logs ?? 0) > 0) && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    variant="destructive"
+                                    className="h-6 mr-1 px-1 font-light"
+                                  >
+                                    <MdErrorOutline
+                                      size={16}
+                                      className="text-white"
+                                    />
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{`${trace.num_error_logs ?? 0} error logs, ${trace.num_critical_logs ?? 0} critical logs`}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
 
-                          {/* Warning icon for error/critical logs */}
-                          {(trace.num_warning_logs ?? 0) > 0 && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Badge
-                                  variant="secondary"
-                                  className="h-6 m-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-light"
-                                >
-                                  <IoWarningOutline
-                                    size={16}
-                                    className="text-white"
-                                  />
-                                </Badge>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>{`${trace.num_warning_logs ?? 0} warning logs`}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
+                            {/* Warning icon for error/critical logs */}
+                            {(trace.num_warning_logs ?? 0) > 0 && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    variant="secondary"
+                                    className="h-6 m-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-light"
+                                  >
+                                    <IoWarningOutline
+                                      size={16}
+                                      className="text-white"
+                                    />
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{`${trace.num_warning_logs ?? 0} warning logs`}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
                         </div>
 
-                        {/* Start time */}
-                        <span className="text-xs text-neutral-600 dark:text-neutral-300 flex-shrink-0 ml-4 whitespace-nowrap">
-                          {formatDateTime(trace.start_time)}
-                        </span>
+                        {/* Start time and Expand/Collapse icon */}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-xs text-neutral-600 dark:text-neutral-300 flex-shrink-0 whitespace-nowrap">
+                            {formatDateTime(trace.start_time)}
+                          </span>
+                          {selectedTraceId === trace.id && (
+                            <button
+                              onClick={(e) =>
+                                handleTraceExpandToggle(trace.id, e)
+                              }
+                              className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
+                            >
+                              {isTraceExpanded ? (
+                                <CircleMinus
+                                  size={14}
+                                  className="text-neutral-600 dark:text-neutral-300"
+                                />
+                              ) : (
+                                <CirclePlus
+                                  size={14}
+                                  className="text-neutral-600 dark:text-neutral-300"
+                                />
+                              )}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    {/* Spans Container - Only rendered when trace is selected */}
-                    {selectedTraceId === trace.id && (
+                    {/* Spans Container - Only rendered when trace is selected AND expanded */}
+                    {selectedTraceId === trace.id && isTraceExpanded && (
                       <div
                         className="relative pb-1 pt-1.5"
                         style={{ zIndex: 1 }}
@@ -524,6 +623,8 @@ export const Trace: React.FC<TraceProps> = ({
                                 selectedSpanId={selectedSpanId}
                                 selectedSpanIds={selectedSpanIds}
                                 onSpanSelect={handleSpanSelect}
+                                expandedSpans={expandedSpans}
+                                onSpanExpandToggle={handleSpanExpandToggle}
                               />
                             ))}
                           </div>
