@@ -588,7 +588,7 @@ export default function LogDetail({
                           <span className="text-gray-400 dark:text-gray-500 font-mono">
                             {entry.file_name}:{entry.line_number}
                           </span>
-                          <span className="text-neutral-600 dark:text-neutral-300 italic">
+                          <span className="text-neutral-600 dark:text-neutral-300 italic break-all">
                             {entry.function_name}
                           </span>
                           {githubLink && (

@@ -282,7 +282,7 @@ const renderMarkdown = (
                   {reference.span_function_name && (
                     <div>
                       <span className="font-semibold text-sm">Function:</span>{" "}
-                      <span className="text-sm">
+                      <span className="text-sm break-all">
                         {reference.span_function_name}
                       </span>
                     </div>
@@ -493,7 +493,9 @@ export default function ChatMessage({
           } mb-4 items-start gap-2`}
         >
           {/* Avatar for assistant, github, and statistics */}
-          {(message.role === "assistant" || message.role === "github" || message.role === "statistics") && (
+          {(message.role === "assistant" ||
+            message.role === "github" ||
+            message.role === "statistics") && (
             <div
               className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-zinc-600 dark:bg-zinc-200 border border-zinc-600 dark:border-zinc-200`}
             >
