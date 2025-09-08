@@ -2,6 +2,7 @@ import React from "react";
 import { RiRobot2Line } from "react-icons/ri";
 import { GoCopy } from "react-icons/go";
 import { FaGithub } from "react-icons/fa";
+import { ChartColumn } from "lucide-react";
 import { useUser } from "../../../hooks/useUser";
 import { Reference } from "../../../models/chat";
 import { Spinner } from "../../ui/shadcn-io/spinner";
@@ -14,7 +15,7 @@ import {
 interface Message {
   id: string;
   content: string;
-  role: "user" | "assistant" | "github";
+  role: "user" | "assistant" | "github" | "statistics";
   timestamp: Date | string; // Allow both Date and string for formatted timestamps
   references?: Reference[];
 }
@@ -491,13 +492,15 @@ export default function ChatMessage({
             message.role === "user" ? "justify-end" : "justify-start"
           } mb-4 items-start gap-2`}
         >
-          {/* Avatar for assistant and github */}
-          {(message.role === "assistant" || message.role === "github") && (
+          {/* Avatar for assistant, github, and statistics */}
+          {(message.role === "assistant" || message.role === "github" || message.role === "statistics") && (
             <div
               className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-zinc-600 dark:bg-zinc-200 border border-zinc-600 dark:border-zinc-200`}
             >
               {message.role === "github" ? (
                 <FaGithub className="w-5 h-5 text-white dark:text-zinc-600" />
+              ) : message.role === "statistics" ? (
+                <ChartColumn className="w-5 h-5 text-white dark:text-zinc-600" />
               ) : (
                 <RiRobot2Line className="w-5 h-5 text-white dark:text-zinc-600" />
               )}
@@ -511,7 +514,9 @@ export default function ChatMessage({
                 ? "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
                 : message.role === "github"
                   ? "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
-                  : "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
+                  : message.role === "statistics"
+                    ? "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
+                    : "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
             }`}
           >
             <div className="whitespace-pre-wrap break-words text-sm">
