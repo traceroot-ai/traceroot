@@ -71,6 +71,7 @@ export default function MessageInput({
 }: MessageInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const status: PromptInputStatus = isLoading ? 'streaming' : 'ready';
+  const hasTraceOrSpans = !!(traceId || (spanIds && spanIds.length > 0));
 
   useEffect(() => {
     if (!isLoading && inputRef.current) {
@@ -171,9 +172,13 @@ export default function MessageInput({
               }
             }}
             placeholder={
-              isLoading ? 'Agent is thinking...' : 'Type your message...'
+              isLoading
+                ? 'Agent is thinking...'
+                : hasTraceOrSpans
+                  ? 'Type your message...'
+                  : 'Select a trace to start chatting'
             }
-            disabled={isLoading}
+            disabled={isLoading || !hasTraceOrSpans}
             minRows={1}
             maxRows={5}
             estimatedTokens={estimatedTokens}
@@ -226,7 +231,7 @@ export default function MessageInput({
 
             <PromptInputSubmit
               status={status}
-              disabled={!inputMessage.trim()}
+              disabled={!inputMessage.trim() || !hasTraceOrSpans}
               className="bg-neutral-700 dark:bg-neutral-300 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-800"
             >
               {!isLoading && <Send className="w-4 h-4" />}
