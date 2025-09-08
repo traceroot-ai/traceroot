@@ -216,15 +216,6 @@ class Agent:
                     "status": ActionStatus.PENDING.value,
                 }
             )
-        print("all_messages:", all_messages)
-        for i, msg_list in enumerate(all_messages):
-            print(f"\n=== Chunk {i} ===")
-            print(f"Total messages: {len(msg_list)}")
-            for j, m in enumerate(msg_list):
-                print(
-                    f"{j+1}. role={m['role']} | content="
-                    f"{m['content'][:80]}{'...' if len(m['content']) > 80 else ''}"
-                )
         # TODO: support multiple chunks
         responses = await asyncio.gather(
             *[
