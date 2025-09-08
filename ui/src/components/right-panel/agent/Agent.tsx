@@ -106,8 +106,16 @@ export default function Agent({
         setChatTabs([defaultTab]);
         setActiveChatId(null);
       } else {
-        // Create new chat when a trace is selected
-        handleNewChat();
+        // Reset all chat tabs and create a single new chat when a trace is selected
+        const newTab: ChatTab = {
+          chatId: null,
+          title: "New Chat",
+          messages: [],
+        };
+        setChatTabs([newTab]);
+        setActiveChatId(null);
+        setInputMessage("");
+        setIsLoading(false);
       }
     }
   }, [traceId, isInitialized]);
@@ -347,8 +355,8 @@ export default function Agent({
     setInputMessage("");
     setIsLoading(true);
 
-    // Function to fetch chat history and filter for GitHub messages
-    const fetchGitHubMessages = async () => {
+    // Function to fetch chat history and filter for GitHub and statistics messages
+    const fetchSpecialMessages = async () => {
       try {
         const historyResponse = await fetch(
           `/api/get_chat_history?chat_id=${encodeURIComponent(currentChatId!)}`,
@@ -369,15 +377,15 @@ export default function Agent({
               (a, b) => a.time - b.time,
             );
 
-            // Convert ChatHistoryResponse to Message format, focusing on GitHub messages
+            // Convert ChatHistoryResponse to Message format, focusing on GitHub and statistics messages
             const historyMessages: Message[] = sortedHistory
-              .filter((historyItem) => historyItem.message_type === "github") // Only GitHub messages
+              .filter((historyItem) => historyItem.message_type === "github" || historyItem.message_type === "statistics") // GitHub and statistics messages
               .map((historyItem, index) => {
                 const rawTime = historyItem.time;
                 // API returns timestamp in milliseconds, use directly
                 const dateObj = new Date(rawTime);
                 return {
-                  id: `${currentChatId}-github-${historyItem.time}-${index}`,
+                  id: `${currentChatId}-${historyItem.message_type}-${historyItem.time}-${index}`,
                   content: historyItem.message,
                   role: historyItem.message_type,
                   timestamp: dateObj, // Store as Date object
@@ -396,15 +404,15 @@ export default function Agent({
               const existingMessageIds = new Set(
                 currentMessages.map((msg) => msg.id),
               );
-              const newGitHubMessages = historyMessages.filter(
+              const newSpecialMessages = historyMessages.filter(
                 (msg) => !existingMessageIds.has(msg.id),
               );
 
-              if (newGitHubMessages.length > 0) {
-                // Refresh TopBar metadata when new GitHub messages are added
+              if (newSpecialMessages.length > 0) {
+                // Refresh TopBar metadata when new special messages are added
                 topBarRef.current?.refreshMetadata();
 
-                const allMessages = [...currentMessages, ...newGitHubMessages];
+                const allMessages = [...currentMessages, ...newSpecialMessages];
 
                 // Sort by timestamp
                 const sortedMessages = allMessages.sort((a, b) => {
@@ -431,16 +439,16 @@ export default function Agent({
           }
         }
       } catch (error) {
-        console.error("Error fetching GitHub messages during loading:", error);
+        console.error("Error fetching special messages during loading:", error);
       }
     };
 
-    // Set up polling for GitHub messages every second while loading
+    // Set up polling for special messages every second while loading
     let pollingInterval: NodeJS.Timeout | null = null;
 
     try {
-      // Start polling for GitHub messages every second
-      pollingInterval = setInterval(fetchGitHubMessages, 1000);
+      // Start polling for special messages every second
+      pollingInterval = setInterval(fetchSpecialMessages, 1000);
 
       // Create chat request using Chat.ts models
       const chatRequest: ChatRequest = {

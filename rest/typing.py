@@ -35,6 +35,7 @@ class MessageType(str, Enum):
     ASSISTANT = "assistant"
     USER = "user"
     GITHUB = "github"
+    STATISTICS = "statistics"
 
 
 class ChatModel(str, Enum):
@@ -82,6 +83,7 @@ class ActionType(str, Enum):
     GITHUB_CREATE_ISSUE = "github_create_issue"
     GITHUB_CREATE_PR = "github_create_pr"
     AGENT_CHAT = "agent_chat"
+    STATISTICS = "statistics"
 
 
 class ActionStatus(str, Enum):
