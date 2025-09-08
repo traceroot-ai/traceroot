@@ -4,15 +4,16 @@ from rest.typing import ChatModel
 from rest.utils.token_tracking import track_tokens_for_user
 
 TITLE_PROMPT = (
-    "You are a helpful assistant that can summarize the title of the "
-    "chat. You are given user's question and please summarize the "
-    "title of the chat based on the question. Please keep in mind "
-    "this chat may relate to the debugging purpose based on the "
-    "logs, traces, metrics and source code. Keep your summary concise "
-    "and to the point. Please limit the summary to at most 15 words. "
-    "Notice that please don't add words like 'Title: ' etc to the "
-    "final title. The final title is just the title. Also please "
-    "don't include any punctuations."
+    "You are a helpful assistant that generates a title for a "
+    "chat. You are given user's query and summarize the title of "
+    "the chat based on the query. Please keep in mind this chat may "
+    "relate to the debugging purpose based on the logs, traces, metrics "
+    "and source code. Keep your summary concise and to the point. "
+    "Please limit the summary to at most 18 words with following rules:\n"
+    "1. Don't include any words like 'Title: ' etc in the title.\n"
+    "2. Don't include any punctuations.\n"
+    "3. Use the same language as the query.\n"
+    "4. For English, follow the title capitalization rules to capitalize the title."
 )
 
 
