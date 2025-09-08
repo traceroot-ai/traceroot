@@ -379,7 +379,11 @@ export default function Agent({
 
             // Convert ChatHistoryResponse to Message format, focusing on GitHub and statistics messages
             const historyMessages: Message[] = sortedHistory
-              .filter((historyItem) => historyItem.message_type === "github" || historyItem.message_type === "statistics") // GitHub and statistics messages
+              .filter(
+                (historyItem) =>
+                  historyItem.message_type === "github" ||
+                  historyItem.message_type === "statistics",
+              ) // GitHub and statistics messages
               .map((historyItem, index) => {
                 const rawTime = historyItem.time;
                 // API returns timestamp in milliseconds, use directly
