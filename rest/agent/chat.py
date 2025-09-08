@@ -104,6 +104,22 @@ class Chat:
 
         context = f"{json.dumps(tree, indent=4)}"
 
+        # Compute estimated tokens for context and insert statistics record
+        estimated_tokens = len(context) * 4
+        await db_client.insert_chat_record(
+            message={
+                "chat_id": chat_id,
+                "timestamp": datetime.now().astimezone(timezone.utc),
+                "role": "statistics",
+                "content":
+                f"Number of estimated tokens for TraceRoot context: {estimated_tokens}",
+                "trace_id": trace_id,
+                "chunk_id": 0,
+                "action_type": ActionType.STATISTICS.value,
+                "status": ActionStatus.SUCCESS.value,
+            }
+        )
+
         context_chunks = self.get_context_messages(context)
         context_messages = [
             deepcopy(context_chunks[i]) for i in range(len(context_chunks))
@@ -114,8 +130,11 @@ class Chat:
                 f"{user_message}"
             )
         messages = [{"role": "system", "content": self.system_prompt}]
-        # Remove github messages from chat history
-        chat_history = [chat for chat in chat_history if chat["role"] != "github"]
+        # Remove github and statistics messages from chat history
+        chat_history = [
+            chat for chat in chat_history
+            if chat["role"] != "github" and chat["role"] != "statistics"
+        ]
         if chat_history is not None:
             # Only append the last 10 chat history records
             for record in chat_history[-10:]:
