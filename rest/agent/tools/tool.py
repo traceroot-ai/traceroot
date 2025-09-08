@@ -17,8 +17,7 @@ class Tool(ABC):
         self.values = {}
 
     def get_name(self) -> str:
-        """
-            get tool name
+        r"""Get tool name
         """
         return self.name
 
@@ -31,4 +30,6 @@ class Tool(ABC):
         pass
 
     def get_description(self):
+        r"""Get tool description
+        """
         return self.description

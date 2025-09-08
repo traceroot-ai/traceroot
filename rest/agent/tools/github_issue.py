@@ -11,9 +11,7 @@ class CreateGitIssue(Tool):
 
         self.name = "CreateGitIssue"
 
-        self.description = """
-            This tool helps you to create a github issue.
-        """
+        self.description = "This tool helps you to create a github issue."
         self.github_token = kwargs.get("github_token", None)
 
         if not self.github_token:
@@ -42,6 +40,7 @@ class CreateGitIssue(Tool):
         return {"content": content, "action_type": action_type}
 
     def get_parameters(self) -> dict[str, Any]:
+        # TODO: Make this more generic
         self.parameters["body"] = {"type": str, "description": "The body of the issue."}
 
         self.parameters["title"] = {"type": str, "description": "The title of the issue."}
@@ -57,9 +56,6 @@ class CreateGitIssue(Tool):
         }
 
         # this is design for later support of different model
-        # as diffeerent model handle tools in a different
+        # as different model handle tools in a different
         # manner
         return self.parameters
-
-
-# create issue function shall place here ?
