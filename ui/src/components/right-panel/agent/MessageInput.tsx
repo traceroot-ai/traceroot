@@ -1,13 +1,13 @@
-import React, { useRef, useEffect } from "react";
-import { Send } from "lucide-react";
-import { CiChat2 } from "react-icons/ci";
-import { GiBrain } from "react-icons/gi";
-import { RiRobot2Line } from "react-icons/ri";
-import { MdCloudQueue } from "react-icons/md";
+import React, { useRef, useEffect } from 'react';
+import { Send } from 'lucide-react';
+import { CiChat2 } from 'react-icons/ci';
+import { GiBrain } from 'react-icons/gi';
+import { RiRobot2Line } from 'react-icons/ri';
+import { MdCloudQueue } from 'react-icons/md';
 import {
   Navbar13,
   type Navbar13Option,
-} from "@/components/ui/shadcn-io/navbar-13";
+} from '@/components/ui/shadcn-io/navbar-13';
 import {
   CHAT_MODEL_DISPLAY_NAMES,
   type ChatModel,
@@ -17,8 +17,8 @@ import {
   DEFAULT_PROVIDER,
   getModelsByProvider,
   getDefaultModelForProvider,
-} from "../../../constants/model";
-import { Badge } from "../../ui/badge";
+} from '../../../constants/model';
+import { Badge } from '../../ui/badge';
 import {
   PromptInput,
   PromptInputTextarea,
@@ -27,16 +27,16 @@ import {
   PromptInputButton,
   PromptInputSubmit,
   type PromptInputStatus,
-} from "../../ui/prompt-input";
+} from '../../ui/prompt-input';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
-} from "../../ui/dropdown-menu";
+} from '../../ui/dropdown-menu';
 
-type Mode = "agent" | "chat";
+type Mode = 'agent' | 'chat';
 
 interface MessageInputProps {
   inputMessage: string;
@@ -51,6 +51,7 @@ interface MessageInputProps {
   setSelectedProvider?: (provider: Provider) => void;
   traceId?: string;
   spanIds?: string[];
+  estimatedTokens?: number;
 }
 
 export default function MessageInput({
@@ -66,17 +67,16 @@ export default function MessageInput({
   setSelectedProvider,
   traceId,
   spanIds = [],
+  estimatedTokens,
 }: MessageInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const status: PromptInputStatus = isLoading ? "streaming" : "ready";
+  const status: PromptInputStatus = isLoading ? 'streaming' : 'ready';
 
   useEffect(() => {
     if (!isLoading && inputRef.current) {
       inputRef.current.focus();
     }
   }, [isLoading]);
-
-
 
   const handleProviderSelect = (provider: string) => {
     const newProvider = provider as Provider;
@@ -94,15 +94,15 @@ export default function MessageInput({
   // Define mode options for Navbar13
   const modeOptions: Navbar13Option<Mode>[] = [
     {
-      value: "agent",
-      name: "Agent",
-      description: "Advanced functionalities such as GitHub",
+      value: 'agent',
+      name: 'Agent',
+      description: 'Advanced functionalities such as GitHub',
       icon: RiRobot2Line,
     },
     {
-      value: "chat",
-      name: "Chat",
-      description: "Fast summarization and root cause analysis",
+      value: 'chat',
+      name: 'Chat',
+      description: 'Fast summarization and root cause analysis',
       icon: CiChat2,
     },
   ];
@@ -110,27 +110,29 @@ export default function MessageInput({
   // Define model options for Navbar13
   const getModelDescription = (model: ChatModel): string => {
     switch (model) {
-      case "gpt-5":
-        return "Best performance but slow";
-      case "gpt-4o":
-        return "Fast with reasonable performance";
-      case "gpt-4.1":
-        return "Better performance than GPT-4o";
-      case "auto":
-        return "Balance performance and cost";
-      case "openai/gpt-oss-120b":
-        return "Best open source reasoning model";
+      case 'gpt-5':
+        return 'Best performance but slow';
+      case 'gpt-4o':
+        return 'Fast with reasonable performance';
+      case 'gpt-4.1':
+        return 'Better performance than GPT-4o';
+      case 'auto':
+        return 'Balance performance and cost';
+      case 'openai/gpt-oss-120b':
+        return 'Best open source reasoning model';
       default:
-        return "";
+        return '';
     }
   };
 
-  const modelOptions: Navbar13Option<ChatModel>[] = availableModels.map((model) => ({
-    value: model,
-    name: CHAT_MODEL_DISPLAY_NAMES[model],
-    description: getModelDescription(model),
-    icon: GiBrain,
-  }));
+  const modelOptions: Navbar13Option<ChatModel>[] = availableModels.map(
+    (model) => ({
+      value: model,
+      name: CHAT_MODEL_DISPLAY_NAMES[model],
+      description: getModelDescription(model),
+      icon: GiBrain,
+    })
+  );
 
   return (
     <div className="border border-zinc-300 rounded-lg dark:border-zinc-700 bg-white dark:bg-zinc-800 mx-4 mb-2">
@@ -147,7 +149,9 @@ export default function MessageInput({
             </Badge>
           )}
           {!traceId && (!spanIds || spanIds.length === 0) && (
-            <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono ml-0">No trace or spans selected</span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono ml-0">
+              No trace or spans selected
+            </span>
           )}
         </div>
         <PromptInput
@@ -159,7 +163,7 @@ export default function MessageInput({
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 if (!isLoading && inputMessage.trim()) {
                   onSendMessage(e as any);
@@ -167,11 +171,12 @@ export default function MessageInput({
               }
             }}
             placeholder={
-              isLoading ? "Agent is thinking..." : "Type your message..."
+              isLoading ? 'Agent is thinking...' : 'Type your message...'
             }
             disabled={isLoading}
             minRows={1}
             maxRows={5}
+            estimatedTokens={estimatedTokens}
             className="rounded-md border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 focus:ring-1 focus:ring-neutral-500 focus:border-neutral-500 transition-all duration-200"
           />
           <PromptInputToolbar className="border-t-0 pt-1 pb-0 px-0">

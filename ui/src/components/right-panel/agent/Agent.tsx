@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   DEFAULT_MODEL,
   type ChatModel,
@@ -45,6 +45,7 @@ export default function Agent({
   queryEndTime,
 }: AgentProps) {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [estimatedTokens, setEstimatedTokens] = useState(0);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState<ChatModel>(DEFAULT_MODEL);
@@ -69,21 +70,94 @@ export default function Agent({
     handleNewChat();
   }, [traceId]);
 
-  // debounced API call
+  function normalizeMessages(
+    messages: Message[],
+    inputMessage: string
+  ): { role: string; content: string }[] {
+    const systemMessage = {
+      role: 'system',
+      content: `You are a helpful TraceRoot.AI assistant that is the best assistant for debugging with logs, traces, metrics and source code. You will be provided with a tree of spans where each span has span related information and maybe logs (and maybe the source code and context for the logs) logged within the span.
+
+Please answer user's question based on the given data. Keep your answer concise and to the point. You also need to follow following rules:
+1. Please remember you are a TraceRoot AI agent. You are not allowed to hallucinate or make up information.
+2. If you are very unsure about the answer, you should answer that you don't know.
+3. Please provide insightful answer other than just simply returning the information directly.
+4. Be more like a real and very helpful person.
+5. If there is any reference to the answer, ALWAYS directly write the reference such as [1], [2], [3] etc. at the end of the line of the corresponding answer to indicate the reference.
+6. If there is any reference, please make sure at least and at most either of log, trace (span) and source code is provided in the reference.
+7. Please include all reference for each answer. If each answer has a reference, please MAKE SURE you also include the reference in the reference list.
+
+8. If user wants to create a GitHub PR or issue, say that you cannot do that and suggest them to use https://traceroot.ai production service instead.`,
+    };
+
+    const sorted = [...messages].sort(
+      (a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    const spanTree: Record<string, any> = {};
+    sorted.forEach((msg) => {
+      if (msg.references?.length) {
+        msg.references.forEach((ref, i) => {
+          spanTree[ref.span_id] = {
+            span_id: ref.span_id,
+            func_full_name: ref.span_function_name,
+            [`log_${i}`]: {
+              'log message value': ref.log_message,
+              'line number': ref.line_number,
+            },
+          };
+        });
+      }
+    });
+
+    const normalized = sorted.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+
+    if (inputMessage) {
+      let userContent = inputMessage;
+      if (Object.keys(spanTree).length > 0) {
+        userContent =
+          `Here is the structure of the tree with related information:\n` +
+          JSON.stringify(spanTree, null, 2) +
+          `\n\n${inputMessage}`;
+      }
+      normalized.push({ role: 'user', content: userContent });
+    }
+
+    return [systemMessage, ...normalized];
+  }
+
+  const normalizedMessages = useMemo(
+    () => normalizeMessages(messages, inputMessage),
+    [messages, inputMessage]
+  );
+
+  // --- Estimate tokens ---
+  function estimateTokens(messages: { role: string; content: string }[]) {
+    let charCount = 0;
+    const extraPerMessage = 5;
+    messages.forEach(
+      (msg) => (charCount += msg.content.length + extraPerMessage)
+    );
+    const naiveTokens = Math.ceil(charCount / 4);
+    const adjustedTokens = naiveTokens * 2;
+    return adjustedTokens;
+  }
+
+  // --- Debounced token estimation ---
   useEffect(() => {
     if (!inputMessage) return;
 
-    const debounceTimer = setTimeout(async () => {
-      try {
-        console.log('Fetching suggestions for:', inputMessage);
-      } catch (err) {
-        console.error('API error:', err);
-      }
+    const timer = setTimeout(() => {
+      if (!inputMessage.trim() || isLoading) return;
+      setEstimatedTokens(estimateTokens(normalizedMessages));
     }, 500);
 
-    // cleanup so only last input triggers
-    return () => clearTimeout(debounceTimer);
-  }, [inputMessage]);
+    return () => clearTimeout(timer);
+  }, [inputMessage, isLoading, normalizedMessages]);
 
   const handleNewChat = () => {
     // Stop any ongoing loading/response generation
@@ -367,6 +441,7 @@ export default function Agent({
         setSelectedProvider={setSelectedProvider}
         traceId={traceId}
         spanIds={spanIds}
+        estimatedTokens={estimatedTokens}
       />
     </div>
   );

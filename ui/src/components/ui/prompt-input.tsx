@@ -38,6 +38,7 @@ export interface PromptInputTextareaProps
   autoResize?: boolean;
   minRows?: number;
   maxRows?: number;
+  estimatedTokens?: number;
 }
 
 export const PromptInputTextarea = forwardRef<
@@ -50,6 +51,7 @@ export const PromptInputTextarea = forwardRef<
       autoResize = true,
       minRows = 1,
       maxRows = 5,
+      estimatedTokens,
       onInput,
       ...props
     },
@@ -82,19 +84,13 @@ export const PromptInputTextarea = forwardRef<
 
       textarea.style.height = `${newHeight}px`;
 
-      // Show scrollbar only when content exceeds maxHeight
-      if (textarea.scrollHeight > maxHeight) {
-        textarea.style.overflowY = 'auto';
-      } else {
-        textarea.style.overflowY = 'hidden';
-      }
+      textarea.style.overflowY =
+        textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
     };
 
     useEffect(() => {
       adjustHeight();
     }, [props.value]);
-
-    let debounceTimer: NodeJS.Timeout;
 
     const handleInput: React.FormEventHandler<HTMLTextAreaElement> = (e) => {
       adjustHeight();
@@ -102,16 +98,23 @@ export const PromptInputTextarea = forwardRef<
     };
 
     return (
-      <textarea
-        ref={combinedRef}
-        className={cn(
-          'w-full resize-none bg-white dark:bg-zinc-700 px-4 py-2 text-sm leading-relaxed placeholder:text-gray-400 dark:placeholder:text-gray-500 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-hidden border-0',
-          className
+      <div className="w-full flex flex-col gap-1">
+        <textarea
+          ref={combinedRef}
+          className={cn(
+            'w-full resize-none bg-white dark:bg-zinc-700 px-4 py-2 text-sm leading-relaxed placeholder:text-gray-400 dark:placeholder:text-gray-500 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-hidden border-0',
+            className
+          )}
+          onInput={handleInput}
+          rows={minRows}
+          {...props}
+        />
+        {estimatedTokens !== undefined && (
+          <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
+            Estimated tokens: ~{estimatedTokens}
+          </span>
         )}
-        onInput={handleInput}
-        rows={minRows}
-        {...props}
-      />
+      </div>
     );
   }
 );
