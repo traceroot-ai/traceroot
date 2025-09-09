@@ -1,23 +1,42 @@
 import os
 import time
 
+from dotenv import find_dotenv, load_dotenv
+
 import traceroot
 
 # Initialize traceroot with override parameters, which will
 # override the parameters in the .traceroot-config.yaml file
-token = os.getenv("TRACEROOT_TOKEN")
 verification_endpoint = "http://localhost:8000/v1/verify/credentials"
 
+# ----------------- load .env -----------------
+dotenv_path = find_dotenv()
+if dotenv_path:
+    load_dotenv(dotenv_path)
+else:
+    print(
+        "No .env file found (find_dotenv returned None).\n"
+        "Using process environment variables."
+    )
+
+# --------------- read env variables -----------
+service = os.getenv("TRACEROOT_SERVICE", "default-service")
+environment = os.getenv("TRACEROOT_ENV", "default-env")
+owner = os.getenv("GITHUB_OWNER", "default-owner")
+repo = os.getenv("TRACEROOT_PROJECT", "default-repo")
+commit = os.getenv("GITHUB_COMMIT_HASH", "default-commit")
+token = os.getenv("TRACEROOT_API_KEY")
+openai_api_key = os.getenv("OPENAI_API_KEY", "no-api-key-provided")
+
 traceroot.init(
-    service_name="override-service",
-    environment="override-env",
-    github_owner="override-owner",
-    github_repo_name="override-repo",
-    github_commit_hash="override-commit",
+    service_name=service,
+    environment=environment,
+    github_owner=owner,
+    github_repo_name=repo,
+    github_commit_hash=commit,
     token=token,
     enable_span_cloud_export=True,
-    enable_log_cloud_export=True,
-    verification_endpoint=verification_endpoint,
+    enable_log_cloud_export=False,
 )
 
 logger = traceroot.get_logger()
