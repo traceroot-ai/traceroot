@@ -26,6 +26,7 @@ owner = os.getenv("GITHUB_OWNER", "default-owner")
 repo = os.getenv("GITHUB_REPO_NAME", "default-repo")
 commit = os.getenv("GITHUB_COMMIT_HASH", "default-commit")
 token = os.getenv("TRACEROOT_API_KEY")
+local_mode = os.getenv("LOCAL_MODE", "false").lower() == "true"
 
 traceroot.init(
     service_name=service,
@@ -34,8 +35,7 @@ traceroot.init(
     github_repo_name=repo,
     github_commit_hash=commit,
     token=token,
-    enable_span_cloud_export=True,
-    enable_log_cloud_export=False,
+    local_mode=local_mode,
 )
 from rest.main import MultiAgentSystem  # noqa: E402
 from traceroot.integrations.fastapi import connect_fastapi  # noqa: E402
