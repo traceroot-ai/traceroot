@@ -1,30 +1,30 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   DEFAULT_MODEL,
   type ChatModel,
   DEFAULT_PROVIDER,
   type Provider,
-} from "../../../constants/model";
+} from '../../../constants/model';
 import {
   ChatRequest,
   ChatResponse,
   MessageType,
   ChatHistoryResponse,
   Reference,
-} from "@/models/chat";
-import { useUser } from "@/hooks/useUser";
-import { generateUuidHex } from "@/utils/uuid";
-import TopBar, { TopBarRef } from "./TopBar";
+} from '@/models/chat';
+import { useUser } from '@/hooks/useUser';
+import { generateUuidHex } from '@/utils/uuid';
+import TopBar, { TopBarRef } from './TopBar';
 
 interface ChatTab {
   chatId: string | null;
   title: string;
   messages: Message[];
 }
-import MessageInput from "./MessageInput";
-import ChatMessage from "./ChatMessage";
+import MessageInput from './MessageInput';
+import ChatMessage from './ChatMessage';
 
-type Mode = "agent" | "chat";
+type Mode = 'agent' | 'chat';
 
 interface Message {
   id: string;
@@ -41,7 +41,7 @@ interface AgentProps {
   queryStartTime?: Date;
   queryEndTime?: Date;
   onSpanSelect?: (spanId: string) => void;
-  onViewTypeChange?: (viewType: "log" | "agent" | "trace") => void;
+  onViewTypeChange?: (viewType: 'log' | 'agent' | 'trace') => void;
 }
 
 export default function Agent({
@@ -56,10 +56,11 @@ export default function Agent({
   const [chatTabs, setChatTabs] = useState<ChatTab[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [inputMessage, setInputMessage] = useState("");
+  const [estimatedTokens, setEstimatedTokens] = useState(0);
+  const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState<ChatModel>(DEFAULT_MODEL);
-  const [selectedMode, setSelectedMode] = useState<Mode>("agent");
+  const [selectedMode, setSelectedMode] = useState<Mode>('agent');
   const [selectedProvider, setSelectedProvider] =
     useState<Provider>(DEFAULT_PROVIDER);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -72,7 +73,7 @@ export default function Agent({
   const messages = activeChat?.messages || [];
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   useEffect(() => {
@@ -84,7 +85,7 @@ export default function Agent({
     if (!isInitialized) {
       const initialTab: ChatTab = {
         chatId: null,
-        title: "New Chat",
+        title: 'New Chat',
         messages: [],
       };
       setChatTabs([initialTab]);
@@ -100,7 +101,7 @@ export default function Agent({
         // Show single "New Chat" tab when no trace is selected
         const defaultTab: ChatTab = {
           chatId: null,
-          title: "New Chat",
+          title: 'New Chat',
           messages: [],
         };
         setChatTabs([defaultTab]);
@@ -120,11 +121,100 @@ export default function Agent({
     }
   }, [traceId, isInitialized]);
 
+  function normalizeMessages(
+    messages: Message[],
+    inputMessage: string
+  ): { role: string; content: string }[] {
+    const systemMessage = {
+      role: 'system',
+      content: `You are a helpful TraceRoot.AI assistant that is the best assistant for debugging with logs, traces, metrics and source code. You will be provided with a tree of spans where each span has span related information and maybe logs (and maybe the source code and context for the logs) logged within the span.
+
+Please answer user's question based on the given data. Keep your answer concise and to the point. You also need to follow following rules:
+1. Please remember you are a TraceRoot AI agent. You are not allowed to hallucinate or make up information.
+2. If you are very unsure about the answer, you should answer that you don't know.
+3. Please provide insightful answer other than just simply returning the information directly.
+4. Be more like a real and very helpful person.
+5. If there is any reference to the answer, ALWAYS directly write the reference such as [1], [2], [3] etc. at the end of the line of the corresponding answer to indicate the reference.
+6. If there is any reference, please make sure at least and at most either of log, trace (span) and source code is provided in the reference.
+7. Please include all reference for each answer. If each answer has a reference, please MAKE SURE you also include the reference in the reference list.
+
+8. If user wants to create a GitHub PR or issue, say that you cannot do that and suggest them to use https://traceroot.ai production service instead.`,
+    };
+
+    const sorted = [...messages].sort(
+      (a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    const spanTree: Record<string, any> = {};
+    sorted.forEach((msg) => {
+      if (msg.references?.length) {
+        msg.references.forEach((ref, i) => {
+          spanTree[ref.span_id] = {
+            span_id: ref.span_id,
+            func_full_name: ref.span_function_name,
+            [`log_${i}`]: {
+              'log message value': ref.log_message,
+              'line number': ref.line_number,
+            },
+          };
+        });
+      }
+    });
+
+    const normalized = sorted.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+
+    if (inputMessage) {
+      let userContent = inputMessage;
+      if (Object.keys(spanTree).length > 0) {
+        userContent =
+          `Here is the structure of the tree with related information:\n` +
+          JSON.stringify(spanTree, null, 2) +
+          `\n\n${inputMessage}`;
+      }
+      normalized.push({ role: 'user', content: userContent });
+    }
+
+    return [systemMessage, ...normalized];
+  }
+
+  const normalizedMessages = useMemo(
+    () => normalizeMessages(messages, inputMessage),
+    [messages, inputMessage]
+  );
+
+  // --- Estimate tokens ---
+  function estimateTokens(messages: { role: string; content: string }[]) {
+    let charCount = 0;
+    const extraPerMessage = 5;
+    messages.forEach(
+      (msg) => (charCount += msg.content.length + extraPerMessage)
+    );
+    const naiveTokens = Math.ceil(charCount / 4);
+    const adjustedTokens = naiveTokens * 2;
+    return adjustedTokens;
+  }
+
+  // --- Debounced token estimation ---
+  useEffect(() => {
+    if (!inputMessage) return;
+
+    const timer = setTimeout(() => {
+      if (!inputMessage.trim() || isLoading) return;
+      setEstimatedTokens(estimateTokens(normalizedMessages));
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [inputMessage, isLoading, normalizedMessages]);
+
   const handleNewChat = () => {
     // Stop any ongoing loading/response generation
     setIsLoading(false);
     // Clear input
-    setInputMessage("");
+    setInputMessage('');
     // Check if there's already a "New Chat" tab (without chatId)
     const existingNewChatTab = chatTabs.find((tab) => tab.chatId === null);
     if (existingNewChatTab) {
@@ -132,7 +222,7 @@ export default function Agent({
       setActiveChatId(null);
     } else {
       // Add new chat tab at the beginning only if none exists
-      const newTab: ChatTab = { chatId: null, title: "New Chat", messages: [] };
+      const newTab: ChatTab = { chatId: null, title: 'New Chat', messages: [] };
       setChatTabs((prev) => [newTab, ...prev]);
       setActiveChatId(null);
     }
@@ -153,7 +243,7 @@ export default function Agent({
       if (filtered.length === 0) {
         const newTab: ChatTab = {
           chatId: null,
-          title: "New Chat",
+          title: 'New Chat',
           messages: [],
         };
         setActiveChatId(null);
@@ -165,7 +255,7 @@ export default function Agent({
 
   const updateChatMessages = (
     chatId: string | null,
-    newMessages: Message[],
+    newMessages: Message[]
   ) => {
     // Sort by converting timestamps to consistent numeric values for proper comparison
     const sortedMessages = [...newMessages].sort((a, b) => {
@@ -173,7 +263,7 @@ export default function Agent({
 
       if (a.timestamp instanceof Date) {
         timeA = a.timestamp.getTime();
-      } else if (typeof a.timestamp === "string") {
+      } else if (typeof a.timestamp === 'string') {
         timeA = new Date(a.timestamp).getTime();
       } else {
         // Handle numeric timestamps - use directly (already in milliseconds)
@@ -183,7 +273,7 @@ export default function Agent({
 
       if (b.timestamp instanceof Date) {
         timeB = b.timestamp.getTime();
-      } else if (typeof b.timestamp === "string") {
+      } else if (typeof b.timestamp === 'string') {
         timeB = new Date(b.timestamp).getTime();
       } else {
         // Handle numeric timestamps - use directly (already in milliseconds)
@@ -196,14 +286,14 @@ export default function Agent({
 
     setChatTabs((prev) =>
       prev.map((tab) =>
-        tab.chatId === chatId ? { ...tab, messages: sortedMessages } : tab,
-      ),
+        tab.chatId === chatId ? { ...tab, messages: sortedMessages } : tab
+      )
     );
   };
 
   const updateChatTitle = (chatId: string, title: string) => {
     setChatTabs((prev) =>
-      prev.map((tab) => (tab.chatId === chatId ? { ...tab, title } : tab)),
+      prev.map((tab) => (tab.chatId === chatId ? { ...tab, title } : tab))
     );
   };
 
@@ -221,7 +311,7 @@ export default function Agent({
       // Add tab with loading state first
       const loadingTab: ChatTab = {
         chatId,
-        title: "Loading...",
+        title: 'Loading...',
         messages: [],
       };
       setChatTabs((prev) => [...prev, loadingTab]);
@@ -237,24 +327,24 @@ export default function Agent({
             headers: {
               Authorization: `Bearer ${getAuthState()}`,
             },
-          },
+          }
         );
 
         if (!response.ok) {
           console.error(
-            `Failed to fetch chat history for ${chatId}: ${response.status}`,
+            `Failed to fetch chat history for ${chatId}: ${response.status}`
           );
           continue;
         }
 
         const chatHistoryResponse: ChatHistoryResponse = await response.json();
         let historyMessages: Message[] = [];
-        let chatTitle = "Loading...";
+        let chatTitle = 'Loading...';
 
         if (chatHistoryResponse && chatHistoryResponse.history) {
           // Sort the chat history by timestamp (from small to large)
           const sortedHistory = [...chatHistoryResponse.history].sort(
-            (a, b) => a.time - b.time,
+            (a, b) => a.time - b.time
           );
 
           // Convert ChatHistoryResponse to Message format, maintaining chronological order
@@ -279,7 +369,7 @@ export default function Agent({
                 headers: {
                   Authorization: `Bearer ${getAuthState()}`,
                 },
-              },
+              }
             );
             if (metadataResponse.ok) {
               const metadata = await metadataResponse.json();
@@ -288,7 +378,7 @@ export default function Agent({
               }
             }
           } catch (error) {
-            console.warn("Failed to fetch metadata for chat:", chatId);
+            console.warn('Failed to fetch metadata for chat:', chatId);
           }
         }
 
@@ -301,14 +391,14 @@ export default function Agent({
                   title: chatTitle,
                   messages: [], // Clear first, will be updated by updateChatMessages
                 }
-              : tab,
-          ),
+              : tab
+          )
         );
 
         // Use updateChatMessages to properly sort the history messages
         updateChatMessages(chatId, historyMessages);
       } catch (error) {
-        console.error("Error loading chat history for:", chatId, error);
+        console.error('Error loading chat history for:', chatId, error);
       }
     }
 
@@ -335,9 +425,9 @@ export default function Agent({
       setChatTabs((prev) =>
         prev.map((tab) =>
           tab.chatId === null
-            ? { ...tab, chatId: currentChatId, title: "Loading..." }
-            : tab,
-        ),
+            ? { ...tab, chatId: currentChatId, title: 'Loading...' }
+            : tab
+        )
       );
       setActiveChatId(currentChatId);
     }
@@ -347,12 +437,12 @@ export default function Agent({
     const userMessage: Message = {
       id: Date.now().toString(),
       content: inputMessage,
-      role: "user",
+      role: 'user',
       timestamp: currentTime,
     };
     updateChatMessages(currentChatId!, [...messages, userMessage]);
     const currentMessage = inputMessage;
-    setInputMessage("");
+    setInputMessage('');
     setIsLoading(true);
 
     // Function to fetch chat history and filter for GitHub and statistics messages
@@ -364,7 +454,7 @@ export default function Agent({
             headers: {
               Authorization: `Bearer ${getAuthState()}`,
             },
-          },
+          }
         );
 
         if (historyResponse.ok) {
@@ -374,7 +464,7 @@ export default function Agent({
           if (chatHistoryResponse && chatHistoryResponse.history) {
             // Sort the chat history by timestamp (from small to large)
             const sortedHistory = [...chatHistoryResponse.history].sort(
-              (a, b) => a.time - b.time,
+              (a, b) => a.time - b.time
             );
 
             // Convert ChatHistoryResponse to Message format, focusing on GitHub and statistics messages
@@ -400,13 +490,13 @@ export default function Agent({
             // Use functional state update for GitHub messages to avoid race conditions
             setChatTabs((prev) => {
               const currentTab = prev.find(
-                (tab) => tab.chatId === currentChatId,
+                (tab) => tab.chatId === currentChatId
               );
               if (!currentTab) return prev;
 
               const currentMessages = currentTab.messages;
               const existingMessageIds = new Set(
-                currentMessages.map((msg) => msg.id),
+                currentMessages.map((msg) => msg.id)
               );
               const newSpecialMessages = historyMessages.filter(
                 (msg) => !existingMessageIds.has(msg.id),
@@ -434,7 +524,7 @@ export default function Agent({
                 return prev.map((tab) =>
                   tab.chatId === currentChatId
                     ? { ...tab, messages: sortedMessages }
-                    : tab,
+                    : tab
                 );
               }
 
@@ -458,8 +548,8 @@ export default function Agent({
       const chatRequest: ChatRequest = {
         time: new Date().getTime(),
         message: currentMessage,
-        message_type: "user" as MessageType,
-        trace_id: traceId || "",
+        message_type: 'user' as MessageType,
+        trace_id: traceId || '',
         span_ids: spanIds || [],
         start_time: queryStartTime?.getTime() || new Date().getTime(),
         end_time: queryEndTime?.getTime() || new Date().getTime(),
@@ -469,10 +559,10 @@ export default function Agent({
         provider: selectedProvider,
       };
 
-      const response = await fetch("/api/chat", {
-        method: "POST",
+      const response = await fetch('/api/chat', {
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${getAuthState()}`,
         },
         body: JSON.stringify(chatRequest),
@@ -494,8 +584,8 @@ export default function Agent({
             prev.map((tab) =>
               tab.chatId === currentChatId
                 ? { ...tab, chatId: chatResponse.data!.chat_id }
-                : tab,
-            ),
+                : tab
+            )
           );
           setActiveChatId(chatResponse.data!.chat_id);
           currentChatId = chatResponse.data!.chat_id;
@@ -508,7 +598,7 @@ export default function Agent({
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
           content: chatResponse.data!.message,
-          role: "assistant",
+          role: 'assistant',
           timestamp: assistantDateObj, // Store as Date object
           references: chatResponse.data!.reference,
         };
@@ -536,7 +626,7 @@ export default function Agent({
           return prev.map((tab) =>
             tab.chatId === currentChatId
               ? { ...tab, messages: sortedMessages }
-              : tab,
+              : tab
           );
         });
 
@@ -544,17 +634,17 @@ export default function Agent({
         topBarRef.current?.refreshMetadata();
       } else {
         throw new Error(
-          chatResponse.error || "Failed to get response from chat API",
+          chatResponse.error || 'Failed to get response from chat API'
         );
       }
     } catch (error) {
-      console.error("Error processing message:", error);
+      console.error('Error processing message:', error);
       const currentTime = new Date();
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         content:
-          "Sorry, I encountered an error while processing your request. Please try again.",
-        role: "assistant",
+          'Sorry, I encountered an error while processing your request. Please try again.',
+        role: 'assistant',
         timestamp: currentTime,
       };
       // Use functional state update for error message too
@@ -581,7 +671,7 @@ export default function Agent({
         return prev.map((tab) =>
           tab.chatId === currentChatId
             ? { ...tab, messages: sortedMessages }
-            : tab,
+            : tab
         );
       });
 
@@ -635,6 +725,7 @@ export default function Agent({
         setSelectedProvider={setSelectedProvider}
         traceId={traceId}
         spanIds={spanIds}
+        estimatedTokens={estimatedTokens}
       />
     </div>
   );
