@@ -2,12 +2,11 @@
 import os
 from typing import Dict
 
+import traceroot
 import uvicorn
 from dotenv import find_dotenv, load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
-import traceroot
 
 # ----------------- load .env -----------------
 dotenv_path = find_dotenv()
@@ -20,9 +19,10 @@ else:
     )
 
 traceroot.init()
-from rest.main import MultiAgentSystem  # noqa: E402
 from traceroot.integrations.fastapi import connect_fastapi  # noqa: E402
 from traceroot.logger import get_logger  # noqa: E402
+
+from rest.main import MultiAgentSystem  # noqa: E402
 
 logger = get_logger()
 

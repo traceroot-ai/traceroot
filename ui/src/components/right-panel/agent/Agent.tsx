@@ -15,6 +15,7 @@ import {
 import { useUser } from "@/hooks/useUser";
 import { generateUuidHex } from "@/utils/uuid";
 import TopBar, { TopBarRef } from "./TopBar";
+import { ChatReasoning } from "../../chat-reasoning";
 
 interface ChatTab {
   chatId: string | null;
@@ -258,7 +259,7 @@ export default function Agent({
           );
 
           // Convert ChatHistoryResponse to Message format, maintaining chronological order
-          historyMessages = sortedHistory.map((historyItem, index) => {
+          const mappedMessages = sortedHistory.map((historyItem, index) => {
             const rawTime = historyItem.time;
             // API returns timestamp in milliseconds, use directly
             const dateObj = new Date(rawTime);
@@ -270,6 +271,26 @@ export default function Agent({
               references: historyItem.reference,
             };
           });
+
+          // Deduplicate messages with same content and timestamp
+          const seenMessages = new Set();
+          const deduplicatedMessages = mappedMessages.filter((message) => {
+            // Create a key based on content, role, and timestamp (rounded to nearest second)
+            const timestampKey = Math.floor(message.timestamp.getTime() / 1000);
+            const key = `${message.content}-${message.role}-${timestampKey}`;
+
+            if (seenMessages.has(key)) {
+              return false; // Skip duplicate
+            }
+            seenMessages.add(key);
+            return true;
+          });
+
+          // Reassign IDs after deduplication
+          historyMessages = deduplicatedMessages.map((message, index) => ({
+            ...message,
+            id: `${chatId}-${index}`,
+          }));
 
           // Get chat title from metadata
           try {
@@ -619,6 +640,7 @@ export default function Agent({
         messagesEndRef={messagesEndRef}
         onSpanSelect={onSpanSelect}
         onViewTypeChange={onViewTypeChange}
+        chatId={activeChatId}
       />
 
       {/* Message input area - fixed at bottom */}

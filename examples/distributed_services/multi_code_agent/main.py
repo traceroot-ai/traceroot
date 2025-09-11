@@ -1,14 +1,13 @@
 import os
 from typing import Any, TypedDict
 
+import traceroot
 from code_agent import create_code_agent
 from dotenv import load_dotenv
 from execution_agent import create_execution_agent
 from langgraph.graph import END, StateGraph
 from plan_agent import create_plan_agent
 from summarize_agent import create_summarize_agent
-
-import traceroot
 
 load_dotenv()
 

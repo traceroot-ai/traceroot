@@ -23,6 +23,11 @@ class TraceRootMongoDBClient:
     ) -> ChatMetadataHistory | None:
         pass
 
+    async def get_chat_reasoning(self, chat_id: str) -> list[dict]:
+        """Get reasoning/thinking data for a specific chat."""
+        # TODO: Implement MongoDB version
+        return []
+
     async def get_chat_metadata(self, chat_id: str) -> ChatMetadata | None:
         """Get chat metadata by chat_id.
 

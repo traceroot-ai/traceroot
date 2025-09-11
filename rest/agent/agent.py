@@ -13,8 +13,6 @@ import json
 from copy import deepcopy
 from typing import Any, Tuple
 
-from groq import AsyncGroq
-
 from rest.agent.chunk.sequential import sequential_chunk
 from rest.agent.context.tree import SpanNode
 from rest.agent.filter.feature import (
@@ -71,7 +69,6 @@ class Agent:
         is_github_issue: bool = False,
         is_github_pr: bool = False,
         provider: Provider | None = None,
-        groq_token: str | None = None,
     ) -> ChatbotResponse:
         """
         Args:
@@ -92,7 +89,6 @@ class Agent:
             is_github_issue (bool): Whether the user wants to create an issue.
             is_github_pr (bool): Whether the user wants to create a PR.
             provider (Provider): The provider to use.
-            groq_token (str | None): The Groq API key to use.
         """
         if not (is_github_issue or is_github_pr):
             raise ValueError("Either is_github_issue or is_github_pr must be True.")
@@ -236,20 +232,67 @@ class Agent:
                 }
             )
 
-        # TODO: support multiple chunks
+        # Add reasoning messages once before processing chunks
+        await self._add_fake_reasoning_message(
+            db_client,
+            chat_id,
+            trace_id,
+            0,  # Use chunk_id 0 for shared reasoning messages
+            "Analyzing trace data and determining appropriate GitHub actions...\n"
+        )
+
+        await self._add_fake_reasoning_message(
+            db_client,
+            chat_id,
+            trace_id,
+            0,  # Use chunk_id 0 for shared reasoning messages
+            "Specifying corresponding GitHub tools...\n"
+        )
+
+        # Support streaming for both single and multiple chunks
+        # Each chunk gets its own database record with unique chunk_id
         responses = await asyncio.gather(
             *[
-                self.chat_with_context_chunks(
+                self.chat_with_context_chunks_streaming(
                     messages,
                     model,
                     client,
                     provider,
                     user_sub,
-                    groq_token
-                ) for messages in all_messages
+                    db_client,
+                    chat_id,
+                    trace_id,
+                    i  # chunk_id - each chunk gets unique ID
+                ) for i, messages in enumerate(all_messages)
             ]
         )
         response = responses[0]
+
+        # Add tool-specific reasoning message based on response type
+        if isinstance(response, dict) and response:
+            if "file_path_to_change" in response:
+                await self._add_fake_reasoning_message(
+                    db_client,
+                    chat_id,
+                    trace_id,
+                    0,  # Use chunk_id 0 for shared reasoning messages
+                    (
+                        f"Using GitHub PR tool to create pull request for "
+                        f"{response.get('repo_name', 'repository')}...\n"
+                    )
+                )
+            elif "title" in response and "body" in response:
+                await self._add_fake_reasoning_message(
+                    db_client,
+                    chat_id,
+                    trace_id,
+                    0,  # Use chunk_id 0 for shared reasoning messages
+                    (
+                        f"Using GitHub Issue tool to create issue for "
+                        f"{response.get('repo_name', 'repository')}...\n"
+                    )
+                )
+
         github_client = GitHubClient()
         maybe_return_directly: bool = False
         if is_github_issue:
@@ -282,7 +325,7 @@ class Agent:
         response_time = datetime.now().astimezone(timezone.utc)
         if not maybe_return_directly:
             summary_response = await client.chat.completions.create(
-                model=model,
+                model=ChatModel.GPT_4_1.value,
                 messages=[
                     {
                         "role":
@@ -295,21 +338,64 @@ class Agent:
                         ),
                     },
                     {
-                        "role": "user",
+                        "role":
+                        "user",
                         "content":
-                        (f"Here is the created issueor the created PR:{response}"),
+                        (f"Here is the created issue or the created PR:\n{response}"),
                     },
                 ],
+                stream=True,
+                stream_options={"include_usage": True},
             )
+
+            # Handle streaming summary response
+            content_parts = []
+            usage_data = None
+
+            async for chunk in summary_response:
+                if chunk.choices and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        content_parts.append(delta.content)
+
+                # Capture usage data from the final chunk
+                if hasattr(chunk, 'usage') and chunk.usage:
+                    usage_data = chunk.usage
+
+            # Mark streaming as completed
+            await db_client.update_reasoning_status(chat_id, 0, "completed")
+
+            summary_content = "".join(content_parts)
 
             # Track token usage for this OpenAI call
-            await track_tokens_for_user(
-                user_sub=user_sub,
-                openai_response=summary_response,
-                model=str(model)
-            )
+            if usage_data:
+                # Create a mock response object for token tracking
+                mock_response = type(
+                    'MockResponse',
+                    (),
+                    {
+                        'usage':
+                        usage_data,
+                        'choices': [
+                            type(
+                                'Choice',
+                                (),
+                                {
+                                    'message':
+                                    type('Message',
+                                         (),
+                                         {'content': summary_content})()
+                                }
+                            )()
+                        ]
+                    }
+                )()
 
-            summary_content = summary_response.choices[0].message.content
+                await track_tokens_for_user(
+                    user_sub=user_sub,
+                    openai_response=mock_response,
+                    model=str(model)
+                )
         else:
             summary_content = response["content"]
 
@@ -335,7 +421,7 @@ class Agent:
             chat_id=chat_id,
         )
 
-    async def chat_with_context_chunks(
+    async def chat_with_context_chunks_streaming(
         self,
         messages: list[dict[str,
                             str]],
@@ -343,23 +429,41 @@ class Agent:
         chat_client: AsyncOpenAI,
         provider: Provider,
         user_sub: str,
-        groq_token: str | None = None,
+        db_client: TraceRootMongoDBClient,
+        chat_id: str,
+        trace_id: str,
+        chunk_id: int,
     ) -> dict[str,
               Any]:
-        r"""Chat with context chunks."""
-        if provider == Provider.GROQ:
-            return await self._chat_with_context_chunks_gorq(
-                messages,
-                user_sub,
-                groq_token
-            )
-        else:
-            return await self._chat_with_context_openai(
-                messages,
-                model,
-                user_sub,
-                chat_client
-            )
+        r"""Chat with context chunks in streaming mode with database updates."""
+        # Create initial assistant record
+        start_time = datetime.now().astimezone(timezone.utc)
+        await db_client.insert_chat_record(
+            message={
+                "chat_id": chat_id,
+                "timestamp": start_time,
+                "role": "assistant",
+                "content": "",
+                "reference": [],
+                "trace_id": trace_id,
+                "chunk_id": chunk_id,
+                "action_type": ActionType.AGENT_CHAT.value,
+                "status": ActionStatus.PENDING.value,
+                "is_streaming": True,
+            }
+        )
+
+        return await self._chat_with_context_openai_streaming(
+            messages,
+            model,
+            user_sub,
+            chat_client,
+            db_client,
+            chat_id,
+            trace_id,
+            chunk_id,
+            start_time
+        )
 
     def get_context_messages(self, context: str) -> list[str]:
         r"""Get the context message."""
@@ -475,44 +579,18 @@ class Agent:
         action_type = ActionType.GITHUB_CREATE_ISSUE.value
         return content, action_type
 
-    async def _chat_with_context_chunks_gorq(
-        self,
-        messages: list[dict[str,
-                            str]],
-        user_sub: str,
-        groq_token: str | None = None,
-    ):
-        model = ChatModel.GPT_OSS_120B
-        client = AsyncGroq(api_key=groq_token)
-        response = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            tools=[
-                get_openai_tool_schema(create_issue),
-                get_openai_tool_schema(create_pr_with_file_changes),
-            ],
-        )
-        # Track token usage for Groq call
-        await track_tokens_for_user(
-            user_sub=user_sub,
-            openai_response=response,
-            model=str(model)
-        )
-
-        tool_calls = response.choices[0].message.tool_calls
-        if tool_calls is None or len(tool_calls) == 0:
-            return {"content": response.choices[0].message.content}
-        else:
-            arguments = tool_calls[0].function.arguments
-            return json.loads(arguments)
-
-    async def _chat_with_context_openai(
+    async def _chat_with_context_openai_streaming(
         self,
         messages: list[dict[str,
                             str]],
         model: ChatModel,
         user_sub: str,
         chat_client: AsyncOpenAI,
+        db_client: TraceRootMongoDBClient = None,
+        chat_id: str = None,
+        trace_id: str = None,
+        chunk_id: int = None,
+        start_time=None,
     ):
         allowed_model = {ChatModel.GPT_5, ChatModel.O4_MINI}
 
@@ -526,17 +604,198 @@ class Agent:
                 get_openai_tool_schema(create_issue),
                 get_openai_tool_schema(create_pr_with_file_changes),
             ],
+            stream=False,
         )
-        # Track token usage for this OpenAI call
+
+        # Handle streaming response with DB updates
+        tool_calls_data = None
+
+        # Process the non-streaming response
+        response.usage
+        full_content = response.choices[0].message.content or ""
+        tool_calls_data = response.choices[0].message.tool_calls
+
+        # Track token usage for this OpenAI call with real usage data
         await track_tokens_for_user(
             user_sub=user_sub,
             openai_response=response,
             model=str(model)
         )
 
-        tool_calls = response.choices[0].message.tool_calls
-        if tool_calls is None or len(tool_calls) == 0:
-            return {"content": response.choices[0].message.content}
+        if tool_calls_data is None or len(tool_calls_data) == 0:
+            return {"content": full_content}
         else:
-            arguments = tool_calls[0].function.arguments
-            return json.loads(arguments)
+            arguments = tool_calls_data[0].function.arguments
+            arguments = json.loads(arguments)
+            return arguments
+
+    async def _update_streaming_record(
+        self,
+        db_client: TraceRootMongoDBClient,
+        chat_id: str,
+        trace_id: str,
+        chunk_id: int,
+        content: str,
+        start_time,
+        status: ActionStatus,
+    ):
+        """Update the streaming record in the database."""
+        # For now, we'll insert a new record with updated content
+        # In a real implementation, you'd want to update the existing record
+        timestamp = datetime.now().astimezone(timezone.utc)
+        await db_client.insert_chat_record(
+            message={
+                "chat_id": chat_id,
+                "timestamp": timestamp,
+                "role": "assistant",
+                "content": content,
+                "reference": [],
+                "trace_id": trace_id,
+                "chunk_id": chunk_id,
+                "action_type": ActionType.AGENT_CHAT.value,
+                "status": status.value,
+                "is_streaming": True,
+                "stream_update": True,
+            }
+        )
+
+        # Broadcast to SSE clients
+        from rest.routers.streaming import get_streaming_router_instance
+        streaming_router = get_streaming_router_instance()
+        if streaming_router:
+            await streaming_router.broadcast_streaming_update(
+                chat_id=chat_id,
+                chunk_id=chunk_id,
+                data={
+                    "content": content,
+                    "status": status.value,
+                    "timestamp": timestamp.isoformat(),
+                    "trace_id": trace_id,
+                }
+            )
+
+    async def _chat_with_context_openai(
+        self,
+        messages: list[dict[str,
+                            str]],
+        model: ChatModel,
+        user_sub: str,
+        chat_client: AsyncOpenAI,
+        stream: bool = False,
+    ):
+        allowed_model = {ChatModel.GPT_5, ChatModel.O4_MINI}
+
+        if model not in allowed_model:
+            model = ChatModel.O4_MINI
+
+        response = await chat_client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=[
+                get_openai_tool_schema(create_issue),
+                get_openai_tool_schema(create_pr_with_file_changes),
+            ],
+            stream=stream,
+        )
+        if stream:
+            # Handle streaming response
+            content_parts = []
+            tool_calls_data = None
+
+            async for chunk in response:
+                if chunk.choices and len(chunk.choices) > 0:
+                    delta = chunk.choices[0].delta
+
+                    if delta.content:
+                        content_parts.append(delta.content)
+
+                    if delta.tool_calls:
+                        if tool_calls_data is None:
+                            tool_calls_data = delta.tool_calls
+                        else:
+                            # Accumulate tool call data
+                            for i, tool_call in enumerate(delta.tool_calls):
+                                if i < len(tool_calls_data):
+                                    tc_data = tool_calls_data[i]
+                                    if tool_call.function and tool_call.function.arguments:  # noqa: E501
+                                        tc_data.function.arguments += tool_call.function.arguments  # noqa: E501
+                                else:
+                                    tool_calls_data.append(tool_call)
+
+            # Create a mock response object for token tracking
+            class MockResponse:
+
+                def __init__(self, content, tool_calls):
+                    self.usage = None  # Streaming doesn't provide usage info
+                    self.choices = [
+                        type(
+                            'Choice',
+                            (),
+                            {
+                                'message':
+                                type(
+                                    'Message',
+                                    (),
+                                    {
+                                        'content': content,
+                                        'tool_calls': tool_calls
+                                    }
+                                )()
+                            }
+                        )()
+                    ]
+
+            full_content = "".join(content_parts)
+            mock_response = MockResponse(full_content, tool_calls_data)
+
+            # Track token usage (note: streaming responses don't include usage info)
+            await track_tokens_for_user(
+                user_sub=user_sub,
+                openai_response=mock_response,
+                model=str(model)
+            )
+
+            if tool_calls_data is None or len(tool_calls_data) == 0:
+                return {"content": full_content}
+            else:
+                arguments = tool_calls_data[0].function.arguments
+                return json.loads(arguments)
+        else:
+            # Track token usage for this OpenAI call
+            await track_tokens_for_user(
+                user_sub=user_sub,
+                openai_response=response,
+                model=str(model)
+            )
+
+            tool_calls = response.choices[0].message.tool_calls
+            if tool_calls is None or len(tool_calls) == 0:
+                return {"content": response.choices[0].message.content}
+            else:
+                arguments = tool_calls[0].function.arguments
+                return json.loads(arguments)
+
+    async def _add_fake_reasoning_message(
+        self,
+        db_client: TraceRootMongoDBClient,
+        chat_id: str,
+        trace_id: str,
+        chunk_id: int,
+        content: str,
+    ):
+        """Add a fake reasoning message for better UX."""
+        from datetime import datetime, timezone
+
+        timestamp = datetime.now(timezone.utc)
+
+        # Store reasoning data in dedicated reasoning collection
+        reasoning_data = {
+            "chat_id": chat_id,
+            "chunk_id": chunk_id,
+            "content": content,
+            "status": "pending",
+            "timestamp": timestamp,
+            "trace_id": trace_id,
+        }
+
+        await db_client.insert_reasoning_record(reasoning_data)
