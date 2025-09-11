@@ -19,24 +19,7 @@ else:
         "Using process environment variables."
     )
 
-# --------------- read env variables -----------
-service = os.getenv("TRACEROOT_SERVICE", "default-service")
-environment = os.getenv("TRACEROOT_ENV", "default-env")
-owner = os.getenv("GITHUB_OWNER", "default-owner")
-repo = os.getenv("GITHUB_REPO_NAME", "default-repo")
-commit = os.getenv("GITHUB_COMMIT_HASH", "default-commit")
-token = os.getenv("TRACEROOT_API_KEY")
-local_mode = os.getenv("LOCAL_MODE", "false").lower() == "true"
-
-traceroot.init(
-    service_name=service,
-    environment=environment,
-    github_owner=owner,
-    github_repo_name=repo,
-    github_commit_hash=commit,
-    token=token,
-    local_mode=local_mode,
-)
+traceroot.init()
 from rest.main import MultiAgentSystem  # noqa: E402
 from traceroot.integrations.fastapi import connect_fastapi  # noqa: E402
 from traceroot.logger import get_logger  # noqa: E402
