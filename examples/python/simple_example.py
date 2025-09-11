@@ -1,6 +1,20 @@
 import time
 
+from dotenv import find_dotenv, load_dotenv
+
 import traceroot
+
+# ----------------- load .env -----------------
+dotenv_path = find_dotenv()
+if dotenv_path:
+    load_dotenv(dotenv_path)
+else:
+    print(
+        "No .env file found (find_dotenv returned None).\n"
+        "Using process environment variables."
+    )
+
+traceroot.init()
 
 logger = traceroot.get_logger()
 
