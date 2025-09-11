@@ -1,14 +1,14 @@
 import os
 from typing import Dict
 
+import traceroot
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
-import traceroot
-from rest.main import MultiAgentSystem
 from traceroot.integrations.fastapi import connect_fastapi
 from traceroot.logger import get_logger
+
+from rest.main import MultiAgentSystem
 
 logger = get_logger()
 
