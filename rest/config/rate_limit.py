@@ -21,6 +21,7 @@ class RateLimitConfig:
     delete_integrate_limit: str = "20/minute"
     # TODO: Improve this
     get_verify_credentials_limit: str = "7200/minute"
+    get_chat_reasoning_limit: str = "1200/minute"
 
     # Global defaults
     default_limit: str = "120/minute"

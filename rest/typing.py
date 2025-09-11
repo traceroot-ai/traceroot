@@ -63,7 +63,6 @@ class ResourceType(str, Enum):
     NOTION = "notion"
     SLACK = "slack"
     OPENAI = "openai"
-    GROQ = "groq"
     TRACEROOT = "traceroot"
 
 
@@ -96,7 +95,6 @@ class ActionStatus(str, Enum):
 class Provider(str, Enum):
     OPENAI = "openai"
     CUSTOM = "custom"
-    GROQ = "groq"
 
 
 class Operation(str, Enum):
