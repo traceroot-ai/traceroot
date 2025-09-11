@@ -4,6 +4,7 @@
 python3.11 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
 export OPENAI_API_KEY=your_api_key_here
 ```
 
@@ -12,8 +13,7 @@ export OPENAI_API_KEY=your_api_key_here
 To run the server, run the following command:
 
 ```bash
-cd ../../
-python examples/multi_code_agent/simple_server.py
+python simple_server.py
 ```
 
 This will start a server on port 9999.

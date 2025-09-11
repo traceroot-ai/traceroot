@@ -2,13 +2,23 @@ import os
 from typing import Dict
 
 import uvicorn
+from dotenv import find_dotenv, load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 import traceroot
-from rest.main import MultiAgentSystem
-from traceroot.integrations.fastapi import connect_fastapi
-from traceroot.logger import get_logger
+
+dotenv_path = find_dotenv()
+if dotenv_path:
+    load_dotenv(dotenv_path)
+else:
+    print(
+        "No .env file found (find_dotenv returned None).\n"
+        "Using process environment variables."
+    )
+from rest.main import MultiAgentSystem  # noqa: E402
+from traceroot.integrations.fastapi import connect_fastapi  # noqa: E402
+from traceroot.logger import get_logger  # noqa: E402
 
 logger = get_logger()
 
