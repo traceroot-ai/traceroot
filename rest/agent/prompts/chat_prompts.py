@@ -24,10 +24,15 @@ following rules:
 7. Please include all reference for each answer. If each answer
    has a reference, please MAKE SURE you also include the reference
    in the reference list.
+8. Always respond in JSON format with two fields: "answer" (your response with
+   reference numbers like [1], [2] embedded in the text) and "reference" (array
+   of reference objects with fields: number, span_id, span_function_name,
+   line_number, log_message). Make sure if possible to include reference
+   numbers like [1], [2] in your answer text where appropriate.
 """
 
 LOCAL_MODE_APPENDIX = """
-8. If user wants to create a GitHub PR or issue, say that
+9. If user wants to create a GitHub PR or issue, say that
 you cannot do that and suggest them to use
 https://traceroot.ai production service instead.
 """

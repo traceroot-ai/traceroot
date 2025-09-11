@@ -11,6 +11,12 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "../../ui/hover-card";
+import { ChatReasoning } from "../../chat-reasoning";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "../../ui/shadcn-io/ai/reasoning";
 
 interface Message {
   id: string;
@@ -27,6 +33,7 @@ interface ChatMessageProps {
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
   onSpanSelect?: (spanId: string) => void;
   onViewTypeChange?: (viewType: "log" | "agent" | "trace") => void;
+  chatId?: string | null;
 }
 
 // Helper function to format timestamp like in LogDetail
@@ -237,7 +244,8 @@ const renderMarkdown = (
         const reference = references?.find((ref) => ref.number === refNumber);
 
         if (reference) {
-          const hoverCardId = `${messageId}-ref-${refNumber}`;
+          // Create unique ID for each reference instance by including currentIndex
+          const hoverCardId = `${messageId}-ref-${refNumber}-${currentIndex}`;
           return (
             <HoverCard
               key={currentIndex++}
@@ -475,6 +483,7 @@ export default function ChatMessage({
   messagesEndRef,
   onSpanSelect,
   onViewTypeChange,
+  chatId,
 }: ChatMessageProps) {
   const { avatarLetter } = useUser();
   // State to control all hover cards in this component
@@ -485,78 +494,114 @@ export default function ChatMessage({
   return (
     <div className="flex-1 overflow-y-auto p-4 flex flex-col bg-zinc-50 dark:bg-zinc-900 mt-2 ml-4 mr-4 mb-2 rounded-lg">
       <div className="flex-1"></div>
-      {messages.map((message) => (
-        <div
-          key={message.id}
-          className={`flex ${
-            message.role === "user" ? "justify-end" : "justify-start"
-          } mb-4 items-start gap-2`}
-        >
-          {/* Avatar for assistant, github, and statistics */}
-          {(message.role === "assistant" ||
-            message.role === "github" ||
-            message.role === "statistics") && (
+      {messages.map((message, index) => {
+        // Show reasoning after every user message
+        const shouldShowReasoning = message.role === "user";
+
+        // Find the next assistant message timestamp for upper bound filtering
+        const nextAssistantMessage = messages
+          .slice(index + 1)
+          .find((msg) => msg.role === "assistant");
+        const nextMessageTimestamp = nextAssistantMessage?.timestamp;
+
+        return (
+          <React.Fragment key={message.id}>
             <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-zinc-600 dark:bg-zinc-200 border border-zinc-600 dark:border-zinc-200`}
+              className={`flex ${
+                message.role === "user" ? "justify-end" : "justify-start"
+              } mb-4 items-start gap-2`}
             >
-              {message.role === "github" ? (
-                <FaGithub className="w-5 h-5 text-white dark:text-zinc-600" />
-              ) : message.role === "statistics" ? (
-                <ChartColumn className="w-5 h-5 text-white dark:text-zinc-600" />
-              ) : (
-                <RiRobot2Line className="w-5 h-5 text-white dark:text-zinc-600" />
+              {/* Avatar for assistant, github, and statistics */}
+              {(message.role === "assistant" ||
+                message.role === "github" ||
+                message.role === "statistics") && (
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-zinc-600 dark:bg-zinc-200 border border-zinc-600 dark:border-zinc-200`}
+                >
+                  {message.role === "github" ? (
+                    <FaGithub className="w-5 h-5 text-white dark:text-zinc-600" />
+                  ) : message.role === "statistics" ? (
+                    <ChartColumn className="w-5 h-5 text-white dark:text-zinc-600" />
+                  ) : (
+                    <RiRobot2Line className="w-5 h-5 text-white dark:text-zinc-600" />
+                  )}
+                </div>
               )}
-            </div>
-          )}
 
-          {/* Message content */}
-          <div
-            className={`max-w-[70%] max-w-[600px] rounded-lg px-4 py-2 break-words ${
-              message.role === "user"
-                ? "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
-                : message.role === "github"
-                  ? "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
-                  : message.role === "statistics"
+              {/* Message content */}
+              <div
+                className={`max-w-[70%] max-w-[600px] rounded-lg px-4 py-2 break-words ${
+                  message.role === "user"
                     ? "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
-                    : "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
-            }`}
-          >
-            <div className="whitespace-pre-wrap break-words text-sm">
-              {renderMarkdown(
-                message.content,
-                message.id,
-                message.references,
-                onSpanSelect,
-                onViewTypeChange,
-                openHoverCard,
-                setOpenHoverCard,
-              )}
-            </div>
-            <p className="text-xs mt-1 opacity-70">
-              {formatTimestamp(message.timestamp)}
-            </p>
-          </div>
+                    : message.role === "github"
+                      ? "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
+                      : message.role === "statistics"
+                        ? "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
+                        : "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
+                }`}
+              >
+                <div className="whitespace-pre-wrap break-words text-sm">
+                  {renderMarkdown(
+                    message.content,
+                    message.id,
+                    message.references,
+                    onSpanSelect,
+                    onViewTypeChange,
+                    openHoverCard,
+                    setOpenHoverCard,
+                  )}
+                </div>
+                <p className="text-xs mt-1 opacity-70">
+                  {formatTimestamp(message.timestamp)}
+                </p>
+              </div>
 
-          {/* Avatar for user */}
-          {message.role === "user" && (
-            <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
-              {userAvatarUrl ? (
-                <img
-                  src={userAvatarUrl}
-                  alt="User avatar"
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full bg-sidebar-accent/50 flex items-center justify-center bg-zinc-200 dark:bg-zinc-800">
-                  <span className="text-sidebar-accent-foreground font-semibold text-sm">
-                    {avatarLetter || "U"}
-                  </span>
+              {/* Avatar for user */}
+              {message.role === "user" && (
+                <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                  {userAvatarUrl ? (
+                    <img
+                      src={userAvatarUrl}
+                      alt="User avatar"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-sidebar-accent/50 flex items-center justify-center bg-zinc-200 dark:bg-zinc-800">
+                      <span className="text-sidebar-accent-foreground font-semibold text-sm">
+                        {avatarLetter || "U"}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          )}
-        </div>
-      ))}
+
+            {/* Show reasoning after user messages */}
+            {shouldShowReasoning && (
+              <div className="mb-4">
+                {chatId ? (
+                  <ChatReasoning
+                    chatId={chatId}
+                    className="w-full"
+                    isLoading={isLoading}
+                    userMessageTimestamp={message.timestamp}
+                    nextMessageTimestamp={nextMessageTimestamp}
+                  />
+                ) : (
+                  <Reasoning
+                    className="w-full"
+                    isStreaming={isLoading}
+                    defaultOpen={true}
+                  >
+                    <ReasoningTrigger />
+                    <ReasoningContent>{"Processing..."}</ReasoningContent>
+                  </Reasoning>
+                )}
+              </div>
+            )}
+          </React.Fragment>
+        );
+      })}
       {/* Loading indicator */}
       {isLoading && (
         <div className="flex justify-start mb-4 items-start gap-2">

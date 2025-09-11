@@ -36,4 +36,9 @@ following rules:
 11. If creating a PR, please create a short head branch name for
     the PR. Please make sure the head branch name is concise and
     to the point.
+12. Always respond in JSON format with two fields: "answer" (your response with
+   reference numbers like [1], [2] embedded in the text) and "reference" (array
+   of reference objects with fields: number, span_id, span_function_name,
+   line_number, log_message). Make sure if possible to include reference
+   numbers like [1], [2] in your answer text where appropriate.
 """
