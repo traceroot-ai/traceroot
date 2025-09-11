@@ -1,9 +1,12 @@
 <div align="center">
   <a href="https://traceroot.ai/">
-    <img src="misc/images/traceroot_logo.png" alt="TraceRoot Logo" width="70%">
+    <img src="misc/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 </div>
+
 <div align="center">
+
+[![Product Hunt](https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1004840&theme=dark&period=daily&t=1756191789618)](https://www.producthunt.com/products/traceroot-ai?embed=true&utm_source=badge-top-post-badge&utm_medium=badge&utm_source=badge-traceroot-ai)
 
 [![Testing Status][testing-image]][testing-url]
 [![Documentation][docs-image]][docs-url]
@@ -14,10 +17,11 @@
 [![TraceRoot.AI Website][company-website-image]][company-website-url]
 [![X][zecheng-x-image]][zecheng-x-url]
 [![X][xinwei-x-image]][xinwei-x-url]
+[![Y Combinator][y-combinator-image]][y-combinator-url]
 
 </div>
 
-🔍 **TraceRoot** helps engineers debug production issues **10× faster** using AI-powered analysis of traces, logs, and code context.
+**TraceRoot** helps engineers debug production issues **10× faster** using AI-powered analysis of traces, logs, and code context.
 
 - Visit the [TraceRoot website](https://traceroot.ai) to start debugging your production issues.
 - Explore the [TraceRoot documentation](https://docs.traceroot.ai) to get started with the TraceRoot library.
@@ -50,8 +54,8 @@ TraceRoot accelerates the debugging process with AI-powered insights. It integra
 The fastest and most reliable way to start with TraceRoot is by signing up for free to [TraceRoot Cloud](https://auth.traceroot.ai/) for a **7-day trial**.
 You’ll get:
 
-- **150k** traces + logs storage with **30-day retention**
-- **1.5M** LLM tokens
+- **100k** traces + logs storage with **30-day retention**
+- **1M** LLM tokens
 - AI agent with chat mode
 
 Usually new features will be available in TraceRoot Cloud first, and then they will be released to the self-hosted version.
@@ -95,10 +99,6 @@ Here is an overview for our AI Agent Framework:
   </a>
 </div>
 
-### Chunking
-
-TODO
-
 ### Explainability
 
 Please checkout the [README.md in the `rest/agent` directory](rest/agent/README.md) for more details.
@@ -117,6 +117,14 @@ If you find our exploratory TraceRoot useful in your research, please consider c
 }
 ```
 
+## Contributors
+
+Thanks to all our contributors for helping make TraceRoot better!
+
+<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" />
+</a>
+
 [company-website-image]: https://img.shields.io/badge/website-traceroot.ai-black
 [company-website-url]: https://traceroot.ai
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
@@ -133,5 +141,7 @@ If you find our exploratory TraceRoot useful in your research, please consider c
 [testing-url]: https://github.com/traceroot-ai/traceroot/actions/workflows/test.yml
 [xinwei-x-image]: https://img.shields.io/twitter/follow/xinwei_97?style=social
 [xinwei-x-url]: https://x.com/xinwei_97
+[y-combinator-image]: https://img.shields.io/badge/Combinator-S25-orange?logo=ycombinator&labelColor=white
+[y-combinator-url]: https://www.ycombinator.com/companies/traceroot-ai
 [zecheng-x-image]: https://img.shields.io/twitter/follow/zechengzh?style=social
 [zecheng-x-url]: https://x.com/zechengzh

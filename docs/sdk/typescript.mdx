@@ -1,0 +1,248 @@
+# TypeScript SDK for TraceRoot
+
+## Introduction
+This SDK is a lightweight wrapper around OpenTelemetry, optimized for ease of use.
+
+## Installation
+```bash
+npm install traceroot-sdk-ts@latest
+```
+
+## Environment Setup
+Create an [TraceRoot token](https://test.traceroot.ai/integrate) from the dashboard, and add it to your `traceroot.config.ts` file in the root of your project.
+
+### TypeScript
+```typescript
+import type { TraceRootConfigFile } from 'traceroot-sdk-ts/src/config';
+
+const config: TraceRootConfigFile = {
+  // The token for the TraceRoot API
+  token=traceroot-430246,
+
+  // The name of the service you are tracing.
+  service_name: 'ts-example',
+
+  // The owner of the GitHub repository
+  github_owner: github_owner,
+
+  // The name of the GitHub repository
+  github_repo_name: github_repo_name,
+
+  // The commit hash of the GitHub repository
+  github_commit_hash: 'main',
+
+  // Enable cloud export of spans (default: `true`)
+  enable_span_cloud_export: true,
+
+  // Enable cloud export of logs (default: `true`)
+  enable_log_console_export: true,
+
+  // Enable console export of spans (default: `false`)
+  enable_span_console_export: false,
+
+  // Enable console export of logs (default: `true`)
+  enable_log_console_export: true,
+
+  // The environment configuration such as development, staging, production
+  environment: 'development',
+
+  // Whether to store all telemetry data locally.
+  local_mode: false,
+};
+export default config;
+```
+
+### JavaScript
+
+```javascript
+const config = {
+  // The token for the TraceRoot API
+  token=traceroot-430246,
+
+  // The name of the service you are tracing.
+  service_name: 'js-example',
+
+  // The owner of the GitHub repository
+  github_owner: github_owner,
+
+  // The name of the GitHub repository
+  github_repo_name: github_repo_name,
+
+  // The commit hash of the GitHub repository
+  github_commit_hash: 'main',
+
+  // Enable cloud export of spans (default: `true`)
+  enable_span_cloud_export: true,
+
+  // Enable cloud export of logs (default: `true`)
+  enable_log_console_export: true,
+
+  // Enable console export of spans (default: `false`)
+  enable_span_console_export: false,
+
+  // Enable console export of logs (default: `true`)
+  enable_log_console_export: true,
+
+  // The environment configuration such as development, staging, production
+  environment: 'development',
+
+  // Whether to store all telemetry data locally.
+  local_mode: false,
+};
+
+module.exports = config;
+```
+
+### Environment Variable
+
+```bash .env
+# The token for the TraceRoot API
+TRACEROOT_TOKEN=traceroot-430246
+
+# The name of the service you are tracking
+TRACEROOT_SERVICE_NAME=traceroot
+
+# The owner of the GitHub repository
+TRACEROOT_GITHUB_OWNER=github_owner
+
+# The name of the GitHub repository
+TRACEROOT_GITHUB_REPO_NAME=github_repo_name
+
+# The commit hash of the GitHub repository
+TRACEROOT_GITHUB_COMMIT_HASH=main
+
+# Enable cloud export of spans (default: `true`)
+TRACEROOT_ENABLE_SPAN_CLOUD_EXPORT=true
+
+# Enable cloud export of logs (default: `true`)
+TRACEROOT_ENABLE_LOG_CLOUD_EXPORT=true
+
+# Enable console export of spans (default: `false`)
+TRACEROOT_ENABLE_SPAN_CONSOLE_EXPORT=false
+
+# Enable console export of logs (default: `true`)
+TRACEROOT_ENABLE_LOG_CONSOLE_EXPORT=true
+
+# The environment configuration such as development, staging, production
+TRACEROOT_ENVIRONMENT='development',
+
+# Store all telemetry data locally.
+TRACEROOT_LOCAL_MODE=false
+```
+
+Optionally, create an `TRACEROOT_CONFIG_PATH` and add it to your backend `.env` file, if this is needed due to webpack or other bundlers.
+```bash .env
+export TRACEROOT_CONFIG_PATH=/path/to/your/traceroot.config.ts
+```
+
+## Logger
+
+TraceRoot provides a pino-like logging system with support for child loggers, structured console logging, and metadata-based logging that enables searching on the TraceRoot platform.
+
+### Basic Logger Usage
+
+Get a logger instance and start logging:
+
+```typescript
+import * as traceroot from 'traceroot-sdk-ts';
+
+const logger = traceroot.getLogger();
+logger.info('Basic log message');
+logger.info({ userId: 'user123' }, 'User action completed');
+```
+
+### Child Loggers
+
+Create child loggers with persistent context that behaves similar to pino:
+
+```typescript
+import * as traceroot from 'traceroot-sdk-ts';
+
+const logger = traceroot.getLogger();
+
+// Create child loggers with context
+const authLogger = logger.child({ module: 'auth' });
+
+// Context is automatically included in all logs
+authLogger.info('User login started');
+authLogger.info({ userId: 'user123' }, 'Login successful');
+
+// Create nested child loggers
+const loginLogger = authLogger.child({ operation: 'login' });
+loginLogger.info({ userId: 'user123' }, 'Processing login');
+```
+
+### Metadata Logging
+
+All metadata passed to log methods is searchable on the TraceRoot platform:
+
+```typescript
+// These metadata fields will be searchable in TraceRoot:
+logger.info({ userId: 'user123', action: 'login' }, 'User logged in');
+logger.warn({ table: 'users', query: 'SELECT *', duration: 1500 }, 'Slow query detected');
+```
+
+## Examples
+
+### TypeScript
+```typescript
+import * as traceroot from 'traceroot-sdk-ts';
+
+const logger = traceroot.getLogger();
+
+async function main() {
+  const greet = traceroot.traceFunction(
+    async function greet(name: string): Promise<string> {
+      logger.info(`Greeting inside traced function: ${name}`);
+      // Simulate some async work
+      await new Promise(resolve => setTimeout(resolve, 100));
+      return `Hello, ${name}!`;
+    },
+    { spanName: 'greet' }
+  );
+
+  const result = await greet('world');
+  logger.info(`Greeting result: ${result}`);
+}
+
+main().then(async () => {
+  await traceroot.forceFlushTracer();
+  await traceroot.shutdownTracer();
+  await traceroot.forceFlushLogger();
+  await traceroot.shutdownLogger();
+  process.exit(0);
+});
+```
+
+### JavaScript
+
+```typescript
+import * as traceroot from 'traceroot-sdk-ts';
+
+const logger = traceroot.getLogger();
+
+class GreetingService {
+  // @ts-ignore - TypeScript has strict typing issues with decorators, but this works at runtime
+  @traceroot.trace({ spanName: 'greet' })
+  async greet(name: string): Promise<string> {
+    logger.info(`Greeting inside traced function: ${name}`);
+    // Simulate some async work
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    return `Hello, ${name}!`;
+  }
+}
+
+async function main() {
+  const service = new GreetingService();
+  const result = await service.greet('world');
+  logger.info(`Greeting result: ${result}`); // This will not be shown in TraceRoot UI
+}
+
+main().then(async () => {
+  await traceroot.forceFlushTracer();
+  await traceroot.shutdownTracer();
+  await traceroot.forceFlushLogger();
+  await traceroot.shutdownLogger();
+  process.exit(0);
+});
+```

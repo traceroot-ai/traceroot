@@ -1,21 +1,20 @@
-import { NextResponse } from 'next/server';
-import { CodeResponse } from '../../../models/code';
+import { NextResponse } from "next/server";
+import { CodeResponse } from "../../../models/code";
 
-export async function GET(request: Request): Promise<NextResponse<CodeResponse | null>> {
+export async function GET(
+  request: Request,
+): Promise<NextResponse<CodeResponse | null>> {
   try {
     const url = new URL(request.url);
-    const fileUrl = url.searchParams.get('url');
+    const fileUrl = url.searchParams.get("url");
 
     if (!fileUrl) {
-      return NextResponse.json(
-        null,
-        { status: 400 }
-      );
+      return NextResponse.json(null, { status: 400 });
     }
 
     // Extract user_secret from Authorization header
-    let authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    let authHeader = request.headers.get("authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
       authHeader = "";
     }
 
@@ -27,24 +26,26 @@ export async function GET(request: Request): Promise<NextResponse<CodeResponse |
       try {
         const apiUrl = `${restApiEndpoint}/v1/explore/get-line-context-content?url=${encodeURIComponent(fileUrl)}`;
         const apiResponse = await fetch(apiUrl, {
-          method: 'GET',
+          method: "GET",
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${userSecret}`,
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${userSecret}`,
           },
         });
 
         if (!apiResponse.ok) {
-          throw new Error(`REST API call failed with status: ${apiResponse.status}`);
+          throw new Error(
+            `REST API call failed with status: ${apiResponse.status}`,
+          );
         }
 
         const apiData: CodeResponse = await apiResponse.json();
 
         return NextResponse.json(apiData);
       } catch (apiError) {
-        console.error('REST API call failed:', apiError);
+        console.error("REST API call failed:", apiError);
         // Fall back to empty code response if REST API fails
-        console.log('Falling back to empty code response due to API error');
+        console.log("Falling back to empty code response due to API error");
       }
     }
 
@@ -53,18 +54,18 @@ export async function GET(request: Request): Promise<NextResponse<CodeResponse |
       line: "",
       lines_above: [],
       lines_below: [],
-      error_message: null
+      error_message: null,
     };
 
     return NextResponse.json(emptyCodeResponse);
   } catch (error) {
-    console.error('Get File Line Context Content API Error:', error);
+    console.error("Get File Line Context Content API Error:", error);
 
     const emptyCodeResponse: CodeResponse = {
       line: "",
       lines_above: null,
       lines_below: null,
-      error_message: null
+      error_message: null,
     };
 
     return NextResponse.json(emptyCodeResponse, { status: 500 });

@@ -1,12 +1,12 @@
-'use client'
+"use client";
 
-import React, { useState } from 'react';
-import { GoArrowRight, GoArrowUpRight } from 'react-icons/go';
+import React, { useState } from "react";
+import { GoArrowRight, GoArrowUpRight } from "react-icons/go";
 import { BsLightning } from "react-icons/bs";
 import { RiRobot2Line } from "react-icons/ri";
 import { FaCode } from "react-icons/fa6";
-import Link from 'next/link';
-import { Button } from '@/components/ui/button';
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
 export default function Home() {
   const [isDocsHovered, setIsDocsHovered] = useState(false);
@@ -22,8 +22,12 @@ export default function Home() {
       <div className="absolute top-6 right-6 flex gap-4">
         <Button
           variant="outline"
-          className="w-auto bg-white hover:bg-zinc-50 backdrop-blur-xl text-neutral-800 font-semibold text-sm"
-          onClick={() => window.open('https://cal.com/traceroot/30min', '_blank')}
+          className="w-auto bg-zinc-50 dark:bg-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700
+             backdrop-blur-xl text-neutral-800 dark:text-neutral-200 font-semibold text-sm
+             transition-colors duration-300"
+          onClick={() =>
+            window.open("https://cal.com/traceroot/30min", "_blank")
+          }
           onMouseEnter={() => setIsContactHovered(true)}
           onMouseLeave={() => setIsContactHovered(false)}
         >
@@ -38,8 +42,10 @@ export default function Home() {
         </Button>
         <Button
           variant="outline"
-          className="w-auto bg-white hover:bg-zinc-50 backdrop-blur-xl text-neutral-800 font-semibold text-sm"
-          onClick={() => window.open('https://docs.traceroot.ai', '_blank')}
+          className="w-auto bg-zinc-50 dark:bg-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700
+             backdrop-blur-xl text-neutral-800 dark:text-neutral-200 font-semibold text-sm
+             transition-colors duration-300"
+          onClick={() => window.open("https://docs.traceroot.ai", "_blank")}
           onMouseEnter={() => setIsDocsHovered(true)}
           onMouseLeave={() => setIsDocsHovered(false)}
         >
@@ -66,9 +72,15 @@ export default function Home() {
             <Button
               variant="outline"
               className="bg-zinc-800 hover:bg-zinc-800 text-white hover:text-white font-mono px-4 py-4.5 rounded-lg"
-              onClick={() => window.open('https://www.ycombinator.com', '_blank')}
+              onClick={() =>
+                window.open("https://www.ycombinator.com", "_blank")
+              }
             >
-              Backed by <span className="bg-orange-500 text-white font-mono px-2 py-1 rounded text-sm">Y</span>Combinator
+              Backed by{" "}
+              <span className="bg-orange-500 text-white font-mono px-2 py-1 rounded text-sm">
+                Y
+              </span>
+              Combinator
             </Button>
           </div>
 
@@ -79,7 +91,8 @@ export default function Home() {
 
         <div className="space-y-8 max-w-4xl mx-auto">
           <p className="leading-7 [&:not(:first-child)]:mt-6">
-            A platform for understanding application performance and debugging issues with AI agents
+            A platform for understanding application performance and debugging
+            issues with AI agents
           </p>
 
           <div className="grid gap-6 md:gap-8 mt-12">
@@ -92,7 +105,8 @@ export default function Home() {
                   <h3 className="font-semibold text-gray-800">AI Powered</h3>
                 </div>
                 <p className="text-gray-700 text-sm leading-relaxed">
-                  Customized AI agents that can answer any questions about the trace, logs, and more
+                  Customized AI agents that can answer any questions about the
+                  trace, logs, and more
                 </p>
               </div>
 
@@ -101,10 +115,13 @@ export default function Home() {
                   <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
                     <FaCode className="w-5 h-5 text-white" />
                   </div>
-                  <h3 className="font-semibold text-gray-800">Multiple Types</h3>
+                  <h3 className="font-semibold text-gray-800">
+                    Multiple Types
+                  </h3>
                 </div>
                 <p className="text-gray-700 text-sm leading-relaxed">
-                  Support systems such as microservices, voice agents, and multi-agent systems
+                  Support systems such as microservices, voice agents, and
+                  multi-agent systems
                 </p>
               </div>
 
@@ -116,7 +133,8 @@ export default function Home() {
                   <h3 className="font-semibold text-gray-800">Fast & Easy</h3>
                 </div>
                 <p className="text-gray-700 text-sm leading-relaxed">
-                  Set up in minutes with our intuitive SDK, UI interface and AI agents that get instant insights
+                  Set up in minutes with our intuitive SDK, UI interface and AI
+                  agents that get instant insights
                 </p>
               </div>
             </div>

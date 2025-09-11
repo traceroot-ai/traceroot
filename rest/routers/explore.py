@@ -75,11 +75,7 @@ try:
 except ImportError:
     from rest.utils.auth import get_user_credentials, hash_user_sub
 
-try:
-    from rest.agent.ee.agent import Agent
-except ImportError:
-    from rest.agent.agent import Agent
-
+from rest.agent.agent import Agent
 from rest.agent.summarizer.github import is_github_related, set_github_related
 from rest.utils.github import parse_github_url
 
@@ -98,8 +94,8 @@ class ExploreRouter:
         self.agent = Agent()
         self.logger = logging.getLogger(__name__)
 
-        # Choose client based on TRACE_ROOT_LOCAL_MODE environment variable
-        self.local_mode = os.getenv("TRACE_ROOT_LOCAL_MODE", "false").lower() == "true"
+        # Choose client based on REST_LOCAL_MODE environment variable
+        self.local_mode = os.getenv("REST_LOCAL_MODE", "false").lower() == "true"
         if self.local_mode:
             self.db_client = TraceRootSQLiteClient()
         else:
@@ -324,12 +320,14 @@ class ExploreRouter:
             log_group_name
         )
 
-        # Extract service names and service environment
+        # Extract service names, service environment, and log search
         # values from categories/values/operations
         service_name_values = []
         service_name_operations = []
         service_environment_values = []
         service_environment_operations = []
+        log_search_values = []
+        log_search_operations = []
 
         # Create lists to hold remaining categories/values/operations
         # after extraction
@@ -349,6 +347,9 @@ class ExploreRouter:
                 elif category == "service_environment":
                     service_environment_values.append(value)
                     service_environment_operations.append(operation)
+                elif category == "log":
+                    log_search_values.append(value)
+                    log_search_operations.append(operation)
                 else:
                     # Keep non-service categories
                     remaining_categories.append(category)
@@ -388,6 +389,18 @@ class ExploreRouter:
                 values=values,
                 operations=operations,
             )
+
+            # Filter traces by log content if log search is specified
+            if log_search_values:
+                traces = await self._filter_traces_by_log_content(
+                    traces=traces,
+                    start_time=start_time,
+                    end_time=end_time,
+                    log_group_name=log_group_name,
+                    log_search_values=log_search_values,
+                    log_search_operations=log_search_operations
+                )
+
             # Cache the traces for 10 minutes
             await self.cache.set(keys, traces)
             resp = ListTraceResponse(traces=traces)
@@ -945,3 +958,62 @@ class ExploreRouter:
                 status_code=500,
                 detail="Failed to get traces and logs usage"
             )
+
+    async def _filter_traces_by_log_content(
+        self,
+        traces: list[Trace],
+        start_time: datetime,
+        end_time: datetime,
+        log_group_name: str,
+        log_search_values: list[str],
+        log_search_operations: list[Operation]
+    ) -> list[Trace]:
+        """Filter traces by log content using CloudWatch Insights.
+
+        Args:
+            traces: List of traces to filter
+            start_time: Start time for log query
+            end_time: End time for log query
+            log_group_name: Log group name
+            log_search_values: List of search terms to look for in logs
+            log_search_operations: List of operations (currently only '=' supported)
+
+        Returns:
+            Filtered list of traces that contain the searched log content
+        """
+        if not log_search_values:
+            return traces
+
+        search_term = log_search_values[0]
+
+        try:
+            # Use CloudWatch Insights to find trace IDs
+            # from logs containing search term
+            # TODO: change all of this to JSON format
+            # Log format: timestamp;level;service;function;
+            # org;project;env;trace_id;span_id;details
+            # Extract trace_id (field 8, 0-indexed field 7)
+            # from semicolon-separated logs
+
+            # Single query to get all matching trace IDs
+            matching_trace_ids = await self.observe_client.get_trace_ids_from_logs(
+                start_time=start_time,
+                end_time=end_time,
+                log_group_name=log_group_name,
+                search_term=search_term
+            )
+
+            if not matching_trace_ids:
+                return []
+
+            # Convert to set for fast O(1) lookup
+            trace_id_set = set(matching_trace_ids)
+
+            # Filter traces by matching trace IDs
+            filtered_traces = [trace for trace in traces if trace.id in trace_id_set]
+            return filtered_traces
+
+        except Exception as e:
+            self.logger.error(f"Failed to filter traces by log content: {e}")
+            # Fallback: return all traces if log filtering fails
+            return traces

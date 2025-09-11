@@ -1,19 +1,13 @@
-import React from 'react';
-import {
-  ScatterChart,
-  Scatter,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-} from 'recharts';
-import { format } from 'date-fns';
-import { PERCENTILE_COLORS, PercentileKey } from '../../constants/colors';
+import React from "react";
+import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid } from "recharts";
+import { format } from "date-fns";
+import { PERCENTILE_COLORS, PercentileKey } from "../../constants/colors";
 import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
   ChartConfig,
-} from '../ui/chart';
+} from "../ui/chart";
 
 interface DataPoint {
   x: Date;
@@ -22,8 +16,8 @@ interface DataPoint {
   traceId?: string;
 }
 
-interface ChartDataPoint extends Omit<DataPoint, 'x'> {
-  x: number;  // timestamp
+interface ChartDataPoint extends Omit<DataPoint, "x"> {
+  x: number; // timestamp
 }
 
 interface ScatterPlotProps {
@@ -43,12 +37,12 @@ const CustomTooltipContent = ({ active, payload, label }: any) => {
     return (
       <div className="grid gap-2 p-2 bg-white rounded shadow-md border">
         <div className="text-xs font-medium text-zinc-600 dark:text-zinc-200">
-          {format(new Date(data.x), 'MMM d, yyyy HH:mm:ss')}
+          {format(new Date(data.x), "MMM d, yyyy HH:mm:ss")}
         </div>
         <div className="text-xs text-zinc-600 dark:text-zinc-200">
           Latency: {data.y.toFixed(2)}s
         </div>
-        {data.label !== 'default' && (
+        {data.label !== "default" && (
           <div className="text-xs text-zinc-600 dark:text-zinc-200">
             Label: {data.label}
           </div>
@@ -68,7 +62,7 @@ const CustomDot = (props: any) => {
     if (isPercentilePlot && Object.keys(PERCENTILE_COLORS).includes(label)) {
       return PERCENTILE_COLORS[label as PercentileKey];
     }
-    return '#8884d8'; // Default color
+    return "#8884d8"; // Default color
   };
 
   const handleClick = () => {
@@ -84,7 +78,7 @@ const CustomDot = (props: any) => {
       r={4}
       fill={getPointColor(payload.label)}
       stroke="none"
-      style={{ cursor: onPointClick ? 'pointer' : 'default' }}
+      style={{ cursor: onPointClick ? "pointer" : "default" }}
       onClick={handleClick}
     />
   );
@@ -95,20 +89,20 @@ const ScatterPlot: React.FC<ScatterPlotProps> = ({
   width = 600,
   height = 300,
   title,
-  xAxisLabel = 'Time',
-  yAxisLabel = 'Duration (ms)',
+  xAxisLabel = "Time",
+  yAxisLabel = "Duration (ms)",
   isPercentilePlot = false,
   onPointClick,
 }) => {
   // Transform dates to timestamps for the chart
-  const chartData: ChartDataPoint[] = data.map(point => ({
+  const chartData: ChartDataPoint[] = data.map((point) => ({
     ...point,
     x: point.x.getTime(),
   }));
 
   // Calculate domain with padding to avoid points on borders
-  const xValues = chartData.map(point => point.x);
-  const yValues = chartData.map(point => point.y);
+  const xValues = chartData.map((point) => point.x);
+  const yValues = chartData.map((point) => point.y);
 
   const minX = Math.min(...xValues);
   const maxX = Math.max(...xValues);
@@ -123,11 +117,15 @@ const ScatterPlot: React.FC<ScatterPlotProps> = ({
   const yDomain = [Math.max(0, minY - yPadding), maxY + yPadding];
 
   // Generate evenly spaced ticks for x-axis (time)
-  const generateEvenTimeTicks = (startTime: number, endTime: number, count: number) => {
+  const generateEvenTimeTicks = (
+    startTime: number,
+    endTime: number,
+    count: number,
+  ) => {
     const ticks = [];
     const interval = (endTime - startTime) / (count - 1);
     for (let i = 0; i < count; i++) {
-      ticks.push(startTime + (i * interval));
+      ticks.push(startTime + i * interval);
     }
     return ticks;
   };
@@ -139,18 +137,23 @@ const ScatterPlot: React.FC<ScatterPlotProps> = ({
     latency: {
       label: "Latency",
     },
-    ...(isPercentilePlot ? Object.keys(PERCENTILE_COLORS).reduce((acc, key) => ({
-      ...acc,
-      [key]: {
-        label: key,
-        color: PERCENTILE_COLORS[key as PercentileKey],
-      }
-    }), {}) : {
-      default: {
-        label: "Trace Latency",
-        color: "hsl(var(--chart-1))",
-      }
-    })
+    ...(isPercentilePlot
+      ? Object.keys(PERCENTILE_COLORS).reduce(
+          (acc, key) => ({
+            ...acc,
+            [key]: {
+              label: key,
+              color: PERCENTILE_COLORS[key as PercentileKey],
+            },
+          }),
+          {},
+        )
+      : {
+          default: {
+            label: "Trace Latency",
+            color: "hsl(var(--chart-1))",
+          },
+        }),
   } satisfies ChartConfig;
 
   // Calculate responsive margins based on container dimensions
@@ -167,19 +170,21 @@ const ScatterPlot: React.FC<ScatterPlotProps> = ({
   const margins = getResponsiveMargins();
 
   return (
-    <div className="w-full flex flex-col" style={{ height: height, maxHeight: '300px' }}>
+    <div
+      className="w-full flex flex-col"
+      style={{ height: height, maxHeight: "300px" }}
+    >
       {title && (
         <div className="text-center flex-shrink-0">
-          <h3 className="text-lg font-semibold text-zinc-600 dark:text-zinc-200">{title}</h3>
+          <h3 className="text-lg font-semibold text-zinc-600 dark:text-zinc-200">
+            {title}
+          </h3>
         </div>
       )}
       <div className="flex-1 w-full min-h-0 flex items-center justify-center">
         <div className="w-full h-full">
           <ChartContainer config={chartConfig} className="h-full w-full">
-            <ScatterChart
-              data={chartData}
-              margin={margins}
-            >
+            <ScatterChart data={chartData} margin={margins}>
               <CartesianGrid
                 strokeDasharray="3 3"
                 stroke="#a1a1aa"
@@ -192,25 +197,27 @@ const ScatterPlot: React.FC<ScatterPlotProps> = ({
                 type="number"
                 domain={xDomain}
                 ticks={xTicks}
-                tickFormatter={(timestamp) => format(new Date(timestamp), 'MMM d, HH:mm')}
+                tickFormatter={(timestamp) =>
+                  format(new Date(timestamp), "MMM d, HH:mm")
+                }
                 tick={{
                   fontSize: 11,
-                  fill: '#52525b',
-                  className: 'dark:fill-zinc-200'
+                  fill: "#52525b",
+                  className: "dark:fill-zinc-200",
                 }}
-                axisLine={{ stroke: '#71717a', strokeWidth: 1 }}
-                tickLine={{ stroke: '#71717a', strokeWidth: 1 }}
+                axisLine={{ stroke: "#71717a", strokeWidth: 1 }}
+                tickLine={{ stroke: "#71717a", strokeWidth: 1 }}
                 label={{
                   value: xAxisLabel,
-                  position: 'insideBottom',
+                  position: "insideBottom",
                   offset: -10,
                   style: {
-                    textAnchor: 'middle',
-                    fill: '#52525b',
-                    fontSize: '14px',
-                    fontWeight: '500'
+                    textAnchor: "middle",
+                    fill: "#52525b",
+                    fontSize: "14px",
+                    fontWeight: "500",
                   },
-                  className: 'dark:fill-zinc-200'
+                  className: "dark:fill-zinc-200",
                 }}
               />
               <YAxis
@@ -220,29 +227,34 @@ const ScatterPlot: React.FC<ScatterPlotProps> = ({
                 tickCount={7}
                 tick={{
                   fontSize: 11,
-                  fill: '#52525b',
-                  className: 'dark:fill-zinc-200'
+                  fill: "#52525b",
+                  className: "dark:fill-zinc-200",
                 }}
-                axisLine={{ stroke: '#71717a', strokeWidth: 1 }}
-                tickLine={{ stroke: '#71717a', strokeWidth: 1 }}
+                axisLine={{ stroke: "#71717a", strokeWidth: 1 }}
+                tickLine={{ stroke: "#71717a", strokeWidth: 1 }}
                 label={{
                   value: yAxisLabel,
                   angle: -90,
-                  position: 'insideLeft',
+                  position: "insideLeft",
                   style: {
-                    textAnchor: 'middle',
-                    fill: '#52525b',
-                    fontSize: '14px',
-                    fontWeight: '500'
+                    textAnchor: "middle",
+                    fill: "#52525b",
+                    fontSize: "14px",
+                    fontWeight: "500",
                   },
-                  className: 'dark:fill-zinc-200'
+                  className: "dark:fill-zinc-200",
                 }}
               />
               <ChartTooltip content={<CustomTooltipContent />} />
               <Scatter
                 data={chartData}
-                name={isPercentilePlot ? 'Trace Latency' : 'Trace Latency'}
-                shape={<CustomDot onPointClick={onPointClick} isPercentilePlot={isPercentilePlot} />}
+                name={isPercentilePlot ? "Trace Latency" : "Trace Latency"}
+                shape={
+                  <CustomDot
+                    onPointClick={onPointClick}
+                    isPercentilePlot={isPercentilePlot}
+                  />
+                }
               />
             </ScatterChart>
           </ChartContainer>

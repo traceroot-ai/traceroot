@@ -1,32 +1,42 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useRef, useEffect } from "react";
 import { Send } from "lucide-react";
 import { CiChat2 } from "react-icons/ci";
 import { GiBrain } from "react-icons/gi";
 import { RiRobot2Line } from "react-icons/ri";
 import { MdCloudQueue } from "react-icons/md";
 import {
+  Navbar13,
+  type Navbar13Option,
+} from "@/components/ui/shadcn-io/navbar-13";
+import {
   CHAT_MODEL_DISPLAY_NAMES,
-  CHAT_MODELS,
   type ChatModel,
   PROVIDERS,
   PROVIDER_DISPLAY_NAMES,
   type Provider,
   DEFAULT_PROVIDER,
   getModelsByProvider,
-  getDefaultModelForProvider
-} from '../../../constants/model';
-import { Badge } from '../../ui/badge';
-import { Button } from '../../ui/button';
-import { Spinner } from '../../ui/shadcn-io/spinner';
+  getDefaultModelForProvider,
+} from "../../../constants/model";
+import { Badge } from "../../ui/badge";
+import {
+  PromptInput,
+  PromptInputTextarea,
+  PromptInputToolbar,
+  PromptInputTools,
+  PromptInputButton,
+  PromptInputSubmit,
+  type PromptInputStatus,
+} from "../../ui/prompt-input";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
-} from '../../ui/dropdown-menu';
+} from "../../ui/dropdown-menu";
 
-type Mode = 'agent' | 'chat';
+type Mode = "agent" | "chat";
 
 interface MessageInputProps {
   inputMessage: string;
@@ -55,44 +65,17 @@ export default function MessageInput({
   selectedProvider = DEFAULT_PROVIDER,
   setSelectedProvider,
   traceId,
-  spanIds = []
+  spanIds = [],
 }: MessageInputProps) {
-  const [textareaHeight, setTextareaHeight] = useState('auto');
-
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const status: PromptInputStatus = isLoading ? "streaming" : "ready";
+  const hasTraceOrSpans = !!(traceId || (spanIds && spanIds.length > 0));
 
   useEffect(() => {
     if (!isLoading && inputRef.current) {
       inputRef.current.focus();
     }
   }, [isLoading]);
-
-  const adjustTextareaHeight = () => {
-    const textarea = inputRef.current;
-    if (!textarea) return;
-
-    // Reset height to auto to get the correct scrollHeight
-    textarea.style.height = 'auto';
-
-    // Get the computed line height
-    const lineHeight = parseInt(window.getComputedStyle(textarea).lineHeight);
-    const minHeight = lineHeight; // One line height
-    const maxHeight = lineHeight * 5; // Maximum 5 lines
-
-    // Set the height based on content, but clamp between min and max
-    const newHeight = Math.min(Math.max(textarea.scrollHeight, minHeight), maxHeight);
-    textarea.style.height = `${newHeight}px`;
-  };
-
-  useEffect(() => {
-    adjustTextareaHeight();
-  }, [inputMessage]);
-
-
-
-  const handleModelSelect = (model: string) => {
-    setSelectedModel(model as ChatModel);
-  };
 
   const handleProviderSelect = (provider: string) => {
     const newProvider = provider as Provider;
@@ -107,110 +90,125 @@ export default function MessageInput({
   // Get available models for current provider
   const availableModels = getModelsByProvider(selectedProvider);
 
-  const handleModeSelect = (mode: string) => {
-    setSelectedMode(mode as Mode);
+  // Define mode options for Navbar13
+  const modeOptions: Navbar13Option<Mode>[] = [
+    {
+      value: "agent",
+      name: "Agent",
+      description: "Advanced functionalities such as GitHub",
+      icon: RiRobot2Line,
+    },
+    {
+      value: "chat",
+      name: "Chat",
+      description: "Fast summarization and root cause analysis",
+      icon: CiChat2,
+    },
+  ];
+
+  // Define model options for Navbar13
+  const getModelDescription = (model: ChatModel): string => {
+    switch (model) {
+      case "gpt-5":
+        return "Best performance but slow";
+      case "gpt-4o":
+        return "Fast with reasonable performance";
+      case "gpt-4.1":
+        return "Better performance than GPT-4o";
+      case "auto":
+        return "Balance performance and cost";
+      case "openai/gpt-oss-120b":
+        return "Best open source reasoning model";
+      default:
+        return "";
+    }
   };
 
-  const getModeIcon = (mode: Mode) => {
-    return mode === 'agent' ? RiRobot2Line : CiChat2;
-  };
-
-  const getModeDisplayName = (mode: Mode) => {
-    return mode === 'agent' ? 'Agent' : 'Chat';
-  };
+  const modelOptions: Navbar13Option<ChatModel>[] = availableModels.map(
+    (model) => ({
+      value: model,
+      name: CHAT_MODEL_DISPLAY_NAMES[model],
+      description: getModelDescription(model),
+      icon: GiBrain,
+    }),
+  );
 
   return (
-    <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-      <form onSubmit={onSendMessage} className="p-3">
-        <div className="mb-1 text-xs text-gray-500 dark:text-gray-400 pb-1 px-1 flex gap-2 items-center">
+    <div className="border border-zinc-300 rounded-lg dark:border-zinc-700 bg-white dark:bg-zinc-800 mx-4 mb-2">
+      <div className="p-3">
+        <div className="mb-1 text-xs text-gray-500 dark:text-gray-400 pb-2 flex gap-2 items-center">
           {traceId && (
-            <Badge variant="secondary" className="font-mono">
+            <Badge variant="outline" className="font-mono">
               Trace: {traceId}
             </Badge>
           )}
           {spanIds && spanIds.length > 0 && (
-            <Badge variant="secondary" className="font-mono">
-              Spans selected: {spanIds.length}
+            <Badge variant="outline" className="font-mono">
+              Spans: {spanIds.length}
             </Badge>
           )}
           {!traceId && (!spanIds || spanIds.length === 0) && (
-            <span>No trace or spans selected</span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono ml-0">
+              No trace or spans selected
+            </span>
           )}
         </div>
-        <div className="flex flex-col gap-2">
-          <div className="relative w-full">
-            <textarea
-              ref={inputRef}
-              value={inputMessage}
-              onChange={(e) => {
-                setInputMessage(e.target.value);
-                adjustTextareaHeight();
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  if (!isLoading && inputMessage.trim()) {
-                    // Manually trigger form submit
-                    onSendMessage(e as any);
-                  }
+        <PromptInput
+          onSubmit={onSendMessage}
+          className="divide-y-0 border-0 bg-transparent shadow-none rounded-none"
+        >
+          <PromptInputTextarea
+            ref={inputRef}
+            value={inputMessage}
+            onChange={(e) => setInputMessage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                if (!isLoading && inputMessage.trim()) {
+                  onSendMessage(e as any);
                 }
-              }}
-              placeholder={isLoading ? "Agent is thinking..." : "Type your message..."}
-              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 resize-none leading-relaxed overflow-y-auto text-sm"
-              style={{ height: textareaHeight }}
-              disabled={isLoading}
-              rows={1}
-            />
-            {isLoading && (
-              <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                <Spinner variant="infinite" className="w-4 h-4 text-neutral-500" />
-              </div>
-            )}
-          </div>
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
+              }
+            }}
+            placeholder={
+              isLoading
+                ? "Agent is thinking..."
+                : hasTraceOrSpans
+                  ? "Type your message..."
+                  : "Select a trace to start chatting"
+            }
+            disabled={isLoading || !hasTraceOrSpans}
+            minRows={1}
+            maxRows={5}
+            className="rounded-md border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 focus:ring-1 focus:ring-neutral-500 focus:border-neutral-500 transition-all duration-200"
+          />
+          <PromptInputToolbar className="border-t-0 pt-1 pb-0 px-0">
+            <PromptInputTools>
               {/* Mode selector */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="gap-2 bg-zinc-50 dark:bg-zinc-900">
-                    {React.createElement(getModeIcon(selectedMode), { className: "w-4 h-4" })}
-                    <span className="text-xs">
-                      {getModeDisplayName(selectedMode)}
-                    </span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="top" align="start">
-                  <DropdownMenuRadioGroup value={selectedMode} onValueChange={handleModeSelect}>
-                    <DropdownMenuRadioItem value="agent">
-                      <RiRobot2Line className="w-4 h-4" />
-                      Agent
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="chat">
-                      <CiChat2 className="w-4 h-4" />
-                      Chat
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Navbar13
+                options={modeOptions}
+                selectedValue={selectedMode}
+                onValueChange={setSelectedMode}
+                label=""
+              />
 
               {/* Provider selector */}
               {setSelectedProvider && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="gap-2 bg-zinc-50 dark:bg-zinc-900">
+                    <PromptInputButton variant="outline">
                       <MdCloudQueue className="w-4 h-4" />
                       <span className="text-xs">
                         {PROVIDER_DISPLAY_NAMES[selectedProvider]}
                       </span>
-                    </Button>
+                    </PromptInputButton>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent side="top" align="start">
-                    <DropdownMenuRadioGroup value={selectedProvider} onValueChange={handleProviderSelect}>
-                      {Object.entries(PROVIDERS).map(([key, value]) => (
-                        <DropdownMenuRadioItem
-                          key={value}
-                          value={value}
-                        >
+                    <DropdownMenuRadioGroup
+                      value={selectedProvider}
+                      onValueChange={handleProviderSelect}
+                    >
+                      {Object.entries(PROVIDERS).map(([, value]) => (
+                        <DropdownMenuRadioItem key={value} value={value}>
                           {PROVIDER_DISPLAY_NAMES[value]}
                         </DropdownMenuRadioItem>
                       ))}
@@ -219,46 +217,25 @@ export default function MessageInput({
                 </DropdownMenu>
               )}
 
-              {/* Brain icon and model display */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="gap-2 bg-zinc-50 dark:bg-zinc-900">
-                    <GiBrain className="w-4 h-4" />
-                    <span className="text-xs">
-                      {CHAT_MODEL_DISPLAY_NAMES[selectedModel]}
-                    </span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="top" align="start">
-                  <DropdownMenuRadioGroup value={selectedModel} onValueChange={handleModelSelect}>
-                    {availableModels.map((model) => (
-                      <DropdownMenuRadioItem
-                        key={model}
-                        value={model}
-                      >
-                        {CHAT_MODEL_DISPLAY_NAMES[model]}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+              {/* Model selector */}
+              <Navbar13
+                options={modelOptions}
+                selectedValue={selectedModel}
+                onValueChange={setSelectedModel}
+                label=""
+              />
+            </PromptInputTools>
 
-            <Button
-              type="submit"
-              size="icon"
-              className="w-8 h-8 bg-neutral-700 dark:bg-neutral-300 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-800"
-              disabled={!inputMessage.trim() || isLoading}
+            <PromptInputSubmit
+              status={status}
+              disabled={!inputMessage.trim() || !hasTraceOrSpans}
+              className="bg-neutral-700 dark:bg-neutral-300 hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-800"
             >
-              {isLoading ? (
-                <Spinner variant="infinite" className="w-4 h-4 text-white" />
-              ) : (
-                <Send className="w-4 h-4" />
-              )}
-            </Button>
-          </div>
-        </div>
-      </form>
+              {!isLoading && <Send className="w-4 h-4" />}
+            </PromptInputSubmit>
+          </PromptInputToolbar>
+        </PromptInput>
+      </div>
     </div>
   );
 }

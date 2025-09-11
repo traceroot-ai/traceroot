@@ -1,0 +1,86 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "maple",
+  "name": "TraceRoot.AI",
+  "colors": {
+    "primary": "#78716c",
+    "light": "#78716c",
+    "dark": "#3f3f46"
+  },
+  "favicon": "/favicon.png",
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude"
+    ]
+  },
+  "icons": {
+    "library": "lucide"
+  },
+  "navigation": {
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Website",
+          "href": "https://traceroot.ai",
+          "icon": "globe"
+        },
+        {
+          "anchor": "Community",
+          "href": "https://discord.gg/tPyffEZvvJ",
+          "icon": "discord"
+        }
+      ]
+    },
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "icon": "book",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "index",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "SDK",
+            "pages": [
+              "sdk/python",
+              "sdk/typescript"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "navbar": {
+    "links": [
+      {
+        "type": "button",
+        "label": "Examples",
+        "href": "https://github.com/traceroot-ai/traceroot/tree/main/examples"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "GitHub",
+      "href": "https://github.com/traceroot-ai/traceroot"
+    }
+  },
+  "footer": {
+    "socials": {
+      "x": "https://x.com/TracerootAI",
+      "github": "https://github.com/traceroot-ai",
+      "linkedin": "https://www.linkedin.com/company/traceroot-ai",
+      "discord": "https://discord.gg/tPyffEZvvJ"
+    }
+  }
+}

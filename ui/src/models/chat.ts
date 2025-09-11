@@ -1,7 +1,7 @@
 import { ChatModel } from "@/constants/model";
 import { ChatMode } from "@/constants/model";
 
-export type MessageType = "assistant" | "user" | "github";
+export type MessageType = "assistant" | "user" | "github" | "statistics";
 export type ActionType = "github_get_file" | "agent_chat";
 export type ActionStatus = "pending" | "success" | "failed" | "cancelled";
 export type Provider = "openai" | "custom" | "groq";
@@ -29,26 +29,26 @@ export interface ChatRequest {
 }
 
 export interface ChatbotResponse {
-    time: number;
-    message: string;
-    reference: Reference[];
-    message_type: MessageType;
-    chat_id: string;
-    action_type?: ActionType;
-    status?: ActionStatus;
+  time: number;
+  message: string;
+  reference: Reference[];
+  message_type: MessageType;
+  chat_id: string;
+  action_type?: ActionType;
+  status?: ActionStatus;
 }
 
 export interface ChatResponse {
-    success: boolean;
-    data: ChatbotResponse | null;
-    error?: string;
+  success: boolean;
+  data: ChatbotResponse | null;
+  error?: string;
 }
 
 export interface ChatMetadata {
-    chat_id: string;
-    timestamp: number;
-    chat_title: string;
-    trace_id: string;
+  chat_id: string;
+  timestamp: number;
+  chat_title: string;
+  trace_id: string;
 }
 
 export interface ChatMetadata {
@@ -63,9 +63,8 @@ export interface ChatMetadataHistory {
 }
 
 export interface GetChatMetadataHistoryRequest {
-    trace_id: string;
+  trace_id: string;
 }
-
 
 export interface GetChatMetadataRequest {
   chat_id: string;

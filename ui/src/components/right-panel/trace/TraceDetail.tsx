@@ -1,15 +1,23 @@
-import React, { useState } from 'react';
-import { Span } from '@/models/trace';
-import { PERCENTILE_COLORS, getPercentileColor, PercentileKey } from '@/constants/colors';
-import { Badge } from '@/components/ui/badge';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import React, { useState } from "react";
+import { Span } from "@/models/trace";
+import {
+  PERCENTILE_COLORS,
+  getPercentileColor,
+  PercentileKey,
+} from "@/constants/colors";
+import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-} from '@/components/ui/sheet';
+} from "@/components/ui/sheet";
 
 interface TraceDetailProps {
   traceId?: string;
@@ -70,7 +78,7 @@ const getPercentileTag = (percentile: string) => {
       className="w-12 h-5 font-mono mr-1 text-xs items-center justify-center text-zinc-700"
       style={{
         background: `${color}`,
-        boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.2)'
+        boxShadow: "inset 0 1px 1px rgba(255, 255, 255, 0.2)",
       }}
     >
       {percentile}
@@ -85,9 +93,11 @@ export default function TraceDetail({
   traceStartTime,
   traceEndTime,
   traceDuration,
-  percentile
+  percentile,
 }: TraceDetailProps) {
-  const [selectedSpanForSheet, setSelectedSpanForSheet] = useState<Span | null>(null);
+  const [selectedSpanForSheet, setSelectedSpanForSheet] = useState<Span | null>(
+    null,
+  );
   const [isSheetOpen, setIsSheetOpen] = useState(false);
 
   // Function to estimate if badges will fit in the span width
@@ -107,7 +117,7 @@ export default function TraceDetail({
         <div className="bg-white dark:bg-gray-800 p-2 overflow-y-auto flex-1 min-h-0">
           <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700">
             <p className="text-gray-600 dark:text-gray-300">
-              {!traceId ? 'No trace selected' : 'No spans found for this trace'}
+              {!traceId ? "No trace selected" : "No spans found for this trace"}
             </p>
           </div>
         </div>
@@ -117,13 +127,22 @@ export default function TraceDetail({
 
   // Calculate trace timing if not provided
   const allSpansFlat = getAllSpans(spans);
-  const actualTraceStartTime = traceStartTime || Math.min(...allSpansFlat.map(s => s.start_time));
-  const actualTraceEndTime = traceEndTime || Math.max(...allSpansFlat.map(s => s.end_time));
-  const actualTraceDuration = traceDuration || (actualTraceEndTime - actualTraceStartTime);
+  const actualTraceStartTime =
+    traceStartTime || Math.min(...allSpansFlat.map((s) => s.start_time));
+  const actualTraceEndTime =
+    traceEndTime || Math.max(...allSpansFlat.map((s) => s.end_time));
+  const actualTraceDuration =
+    traceDuration || actualTraceEndTime - actualTraceStartTime;
 
   // Ensure we have the true trace boundaries by also considering span end times
-  const trueTraceStart = Math.min(actualTraceStartTime, ...allSpansFlat.map(s => s.start_time));
-  const trueTraceEnd = Math.max(actualTraceEndTime, ...allSpansFlat.map(s => s.start_time + s.duration));
+  const trueTraceStart = Math.min(
+    actualTraceStartTime,
+    ...allSpansFlat.map((s) => s.start_time),
+  );
+  const trueTraceEnd = Math.max(
+    actualTraceEndTime,
+    ...allSpansFlat.map((s) => s.start_time + s.duration),
+  );
   const trueTraceDuration = trueTraceEnd - trueTraceStart;
 
   const allSpans = getAllSpans(spans);
@@ -141,11 +160,11 @@ export default function TraceDetail({
   const timeMarkers = [];
   const markerCount = 10;
   for (let i = 0; i <= markerCount; i++) {
-    const relativeTime = (trueTraceDuration * i / markerCount);
+    const relativeTime = (trueTraceDuration * i) / markerCount;
     timeMarkers.push({
       position: (i / markerCount) * 100,
       time: relativeTime,
-      label: formatTime(relativeTime)
+      label: formatTime(relativeTime),
     });
   }
 
@@ -161,9 +180,15 @@ export default function TraceDetail({
         <div className="bg-white dark:bg-zinc-900 p-2 rounded-lg border border-zinc-200 dark:border-zinc-700 m-2 flex-shrink-0">
           <div className="flex flex-wrap items-center gap-4 text-xs text-black-600 dark:text-black-400">
             {percentile && getPercentileTag(percentile)}
-            <Badge variant="secondary" className="h-6">Trace ID: {traceId}</Badge>
-            <Badge variant="outline" className="h-6">Latency: {formatTime(trueTraceDuration)}</Badge>
-            <Badge variant="secondary" className="h-6">Spans: {allSpans.length}</Badge>
+            <Badge variant="secondary" className="h-6">
+              Trace ID: {traceId}
+            </Badge>
+            <Badge variant="outline" className="h-6">
+              Latency: {formatTime(trueTraceDuration)}
+            </Badge>
+            <Badge variant="secondary" className="h-6">
+              Spans: {allSpans.length}
+            </Badge>
           </div>
         </div>
 
@@ -186,13 +211,23 @@ export default function TraceDetail({
                     <div
                       className="w-0.5 h-2 bg-gray-500 dark:bg-gray-400 mb-1.5"
                       style={{
-                        transform: isFirst ? 'translateX(0)' : isLast ? 'translateX(-100%)' : 'translateX(-50%)'
+                        transform: isFirst
+                          ? "translateX(0)"
+                          : isLast
+                            ? "translateX(-100%)"
+                            : "translateX(-50%)",
                       }}
                     ></div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 whitespace-nowrap"
-                         style={{
-                           transform: isFirst ? 'translateX(0)' : isLast ? 'translateX(-100%)' : 'translateX(-50%)'
-                         }}>
+                    <div
+                      className="text-xs text-gray-500 dark:text-gray-400 mt-1 whitespace-nowrap"
+                      style={{
+                        transform: isFirst
+                          ? "translateX(0)"
+                          : isLast
+                            ? "translateX(-100%)"
+                            : "translateX(-50%)",
+                      }}
+                    >
                       {marker.label}
                     </div>
                   </div>
@@ -210,32 +245,40 @@ export default function TraceDetail({
                 const spanLatency = formatTime(span.duration);
 
                 // Calculate actual pixel width from percentage
-                const spanWidthPercent = (span.duration / trueTraceDuration) * 100;
+                const spanWidthPercent =
+                  (span.duration / trueTraceDuration) * 100;
                 const containerWidth = 800;
-                const spanPixelWidth = (spanWidthPercent / 100) * containerWidth;
+                const spanPixelWidth =
+                  (spanWidthPercent / 100) * containerWidth;
                 const contentFits = estimateBadgesFit(span, spanPixelWidth);
 
                 // For very small spans, use minimal styling
                 const isVerySmall = spanWidthPercent < 1; // Less than 1% of total duration
-                const paddingClass = isVerySmall ? 'px-0.1' : 'px-2';
-                const borderClass = isVerySmall ? 'border' : 'border';
+                const paddingClass = isVerySmall ? "px-0.1" : "px-2";
+                const borderClass = isVerySmall ? "border" : "border";
 
                 const spanElement = (
                   <div
                     className={`absolute h-9 rounded cursor-pointer flex items-center ${paddingClass} gap-1 overflow-hidden ${borderClass} ${
                       isSelected
-                        ? 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600'
-                        : 'bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-900 border-zinc-200 dark:border-zinc-700'
+                        ? "bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600"
+                        : "bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-900 border-zinc-200 dark:border-zinc-700"
                     }`}
                     style={position}
                     onClick={() => handleSpanClick(span)}
                   >
                     {contentFits ? (
                       <div className="span-content flex items-center gap-1 min-w-0">
-                        <Badge variant="secondary" className="text-xs h-5 px-2 py-0 flex-shrink-0">
+                        <Badge
+                          variant="secondary"
+                          className="text-xs h-5 px-2 py-0 flex-shrink-0"
+                        >
                           {span.name}
                         </Badge>
-                        <Badge variant="outline" className="text-xs h-5 px-2 py-0 flex-shrink-0">
+                        <Badge
+                          variant="outline"
+                          className="text-xs h-5 px-2 py-0 flex-shrink-0"
+                        >
                           {spanLatency}
                         </Badge>
                       </div>
@@ -251,13 +294,13 @@ export default function TraceDetail({
                       spanElement
                     ) : (
                       <Tooltip>
-                        <TooltipTrigger asChild>
-                          {spanElement}
-                        </TooltipTrigger>
+                        <TooltipTrigger asChild>{spanElement}</TooltipTrigger>
                         <TooltipContent>
                           <div className="flex flex-col gap-1">
                             <div className="font-medium">{span.name}</div>
-                            <div className="text-xs opacity-90">{spanLatency}</div>
+                            <div className="text-xs opacity-90">
+                              {spanLatency}
+                            </div>
                           </div>
                         </TooltipContent>
                       </Tooltip>
@@ -275,7 +318,7 @@ export default function TraceDetail({
                 </h4>
                 <div className="flex flex-wrap gap-2">
                   {allSpans
-                    .filter(span => selectedSpanIds.has(span.id))
+                    .filter((span) => selectedSpanIds.has(span.id))
                     .map((span, index) => {
                       return (
                         <Badge
@@ -331,7 +374,9 @@ export default function TraceDetail({
                         Start Time
                       </label>
                       <p className="text-sm font-mono bg-muted/50 p-2 rounded border">
-                        {new Date(selectedSpanForSheet.start_time * 1000).toLocaleString()}
+                        {new Date(
+                          selectedSpanForSheet.start_time * 1000,
+                        ).toLocaleString()}
                       </p>
                     </div>
 
@@ -340,7 +385,9 @@ export default function TraceDetail({
                         End Time
                       </label>
                       <p className="text-sm font-mono bg-muted/50 p-2 rounded border">
-                        {new Date(selectedSpanForSheet.end_time * 1000).toLocaleString()}
+                        {new Date(
+                          selectedSpanForSheet.end_time * 1000,
+                        ).toLocaleString()}
                       </p>
                     </div>
                   </div>

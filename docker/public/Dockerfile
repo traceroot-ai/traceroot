@@ -107,7 +107,7 @@ ENV NEXT_PUBLIC_REST_API_ENDPOINT="http://localhost:8000"
 ENV JAEGER_URL="http://host.docker.internal:16686"
 
 # Set local mode to true
-ENV TRACE_ROOT_LOCAL_MODE=true
+ENV REST_LOCAL_MODE=true
 ENV NEXT_PUBLIC_LOCAL_MODE=true
 
 # Expose ports

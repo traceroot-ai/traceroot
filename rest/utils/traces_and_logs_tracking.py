@@ -10,7 +10,11 @@ from typing import Any, Optional
 from autumn import Autumn
 
 from rest.config.trace import Trace
-from rest.utils.ee.auth import hash_user_sub
+
+try:
+    from rest.utils.ee.auth import hash_user_sub
+except ImportError:
+    from rest.utils.auth import hash_user_sub
 
 logger = logging.getLogger(__name__)
 

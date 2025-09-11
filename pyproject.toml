@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "traceroot-framework"
-version = "0.0.1"
+version = "0.1.1"
 description = "TraceRoot - Comprehensive AI-powered tracing, monitoring and REST API solution"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,7 +30,7 @@ keywords = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
@@ -69,6 +69,7 @@ dependencies = [
     "docstring_parser==0.17.0",
     "autumn-py==2.2.2",
     "aiohttp==3.12.15",
+    "groq==0.11.0",
 ]
 
 [project.optional-dependencies]
@@ -115,6 +116,7 @@ all = [
     "mypy==1.17.0",
     "pre-commit==4.2.0",
     "aiohttp==3.12.15",
+    "groq==0.11.0",
 ]
 
 [project.urls]
@@ -141,3 +143,6 @@ line_length = 90
 
 [tool.flake8]
 max-line-length = 90
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

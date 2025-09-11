@@ -1,0 +1,79 @@
+# Python SDK for TraceRoot
+
+## Introduction
+This SDK is a lightweight wrapper around OpenTelemetry, optimized for ease of use.
+
+
+## Installation
+```bash
+pip install traceroot
+```
+
+## Environment Setup
+
+Create an [TraceRoot token](https://test.traceroot.ai/integrate) from the dashboard, and add it to your backend `.env` file.
+
+```bash .env
+# The token for the TraceRoot API
+TRACEROOT_TOKEN=traceroot-430246
+
+# The name of the service you are tracking
+TRACEROOT_SERVICE_NAME=traceroot
+
+# The owner of the GitHub repository
+TRACEROOT_GITHUB_OWNER=github_owner
+
+# The name of the GitHub repository
+TRACEROOT_GITHUB_REPO_NAME=github_repo_name
+
+# The commit hash of the GitHub repository
+TRACEROOT_GITHUB_COMMIT_HASH=main
+
+# Enable cloud export of spans (default: `true`)
+TRACEROOT_ENABLE_SPAN_CLOUD_EXPORT=true
+
+# Enable cloud export of logs (default: `true`)
+TRACEROOT_ENABLE_LOG_CLOUD_EXPORT=true
+
+# Enable console export of spans (default: `false`)
+TRACEROOT_ENABLE_SPAN_CONSOLE_EXPORT=false
+
+# Enable console export of logs (default: `true`)
+TRACEROOT_ENABLE_LOG_CONSOLE_EXPORT=true
+```
+
+## Examples
+
+Uses `@traceroot.trace()` for traces and TraceRoot logger similar to the default Python logger.
+
+If you specify the `name` parameter in the decorator, it will be used as the span name shown in the TraceRoot.AI platform.
+
+```python
+import traceroot
+import asyncio
+
+logger = traceroot.get_logger()
+
+@traceroot.trace(name="greet")
+async def greet(name: str) -> str:
+    logger.info(f"Greeting inside traced function: {name}")
+    # Simulate some async work
+    await asyncio.sleep(0.1)
+    return f"Hello, {name}!"
+
+async def main():
+    result = await greet("world")
+    logger.info(f"Greeting result: {result}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Development Installation
+If you want to contribute or use the latest features, install from source:
+
+```bash
+git clone https://github.com/traceroot-ai/traceroot-sdk.git
+cd traceroot
+pip install -e .
+```

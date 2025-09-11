@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 from rest.typing import (
     ActionStatus,
@@ -36,6 +36,17 @@ class ChatbotResponse(BaseModel):
     chat_id: str
     action_type: ActionType | None = None
     status: ActionStatus | None = None
+
+    @field_serializer('time')
+    def serialize_time(self, dt: datetime, _info) -> str:
+        """Serialize datetime to ISO string with explicit UTC timezone indicator."""
+        if dt.tzinfo is None:
+            # If naive datetime, assume UTC
+            return dt.isoformat() + 'Z'
+        else:
+            # Convert to UTC and add Z suffix
+            utc_dt = dt.astimezone(timezone.utc)
+            return utc_dt.isoformat().replace('+00:00', 'Z')
 
 
 class ChatHistoryResponse(BaseModel):

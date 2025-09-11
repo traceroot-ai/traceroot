@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Span as SpanType } from '@/models/trace';
-import { TRACE_ENTRY_COLOR } from '@/constants/colors';
-import { fadeInAnimationStyles } from '@/constants/animations';
+import React, { useState, useEffect } from "react";
+import { Span as SpanType } from "@/models/trace";
+import { TRACE_ENTRY_COLOR } from "@/constants/colors";
+import { fadeInAnimationStyles } from "@/constants/animations";
 import { IoWarningOutline, IoLogoJavascript } from "react-icons/io5";
 import { MdErrorOutline } from "react-icons/md";
 import { FaPython } from "react-icons/fa";
@@ -12,6 +12,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { CirclePlus, CircleMinus } from "lucide-react";
 
 // Function to calculate and format latency
 const formatLatency = (startTime: number, endTime: number): string => {
@@ -36,6 +37,8 @@ interface SpanProps {
   level?: number;
   parentHasMoreSiblings?: boolean[];
   isRepeated?: boolean;
+  expandedSpans?: Set<string>;
+  onSpanExpandToggle?: (spanId: string, event: React.MouseEvent) => void;
 }
 
 const Span: React.FC<SpanProps> = ({
@@ -47,10 +50,15 @@ const Span: React.FC<SpanProps> = ({
   selectedSpanIds = [],
   level = 0,
   parentHasMoreSiblings = [],
-  isRepeated = false
+  isRepeated = false,
+  expandedSpans = new Set<string>(),
+  onSpanExpandToggle,
 }) => {
   const childWidthPercentage = Math.max(widthPercentage, 10);
   const [isExpanded, setIsExpanded] = useState(false);
+  const hasChildren = span.spans && span.spans.length > 0;
+  // Spans are expanded by default unless explicitly collapsed
+  const isSpanExpanded = !expandedSpans.has(span.id);
 
   // Reset and trigger animation when span changes
   useEffect(() => {
@@ -84,11 +92,13 @@ const Span: React.FC<SpanProps> = ({
 
   const renderChildSpans = (childSpans: SpanType[]) => {
     // Identify repeated leaf spans among siblings
-    const leafSpans = childSpans.filter(childSpan => !childSpan.spans || childSpan.spans.length === 0);
+    const leafSpans = childSpans.filter(
+      (childSpan) => !childSpan.spans || childSpan.spans.length === 0,
+    );
     const spanNameCounts = new Map<string, number>();
 
     // Count occurrences of each span name among leaf spans
-    leafSpans.forEach(leafSpan => {
+    leafSpans.forEach((leafSpan) => {
       const count = spanNameCounts.get(leafSpan.name) || 0;
       spanNameCounts.set(leafSpan.name, count + 1);
     });
@@ -104,24 +114,24 @@ const Span: React.FC<SpanProps> = ({
     return (
       <div className="relative">
         {/* Vertical Line: extends naturally with the content */}
-        {isExpanded && (
+        {isExpanded && isSpanExpanded && (
           <div
             className="absolute top-0 w-px"
             style={{
               left: `${100 - childWidthPercentage}%`, // Position at the left edge of child spans
-              height: '100%',
-              background: '#e5e7eb',
+              height: "100%",
+              background: "#e5e7eb",
               zIndex: 0,
             }}
           />
         )}
 
         <div
-          className={`mt-1 space-y-1.5 overflow-hidden transition-all duration-100 ease-in-out ${isExpanded ? 'max-h-[3000px] opacity-100' : 'max-h-0 opacity-0'}`}
+          className={`mt-1 space-y-1.5 overflow-hidden transition-all duration-100 ease-in-out ${isExpanded && isSpanExpanded ? "max-h-none opacity-100" : "max-h-0 opacity-0"}`}
           style={{
             width: `${childWidthPercentage}%`,
             marginLeft: `${100 - childWidthPercentage}%`,
-            willChange: 'max-height, opacity'
+            willChange: "max-height, opacity",
           }}
         >
           {childSpans.map((childSpan, index) => {
@@ -141,6 +151,8 @@ const Span: React.FC<SpanProps> = ({
                 level={level + 1}
                 parentHasMoreSiblings={[...parentHasMoreSiblings, !isLast]}
                 isRepeated={false}
+                expandedSpans={expandedSpans}
+                onSpanExpandToggle={onSpanExpandToggle}
               />
             );
           })}
@@ -153,41 +165,54 @@ const Span: React.FC<SpanProps> = ({
     <>
       {level === 0 && <style>{fadeInAnimationStyles}</style>}
       <div
-        className={`relative space-y-1.5 transition-all duration-100 ease-in-out ${isExpanded ? 'animate-fadeIn' : ''}`}
+        className={`relative space-y-1.5 transition-all duration-100 ease-in-out ${isExpanded ? "animate-fadeIn" : ""}`}
         style={{
           width: `${widthPercentage}%`,
           marginLeft: `${100 - widthPercentage}%`,
           opacity: isExpanded ? 1 : 0,
-          transform: `translateY(${isExpanded ? '0' : '-10px'})`,
-          willChange: 'opacity, transform',
+          transform: `translateY(${isExpanded ? "0" : "-10px"})`,
+          willChange: "opacity, transform",
         }}
       >
         <div
           onClick={handleSpanClick}
-          className={`h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-300 ease-in-out hover:scale-[1.01] hover:shadow-sm ${
+          className={`h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-300 ease-in-out hover:shadow-sm ${
             isSelected
-              ? 'bg-zinc-100 dark:bg-zinc-900'
-              : 'bg-white dark:bg-zinc-900'
+              ? "bg-zinc-100 dark:bg-zinc-900"
+              : "bg-white dark:bg-zinc-900"
           }`}
         >
-          <div className="flex items-center h-full">
-            {/* Python Icon - show when telemetry_sdk_language is "python" */}
-            {span.telemetry_sdk_language === "python" && (
-              <FaPython className="text-neutral-700 dark:text-neutral-300 mr-2" size={14} />
-            )}
+          <div className="flex justify-between items-center h-full">
+            <div className="flex items-center min-w-0 flex-1 pr-4">
+              {/* Language Icons Container */}
+              <div className="flex items-center flex-shrink-0">
+                {/* Python Icon - show when telemetry_sdk_language is "python" */}
+                {span.telemetry_sdk_language === "python" && (
+                  <FaPython
+                    className="text-neutral-700 dark:text-neutral-300 mr-2"
+                    size={14}
+                  />
+                )}
 
-            {/* TypeScript Icon - show when telemetry_sdk_language is "ts" */}
-            {span.telemetry_sdk_language === "ts" && (
-              <SiTypescript className="text-neutral-700 dark:text-neutral-300 mr-2" size={14} />
-            )}
+                {/* TypeScript Icon - show when telemetry_sdk_language is "ts" */}
+                {span.telemetry_sdk_language === "ts" && (
+                  <SiTypescript
+                    className="text-neutral-700 dark:text-neutral-300 mr-2"
+                    size={14}
+                  />
+                )}
 
-            {/* JavaScript Icon - show when telemetry_sdk_language is "js" */}
-            {span.telemetry_sdk_language === "js" && (
-              <IoLogoJavascript className="text-neutral-700 dark:text-neutral-300 mr-2" size={14} />
-            )}
+                {/* JavaScript Icon - show when telemetry_sdk_language is "js" */}
+                {span.telemetry_sdk_language === "js" && (
+                  <IoLogoJavascript
+                    className="text-neutral-700 dark:text-neutral-300 mr-2"
+                    size={14}
+                  />
+                )}
+              </div>
 
-            {/* Span Tag */}
-            {/* <span
+              {/* Span Tag */}
+              {/* <span
               className="inline-flex w-16 h-6 mr-2 text-xs items-center justify-center rounded-md italic"
               style={{
                 background: '#f3f4f6',
@@ -198,8 +223,8 @@ const Span: React.FC<SpanProps> = ({
               func
             </span> */}
 
-            {/* Repeated Tag - only show for repeated leaf spans */}
-            {/* {isRepeated && (
+              {/* Repeated Tag - only show for repeated leaf spans */}
+              {/* {isRepeated && (
               <span
                 className="inline-flex h-6 mr-2 text-xs items-center justify-center rounded-md px-2"
                 style={{
@@ -212,72 +237,103 @@ const Span: React.FC<SpanProps> = ({
               </span>
             )} */}
 
-            {span.name.length > 20 ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
+              {/* Function Name Badge */}
+              {(() => {
+                const fullFunctionName = span.name;
+                const shouldShowTooltip = fullFunctionName.length > 20;
+
+                const badge = (
                   <Badge
                     variant="outline"
-                    className="h-6 mr-1 justify-center font-mono font-normal max-w-fit"
+                    className="h-6 mr-1 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left"
+                    title={shouldShowTooltip ? fullFunctionName : undefined}
                   >
-                    {span.name.slice(0, 35) + '...'}
+                    {fullFunctionName}
                   </Badge>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{span.name}</p>
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <Badge
-                variant="outline"
-                className="h-6 mr-1 justify-center font-mono font-normal max-w-fit"
-              >
-                {span.name}
-              </Badge>
-            )}
+                );
 
-            {/* Logs */}
+                return shouldShowTooltip ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>{badge}</TooltipTrigger>
+                    <TooltipContent>
+                      <p>{fullFunctionName}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  badge
+                );
+              })()}
 
-            {/* Error icon for error/critical logs */}
-            {((span.num_error_logs ?? 0) > 0 || (span.num_critical_logs ?? 0) > 0) && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Badge
-                    variant="destructive"
-                    className="h-6 mr-1 px-1 font-normal"
-                  >
-                    <MdErrorOutline size={16} className="text-white" />
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{`${span.num_error_logs ?? 0} error logs, ${span.num_critical_logs ?? 0} critical logs`}</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
+              {/* Warning and Error Badges Container */}
+              <div className="flex items-center flex-shrink-0">
+                {/* Error icon for error/critical logs */}
+                {((span.num_error_logs ?? 0) > 0 ||
+                  (span.num_critical_logs ?? 0) > 0) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant="destructive"
+                        className="h-6 mr-1 px-1 font-normal"
+                      >
+                        <MdErrorOutline size={16} className="text-white" />
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{`${span.num_error_logs ?? 0} error logs, ${span.num_critical_logs ?? 0} critical logs`}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
 
-            {/* Warning icon for warning logs */}
-            {((span.num_warning_logs ?? 0) > 0) && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Badge
-                    variant="secondary"
-                    className="h-6 mr-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-normal"
-                  >
-                    <IoWarningOutline size={16} className="text-white" />
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{`${span.num_warning_logs ?? 0} warning logs`}</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
+                {/* Warning icon for warning logs */}
+                {(span.num_warning_logs ?? 0) > 0 && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant="secondary"
+                        className="h-6 mr-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-normal"
+                      >
+                        <IoWarningOutline size={16} className="text-white" />
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{`${span.num_warning_logs ?? 0} warning logs`}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+            </div>
 
-            <span className="flex items-center text-xs text-neutral-600 dark:text-neutral-300 ml-auto">
-              {formatLatency(span.start_time, span.end_time)}
-            </span>
+            {/* Latency and Expand/Collapse icon */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className="text-xs text-neutral-600 dark:text-neutral-300">
+                {formatLatency(span.start_time, span.end_time)}
+              </span>
+              {hasChildren && onSpanExpandToggle && (
+                <button
+                  onClick={(e) => onSpanExpandToggle(span.id, e)}
+                  className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
+                >
+                  {isSpanExpanded ? (
+                    <CircleMinus
+                      size={14}
+                      className="text-neutral-600 dark:text-neutral-300"
+                    />
+                  ) : (
+                    <CirclePlus
+                      size={14}
+                      className="text-neutral-600 dark:text-neutral-300"
+                    />
+                  )}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
-        {span.spans && span.spans.length > 0 && renderChildSpans(span.spans)}
+        {span.spans &&
+          span.spans.length > 0 &&
+          isSpanExpanded &&
+          renderChildSpans(span.spans)}
       </div>
     </>
   );

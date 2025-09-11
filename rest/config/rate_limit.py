@@ -19,7 +19,8 @@ class RateLimitConfig:
     post_integrate_limit: str = "20/minute"
     get_integrate_limit: str = "60/minute"
     delete_integrate_limit: str = "20/minute"
-    get_verify_credentials_limit: str = "60/minute"
+    # TODO: Improve this
+    get_verify_credentials_limit: str = "7200/minute"
 
     # Global defaults
     default_limit: str = "120/minute"

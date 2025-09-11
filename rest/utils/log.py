@@ -3,13 +3,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 from rest.config.log import LogEntry, TraceLogs
+from rest.utils.constants import SKIP_LOG_FIELDS
 
 
 def process_log_events(all_events: list[dict[str, Any]]) -> TraceLogs:
-    """Process AWS CloudWatch log events into structured TraceLogs.
+    """Process log events into structured TraceLogs with proper chronological ordering.
 
     Args:
-        all_events: List of raw CloudWatch log events
+        all_events: List of raw log events (from CloudWatch, Jaeger, etc.)
 
     Returns:
         TraceLogs: Structured trace logs with LogEntry objects
@@ -41,6 +42,18 @@ def process_log_events(all_events: list[dict[str, Any]]) -> TraceLogs:
     if span_logs is not None:
         logs.append(span_logs)
 
+    # Sort log entries within each span by timestamp,
+    # then by line number for identical timestamps
+    # It's possible that the same timestamp is used for multiple log entries
+    # for example in the typescript sdk a batch of logs are sent at the same time
+    # This ensures proper chronological order even when logs have
+    # identical timestamps
+    for span_log_dict in logs:
+        for span_id, log_entries in span_log_dict.items():
+            log_entries.sort(
+                key=lambda entry: (entry.time, getattr(entry, 'line_number', 0))
+            )
+
     trace_logs = TraceLogs(logs=logs)
     return trace_logs
 
@@ -56,7 +69,17 @@ def _load_json(message: str, ) -> tuple[LogEntry, str] | tuple[None, None]:
     # For now for WARN to WARNING for typescript case
     if level == "WARN":
         level = "WARNING"
-    message = json_data['message']
+
+    filtered_data = {}
+    # Add data fields that are not in the skip list
+    for key, value in json_data.items():
+        if key not in SKIP_LOG_FIELDS:
+            filtered_data[key] = value
+
+    if len(filtered_data) > 1:
+        message = json.dumps(filtered_data)
+    else:
+        message = json_data['message']
 
     if 'stack_trace' in json_data:
         stack = json_data['stack_trace']

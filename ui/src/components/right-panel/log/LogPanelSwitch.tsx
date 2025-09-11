@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import React from 'react';
-import LogOverview from './LogOverview';
-import LogDetail from './LogDetail';
-import { Span } from '@/models/trace';
-import { ViewType } from '../ModeToggle';
+import React from "react";
+import LogOverview from "./LogOverview";
+import LogDetail from "./LogDetail";
+import { Span } from "@/models/trace";
+import { ViewType } from "../ModeToggle";
 
 interface LogPanelSwitchProps {
   traceId?: string;
@@ -17,6 +17,8 @@ interface LogPanelSwitchProps {
   traceEndTimes?: Date[];
   traceIDs?: string[];
   tracePercentiles?: string[];
+  logSearchValue?: string;
+  metadataSearchTerms?: { category: string; value: string }[];
   onTraceSelect?: (traceId: string) => void;
   viewType?: ViewType;
 }
@@ -32,11 +34,13 @@ export default function LogPanelSwitch({
   traceEndTimes = [],
   traceIDs = [],
   tracePercentiles = [],
+  logSearchValue = "",
+  metadataSearchTerms = [],
   onTraceSelect,
-  viewType
+  viewType,
 }: LogPanelSwitchProps) {
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col dark:bg-zinc-950">
       {traceId ? (
         <LogDetail
           traceId={traceId}
@@ -44,6 +48,8 @@ export default function LogPanelSwitch({
           traceQueryStartTime={traceQueryStartTime}
           traceQueryEndTime={traceQueryEndTime}
           segments={segments}
+          logSearchValue={logSearchValue}
+          metadataSearchTerms={metadataSearchTerms}
           viewType={viewType}
         />
       ) : (

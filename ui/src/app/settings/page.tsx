@@ -10,8 +10,6 @@ import {
   FaChartLine,
 } from 'react-icons/fa';
 import { useUser } from '../../hooks/useUser';
-// NOTE: This hook is only used in the prod component below.
-// In local mode we never render that component, so no Autumn calls are made.
 import { useCustomer } from 'autumn-js/react';
 import { toast } from 'react-hot-toast';
 import {
@@ -332,8 +330,9 @@ function SettingsWithAutumn() {
         return;
       }
 
+      // Get the last payment date from customer subscription
       const activeProduct = customer.products.find(
-        (product: any) =>
+        (product) =>
           product.status === 'active' || product.status === 'trialing'
       );
       if (!activeProduct) {
@@ -343,17 +342,21 @@ function SettingsWithAutumn() {
 
       const sinceDate = activeProduct.current_period_start
         ? new Date(activeProduct.current_period_start).toISOString()
-        : new Date().toISOString();
+        : new Date().toISOString(); // Fallback to current date
 
+      // Use GET with query parameters
       const url = new URL(
         '/api/get_traces_and_logs_usage',
         window.location.origin
       );
+      console.log('sinceDate', sinceDate);
       url.searchParams.set('since_date', sinceDate);
 
       const response = await fetch(url.toString(), {
         method: 'GET',
-        headers: { Authorization: `Bearer ${authState}` },
+        headers: {
+          Authorization: `Bearer ${authState}`,
+        },
       });
 
       if (response.ok) {
@@ -379,9 +382,12 @@ function SettingsWithAutumn() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customer, isLoading]);
 
-  const formatNumber = (num: number) =>
-    new Intl.NumberFormat('en-US').format(num);
+  // Format numbers with commas for better readability
+  const formatNumber = (num: number) => {
+    return new Intl.NumberFormat('en-US').format(num);
+  };
 
+  // Get color based on usage percentage
   const getUsageColor = (percentage: number) => {
     if (percentage >= 90) return 'text-destructive';
     if (percentage >= 75) return 'text-yellow-600 dark:text-yellow-400';
@@ -389,39 +395,59 @@ function SettingsWithAutumn() {
   };
 
   const getCurrentPlan = () => {
-    if (!customer?.products || customer.products.length === 0) return 'Free';
+    console.log('customer', customer);
+    if (!customer?.products || customer.products.length === 0) {
+      return 'Free';
+    }
+
+    // Find the currently active product (including trialing status)
     const activeProduct = customer.products.find(
-      (product: any) =>
-        product.status === 'active' || product.status === 'trialing'
+      (product) => product.status === 'active' || product.status === 'trialing'
     );
+
     return activeProduct?.name || 'Free';
   };
 
   const hasActiveSubscription = () => {
-    if (!customer?.products || customer.products.length === 0) return false;
+    if (!customer?.products || customer.products.length === 0) {
+      return false;
+    }
+
     return customer.products.some(
-      (product: any) =>
-        product.status === 'active' || product.status === 'trialing'
+      (product) => product.status === 'active' || product.status === 'trialing'
     );
   };
 
   const isOnTrial = () => {
-    if (!customer?.products || customer.products.length === 0) return false;
-    return customer.products.some(
-      (product: any) => product.status === 'trialing'
-    );
+    if (!customer?.products || customer.products.length === 0) {
+      return false;
+    }
+
+    return customer.products.some((product) => product.status === 'trialing');
   };
 
   const getTrialEndDate = () => {
-    if (!customer?.products || customer.products.length === 0) return null;
+    if (!customer?.products || customer.products.length === 0) {
+      return null;
+    }
+
     const trialProduct = customer.products.find(
-      (product: any) => product.status === 'trialing'
+      (product) => product.status === 'trialing'
     );
+
+    // Debug: log the trial product to see available fields
+    if (trialProduct) {
+      console.log('Trial product:', trialProduct);
+      console.log('Trial product keys:', Object.keys(trialProduct));
+    }
+
+    // Check multiple possible field names for trial end date
     return (
       trialProduct?.trial_ends_at || trialProduct?.current_period_end || null
     );
   };
 
+  // Capitalize the plan name for display
   const formatPlanName = (plan: string | null | undefined) => {
     if (!plan) return 'Free';
     return plan.charAt(0).toUpperCase() + plan.slice(1);
@@ -448,8 +474,10 @@ function SettingsWithAutumn() {
       console.error('Error opening billing portal:', error);
       toast.dismiss('billing-redirect');
 
+      // More specific error messages
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error occurred';
+
       if (
         errorMessage.includes('configuration') ||
         errorMessage.includes('portal')
@@ -475,11 +503,18 @@ function SettingsWithAutumn() {
   };
 
   const getSubscriptionStatus = () => {
-    if (!customer)
+    if (!customer) {
       return { status: 'Loading...', variant: 'secondary' as const };
-    if (!hasActiveSubscription())
+    }
+
+    if (!hasActiveSubscription()) {
       return { status: 'No Subscription', variant: 'secondary' as const };
-    if (isOnTrial()) return { status: 'Trial', variant: 'secondary' as const };
+    }
+
+    if (isOnTrial()) {
+      return { status: 'Trial', variant: 'secondary' as const };
+    }
+
     return { status: 'Active', variant: 'default' as const };
   };
 
@@ -569,7 +604,7 @@ function SettingsWithAutumn() {
             <CardHeader>
               <div className="flex items-center space-x-2.5">
                 <FaCrown className="text-foreground" size={20} />
-                <CardTitle className="text-base font-semibold">
+                <CardTitle className="font-semibold text-sm">
                   CURRENT PLAN
                 </CardTitle>
               </div>
@@ -604,15 +639,18 @@ function SettingsWithAutumn() {
                       <div className="text-sm font-medium mt-1">
                         {(() => {
                           if (!customer.created_at) return 'N/A';
+
                           try {
                             const date = new Date(customer.created_at);
-                            if (isNaN(date.getTime())) return 'N/A';
+                            if (isNaN(date.getTime())) {
+                              return 'N/A';
+                            }
                             return date.toLocaleDateString('en-US', {
                               year: 'numeric',
                               month: '2-digit',
                               day: '2-digit',
                             });
-                          } catch {
+                          } catch (error) {
                             return 'N/A';
                           }
                         })()}
@@ -639,7 +677,7 @@ function SettingsWithAutumn() {
             <CardHeader>
               <div className="flex items-center space-x-2.5">
                 <FaRobot className="text-foreground" size={20} />
-                <CardTitle className="text-base font-semibold">
+                <CardTitle className="font-semibold text-sm">
                   LLM TOKEN USAGE
                 </CardTitle>
               </div>
@@ -685,7 +723,7 @@ function SettingsWithAutumn() {
                             style={{
                               width: `${Math.min(100, tokenInfo.percentage)}%`,
                             }}
-                          />
+                          ></div>
                         </div>
                       </div>
                     )}
@@ -710,11 +748,13 @@ function SettingsWithAutumn() {
                       </div>
                     </div>
                     {tokenInfo.percentage >= 80 && (
-                      <div className={`text-xs p-2 rounded border ${
-                        tokenInfo.percentage >= 90
-                          ? 'bg-destructive/10 text-destructive border-destructive/20 dark:bg-destructive/5 dark:text-destructive dark:border-destructive/10'
-                          : 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-300 dark:border-yellow-500/20'
-                      }`}>
+                      <div
+                        className={`text-xs p-2 rounded border ${
+                          tokenInfo.percentage >= 90
+                            ? 'bg-destructive/10 text-destructive border-destructive/20 dark:bg-destructive/5 dark:text-destructive dark:border-destructive/10'
+                            : 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-300 dark:border-yellow-500/20'
+                        }`}
+                      >
                         {tokenInfo.percentage >= 90
                           ? "⚠️ You're running low on LLM tokens. Consider upgrading your plan."
                           : "💡 You've used most of your LLM tokens this month."}
@@ -731,7 +771,7 @@ function SettingsWithAutumn() {
             <CardHeader>
               <div className="flex items-center space-x-2.5">
                 <FaChartLine className="text-foreground" size={20} />
-                <CardTitle className="text-base font-semibold">
+                <CardTitle className="font-semibold text-sm">
                   TRACES & LOGS USAGE
                 </CardTitle>
               </div>
@@ -760,6 +800,7 @@ function SettingsWithAutumn() {
                     </div>
                   );
                 }
+
                 if (
                   tracesLogsInfo.limit === 0 &&
                   tracesLogsInfo.remaining === 0
@@ -801,7 +842,7 @@ function SettingsWithAutumn() {
                             style={{
                               width: `${Math.min(100, tracesLogsInfo.percentage)}%`,
                             }}
-                          />
+                          ></div>
                         </div>
                       </div>
                     )}
@@ -826,11 +867,13 @@ function SettingsWithAutumn() {
                       </div>
                     </div>
                     {tracesLogsInfo.percentage >= 80 && (
-                      <div className={`text-xs p-2 rounded border ${
-                        tracesLogsInfo.percentage >= 90
-                          ? 'bg-destructive/10 text-destructive border-destructive/20 dark:bg-destructive/5 dark:text-destructive dark:border-destructive/10'
-                          : 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-300 dark:border-yellow-500/20'
-                      }`}>
+                      <div
+                        className={`text-xs p-2 rounded border ${
+                          tracesLogsInfo.percentage >= 90
+                            ? 'bg-destructive/10 text-destructive border-destructive/20 dark:bg-destructive/5 dark:text-destructive dark:border-destructive/10'
+                            : 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-300 dark:border-yellow-500/20'
+                        }`}
+                      >
                         {tracesLogsInfo.percentage >= 90
                           ? "⚠️ You're running low on traces & logs quota. Consider upgrading your plan."
                           : "💡 You've used most of your traces & logs quota this month."}
@@ -848,10 +891,10 @@ function SettingsWithAutumn() {
               <div className="flex items-center space-x-2.5">
                 <FaCreditCard className="text-foreground" size={24} />
                 <div className="flex-1 min-w-0">
-                  <CardTitle className="text-base font-semibold">
+                  <CardTitle className="text-sm font-semibold">
                     Account Actions
                   </CardTitle>
-                  <CardDescription className="text-sm">
+                  <CardDescription className="text-xs">
                     Manage your subscription and billing
                   </CardDescription>
                 </div>
@@ -901,14 +944,29 @@ function SettingsWithAutumn() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {customer.invoices.slice(-3).reverse().map((invoice: any, index) => (
-                    <div key={invoice.id || invoice.stripe_id || index} className="flex items-center justify-between py-2 border-b border-border last:border-b-0">
-                      <div className="text-sm font-medium">
-                        ${((invoice.amount_paid || invoice.amount || 0) / 100).toFixed(2)}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        {invoice.created ? new Date(invoice.created * 1000).toLocaleDateString() :
-                         invoice.date ? new Date(invoice.date).toLocaleDateString() : 'N/A'}
+                  {customer.invoices
+                    .slice(-3)
+                    .reverse()
+                    .map((invoice: any, index) => (
+                      <div
+                        key={invoice.id || invoice.stripe_id || index}
+                        className="flex items-center justify-between py-2 border-b border-border last:border-b-0"
+                      >
+                        <div className="text-sm font-medium">
+                          $
+                          {(
+                            (invoice.amount_paid || invoice.amount || 0) / 100
+                          ).toFixed(2)}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {invoice.created
+                            ? new Date(
+                                invoice.created * 1000
+                              ).toLocaleDateString()
+                            : invoice.date
+                              ? new Date(invoice.date).toLocaleDateString()
+                              : 'N/A'}
+                        </div>
                       </div>
                     ))}
                 </div>
