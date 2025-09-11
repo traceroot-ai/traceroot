@@ -3,9 +3,29 @@
 ```bash
 python3.11 -m venv venv
 source venv/bin/activate
-cp .env.example .env
 pip install -r requirements.txt
 export OPENAI_API_KEY=your_api_key_here
+```
+
+# Environment Setup
+
+To run any of the examples in this folder, you can either:
+
+### Option 1: Copy the example environment file
+
+```bash
+cp .env.example .env
+```
+
+### Option 2: Manually export the environment variables
+
+```
+export TRACEROOT_SERVICE_NAME=example
+export TRACEROOT_GITHUB_OWNER=traceroot-ai
+export TRACEROOT_GITHUB_REPO_NAME=traceroot
+export TRACEROOT_GITHUB_COMMIT_HASH=main
+export TRACEROOT_TOKEN=traceroot-12345
+export TRACEROOT_LOCAL_MODE=true
 ```
 
 # Run REST API
