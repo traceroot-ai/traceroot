@@ -1,7 +1,7 @@
-"use client";
+'use client';
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   Telescope,
   LibraryBig,
@@ -12,9 +12,9 @@ import {
   BookText,
   Moon,
   Sun,
-} from "lucide-react";
-import { FaUser } from "react-icons/fa";
-import { RxCross1 } from "react-icons/rx";
+} from 'lucide-react';
+import { FaUser } from 'react-icons/fa';
+import { RxCross1 } from 'react-icons/rx';
 
 import {
   Sidebar,
@@ -28,9 +28,9 @@ import {
   SidebarGroupLabel,
   SidebarGroupContent,
   useSidebar,
-} from "@/components/ui/sidebar";
-import { Separator } from "@/components/ui/separator";
-import { Button } from "@/components/ui/button";
+} from '@/components/ui/sidebar';
+import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogClose,
@@ -39,12 +39,12 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
-import { useUser } from "../../hooks/useUser";
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useTheme } from 'next-themes';
+import { useEffect, useState } from 'react';
+import { useUser } from '../../hooks/useUser';
 
 function LogoComponent() {
   const { state } = useSidebar();
@@ -53,18 +53,18 @@ function LogoComponent() {
   return (
     <div
       className={`flex items-center rounded-md m-2 hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors
-    ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+    ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-2'}`}
     >
       <Link
         href="/"
-        className={`flex items-center group ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+        className={`flex items-center group ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-2'}`}
       >
         <div
-          className={`${theme === "dark" ? "bg-white" : "bg-black"} rounded-lg p-1.5`}
+          className={`${theme === 'dark' ? 'bg-white' : 'bg-black'} rounded-lg p-1.5`}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            className={`h-6 w-6 ${theme === "dark" ? "text-black" : "text-white"}`}
+            className={`h-6 w-6 ${theme === 'dark' ? 'text-black' : 'text-white'}`}
             viewBox="0 0 22 22"
             fill="none"
             stroke="currentColor"
@@ -92,7 +92,7 @@ function LogoComponent() {
             <circle cx="17" cy="19" r="2.5" />
           </svg>
         </div>
-        {state === "expanded" && (
+        {state === 'expanded' && (
           <div className="flex flex-col">
             <span className="font-semibold text-sm text-neutral-800 dark:text-neutral-200">
               TraceRoot.AI
@@ -114,16 +114,16 @@ function ExploreComponent() {
   return (
     <SidebarMenuButton
       asChild
-      isActive={pathname === "/explore"}
+      isActive={pathname === '/explore'}
       tooltip="Exploration"
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-2'}`}
     >
       <Link
         href="/explore"
-        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+        className={`flex items-center w-full ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-2'}`}
       >
         <Telescope className="!w-6 !h-6" />
-        {state === "expanded" && <span>Explore</span>}
+        {state === 'expanded' && <span>Explore</span>}
       </Link>
     </SidebarMenuButton>
   );
@@ -135,16 +135,16 @@ function IntegrateComponent() {
   return (
     <SidebarMenuButton
       asChild
-      isActive={pathname === "/integrate"}
+      isActive={pathname === '/integrate'}
       tooltip="Integration"
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-2'}`}
     >
       <Link
         href="/integrate"
-        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+        className={`flex items-center w-full ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-2'}`}
       >
         <LibraryBig className="!w-6 !h-6" />
-        {state === "expanded" && <span>Integrate</span>}
+        {state === 'expanded' && <span>Integrate</span>}
       </Link>
     </SidebarMenuButton>
   );
@@ -158,16 +158,16 @@ function ContactComponent() {
       asChild
       isActive={false}
       tooltip="Contact"
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-2'}`}
     >
       <a
-        href="https://traceroot.ai"
+        href="https://cal.com/traceroot/30min"
         target="_blank"
         rel="noopener noreferrer"
-        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+        className={`flex items-center w-full ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-2'}`}
       >
         <Mail className="!w-6 !h-6" />
-        {state === "expanded" && <span>Contact</span>}
+        {state === 'expanded' && <span>Contact</span>}
       </a>
     </SidebarMenuButton>
   );
@@ -180,16 +180,16 @@ function DocumentationComponent() {
       asChild
       isActive={false}
       tooltip="Documentation"
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-2'}`}
     >
       <a
         href="https://docs.traceroot.ai"
         target="_blank"
         rel="noopener noreferrer"
-        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+        className={`flex items-center w-full ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-2'}`}
       >
         <BookText className="!w-6 !h-6" />
-        {state === "expanded" && <span>Documentation</span>}
+        {state === 'expanded' && <span>Documentation</span>}
       </a>
     </SidebarMenuButton>
   );
@@ -202,16 +202,16 @@ function SettingsComponent() {
   return (
     <SidebarMenuButton
       asChild
-      isActive={pathname === "/settings"}
+      isActive={pathname === '/settings'}
       tooltip="Settings"
-      className={`flex items-center rounded-md p-2 mb-1 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-1"}`}
+      className={`flex items-center rounded-md p-2 mb-1 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-1'}`}
     >
       <Link
         href="/settings"
-        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-1"}`}
+        className={`flex items-center w-full ${state === 'collapsed' ? 'justify-center' : 'justify-start gap-1'}`}
       >
         <Settings className="!w-6 !h-6" />
-        {state === "expanded" && <span>Settings</span>}
+        {state === 'expanded' && <span>Settings</span>}
       </Link>
     </SidebarMenuButton>
   );
@@ -223,7 +223,7 @@ function ProfileComponent() {
 
   const handleSignOut = () => {
     logout();
-    window.location.href = "https://auth.traceroot.ai/";
+    window.location.href = 'https://auth.traceroot.ai/';
   };
 
   if (isLoading) {
@@ -232,7 +232,7 @@ function ProfileComponent() {
         <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center animate-pulse">
           <div className="w-4 h-4 bg-gray-400 dark:bg-gray-300 rounded-full"></div>
         </div>
-        {state === "expanded" && (
+        {state === 'expanded' && (
           <div className="flex flex-col animate-pulse">
             <div className="font-semibold text-sm bg-gray-400 dark:bg-gray-300 rounded-full w-16 mb-1"></div>
             <div className="font-semibold text-sm bg-gray-400 dark:bg-gray-300 rounded-full w-20"></div>
@@ -248,11 +248,11 @@ function ProfileComponent() {
         <Button
           variant="ghost"
           className={`flex items-center gap-2 hover:bg-sidebar-accent transition-colors h-auto p-2 ${
-            state === "collapsed" ? "justify-center" : "justify-start"
+            state === 'collapsed' ? 'justify-center' : 'justify-start'
           }`}
         >
           <div
-            key={`avatar-${avatarLetter || "no-letter"}`}
+            key={`avatar-${avatarLetter || 'no-letter'}`}
             className="w-8 h-8 rounded-md flex items-center justify-center"
             title="User Profile"
           >
@@ -267,13 +267,13 @@ function ProfileComponent() {
               <FaUser className="text-sidebar-foreground" size={14} />
             )}
           </div>
-          {state === "expanded" && (
+          {state === 'expanded' && (
             <div className="flex flex-col flex-1 min-w-0 text-left">
               <span className="text-xs font-medium truncate">
-                {user?.given_name || user?.email?.split("@")[0] || "First Name"}
+                {user?.given_name || user?.email?.split('@')[0] || 'First Name'}
               </span>
               <span className="text-xs truncate">
-                {user?.family_name || "Last Name"}
+                {user?.family_name || 'Last Name'}
               </span>
             </div>
           )}
@@ -296,7 +296,7 @@ function ProfileComponent() {
                 ? `Hello ${user.given_name}!`
                 : user?.email
                   ? `Hello ${user.email}!`
-                  : "Welcome!"}
+                  : 'Welcome!'}
             </DialogTitle>
           </div>
         </DialogHeader>
@@ -309,7 +309,7 @@ function ProfileComponent() {
                 <Input
                   id="email"
                   name="email"
-                  value={user.email || ""}
+                  value={user.email || ''}
                   readOnly
                   className="bg-muted"
                 />
@@ -320,7 +320,7 @@ function ProfileComponent() {
                   <Input
                     id="given-name"
                     name="given-name"
-                    value={user.given_name || ""}
+                    value={user.given_name || ''}
                     readOnly
                     className="bg-muted"
                   />
@@ -332,7 +332,7 @@ function ProfileComponent() {
                   <Input
                     id="family-name"
                     name="family-name"
-                    value={user.family_name || ""}
+                    value={user.family_name || ''}
                     readOnly
                     className="bg-muted"
                   />
@@ -344,7 +344,7 @@ function ProfileComponent() {
                   <Input
                     id="company"
                     name="company"
-                    value={user.company || ""}
+                    value={user.company || ''}
                     readOnly
                     className="bg-muted"
                   />
@@ -392,16 +392,16 @@ function DarkModeToggle() {
   }, []);
 
   const toggleDarkMode = () => {
-    setTheme(theme === "dark" ? "light" : "dark");
+    setTheme(theme === 'dark' ? 'light' : 'dark');
   };
 
   if (!mounted) {
     return (
       <SidebarMenuButton
-        className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+        className={`flex items-center rounded-md p-2 mb-2 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-2'}`}
       >
         <Moon className="!w-5 !h-5" />
-        {state === "expanded" && <span>Dark Mode</span>}
+        {state === 'expanded' && <span>Dark Mode</span>}
       </SidebarMenuButton>
     );
   }
@@ -409,18 +409,18 @@ function DarkModeToggle() {
   return (
     <SidebarMenuButton
       tooltip={
-        theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"
+        theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'
       }
       onClick={toggleDarkMode}
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-2'}`}
     >
-      {theme === "dark" ? (
+      {theme === 'dark' ? (
         <Sun className="!w-5 !h-5" />
       ) : (
         <Moon className="!w-5 !h-5" />
       )}
-      {state === "expanded" && (
-        <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
+      {state === 'expanded' && (
+        <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
       )}
     </SidebarMenuButton>
   );
@@ -431,16 +431,16 @@ function ExpandCollapseButton() {
 
   return (
     <SidebarMenuButton
-      tooltip={state === "collapsed" ? "Expand" : "Collapse"}
+      tooltip={state === 'collapsed' ? 'Expand' : 'Collapse'}
       onClick={toggleSidebar}
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === 'collapsed' ? '!justify-center' : '!justify-start gap-2'}`}
     >
-      {state === "collapsed" ? (
+      {state === 'collapsed' ? (
         <ArrowRightFromLine className="!w-5.5 !h-5.5" />
       ) : (
         <ArrowLeftFromLine className="!w-5.5 !h-5.5" />
       )}
-      {state === "expanded" && <span>Collapse</span>}
+      {state === 'expanded' && <span>Collapse</span>}
     </SidebarMenuButton>
   );
 }
