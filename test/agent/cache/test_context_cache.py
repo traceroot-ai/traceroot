@@ -6,18 +6,14 @@ following the principles from the Manus blog.
 """
 
 import json
-import pytest
-from datetime import datetime, timezone, timedelta
-from unittest.mock import Mock, patch
+from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
-from rest.agent.cache.context_cache import (
-    ContextCache, 
-    ContextCacheConfig, 
-    CacheStrategy,
-    ContextCacheEntry
-)
+import pytest
+
+from rest.agent.cache.context_cache import CacheStrategy, ContextCache, ContextCacheConfig
 from rest.agent.cache.manager import ContextCacheManager
-from rest.agent.context.tree import SpanNode, LogNode
+from rest.agent.context.tree import LogNode, SpanNode
 from rest.agent.typing import LogFeature, SpanFeature
 
 
@@ -80,14 +76,22 @@ class TestContextCache:
         log_features = [LogFeature.LOG_LEVEL, LogFeature.LOG_MESSAGE_VALUE]
         span_features = [SpanFeature.SPAN_LATENCY]
         user_message = "test message"
-        
+
         key1 = context_cache._generate_cache_key(
-            trace_id, log_features, span_features, "tree_hash", user_message
+            trace_id,
+            log_features,
+            span_features,
+            "tree_hash",
+            user_message
         )
         key2 = context_cache._generate_cache_key(
-            trace_id, log_features, span_features, "tree_hash", user_message
+            trace_id,
+            log_features,
+            span_features,
+            "tree_hash",
+            user_message
         )
-        
+
         assert key1 == key2
         assert len(key1) == 16  # Should be truncated to 16 chars
 
@@ -95,7 +99,7 @@ class TestContextCache:
         """Test tree hash generation for change detection."""
         hash1 = context_cache._generate_tree_hash(sample_span_node)
         hash2 = context_cache._generate_tree_hash(sample_span_node)
-        
+
         assert hash1 == hash2
         assert len(hash1) == 16
 
@@ -105,23 +109,40 @@ class TestContextCache:
         log_features = [LogFeature.LOG_LEVEL]
         span_features = [SpanFeature.SPAN_LATENCY]
         user_message = "test message"
-        
+
         # First call should be a miss
         result = context_cache.get_cached_context(
-            trace_id, sample_span_node, log_features, span_features, user_message
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message
         )
         assert result is None
-        
+
         # Cache the context
-        context_data = json.dumps(sample_span_node.to_dict(span_features, log_features), indent=4)
+        context_data = json.dumps(
+            sample_span_node.to_dict(span_features,
+                                     log_features),
+            indent=4
+        )
         cache_key = context_cache.cache_context(
-            trace_id, sample_span_node, log_features, span_features, user_message, context_data
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message,
+            context_data
         )
         assert cache_key != ""
-        
+
         # Second call should be a hit
         result = context_cache.get_cached_context(
-            trace_id, sample_span_node, log_features, span_features, user_message
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message
         )
         assert result is not None
         assert result[0] == context_data  # context_data
@@ -139,29 +160,47 @@ class TestContextCache:
             enable_append_only=True
         )
         short_ttl_cache = ContextCache(short_ttl_config)
-        
+
         trace_id = "test_trace"
         log_features = [LogFeature.LOG_LEVEL]
         span_features = [SpanFeature.SPAN_LATENCY]
         user_message = "test message"
-        
+
         # Cache the context
-        context_data = json.dumps(sample_span_node.to_dict(span_features, log_features), indent=4)
-        short_ttl_cache.cache_context(
-            trace_id, sample_span_node, log_features, span_features, user_message, context_data
+        context_data = json.dumps(
+            sample_span_node.to_dict(span_features,
+                                     log_features),
+            indent=4
         )
-        
+        short_ttl_cache.cache_context(
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message,
+            context_data
+        )
+
         # Manually expire the entry by setting created_at to past
         cache_key = short_ttl_cache._generate_cache_key(
-            trace_id, log_features, span_features, 
-            short_ttl_cache._generate_tree_hash(sample_span_node), user_message
+            trace_id,
+            log_features,
+            span_features,
+            short_ttl_cache._generate_tree_hash(sample_span_node),
+            user_message
         )
         if cache_key in short_ttl_cache._cache:
-            short_ttl_cache._cache[cache_key].created_at = datetime.now(timezone.utc) - timedelta(seconds=1)
-        
+            short_ttl_cache._cache[cache_key].created_at = datetime.now(
+                timezone.utc
+            ) - timedelta(seconds=1)
+
         # Should be expired now
         result = short_ttl_cache.get_cached_context(
-            trace_id, sample_span_node, log_features, span_features, user_message
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message
         )
         assert result is None
 
@@ -176,25 +215,68 @@ class TestContextCache:
             enable_append_only=True
         )
         small_cache = ContextCache(small_cache_config)
-        
+
         log_features = [LogFeature.LOG_LEVEL]
         span_features = [SpanFeature.SPAN_LATENCY]
-        context_data = json.dumps(sample_span_node.to_dict(span_features, log_features), indent=4)
-        
+        context_data = json.dumps(
+            sample_span_node.to_dict(span_features,
+                                     log_features),
+            indent=4
+        )
+
         # Fill cache to capacity
-        small_cache.cache_context("trace1", sample_span_node, log_features, span_features, "msg1", context_data)
-        small_cache.cache_context("trace2", sample_span_node, log_features, span_features, "msg2", context_data)
-        
+        small_cache.cache_context(
+            "trace1",
+            sample_span_node,
+            log_features,
+            span_features,
+            "msg1",
+            context_data
+        )
+        small_cache.cache_context(
+            "trace2",
+            sample_span_node,
+            log_features,
+            span_features,
+            "msg2",
+            context_data
+        )
+
         # Add one more - should evict the first
-        small_cache.cache_context("trace3", sample_span_node, log_features, span_features, "msg3", context_data)
-        
+        small_cache.cache_context(
+            "trace3",
+            sample_span_node,
+            log_features,
+            span_features,
+            "msg3",
+            context_data
+        )
+
         # First should be evicted
-        result1 = small_cache.get_cached_context("trace1", sample_span_node, log_features, span_features, "msg1")
+        result1 = small_cache.get_cached_context(
+            "trace1",
+            sample_span_node,
+            log_features,
+            span_features,
+            "msg1"
+        )
         assert result1 is None
-        
+
         # Second and third should still be there
-        result2 = small_cache.get_cached_context("trace2", sample_span_node, log_features, span_features, "msg2")
-        result3 = small_cache.get_cached_context("trace3", sample_span_node, log_features, span_features, "msg3")
+        result2 = small_cache.get_cached_context(
+            "trace2",
+            sample_span_node,
+            log_features,
+            span_features,
+            "msg2"
+        )
+        result3 = small_cache.get_cached_context(
+            "trace3",
+            sample_span_node,
+            log_features,
+            span_features,
+            "msg3"
+        )
         assert result2 is not None
         assert result3 is not None
 
@@ -204,26 +286,41 @@ class TestContextCache:
         log_features = [LogFeature.LOG_LEVEL]
         span_features = [SpanFeature.SPAN_LATENCY]
         user_message = "test message"
-        
+
         # Cache with base context
         base_context = json.dumps(
-            sample_span_node.to_dict(span_features, log_features), indent=4
+            sample_span_node.to_dict(span_features,
+                                     log_features),
+            indent=4
         )
         cache_key1 = context_cache.cache_context(
-            trace_id, sample_span_node, log_features, span_features, user_message, base_context
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message,
+            base_context
         )
-        
+
         # Create a context that is a superset (contains the base context plus more)
-        extended_context = base_context + "\n\nAdditional context data for testing append-only behavior."
-        
+        extended_context = (
+            base_context + "\n\nAdditional context data for testing "
+            "append-only behavior."
+        )
+
         # Try to cache with extended context (superset) - same features
         cache_key2 = context_cache.cache_context(
-            trace_id, sample_span_node, log_features, span_features, user_message, extended_context
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message,
+            extended_context
         )
-        
+
         # Should reuse the same cache key for append-only update
         assert cache_key1 == cache_key2
-        
+
         # Verify the cached context was updated with extended content
         entry = context_cache._cache[cache_key1]
         assert "Additional context data" in entry.context_data
@@ -235,25 +332,42 @@ class TestContextCache:
         log_features = [LogFeature.LOG_LEVEL]
         span_features = [SpanFeature.SPAN_LATENCY]
         user_message = "test message"
-        
+
         # Cache some data
-        context_data = json.dumps(sample_span_node.to_dict(span_features, log_features), indent=4)
-        context_cache.cache_context(
-            trace_id, sample_span_node, log_features, span_features, user_message, context_data
+        context_data = json.dumps(
+            sample_span_node.to_dict(span_features,
+                                     log_features),
+            indent=4
         )
-        
+        context_cache.cache_context(
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message,
+            context_data
+        )
+
         # Verify it's cached
         result = context_cache.get_cached_context(
-            trace_id, sample_span_node, log_features, span_features, user_message
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message
         )
         assert result is not None
-        
+
         # Invalidate specific trace
         context_cache.invalidate_cache(trace_id)
-        
+
         # Should be gone
         result = context_cache.get_cached_context(
-            trace_id, sample_span_node, log_features, span_features, user_message
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message
         )
         assert result is None
 
@@ -263,21 +377,42 @@ class TestContextCache:
         log_features = [LogFeature.LOG_LEVEL]
         span_features = [SpanFeature.SPAN_LATENCY]
         user_message = "test message"
-        
+
         # Initially empty
         stats = context_cache.get_cache_stats()
         assert stats["total_entries"] == 0
-        
+
         # Cache some data
-        context_data = json.dumps(sample_span_node.to_dict(span_features, log_features), indent=4)
-        context_cache.cache_context(
-            trace_id, sample_span_node, log_features, span_features, user_message, context_data
+        context_data = json.dumps(
+            sample_span_node.to_dict(span_features,
+                                     log_features),
+            indent=4
         )
-        
+        context_cache.cache_context(
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message,
+            context_data
+        )
+
         # Access it multiple times
-        context_cache.get_cached_context(trace_id, sample_span_node, log_features, span_features, user_message)
-        context_cache.get_cached_context(trace_id, sample_span_node, log_features, span_features, user_message)
-        
+        context_cache.get_cached_context(
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message
+        )
+        context_cache.get_cached_context(
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message
+        )
+
         # Check stats
         stats = context_cache.get_cache_stats()
         assert stats["total_entries"] == 1
@@ -294,11 +429,11 @@ class TestContextCacheManager:
         log_features = [LogFeature.LOG_LEVEL]
         span_features = [SpanFeature.SPAN_LATENCY]
         user_message = "test message"
-        
+
         context, chunks, tokens, was_cached = cache_manager.get_or_build_context(
             trace_id, sample_span_node, log_features, span_features, user_message
         )
-        
+
         assert context is not None
         assert len(chunks) > 0
         assert tokens > 0
@@ -310,13 +445,13 @@ class TestContextCacheManager:
         log_features = [LogFeature.LOG_LEVEL]
         span_features = [SpanFeature.SPAN_LATENCY]
         user_message = "test message"
-        
+
         # First call - cache miss
         context1, chunks1, tokens1, was_cached1 = cache_manager.get_or_build_context(
             trace_id, sample_span_node, log_features, span_features, user_message
         )
         assert was_cached1 is False
-        
+
         # Second call - cache hit
         context2, chunks2, tokens2, was_cached2 = cache_manager.get_or_build_context(
             trace_id, sample_span_node, log_features, span_features, user_message
@@ -331,17 +466,22 @@ class TestContextCacheManager:
         log_features = [LogFeature.LOG_LEVEL]
         span_features = [SpanFeature.SPAN_LATENCY]
         user_message = "test message"
-        
+
         # Cache some data
         cache_manager.get_or_build_context(
-            trace_id, sample_span_node, log_features, span_features, user_message
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message
         )
-        
+
         # Force rebuild
         context, chunks, tokens, was_cached = cache_manager.get_or_build_context(
-            trace_id, sample_span_node, log_features, span_features, user_message, force_rebuild=True
+            trace_id, sample_span_node, log_features, span_features,
+            user_message, force_rebuild=True
         )
-        
+
         assert was_cached is False
 
     def test_cache_statistics(self, cache_manager, sample_span_node):
@@ -350,11 +490,23 @@ class TestContextCacheManager:
         log_features = [LogFeature.LOG_LEVEL]
         span_features = [SpanFeature.SPAN_LATENCY]
         user_message = "test message"
-        
+
         # Make some requests
-        cache_manager.get_or_build_context(trace_id, sample_span_node, log_features, span_features, user_message)
-        cache_manager.get_or_build_context(trace_id, sample_span_node, log_features, span_features, user_message)
-        
+        cache_manager.get_or_build_context(
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message
+        )
+        cache_manager.get_or_build_context(
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message
+        )
+
         stats = cache_manager.get_cache_statistics()
         assert stats["cache_hits"] >= 1
         assert stats["cache_misses"] >= 1
@@ -364,7 +516,7 @@ class TestContextCacheManager:
     def test_cache_health_check(self, cache_manager):
         """Test cache health check."""
         assert cache_manager.is_cache_healthy() is True
-        
+
         # Test with broken cache
         cache_manager.cache = None
         assert cache_manager.is_cache_healthy() is False
@@ -375,19 +527,25 @@ class TestContextCacheManager:
         log_features = [LogFeature.LOG_LEVEL]
         span_features = [SpanFeature.SPAN_LATENCY]
         user_message = "test message"
-        
+
         # Cache some data
-        cache_manager.get_or_build_context(trace_id, sample_span_node, log_features, span_features, user_message)
-        
+        cache_manager.get_or_build_context(
+            trace_id,
+            sample_span_node,
+            log_features,
+            span_features,
+            user_message
+        )
+
         # Verify it's cached
         context, chunks, tokens, was_cached = cache_manager.get_or_build_context(
             trace_id, sample_span_node, log_features, span_features, user_message
         )
         assert was_cached is True
-        
+
         # Invalidate trace cache
         cache_manager.invalidate_trace_cache(trace_id)
-        
+
         # Should be a miss now
         context, chunks, tokens, was_cached = cache_manager.get_or_build_context(
             trace_id, sample_span_node, log_features, span_features, user_message
@@ -401,7 +559,7 @@ class TestCacheIntegration:
     def test_agent_integration(self, sample_span_node):
         """Test integration with Agent class."""
         from rest.agent.agent import Agent
-        
+
         agent = Agent()
         assert hasattr(agent, 'cache_manager')
         assert agent.cache_manager is not None
@@ -409,7 +567,7 @@ class TestCacheIntegration:
     def test_chat_integration(self, sample_span_node):
         """Test integration with Chat class."""
         from rest.agent.chat import Chat
-        
+
         chat = Chat()
         assert hasattr(chat, 'cache_manager')
         assert chat.cache_manager is not None
@@ -417,18 +575,19 @@ class TestCacheIntegration:
     def test_configuration_environment_variables(self):
         """Test configuration from environment variables."""
         import os
-        from rest.agent.cache.config import get_cache_config, is_caching_enabled
-        
+
+        from rest.agent.cache.config import get_cache_config
+
         # Test default values
         config = get_cache_config()
         assert config.enabled is True
         assert config.strategy == CacheStrategy.APPEND_ONLY
-        
+
         # Test environment variable override
         with patch.dict(os.environ, {'TRACEROOT_CACHE_ENABLED': 'false'}):
             config = get_cache_config()
             assert config.enabled is False
-        
+
         with patch.dict(os.environ, {'TRACEROOT_CACHE_STRATEGY': 'full'}):
             config = get_cache_config()
             assert config.strategy == CacheStrategy.FULL

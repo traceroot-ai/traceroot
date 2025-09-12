@@ -99,13 +99,15 @@ class Chat:
         except Exception as e:
             print(e)
 
-        context, context_chunks, estimated_tokens, was_cached = self.cache_manager.get_or_build_context(
-            trace_id=trace_id,
-            tree=tree,
-            log_features=log_features,
-            span_features=span_features,
-            user_message=user_message,
-            chat_history=chat_history
+        context, context_chunks, estimated_tokens, was_cached = (
+            self.cache_manager.get_or_build_context(
+                trace_id=trace_id,
+                tree=tree,
+                log_features=log_features,
+                span_features=span_features,
+                user_message=user_message,
+                chat_history=chat_history
+            )
         )
 
         cache_status = "cached" if was_cached else "built"
@@ -115,8 +117,8 @@ class Chat:
                 "chat_id": chat_id,
                 "timestamp": stats_timestamp,
                 "role": "statistics",
-                "content":
-                f"Number of estimated tokens for TraceRoot context: {estimated_tokens} (context {cache_status})",
+                "content": f"Number of estimated tokens for TraceRoot context: "
+                f"{estimated_tokens} (context {cache_status})",
                 "trace_id": trace_id,
                 "chunk_id": 0,
                 "action_type": ActionType.STATISTICS.value,

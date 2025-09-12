@@ -2,10 +2,10 @@
 
 import hashlib
 import json
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
 
 from rest.agent.context.tree import SpanNode
 from rest.agent.typing import LogFeature, SpanFeature
@@ -99,7 +99,11 @@ class ContextCache:
         tree_string = json.dumps(tree_data, sort_keys=True)
         return hashlib.sha256(tree_string.encode()).hexdigest()[:16]
 
-    def _generate_chat_history_hash(self, chat_history: Optional[List[Dict[str, Any]]]) -> str:
+    def _generate_chat_history_hash(
+        self,
+        chat_history: Optional[List[Dict[str,
+                                         Any]]]
+    ) -> str:
         """Generate a hash for chat history to detect changes."""
         if not chat_history:
             return ""
@@ -113,7 +117,8 @@ class ContextCache:
             history_data.append(
                 {
                     "role": record.get("role"),
-                    "content": record.get("content") or record.get("user_message", ""),
+                    "content": record.get("content") or record.get("user_message",
+                                                                   ""),
                 }
             )
 
@@ -124,8 +129,10 @@ class ContextCache:
         self,
         existing_context: str,
         new_context: str,
-        existing_features: Tuple[List[LogFeature], List[SpanFeature]],
-        new_features: Tuple[List[LogFeature], List[SpanFeature]],
+        existing_features: Tuple[List[LogFeature],
+                                 List[SpanFeature]],
+        new_features: Tuple[List[LogFeature],
+                            List[SpanFeature]],
     ) -> bool:
         """Check if new context is a strict superset of existing context."""
         existing_log_features, existing_span_features = existing_features
@@ -161,8 +168,11 @@ class ContextCache:
         log_features: List[LogFeature],
         span_features: List[SpanFeature],
         user_message: str,
-        chat_history: Optional[List[Dict[str, Any]]] = None,
-    ) -> Optional[Tuple[str, List[str], int]]:
+        chat_history: Optional[List[Dict[str,
+                                         Any]]] = None,
+    ) -> Optional[Tuple[str,
+                        List[str],
+                        int]]:
         """
         Get cached context if available and valid.
 
@@ -176,7 +186,12 @@ class ContextCache:
         chat_history_hash = self._generate_chat_history_hash(chat_history)
 
         cache_key = self._generate_cache_key(
-            trace_id, log_features, span_features, tree_hash, user_message, chat_history_hash
+            trace_id,
+            log_features,
+            span_features,
+            tree_hash,
+            user_message,
+            chat_history_hash
         )
 
         if cache_key not in self._cache:
@@ -209,7 +224,8 @@ class ContextCache:
         span_features: List[SpanFeature],
         user_message: str,
         context_data: str,
-        chat_history: Optional[List[Dict[str, Any]]] = None,
+        chat_history: Optional[List[Dict[str,
+                                         Any]]] = None,
     ) -> str:
         """
         Cache context data with append-only optimization when possible.
@@ -224,24 +240,39 @@ class ContextCache:
         chat_history_hash = self._generate_chat_history_hash(chat_history)
 
         cache_key = self._generate_cache_key(
-            trace_id, log_features, span_features, tree_hash, user_message, chat_history_hash
+            trace_id,
+            log_features,
+            span_features,
+            tree_hash,
+            user_message,
+            chat_history_hash
         )
 
-        if self.config.strategy == CacheStrategy.APPEND_ONLY and self.config.enable_append_only:
+        if (
+            self.config.strategy == CacheStrategy.APPEND_ONLY
+            and self.config.enable_append_only
+        ):
 
             for existing_key, existing_entry in self._cache.items():
-                if existing_entry.tree_hash == tree_hash and existing_entry.trace_id == trace_id:
+                if (
+                    existing_entry.tree_hash == tree_hash
+                    and existing_entry.trace_id == trace_id
+                ):
 
                     if self._is_context_superset(
                         existing_entry.context_data,
                         context_data,
-                        (existing_entry.log_features, existing_entry.span_features),
-                        (log_features, span_features),
+                        (existing_entry.log_features,
+                         existing_entry.span_features),
+                        (log_features,
+                         span_features),
                     ):
                         if len(context_data) > len(existing_entry.context_data):
                             delta = context_data[len(existing_entry.context_data):]
                             existing_entry.context_data += delta
-                            existing_entry.estimated_tokens = len(existing_entry.context_data) * 4
+                            existing_entry.estimated_tokens = len(
+                                existing_entry.context_data
+                            ) * 4
                             existing_entry.chunk_count = len(
                                 self._chunk_context(existing_entry.context_data)
                             )

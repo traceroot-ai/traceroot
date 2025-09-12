@@ -4,8 +4,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from rest.agent.context.tree import SpanNode
 from rest.agent.typing import LogFeature, SpanFeature
-from .context_cache import ContextCache, ContextCacheConfig
+
 from .config import get_cache_config
+from .context_cache import ContextCache, ContextCacheConfig
 
 
 class ContextCacheManager:
@@ -25,9 +26,13 @@ class ContextCacheManager:
         log_features: List[LogFeature],
         span_features: List[SpanFeature],
         user_message: str,
-        chat_history: Optional[List[Dict[str, Any]]] = None,
+        chat_history: Optional[List[Dict[str,
+                                         Any]]] = None,
         force_rebuild: bool = False,
-    ) -> Tuple[str, List[str], int, bool]:
+    ) -> Tuple[str,
+               List[str],
+               int,
+               bool]:
         """
         Get cached context or build new context.
 
@@ -45,12 +50,22 @@ class ContextCacheManager:
         """
         if not self.config.enabled or force_rebuild:
             return self._build_and_cache_context(
-                trace_id, tree, log_features, span_features, user_message, chat_history
+                trace_id,
+                tree,
+                log_features,
+                span_features,
+                user_message,
+                chat_history
             )
 
         # Try to get from cache
         cached_result = self.cache.get_cached_context(
-            trace_id, tree, log_features, span_features, user_message, chat_history
+            trace_id,
+            tree,
+            log_features,
+            span_features,
+            user_message,
+            chat_history
         )
 
         if cached_result is not None:
@@ -60,7 +75,12 @@ class ContextCacheManager:
         # Cache miss - build and cache
         self._cache_misses += 1
         return self._build_and_cache_context(
-            trace_id, tree, log_features, span_features, user_message, chat_history
+            trace_id,
+            tree,
+            log_features,
+            span_features,
+            user_message,
+            chat_history
         )
 
     def _build_and_cache_context(
@@ -70,8 +90,12 @@ class ContextCacheManager:
         log_features: List[LogFeature],
         span_features: List[SpanFeature],
         user_message: str,
-        chat_history: Optional[List[Dict[str, Any]]] = None,
-    ) -> Tuple[str, List[str], int, bool]:
+        chat_history: Optional[List[Dict[str,
+                                         Any]]] = None,
+    ) -> Tuple[str,
+               List[str],
+               int,
+               bool]:
         """Build context and cache it."""
         import json
 
@@ -80,7 +104,13 @@ class ContextCacheManager:
         context_data = json.dumps(tree_dict, indent=4)
 
         self.cache.cache_context(
-            trace_id, tree, log_features, span_features, user_message, context_data, chat_history
+            trace_id,
+            tree,
+            log_features,
+            span_features,
+            user_message,
+            context_data,
+            chat_history
         )
 
         context_chunks = self.cache._chunk_context(context_data)
@@ -133,7 +163,9 @@ class ContextCacheManager:
             # Test basic operations
             stats = self.get_cache_statistics()
             return (
-                isinstance(stats, dict) and "total_entries" in stats and stats["total_entries"] >= 0
+                isinstance(stats,
+                           dict) and "total_entries" in stats
+                and stats["total_entries"] >= 0
             )
         except Exception:
             return False

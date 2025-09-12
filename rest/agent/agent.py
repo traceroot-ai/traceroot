@@ -150,13 +150,15 @@ class Agent:
             if LogFeature.LOG_SOURCE_CODE_LINES_BELOW not in log_features:
                 log_features.append(LogFeature.LOG_SOURCE_CODE_LINES_BELOW)
 
-        context, context_chunks, estimated_tokens, was_cached = self.cache_manager.get_or_build_context(
-            trace_id=trace_id,
-            tree=tree,
-            log_features=log_features,
-            span_features=span_features,
-            user_message=user_message,
-            chat_history=chat_history
+        context, context_chunks, estimated_tokens, was_cached = (
+            self.cache_manager.get_or_build_context(
+                trace_id=trace_id,
+                tree=tree,
+                log_features=log_features,
+                span_features=span_features,
+                user_message=user_message,
+                chat_history=chat_history
+            )
         )
 
         cache_status = "cached" if was_cached else "built"
@@ -165,8 +167,8 @@ class Agent:
                 "chat_id": chat_id,
                 "timestamp": datetime.now().astimezone(timezone.utc),
                 "role": "statistics",
-                "content":
-                f"Number of estimated tokens for TraceRoot context: {estimated_tokens} (context {cache_status})",
+                "content": f"Number of estimated tokens for TraceRoot context: "
+                f"{estimated_tokens} (context {cache_status})",
                 "trace_id": trace_id,
                 "chunk_id": 0,
                 "action_type": ActionType.STATISTICS.value,
