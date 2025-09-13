@@ -7,15 +7,24 @@ import { Toaster } from "react-hot-toast";
 import { AutumnProvider } from "autumn-js/react";
 import { ThemeProvider } from "@/components/theme-provider";
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: "TraceRoot.AI",
-  description: "Agentic debugging tool",
+  title: 'TraceRoot.AI',
+  description: 'Agentic debugging tool',
   icons: {
-    icon: "/favicon.ico",
+    icon: '/favicon.ico',
   },
 };
+
+function MockAutumnProvider({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
+}
+
+const Provider =
+  process.env.NEXT_PUBLIC_LOCAL_MODE === 'true'
+    ? MockAutumnProvider
+    : AutumnProvider;
 
 export default function RootLayout({
   children,
@@ -25,7 +34,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.className} h-screen overflow-hidden`}>
-        <ThemeProvider
+         <ThemeProvider
           attribute="class"
           defaultTheme="system"
           enableSystem
@@ -66,7 +75,7 @@ export default function RootLayout({
                 },
               }}
             />
-          </AutumnProvider>
+          </Provider>
         </ThemeProvider>
       </body>
     </html>
