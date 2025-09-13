@@ -426,7 +426,7 @@ export const Trace: React.FC<TraceProps> = ({
                       className={`relative h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-100 ease-in-out hover:shadow-sm animate-fadeIn ${
                         selectedTraceId === trace.id
                           ? "bg-zinc-100 dark:bg-zinc-900"
-                          : "bg-white dark:bg-zinc-800"
+                          : "bg-white dark:bg-zinc-950"
                       }`}
                       style={{
                         animationDelay: `${index * 5}ms`,

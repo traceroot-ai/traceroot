@@ -8,6 +8,7 @@ import {
 } from "../../collapsible";
 import { cn } from "@/lib/utils";
 import { BrainIcon, ChevronDownIcon } from "lucide-react";
+import { Spinner } from "../spinner";
 import type { ComponentProps } from "react";
 import {
   createContext,
@@ -174,7 +175,10 @@ export const ReasoningTrigger = memo(
           <>
             <BrainIcon className="size-4" />
             {isStreaming ? (
-              <p>Thinking...</p>
+              <div className="flex items-center gap-2">
+                <p>Thinking</p>
+                <Spinner variant="infinite" className="w-4 h-4" />
+              </div>
             ) : (
               <p>Thought {duration} seconds</p>
             )}
@@ -198,18 +202,43 @@ export type ReasoningContentProps = ComponentProps<
 };
 
 export const ReasoningContent = memo(
-  ({ className, children, ...props }: ReasoningContentProps) => (
-    <CollapsibleContent
-      className={cn(
-        "mt-4 text-sm",
-        "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
-        className,
-      )}
-      {...props}
-    >
-      <div className="grid gap-2 whitespace-pre-wrap">{children}</div>
-    </CollapsibleContent>
-  ),
+  ({ className, children, ...props }: ReasoningContentProps) => {
+    const { isStreaming } = useReasoning();
+
+    // Try to parse JSON and extract answer if reasoning is completed
+    let displayContent = children;
+    if (!isStreaming && children) {
+      try {
+        const jsonData = JSON.parse(children);
+        // Only show answer if it exists
+        if (jsonData.answer) {
+          displayContent = jsonData.answer;
+        }
+      } catch {
+        // If parsing fails, use original content
+        displayContent = children;
+      }
+    }
+
+    return (
+      <CollapsibleContent
+        className={cn(
+          "mt-4 ml-4 mr-4 text-xs",
+          "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
+          className,
+        )}
+        {...props}
+      >
+        {/* Force text wrapping to prevent horizontal scrolling on long words/content */}
+        <div
+          className="bg-zinc-100 dark:bg-zinc-950 p-4 rounded-md text-zinc-600 dark:text-zinc-400 grid gap-2 whitespace-pre-wrap break-words overflow-hidden"
+          style={{ wordBreak: "break-all", overflowWrap: "anywhere" }}
+        >
+          {displayContent}
+        </div>
+      </CollapsibleContent>
+    );
+  },
 );
 
 Reasoning.displayName = "Reasoning";
