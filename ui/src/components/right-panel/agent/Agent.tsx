@@ -624,6 +624,8 @@ export default function Agent({
         activeChatTabs={chatTabs}
         activeChatId={activeChatId}
         traceId={traceId}
+        messages={messages}
+        chatTitle={activeChat?.title}
         onNewChat={handleNewChat}
         onChatSelect={handleChatSelect}
         onChatClose={handleChatClose}

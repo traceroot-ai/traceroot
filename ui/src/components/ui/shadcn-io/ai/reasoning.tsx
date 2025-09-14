@@ -18,6 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { extractAnswerContent } from "@/utils/streamingParser";
 
 type ReasoningContextValue = {
   isStreaming: boolean;
@@ -204,20 +205,36 @@ export type ReasoningContentProps = ComponentProps<
 export const ReasoningContent = memo(
   ({ className, children, ...props }: ReasoningContentProps) => {
     const { isStreaming } = useReasoning();
+    const scrollRef = useRef<HTMLDivElement>(null);
 
-    // Try to parse JSON and extract answer if reasoning is completed
+    // Use the same extraction logic as ChatReasoning for consistency
     let displayContent = children;
-    if (!isStreaming && children) {
+    if (children) {
       try {
         const jsonData = JSON.parse(children);
-        // Only show answer if it exists
-        if (jsonData.answer) {
+        // Only show answer if it exists and is not empty
+        if (jsonData.answer && jsonData.answer.trim()) {
           displayContent = jsonData.answer;
         }
       } catch {
-        // If parsing fails, use original content
-        displayContent = children;
+        // If JSON parsing fails, only try the streaming parser extraction when reasoning is completed
+        // This handles incomplete/streaming JSON but only when transitioning from "Thinking" to "Thought"
+        if (!isStreaming) {
+          displayContent = extractAnswerContent(children);
+        }
       }
+    }
+
+    // Auto-scroll to bottom when content changes during streaming
+    useEffect(() => {
+      if (isStreaming && scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    }, [displayContent, isStreaming]);
+
+    // Don't render anything if content is empty
+    if (!displayContent || displayContent.trim() === "") {
+      return null;
     }
 
     return (
@@ -231,8 +248,16 @@ export const ReasoningContent = memo(
       >
         {/* Force text wrapping to prevent horizontal scrolling on long words/content */}
         <div
-          className="bg-zinc-100 dark:bg-zinc-950 p-4 rounded-md text-zinc-600 dark:text-zinc-400 grid gap-2 whitespace-pre-wrap break-words overflow-hidden"
-          style={{ wordBreak: "break-all", overflowWrap: "anywhere" }}
+          ref={scrollRef}
+          className={cn(
+            "bg-zinc-100 dark:bg-zinc-950 p-4 rounded-md text-zinc-600 dark:text-zinc-400 grid gap-2 whitespace-pre-wrap break-words",
+            isStreaming ? "overflow-y-auto h-32" : "overflow-hidden",
+          )}
+          style={{
+            wordBreak: "break-all",
+            overflowWrap: "anywhere",
+            scrollBehavior: "smooth",
+          }}
         >
           {displayContent}
         </div>
