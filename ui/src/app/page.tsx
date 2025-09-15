@@ -87,6 +87,47 @@ export default function Home() {
           <h3 className="scroll-m-20 pb-2 text-3xl tracking-tight first:mt-5">
             Agentic debugging made <span className="font-bold">simple</span>
           </h3>
+
+          <div className="mt-8 mb-8">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Trusted by
+            </p>
+            <div className="flex flex-wrap justify-center items-center gap-8 opacity-70 hover:opacity-100 transition-opacity duration-300">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <div className="w-5 h-5 bg-gray-700 dark:bg-gray-300 rounded-sm flex items-center justify-center">
+                  <span className="text-white dark:text-gray-800 text-xs font-bold">🐪</span>
+                </div>
+                <span className="text-gray-700 dark:text-gray-300 font-medium text-sm">CAMEL</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <div className="w-5 h-5 bg-gray-700 dark:bg-gray-300 rounded-sm flex items-center justify-center">
+                  <span className="text-white dark:text-gray-800 text-xs font-bold">🦉</span>
+                </div>
+                <span className="text-gray-700 dark:text-gray-300 font-medium text-sm">OWL</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <div className="w-5 h-5 bg-gray-700 dark:bg-gray-300 rounded-sm flex items-center justify-center">
+                  <span className="text-white dark:text-gray-800 text-xs font-bold">🔒</span>
+                </div>
+                <span className="text-gray-700 dark:text-gray-300 font-medium text-sm">SIM</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <span className="text-gray-700 dark:text-gray-300 font-medium text-sm">Autumn</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <span className="text-gray-700 dark:text-gray-300 font-medium text-sm">CHATLABS</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <span className="text-gray-700 dark:text-gray-300 font-medium text-sm">HeyBreez</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <span className="text-gray-700 dark:text-gray-300 font-medium text-sm">Eigent AI</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <span className="text-gray-700 dark:text-gray-300 font-medium text-sm">The Prompting Company</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="space-y-8 max-w-4xl mx-auto">
