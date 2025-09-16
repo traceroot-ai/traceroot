@@ -1,22 +1,21 @@
-import os
 import time
 
 import traceroot
+from dotenv import find_dotenv, load_dotenv
 
 # Initialize traceroot with override parameters, which will
 # override the parameters in the .traceroot-config.yaml file
-token = os.getenv("TRACEROOT_TOKEN")
 
-traceroot.init(
-    service_name="override-service",
-    environment="override-env",
-    github_owner="override-owner",
-    github_repo_name="override-repo",
-    github_commit_hash="override-commit",
-    token=token,
-    enable_span_cloud_export=True,
-    enable_log_cloud_export=False,
-)
+dotenv_path = find_dotenv()
+if dotenv_path:
+    load_dotenv(dotenv_path)
+else:
+    print(
+        "No .env file found (find_dotenv returned None).\n"
+        "Using process environment variables."
+    )
+
+traceroot.init()
 
 logger = traceroot.get_logger()
 

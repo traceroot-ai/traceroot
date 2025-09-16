@@ -3,12 +3,24 @@ from typing import Dict
 
 import traceroot
 import uvicorn
+from dotenv import find_dotenv, load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from traceroot.integrations.fastapi import connect_fastapi
-from traceroot.logger import get_logger
 
-from rest.main import MultiAgentSystem
+dotenv_path = find_dotenv()
+if dotenv_path:
+    load_dotenv(dotenv_path)
+else:
+    print(
+        "No .env file found (find_dotenv returned None).\n"
+        "Using process environment variables."
+    )
+
+traceroot.init()
+from traceroot.integrations.fastapi import connect_fastapi  # noqa: E402
+from traceroot.logger import get_logger  # noqa: E402
+
+from rest.main import MultiAgentSystem  # noqa: E402
 
 logger = get_logger()
 
@@ -35,13 +47,10 @@ async def code_endpoint(request: CodeRequest) -> Dict[str, str]:
 
 
 if __name__ == "__main__":
-    # Check for required environment variables
+    #  Check for required environment variables
     if not os.getenv("OPENAI_API_KEY"):
         logger.error("Please set your OPENAI_API_KEY environment variable")
-        logger.error(
-            "You can create a .env file with: "
-            "OPENAI_API_KEY=your_api_key_here"
-        )
+        logger.error("You can create a .env file with: OPENAI_API_KEY=your_api_key_here")
         exit(1)
 
     uvicorn.run(app, host="0.0.0.0", port=9999)
