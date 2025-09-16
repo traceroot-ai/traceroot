@@ -21,7 +21,7 @@ from rest.agent.summarizer.chunk import chunk_summarize
 from rest.agent.typing import LogFeature
 from rest.client.sqlite_client import TraceRootSQLiteClient
 from rest.config import ChatbotResponse
-from rest.typing import ActionStatus, ActionType, ChatModel, MessageType
+from rest.typing import ActionStatus, ActionType, ChatModel, MessageType, Reference
 from rest.utils.token_tracking import track_tokens_for_user
 
 
@@ -106,10 +106,12 @@ class Chat:
 
         # Compute estimated tokens for context and insert statistics record
         estimated_tokens = len(context) * 4
+        stats_timestamp = datetime.now().astimezone(timezone.utc)
+
         await db_client.insert_chat_record(
             message={
                 "chat_id": chat_id,
-                "timestamp": datetime.now().astimezone(timezone.utc),
+                "timestamp": stats_timestamp,
                 "role": "statistics",
                 "content":
                 f"Number of estimated tokens for TraceRoot context: {estimated_tokens}",
@@ -171,12 +173,20 @@ class Chat:
                 }
             )
 
+        # Support streaming for both single and multiple chunks
+        # Each chunk gets its own database record with unique chunk_id
         responses: list[ChatOutput] = await asyncio.gather(
             *[
-                self.chat_with_context_chunks(messages,
-                                              model,
-                                              client,
-                                              user_sub) for messages in all_messages
+                self.chat_with_context_chunks_streaming(
+                    messages,
+                    model,
+                    client,
+                    user_sub,
+                    db_client,
+                    chat_id,
+                    trace_id,
+                    i  # chunk_id - each chunk gets unique ID
+                ) for i, messages in enumerate(all_messages)
             ]
         )
 
@@ -199,7 +209,8 @@ class Chat:
             )
             response_content = response.answer
             response_references = response.reference
-
+        print("References:", response_references)
+        print("Message content:", response_content)
         await db_client.insert_chat_record(
             message={
                 "chat_id": chat_id,
@@ -222,16 +233,67 @@ class Chat:
             chat_id=chat_id,
         )
 
-    async def chat_with_context_chunks(
+    async def chat_with_context_chunks_streaming(
         self,
         messages: list[dict[str,
                             str]],
         model: ChatModel,
         chat_client: AsyncOpenAI,
         user_sub: str,
+        db_client: TraceRootMongoDBClient | TraceRootSQLiteClient,
+        chat_id: str,
+        trace_id: str,
+        chunk_id: int,
     ) -> ChatOutput:
-        r"""Chat with context chunks.
+        r"""Chat with context chunks in streaming mode with database updates.
         """
+        # Create initial assistant record
+        start_time = datetime.now().astimezone(timezone.utc)
+        await db_client.insert_chat_record(
+            message={
+                "chat_id": chat_id,
+                "timestamp": start_time,
+                "role": "assistant",
+                "content": "",
+                "reference": [],
+                "trace_id": trace_id,
+                "chunk_id": chunk_id,
+                "action_type": ActionType.AGENT_CHAT.value,
+                "status": ActionStatus.PENDING.value,
+                "is_streaming": True,
+            }
+        )
+
+        return await self._chat_with_context_chunks_streaming_with_db(
+            messages,
+            model,
+            chat_client,
+            user_sub,
+            db_client,
+            chat_id,
+            trace_id,
+            chunk_id,
+            start_time
+        )
+
+    async def _chat_with_context_chunks_streaming_with_db(
+        self,
+        messages: list[dict[str,
+                            str]],
+        model: ChatModel,
+        chat_client: AsyncOpenAI,
+        user_sub: str,
+        db_client: TraceRootMongoDBClient | TraceRootSQLiteClient,
+        chat_id: str,
+        trace_id: str,
+        chunk_id: int,
+        start_time,
+    ) -> ChatOutput:
+        r"""Chat with context chunks in streaming mode with real-time database updates.
+        """
+        if model == ChatModel.GPT_5.value:
+            model = ChatModel.GPT_4_1.value
+
         if model in {
             ChatModel.GPT_5.value,
             ChatModel.GPT_5_MINI.value,
@@ -242,29 +304,118 @@ class Chat:
             params = {
                 "temperature": 0.8,
             }
-        response = await chat_client.responses.parse(
+
+        response = await chat_client.chat.completions.create(
             model=model,
-            input=messages,
-            text_format=ChatOutput,
+            messages=messages,
+            stream=True,
+            stream_options={"include_usage": True},
+            response_format={"type": "json_object"},
             **params,
         )
 
-        # Track token usage for this API call
-        await track_tokens_for_user(
-            user_sub=user_sub,
-            openai_response=response,
-            model=str(model)
-        )
+        # Handle streaming response with DB updates
+        content_parts = []
+        usage_data = None
 
-        if model in {
-            ChatModel.GPT_5.value,
-            ChatModel.GPT_5_MINI.value,
-            ChatModel.O4_MINI.value
-        }:
-            content = response.output[1].content[0]
-        else:
-            content = response.output[0].content[0]
-        return content.parsed
+        async for chunk in response:
+            if chunk.choices and len(chunk.choices) > 0:
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    content_parts.append(delta.content)
+                    # Store only the individual chunk content (non-cumulative)
+                    await self._update_streaming_record(
+                        db_client,
+                        chat_id,
+                        trace_id,
+                        chunk_id,
+                        delta.content,  # Store individual chunk, not accumulated
+                        start_time,
+                        ActionStatus.PENDING
+                    )
+
+            # Capture usage data from the final chunk
+            if hasattr(chunk, 'usage') and chunk.usage:
+                usage_data = chunk.usage
+        # Ensure final completion status is marked
+        await db_client.update_reasoning_status(chat_id, chunk_id, "completed")
+
+        full_content = "".join(content_parts)
+
+        # Track token usage for this API call with real usage data
+        if usage_data:
+            # Create a mock response object for token tracking
+            mock_response = type(
+                'MockResponse',
+                (),
+                {
+                    'usage':
+                    usage_data,
+                    'choices': [
+                        type(
+                            'Choice',
+                            (),
+                            {'message': type('Message',
+                                             (),
+                                             {'content': full_content})()}
+                        )()
+                    ]
+                }
+            )()
+
+            await track_tokens_for_user(
+                user_sub=user_sub,
+                openai_response=mock_response,
+                model=str(model)
+            )
+
+        # Parse the streamed content into ChatOutput format
+        try:
+            # Try to parse as JSON first (structured output)
+            parsed_data = json.loads(full_content)
+            # Parse references into proper Reference objects
+            references = []
+            if "reference" in parsed_data and isinstance(parsed_data["reference"], list):
+                for ref_data in parsed_data["reference"]:
+                    if isinstance(ref_data, dict):
+                        references.append(Reference(**ref_data))
+
+            return ChatOutput(
+                answer=parsed_data.get("answer",
+                                       full_content),
+                reference=references
+            )
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"JSON parsing failed in streaming mode: {e}")
+            # Fallback to treating the entire content as the answer
+            return ChatOutput(answer=full_content, reference=[])
+
+    async def _update_streaming_record(
+        self,
+        db_client: TraceRootMongoDBClient | TraceRootSQLiteClient,
+        chat_id: str,
+        trace_id: str,
+        chunk_id: int,
+        content: str,
+        start_time,
+        status: ActionStatus,
+    ):
+        """Update the streaming record in the database using dedicated
+        reasoning storage.
+        """
+        timestamp = datetime.now(timezone.utc)
+
+        # Store reasoning data in dedicated reasoning collection
+        reasoning_data = {
+            "chat_id": chat_id,
+            "chunk_id": chunk_id,
+            "content": content,
+            "status": "pending" if status == ActionStatus.PENDING else "completed",
+            "timestamp": timestamp,
+            "trace_id": trace_id,
+        }
+
+        await db_client.insert_reasoning_record(reasoning_data)
 
     def get_context_messages(self, context: str) -> list[str]:
         r"""Get the context message.

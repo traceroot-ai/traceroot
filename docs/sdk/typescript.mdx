@@ -1,7 +1,7 @@
 # TypeScript SDK for TraceRoot
 
 ## Introduction
-This SDK is a lightweight wrapper around OpenTelemetry, optimized for ease of use.
+The [TraceRoot TypeScript SDK](https://www.npmjs.com/package/traceroot-sdk-ts) is a lightweight wrapper around OpenTelemetry, optimized for ease of use.
 
 ## Installation
 ```bash
@@ -9,9 +9,10 @@ npm install traceroot-sdk-ts@latest
 ```
 
 ## Environment Setup
-Create an [TraceRoot token](https://test.traceroot.ai/integrate) from the dashboard, and add it to your `traceroot.config.ts` file in the root of your project.
+Create an [TraceRoot token](https://test.traceroot.ai/integrate) from the dashboard.
 
 ### TypeScript
+Add it to your `traceroot.config.ts` file in the root of your project.
 ```typescript
 import type { TraceRootConfigFile } from 'traceroot-sdk-ts/src/config';
 
@@ -53,6 +54,7 @@ export default config;
 ```
 
 ### JavaScript
+Add it to your `traceroot.config.js` file in the root of your project.
 
 ```javascript
 const config = {
@@ -95,6 +97,7 @@ module.exports = config;
 
 ### Environment Variable
 
+Add it to your `.env` file in the root of your project.
 ```bash .env
 # The token for the TraceRoot API
 TRACEROOT_TOKEN=traceroot-430246

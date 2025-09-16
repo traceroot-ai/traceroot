@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import aiosqlite
@@ -40,7 +40,9 @@ class TraceRootSQLiteClient:
                     status TEXT,
                     user_message TEXT,
                     context TEXT,
-                    reference TEXT
+                    reference TEXT,
+                    is_streaming BOOLEAN,
+                    stream_update BOOLEAN
                 )
             """
             )
@@ -71,6 +73,22 @@ class TraceRootSQLiteClient:
             """
             )
 
+            # Reasoning records table (dedicated reasoning storage)
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS reasoning_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id TEXT NOT NULL,
+                    chunk_id INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    trace_id TEXT,
+                    updated_at TEXT
+                )
+            """
+            )
+
             # Create indexes for better performance
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_chat_records_chat_id "
@@ -87,6 +105,14 @@ class TraceRootSQLiteClient:
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_connection_tokens_user_email "
                 "ON connection_tokens(user_email)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reasoning_records_chat_id "
+                "ON reasoning_records(chat_id)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reasoning_records_chunk_id "
+                "ON reasoning_records(chat_id, chunk_id)"
             )
 
             await db.commit()
@@ -105,6 +131,8 @@ class TraceRootSQLiteClient:
             cursor = await db.execute(
                 (
                     "SELECT * FROM chat_records WHERE chat_id = ? "
+                    "AND (is_streaming IS NULL OR is_streaming = 0) "
+                    "AND (stream_update IS NULL OR stream_update = 0) "
                     "ORDER BY timestamp ASC"
                 ),
                 (chat_id,
@@ -136,7 +164,10 @@ class TraceRootSQLiteClient:
 
         async with aiosqlite.connect(self.db_path) as db:
             # Convert datetime to string if needed
-            timestamp = message.get("timestamp", datetime.now().isoformat())
+            timestamp = message.get(
+                "timestamp",
+                datetime.now().astimezone(timezone.utc).isoformat()
+            )
             if isinstance(timestamp, datetime):
                 timestamp = timestamp.isoformat()
 
@@ -166,9 +197,9 @@ class TraceRootSQLiteClient:
                     "user_content, trace_id, span_ids,\n"
                     "    start_time, end_time, model, mode, message_type,\n"
                     "    chunk_id, action_type, status, user_message,\n"
-                    "    context, reference\n"
+                    "    context, reference, is_streaming, stream_update\n"
                     ") VALUES (\n"
-                    "    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?\n"
+                    "    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?\n"
                     ")"
                 ),
                 (
@@ -191,7 +222,9 @@ class TraceRootSQLiteClient:
                     message.get("status"),
                     message.get("user_message"),
                     message.get("context"),
-                    reference
+                    reference,
+                    message.get("is_streaming"),
+                    message.get("stream_update")
                 )
             )
             await db.commit()
@@ -208,7 +241,10 @@ class TraceRootSQLiteClient:
 
         async with aiosqlite.connect(self.db_path) as db:
             # Convert datetime to string if needed
-            timestamp = metadata.get("timestamp", datetime.now().isoformat())
+            timestamp = metadata.get(
+                "timestamp",
+                datetime.now().astimezone(timezone.utc).isoformat()
+            )
             if isinstance(timestamp, datetime):
                 timestamp = timestamp.isoformat()
 
@@ -276,6 +312,90 @@ class TraceRootSQLiteClient:
                 item["timestamp"] = datetime.fromisoformat(item["timestamp"])
 
             return ChatMetadata(**item)
+
+    async def insert_reasoning_record(self, reasoning_data: dict[str, Any]):
+        """Insert reasoning/thinking data into dedicated reasoning table."""
+        await self._init_db()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            # Convert datetime to string if needed - ensure UTC consistency
+            timestamp = reasoning_data.get(
+                "timestamp",
+                datetime.now().astimezone(timezone.utc)
+            )
+            if isinstance(timestamp, datetime):
+                timestamp = timestamp.isoformat()
+
+            await db.execute(
+                """
+                INSERT INTO reasoning_records (
+                    chat_id, chunk_id, content, status, timestamp, trace_id
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    reasoning_data["chat_id"],
+                    reasoning_data["chunk_id"],
+                    reasoning_data["content"],
+                    reasoning_data["status"],
+                    timestamp,
+                    reasoning_data.get("trace_id")
+                )
+            )
+            await db.commit()
+
+    async def update_reasoning_status(self, chat_id: str, chunk_id: int, status: str):
+        """Update the status of ALL reasoning records for a chat/chunk."""
+        await self._init_db()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            updated_at = datetime.now().astimezone(timezone.utc).isoformat()
+            await db.execute(
+                """
+                UPDATE reasoning_records
+                SET status = ?, updated_at = ?
+                WHERE chat_id = ? AND chunk_id = ?
+                """,
+                (status,
+                 updated_at,
+                 chat_id,
+                 chunk_id)
+            )
+            await db.commit()
+
+    async def get_chat_reasoning(self, chat_id: str) -> list[dict]:
+        """Get reasoning/thinking data for a specific chat from
+        dedicated reasoning table.
+        """
+        await self._init_db()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                """
+                SELECT chunk_id, content, status, timestamp, trace_id
+                FROM reasoning_records
+                WHERE chat_id = ?
+                ORDER BY chunk_id ASC, timestamp ASC
+                """,
+                (chat_id,
+                 )
+            )
+            rows = await cursor.fetchall()
+
+            reasoning_data = []
+            for row in rows:
+                item = dict(row)
+                reasoning_data.append(
+                    {
+                        "chunk_id": item["chunk_id"] or 0,
+                        "content": item["content"] or "",
+                        "status": item["status"] or "pending",
+                        "timestamp": item["timestamp"],
+                        "trace_id": item["trace_id"]
+                    }
+                )
+
+            return reasoning_data
 
     async def insert_traceroot_token(
         self,

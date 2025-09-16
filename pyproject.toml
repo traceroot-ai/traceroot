@@ -69,7 +69,6 @@ dependencies = [
     "docstring_parser==0.17.0",
     "autumn-py==2.2.2",
     "aiohttp==3.12.15",
-    "groq==0.11.0",
 ]
 
 [project.optional-dependencies]
@@ -116,7 +115,6 @@ all = [
     "mypy==1.17.0",
     "pre-commit==4.2.0",
     "aiohttp==3.12.15",
-    "groq==0.11.0",
 ]
 
 [project.urls]
@@ -140,6 +138,7 @@ include_trailing_comma = true
 force_grid_wrap = 0
 use_parentheses = true
 line_length = 90
+known_third_party = ["traceroot"]
 
 [tool.flake8]
 max-line-length = 90

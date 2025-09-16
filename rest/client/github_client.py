@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 
 from github import Github, GithubException
 
@@ -57,14 +58,9 @@ class GitHubClient:
             base_ref = repo.get_git_ref(f"heads/{base_branch}")
             base_sha = base_ref.object.sha
 
-            # Create a new branch
-            try:
-                repo.create_git_ref(ref=f"refs/heads/{head_branch}", sha=base_sha)
-            except GithubException as e:
-                if e.status == 422:  # Branch already exists
-                    print(f"Branch {head_branch} already exists")
-                else:
-                    raise e
+            # Create a new branch, add UUID suffix to avoid conflicts
+            unique_head_branch = f"{head_branch}-{uuid.uuid4().hex[:8]}"
+            repo.create_git_ref(ref=f"refs/heads/{unique_head_branch}", sha=base_sha)
 
             # Get the current file to update
             try:
@@ -74,7 +70,7 @@ class GitHubClient:
                     message=commit_message,
                     content=file_content_to_change,
                     sha=file_obj.sha,
-                    branch=head_branch,
+                    branch=unique_head_branch,
                 )
             except GithubException as e:
                 if e.status == 404:  # File doesn't exist, create it
@@ -82,7 +78,7 @@ class GitHubClient:
                         path=file_path_to_change,
                         message=commit_message,
                         content=file_content_to_change,
-                        branch=head_branch,
+                        branch=unique_head_branch,
                     )
                 else:
                     raise e
@@ -92,7 +88,7 @@ class GitHubClient:
                 title=title,
                 body=body,
                 base=base_branch,
-                head=head_branch,
+                head=unique_head_branch,
             )
 
             print(f"PR created: {pr.html_url}")
