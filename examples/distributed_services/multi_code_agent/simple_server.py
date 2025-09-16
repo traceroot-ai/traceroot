@@ -1,4 +1,3 @@
-# rest/simple_server.py  (or whatever your filename is)
 import os
 from typing import Dict
 
@@ -8,7 +7,6 @@ from dotenv import find_dotenv, load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-# ----------------- load .env -----------------
 dotenv_path = find_dotenv()
 if dotenv_path:
     load_dotenv(dotenv_path)
@@ -49,7 +47,7 @@ async def code_endpoint(request: CodeRequest) -> Dict[str, str]:
 
 
 if __name__ == "__main__":
-    # OpenAI key check (if you require)
+    #  Check for required environment variables
     if not os.getenv("OPENAI_API_KEY"):
         logger.error("Please set your OPENAI_API_KEY environment variable")
         logger.error("You can create a .env file with: OPENAI_API_KEY=your_api_key_here")
