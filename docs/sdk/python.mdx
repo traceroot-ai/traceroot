@@ -1,17 +1,18 @@
 # Python SDK for TraceRoot
 
 ## Introduction
+
 The [TraceRoot Python SDK](https://pypi.org/project/traceroot) is a lightweight wrapper around OpenTelemetry, optimized for ease of use.
 
-
 ## Installation
+
 ```bash
 pip install traceroot
 ```
 
 ## Environment Setup
 
-Create an [TraceRoot token](https://test.traceroot.ai/integrate) from the dashboard, and add it to your backend `.env` file.
+Create a [TraceRoot token](https://test.traceroot.ai/integrate) from the dashboard, and add it to your backend `.env` file.
 
 ```bash .env
 # The token for the TraceRoot API
@@ -42,6 +43,16 @@ TRACEROOT_ENABLE_SPAN_CONSOLE_EXPORT=false
 TRACEROOT_ENABLE_LOG_CONSOLE_EXPORT=true
 ```
 
+Then run
+
+```python
+from dotenv import load_dotenv
+import traceroot
+
+load_dotenv()  # load variables from .env into os.environ
+traceroot.init()
+```
+
 ## Examples
 
 Uses `@traceroot.trace()` for traces and TraceRoot logger similar to the default Python logger.
@@ -70,6 +81,7 @@ if __name__ == "__main__":
 ```
 
 ## Development Installation
+
 If you want to contribute or use the latest features, install from source:
 
 ```bash
