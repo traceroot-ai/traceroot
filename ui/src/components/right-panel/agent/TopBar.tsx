@@ -6,7 +6,7 @@ import React, {
   forwardRef,
 } from "react";
 import { GoHistory } from "react-icons/go";
-import { Plus, X, Check } from "lucide-react";
+import { Plus, X, Check, Download } from "lucide-react";
 import { ChatMetadata, ChatMetadataHistory } from "@/models/chat";
 import { useUser } from "@/hooks/useUser";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,14 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { truncateTitle } from "@/lib/utils";
 
+interface Message {
+  id: string;
+  content: string;
+  role: "user" | "assistant" | "github" | "statistics";
+  timestamp: Date | string;
+  references?: any[];
+}
+
 interface ChatTab {
   chatId: string | null;
   title: string;
@@ -30,6 +38,8 @@ interface TopBarProps {
   activeChatTabs: ChatTab[];
   activeChatId: string | null;
   traceId?: string;
+  messages?: Message[];
+  chatTitle?: string;
   onNewChat: () => void;
   onChatSelect: (chatId: string | null) => Promise<void>;
   onChatClose: (chatId: string | null) => void;
@@ -53,6 +63,8 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
       activeChatTabs,
       activeChatId,
       traceId,
+      messages = [],
+      chatTitle,
       onNewChat,
       onChatSelect,
       onChatClose,
@@ -250,6 +262,74 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
       onChatClose(chatId);
     };
 
+    const handleDownload = () => {
+      if (messages.length === 0) return;
+
+      // Filter messages to only include user and assistant messages (no github or statistics)
+      const relevantMessages = messages.filter(
+        (msg) => msg.role === "user" || msg.role === "assistant",
+      );
+
+      if (relevantMessages.length === 0) return;
+
+      // Generate markdown content
+      let markdownContent = "";
+
+      relevantMessages.forEach((message) => {
+        if (message.role === "user") {
+          markdownContent += "**User**\n\n" + message.content + "\n\n";
+        } else if (message.role === "assistant") {
+          markdownContent += "**TraceRoot**\n\n" + message.content;
+
+          // Add references if they exist
+          if (message.references && message.references.length > 0) {
+            markdownContent += "\n\n**References:**\n\n";
+            message.references.forEach((ref, index) => {
+              markdownContent += `[${ref.number || index + 1}] `;
+
+              if (ref.span_id) {
+                markdownContent += `Span ID: ${ref.span_id}`;
+              }
+
+              if (ref.span_function_name) {
+                markdownContent += ref.span_id
+                  ? `, Function: ${ref.span_function_name}`
+                  : `Function: ${ref.span_function_name}`;
+              }
+
+              if (ref.line_number) {
+                markdownContent += `, Line: ${ref.line_number}`;
+              }
+
+              if (ref.log_message) {
+                markdownContent += `\n   Log: ${ref.log_message}`;
+              }
+
+              markdownContent += "\n";
+            });
+          }
+
+          markdownContent += "\n\n";
+        }
+      });
+
+      // Generate filename using the chat title or default
+      const title =
+        chatTitle || chatMetadata?.chat_title || displayedTitle || "chat";
+      const filename = `${title.replace(/[^a-zA-Z0-9\s-_]/g, "").replace(/\s+/g, "_")}.md`;
+
+      // Create and download the file
+      const blob = new Blob([markdownContent], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    };
+
     return (
       <div className="bg-zinc-50 dark:bg-zinc-900 gap-2 mx-4 mt-0 rounded-md p-1 relative">
         <div className="flex items-center">
@@ -298,6 +378,17 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
             )}
           </div>
           <div className="absolute top-1 right-1 flex items-center bg-zinc-50 dark:bg-zinc-900 z-10">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="mr-1 h-8 w-8"
+              onClick={handleDownload}
+              title="Download chat as markdown"
+              disabled={messages.length === 0}
+            >
+              <Download className="w-4 h-4" />
+            </Button>
+
             <Button
               variant="ghost"
               size="icon"
