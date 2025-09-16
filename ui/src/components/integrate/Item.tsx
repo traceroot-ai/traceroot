@@ -466,7 +466,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
             {integration.id === "traceroot" ? (
               <Button
                 onClick={handleGenerateToken}
-                disabled={isLoading}
+                disabled={isLoading || displayToken !== ""}
                 variant="default"
                 size="sm"
                 className="flex-1"
