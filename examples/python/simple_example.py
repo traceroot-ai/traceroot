@@ -1,8 +1,7 @@
 import time
 
-from dotenv import find_dotenv, load_dotenv
-
 import traceroot
+from dotenv import find_dotenv, load_dotenv
 
 # ----------------- load .env -----------------
 dotenv_path = find_dotenv()
