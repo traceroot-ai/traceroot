@@ -5,7 +5,7 @@ from dotenv import find_dotenv, load_dotenv
 
 # Initialize traceroot with override parameters, which will
 # override the parameters in the .traceroot-config.yaml file
-# ----------------- load .env -----------------
+
 dotenv_path = find_dotenv()
 if dotenv_path:
     load_dotenv(dotenv_path)

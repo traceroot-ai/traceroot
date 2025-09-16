@@ -7,7 +7,6 @@ from dotenv import find_dotenv, load_dotenv
 # override the parameters in the .traceroot-config.yaml file
 verification_endpoint = "http://localhost:8000/v1/verify/credentials"
 
-# ----------------- load .env -----------------
 dotenv_path = find_dotenv()
 if dotenv_path:
     load_dotenv(dotenv_path)
