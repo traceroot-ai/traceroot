@@ -161,7 +161,7 @@ function ContactComponent() {
       className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
     >
       <a
-        href="https://traceroot.ai"
+        href="https://cal.com/traceroot/30min"
         target="_blank"
         rel="noopener noreferrer"
         className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
