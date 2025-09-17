@@ -139,6 +139,14 @@ const renderMarkdown = (
         );
       },
     },
+    // Handle literal triple backticks (when not containing code content)
+    {
+      regex: /```(?!\w)(?!\n[\s\S]*?```)/g,
+      component: (match: string, ...args: string[]) => (
+        <span key={currentIndex++}>{match}</span>
+      ),
+    },
+    // Handle code blocks with content
     {
       regex: /```(\w+)?\n?([\s\S]*?)```/g,
       component: (match: string, ...args: string[]) => {
@@ -146,6 +154,11 @@ const renderMarkdown = (
         // If no language specified, args[0] is content
         const content = args.length > 1 ? args[1] : args[0];
         const trimmedContent = content.trim();
+
+        // If content is empty or just whitespace, treat as literal backticks
+        if (!trimmedContent) {
+          return <span key={currentIndex++}>{match}</span>;
+        }
 
         const handleCopy = async () => {
           try {
