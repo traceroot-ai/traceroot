@@ -21,7 +21,256 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
+const IS_LOCAL = process.env.NEXT_PUBLIC_LOCAL_MODE === 'true';
+/**
+ * Wrapper: choose Local mock (no Autumn) vs Prod (Autumn).
+ */
 export default function SettingsPage() {
+  return IS_LOCAL ? <LocalSettingsPage /> : <SettingsWithAutumn />;
+}
+
+/**
+ * LOCAL MODE: Safe mock UI without Autumn hooks or API calls.
+ * Keeps the layout consistent so the page works offline/without secrets.
+ */
+function LocalSettingsPage() {
+  const router = useRouter();
+
+  const formatNumber = (n: number) => new Intl.NumberFormat('en-US').format(n);
+
+  // Example mock stats; adjust as desired for local dev
+  const tokenUsage = {
+    limit: 1_000_000,
+    usage: 120_000,
+    remaining: 880_000,
+    percentage: 12,
+  };
+  const tracesUsage = {
+    limit: 100_000,
+    usage: 8_500,
+    remaining: 91_500,
+    percentage: 8.5,
+  };
+
+  const getUsageColor = (p: number) =>
+    p >= 90 ? 'text-red-600' : p >= 75 ? 'text-yellow-600' : 'text-green-600';
+
+  return (
+    <div className="min-h-full flex flex-col p-4">
+      <div className="w-3/4 max-w-4xl mx-auto bg-white m-5 p-10 rounded-lg font-mono bg-zinc-50">
+        <h2 className="scroll-m-20 mb-5 text-3xl font-semibold first:mt-0">
+          Settings
+        </h2>
+        <p className="leading-7 [&:not(:first-child)]:mb-5">
+          Local mode is active — Autumn is disabled. This is a mock view for
+          development.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 p-3">
+          {/* Current Plan */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center space-x-2.5">
+                <FaCrown className="text-foreground" size={20} />
+                <CardTitle className="text-base font-semibold">
+                  CURRENT PLAN
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide">
+                    Plan Name
+                  </div>
+                  <div className="text-sm font-medium mt-1">Free (Local)</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide">
+                    Status
+                  </div>
+                  <div className="text-sm font-medium mt-1">
+                    No Subscription
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* LLM Tokens */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center space-x-2.5">
+                <FaRobot className="text-foreground" size={20} />
+                <CardTitle className="text-base font-semibold">
+                  LLM TOKEN USAGE
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wide">
+                      This Month
+                    </span>
+                    <span
+                      className={`text-xs font-medium ${getUsageColor(tokenUsage.percentage)}`}
+                    >
+                      {tokenUsage.percentage.toFixed(1)}% used
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className={`h-2 rounded-full transition-all duration-300 ${
+                        tokenUsage.percentage >= 90
+                          ? 'bg-red-500'
+                          : tokenUsage.percentage >= 75
+                            ? 'bg-yellow-500'
+                            : 'bg-green-500'
+                      }`}
+                      style={{
+                        width: `${Math.min(100, tokenUsage.percentage)}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">
+                      Used
+                    </div>
+                    <div className="text-sm font-medium mt-1">
+                      {formatNumber(tokenUsage.usage)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">
+                      Remaining
+                    </div>
+                    <div
+                      className={`text-sm font-medium mt-1 ${getUsageColor(tokenUsage.percentage)}`}
+                    >
+                      {formatNumber(tokenUsage.remaining)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">
+                      Total
+                    </div>
+                    <div className="text-sm font-medium mt-1">
+                      {formatNumber(tokenUsage.limit)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Traces & Logs */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center space-x-2.5">
+                <FaChartLine className="text-foreground" size={20} />
+                <CardTitle className="text-base font-semibold">
+                  TRACES & LOGS USAGE
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wide">
+                      This Month
+                    </span>
+                    <span
+                      className={`text-xs font-medium ${getUsageColor(tracesUsage.percentage)}`}
+                    >
+                      {tracesUsage.percentage.toFixed(1)}% used
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className={`h-2 rounded-full transition-all duration-300 ${
+                        tracesUsage.percentage >= 90
+                          ? 'bg-red-500'
+                          : tracesUsage.percentage >= 75
+                            ? 'bg-yellow-500'
+                            : 'bg-green-500'
+                      }`}
+                      style={{
+                        width: `${Math.min(100, tracesUsage.percentage)}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 text-center">
+                  <div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">
+                      Used
+                    </div>
+                    <div className="text-sm font-medium mt-1">
+                      {formatNumber(tracesUsage.usage)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">
+                      Remaining
+                    </div>
+                    <div
+                      className={`text-sm font-medium mt-1 ${getUsageColor(tracesUsage.percentage)}`}
+                    >
+                      {formatNumber(tracesUsage.remaining)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Actions */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center space-x-2.5">
+                <FaCreditCard className="text-foreground" size={24} />
+                <div className="flex-1 min-w-0">
+                  <CardTitle className="text-base font-semibold">
+                    Account Actions
+                  </CardTitle>
+                  <CardDescription className="text-sm">
+                    Manage subscription and billing
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Button
+                onClick={() => router.push('/pricing')}
+                className="w-full"
+                variant="outline"
+              >
+                Change Plan
+              </Button>
+              <Button className="w-full" variant="secondary" disabled>
+                <FaCreditCard size={16} />
+                <span className="ml-2">Manage Billing (disabled in local)</span>
+              </Button>
+              <p className="text-xs text-muted-foreground text-center">
+                Billing portal is disabled in local mode.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * PROD: Original component with Autumn hooks & behavior.
+ */
+function SettingsWithAutumn() {
   const router = useRouter();
   const { user, isLoading: userLoading, getAuthState } = useUser();
   const {
@@ -32,30 +281,24 @@ export default function SettingsPage() {
   } = useCustomer();
 
   const [isProcessing, setIsProcessing] = useState(false);
-  const [tracesAndLogsData, setTracesAndLogsData] = useState(null);
+  const [tracesAndLogsData, setTracesAndLogsData] = useState<any>(null);
   const [isLoadingTracesAndLogs, setIsLoadingTracesAndLogs] = useState(true);
 
   const isLoading = userLoading || customerLoading;
 
-  // Get LLM token information from Autumn customer data
   const getLLMTokenInfo = () => {
     if (!customer?.features?.llm_tokens) {
       return { limit: 0, usage: 0, remaining: 0, percentage: 0 };
     }
-
     const llmTokenFeature = customer.features.llm_tokens;
-
     const limit = llmTokenFeature.included_usage || 0;
     const usage = llmTokenFeature.usage || 0;
     const remaining = llmTokenFeature.balance || 0;
     const percentage = limit > 0 ? Math.min(100, (usage / limit) * 100) : 0;
-
     return { limit, usage, remaining, percentage };
   };
 
-  // Get traces and logs information from Autumn customer data
   function getTracesAndLogsInfo() {
-    // If still loading, show loading state
     if (isLoadingTracesAndLogs) {
       return {
         limit: 0,
@@ -65,23 +308,17 @@ export default function SettingsPage() {
         isLoading: true,
       };
     }
-
-    // Use API data if available, fallback to Autumn data
     const tracesAndLogsFeature = customer?.features?.trace__log;
-
     if (!tracesAndLogsFeature) {
       return null;
     }
-
     const limit = tracesAndLogsFeature.included_usage || 0;
-    const usage = tracesAndLogsFeature.usage || 0; // This now contains fresh data from API
+    const usage = tracesAndLogsFeature.usage || 0;
     const remaining = tracesAndLogsFeature.balance || 0;
     const percentage = limit > 0 ? Math.min(100, (usage / limit) * 100) : 0;
-
     return { limit, usage, remaining, percentage, isLoading: false };
   }
 
-  // Fetch traces and logs usage from backend API
   const fetchTracesAndLogsUsage = async () => {
     try {
       setIsLoadingTracesAndLogs(true);
@@ -95,9 +332,8 @@ export default function SettingsPage() {
       // Get the last payment date from customer subscription
       const activeProduct = customer.products.find(
         (product) =>
-          product.status === "active" || product.status === "trialing",
+          product.status === "active" || product.status === "trialing"
       );
-
       if (!activeProduct) {
         setIsLoadingTracesAndLogs(false);
         return;
@@ -110,7 +346,7 @@ export default function SettingsPage() {
       // Use GET with query parameters
       const url = new URL(
         "/api/get_traces_and_logs_usage",
-        window.location.origin,
+        window.location.origin
       );
       console.log("sinceDate", sinceDate);
       url.searchParams.set("since_date", sinceDate);
@@ -126,8 +362,8 @@ export default function SettingsPage() {
         const data = await response.json();
         setTracesAndLogsData(data.traces_and_logs);
 
-        // Update customer data with fresh usage info
         if (customer?.features?.trace__log && data.traces_and_logs) {
+          // update in-memory usage for display
           customer.features.trace__log.usage = data.traces_and_logs.trace__log;
         }
       }
@@ -145,6 +381,7 @@ export default function SettingsPage() {
     if (customer && !isLoading) {
       fetchTracesAndLogsUsage();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customer, isLoading]);
 
   // Format numbers with commas for better readability
@@ -159,7 +396,6 @@ export default function SettingsPage() {
     return "text-green-600 dark:text-green-400";
   };
 
-  // Get current active product from Autumn customer data
   const getCurrentPlan = () => {
     console.log("customer", customer);
     if (!customer?.products || customer.products.length === 0) {
@@ -174,7 +410,6 @@ export default function SettingsPage() {
     return activeProduct?.name || "Free";
   };
 
-  // Check if customer has active subscription
   const hasActiveSubscription = () => {
     if (!customer?.products || customer.products.length === 0) {
       return false;
@@ -185,7 +420,6 @@ export default function SettingsPage() {
     );
   };
 
-  // Check if customer is on trial
   const isOnTrial = () => {
     if (!customer?.products || customer.products.length === 0) {
       return false;
@@ -194,7 +428,6 @@ export default function SettingsPage() {
     return customer.products.some((product) => product.status === "trialing");
   };
 
-  // Get trial end date if on trial
   const getTrialEndDate = () => {
     if (!customer?.products || customer.products.length === 0) {
       return null;
@@ -222,13 +455,11 @@ export default function SettingsPage() {
     return plan.charAt(0).toUpperCase() + plan.slice(1);
   };
 
-  // Handle manage billing click using Autumn's openBillingPortal
   const handleManageBilling = async () => {
     if (!user?.email) {
       toast.error("Please sign in to manage billing");
       return;
     }
-
     try {
       setIsProcessing(true);
       toast.loading("Redirecting to billing portal...", {
@@ -257,9 +488,9 @@ export default function SettingsPage() {
           "Billing portal is not configured yet. Please contact support for subscription management.",
           {
             duration: 6000,
-          },
+          }
         );
-      } else if (errorMessage.includes("customer")) {
+      } else if (errorMessage.includes('customer')) {
         toast.error(
           "Unable to find your billing information. Please contact support.",
         );
@@ -273,7 +504,6 @@ export default function SettingsPage() {
     }
   };
 
-  // Get subscription status based on Autumn customer data
   const getSubscriptionStatus = () => {
     if (!customer) {
       return { status: "Loading...", variant: "secondary" as const };
@@ -295,15 +525,12 @@ export default function SettingsPage() {
   const hasAccess = hasActiveSubscription();
   const trialEndDate = getTrialEndDate();
 
-  // Calculate trial days remaining
   const getTrialDaysRemaining = () => {
     if (!trialEndDate) return null;
-
     const now = new Date();
     const endDate = new Date(trialEndDate);
     const diffTime = endDate.getTime() - now.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
     return Math.max(0, diffDays);
   };
 
@@ -374,7 +601,7 @@ export default function SettingsPage() {
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 p-3">
-          {/* Subscription Status Card */}
+          {/* Subscription Status */}
           <Card>
             <CardHeader>
               <div className="flex items-center space-x-2.5">
@@ -384,9 +611,7 @@ export default function SettingsPage() {
                 </CardTitle>
               </div>
             </CardHeader>
-
             <CardContent className="space-y-4">
-              {/* Plan Details - Structured Layout */}
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -449,7 +674,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* LLM Token Usage Card */}
+          {/* LLM Token Usage */}
           <Card>
             <CardHeader>
               <div className="flex items-center space-x-2.5">
@@ -459,11 +684,9 @@ export default function SettingsPage() {
                 </CardTitle>
               </div>
             </CardHeader>
-
             <CardContent className="space-y-4">
               {(() => {
                 const tokenInfo = getLLMTokenInfo();
-
                 if (tokenInfo.limit === 0 && tokenInfo.remaining === 0) {
                   return (
                     <div className="text-center py-4">
@@ -476,10 +699,8 @@ export default function SettingsPage() {
                     </div>
                   );
                 }
-
                 return (
                   <div className="space-y-3">
-                    {/* Usage Progress Bar */}
                     {tokenInfo.limit > 0 && (
                       <div>
                         <div className="flex justify-between items-center mb-2">
@@ -508,8 +729,6 @@ export default function SettingsPage() {
                         </div>
                       </div>
                     )}
-
-                    {/* Token Statistics */}
                     <div className="grid grid-cols-3 gap-4 text-center">
                       <div>
                         <div className="text-xs text-muted-foreground uppercase tracking-wide">
@@ -529,17 +748,7 @@ export default function SettingsPage() {
                           {formatNumber(tokenInfo.remaining)}
                         </div>
                       </div>
-                      {/* <div>
-                        <div className="text-xs text-muted-foreground uppercase tracking-wide">
-                          Total
-                        </div>
-                        <div className="text-sm font-medium mt-1">
-                          {formatNumber(tokenInfo.limit)}
-                        </div>
-                      </div> */}
                     </div>
-
-                    {/* Warning for high usage */}
                     {tokenInfo.percentage >= 80 && (
                       <div
                         className={`text-xs p-2 rounded border ${
@@ -559,7 +768,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Traces and Logs Usage Card */}
+          {/* Traces & Logs */}
           <Card>
             <CardHeader>
               <div className="flex items-center space-x-2.5">
@@ -569,11 +778,9 @@ export default function SettingsPage() {
                 </CardTitle>
               </div>
             </CardHeader>
-
             <CardContent className="space-y-4">
               {(() => {
                 const tracesLogsInfo = getTracesAndLogsInfo();
-
                 if (tracesLogsInfo === null) {
                   return (
                     <div className="text-center py-4">
@@ -586,7 +793,6 @@ export default function SettingsPage() {
                     </div>
                   );
                 }
-
                 if (tracesLogsInfo.isLoading) {
                   return (
                     <div className="text-center py-4">
@@ -612,10 +818,8 @@ export default function SettingsPage() {
                     </div>
                   );
                 }
-
                 return (
                   <div className="space-y-3">
-                    {/* Usage Progress Bar */}
                     {tracesLogsInfo.limit > 0 && (
                       <div>
                         <div className="flex justify-between items-center mb-2">
@@ -644,8 +848,6 @@ export default function SettingsPage() {
                         </div>
                       </div>
                     )}
-
-                    {/* Traces & Logs Statistics */}
                     <div className="grid grid-cols-2 gap-4 text-center">
                       <div>
                         <div className="text-xs text-muted-foreground uppercase tracking-wide">
@@ -666,8 +868,6 @@ export default function SettingsPage() {
                         </div>
                       </div>
                     </div>
-
-                    {/* Warning for high usage */}
                     {tracesLogsInfo.percentage >= 80 && (
                       <div
                         className={`text-xs p-2 rounded border ${
@@ -687,7 +887,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Quick Actions Card */}
+          {/* Actions */}
           <Card>
             <CardHeader>
               <div className="flex items-center space-x-2.5">
@@ -702,7 +902,6 @@ export default function SettingsPage() {
                 </div>
               </div>
             </CardHeader>
-
             <CardContent className="space-y-3">
               <Button
                 onClick={() => router.push("/pricing")}
@@ -711,7 +910,6 @@ export default function SettingsPage() {
               >
                 {isOnTrial() ? "Upgrade Plan" : "Change Plan"}
               </Button>
-
               {user?.email && (
                 <Button
                   onClick={handleManageBilling}
@@ -723,7 +921,6 @@ export default function SettingsPage() {
                   {isProcessing ? "Opening..." : "Manage Billing"}
                 </Button>
               )}
-
               <p className="text-xs text-muted-foreground text-center">
                 Update payment methods, view invoices, and manage your
                 subscription
@@ -731,7 +928,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Payment History Card - Using Autumn customer invoices if available */}
+          {/* Payment History */}
           {customer?.invoices && customer.invoices.length > 0 && (
             <Card>
               <CardHeader>
@@ -747,7 +944,6 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </CardHeader>
-
               <CardContent>
                 <div className="space-y-3">
                   {customer.invoices

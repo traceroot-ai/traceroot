@@ -13,7 +13,16 @@ interface CognitoJwtClaims {
 
 export const { GET, POST } = autumnHandler({
   identify: async (request) => {
-    console.log("🔍 Autumn identify function called", {
+    if (process.env.NEXT_PUBLIC_LOCAL_MODE === 'true') {
+      console.log("⚠️ Autumn is disabled in local mode");
+      return {
+        customerId: "local-user",
+        customerData: {
+          email: "local@example.com",
+        },
+      }; // return mock user
+    }
+    console.log('🔍 Autumn identify function called', {
       requestUrl: request?.url,
     });
     try {
