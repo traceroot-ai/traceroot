@@ -44,7 +44,7 @@
           },
           {
             "group": "Examples",
-            "pages": ["examples/multi_code_agent"]
+            "pages": ["examples/multi_code_agent", "examples/python_examples"]
           }
         ]
       }
