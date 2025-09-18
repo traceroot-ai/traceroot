@@ -3,7 +3,6 @@ title: "Quickstart"
 description: "Start building Python programs with awesome debugging and tracing in 3 minutes"
 ---
 
-
 ## Setup
 
 ### Register and Login
@@ -52,24 +51,60 @@ Then you can install the [TraceRoot.AI](http://traceroot.ai) SDK in your Python 
 pip install traceroot==0.0.5
 ```
 
-### Configure
+## Configure
 
-Then you can configure the SDK by creating a `.traceroot-config.yaml` file
+### Environment Setup
 
-* In the root of your GitHub repository if your package is not installed.
-* In the repository for the entry script to run your program if your package is installed.
+To run any of the examples in this folder, you can configure Traceroot using environment variables.
 
-The configuration file looks like the following:
+---
 
-```yaml
-token: "[YOUR-GENERATED-TOKEN-AT-PREVIOUS-STEP]"
-service_name: "[YOUR-SERVICE-NAME]"
-github_owner: "[YOUR-GITHUB-OWNER-NAME]"
-github_repo_name: "[YOUR-GITHUB-REPO-NAME]"
-github_commit_hash: "[YOUR-GITHUB-COMMIT-HASH]"
+### Option 1: Create a `.env` file in the root of your project
+
+```bash
+# Open the .env file and update it with your actual Traceroot token and details
+TRACEROOT_TOKEN=your-actual-traceroot-token
+TRACEROOT_SERVICE_NAME=example
+TRACEROOT_GITHUB_OWNER=traceroot-ai
+TRACEROOT_GITHUB_REPO_NAME=traceroot
+TRACEROOT_GITHUB_COMMIT_HASH=main
+TRACEROOT_LOCAL_MODE=true
 ```
 
-Notice that all github related information is optional.
+Then run your program:
+
+```bash
+python file_name.py
+```
+
+---
+
+### Option 2: Manually export the environment variables
+
+```bash
+export TRACEROOT_TOKEN=your-actual-traceroot-token
+export TRACEROOT_SERVICE_NAME=example
+export TRACEROOT_GITHUB_OWNER=traceroot-ai
+export TRACEROOT_GITHUB_REPO_NAME=traceroot
+export TRACEROOT_GITHUB_COMMIT_HASH=main
+export TRACEROOT_LOCAL_MODE=true
+```
+
+Then run your program:
+
+```bash
+python file_name.py
+```
+
+---
+
+---
+
+✅ **Notes:**
+
+- Only `TRACEROOT_TOKEN` and `TRACEROOT_SERVICE_NAME` are required.
+- GitHub-related variables (`OWNER`, `REPO_NAME`, `COMMIT_HASH`) are optional.
+- `TRACEROOT_LOCAL_MODE` can be set to `true` for local testing.
 
 Then you can start tracing and logging by
 
