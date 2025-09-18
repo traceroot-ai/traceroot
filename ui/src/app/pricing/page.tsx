@@ -1,17 +1,15 @@
-'use client';
+"use client";
 
-import { Suspense } from 'react';
-import { PricingTable } from 'autumn-js/react';
+import { Suspense } from "react";
+import { PricingTable } from "autumn-js/react";
 
-// --------------------
 // Product details config
-// --------------------
 const productDetails = [
   {
     id: 'starter',
-    description: '7-day free trial, then $19/month',
+    description: "7-day free trial, then $19/month",
     items: [
-      { primaryText: '100k trace + logs' },
+      { primaryText: "100k trace + logs" },
       { primaryText: '1M LLM tokens' },
       { primaryText: '30d retention' },
       { primaryText: 'Source code visible in UI' },
@@ -19,44 +17,42 @@ const productDetails = [
     ],
   },
   {
-    id: 'pro',
-    description: 'For all your extra messaging needs',
-    recommendText: 'Popular',
+    id: "pro",
+    description: "For all your extra messaging needs",
+    recommendText: "Popular",
     items: [
-      { primaryText: 'Everything in Starter' },
-      { primaryText: 'Unlimited users' },
-      { primaryText: 'AI agent has chat + agent mode' },
-      { primaryText: 'Optional full codebase access (GitHub integration)' },
-      { primaryText: 'AI Agent auto-triaging production issues' },
+      { primaryText: "Everything in Starter" },
+      { primaryText: "Unlimited users" },
+      { primaryText: "AI agent has chat + agent mode" },
+      { primaryText: "Optional full codebase access (GitHub integration)" },
+      { primaryText: "AI Agent auto-triaging production issues" },
     ],
   },
   {
-    id: 'startups',
-    description: 'For those of you who are really serious',
+    id: "startups",
+    description: "For those of you who are really serious",
     items: [
       {
-        primaryText: 'Everything in Pro',
+        primaryText: "Everything in Pro",
       },
       {
-        primaryText: '5M trace + logs',
+        primaryText: "5M trace + logs",
       },
       {
-        primaryText: '50M LLM tokens',
+        primaryText: "50M LLM tokens",
       },
       {
         primaryText:
-          'Slack & Notion integration, full GitHub support with ticket/PR context',
+          "Slack & Notion integration, full GitHub support with ticket/PR context",
       },
       {
-        primaryText: 'SOC2 & ISO27001 reports, BAA available (HIPAA)',
+        primaryText: "SOC2 & ISO27001 reports, BAA available (HIPAA)",
       },
     ],
   },
 ];
 
-// --------------------
 // Loading fallback UI
-// --------------------
 function LoadingFallback() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-zinc-900">
@@ -70,9 +66,7 @@ function LoadingFallback() {
   );
 }
 
-// --------------------
 // Local mock fallback (avoids Autumn API in dev)
-// --------------------
 function LocalPricingTable() {
   return (
     <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
@@ -98,9 +92,7 @@ function LocalPricingTable() {
   );
 }
 
-// --------------------
 // Page component
-// --------------------
 export default function PricingPage() {
   const isLocal = process.env.NODE_ENV !== 'production';
 

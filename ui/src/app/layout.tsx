@@ -7,13 +7,13 @@ import { Toaster } from "react-hot-toast";
 import { AutumnProvider } from "autumn-js/react";
 import { ThemeProvider } from "@/components/theme-provider";
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'TraceRoot.AI',
-  description: 'Agentic debugging tool',
+  title: "TraceRoot.AI",
+  description: "Agentic debugging tool",
   icons: {
-    icon: '/favicon.ico',
+    icon: "/favicon.ico",
   },
 };
 
