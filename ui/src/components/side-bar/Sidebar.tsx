@@ -9,6 +9,7 @@ import {
   ArrowRightFromLine,
   ArrowLeftFromLine,
   Mail,
+  MessageCircle,
   BookText,
   Moon,
   Sun,
@@ -150,26 +151,78 @@ function IntegrateComponent() {
   );
 }
 
-function ContactComponent() {
+function NeedHelpComponent() {
   const { state } = useSidebar();
+  const [copied, setCopied] = useState(false);
 
   return (
-    <SidebarMenuButton
-      asChild
-      isActive={false}
-      tooltip="Contact"
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
-    >
-      <a
-        href="https://cal.com/traceroot/30min"
-        target="_blank"
-        rel="noopener noreferrer"
-        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
-      >
-        <Mail className="!w-6 !h-6" />
-        {state === "expanded" && <span>Contact</span>}
-      </a>
-    </SidebarMenuButton>
+    <Dialog>
+      <DialogTrigger asChild>
+        <SidebarMenuButton
+          isActive={false}
+          tooltip="Need Help?"
+          className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+        >
+          <MessageCircle className="!w-6 !h-6" />
+          {state === "expanded" && (
+            <div className="flex items-center gap-2">
+              <span>Need Help?</span>
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            </div>
+          )}
+        </SidebarMenuButton>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[425px]">
+        <div className="flex flex-col space-y-3 pt-6">
+          <Button
+            variant="outline"
+            className="w-full text-sm justify-center cursor-pointer hover:bg-muted/50"
+            onClick={() => {
+              navigator.clipboard.writeText('founders@traceroot.ai');
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1000);
+            }}
+          >
+            <div className="flex items-center justify-between w-full">
+              <Mail className="w-4 h-4" />
+              <span className="flex-1 text-center">founders@traceroot.ai</span>
+              {copied ? (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                  <polyline points="20,6 9,17 4,12"></polyline>
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              )}
+            </div>
+          </Button>
+
+          <Button asChild variant="outline" className="w-full text-sm">
+            <a
+              href="https://cal.com/traceroot"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Book a call
+            </a>
+          </Button>
+
+          <Button asChild variant="outline" className="w-full text-sm">
+            <a
+              href="https://discord.gg/tPyffEZvvJ"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-between"
+            >
+              <span>We're online on Discord</span>
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+            </a>
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -476,7 +529,7 @@ export default function AppSidebar() {
         <ExpandCollapseButton />
         <DarkModeToggle />
         <DocumentationComponent />
-        <ContactComponent />
+        <NeedHelpComponent />
         <SettingsComponent />
         <Separator />
         <ProfileComponent />
