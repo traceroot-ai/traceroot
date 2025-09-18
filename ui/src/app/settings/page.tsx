@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   FaCreditCard,
   FaHistory,
@@ -374,8 +374,6 @@ function SettingsWithAutumn() {
     }
   };
 
-
-
   // TODO (xinwei): properly fix this please, right now it is reloading
   // whenever we go to another page and back which is not ideal
   // useEffect to fetch data when customer is loaded
@@ -406,7 +404,7 @@ function SettingsWithAutumn() {
 
     // Find the currently active product (including trialing status)
     const activeProduct = customer.products.find(
-      (product) => product.status === "active" || product.status === "trialing"
+      (product) => product.status === "active" || product.status === "trialing",
     );
 
     return activeProduct?.name || "Free";
@@ -418,7 +416,7 @@ function SettingsWithAutumn() {
     }
 
     return customer.products.some(
-      (product) => product.status === "active" || product.status === "trialing"
+      (product) => product.status === "active" || product.status === "trialing",
     );
   };
 
@@ -436,7 +434,7 @@ function SettingsWithAutumn() {
     }
 
     const trialProduct = customer.products.find(
-      (product) => product.status === "trialing"
+      (product) => product.status === "trialing",
     );
 
     // Debug: log the trial product to see available fields
@@ -494,11 +492,11 @@ function SettingsWithAutumn() {
         );
       } else if (errorMessage.includes('customer')) {
         toast.error(
-          "Unable to find your billing information. Please contact support."
+          "Unable to find your billing information. Please contact support.",
         );
       } else {
         toast.error(
-          "Failed to open billing portal. Please try again or contact support."
+          "Failed to open billing portal. Please try again or contact support.",
         );
       }
     } finally {
@@ -649,7 +647,7 @@ function SettingsWithAutumn() {
                             if (isNaN(date.getTime())) {
                               return "N/A";
                             }
-                            return date.toLocaleDateString('en-US', {
+                            return date.toLocaleDateString("en-US", {
                               year: "numeric",
                               month: "2-digit",
                               day: "2-digit",
