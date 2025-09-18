@@ -173,6 +173,9 @@ function NeedHelpComponent() {
         </SidebarMenuButton>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Need Help?</DialogTitle>
+        </DialogHeader>
         <div className="flex flex-col space-y-3 pt-6">
           <Button
             variant="outline"
