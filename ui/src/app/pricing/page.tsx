@@ -6,7 +6,7 @@ import { PricingTable } from "autumn-js/react";
 // Product details config
 const productDetails = [
   {
-    id: 'starter',
+    id: "starter",
     description: "7-day free trial, then $19/month",
     items: [
       { primaryText: "100k trace + logs" },
