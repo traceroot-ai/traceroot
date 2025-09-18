@@ -9,12 +9,7 @@
   },
   "favicon": "/favicon.png",
   "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "chatgpt",
-      "claude"
-    ]
+    "options": ["copy", "view", "chatgpt", "claude"]
   },
   "icons": {
     "library": "lucide"
@@ -41,17 +36,15 @@
         "groups": [
           {
             "group": "Get Started",
-            "pages": [
-              "index",
-              "quickstart"
-            ]
+            "pages": ["index", "quickstart"]
           },
           {
             "group": "SDK",
-            "pages": [
-              "sdk/python",
-              "sdk/typescript"
-            ]
+            "pages": ["sdk/python", "sdk/typescript"]
+          },
+          {
+            "group": "Examples",
+            "pages": ["examples/multi_code_agent"]
           }
         ]
       }
