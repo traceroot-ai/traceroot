@@ -1,143 +1,41 @@
 ---
 title: "Quickstart"
-description: "Start building Python programs with awesome debugging and tracing in 3 minutes"
+description: "Integrate TraceRoot with an example"
 ---
 
-
-## Setup
-
-### Register and Login
-
-At first go to [https://auth.traceroot.ai/](https://auth.traceroot.ai/) to register or login.
-
-If you don't have an account, you can register by clicking the **Sign Up** button:
+## Registeration
+Register an [account](https://auth.traceroot.ai/).
 
 <img
-  src="https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/docs/quickstart/0_signup.png"
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/docs/quickstart/screenshot_1.png"
   alt="Register"
   style={{ display: "block", margin: "0 auto" }}
 />
 
-Then you can login with your registered email and password.
+## Integration
+Create a new TraceRoot token and integrate with github in the [integration section](https://test.traceroot.ai/integrate).
 
 <img
-  src="https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/docs/quickstart/1_signin.png"
-  alt="Signin"
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/docs/quickstart/screenshot_2.png"
+  alt="Register"
   style={{ display: "block", margin: "0 auto" }}
 />
 
-Then you can see the following page which means you have successfully logged in :)
+## Examples
+Go to the [examples](https://github.com/traceroot-ai/traceroot/tree/main/examples/distributed_services/multi_code_agent) and follow the instruction to run the example program with TraceRoot integration.
+Use [Python SDK](xxx) and [TypeScript SDK](xxx) integration documentation for references.
+
+## Explore TraceRoot
+Go to the [exploration section](https://test.traceroot.ai/explore) and test how TraceRoot is able to store all telemetry data in a centralized manner and using AI agents to help with root cause analysis and bug fix PR creation.
 
 <img
-  src="https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/docs/quickstart/2_logged_in.png"
-  alt="Loggedin"
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/docs/quickstart/screenshot_3.png"
+  alt="Register"
   style={{ display: "block", margin: "0 auto" }}
 />
 
-### Get Token
-
-You can get the token by navigating to the **Connect** page.
-
 <img
-  src="https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/docs/quickstart/3_token.png"
-  alt="Token"
-  style={{ display: "block", margin: "0 auto" }}
-/>
-
-### Install SDK
-
-Then you can install the [TraceRoot.AI](http://traceroot.ai) SDK in your Python package by
-
-```bash
-pip install traceroot==0.0.5
-```
-
-### Configure
-
-Then you can configure the SDK by creating a `.traceroot-config.yaml` file
-
-* In the root of your GitHub repository if your package is not installed.
-* In the repository for the entry script to run your program if your package is installed.
-
-The configuration file looks like the following:
-
-```yaml
-token: "[YOUR-GENERATED-TOKEN-AT-PREVIOUS-STEP]"
-service_name: "[YOUR-SERVICE-NAME]"
-github_owner: "[YOUR-GITHUB-OWNER-NAME]"
-github_repo_name: "[YOUR-GITHUB-REPO-NAME]"
-github_commit_hash: "[YOUR-GITHUB-COMMIT-HASH]"
-```
-
-Notice that all github related information is optional.
-
-Then you can start tracing and logging by
-
-```python
-logger = traceroot.get_logger()
-
-@traceroot.trace()
-def main():
-    logger.info("This is an info message")
-```
-
-And run your program:
-
-```bash
-python your_program.py
-```
-
-All of the logging and tracing will be automatically tracked and pushed to [TraceRoot.AI](http://traceroot.ai) (demo) platform.
-
-### A Simple Example
-
-[TraceRoot.AI](http://traceroot.ai) has been integrated with famous Python libraries like [camel](https://github.com/camel-ai/camel).
-
-You can easily track the AI agent's tracing and logging by the following code:
-
-```bash
-git clone https://github.com/camel-ai/camel.git
-cd camel
-# Install camel
-
-vim examples/debug/.traceroot-config.yaml
-# Put your token to the file
-
-python3 examples/debug/traceroot_example.py
-```
-
-### Explore the Loggings and Tracings with AI Agents
-
-You can explore the loggings in the [TraceRoot.AI demo platform](https://test.traceroot.ai).
-
-<img
-  src="https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/docs/quickstart/4_explore_logs.png"
-  alt="Explore Logs"
-  style={{ display: "block", margin: "0 auto" }}
-/>
-
-You can also show the code with some context by clicking the **Show Code** button.
-
-<img
-  src="https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/docs/quickstart/5_explore_code.png"
-  alt="Show Code"
-  style={{ display: "block", margin: "0 auto" }}
-/>
-
-Next is the most exciting part, you can ask AI agents to help you on anything you want with your code, loggings, tracings and more.
-
-Here is a simple example that ask to summarize the logs and corresponding code:
-
-<img
-  src="https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/docs/quickstart/6_explore_chat.png"
-  alt="Ask AI"
-  style={{ display: "block", margin: "0 auto" }}
-/>
-
-At last, you can also check the latency for each of your functions by clicking the **Latency** button.
-
-<img
-  src="https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/docs/quickstart/7_explore_latency.png"
-  alt="Latency"
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/docs/quickstart/screenshot_4.png"
+  alt="Register"
   style={{ display: "block", margin: "0 auto" }}
 />
