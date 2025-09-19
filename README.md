@@ -109,7 +109,7 @@ If you find our exploratory TraceRoot useful in your research, please consider c
 
 ```bibtex
 @article{traceroot_2025,
-  title={TraceRoot Is All You Need for Debugging and Tracing},
+  title={TraceRoot Is All You Need for Fixing Production Bugs},
   author={Zecheng Zhang and Xinwei He},
   year = {2025},
   publisher = {GitHub},
