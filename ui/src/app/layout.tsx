@@ -22,7 +22,7 @@ function MockAutumnProvider({ children }: { children: React.ReactNode }) {
 }
 
 const Provider =
-  process.env.NEXT_PUBLIC_LOCAL_MODE === 'true'
+  process.env.NEXT_PUBLIC_LOCAL_MODE === "true"
     ? MockAutumnProvider
     : AutumnProvider;
 
@@ -34,7 +34,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.className} h-screen overflow-hidden`}>
-         <ThemeProvider
+        <ThemeProvider
           attribute="class"
           defaultTheme="system"
           enableSystem

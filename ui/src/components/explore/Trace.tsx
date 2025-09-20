@@ -15,7 +15,7 @@ import { fadeInAnimationStyles } from "@/constants/animations";
 import { useUser } from "@/hooks/useUser";
 import { IoWarningOutline, IoLogoJavascript } from "react-icons/io5";
 import { MdErrorOutline } from "react-icons/md";
-import { FaPython } from "react-icons/fa";
+import { FaPython, FaJava } from "react-icons/fa";
 import { SiTypescript } from "react-icons/si";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/shadcn-io/spinner";
@@ -466,6 +466,16 @@ export const Trace: React.FC<TraceProps> = ({
                                   "js",
                                 ) && (
                                   <IoLogoJavascript
+                                    className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                    size={14}
+                                  />
+                                )}
+
+                                {/* Java Icon - show when telemetry_sdk_language includes "java" */}
+                                {trace.telemetry_sdk_language.includes(
+                                  "java",
+                                ) && (
+                                  <FaJava
                                     className="text-neutral-800 dark:text-neutral-200 mr-2"
                                     size={14}
                                   />

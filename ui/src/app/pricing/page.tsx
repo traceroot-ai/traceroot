@@ -10,10 +10,10 @@ const productDetails = [
     description: "7-day free trial, then $19/month",
     items: [
       { primaryText: "100k trace + logs" },
-      { primaryText: '1M LLM tokens' },
-      { primaryText: '30d retention' },
-      { primaryText: 'Source code visible in UI' },
-      { primaryText: 'AI agent with chat mode only' },
+      { primaryText: "1M LLM tokens" },
+      { primaryText: "30d retention" },
+      { primaryText: "Source code visible in UI" },
+      { primaryText: "AI agent with chat mode only" },
     ],
   },
   {
@@ -94,7 +94,7 @@ function LocalPricingTable() {
 
 // Page component
 export default function PricingPage() {
-  const isLocal = process.env.NODE_ENV !== 'production';
+  const isLocal = process.env.NODE_ENV !== "production";
 
   return (
     <Suspense fallback={<LoadingFallback />}>
