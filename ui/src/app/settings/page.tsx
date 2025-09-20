@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
-const IS_LOCAL = process.env.NEXT_PUBLIC_LOCAL_MODE === 'true';
+const IS_LOCAL = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 /**
  * Wrapper: choose Local mock (no Autumn) vs Prod (Autumn).
  */
@@ -36,7 +36,7 @@ export default function SettingsPage() {
 function LocalSettingsPage() {
   const router = useRouter();
 
-  const formatNumber = (n: number) => new Intl.NumberFormat('en-US').format(n);
+  const formatNumber = (n: number) => new Intl.NumberFormat("en-US").format(n);
 
   // Example mock stats; adjust as desired for local dev
   const tokenUsage = {
@@ -53,7 +53,7 @@ function LocalSettingsPage() {
   };
 
   const getUsageColor = (p: number) =>
-    p >= 90 ? 'text-red-600' : p >= 75 ? 'text-yellow-600' : 'text-green-600';
+    p >= 90 ? "text-red-600" : p >= 75 ? "text-yellow-600" : "text-green-600";
 
   return (
     <div className="min-h-full flex flex-col p-4">
@@ -124,10 +124,10 @@ function LocalSettingsPage() {
                     <div
                       className={`h-2 rounded-full transition-all duration-300 ${
                         tokenUsage.percentage >= 90
-                          ? 'bg-red-500'
+                          ? "bg-red-500"
                           : tokenUsage.percentage >= 75
-                            ? 'bg-yellow-500'
-                            : 'bg-green-500'
+                            ? "bg-yellow-500"
+                            : "bg-green-500"
                       }`}
                       style={{
                         width: `${Math.min(100, tokenUsage.percentage)}%`,
@@ -194,10 +194,10 @@ function LocalSettingsPage() {
                     <div
                       className={`h-2 rounded-full transition-all duration-300 ${
                         tracesUsage.percentage >= 90
-                          ? 'bg-red-500'
+                          ? "bg-red-500"
                           : tracesUsage.percentage >= 75
-                            ? 'bg-yellow-500'
-                            : 'bg-green-500'
+                            ? "bg-yellow-500"
+                            : "bg-green-500"
                       }`}
                       style={{
                         width: `${Math.min(100, tracesUsage.percentage)}%`,
@@ -246,7 +246,7 @@ function LocalSettingsPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <Button
-                onClick={() => router.push('/pricing')}
+                onClick={() => router.push("/pricing")}
                 className="w-full"
                 variant="outline"
               >
@@ -332,7 +332,7 @@ function SettingsWithAutumn() {
       // Get the last payment date from customer subscription
       const activeProduct = customer.products.find(
         (product) =>
-          product.status === "active" || product.status === "trialing"
+          product.status === "active" || product.status === "trialing",
       );
       if (!activeProduct) {
         setIsLoadingTracesAndLogs(false);
@@ -346,7 +346,7 @@ function SettingsWithAutumn() {
       // Use GET with query parameters
       const url = new URL(
         "/api/get_traces_and_logs_usage",
-        window.location.origin
+        window.location.origin,
       );
       console.log("sinceDate", sinceDate);
       url.searchParams.set("since_date", sinceDate);
@@ -488,9 +488,9 @@ function SettingsWithAutumn() {
           "Billing portal is not configured yet. Please contact support for subscription management.",
           {
             duration: 6000,
-          }
+          },
         );
-      } else if (errorMessage.includes('customer')) {
+      } else if (errorMessage.includes("customer")) {
         toast.error(
           "Unable to find your billing information. Please contact support.",
         );

@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { Span as SpanType } from "@/models/trace";
-import { TRACE_ENTRY_COLOR } from "@/constants/colors";
 import { fadeInAnimationStyles } from "@/constants/animations";
 import { IoWarningOutline, IoLogoJavascript } from "react-icons/io5";
 import { MdErrorOutline } from "react-icons/md";
-import { FaPython } from "react-icons/fa";
+import { FaPython, FaJava } from "react-icons/fa";
 import { SiTypescript } from "react-icons/si";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -205,6 +204,14 @@ const Span: React.FC<SpanProps> = ({
                 {/* JavaScript Icon - show when telemetry_sdk_language is "js" */}
                 {span.telemetry_sdk_language === "js" && (
                   <IoLogoJavascript
+                    className="text-neutral-700 dark:text-neutral-300 mr-2"
+                    size={14}
+                  />
+                )}
+
+                {/* Java Icon - show when telemetry_sdk_language is "java" */}
+                {span.telemetry_sdk_language === "java" && (
+                  <FaJava
                     className="text-neutral-700 dark:text-neutral-300 mr-2"
                     size={14}
                   />
