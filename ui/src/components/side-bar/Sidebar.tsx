@@ -423,7 +423,7 @@ function ProfileComponent() {
             {!user ? (
               <Button asChild className="mx-auto">
                 <a
-                  href="https://traceroot.ai"
+                  href="https://auth.traceroot.ai"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
