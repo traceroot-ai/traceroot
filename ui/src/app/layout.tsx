@@ -6,6 +6,7 @@ import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { Toaster } from "react-hot-toast";
 import { AutumnProvider } from "autumn-js/react";
 import { ThemeProvider } from "@/components/theme-provider";
+import AuthGuard from "@/components/auth/AuthGuard";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -41,11 +42,13 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <Provider>
-            {/* Make it false by default */}
-            <SidebarProvider defaultOpen={false}>
-              <AppSidebar />
-              <SidebarInset>{children}</SidebarInset>
-            </SidebarProvider>
+            <AuthGuard>
+              {/* Make it false by default */}
+              <SidebarProvider defaultOpen={false}>
+                <AppSidebar />
+                <SidebarInset>{children}</SidebarInset>
+              </SidebarProvider>
+            </AuthGuard>
             <Toaster
               position="top-right"
               toastOptions={{
