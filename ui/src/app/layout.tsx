@@ -41,6 +41,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <Provider>
+            {/* Make it false by default */}
             <SidebarProvider defaultOpen={false}>
               <AppSidebar />
               <SidebarInset>{children}</SidebarInset>
