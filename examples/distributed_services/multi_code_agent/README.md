@@ -4,13 +4,13 @@ A distributed multi-agent system that can plan, code, execute, and summarize cod
 
 ## Quick Start
 
-### 1. Setup (One-time)
+### One time setup
 
 ```bash
 ./setup.sh
 ```
 
-### 2. Configure Environment
+### Configure environment
 
 Set your OpenAI API key:
 
@@ -18,9 +18,15 @@ Set your OpenAI API key:
 export OPENAI_API_KEY=your_openai_api_key_here
 ```
 
-and update TRACEROOT_TOKEN in .env with the your TraceRoot token in [here](https://test.traceroot.ai/integrate).
+and update
 
-### 3. Start Everything
+```bash
+TRACEROOT_TOKEN=your_traceroot_token_here
+```
+
+in `.env` with the your TraceRoot token in [here](https://test.traceroot.ai/integrate).
+
+### Start services
 
 ```bash
 ./start.sh
@@ -28,7 +34,7 @@ and update TRACEROOT_TOKEN in .env with the your TraceRoot token in [here](https
 
 This will start both the backend (port 9999) and frontend (port 3000).
 
-## Access the Application
+## Access the application
 
 - **Frontend UI**: http://localhost:3000
 - **Backend API**: http://localhost:9999
@@ -41,8 +47,6 @@ curl -X POST "http://localhost:9999/code" \
      -d '{"query": "Write a Python function to calculate fibonacci numbers"}'
 ```
 
-## Example Queries
+## Run example queries
 
-Try these complex coding challenges:
-
-- "Given an m x n matrix, return all elements of the matrix in spiral order, where m = 1000000000 and n = 1000000000"
+- Given an m x n matrix, return all elements of the matrix in spiral order, where m = 1000000000 and n = 1000000000.
