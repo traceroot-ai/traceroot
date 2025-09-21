@@ -1,41 +1,48 @@
-# Setup
+# Multi-Agent Code Generator
+
+A distributed multi-agent system that can plan, code, execute, and summarize coding tasks using LangGraph and TraceRoot.
+
+## Quick Start
+
+### 1. Setup (One-time)
 
 ```bash
-python3.11 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-export OPENAI_API_KEY=your_api_key_here
+./setup.sh
 ```
 
-# Environment Setup
+### 2. Configure Environment
+
+Set your OpenAI API key:
 
 ```bash
-# Open the .env file and update it with your actual Traceroot token and details
-cp .env.example .env
+export OPENAI_API_KEY=your_openai_api_key_here
 ```
 
-# Run REST API
+and update TRACEROOT_TOKEN in .env with the your TraceRoot token in [here](https://test.traceroot.ai/integrate).
 
-To run the server, run the following command:
+### 3. Start Everything
 
 ```bash
-python simple_server.py
+./start.sh
 ```
 
-This will start a server on port 9999.
+This will start both the backend (port 9999) and frontend (port 3000).
 
-## Test by Sending a Request
+## Access the Application
+
+- **Frontend UI**: http://localhost:3000
+- **Backend API**: http://localhost:9999
+
+## Test the API
 
 ```bash
 curl -X POST "http://localhost:9999/code" \
-        -H "Content-Type: application/json" \
-        -d '{"query": "Write a Python function to calculate fibonacci numbers"}'
+     -H "Content-Type: application/json" \
+     -d '{"query": "Write a Python function to calculate fibonacci numbers"}'
 ```
 
-# Run UI
+## Example Queries
 
-Check [here](https://github.com/traceroot-ai/traceroot/tree/main/examples/distributed_services/multi_code_agent/ui).
+Try these complex coding challenges:
 
-## Test by a Query
-
-Given an m x n matrix, return all elements of the matrix in spiral order, where m = 1000000000 and n = 1000000000.
+- "Given an m x n matrix, return all elements of the matrix in spiral order, where m = 1000000000 and n = 1000000000"
