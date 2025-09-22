@@ -24,7 +24,15 @@ and update
 TRACEROOT_TOKEN=your_traceroot_token_here
 ```
 
-in `.env` with the your TraceRoot token in [here](https://test.traceroot.ai/integrate).
+in `.env` and
+
+```bash
+token: 'your_traceroot_token_here',
+```
+
+in `ui/traceroot.config.ts`
+
+with the your TraceRoot token in [here](https://test.traceroot.ai/integrate).
 
 ### Start services
 
