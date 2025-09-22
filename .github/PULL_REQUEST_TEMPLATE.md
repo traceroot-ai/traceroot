@@ -35,3 +35,31 @@ ______________________________________________________________________
 - [ ] I have updated documentation where necessary
 
 ______________________________________________________________________
+
+## How to Test
+
+<!-- Provide steps for reviewers to test your changes locally. -->
+
+______________________________________________________________________
+
+## Breaking Changes
+
+<!-- List any breaking changes and migration steps required. -->
+
+______________________________________________________________________
+
+## Screenshots / Recordings (if applicable)
+
+<!-- Add before/after screenshots, GIFs, or videos to help reviewers understand changes. -->
+
+______________________________________________________________________
+
+## Release Notes
+
+<!-- Write a short, user-facing description for the CHANGELOG.md (if applicable). -->
+
+______________________________________________________________________
+
+## Additional Context
+
+<!-- Provide any extra information that might help reviewers. -->
