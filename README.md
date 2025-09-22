@@ -14,11 +14,11 @@
 [![PyPI Version][pypi-image]][pypi-url]
 [![PyPI SDK Downloads][pypi-sdk-downloads-image]][pypi-sdk-downloads-url]
 [![npm version][npm-image]][npm-url]
+[![Java][maven-image]][maven-url]
 [![TraceRoot.AI Website][company-website-image]][company-website-url]
 [![X][zecheng-x-image]][zecheng-x-url]
 [![X][xinwei-x-image]][xinwei-x-url]
 [![Y Combinator][y-combinator-image]][y-combinator-url]
-[![Maven Central][maven-image]][maven-url]
 
 </div>
 
@@ -132,7 +132,7 @@ Thanks to all our contributors for helping make TraceRoot better!
 [discord-url]: https://discord.gg/tPyffEZvvJ
 [docs-image]: https://img.shields.io/badge/docs-traceroot.ai-0dbf43
 [docs-url]: https://docs.traceroot.ai
-[maven-image]: https://img.shields.io/maven-central/v/ai.traceroot/traceroot-sdk-java?color=f89820
+[maven-image]: https://img.shields.io/maven-central/v/ai.traceroot/traceroot-sdk-java
 [maven-url]: http://central.sonatype.com/artifact/ai.traceroot/traceroot-sdk-java
 [npm-image]: https://img.shields.io/npm/v/traceroot-sdk-ts?style=flat-square&logo=npm&logoColor=fff
 [npm-url]: https://www.npmjs.com/package/traceroot-sdk-ts
