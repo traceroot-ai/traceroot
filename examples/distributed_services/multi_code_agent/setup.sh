@@ -26,5 +26,7 @@ cd ..
 
 echo "✅ Setup complete!"
 echo "💡 Next steps:"
-echo "   1. Update .env file with your TraceRoot token"
-echo "   2. Run: ./start.sh"
+echo "   1. Export OPENAI_API_KEY with your OpenAI API key"
+echo "   2. Update .env file with your TraceRoot token"
+echo "   3. Update traceroot.config.ts with your TraceRoot token"
+echo "   4. Run: ./start.sh"
