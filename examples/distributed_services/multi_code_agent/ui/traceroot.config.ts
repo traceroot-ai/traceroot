@@ -4,7 +4,7 @@ const config: TraceRootConfigFile = {
   // Basic service configuration
   service_name: 'ts-example-service',
   github_owner: 'traceroot-ai',
-  github_repo_name: 'traceroot-sdk',
+  github_repo_name: 'traceroot',
   github_commit_hash: 'main',
 
   // Your environment configuration
@@ -12,7 +12,7 @@ const config: TraceRootConfigFile = {
   environment: 'development',
 
   // Token configuration
-  token: 'traceroot-2482242f32984b318ab19c3ed6cf73bc',
+  token: 'your_traceroot_token_here',
 
   // Whether to enable console export of spans and logs
   enable_span_console_export: false,
