@@ -1,0 +1,55 @@
+# Java SDK for TraceRoot (beta)
+
+## Introduction
+The [TraceRoot Java SDK](https://github.com/traceroot-ai/traceroot-sdk-java) is a lightweight wrapper around OpenTelemetry and different logging libraries, optimized for ease of use.
+
+## Environment Setup
+
+```java
+import ai.traceroot.sdk.TraceRootSDK;
+import ai.traceroot.sdk.config.TraceRootConfigImpl;
+import ai.traceroot.sdk.types.LogLevel;
+
+TraceRootConfigImpl config =
+    TraceRootConfigImpl.builder()
+        .serviceName("java-example")
+        .githubOwner("traceroot-ai")
+        .githubRepoName("traceroot-sdk-java")
+        .githubCommitHash("main")
+        .token(System.getenv("TRACEROOT_TOKEN"))
+        .environment("development")
+        .awsRegion("us-west-2")
+        .logLevel(LogLevel.INFO)
+        .build();
+
+TraceRootSDK.initialize(config);
+```
+
+## Tracing
+
+Use the `@Trace` annotation to trace your functions or call the `TraceRootSDK.trace` function to start tracing.
+```java
+import ai.traceroot.sdk.tracer.annotations.Trace;
+
+@Trace
+private static void exampleFunction() {
+    // Your function code here
+}
+```
+
+## Logging
+
+Use the `TraceRootLogger` to get a logger instance and start logging.
+
+```java
+import ai.traceroot.sdk.logger.TraceRootLogger;
+
+TraceRootLogger logger = TraceRootLogger.getLogger();
+logger.info("This is an info message");
+logger.warn("This is a warning message");
+logger.error("This is an error message");
+```
+
+## Example
+
+Here is an [example](https://github.com/traceroot-ai/traceroot-sdk-java/tree/main/examples/spring-boot-example) of using TraceRoot with a simple Spring Boot application.

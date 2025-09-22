@@ -50,7 +50,8 @@
             "group": "SDK",
             "pages": [
               "sdk/python",
-              "sdk/typescript"
+              "sdk/typescript",
+              "sdk/java"
             ]
           }
         ]
