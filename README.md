@@ -118,6 +118,12 @@ If you find our exploratory TraceRoot useful in your research, please consider c
 }
 ```
 
+## Others
+
+**Contributing** 🤝: If you're interested in contributing, you can check out our guide [here](/CONTRIBUTING.md). All types of help are appreciated :)
+
+**Support** 💬: If you need any type of support, we're typically most responsive on our [Discord channel](https://discord.gg/tPyffEZvvJ), but feel free to email us `founders@traceroot.ai` too!
+
 ## Contributors
 
 Thanks to all our contributors for helping make TraceRoot better!
