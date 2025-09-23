@@ -81,10 +81,11 @@ Whether you're using [TraceRoot Cloud](https://traceroot.ai) or our open source 
 
 ### Available SDKs
 
-| Language              | Repository                                                           |
-| --------------------- | -------------------------------------------------------------------- |
-| Python                | [traceroot-sdk](https://github.com/traceroot-ai/traceroot-sdk)       |
-| JavaScript/TypeScript | [traceroot-sdk-ts](https://github.com/traceroot-ai/traceroot-sdk-ts) |
+| Language              | Repository                                                               |
+| --------------------- | ------------------------------------------------------------------------ |
+| Python                | [traceroot-sdk](https://github.com/traceroot-ai/traceroot-sdk)           |
+| JavaScript/TypeScript | [traceroot-sdk-ts](https://github.com/traceroot-ai/traceroot-sdk-ts)     |
+| Java                  | [traceroot-sdk-java](https://github.com/traceroot-ai/traceroot-sdk-java) |
 
 For more details on SDK usage and examples, please check out this [Quickstart](https://docs.traceroot.ai/quickstart).
 

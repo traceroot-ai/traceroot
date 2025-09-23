@@ -33,6 +33,27 @@ Ensuring excellent documentation and thorough testing is absolutely crucial. Her
 
 We're a small team focused on building great things. If you have something in mind that you'd like to add or modify, opening a pull request is the ideal way to catch our attention. 🚀
 
+### PR Naming Convention
+
+When you create a PR, please follow the naming convention below:
+
+- feat - A new feature
+- fix - A bug fix
+- docs - Documentation only changes
+- style - Changes that do not affect the meaning of the code (white-space, formatting, missing semi-colons, etc)
+- refactor - A code change that neither fixes a bug nor adds a feature
+- perf - A code change that improves performance
+- test - Adding missing tests or correcting existing tests
+- build - Changes that affect the build system or external dependencies (example scopes: gulp, broccoli, npm)
+- ci - Changes to our Cl configuration files and scripts (example scopes: Travis, Circle, BrowserStack, SauceLabs)
+- chore - Other changes that don't modify sc or test files
+- revert - Reverts a previous commit
+- security - A security fix or improvement
+- github - Changes to our GitHub configuration files and scripts
+- other (please describe):
+
+The name of the branch should be something like feat/xxx etc.
+
 #### Purpose of Code Reviews
 
 - Maintain Code Quality: Ensure that the codebase remains clean, readable, and maintainable.
