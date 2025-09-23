@@ -13,7 +13,37 @@ Register an [account](https://auth.traceroot.ai/).
 />
 
 ## Integration
-Create a new TraceRoot token and integrate with github in the [integration section](https://test.traceroot.ai/integrate).
+Create a new TraceRoot token in [integration section](https://test.traceroot.ai/integrate).
+
+Integrate with github repo by creating a GitHub personal access token (PAT).
+
+<AccordionGroup>
+<Accordion title="📋 How to create a GitHub Personal Access Token (PAT)">
+
+### Step 1: Go to Settings
+- Log in to GitHub
+- In the upper-right corner, click your profile photo -> **Settings**
+
+### Step 2: Developer Settings
+- Scroll down the left sidebar
+- Click **Developer settings** -> **Personal access tokens** -> **Tokens (classic)**
+
+### Step 3: Generate New Token
+- Click **Generate new token** -> **Generate new token (classic)**
+- Enter a **note** to remember what it's for (e.g., "CLI access")
+- Choose an **expiration date** (important for security)
+- Select the **scopes/permissions** you need:
+  - `repo` for repository access
+  - `workflow` for GitHub Actions
+  - `read:org` for organization access (if needed)
+
+### Step 4: Generate & Copy
+- Click **Generate token** at the bottom
+- **Copy it immediately** - GitHub will only show it once
+
+</Accordion>
+</AccordionGroup>
+
 
 <img
   src="https://raw.githubusercontent.com/traceroot-ai/traceroot/refs/heads/main/misc/images/docs/quickstart/screenshot_2.png"
