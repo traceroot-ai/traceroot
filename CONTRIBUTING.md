@@ -52,6 +52,8 @@ When you create a PR, please follow the naming convention below:
 - github - Changes to our GitHub configuration files and scripts
 - other (please describe):
 
+The name of the branch should be something like feat/xxx etc.
+
 #### Purpose of Code Reviews
 
 - Maintain Code Quality: Ensure that the codebase remains clean, readable, and maintainable.
