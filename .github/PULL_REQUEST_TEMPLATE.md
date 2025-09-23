@@ -1,65 +1,29 @@
 ## Summary
 
-<!-- Provide a concise description of your changes and why they are needed. -->
-
-______________________________________________________________________
-
-## Related Issues
-
-<!-- Link any related issues (e.g., Fixes #123, Closes #456). -->
-
-______________________________________________________________________
-
 ## Type of Change
 
-<!-- Check all that apply. -->
+- [ ] feat - A new feature
+- [ ] fix - A bug fix
+- [ ] docs - Documentation only changes
+- [ ] style - Changes that do not affect the meaning of the code (white-space, formatting, missing semi-colons, etc)
+- [ ] refactor - A code change that neither fixes a bug nor adds a feature
+- [ ] perf - A code change that improves performance
+- [ ] test - Adding missing tests or correcting existing tests
+- [ ] build - Changes that affect the build system or external dependencies (example scopes: gulp, broccoli, npm)
+- [ ] ci - Changes to our Cl configuration files and scripts (example scopes: Travis, Circle, BrowserStack, SauceLabs)
+- [ ] chore - Other changes that don't modify sc or test files
+- [ ] revert - Reverts a previous commit
+- [ ] security - A security fix or improvement
+- [ ] github - Changes to our GitHub configuration files and scripts
+- [ ] other (please describe):
 
-- [ ] 🐞 Bug fix
-- [ ] ✨ New feature
-- [ ] 💥 Breaking change
-- [ ] 🛠 Refactor
-- [ ] 📖 Documentation update
-- [ ] 🔧 Chore / Maintenance
-- [ ] Other (please describe):
+## Details
 
-______________________________________________________________________
+## Screenshots / Recordings (if applicable)
 
 ## Checklist
 
 - [ ] I have read the [CONTRIBUTING.md](../CONTRIBUTING.md)
-- [ ] My code follows the project’s style guidelines
 - [ ] I have added/updated tests where applicable
-- [ ] I have tested my changes locally
-- [ ] I have linked all relevant issues
 - [ ] I have added screenshots or recordings for UI changes (if applicable)
 - [ ] I have updated documentation where necessary
-
-______________________________________________________________________
-
-## How to Test
-
-<!-- Provide steps for reviewers to test your changes locally. -->
-
-______________________________________________________________________
-
-## Breaking Changes
-
-<!-- List any breaking changes and migration steps required. -->
-
-______________________________________________________________________
-
-## Screenshots / Recordings (if applicable)
-
-<!-- Add before/after screenshots, GIFs, or videos to help reviewers understand changes. -->
-
-______________________________________________________________________
-
-## Release Notes
-
-<!-- Write a short, user-facing description for the CHANGELOG.md (if applicable). -->
-
-______________________________________________________________________
-
-## Additional Context
-
-<!-- Provide any extra information that might help reviewers. -->
