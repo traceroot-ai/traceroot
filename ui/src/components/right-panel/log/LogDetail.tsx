@@ -418,36 +418,48 @@ export default function LogDetail({
     logSearchTerm: string,
     metadataTerms: { category: string; value: string }[],
   ) => {
-    // Collect all search terms
-    const searchTerms: string[] = [];
+    // Collect all search patterns
+    const searchPatterns: RegExp[] = [];
 
     // Add log search term if present
     if (logSearchTerm.trim()) {
-      searchTerms.push(logSearchTerm);
+      const escapedTerm = logSearchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      searchPatterns.push(new RegExp(`(${escapedTerm})`, "gi"));
     }
 
-    // Add metadata terms (both category and value)
+    // Add metadata terms as quoted key-value pairs
     metadataTerms.forEach((term) => {
-      if (term.category.trim()) searchTerms.push(term.category);
-      if (term.value.trim()) searchTerms.push(term.value);
+      if (term.category.trim() && term.value.trim()) {
+        const escapedCategory = term.category.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&",
+        );
+        const escapedValue = term.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        // Match pattern: "key": "value" (with optional whitespace)
+        const keyValuePattern = `"${escapedCategory}"\\s*:\\s*"${escapedValue}"`;
+        searchPatterns.push(new RegExp(`(${keyValuePattern})`, "gi"));
+      }
     });
 
-    // If no search terms, return original text
-    if (searchTerms.length === 0) return text;
+    // If no search patterns, return original text
+    if (searchPatterns.length === 0) return text;
 
-    // Create regex pattern for all search terms
-    const escapedTerms = searchTerms.map((term) =>
-      term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+    // Create a combined pattern that captures all search terms
+    const combinedPattern = new RegExp(
+      `(${searchPatterns.map((p) => p.source.slice(1, -1)).join("|")})`,
+      "gi",
     );
-    const regex = new RegExp(`(${escapedTerms.join("|")})`, "gi");
-    const parts = text.split(regex);
+
+    const parts = text.split(combinedPattern);
 
     return parts.map((part, index) => {
-      const isSearchTerm = searchTerms.some(
-        (term) => part.toLowerCase() === term.toLowerCase(),
-      );
+      // Check if this part matches any of our patterns
+      const isMatch = searchPatterns.some((pattern) => {
+        const testPattern = new RegExp(pattern.source, pattern.flags);
+        return testPattern.test(part);
+      });
 
-      if (isSearchTerm) {
+      if (isMatch && part.trim()) {
         return (
           <span
             key={index}
