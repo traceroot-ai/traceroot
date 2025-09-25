@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@aws-sdk/node-http-handler": "^3.370.0",
-    "next": "15.4.5",
+    "next": "15.4.7",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "traceroot-sdk-ts": "0.0.1-alpha.7",
