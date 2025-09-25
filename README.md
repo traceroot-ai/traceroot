@@ -93,11 +93,11 @@ For more details on SDK usage and examples, please check out this [Quickstart](h
 
 Here is an overview for our AI Agent Framework:
 
-### Context Model
+### Context Engineering
 
 <div align="center">
   <a href="https://traceroot.ai/">
-    <img src="misc/images/context-model.png" alt="Context Model" width="90%" max-width="1200px">
+    <img src="misc/images/context-engineering.png" alt="Context Engineering" width="90%" max-width="1200px">
   </a>
 </div>
 

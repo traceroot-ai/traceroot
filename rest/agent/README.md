@@ -9,16 +9,16 @@ The TraceRoot Agent Framework is a framework for building agents that can intera
 1. General usage including question answering, logging summarization, issue and PR.
 1. Explainability for agent's summarization or answers.
 
-## Context Model
+## Context Engineering
 
-- It's important to have an intelligent context model that extracts required context information for debugging.
+- It's important to have an intelligent context engineering that extracts required context information for debugging.
 - It's also important to ensure the context is as clean as possible and also reduce the context size.
 
-TraceRoot.AI proposes a specialized context model as follows:
+TraceRoot.AI proposes a specialized context engineering as follows:
 
 <div align="center">
   <a href="https://traceroot.ai/">
-    <img src="../../misc/images/context-model.png" alt="Context Model" width="90%" max-width="1200px">
+    <img src="../../misc/images/context-engineering.png" alt="Context Engineering" width="90%" max-width="1200px">
   </a>
 </div>
 
