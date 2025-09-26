@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="150" height="20" role="img" aria-label="website: traceroot.ai">
+  <linearGradient id="s" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <clipPath id="r">
+    <rect width="150" height="20" rx="3" fill="#fff"/>
+  </clipPath>
+  <g clip-path="url(#r)">
+    <rect width="54" height="20" fill="#555"/>
+    <rect x="54" width="96" height="20" fill="#000"/>
+    <rect width="150" height="20" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="110">
+    <text aria-hidden="true" x="280" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="440">website</text>
+    <text x="280" y="140" transform="scale(.1)" fill="#fff" textLength="440">website</text>
+    <text aria-hidden="true" x="1100" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="680">traceroot.ai</text>
+    <text x="1100" y="140" transform="scale(.1)" fill="#fff" textLength="680">Traceroot.AI</text>
+  </g>
+  <!-- Tree logo positioned before traceroot.ai text -->
+  <g transform="translate(58, 2) scale(0.6)" fill="none" stroke="white" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Tree nodes -->
+    <circle cx="13" cy="5" r="2.5" />
+    <circle cx="7" cy="13" r="2.5" />
+    <circle cx="19" cy="13" r="2.5" />
+
+    <!-- Connecting lines -->
+    <line x1="13" y1="7.5" x2="13" y2="9.5" />
+    <line x1="13" y1="9.5" x2="9" y2="11.5" />
+    <line x1="13" y1="9.5" x2="17" y2="11.5" />
+    <line x1="7" y1="15.5" x2="7" y2="18.5" />
+    <line x1="19" y1="15.5" x2="19" y2="18.5" />
+
+    <!-- Leaf nodes -->
+    <circle cx="7" cy="21" r="2.5" />
+    <circle cx="19" cy="21" r="2.5" />
+  </g>
+</svg>

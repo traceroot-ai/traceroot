@@ -15,7 +15,7 @@
 [![PyPI SDK Downloads][pypi-sdk-downloads-image]][pypi-sdk-downloads-url]
 [![npm version][npm-image]][npm-url]
 [![Java][maven-image]][maven-url]
-[![TraceRoot.AI Website][company-website-image]][company-website-url]
+[![TraceRoot.AI Website](./misc/images/custom-website-badge.svg)][company-website-url]
 [![X][zecheng-x-image]][zecheng-x-url]
 [![X][xinwei-x-image]][xinwei-x-url]
 [![Y Combinator][y-combinator-image]][y-combinator-url]
@@ -133,7 +133,6 @@ Thanks to all our contributors for helping make TraceRoot better!
   <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" />
 </a>
 
-[company-website-image]: https://img.shields.io/badge/website-traceroot.ai-black
 [company-website-url]: https://traceroot.ai
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
 [discord-url]: https://discord.gg/tPyffEZvvJ
