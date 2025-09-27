@@ -110,6 +110,9 @@ ENV JAEGER_URL="http://host.docker.internal:16686"
 ENV REST_LOCAL_MODE=true
 ENV NEXT_PUBLIC_LOCAL_MODE=true
 
+# Set disable payment to true
+ENV NEXT_PUBLIC_DISABLE_PAYMENT=true
+
 # Expose ports
 EXPOSE 3000 8000
 
