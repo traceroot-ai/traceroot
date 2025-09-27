@@ -35,7 +35,9 @@ TraceRoot accelerates the debugging process with AI-powered insights. It integra
 ## Demo
 
 <div align="center">
-  <img src="misc/images/product_git_v1.gif" alt="TraceRoot Demo" width="100%">
+  <video src="misc/images/product_demo_v1.mp4" alt="TraceRoot Demo" width="100%" controls autoplay muted loop>
+    Your browser does not support the video tag.
+  </video>
 </div>
 
 ## Features
