@@ -7,6 +7,7 @@ import { Toaster } from "react-hot-toast";
 import { AutumnProvider } from "autumn-js/react";
 import { ThemeProvider } from "@/components/theme-provider";
 import AuthGuard from "@/components/auth/AuthGuard";
+import SubscriptionGuard from "@/components/auth/SubscriptionGuard";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -23,9 +24,9 @@ function MockAutumnProvider({ children }: { children: React.ReactNode }) {
 }
 
 const Provider =
-  process.env.NEXT_PUBLIC_LOCAL_MODE === "true"
+  process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true"
     ? MockAutumnProvider
-    : AutumnProvider;
+    : (props: any) => <AutumnProvider includeCredentials={true} {...props} />;
 
 export default function RootLayout({
   children,
@@ -43,11 +44,13 @@ export default function RootLayout({
         >
           <Provider>
             <AuthGuard>
-              {/* Make it false by default */}
-              <SidebarProvider defaultOpen={false}>
-                <AppSidebar />
-                <SidebarInset>{children}</SidebarInset>
-              </SidebarProvider>
+              <SubscriptionGuard>
+                {/* Make it false by default */}
+                <SidebarProvider defaultOpen={false}>
+                  <AppSidebar />
+                  <SidebarInset>{children}</SidebarInset>
+                </SidebarProvider>
+              </SubscriptionGuard>
             </AuthGuard>
             <Toaster
               position="top-right"

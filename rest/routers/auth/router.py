@@ -1,5 +1,6 @@
 import base64
 import json
+import os
 from typing import Dict
 
 from fastapi import APIRouter, HTTPException, Request
@@ -24,6 +25,11 @@ class AuthState(BaseModel):
 
 router = APIRouter()
 db_client = TraceRootMongoDBClient()
+
+# Global configuration for cookie domain
+IS_LOCAL = os.getenv("NEXT_PUBLIC_LOCAL_MODE", "false").lower() == "true"
+COOKIE_DOMAIN = None if IS_LOCAL else ".traceroot.ai"
+print(f"COOKIE_DOMAIN is: {COOKIE_DOMAIN}")
 
 
 @router.get("/auth-callback")
@@ -64,7 +70,7 @@ async def auth_callback(request: Request, state: str) -> JSONResponse:
         response.set_cookie(
             key="session",
             value=access_token,
-            domain=".traceroot.ai",
+            domain=COOKIE_DOMAIN,
             samesite="lax",
             max_age=3600 * 12  # 12 hours
         )
@@ -74,7 +80,7 @@ async def auth_callback(request: Request, state: str) -> JSONResponse:
         response.set_cookie(
             key="id_token",
             value=id_token,
-            domain=".traceroot.ai",
+            domain=COOKIE_DOMAIN,
             samesite="lax",
             max_age=3600 * 12  # 12 hours
         )
@@ -91,7 +97,7 @@ async def logout(request: Request) -> JSONResponse:
     response = JSONResponse({"status": "success", "message": "Logged out successfully"})
 
     # Clear both authentication cookies
-    response.delete_cookie(key="session", domain=".traceroot.ai")
-    response.delete_cookie(key="id_token", domain=".traceroot.ai")
+    response.delete_cookie(key="session", domain=COOKIE_DOMAIN)
+    response.delete_cookie(key="id_token", domain=COOKIE_DOMAIN)
 
     return response

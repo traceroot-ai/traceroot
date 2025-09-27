@@ -46,6 +46,7 @@ import { Label } from "@/components/ui/label";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import { useUser } from "../../hooks/useUser";
+import { useSubscription } from "../../hooks/useSubscription";
 
 function LogoComponent() {
   const { state } = useSidebar();
@@ -111,21 +112,32 @@ function LogoComponent() {
 function ExploreComponent() {
   const { state } = useSidebar();
   const pathname = usePathname();
+  const { hasActiveSubscription } = useSubscription();
+
+  const isDisabled = !hasActiveSubscription;
 
   return (
     <SidebarMenuButton
-      asChild
+      asChild={!isDisabled}
       isActive={pathname === "/explore"}
-      tooltip="Exploration"
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      tooltip={isDisabled ? "Select a plan to access exploration features" : "Exploration"}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
+      disabled={isDisabled}
     >
-      <Link
-        href="/explore"
-        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
-      >
-        <Telescope className="!w-6 !h-6" />
-        {state === "expanded" && <span>Explore</span>}
-      </Link>
+      {isDisabled ? (
+        <div className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
+          <Telescope className="w-5 h-5 flex-shrink-0" />
+          {state === "expanded" && <span>Explore</span>}
+        </div>
+      ) : (
+        <Link
+          href="/explore"
+          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+        >
+          <Telescope className="w-5 h-5 flex-shrink-0" />
+          {state === "expanded" && <span>Explore</span>}
+        </Link>
+      )}
     </SidebarMenuButton>
   );
 }
@@ -133,20 +145,32 @@ function ExploreComponent() {
 function IntegrateComponent() {
   const { state } = useSidebar();
   const pathname = usePathname();
+  const { hasActiveSubscription } = useSubscription();
+
+  const isDisabled = !hasActiveSubscription;
+
   return (
     <SidebarMenuButton
-      asChild
+      asChild={!isDisabled}
       isActive={pathname === "/integrate"}
-      tooltip="Integration"
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      tooltip={isDisabled ? "Select a plan to access integration features" : "Integration"}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
+      disabled={isDisabled}
     >
-      <Link
-        href="/integrate"
-        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
-      >
-        <LibraryBig className="!w-6 !h-6" />
-        {state === "expanded" && <span>Integrate</span>}
-      </Link>
+      {isDisabled ? (
+        <div className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
+          <LibraryBig className="w-5 h-5 flex-shrink-0" />
+          {state === "expanded" && <span>Integrate</span>}
+        </div>
+      ) : (
+        <Link
+          href="/integrate"
+          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+        >
+          <LibraryBig className="w-5 h-5 flex-shrink-0" />
+          {state === "expanded" && <span>Integrate</span>}
+        </Link>
+      )}
     </SidebarMenuButton>
   );
 }
@@ -163,7 +187,7 @@ function NeedHelpComponent() {
           tooltip="Need Help"
           className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
         >
-          <MessageCircle className="!w-6 !h-6" />
+          <MessageCircle className="w-5 h-5 flex-shrink-0" />
           {state === "expanded" && (
             <div className="flex items-center gap-2">
               <span>Need Help</span>
@@ -254,31 +278,43 @@ function DocumentationComponent() {
         rel="noopener noreferrer"
         className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
       >
-        <BookText className="!w-6 !h-6" />
+        <BookText className="w-5 h-5 flex-shrink-0" />
         {state === "expanded" && <span>Documentation</span>}
       </a>
     </SidebarMenuButton>
   );
 }
 
+
 function SettingsComponent() {
   const { state } = useSidebar();
   const pathname = usePathname();
+  const { hasActiveSubscription } = useSubscription();
+
+  const isDisabled = !hasActiveSubscription;
 
   return (
     <SidebarMenuButton
-      asChild
+      asChild={!isDisabled}
       isActive={pathname === "/settings"}
-      tooltip="Settings"
-      className={`flex items-center rounded-md p-2 mb-1 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-1"}`}
+      tooltip={isDisabled ? "Select a plan to access settings" : "Settings"}
+      className={`flex items-center rounded-md p-2 mb-1 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-1"} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
+      disabled={isDisabled}
     >
-      <Link
-        href="/settings"
-        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-1"}`}
-      >
-        <Settings className="!w-6 !h-6" />
-        {state === "expanded" && <span>Settings</span>}
-      </Link>
+      {isDisabled ? (
+        <div className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-1"}`}>
+          <Settings className="w-5 h-5 flex-shrink-0" />
+          {state === "expanded" && <span>Settings</span>}
+        </div>
+      ) : (
+        <Link
+          href="/settings"
+          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-1"}`}
+        >
+          <Settings className="w-5 h-5 flex-shrink-0" />
+          {state === "expanded" && <span>Settings</span>}
+        </Link>
+      )}
     </SidebarMenuButton>
   );
 }
@@ -466,7 +502,7 @@ function DarkModeToggle() {
       <SidebarMenuButton
         className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
       >
-        <Moon className="!w-5 !h-5" />
+        <Moon className="w-5 h-5 flex-shrink-0" />
         {state === "expanded" && <span>Dark Mode</span>}
       </SidebarMenuButton>
     );
@@ -481,9 +517,9 @@ function DarkModeToggle() {
       className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
     >
       {theme === "dark" ? (
-        <Sun className="!w-5 !h-5" />
+        <Sun className="w-5 h-5 flex-shrink-0" />
       ) : (
-        <Moon className="!w-5 !h-5" />
+        <Moon className="w-5 h-5 flex-shrink-0" />
       )}
       {state === "expanded" && (
         <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
@@ -502,9 +538,9 @@ function ExpandCollapseButton() {
       className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
     >
       {state === "collapsed" ? (
-        <ArrowRightFromLine className="!w-5.5 !h-5.5" />
+        <ArrowRightFromLine className="w-5 h-5 flex-shrink-0" />
       ) : (
-        <ArrowLeftFromLine className="!w-5.5 !h-5.5" />
+        <ArrowLeftFromLine className="w-5 h-5 flex-shrink-0" />
       )}
       {state === "expanded" && <span>Collapse</span>}
     </SidebarMenuButton>

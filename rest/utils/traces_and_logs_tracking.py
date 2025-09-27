@@ -242,7 +242,8 @@ class TracesAndLogsTracker:
                 f"Customer {customer_id} traces and logs since "
                 f"{since_date.isoformat()}: "
                 f"{trace_count} traces, {log_count} logs over "
-                f"{days_since} days"
+                f"{days_since} days "
+                f"log_group_name: {log_group_name}"
             )
 
             return trace_count, log_count
@@ -265,43 +266,6 @@ def get_traces_and_logs_tracker() -> TracesAndLogsTracker:
     if _traces_and_logs_tracker is None:
         _traces_and_logs_tracker = TracesAndLogsTracker()
     return _traces_and_logs_tracker
-
-
-async def track_traces_and_logs_since_date(
-    user_sub: str,
-    since_date: datetime,
-    observe_client: Any
-) -> bool:
-    """
-    Convenience function to track traces and logs for a user since a specific
-    date.
-
-    Args:
-        user_sub: User's UUID/sub from JWT
-        since_date: Date to start counting from (e.g., last payment)
-        observe_client: AWS or Jaeger client instance
-
-    Returns:
-        bool: True if tracking was successful
-    """
-    tracker = get_traces_and_logs_tracker()
-    trace_count, log_count = (await
-                              tracker.get_customer_traces_and_logs_since_date(
-                                  customer_id=user_sub,
-                                  since_date=since_date,
-                                  observe_client=observe_client,
-                              ))
-
-    if trace_count > 0 or log_count > 0:
-        days_since = (datetime.now(timezone.utc) - since_date).days
-        return await tracker.track_traces_and_logs(
-            customer_id=user_sub,
-            trace_count=trace_count,
-            log_count=log_count,
-            period_days=days_since
-        )
-
-    return False
 
 
 async def check_user_traces_and_logs_access(user_sub: str) -> bool:

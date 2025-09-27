@@ -21,12 +21,12 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
-const IS_LOCAL = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
+const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
 /**
  * Wrapper: choose Local mock (no Autumn) vs Prod (Autumn).
  */
 export default function SettingsPage() {
-  return IS_LOCAL ? <LocalSettingsPage /> : <SettingsWithAutumn />;
+  return DISABLE_PAYMENT ? <LocalSettingsPage /> : <SettingsWithAutumn />;
 }
 
 /**

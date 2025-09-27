@@ -7,7 +7,7 @@ import { PricingTable } from "autumn-js/react";
 const productDetails = [
   {
     id: "starter",
-    description: "7-day free trial, then $19/month",
+    description: "7-day free trial, then $49/month",
     items: [
       { primaryText: "100k trace + logs" },
       { primaryText: "1M LLM tokens" },
@@ -94,7 +94,7 @@ function LocalPricingTable() {
 
 // Page component
 export default function PricingPage() {
-  const isLocal = process.env.NODE_ENV !== "production";
+  const disablePayment = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
 
   return (
     <Suspense fallback={<LoadingFallback />}>
@@ -110,7 +110,7 @@ export default function PricingPage() {
           </header>
 
           <div className="mt-16">
-            {isLocal ? (
+            {disablePayment ? (
               <LocalPricingTable />
             ) : (
               <PricingTable productDetails={productDetails} />
