@@ -37,6 +37,9 @@ TraceRoot accelerates the debugging process with AI-powered insights. It integra
 <div align="center">
   <img src="misc/images/product_git_v1.gif" alt="TraceRoot Demo" width="100%">
 </div>
+<div align="center">
+  <img src="misc/images/product_git_v2.gif" alt="TraceRoot Demo" width="100%">
+</div>
 
 ## Features
 
