@@ -132,7 +132,7 @@ function ExploreComponent() {
         <div
           className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
         >
-          <Telescope className="w-5 h-5 flex-shrink-0" />
+          <Telescope className="!w-5.5 !h-5.5 flex-shrink-0" />
           {state === "expanded" && <span>Explore</span>}
         </div>
       ) : (
@@ -140,7 +140,7 @@ function ExploreComponent() {
           href="/explore"
           className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
         >
-          <Telescope className="w-5 h-5 flex-shrink-0" />
+          <Telescope className="!w-5.5 !h-5.5 flex-shrink-0" />
           {state === "expanded" && <span>Explore</span>}
         </Link>
       )}
@@ -171,7 +171,7 @@ function IntegrateComponent() {
         <div
           className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
         >
-          <LibraryBig className="w-5 h-5 flex-shrink-0" />
+          <LibraryBig className="!w-5.5 !h-5.5 flex-shrink-0" />
           {state === "expanded" && <span>Integrate</span>}
         </div>
       ) : (
@@ -179,7 +179,7 @@ function IntegrateComponent() {
           href="/integrate"
           className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
         >
-          <LibraryBig className="w-5 h-5 flex-shrink-0" />
+          <LibraryBig className="!w-5.5 !h-5.5 flex-shrink-0" />
           {state === "expanded" && <span>Integrate</span>}
         </Link>
       )}
@@ -199,7 +199,7 @@ function NeedHelpComponent() {
           tooltip="Need Help"
           className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
         >
-          <MessageCircle className="w-5 h-5 flex-shrink-0" />
+          <MessageCircle className="!w-5.5 !h-5.5 flex-shrink-0" />
           {state === "expanded" && (
             <div className="flex items-center gap-2">
               <span>Need Help</span>
@@ -290,7 +290,7 @@ function DocumentationComponent() {
         rel="noopener noreferrer"
         className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
       >
-        <BookText className="w-5 h-5 flex-shrink-0" />
+        <BookText className="!w-5.5 !h-5.5 flex-shrink-0" />
         {state === "expanded" && <span>Documentation</span>}
       </a>
     </SidebarMenuButton>
@@ -316,7 +316,7 @@ function SettingsComponent() {
         <div
           className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-1"}`}
         >
-          <Settings className="w-5 h-5 flex-shrink-0" />
+          <Settings className="!w-5.5 !h-5.5 flex-shrink-0" />
           {state === "expanded" && <span>Settings</span>}
         </div>
       ) : (
@@ -324,7 +324,7 @@ function SettingsComponent() {
           href="/settings"
           className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-1"}`}
         >
-          <Settings className="w-5 h-5 flex-shrink-0" />
+          <Settings className="!w-5.5 !h-5.5 flex-shrink-0" />
           {state === "expanded" && <span>Settings</span>}
         </Link>
       )}
@@ -515,7 +515,7 @@ function DarkModeToggle() {
       <SidebarMenuButton
         className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
       >
-        <Moon className="w-5 h-5 flex-shrink-0" />
+        <Moon className="!w-5.5 !h-5.5 flex-shrink-0" />
         {state === "expanded" && <span>Dark Mode</span>}
       </SidebarMenuButton>
     );
@@ -530,9 +530,9 @@ function DarkModeToggle() {
       className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
     >
       {theme === "dark" ? (
-        <Sun className="w-5 h-5 flex-shrink-0" />
+        <Sun className="!w-5.5 !h-5.5 flex-shrink-0" />
       ) : (
-        <Moon className="w-5 h-5 flex-shrink-0" />
+        <Moon className="!w-5.5 !h-5.5 flex-shrink-0" />
       )}
       {state === "expanded" && (
         <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
@@ -551,9 +551,9 @@ function ExpandCollapseButton() {
       className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
     >
       {state === "collapsed" ? (
-        <ArrowRightFromLine className="w-5 h-5 flex-shrink-0" />
+        <ArrowRightFromLine className="!w-5.5 !h-5.5 flex-shrink-0" />
       ) : (
-        <ArrowLeftFromLine className="w-5 h-5 flex-shrink-0" />
+        <ArrowLeftFromLine className="!w-5.5 !h-5.5 flex-shrink-0" />
       )}
       {state === "expanded" && <span>Collapse</span>}
     </SidebarMenuButton>
