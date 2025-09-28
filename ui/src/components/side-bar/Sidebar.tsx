@@ -120,12 +120,18 @@ function ExploreComponent() {
     <SidebarMenuButton
       asChild={!isDisabled}
       isActive={pathname === "/explore"}
-      tooltip={isDisabled ? "Select a plan to access exploration features" : "Exploration"}
+      tooltip={
+        isDisabled
+          ? "Select a plan to access exploration features"
+          : "Exploration"
+      }
       className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
       disabled={isDisabled}
     >
       {isDisabled ? (
-        <div className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
+        <div
+          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+        >
           <Telescope className="w-5 h-5 flex-shrink-0" />
           {state === "expanded" && <span>Explore</span>}
         </div>
@@ -153,12 +159,18 @@ function IntegrateComponent() {
     <SidebarMenuButton
       asChild={!isDisabled}
       isActive={pathname === "/integrate"}
-      tooltip={isDisabled ? "Select a plan to access integration features" : "Integration"}
+      tooltip={
+        isDisabled
+          ? "Select a plan to access integration features"
+          : "Integration"
+      }
       className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
       disabled={isDisabled}
     >
       {isDisabled ? (
-        <div className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}>
+        <div
+          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+        >
           <LibraryBig className="w-5 h-5 flex-shrink-0" />
           {state === "expanded" && <span>Integrate</span>}
         </div>
@@ -285,7 +297,6 @@ function DocumentationComponent() {
   );
 }
 
-
 function SettingsComponent() {
   const { state } = useSidebar();
   const pathname = usePathname();
@@ -302,7 +313,9 @@ function SettingsComponent() {
       disabled={isDisabled}
     >
       {isDisabled ? (
-        <div className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-1"}`}>
+        <div
+          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-1"}`}
+        >
           <Settings className="w-5 h-5 flex-shrink-0" />
           {state === "expanded" && <span>Settings</span>}
         </div>

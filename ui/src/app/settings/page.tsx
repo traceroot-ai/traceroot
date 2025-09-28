@@ -57,14 +57,10 @@ function LocalSettingsPage() {
 
   return (
     <div className="min-h-full flex flex-col p-4">
-      <div className="w-3/4 max-w-4xl mx-auto bg-white m-5 p-10 rounded-lg font-mono bg-zinc-50">
+      <div className="w-3/4 max-w-6xl mx-auto bg-white m-5 p-10 rounded-lg font-mono bg-zinc-50">
         <h2 className="scroll-m-20 mb-5 text-3xl font-semibold first:mt-0">
           Settings
         </h2>
-        <p className="leading-7 [&:not(:first-child)]:mb-5">
-          Local mode is active — Autumn is disabled. This is a mock view for
-          development.
-        </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 p-3">
           {/* Current Plan */}
@@ -550,7 +546,7 @@ function SettingsWithAutumn() {
   return (
     <div className="min-h-full flex flex-col p-4">
       {/* Container with similar styling to integrate page */}
-      <div className="w-3/4 max-w-4xl mx-auto bg-background dark:bg-background m-5 p-10 rounded-lg font-mono border border-border shadow-sm">
+      <div className="w-3/4 max-w-6xl mx-auto bg-background dark:bg-background m-5 p-10 rounded-lg font-mono border border-border shadow-sm">
         <h2 className="scroll-m-20 mb-5 text-3xl font-semibold first:mt-0">
           Settings
         </h2>

@@ -14,7 +14,9 @@ const publicRoutes = ["/auth/auth-callback", "/pricing"];
 
 const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
 
-export default function SubscriptionGuard({ children }: SubscriptionGuardProps) {
+export default function SubscriptionGuard({
+  children,
+}: SubscriptionGuardProps) {
   const { user, isLoading: userLoading } = useUser();
 
   // Only use useCustomer hook when payment is not disabled
@@ -22,7 +24,11 @@ export default function SubscriptionGuard({ children }: SubscriptionGuardProps) 
     ? { customer: null, isLoading: false, error: null }
     : useCustomer();
 
-  const { customer, isLoading: customerLoading, error: customerError } = customerData;
+  const {
+    customer,
+    isLoading: customerLoading,
+    error: customerError,
+  } = customerData;
   const router = useRouter();
   const pathname = usePathname();
 
@@ -30,9 +36,15 @@ export default function SubscriptionGuard({ children }: SubscriptionGuardProps) 
 
   // Check if user has an active subscription
   const hasActiveSubscription = () => {
-    console.log("🔍 SubscriptionGuard - Checking subscription for user:", user?.email);
+    console.log(
+      "🔍 SubscriptionGuard - Checking subscription for user:",
+      user?.email,
+    );
     console.log("🔍 SubscriptionGuard - Customer data:", customer);
-    console.log("🔍 SubscriptionGuard - Customer products:", customer?.products);
+    console.log(
+      "🔍 SubscriptionGuard - Customer products:",
+      customer?.products,
+    );
 
     if (!customer?.products || customer.products.length === 0) {
       console.log("❌ SubscriptionGuard - No products found");
@@ -44,16 +56,19 @@ export default function SubscriptionGuard({ children }: SubscriptionGuardProps) 
       console.log(`🔍 SubscriptionGuard - Product ${index}:`, {
         name: product.name,
         status: product.status,
-        id: product.id
+        id: product.id,
       });
     });
 
     const hasActive = customer.products.some(
-      (product) => product.status === "active" || product.status === "trialing"
+      (product) => product.status === "active" || product.status === "trialing",
     );
 
     console.log("🔍 SubscriptionGuard - Has active subscription:", hasActive);
-    console.log("🔍 SubscriptionGuard - Product statuses:", customer.products.map(p => p.status));
+    console.log(
+      "🔍 SubscriptionGuard - Product statuses:",
+      customer.products.map((p) => p.status),
+    );
     return hasActive;
   };
 
@@ -76,24 +91,35 @@ export default function SubscriptionGuard({ children }: SubscriptionGuardProps) 
 
     // Don't redirect if still loading or on public routes
     if (isLoading || publicRoutes.includes(pathname)) {
-      console.log("🔍 SubscriptionGuard - Skipping redirect (loading or public route)");
+      console.log(
+        "🔍 SubscriptionGuard - Skipping redirect (loading or public route)",
+      );
       return;
     }
 
     // If user is not authenticated, let AuthGuard handle it
     if (!user) {
-      console.log("🔍 SubscriptionGuard - No user, letting AuthGuard handle it");
+      console.log(
+        "🔍 SubscriptionGuard - No user, letting AuthGuard handle it",
+      );
       return;
     }
 
     // If customer data failed to load or user has no active subscription
     if (customerError || !hasActiveSubscription()) {
-      console.log("❌ SubscriptionGuard - No active subscription found, redirecting to pricing page");
+      console.log(
+        "❌ SubscriptionGuard - No active subscription found, redirecting to pricing page",
+      );
       console.log("❌ SubscriptionGuard - customerError:", customerError);
-      console.log("❌ SubscriptionGuard - hasActiveSubscription():", hasActiveSubscription());
+      console.log(
+        "❌ SubscriptionGuard - hasActiveSubscription():",
+        hasActiveSubscription(),
+      );
       router.push("/pricing");
     } else {
-      console.log("✅ SubscriptionGuard - User has active subscription, allowing access");
+      console.log(
+        "✅ SubscriptionGuard - User has active subscription, allowing access",
+      );
     }
   }, [user, customer, customerError, isLoading, pathname, router]);
 
