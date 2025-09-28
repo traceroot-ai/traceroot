@@ -1,0 +1,37 @@
+name: NPX Prettier Check
+
+"on":
+  push:
+    branches: [main]
+    paths:
+      - 'ui/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ui/**'
+
+jobs:
+  prettier-check:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.2'
+          cache: 'npm'
+          cache-dependency-path: 'ui/package-lock.json'
+
+      - name: Install dependencies
+        run: |
+          cd ui
+          npm ci
+
+      - name: Run Prettier check
+        run: |
+          cd ui
+          npx prettier --check .
+        shell: bash
