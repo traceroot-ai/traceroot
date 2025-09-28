@@ -31,7 +31,7 @@ export function useSubscription() {
     }
 
     return customer.products.some(
-      (product) => product.status === "active" || product.status === "trialing"
+      (product) => product.status === "active" || product.status === "trialing",
     );
   };
 
@@ -47,7 +47,7 @@ export function useSubscription() {
 
     // Find the currently active product (including trialing status)
     const activeProduct = customer.products.find(
-      (product) => product.status === "active" || product.status === "trialing"
+      (product) => product.status === "active" || product.status === "trialing",
     );
 
     return activeProduct?.name || "Free";
