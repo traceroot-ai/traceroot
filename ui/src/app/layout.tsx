@@ -19,15 +19,6 @@ export const metadata: Metadata = {
   },
 };
 
-function MockAutumnProvider({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
-}
-
-const Provider =
-  process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true"
-    ? MockAutumnProvider
-    : (props: any) => <AutumnProvider includeCredentials={true} {...props} />;
-
 export default function RootLayout({
   children,
 }: {
@@ -42,7 +33,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <Provider>
+          <AutumnProvider includeCredentials={true}>
             <AuthGuard>
               <SubscriptionGuard>
                 {/* Make it false by default */}
@@ -82,7 +73,7 @@ export default function RootLayout({
                 },
               }}
             />
-          </Provider>
+          </AutumnProvider>
         </ThemeProvider>
       </body>
     </html>

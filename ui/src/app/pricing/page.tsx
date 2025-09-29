@@ -66,36 +66,8 @@ function LoadingFallback() {
   );
 }
 
-// Local mock fallback (avoids Autumn API in dev)
-function LocalPricingTable() {
-  return (
-    <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-      {productDetails.map((plan) => (
-        <div
-          key={plan.id}
-          className="rounded-2xl border p-6 shadow-sm bg-white dark:bg-gray-800"
-        >
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-            {plan.id.charAt(0).toUpperCase() + plan.id.slice(1)}
-          </h2>
-          <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            {plan.description}
-          </p>
-          <ul className="mt-4 space-y-2 text-sm text-gray-700 dark:text-gray-300">
-            {plan.items.map((item, idx) => (
-              <li key={idx}>• {item.primaryText}</li>
-            ))}
-          </ul>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // Page component
 export default function PricingPage() {
-  const disablePayment = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
-
   return (
     <Suspense fallback={<LoadingFallback />}>
       <section className="min-h-screen bg-gray-50 py-12 dark:bg-zinc-900">
@@ -110,11 +82,7 @@ export default function PricingPage() {
           </header>
 
           <div className="mt-16">
-            {disablePayment ? (
-              <LocalPricingTable />
-            ) : (
-              <PricingTable productDetails={productDetails} />
-            )}
+            <PricingTable productDetails={productDetails} />
           </div>
         </div>
       </section>
