@@ -53,7 +53,7 @@ function LocalSettingsPage() {
   };
 
   const getUsageColor = (p: number) =>
-    p >= 90 ? "text-red-600" : p >= 75 ? "text-yellow-600" : "text-green-600";
+    p >= 100 ? "text-red-600" : "text-green-600";
 
   return (
     <div className="min-h-full flex flex-col p-4">
@@ -119,11 +119,9 @@ function LocalSettingsPage() {
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div
                       className={`h-2 rounded-full transition-all duration-300 ${
-                        tokenUsage.percentage >= 90
+                        tokenUsage.percentage >= 100
                           ? "bg-red-500"
-                          : tokenUsage.percentage >= 75
-                            ? "bg-yellow-500"
-                            : "bg-green-500"
+                          : "bg-green-500"
                       }`}
                       style={{
                         width: `${Math.min(100, tokenUsage.percentage)}%`,
@@ -131,30 +129,15 @@ function LocalSettingsPage() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-4 text-center">
+                <div className="text-center">
                   <div>
                     <div className="text-xs text-muted-foreground uppercase tracking-wide">
-                      Used
-                    </div>
-                    <div className="text-sm font-medium mt-1">
-                      {formatNumber(tokenUsage.usage)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide">
-                      Remaining
+                      Used / Limit
                     </div>
                     <div
                       className={`text-sm font-medium mt-1 ${getUsageColor(tokenUsage.percentage)}`}
                     >
-                      {formatNumber(tokenUsage.remaining)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide">
-                      Total
-                    </div>
-                    <div className="text-sm font-medium mt-1">
+                      {formatNumber(tokenUsage.usage)} /{" "}
                       {formatNumber(tokenUsage.limit)}
                     </div>
                   </div>
@@ -189,11 +172,9 @@ function LocalSettingsPage() {
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div
                       className={`h-2 rounded-full transition-all duration-300 ${
-                        tracesUsage.percentage >= 90
+                        tracesUsage.percentage >= 100
                           ? "bg-red-500"
-                          : tracesUsage.percentage >= 75
-                            ? "bg-yellow-500"
-                            : "bg-green-500"
+                          : "bg-green-500"
                       }`}
                       style={{
                         width: `${Math.min(100, tracesUsage.percentage)}%`,
@@ -201,23 +182,16 @@ function LocalSettingsPage() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4 text-center">
+                <div className="text-center">
                   <div>
                     <div className="text-xs text-muted-foreground uppercase tracking-wide">
-                      Used
-                    </div>
-                    <div className="text-sm font-medium mt-1">
-                      {formatNumber(tracesUsage.usage)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide">
-                      Remaining
+                      Used / Limit
                     </div>
                     <div
                       className={`text-sm font-medium mt-1 ${getUsageColor(tracesUsage.percentage)}`}
                     >
-                      {formatNumber(tracesUsage.remaining)}
+                      {formatNumber(tracesUsage.usage)} /{" "}
+                      {formatNumber(tracesUsage.limit)}
                     </div>
                   </div>
                 </div>
@@ -290,7 +264,7 @@ function SettingsWithAutumn() {
     const limit = llmTokenFeature.included_usage || 0;
     const usage = llmTokenFeature.usage || 0;
     const remaining = llmTokenFeature.balance || 0;
-    const percentage = limit > 0 ? Math.min(100, (usage / limit) * 100) : 0;
+    const percentage = limit > 0 ? (usage / limit) * 100 : 0;
     return { limit, usage, remaining, percentage };
   };
 
@@ -311,7 +285,7 @@ function SettingsWithAutumn() {
     const limit = tracesAndLogsFeature.included_usage || 0;
     const usage = tracesAndLogsFeature.usage || 0;
     const remaining = tracesAndLogsFeature.balance || 0;
-    const percentage = limit > 0 ? Math.min(100, (usage / limit) * 100) : 0;
+    const percentage = limit > 0 ? (usage / limit) * 100 : 0;
     return { limit, usage, remaining, percentage, isLoading: false };
   }
 
@@ -387,8 +361,7 @@ function SettingsWithAutumn() {
 
   // Get color based on usage percentage
   const getUsageColor = (percentage: number) => {
-    if (percentage >= 90) return "text-destructive";
-    if (percentage >= 75) return "text-yellow-600 dark:text-yellow-400";
+    if (percentage >= 100) return "text-destructive";
     return "text-green-600 dark:text-green-400";
   };
 
@@ -712,11 +685,9 @@ function SettingsWithAutumn() {
                         <div className="w-full bg-muted rounded-full h-2">
                           <div
                             className={`h-2 rounded-full transition-all duration-300 ${
-                              tokenInfo.percentage >= 90
+                              tokenInfo.percentage >= 100
                                 ? "bg-destructive"
-                                : tokenInfo.percentage >= 75
-                                  ? "bg-yellow-500 dark:bg-yellow-600"
-                                  : "bg-green-500 dark:bg-green-600"
+                                : "bg-green-500 dark:bg-green-600"
                             }`}
                             style={{
                               width: `${Math.min(100, tokenInfo.percentage)}%`,
@@ -725,37 +696,23 @@ function SettingsWithAutumn() {
                         </div>
                       </div>
                     )}
-                    <div className="grid grid-cols-3 gap-4 text-center">
+                    <div className="text-center">
                       <div>
                         <div className="text-xs text-muted-foreground uppercase tracking-wide">
-                          Used
-                        </div>
-                        <div className="text-sm font-medium mt-1">
-                          {formatNumber(tokenInfo.usage)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-muted-foreground uppercase tracking-wide">
-                          Remaining
+                          Used / Limit
                         </div>
                         <div
                           className={`text-sm font-medium mt-1 ${getUsageColor(tokenInfo.percentage)}`}
                         >
-                          {formatNumber(tokenInfo.remaining)}
+                          {formatNumber(tokenInfo.usage)} /{" "}
+                          {formatNumber(tokenInfo.limit)}
                         </div>
                       </div>
                     </div>
-                    {tokenInfo.percentage >= 80 && (
-                      <div
-                        className={`text-xs p-2 rounded border ${
-                          tokenInfo.percentage >= 90
-                            ? "bg-destructive/10 text-destructive border-destructive/20 dark:bg-destructive/5 dark:text-destructive dark:border-destructive/10"
-                            : "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-300 dark:border-yellow-500/20"
-                        }`}
-                      >
-                        {tokenInfo.percentage >= 90
-                          ? "⚠️ You're running low on LLM tokens. Consider upgrading your plan."
-                          : "💡 You've used most of your LLM tokens this month."}
+                    {tokenInfo.percentage >= 100 && (
+                      <div className="text-xs p-2 rounded border bg-destructive/10 text-destructive border-destructive/20 dark:bg-destructive/5 dark:text-destructive dark:border-destructive/10">
+                        ⚠️ You've exceeded your LLM token limit. Consider
+                        upgrading your plan.
                       </div>
                     )}
                   </div>
@@ -831,11 +788,9 @@ function SettingsWithAutumn() {
                         <div className="w-full bg-muted rounded-full h-2">
                           <div
                             className={`h-2 rounded-full transition-all duration-300 ${
-                              tracesLogsInfo.percentage >= 90
+                              tracesLogsInfo.percentage >= 100
                                 ? "bg-destructive"
-                                : tracesLogsInfo.percentage >= 75
-                                  ? "bg-yellow-500 dark:bg-yellow-600"
-                                  : "bg-green-500 dark:bg-green-600"
+                                : "bg-green-500 dark:bg-green-600"
                             }`}
                             style={{
                               width: `${Math.min(100, tracesLogsInfo.percentage)}%`,
@@ -844,37 +799,23 @@ function SettingsWithAutumn() {
                         </div>
                       </div>
                     )}
-                    <div className="grid grid-cols-2 gap-4 text-center">
+                    <div className="text-center">
                       <div>
                         <div className="text-xs text-muted-foreground uppercase tracking-wide">
-                          Used
-                        </div>
-                        <div className="text-sm font-medium mt-1">
-                          {formatNumber(tracesLogsInfo.usage)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-muted-foreground uppercase tracking-wide">
-                          Remaining
+                          Used / Limit
                         </div>
                         <div
                           className={`text-sm font-medium mt-1 ${getUsageColor(tracesLogsInfo.percentage)}`}
                         >
-                          {formatNumber(tracesLogsInfo.remaining)}
+                          {formatNumber(tracesLogsInfo.usage)} /{" "}
+                          {formatNumber(tracesLogsInfo.limit)}
                         </div>
                       </div>
                     </div>
-                    {tracesLogsInfo.percentage >= 80 && (
-                      <div
-                        className={`text-xs p-2 rounded border ${
-                          tracesLogsInfo.percentage >= 90
-                            ? "bg-destructive/10 text-destructive border-destructive/20 dark:bg-destructive/5 dark:text-destructive dark:border-destructive/10"
-                            : "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-300 dark:border-yellow-500/20"
-                        }`}
-                      >
-                        {tracesLogsInfo.percentage >= 90
-                          ? "⚠️ You're running low on traces & logs quota. Consider upgrading your plan."
-                          : "💡 You've used most of your traces & logs quota this month."}
+                    {tracesLogsInfo.percentage >= 100 && (
+                      <div className="text-xs p-2 rounded border bg-destructive/10 text-destructive border-destructive/20 dark:bg-destructive/5 dark:text-destructive dark:border-destructive/10">
+                        ⚠️ You've exceeded your traces & logs quota. Consider
+                        upgrading your plan.
                       </div>
                     )}
                   </div>
