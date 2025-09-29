@@ -300,42 +300,21 @@ function DocumentationComponent() {
 function SettingsComponent() {
   const { state } = useSidebar();
   const pathname = usePathname();
-  const { hasActiveSubscription } = useSubscription();
-
-  // Disable settings when payment is disabled or no active subscription
-  const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
-  const isDisabled = DISABLE_PAYMENT || !hasActiveSubscription;
 
   return (
     <SidebarMenuButton
-      asChild={!isDisabled}
+      asChild
       isActive={pathname === "/settings"}
-      tooltip={
-        isDisabled
-          ? DISABLE_PAYMENT
-            ? "Settings disabled in local mode"
-            : "Select a plan to access settings"
-          : "Settings"
-      }
-      className={`flex items-center rounded-md p-2 mb-1 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-1"} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
-      disabled={isDisabled}
+      tooltip="Settings"
+      className={`flex items-center rounded-md p-2 mb-1 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-1"}`}
     >
-      {isDisabled ? (
-        <div
-          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-1"}`}
-        >
-          <Settings className="!w-5.5 !h-5.5 flex-shrink-0" />
-          {state === "expanded" && <span>Settings</span>}
-        </div>
-      ) : (
-        <Link
-          href="/settings"
-          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-1"}`}
-        >
-          <Settings className="!w-5.5 !h-5.5 flex-shrink-0" />
-          {state === "expanded" && <span>Settings</span>}
-        </Link>
-      )}
+      <Link
+        href="/settings"
+        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-1"}`}
+      >
+        <Settings className="!w-5.5 !h-5.5 flex-shrink-0" />
+        {state === "expanded" && <span>Settings</span>}
+      </Link>
     </SidebarMenuButton>
   );
 }
