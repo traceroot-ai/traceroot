@@ -8,10 +8,12 @@ permissions:
     branches: [main]
     paths:
       - 'ui/**'
+      - '!ui/data/**'
   pull_request:
     branches: [main]
     paths:
       - 'ui/**'
+      - '!ui/data/**'
 
 jobs:
   prettier-check:
@@ -26,7 +28,7 @@ jobs:
         with:
           node-version: '20.19.2'
           cache: 'npm'
-          cache-dependency-path: 'ui/package-lock.json'
+          cache-dependency-path: 'ui/package.json'
 
       - name: Install dependencies
         run: |
