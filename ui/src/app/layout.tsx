@@ -24,6 +24,22 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // Check if payment/subscription features should be disabled for local development
+  const isPaymentDisabled = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
+
+  // Core app content that's wrapped differently based on payment settings
+  const AppContent = () => (
+    <AuthGuard>
+      <SubscriptionGuard>
+        {/* Make sidebar collapsed by default */}
+        <SidebarProvider defaultOpen={false}>
+          <AppSidebar />
+          <SidebarInset>{children}</SidebarInset>
+        </SidebarProvider>
+      </SubscriptionGuard>
+    </AuthGuard>
+  );
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.className} h-screen overflow-hidden`}>
@@ -33,47 +49,46 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <AutumnProvider includeCredentials={true}>
-            <AuthGuard>
-              <SubscriptionGuard>
-                {/* Make it false by default */}
-                <SidebarProvider defaultOpen={false}>
-                  <AppSidebar />
-                  <SidebarInset>{children}</SidebarInset>
-                </SidebarProvider>
-              </SubscriptionGuard>
-            </AuthGuard>
-            <Toaster
-              position="top-right"
-              toastOptions={{
-                duration: 4000,
-                style: {
-                  background: "#363636",
-                  color: "#fff",
+          {/* Conditionally wrap with AutumnProvider only when payment is enabled */}
+          {isPaymentDisabled ? (
+            // Local development mode - no subscription/payment features
+            <AppContent />
+          ) : (
+            // Production mode - full subscription/payment features enabled
+            <AutumnProvider includeCredentials={true}>
+              <AppContent />
+            </AutumnProvider>
+          )}
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              duration: 4000,
+              style: {
+                background: "#363636",
+                color: "#fff",
+              },
+              success: {
+                duration: 3000,
+                iconTheme: {
+                  primary: "#4ade80",
+                  secondary: "#fff",
                 },
-                success: {
-                  duration: 3000,
-                  iconTheme: {
-                    primary: "#4ade80",
-                    secondary: "#fff",
-                  },
+              },
+              error: {
+                duration: 5000,
+                iconTheme: {
+                  primary: "#ef4444",
+                  secondary: "#fff",
                 },
-                error: {
-                  duration: 5000,
-                  iconTheme: {
-                    primary: "#ef4444",
-                    secondary: "#fff",
-                  },
+              },
+              loading: {
+                iconTheme: {
+                  primary: "#3b82f6",
+                  secondary: "#fff",
                 },
-                loading: {
-                  iconTheme: {
-                    primary: "#3b82f6",
-                    secondary: "#fff",
-                  },
-                },
-              }}
-            />
-          </AutumnProvider>
+              },
+            }}
+          />
         </ThemeProvider>
       </body>
     </html>
