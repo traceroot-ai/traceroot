@@ -242,3 +242,30 @@ deactivate
 # Run unit tests
 pytest test
 ```
+
+## Development Setup 🛠️
+
+Once you have completed the quick start setup, you can run different components of the TraceRoot system:
+
+### Run UI
+
+Please refer to the [README.md in the ui directory](ui/README.md) for more details.
+
+### Run REST API
+
+Please refer to the [README.md in the rest directory](rest/README.md) for more details.
+
+### Run Jaeger
+
+This is required for the pure local mode.
+
+```bash
+docker run -d --name jaeger \
+  -e COLLECTOR_OTLP_ENABLED=true \
+  -p 16686:16686 \
+  -p 14268:14268 \
+  -p 14250:14250 \
+  -p 4317:4317 \
+  -p 4318:4318 \
+  cr.jaegertracing.io/jaegertracing/jaeger:2.8.0
+```
