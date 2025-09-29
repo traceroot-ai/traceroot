@@ -302,13 +302,21 @@ function SettingsComponent() {
   const pathname = usePathname();
   const { hasActiveSubscription } = useSubscription();
 
-  const isDisabled = !hasActiveSubscription;
+  // Disable settings when payment is disabled or no active subscription
+  const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
+  const isDisabled = DISABLE_PAYMENT || !hasActiveSubscription;
 
   return (
     <SidebarMenuButton
       asChild={!isDisabled}
       isActive={pathname === "/settings"}
-      tooltip={isDisabled ? "Select a plan to access settings" : "Settings"}
+      tooltip={
+        isDisabled
+          ? DISABLE_PAYMENT
+            ? "Settings disabled in local mode"
+            : "Select a plan to access settings"
+          : "Settings"
+      }
       className={`flex items-center rounded-md p-2 mb-1 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-1"} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
       disabled={isDisabled}
     >

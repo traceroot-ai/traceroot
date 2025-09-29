@@ -14,9 +14,9 @@ export function useSubscription() {
 
   // Log payment status for debugging
   if (DISABLE_PAYMENT) {
-    console.log("Payment is disabled - using mock subscription data");
+    console.log("Payment is disabled.");
   } else {
-    console.log("Payment is enabled - using real subscription data");
+    console.log("Payment is enabled.");
   }
 
   const hasActiveSubscription = () => {
