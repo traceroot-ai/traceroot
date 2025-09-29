@@ -33,14 +33,11 @@ export function CloudProviderTabContent() {
     if (savedData) {
       try {
         const parsedData = JSON.parse(savedData);
-        console.log("Loading saved settings:", parsedData); // Debug log
         setSelectedProvider(parsedData.selectedProvider || "aws");
         setAwsRegion(parsedData.awsRegion || "us-west-2");
         setTencentRegion(parsedData.tencentRegion || "ap-hongkong");
-        setTencentSecretId(parsedData.tencentSecretId || "");
-        setTencentSecretKey(parsedData.tencentSecretKey || "");
-        setTencentTraceToken(parsedData.tencentTraceToken || "");
         setJaegerEndpoint(parsedData.jaegerEndpoint || "");
+        // Don't load sensitive Tencent credentials from localStorage
       } catch (error) {
         console.error("Error parsing saved cloud provider settings:", error);
       }
@@ -49,6 +46,7 @@ export function CloudProviderTabContent() {
   }, []);
 
   // Save data to localStorage whenever any setting changes (but only after initial load)
+  // Exclude sensitive Tencent credentials from localStorage
   useEffect(() => {
     if (!isLoaded) return; // Don't save during initial load
 
@@ -56,22 +54,17 @@ export function CloudProviderTabContent() {
       selectedProvider,
       awsRegion,
       tencentRegion,
-      tencentSecretId,
-      tencentSecretKey,
-      tencentTraceToken,
       jaegerEndpoint,
+      // Don't save sensitive Tencent credentials to localStorage
     };
-    console.log("Saving settings:", settingsData); // Debug log
     localStorage.setItem("cloudProviderSettings", JSON.stringify(settingsData));
   }, [
     isLoaded,
     selectedProvider,
     awsRegion,
     tencentRegion,
-    tencentSecretId,
-    tencentSecretKey,
-    tencentTraceToken,
     jaegerEndpoint,
+    // Removed sensitive credentials from dependency array
   ]);
 
   const providers = [

@@ -35,6 +35,10 @@ export function useCloudProvider() {
         setSettings({
           ...defaultSettings,
           ...parsedData,
+          // Always reset sensitive credentials to empty (don't load from localStorage)
+          tencentSecretId: "",
+          tencentSecretKey: "",
+          tencentTraceToken: "",
         });
       } catch (error) {
         console.error("Error parsing saved cloud provider settings:", error);
