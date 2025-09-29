@@ -5,6 +5,9 @@ import { IoMdClose } from "react-icons/io";
 import { TbCategory } from "react-icons/tb";
 import { LuSquareEqual } from "react-icons/lu";
 import { ChevronDownIcon } from "lucide-react";
+import { FaAws } from "react-icons/fa";
+import { BsTencentQq } from "react-icons/bs";
+import { SiJaeger } from "react-icons/si";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,6 +23,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useCloudProvider } from "@/hooks/useCloudProvider";
 
 export interface SearchCriterion {
   id: string;
@@ -58,6 +62,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
   onMetadataSearchTermsChange,
   disabled = false,
 }) => {
+  const { selectedProvider } = useCloudProvider();
   const [criteria, setCriteria] = useState<SearchCriterion[]>([]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [currentCriterion, setCurrentCriterion] = useState<
@@ -176,8 +181,26 @@ const SearchBar: React.FC<SearchBarProps> = ({
     return OPERATIONS.find((op) => op.value === value)?.label || value;
   };
 
+  const getProviderIcon = () => {
+    switch (selectedProvider) {
+      case "aws":
+        return <FaAws size={20} className="text-foreground" />;
+      case "tencent":
+        return <BsTencentQq size={20} className="text-foreground" />;
+      case "jaeger":
+        return <SiJaeger size={20} className="text-foreground" />;
+      default:
+        return <FaAws size={20} className="text-foreground" />;
+    }
+  };
+
   return (
     <div className="relative flex items-start gap-2 justify-start">
+      {/* Provider Icon */}
+      <div className="h-[2.5rem] w-[2.5rem] border border-input rounded-md bg-background flex items-center justify-center shrink-0">
+        {getProviderIcon()}
+      </div>
+
       <div
         className={`flex flex-col gap-2 px-2 py-1 border rounded-md transition-all duration-200 min-h-[2rem] max-h-[10rem] ${criteria.length === 0 ? "justify-center" : ""} w-auto max-w-md ${disabled ? "opacity-50 pointer-events-none" : ""}`}
         onClick={() => !disabled && setIsExpanded(true)}

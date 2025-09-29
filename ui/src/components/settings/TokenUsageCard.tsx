@@ -1,6 +1,7 @@
 import React from "react";
 import { FaRobot } from "react-icons/fa";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 
 interface TokenUsageInfo {
   limit: number;
@@ -63,26 +64,14 @@ export function TokenUsageCard({
                 <span className="text-xs text-muted-foreground uppercase tracking-wide">
                   This Month
                 </span>
-                <span
-                  className={`text-xs font-medium ${getUsageColor(tokenInfo.percentage)}`}
-                >
+                <span className="text-xs text-muted-foreground uppercase tracking-wide">
                   {tokenInfo.percentage.toFixed(1)}% used
                 </span>
               </div>
-              <div className="w-full bg-muted rounded-full h-2">
-                <div
-                  className={`h-2 rounded-full transition-all duration-300 ${
-                    tokenInfo.percentage >= 90
-                      ? "bg-destructive"
-                      : tokenInfo.percentage >= 75
-                        ? "bg-yellow-500 dark:bg-yellow-600"
-                        : "bg-green-500 dark:bg-green-600"
-                  }`}
-                  style={{
-                    width: `${Math.min(100, tokenInfo.percentage)}%`,
-                  }}
-                ></div>
-              </div>
+              <Progress
+                value={Math.min(100, tokenInfo.percentage)}
+                className="w-full h-2"
+              />
             </div>
           )}
           <div className="text-center">
@@ -138,26 +127,14 @@ export function LocalTokenUsageCard({
               <span className="text-xs text-muted-foreground uppercase tracking-wide">
                 This Month
               </span>
-              <span
-                className={`text-xs font-medium ${getUsageColor(tokenUsage.percentage)}`}
-              >
+              <span className="text-xs text-muted-foreground uppercase tracking-wide">
                 {tokenUsage.percentage.toFixed(1)}% used
               </span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div
-                className={`h-2 rounded-full transition-all duration-300 ${
-                  tokenUsage.percentage >= 90
-                    ? "bg-red-500"
-                    : tokenUsage.percentage >= 75
-                      ? "bg-yellow-500"
-                      : "bg-green-500"
-                }`}
-                style={{
-                  width: `${Math.min(100, tokenUsage.percentage)}%`,
-                }}
-              />
-            </div>
+            <Progress
+              value={Math.min(100, tokenUsage.percentage)}
+              className="w-full h-2"
+            />
           </div>
           <div className="text-center">
             <div className="text-sm font-medium">

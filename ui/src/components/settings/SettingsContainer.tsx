@@ -5,28 +5,65 @@ import { useRouter } from "next/navigation";
 import { useUser } from "../../hooks/useUser";
 import { useCustomer } from "autumn-js/react";
 import { toast } from "react-hot-toast";
-import { CurrentPlanCard } from "./CurrentPlanCard";
-import { TokenUsageCard } from "./TokenUsageCard";
-import { TracesLogsCard } from "./TracesLogsCard";
-import { AccountActionsCard } from "./AccountActionsCard";
-import { PaymentHistoryCard } from "./PaymentHistoryCard";
+import { SettingsSidebar } from "./SettingsSidebar";
 import { AccessLostWarning } from "./AccessLostWarning";
+import { TokenUsageCard, LocalTokenUsageCard } from "./TokenUsageCard";
+import { TracesLogsCard, LocalTracesLogsCard } from "./TracesLogsCard";
+import { CurrentPlanCard, LocalCurrentPlanCard } from "./CurrentPlanCard";
+import {
+  AccountActionsCard,
+  LocalAccountActionsCard,
+} from "./AccountActionsCard";
+import { PaymentHistoryCard } from "./PaymentHistoryCard";
+import { CloudProviderTabContent } from "./CloudProviderTabContent";
 
 export function SettingsContainer() {
+  const isLocalMode = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
+
   const router = useRouter();
-  const { user, isLoading: userLoading, getAuthState } = useUser();
+  const {
+    user,
+    isLoading: userLoading,
+    getAuthState,
+  } = isLocalMode
+    ? { user: null, isLoading: false, getAuthState: () => null }
+    : useUser();
   const {
     customer,
     isLoading: customerLoading,
     error: customerError,
     openBillingPortal,
-  } = useCustomer();
+  } = isLocalMode
+    ? {
+        customer: null,
+        isLoading: false,
+        error: null,
+        openBillingPortal: async () => {},
+      }
+    : useCustomer();
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [tracesAndLogsData, setTracesAndLogsData] = useState<any>(null);
   const [isLoadingTracesAndLogs, setIsLoadingTracesAndLogs] = useState(true);
+  const [activeTab, setActiveTab] = useState<"usage" | "plan" | "provider">(
+    "provider",
+  );
 
-  const isLoading = userLoading || customerLoading;
+  // Mock data for local mode
+  const mockTokenUsage = {
+    limit: 1_000_000,
+    usage: 120_000,
+    remaining: 880_000,
+    percentage: 12,
+  };
+  const mockTracesUsage = {
+    limit: 100_000,
+    usage: 8_500,
+    remaining: 91_500,
+    percentage: 8.5,
+  };
+
+  const isLoading = isLocalMode ? false : userLoading || customerLoading;
 
   const getLLMTokenInfo = () => {
     if (!customer?.features?.llm_tokens) {
@@ -290,46 +327,99 @@ export function SettingsContainer() {
   return (
     <div className="min-h-full flex flex-col p-4">
       {/* Container with similar styling to integrate page */}
-      <div className="w-3/4 max-w-6xl mx-auto bg-background dark:bg-background m-5 p-10 rounded-lg font-mono border border-border shadow-sm">
-        <h2 className="scroll-m-20 mb-5 text-3xl font-semibold first:mt-0">
-          Settings
-        </h2>
-        <p className="leading-7 [&:not(:first-child)]:mb-5">
-          Manage your account settings and subscription preferences.
-        </p>
+      <div className="w-full max-w-7xl mx-auto bg-background dark:bg-background m-5 rounded-lg font-mono border-2 border-border shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-border">
+          <h2 className="scroll-m-20 text-3xl font-semibold">Settings</h2>
+        </div>
 
-        <AccessLostWarning customer={customer} hasAccess={hasAccess} />
+        {!isLocalMode && (
+          <AccessLostWarning customer={customer} hasAccess={hasAccess} />
+        )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 p-3">
-          <CurrentPlanCard
-            currentPlan={currentPlan}
-            subscriptionStatus={subscriptionStatus}
-            customer={customer}
-            isOnTrial={isOnTrial}
-            trialDaysRemaining={trialDaysRemaining}
-            formatPlanName={formatPlanName}
-          />
+        <div className="flex min-h-[600px]">
+          <SettingsSidebar activeTab={activeTab} onTabChange={setActiveTab} />
 
-          <TokenUsageCard
-            tokenInfo={getLLMTokenInfo()}
-            formatNumber={formatNumber}
-            getUsageColor={getUsageColor}
-          />
+          {activeTab === "usage" && (
+            <div className="flex-1 p-6">
+              <div className="mb-6">
+                <h2 className="text-2xl font-semibold mb-2">Usage</h2>
+                <p className="text-muted-foreground">
+                  Monitor your current usage of LLM tokens and trace logs.
+                </p>
+              </div>
 
-          <TracesLogsCard
-            tracesLogsInfo={getTracesAndLogsInfo()}
-            formatNumber={formatNumber}
-            getUsageColor={getUsageColor}
-          />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {isLocalMode ? (
+                  <>
+                    <LocalTokenUsageCard
+                      tokenUsage={mockTokenUsage}
+                      formatNumber={formatNumber}
+                      getUsageColor={getUsageColor}
+                    />
+                    <LocalTracesLogsCard
+                      tracesUsage={mockTracesUsage}
+                      formatNumber={formatNumber}
+                      getUsageColor={getUsageColor}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <TokenUsageCard
+                      tokenInfo={getLLMTokenInfo()}
+                      formatNumber={formatNumber}
+                      getUsageColor={getUsageColor}
+                    />
+                    <TracesLogsCard
+                      tracesLogsInfo={getTracesAndLogsInfo()}
+                      formatNumber={formatNumber}
+                      getUsageColor={getUsageColor}
+                    />
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
-          <AccountActionsCard
-            isOnTrial={isOnTrial}
-            handleManageBilling={handleManageBilling}
-            isProcessing={isProcessing}
-            user={user}
-          />
+          {activeTab === "plan" && (
+            <div className="flex-1 p-6">
+              <div className="mb-6">
+                <h2 className="text-2xl font-semibold mb-2">Plan</h2>
+                <p className="text-muted-foreground">
+                  Manage your current plan, billing information, and account
+                  actions.
+                </p>
+              </div>
 
-          <PaymentHistoryCard customer={customer} />
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                {isLocalMode ? (
+                  <>
+                    <LocalCurrentPlanCard planName="Free" status="N/A" />
+                    <LocalAccountActionsCard />
+                  </>
+                ) : (
+                  <>
+                    <CurrentPlanCard
+                      currentPlan={currentPlan}
+                      subscriptionStatus={subscriptionStatus}
+                      customer={customer}
+                      isOnTrial={isOnTrial}
+                      trialDaysRemaining={trialDaysRemaining}
+                      formatPlanName={formatPlanName}
+                    />
+                    <AccountActionsCard
+                      isOnTrial={isOnTrial}
+                      handleManageBilling={handleManageBilling}
+                      isProcessing={isProcessing}
+                      user={user}
+                    />
+                    <PaymentHistoryCard customer={customer} />
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "provider" && <CloudProviderTabContent />}
         </div>
       </div>
     </div>

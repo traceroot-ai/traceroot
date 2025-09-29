@@ -31,9 +31,7 @@ export function AccountActionsCard({
         <div className="flex items-center space-x-2.5">
           <FaCreditCard className="text-foreground" size={24} />
           <div className="flex-1 min-w-0">
-            <CardTitle className="text-sm font-semibold">
-              Account Actions
-            </CardTitle>
+            <CardTitle className="text-sm font-semibold">MANAGE</CardTitle>
             <CardDescription className="text-xs">
               Manage your subscription and billing
             </CardDescription>
@@ -77,9 +75,7 @@ export function LocalAccountActionsCard() {
         <div className="flex items-center space-x-2.5">
           <FaCreditCard className="text-foreground" size={24} />
           <div className="flex-1 min-w-0">
-            <CardTitle className="text-base font-semibold">
-              Account Actions
-            </CardTitle>
+            <CardTitle className="text-base font-semibold">MANAGE</CardTitle>
             <CardDescription className="text-sm">
               Manage subscription and billing
             </CardDescription>

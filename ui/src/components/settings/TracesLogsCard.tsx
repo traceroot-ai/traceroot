@@ -1,6 +1,7 @@
 import React from "react";
 import { FaChartLine } from "react-icons/fa";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 
 interface TracesLogsInfo {
   limit: number;
@@ -66,26 +67,14 @@ export function TracesLogsCard({
               <span className="text-xs text-muted-foreground uppercase tracking-wide">
                 This Month
               </span>
-              <span
-                className={`text-xs font-medium ${getUsageColor(tracesLogsInfo.percentage)}`}
-              >
+              <span className="text-xs text-muted-foreground uppercase tracking-wide">
                 {tracesLogsInfo.percentage.toFixed(1)}% used
               </span>
             </div>
-            <div className="w-full bg-muted rounded-full h-2">
-              <div
-                className={`h-2 rounded-full transition-all duration-300 ${
-                  tracesLogsInfo.percentage >= 90
-                    ? "bg-destructive"
-                    : tracesLogsInfo.percentage >= 75
-                      ? "bg-yellow-500 dark:bg-yellow-600"
-                      : "bg-green-500 dark:bg-green-600"
-                }`}
-                style={{
-                  width: `${Math.min(100, tracesLogsInfo.percentage)}%`,
-                }}
-              ></div>
-            </div>
+            <Progress
+              value={Math.min(100, tracesLogsInfo.percentage)}
+              className="w-full h-2"
+            />
           </div>
         )}
         <div className="text-center">
@@ -155,26 +144,14 @@ export function LocalTracesLogsCard({
               <span className="text-xs text-muted-foreground uppercase tracking-wide">
                 This Month
               </span>
-              <span
-                className={`text-xs font-medium ${getUsageColor(tracesUsage.percentage)}`}
-              >
+              <span className="text-xs text-muted-foreground uppercase tracking-wide">
                 {tracesUsage.percentage.toFixed(1)}% used
               </span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div
-                className={`h-2 rounded-full transition-all duration-300 ${
-                  tracesUsage.percentage >= 90
-                    ? "bg-red-500"
-                    : tracesUsage.percentage >= 75
-                      ? "bg-yellow-500"
-                      : "bg-green-500"
-                }`}
-                style={{
-                  width: `${Math.min(100, tracesUsage.percentage)}%`,
-                }}
-              />
-            </div>
+            <Progress
+              value={Math.min(100, tracesUsage.percentage)}
+              className="w-full h-2"
+            />
           </div>
           <div className="text-center">
             <div className="text-sm font-medium">
