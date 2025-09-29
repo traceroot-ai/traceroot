@@ -206,6 +206,9 @@ pre-commit run --all-files
 # Or
 pre-commit run --files <file_name>
 
+# For UI changes
+npx prettier --write <file_name>
+
 # Exit the virtual environment
 deactivate
 
