@@ -327,7 +327,7 @@ export function SettingsContainer() {
   return (
     <div className="min-h-full flex flex-col p-4">
       {/* Container with similar styling to integrate page */}
-      <div className="w-full max-w-7xl mx-auto bg-background dark:bg-background m-5 rounded-lg font-mono border-2 border-border shadow-sm overflow-hidden">
+      <div className="w-full max-w-7xl mx-auto bg-background dark:bg-background m-5 rounded-lg font-mono border-2 border-border overflow-hidden">
         <div className="p-6 border-b border-border">
           <h2 className="scroll-m-20 text-3xl font-semibold">Settings</h2>
         </div>

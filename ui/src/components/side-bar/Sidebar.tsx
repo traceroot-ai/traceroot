@@ -306,7 +306,7 @@ function SettingsComponent() {
       asChild
       isActive={pathname === "/settings"}
       tooltip="Settings"
-      className={`flex items-center rounded-md p-2 mb-1 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-1"}`}
+      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
     >
       <Link
         href="/settings"
