@@ -6,7 +6,7 @@ from .rest.main import MultiAgentSystem
 
 __all__ = [
     "create_code_agent",
-    "create_execution_agent", 
+    "create_execution_agent",
     "create_plan_agent",
     "create_summarize_agent",
     "MultiAgentSystem",
