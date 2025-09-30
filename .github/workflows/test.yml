@@ -6,6 +6,8 @@ name: Test
   push:
     branches: [main]
 
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-24.04
