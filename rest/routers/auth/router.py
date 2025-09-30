@@ -72,7 +72,9 @@ async def auth_callback(request: Request, state: str) -> JSONResponse:
             value=access_token,
             domain=COOKIE_DOMAIN,
             samesite="lax",
-            max_age=3600 * 12  # 12 hours
+            max_age=3600 * 12,  # 12 hours
+            secure=not IS_LOCAL,  # Secure flag for HTTPS (disable in local dev)
+            httponly=True  # Prevent JavaScript access to mitigate XSS attacks
         )
 
         # Set ID token cookie for user identification
@@ -82,7 +84,9 @@ async def auth_callback(request: Request, state: str) -> JSONResponse:
             value=id_token,
             domain=COOKIE_DOMAIN,
             samesite="lax",
-            max_age=3600 * 12  # 12 hours
+            max_age=3600 * 12,  # 12 hours
+            secure=not IS_LOCAL,  # Secure flag for HTTPS (disable in local dev)
+            httponly=True  # Prevent JavaScript access to mitigate XSS attacks
         )
 
         return response
