@@ -237,15 +237,6 @@ class TracesAndLogsTracker:
 
             trace_count, log_count = self.extract_traces_and_logs_from_traces(traces)
 
-            days_since = (end_time - since_date).days
-            logger.info(
-                f"Customer {customer_id} traces and logs since "
-                f"{since_date.isoformat()}: "
-                f"{trace_count} traces, {log_count} logs over "
-                f"{days_since} days "
-                f"log_group_name: {log_group_name}"
-            )
-
             return trace_count, log_count
 
         except Exception as e:
