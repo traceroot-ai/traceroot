@@ -11,6 +11,11 @@ try:
 except ImportError:
     from rest.service.aws_client import TraceRootAWSClient
 
+try:
+    from rest.service.ee.tencent_client import TraceRootTencentClient
+except ImportError:
+    from rest.service.tencent_client import TraceRootTencentClient
+
 from rest.routers.auth import router as auth_router
 from rest.routers.explore import ExploreRouter
 from rest.routers.integrate import IntegrateRouter
@@ -40,12 +45,15 @@ class App:
             _rate_limit_exceeded_handler,
         )
         self.local_mode = os.getenv("REST_LOCAL_MODE", "false").lower() == "true"
+        self.observe_provider = os.getenv("REST_OBSERVE_PROVIDER", "aws").lower()
 
         # Add CORS middleware
         self.add_middleware()
 
         if self.local_mode:
             client = TraceRootJaegerClient()
+        elif self.observe_provider == "tencent":
+            client = TraceRootTencentClient()
         else:
             client = TraceRootAWSClient()
 
