@@ -22,7 +22,8 @@ def to_pascal(snake: str) -> str:
         str: The converted PascalCase string.
     """
     # Check if the string is already in PascalCase
-    if re.match(r'^[A-Z][a-zA-Z0-9]*([A-Z][a-zA-Z0-9]*)*$', snake):
+    # Use a more efficient regex that avoids catastrophic backtracking
+    if re.match(r'^[A-Z](?:[a-z0-9]*[A-Z])*[a-z0-9]*$', snake):
         return snake
     # Remove leading and trailing underscores
     snake = snake.strip('_')
