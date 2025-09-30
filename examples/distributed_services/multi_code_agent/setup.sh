@@ -10,7 +10,7 @@ command -v node >/dev/null 2>&1 || { echo "❌ Node.js required but not installe
 
 # Setup Python environment
 echo "📦 Setting up Python environment..."
-python3 -m venv venv
+python3.11 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 

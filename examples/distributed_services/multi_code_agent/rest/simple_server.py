@@ -20,7 +20,7 @@ traceroot.init()
 from traceroot.integrations.fastapi import connect_fastapi  # noqa: E402
 from traceroot.logger import get_logger  # noqa: E402
 
-from rest.main import MultiAgentSystem  # noqa: E402
+from .main import MultiAgentSystem  # noqa: E402
 
 logger = get_logger()
 
