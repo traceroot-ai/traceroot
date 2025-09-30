@@ -7,19 +7,21 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 try:
-    from rest.client.ee.aws_client import TraceRootAWSClient
+    from rest.service.ee.aws_client import TraceRootAWSClient
 except ImportError:
-    from rest.client.aws_client import TraceRootAWSClient
+    from rest.service.aws_client import TraceRootAWSClient
 
-from rest.client.jaeger_client import TraceRootJaegerClient
 from rest.routers.auth import router as auth_router
 from rest.routers.explore import ExploreRouter
 from rest.routers.integrate import IntegrateRouter
+from rest.service.jaeger_client import TraceRootJaegerClient
 
 try:
     from rest.routers.ee.verify import VerifyRouter
 except ImportError:
     from rest.routers.verify import VerifyRouter
+
+version = "0.1.2"
 
 
 class App:
@@ -29,7 +31,7 @@ class App:
         # Initialize rate limiter
         self.limiter = Limiter(key_func=get_remote_address)
 
-        self.app = FastAPI(title="TraceRoot API", version="1.0.0")
+        self.app = FastAPI(title="TraceRoot API", version=version)
 
         # Add rate limit exception handler
         self.app.state.limiter = self.limiter

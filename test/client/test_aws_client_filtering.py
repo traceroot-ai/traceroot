@@ -5,7 +5,7 @@ import pytest
 
 # Try to import the AWS client, skip tests if not available
 try:
-    from rest.client.ee.aws_client import TraceRootAWSClient
+    from rest.service.ee.aws_client import TraceRootAWSClient
     aws_client_available = True
 except ImportError:
     aws_client_available = False

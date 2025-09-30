@@ -11,14 +11,14 @@ from slowapi import Limiter
 from rest.agent import Chat
 
 try:
-    from rest.client.ee.aws_client import TraceRootAWSClient
+    from rest.service.ee.aws_client import TraceRootAWSClient
 except ImportError:
-    from rest.client.aws_client import TraceRootAWSClient
+    from rest.service.aws_client import TraceRootAWSClient
 
 from collections import deque
 
 from rest.client.github_client import GitHubClient
-from rest.client.jaeger_client import TraceRootJaegerClient
+from rest.service.jaeger_client import TraceRootJaegerClient
 
 try:
     from rest.client.ee.mongodb_client import TraceRootMongoDBClient
