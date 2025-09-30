@@ -7,9 +7,9 @@ from datetime import datetime, timezone
 from openai import AsyncOpenAI
 
 try:
-    from rest.client.ee.mongodb_client import TraceRootMongoDBClient
+    from rest.dao.ee.mongodb_dao import TraceRootMongoDBClient
 except ImportError:
-    from rest.client.mongodb_client import TraceRootMongoDBClient
+    from rest.dao.mongodb_dao import TraceRootMongoDBClient
 
 from rest.agent.chunk.sequential import sequential_chunk
 from rest.agent.context.tree import SpanNode
@@ -19,8 +19,8 @@ from rest.agent.output.chat_output import ChatOutput
 from rest.agent.prompts import CHAT_SYSTEM_PROMPT, LOCAL_MODE_APPENDIX
 from rest.agent.summarizer.chunk import chunk_summarize
 from rest.agent.typing import LogFeature
-from rest.client.sqlite_client import TraceRootSQLiteClient
 from rest.config import ChatbotResponse
+from rest.dao.sqlite_dao import TraceRootSQLiteClient
 from rest.typing import ActionStatus, ActionType, ChatModel, MessageType, Reference
 from rest.utils.token_tracking import track_tokens_for_user
 

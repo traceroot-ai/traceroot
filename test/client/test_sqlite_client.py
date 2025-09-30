@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from rest.client.sqlite_client import TraceRootSQLiteClient
+from rest.dao.sqlite_dao import TraceRootSQLiteClient
 
 
 @pytest.mark.asyncio

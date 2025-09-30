@@ -17,19 +17,18 @@ except ImportError:
 
 from collections import deque
 
-from rest.client.github_client import GitHubClient
 from rest.service.jaeger_client import TraceRootJaegerClient
+from rest.tools.github import GitHubClient
 
 try:
-    from rest.client.ee.mongodb_client import TraceRootMongoDBClient
+    from rest.dao.ee.mongodb_dao import TraceRootMongoDBClient
 except ImportError:
-    from rest.client.mongodb_client import TraceRootMongoDBClient
+    from rest.dao.mongodb_dao import TraceRootMongoDBClient
 
 from rest.agent.context.tree import SpanNode, build_heterogeneous_tree
 from rest.agent.summarizer.chatbot_output import summarize_chatbot_output
 from rest.agent.summarizer.github import SeparateIssueAndPrInput, separate_issue_and_pr
 from rest.agent.summarizer.title import summarize_title
-from rest.client.sqlite_client import TraceRootSQLiteClient
 from rest.config import (
     ChatbotResponse,
     ChatHistoryResponse,
@@ -53,6 +52,7 @@ from rest.config import (
     TracesAndLogsStatistics,
 )
 from rest.config.rate_limit import get_rate_limit_config
+from rest.dao.sqlite_dao import TraceRootSQLiteClient
 from rest.typing import (
     ActionStatus,
     ActionType,

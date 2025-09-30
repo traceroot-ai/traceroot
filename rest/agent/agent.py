@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 from openai import AsyncOpenAI
 
 try:
-    from rest.client.ee.mongodb_client import TraceRootMongoDBClient
+    from rest.dao.ee.mongodb_dao import TraceRootMongoDBClient
 except ImportError:
-    from rest.client.mongodb_client import TraceRootMongoDBClient
+    from rest.dao.mongodb_dao import TraceRootMongoDBClient
 
 import json
 from copy import deepcopy
@@ -29,9 +29,9 @@ from rest.agent.github_tools import create_issue, create_pr_with_file_changes
 from rest.agent.prompts import AGENT_SYSTEM_PROMPT
 from rest.agent.typing import ISSUE_TYPE, LogFeature
 from rest.agent.utils.openai_tools import get_openai_tool_schema
-from rest.client.github_client import GitHubClient
 from rest.config import ChatbotResponse
 from rest.constants import MAX_PREV_RECORD
+from rest.tools.github import GitHubClient
 from rest.typing import ActionStatus, ActionType, ChatModel, MessageType, Provider
 from rest.utils.token_tracking import track_tokens_for_user
 
