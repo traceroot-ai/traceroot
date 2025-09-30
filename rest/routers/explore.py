@@ -15,6 +15,11 @@ try:
 except ImportError:
     from rest.service.aws_client import TraceRootAWSClient
 
+try:
+    from rest.service.ee.tencent_client import TraceRootTencentClient
+except ImportError:
+    from rest.service.tencent_client import TraceRootTencentClient
+
 from collections import deque
 
 from rest.service.jaeger_client import TraceRootJaegerClient
@@ -85,7 +90,8 @@ class ExploreRouter:
 
     def __init__(
         self,
-        observe_client: TraceRootAWSClient | TraceRootJaegerClient,
+        observe_client: TraceRootAWSClient | TraceRootJaegerClient
+        | TraceRootTencentClient,
         limiter: Limiter,
     ):
         self.router = APIRouter()

@@ -116,7 +116,7 @@ export default function TraceDetail({
       <div className="h-screen flex flex-col">
         <div className="bg-white dark:bg-gray-800 p-2 overflow-y-auto flex-1 min-h-0">
           <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700">
-            <p className="text-gray-600 dark:text-gray-300">
+            <p className="text-gray-600 dark:text-gray-300 text-sm">
               {!traceId ? "No trace selected" : "No spans found for this trace"}
             </p>
           </div>
