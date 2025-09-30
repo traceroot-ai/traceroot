@@ -1,4 +1,6 @@
 name: Pre Commit Check
+permissions:
+  contents: read
 
 "on":
   push:
