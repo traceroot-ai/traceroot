@@ -13,9 +13,9 @@ except ImportError:
     from rest.utils.auth import verify_cognito_token
 
 try:
-    from rest.client.ee.mongodb_client import TraceRootMongoDBClient
+    from rest.dao.ee.mongodb_dao import TraceRootMongoDBClient
 except ImportError:
-    from rest.client.mongodb_client import TraceRootMongoDBClient
+    from rest.dao.mongodb_dao import TraceRootMongoDBClient
 
 
 class AuthState(BaseModel):

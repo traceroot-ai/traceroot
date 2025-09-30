@@ -5,11 +5,10 @@ from fastapi import APIRouter, HTTPException, Request
 from slowapi import Limiter
 
 try:
-    from rest.client.ee.mongodb_client import TraceRootMongoDBClient
+    from rest.dao.ee.mongodb_dao import TraceRootMongoDBClient
 except ImportError:
-    from rest.client.mongodb_client import TraceRootMongoDBClient
+    from rest.dao.mongodb_dao import TraceRootMongoDBClient
 
-from rest.client.sqlite_client import TraceRootSQLiteClient
 from rest.config import (
     DeleteIntegrateRequest,
     DeleteIntegrateResponse,
@@ -17,6 +16,7 @@ from rest.config import (
     IntegrateResponse,
 )
 from rest.config.rate_limit import get_rate_limit_config
+from rest.dao.sqlite_dao import TraceRootSQLiteClient
 from rest.typing import ResourceType, TokenResource
 
 try:
