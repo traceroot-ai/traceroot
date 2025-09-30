@@ -12,7 +12,7 @@ const config: TraceRootConfigFile = {
   environment: 'development',
 
   // Token configuration
-  token: 'traceroot-867cda56efcd42b7840d7945dc1ca86e',
+  token: 'your_traceroot_token_here',
 
   // Whether to enable console export of spans and logs
   enable_span_console_export: false,
