@@ -183,12 +183,30 @@ export const WebPreviewBody = ({
 }: WebPreviewBodyProps) => {
   const { url } = useWebPreview();
 
+  // Sanitize url before rendering iframe
+  function sanitizeUrl(inputUrl: string | undefined): string | undefined {
+    if (typeof inputUrl !== "string") return undefined;
+    // Allow only http(s) URLs
+    if (
+      inputUrl.startsWith("http://") ||
+      inputUrl.startsWith("https://")
+    ) {
+      return inputUrl;
+    }
+    // Optionally, allow relative URLs starting with /
+    if (inputUrl.startsWith("/")) {
+      return inputUrl;
+    }
+    // Block all other protocols
+    return undefined;
+  }
+
   return (
     <div className="flex-1">
       <iframe
         className={cn("size-full", className)}
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
-        src={(src ?? url) || undefined}
+        src={sanitizeUrl(src ?? url)}
         title="Preview"
         {...props}
       />
