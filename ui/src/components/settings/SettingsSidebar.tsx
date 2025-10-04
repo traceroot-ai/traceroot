@@ -1,10 +1,12 @@
 import React from "react";
 import { FaChartLine, FaCrown } from "react-icons/fa";
-import { Cloud } from "lucide-react";
+import { Cloud, Telescope } from "lucide-react";
 
 interface SettingsSidebarProps {
-  activeTab: "usage" | "plan" | "provider";
-  onTabChange: (tab: "usage" | "plan" | "provider") => void;
+  activeTab: "usage" | "plan" | "trace-provider" | "log-provider";
+  onTabChange: (
+    tab: "usage" | "plan" | "trace-provider" | "log-provider",
+  ) => void;
 }
 
 export function SettingsSidebar({
@@ -13,10 +15,16 @@ export function SettingsSidebar({
 }: SettingsSidebarProps) {
   const tabs = [
     {
-      id: "provider" as const,
-      label: "Provider",
+      id: "trace-provider" as const,
+      label: "Trace Provider",
+      icon: Telescope,
+      description: "Trace Service Provider",
+    },
+    {
+      id: "log-provider" as const,
+      label: "Log Provider",
       icon: Cloud,
-      description: "Cloud Service Provider",
+      description: "Log Service Provider",
     },
     {
       id: "usage" as const,
@@ -48,7 +56,7 @@ export function SettingsSidebar({
                   w-full flex items-start space-x-3 p-3 rounded-md text-left transition-colors
                   ${
                     isActive
-                      ? "bg-primary/10 text-primary border border-primary/20"
+                      ? "bg-primary/10 text-primary"
                       : "hover:bg-muted text-muted-foreground hover:text-foreground"
                   }
                 `}

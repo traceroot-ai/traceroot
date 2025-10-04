@@ -15,7 +15,8 @@ import {
   LocalAccountActionsCard,
 } from "./AccountActionsCard";
 import { PaymentHistoryCard } from "./PaymentHistoryCard";
-import { CloudProviderTabContent } from "./CloudProviderTabContent";
+import { TraceProviderTabContent } from "./TraceProviderTabContent";
+import { LogProviderTabContent } from "./LogProviderTabContent";
 import { APP_VERSION } from "@/constants/version";
 
 export function SettingsContainer() {
@@ -46,9 +47,9 @@ export function SettingsContainer() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [tracesAndLogsData, setTracesAndLogsData] = useState<any>(null);
   const [isLoadingTracesAndLogs, setIsLoadingTracesAndLogs] = useState(true);
-  const [activeTab, setActiveTab] = useState<"usage" | "plan" | "provider">(
-    "provider",
-  );
+  const [activeTab, setActiveTab] = useState<
+    "usage" | "plan" | "trace-provider" | "log-provider"
+  >("trace-provider");
 
   // Mock data for local mode
   const mockTokenUsage = {
@@ -423,7 +424,9 @@ export function SettingsContainer() {
             </div>
           )}
 
-          {activeTab === "provider" && <CloudProviderTabContent />}
+          {activeTab === "trace-provider" && <TraceProviderTabContent />}
+
+          {activeTab === "log-provider" && <LogProviderTabContent />}
         </div>
       </div>
     </div>
