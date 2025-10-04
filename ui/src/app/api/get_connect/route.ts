@@ -11,20 +11,8 @@ export async function GET(
   request: Request,
 ): Promise<NextResponse<GetIntegrationResponse>> {
   try {
-    // Extract user_secret from Authorization header
-    const authHeader = request.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Missing or invalid Authorization header. Expected: Bearer <user_secret>",
-        },
-        { status: 401 },
-      );
-    }
-
-    const user_secret = authHeader.substring(7); // Remove 'Bearer ' prefix
+    // Get user_secret from middleware-processed header
+    const user_secret = request.headers.get("x-user-token") || "";
 
     // Parse query parameters from the URL
     const url = new URL(request.url);

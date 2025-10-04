@@ -10,24 +10,8 @@ export async function POST(
   request: Request,
 ): Promise<NextResponse<IntegrationSecretResponse>> {
   try {
-    // Extract user_secret from Authorization header
-    console.log("Request headers:", request.headers);
-    const authHeader = request.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      console.log(
-        "Missing or invalid Authorization header. Expected: Bearer <user_secret>",
-      );
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Missing or invalid Authorization header. Expected: Bearer <user_secret>",
-        },
-        { status: 401 },
-      );
-    }
-
-    const user_secret = authHeader.substring(7); // Remove 'Bearer ' prefix
+    // Get user_secret from middleware-processed header
+    const user_secret = request.headers.get("x-user-token") || "";
 
     // Parse the request body to get TokenResource (without user_secret)
     const tokenResource: TokenResource = await request.json();

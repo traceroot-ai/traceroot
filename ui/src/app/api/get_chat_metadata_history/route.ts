@@ -17,15 +17,8 @@ export async function GET(
       });
     }
 
-    // Extract user_secret from Authorization header
-    const authHeader = request.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json({ history: [] } as ChatMetadataHistory, {
-        status: 401,
-      });
-    }
-
-    const userSecret = authHeader.substring(7); // Remove 'Bearer ' prefix
+    // Get user_secret from middleware-processed header
+    const userSecret = request.headers.get("x-user-token") || "";
 
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
 

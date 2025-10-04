@@ -12,13 +12,8 @@ export async function GET(
       return NextResponse.json(null, { status: 400 });
     }
 
-    // Extract user_secret from Authorization header
-    let authHeader = request.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      authHeader = "";
-    }
-
-    const userSecret = authHeader.substring(7);
+    // Get user_secret from middleware-processed header (optional for this endpoint)
+    const userSecret = request.headers.get("x-user-token") || "";
 
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
 

@@ -86,21 +86,8 @@ export async function GET(
   request: Request,
 ): Promise<NextResponse<LogResponse>> {
   try {
-    // Extract user_secret from Authorization header
-    const authHeader = request.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json(
-        {
-          success: false,
-          data: null,
-          error:
-            "Missing or invalid Authorization header. Expected: Bearer <user_secret>",
-        },
-        { status: 401 },
-      );
-    }
-
-    const userSecret = authHeader.substring(7); // Remove 'Bearer ' prefix
+    // Get user_secret from middleware-processed header
+    const userSecret = request.headers.get("x-user-token") || "";
 
     const { searchParams } = new URL(request.url);
     const traceId = searchParams.get("traceId");
