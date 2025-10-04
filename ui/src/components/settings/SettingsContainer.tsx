@@ -16,6 +16,7 @@ import {
 } from "./AccountActionsCard";
 import { PaymentHistoryCard } from "./PaymentHistoryCard";
 import { CloudProviderTabContent } from "./CloudProviderTabContent";
+import { APP_VERSION } from "@/constants/version";
 
 export function SettingsContainer() {
   const isLocalMode = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
@@ -328,8 +329,11 @@ export function SettingsContainer() {
     <div className="min-h-full flex flex-col p-4">
       {/* Container with similar styling to integrate page */}
       <div className="w-full max-w-7xl mx-auto bg-background dark:bg-background m-5 rounded-lg font-mono border-2 border-border overflow-hidden">
-        <div className="p-6 border-b border-border">
+        <div className="p-6 border-b border-border flex items-center justify-between">
           <h2 className="scroll-m-20 text-3xl font-semibold">Settings</h2>
+          <span className="text-sm text-muted-foreground font-mono">
+            {APP_VERSION}
+          </span>
         </div>
 
         {!isLocalMode && (

@@ -27,10 +27,30 @@ import {
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
+const SIDEBAR_STORAGE_KEY_PREFIX = "sidebar-state";
 const SIDEBAR_WIDTH = "12rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
+
+// Helper to get user-specific storage key
+const getUserStorageKey = (prefix: string): string => {
+  if (typeof window === "undefined") return prefix;
+
+  const userData = localStorage.getItem("user");
+  if (userData) {
+    try {
+      const user = JSON.parse(userData);
+      const userEmail = user?.email;
+      if (userEmail) {
+        return `${prefix}-${userEmail}`;
+      }
+    } catch (e) {
+      // If parsing fails, use default key
+    }
+  }
+  return prefix;
+};
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed";
@@ -73,6 +93,49 @@ function SidebarProvider({
   // We use openProp and setOpenProp for control from outside the component.
   const [_open, _setOpen] = React.useState(defaultOpen);
   const open = openProp ?? _open;
+
+  // Load user-specific state after mount
+  React.useEffect(() => {
+    if (typeof window !== "undefined") {
+      const storageKey = getUserStorageKey(SIDEBAR_STORAGE_KEY_PREFIX);
+      const stored = localStorage.getItem(storageKey);
+      if (stored === "expanded" && !_open) {
+        _setOpen(true);
+      } else if (stored === "collapsed" && _open) {
+        _setOpen(false);
+      }
+    }
+  }, []);
+
+  // Update state when user changes
+  React.useEffect(() => {
+    const handleUserChange = () => {
+      if (typeof window !== "undefined") {
+        const storageKey = getUserStorageKey(SIDEBAR_STORAGE_KEY_PREFIX);
+        const stored = localStorage.getItem(storageKey);
+        if (stored === "expanded") {
+          _setOpen(true);
+        } else if (stored === "collapsed") {
+          _setOpen(false);
+        } else {
+          _setOpen(defaultOpen);
+        }
+      }
+    };
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "user") {
+        handleUserChange();
+      }
+    };
+
+    window.addEventListener("userDataUpdated", handleUserChange);
+    window.addEventListener("storage", handleStorageChange);
+    return () => {
+      window.removeEventListener("userDataUpdated", handleUserChange);
+      window.removeEventListener("storage", handleStorageChange);
+    };
+  }, [defaultOpen]);
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
       const openState = typeof value === "function" ? value(open) : value;
@@ -80,6 +143,12 @@ function SidebarProvider({
         setOpenProp(openState);
       } else {
         _setOpen(openState);
+      }
+
+      // Store in localStorage with user-specific key
+      if (typeof window !== "undefined") {
+        const storageKey = getUserStorageKey(SIDEBAR_STORAGE_KEY_PREFIX);
+        localStorage.setItem(storageKey, openState ? "expanded" : "collapsed");
       }
 
       // This sets the cookie to keep the sidebar state.
@@ -139,7 +208,7 @@ function SidebarProvider({
             } as React.CSSProperties
           }
           className={cn(
-            "group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full",
+            "group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full font-main",
             className,
           )}
           {...props}
@@ -170,7 +239,7 @@ function Sidebar({
       <div
         data-slot="sidebar"
         className={cn(
-          "bg-sidebar text-sidebar-foreground flex h-full w-(--sidebar-width) flex-col",
+          "bg-sidebar text-sidebar-foreground flex h-full w-(--sidebar-width) flex-col font-main",
           className,
         )}
         {...props}
@@ -187,7 +256,7 @@ function Sidebar({
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="bg-sidebar text-sidebar-foreground w-(--sidebar-width) p-0 [&>button]:hidden"
+          className="bg-sidebar text-sidebar-foreground w-(--sidebar-width) p-0 [&>button]:hidden font-main"
           style={
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
@@ -244,7 +313,7 @@ function Sidebar({
         <div
           data-sidebar="sidebar"
           data-slot="sidebar-inner"
-          className="bg-sidebar group-data-[variant=floating]:border-sidebar-border flex h-full w-full flex-col group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:shadow-sm"
+          className="bg-sidebar group-data-[variant=floating]:border-sidebar-border flex h-full w-full flex-col group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:shadow-sm font-main"
         >
           {children}
         </div>

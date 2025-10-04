@@ -16,6 +16,25 @@ import { Label } from "@/components/ui/label";
 
 type CloudProvider = "aws" | "tencent" | "jaeger";
 
+// Helper to get user-specific storage key
+const getUserStorageKey = (prefix: string): string => {
+  if (typeof window === "undefined") return prefix;
+
+  const userData = localStorage.getItem("user");
+  if (userData) {
+    try {
+      const user = JSON.parse(userData);
+      const userEmail = user?.email;
+      if (userEmail) {
+        return `${prefix}-${userEmail}`;
+      }
+    } catch (e) {
+      // If parsing fails, use default key
+    }
+  }
+  return prefix;
+};
+
 export function CloudProviderTabContent() {
   const [selectedProvider, setSelectedProvider] =
     useState<CloudProvider>("aws");
@@ -29,7 +48,8 @@ export function CloudProviderTabContent() {
 
   // Load saved data from localStorage on component mount
   useEffect(() => {
-    const savedData = localStorage.getItem("cloudProviderSettings");
+    const storageKey = getUserStorageKey("cloudProviderSettings");
+    const savedData = localStorage.getItem(storageKey);
     if (savedData) {
       try {
         const parsedData = JSON.parse(savedData);
@@ -45,6 +65,45 @@ export function CloudProviderTabContent() {
     setIsLoaded(true);
   }, []);
 
+  // Update settings when user changes
+  useEffect(() => {
+    const handleUserChange = () => {
+      const storageKey = getUserStorageKey("cloudProviderSettings");
+      const savedData = localStorage.getItem(storageKey);
+      if (savedData) {
+        try {
+          const parsedData = JSON.parse(savedData);
+          setSelectedProvider(parsedData.selectedProvider || "aws");
+          setAwsRegion(parsedData.awsRegion || "us-west-2");
+          setTencentRegion(parsedData.tencentRegion || "ap-hongkong");
+          setJaegerEndpoint(parsedData.jaegerEndpoint || "");
+        } catch (error) {
+          console.error("Error parsing saved cloud provider settings:", error);
+        }
+      } else {
+        // Reset to defaults for new user
+        setSelectedProvider("aws");
+        setAwsRegion("us-west-2");
+        setTencentRegion("ap-hongkong");
+        setJaegerEndpoint("");
+      }
+    };
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "user") {
+        handleUserChange();
+      }
+    };
+
+    window.addEventListener("userDataUpdated", handleUserChange);
+    window.addEventListener("storage", handleStorageChange);
+
+    return () => {
+      window.removeEventListener("userDataUpdated", handleUserChange);
+      window.removeEventListener("storage", handleStorageChange);
+    };
+  }, []);
+
   // Save data to localStorage whenever any setting changes (but only after initial load)
   // Exclude sensitive Tencent credentials from localStorage
   useEffect(() => {
@@ -57,7 +116,8 @@ export function CloudProviderTabContent() {
       jaegerEndpoint,
       // Don't save sensitive Tencent credentials to localStorage
     };
-    localStorage.setItem("cloudProviderSettings", JSON.stringify(settingsData));
+    const storageKey = getUserStorageKey("cloudProviderSettings");
+    localStorage.setItem(storageKey, JSON.stringify(settingsData));
   }, [
     isLoaded,
     selectedProvider,

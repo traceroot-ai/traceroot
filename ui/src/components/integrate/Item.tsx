@@ -5,7 +5,6 @@ import { TbEye, TbEyeOff } from "react-icons/tb";
 import { FiCopy } from "react-icons/fi";
 import { FaGithub } from "react-icons/fa";
 import { SiNotion, SiSlack, SiOpenai, SiAnthropic } from "react-icons/si";
-import { Groq } from "@lobehub/icons";
 import { FaCheck } from "react-icons/fa";
 import { Integration } from "@/types/integration";
 import { TokenResource, ResourceType } from "@/models/integrate";
@@ -55,8 +54,6 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
           return <SiSlack size={size} className="text-foreground" />;
         case "openai":
           return <SiOpenai size={size} className="text-foreground" />;
-        case "groq":
-          return <Groq size={size} className="text-foreground" />;
         case "anthropic":
           return <SiAnthropic size={size} className="text-foreground" />;
         case "traceroot":
@@ -64,23 +61,23 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
             <svg
               xmlns="http://www.w3.org/2000/svg"
               className={`h-6 w-6 ${theme === "dark" ? "text-black" : "text-white"}`}
-              viewBox="0 0 22 22"
+              viewBox="0 0 23 23"
               fill="none"
               stroke="currentColor"
               strokeWidth="1.25"
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <circle cx="11" cy="3" r="2.5" />
-              <circle cx="5" cy="11" r="2.5" />
-              <circle cx="17" cy="11" r="2.5" />
-              <line x1="11" y1="5.5" x2="11" y2="7.5" />
-              <line x1="11" y1="7.5" x2="7" y2="9.5" />
-              <line x1="11" y1="7.5" x2="15" y2="9.5" />
-              <line x1="5" y1="13.5" x2="5" y2="16.5" />
-              <line x1="17" y1="13.5" x2="17" y2="16.5" />
-              <circle cx="5" cy="19" r="2.5" />
-              <circle cx="17" cy="19" r="2.5" />
+              <circle cx="11.5" cy="3.5" r="2.5" />
+              <circle cx="5.5" cy="11.5" r="2.5" />
+              <circle cx="17.5" cy="11.5" r="2.5" />
+              <line x1="11.5" y1="6" x2="11.5" y2="8" />
+              <line x1="11.5" y1="8" x2="7.5" y2="10" />
+              <line x1="11.5" y1="8" x2="15.5" y2="10" />
+              <line x1="5.5" y1="14" x2="5.5" y2="17" />
+              <line x1="17.5" y1="14" x2="17.5" y2="17" />
+              <circle cx="5.5" cy="19.5" r="2.5" />
+              <circle cx="17.5" cy="19.5" r="2.5" />
             </svg>
           );
         default:
@@ -113,8 +110,6 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         return ResourceType.SLACK;
       case "openai":
         return ResourceType.OPENAI;
-      case "groq":
-        return ResourceType.GROQ;
       case "traceroot":
         return ResourceType.TRACEROOT;
       default:

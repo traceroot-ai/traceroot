@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { FaUser } from "react-icons/fa";
 import { RxCross1 } from "react-icons/rx";
+import { APP_VERSION } from "@/constants/version";
 
 import {
   Sidebar,
@@ -51,61 +52,65 @@ import { useSubscription } from "../../hooks/useSubscription";
 function LogoComponent() {
   const { state } = useSidebar();
   const { theme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   return (
-    <div
-      className={`flex items-center rounded-md m-2 hover:bg-zinc-300 dark:hover:bg-zinc-700 transition-colors
-    ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
-    >
-      <Link
-        href="/"
-        className={`flex items-center group ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
-      >
-        <div
-          className={`${theme === "dark" ? "bg-white" : "bg-black"} rounded-lg p-1.5`}
+    <SidebarMenuItem className="list-none">
+      <SidebarMenuButton asChild className="h-auto py-2">
+        <Link
+          href="/"
+          className={`flex items-center ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className={`h-6 w-6 ${theme === "dark" ? "text-black" : "text-white"}`}
-            viewBox="0 0 22 22"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.25"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+          <div
+            className={`${mounted && theme === "dark" ? "bg-white" : "bg-black"} rounded-lg p-1.5`}
           >
-            <circle cx="11" cy="3" r="2.5" />
-            <circle cx="5" cy="11" r="2.5" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className={`h-6 w-6 ${mounted && theme === "dark" ? "text-black" : "text-white"}`}
+              viewBox="0 0 23 23"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.25"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="11.5" cy="3.5" r="2.5" />
+              <circle cx="5.5" cy="11.5" r="2.5" />
 
-            {/* Right node */}
-            <circle cx="17" cy="11" r="2.5" />
+              {/* Right node */}
+              <circle cx="17.5" cy="11.5" r="2.5" />
 
-            {/* Connecting lines from root */}
-            <line x1="11" y1="5.5" x2="11" y2="7.5" />
-            <line x1="11" y1="7.5" x2="7" y2="9.5" />
-            <line x1="11" y1="7.5" x2="15" y2="9.5" />
+              {/* Connecting lines from root */}
+              <line x1="11.5" y1="6" x2="11.5" y2="8" />
+              <line x1="11.5" y1="8" x2="7.5" y2="10" />
+              <line x1="11.5" y1="8" x2="15.5" y2="10" />
 
-            {/* Connecting lines to leaf nodes */}
-            <line x1="5" y1="13.5" x2="5" y2="16.5" />
-            <line x1="17" y1="13.5" x2="17" y2="16.5" />
+              {/* Connecting lines to leaf nodes */}
+              <line x1="5.5" y1="14" x2="5.5" y2="17" />
+              <line x1="17.5" y1="14" x2="17.5" y2="17" />
 
-            {/* Leaf nodes */}
-            <circle cx="5" cy="19" r="2.5" />
-            <circle cx="17" cy="19" r="2.5" />
-          </svg>
-        </div>
-        {state === "expanded" && (
-          <div className="flex flex-col">
-            <span className="font-semibold text-sm text-neutral-800 dark:text-neutral-200">
-              TraceRoot.AI
-            </span>
-            <span className="font-semibold text-sm text-[#fb923c]">
-              YCombinator
-            </span>
+              {/* Leaf nodes */}
+              <circle cx="5.5" cy="19.5" r="2.5" />
+              <circle cx="17.5" cy="19.5" r="2.5" />
+            </svg>
           </div>
-        )}
-      </Link>
-    </div>
+          {state === "expanded" && (
+            <div className="flex flex-col font-main">
+              <span className="font-semibold text-base text-neutral-800 dark:text-neutral-200">
+                TraceRoot.AI
+              </span>
+              <span className="font-normal text-sm text-zinc-700 dark:text-zinc-300">
+                {APP_VERSION}
+              </span>
+            </div>
+          )}
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   );
 }
 
@@ -125,23 +130,23 @@ function ExploreComponent() {
           ? "Select a plan to access exploration features"
           : "Exploration"
       }
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
+      className={`flex items-center rounded-md py-3 px-2 mb-0.5 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
       disabled={isDisabled}
     >
       {isDisabled ? (
         <div
-          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-3"} ${pathname === "/explore" ? "text-black dark:text-white" : "text-zinc-700 dark:text-zinc-300"}`}
         >
-          <Telescope className="!w-5.5 !h-5.5 flex-shrink-0" />
-          {state === "expanded" && <span>Explore</span>}
+          <Telescope className="!w-5 !h-5 flex-shrink-0" />
+          {state === "expanded" && <span className="text-sm">Explore</span>}
         </div>
       ) : (
         <Link
           href="/explore"
-          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-3"} ${pathname === "/explore" ? "text-black dark:text-white" : "text-zinc-700 dark:text-zinc-300"}`}
         >
-          <Telescope className="!w-5.5 !h-5.5 flex-shrink-0" />
-          {state === "expanded" && <span>Explore</span>}
+          <Telescope className="!w-5 !h-5 flex-shrink-0" />
+          {state === "expanded" && <span className="text-sm">Explore</span>}
         </Link>
       )}
     </SidebarMenuButton>
@@ -164,23 +169,23 @@ function IntegrateComponent() {
           ? "Select a plan to access integration features"
           : "Integration"
       }
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
+      className={`flex items-center rounded-md py-3 px-2 mb-0.5 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"} ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
       disabled={isDisabled}
     >
       {isDisabled ? (
         <div
-          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-3"} ${pathname === "/integrate" ? "text-black dark:text-white" : "text-zinc-700 dark:text-zinc-300"}`}
         >
-          <LibraryBig className="!w-5.5 !h-5.5 flex-shrink-0" />
-          {state === "expanded" && <span>Integrate</span>}
+          <LibraryBig className="!w-5 !h-5 flex-shrink-0" />
+          {state === "expanded" && <span className="text-sm">Integrate</span>}
         </div>
       ) : (
         <Link
           href="/integrate"
-          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+          className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-3"} ${pathname === "/integrate" ? "text-black dark:text-white" : "text-zinc-700 dark:text-zinc-300"}`}
         >
-          <LibraryBig className="!w-5.5 !h-5.5 flex-shrink-0" />
-          {state === "expanded" && <span>Integrate</span>}
+          <LibraryBig className="!w-5 !h-5 flex-shrink-0" />
+          {state === "expanded" && <span className="text-sm">Integrate</span>}
         </Link>
       )}
     </SidebarMenuButton>
@@ -197,12 +202,12 @@ function NeedHelpComponent() {
         <SidebarMenuButton
           isActive={false}
           tooltip="Need Help"
-          className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+          className={`flex items-center rounded-md py-3 px-2 mb-0.5 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-3"}`}
         >
-          <MessageCircle className="!w-5.5 !h-5.5 flex-shrink-0" />
+          <MessageCircle className="!w-5 !h-5 flex-shrink-0" />
           {state === "expanded" && (
-            <div className="flex items-center gap-2">
-              <span>Need Help</span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm">Need Help</span>
             </div>
           )}
         </SidebarMenuButton>
@@ -282,16 +287,16 @@ function DocumentationComponent() {
       asChild
       isActive={false}
       tooltip="Documentation"
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      className={`flex items-center rounded-md py-3 px-2 mb-0.5 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-3"}`}
     >
       <a
         href="https://docs.traceroot.ai"
         target="_blank"
         rel="noopener noreferrer"
-        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-3"}`}
       >
-        <BookText className="!w-5.5 !h-5.5 flex-shrink-0" />
-        {state === "expanded" && <span>Documentation</span>}
+        <BookText className="!w-5 !h-5 flex-shrink-0" />
+        {state === "expanded" && <span className="text-sm">Documentation</span>}
       </a>
     </SidebarMenuButton>
   );
@@ -306,14 +311,14 @@ function SettingsComponent() {
       asChild
       isActive={pathname === "/settings"}
       tooltip="Settings"
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      className={`flex items-center rounded-md py-3 px-2 mb-0.5 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-3"}`}
     >
       <Link
         href="/settings"
-        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-1"}`}
+        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-3"}`}
       >
-        <Settings className="!w-5.5 !h-5.5 flex-shrink-0" />
-        {state === "expanded" && <span>Settings</span>}
+        <Settings className="!w-5 !h-5 flex-shrink-0" />
+        {state === "expanded" && <span className="text-sm">Settings</span>}
       </Link>
     </SidebarMenuButton>
   );
@@ -472,7 +477,6 @@ function ProfileComponent() {
                   <Button variant="outline">Close</Button>
                 </DialogClose>
                 <Button onClick={handleSignOut} variant="destructive">
-                  <RxCross1 className="mr-2 h-4 w-4" />
                   Sign Out
                 </Button>
               </>
@@ -500,10 +504,10 @@ function DarkModeToggle() {
   if (!mounted) {
     return (
       <SidebarMenuButton
-        className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+        className={`flex items-center rounded-md py-3 px-2 mb-0.5 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-3"}`}
       >
-        <Moon className="!w-5.5 !h-5.5 flex-shrink-0" />
-        {state === "expanded" && <span>Dark Mode</span>}
+        <Moon className="!w-5 !h-5 flex-shrink-0" />
+        {state === "expanded" && <span className="text-sm">Dark Mode</span>}
       </SidebarMenuButton>
     );
   }
@@ -514,15 +518,17 @@ function DarkModeToggle() {
         theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"
       }
       onClick={toggleDarkMode}
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      className={`flex items-center rounded-md py-3 px-2 mb-0.5 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-3"}`}
     >
       {theme === "dark" ? (
-        <Sun className="!w-5.5 !h-5.5 flex-shrink-0" />
+        <Sun className="!w-5 !h-5 flex-shrink-0" />
       ) : (
-        <Moon className="!w-5.5 !h-5.5 flex-shrink-0" />
+        <Moon className="!w-5 !h-5 flex-shrink-0" />
       )}
       {state === "expanded" && (
-        <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
+        <span className="text-sm">
+          {theme === "dark" ? "Light Mode" : "Dark Mode"}
+        </span>
       )}
     </SidebarMenuButton>
   );
@@ -535,21 +541,21 @@ function ExpandCollapseButton() {
     <SidebarMenuButton
       tooltip={state === "collapsed" ? "Expand" : "Collapse"}
       onClick={toggleSidebar}
-      className={`flex items-center rounded-md p-2 mb-2 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-2"}`}
+      className={`flex items-center rounded-md py-3 px-2 mb-0.5 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-3"}`}
     >
       {state === "collapsed" ? (
-        <ArrowRightFromLine className="!w-5.5 !h-5.5 flex-shrink-0" />
+        <ArrowRightFromLine className="!w-5 !h-5 flex-shrink-0" />
       ) : (
-        <ArrowLeftFromLine className="!w-5.5 !h-5.5 flex-shrink-0" />
+        <ArrowLeftFromLine className="!w-5 !h-5 flex-shrink-0" />
       )}
-      {state === "expanded" && <span>Collapse</span>}
+      {state === "expanded" && <span className="text-sm">Collapse</span>}
     </SidebarMenuButton>
   );
 }
 
 export default function AppSidebar() {
   return (
-    <Sidebar collapsible="icon" className="relative">
+    <Sidebar collapsible="icon" className="relative font-main">
       <SidebarHeader>
         <LogoComponent />
         <Separator />

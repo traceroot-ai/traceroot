@@ -71,7 +71,11 @@ export function useUser() {
     return localStorage.getItem("auth_state");
   };
 
-  const avatarLetter = user?.email?.charAt(0)?.toUpperCase() || null;
+  const avatarLetter =
+    user?.given_name?.charAt(0)?.toUpperCase() ||
+    user?.family_name?.charAt(0)?.toUpperCase() ||
+    user?.email?.charAt(0)?.toUpperCase() ||
+    null;
 
   return {
     user,

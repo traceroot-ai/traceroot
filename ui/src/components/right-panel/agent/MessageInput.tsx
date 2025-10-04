@@ -117,8 +117,6 @@ export default function MessageInput({
         return "Better performance than GPT-4o";
       case "auto":
         return "Balance performance and cost";
-      case "openai/gpt-oss-120b":
-        return "Best open source reasoning model";
       default:
         return "";
     }
