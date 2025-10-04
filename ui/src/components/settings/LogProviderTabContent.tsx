@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Cloud } from "lucide-react";
 import { FaAws } from "react-icons/fa";
 import { BsTencentQq } from "react-icons/bs";
+import { SiJaeger } from "react-icons/si";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import {
   Select,
@@ -13,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type LogProvider = "aws" | "tencent";
+type LogProvider = "aws" | "tencent" | "jaeger";
 
 // Helper to get user-specific storage key
 const getUserStorageKey = (prefix: string): string => {
@@ -40,6 +41,7 @@ export function LogProviderTabContent() {
   const [tencentSecretId, setTencentSecretId] = useState("");
   const [tencentSecretKey, setTencentSecretKey] = useState("");
   const [tencentClsTopicId, setTencentClsTopicId] = useState("");
+  const [jaegerEndpoint, setJaegerEndpoint] = useState("");
   const [isLoaded, setIsLoaded] = useState(false);
 
   // Load saved data from localStorage on component mount
@@ -52,6 +54,7 @@ export function LogProviderTabContent() {
         setSelectedProvider(parsedData.selectedProvider || "aws");
         setTencentRegion(parsedData.tencentRegion || "ap-hongkong");
         setTencentClsTopicId(parsedData.tencentClsTopicId || "");
+        setJaegerEndpoint(parsedData.jaegerEndpoint || "");
         // Don't load sensitive Tencent credentials from localStorage
       } catch (error) {
         console.error("Error parsing saved log provider settings:", error);
@@ -71,6 +74,7 @@ export function LogProviderTabContent() {
           setSelectedProvider(parsedData.selectedProvider || "aws");
           setTencentRegion(parsedData.tencentRegion || "ap-hongkong");
           setTencentClsTopicId(parsedData.tencentClsTopicId || "");
+          setJaegerEndpoint(parsedData.jaegerEndpoint || "");
         } catch (error) {
           console.error("Error parsing saved log provider settings:", error);
         }
@@ -79,6 +83,7 @@ export function LogProviderTabContent() {
         setSelectedProvider("aws");
         setTencentRegion("ap-hongkong");
         setTencentClsTopicId("");
+        setJaegerEndpoint("");
       }
     };
 
@@ -106,6 +111,7 @@ export function LogProviderTabContent() {
       selectedProvider,
       tencentRegion,
       tencentClsTopicId,
+      jaegerEndpoint,
       // Don't save sensitive Tencent credentials to localStorage
     };
     const storageKey = getUserStorageKey("logProviderSettings");
@@ -115,6 +121,7 @@ export function LogProviderTabContent() {
     selectedProvider,
     tencentRegion,
     tencentClsTopicId,
+    jaegerEndpoint,
     // Removed sensitive credentials from dependency array
   ]);
 
@@ -128,6 +135,11 @@ export function LogProviderTabContent() {
       value: "tencent" as const,
       label: "Tencent Cloud",
       icon: BsTencentQq,
+    },
+    {
+      value: "jaeger" as const,
+      label: "Jaeger",
+      icon: SiJaeger,
     },
   ];
 
@@ -255,6 +267,25 @@ export function LogProviderTabContent() {
                       onChange={(e) => setTencentClsTopicId(e.target.value)}
                     />
                   </div>
+                </div>
+              </div>
+            )}
+
+            {selectedProvider === "jaeger" && (
+              <div className="space-y-4 border-t pt-4">
+                <h3 className="text-lg font-medium flex items-center space-x-2">
+                  <SiJaeger size={20} />
+                  <span>Jaeger Configuration</span>
+                </h3>
+                <div className="space-y-2">
+                  <Label htmlFor="jaeger-log-endpoint">Jaeger Endpoint</Label>
+                  <Input
+                    id="jaeger-log-endpoint"
+                    type="url"
+                    placeholder="https://your-jaeger-endpoint.com"
+                    value={jaegerEndpoint}
+                    onChange={(e) => setJaegerEndpoint(e.target.value)}
+                  />
                 </div>
               </div>
             )}

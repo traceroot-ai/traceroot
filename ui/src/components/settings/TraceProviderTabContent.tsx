@@ -290,9 +290,6 @@ export function TraceProviderTabContent() {
                     value={jaegerEndpoint}
                     onChange={(e) => setJaegerEndpoint(e.target.value)}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Enter the full URL to your Jaeger collector endpoint
-                  </p>
                 </div>
               </div>
             )}
