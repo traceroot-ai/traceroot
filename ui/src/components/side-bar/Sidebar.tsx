@@ -15,7 +15,6 @@ import {
   Sun,
 } from "lucide-react";
 import { FaUser } from "react-icons/fa";
-import { RxCross1 } from "react-icons/rx";
 import { APP_VERSION } from "@/constants/version";
 
 import {
