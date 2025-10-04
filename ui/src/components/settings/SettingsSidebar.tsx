@@ -33,7 +33,7 @@ export function SettingsSidebar({
   ];
 
   return (
-    <div className="w-64 bg-background border-r border-border">
+    <div className="w-64 bg-background border-r border-border font-main">
       <div className="p-4">
         <nav className="space-y-2">
           {tabs.map((tab) => {
