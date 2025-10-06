@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
@@ -9,20 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from slowapi import Limiter
 
 from rest.agent import Chat
-
-try:
-    from rest.service.ee.aws_client import TraceRootAWSClient
-except ImportError:
-    from rest.service.aws_client import TraceRootAWSClient
-
-try:
-    from rest.service.ee.tencent_client import TraceRootTencentClient
-except ImportError:
-    from rest.service.tencent_client import TraceRootTencentClient
-
-from collections import deque
-
-from rest.service.jaeger_client import TraceRootJaegerClient
+from rest.service.provider import ObservabilityProvider
 from rest.tools.github import GitHubClient
 
 try:
@@ -90,22 +78,26 @@ class ExploreRouter:
 
     def __init__(
         self,
-        observe_client: TraceRootAWSClient | TraceRootJaegerClient
-        | TraceRootTencentClient,
+        local_mode: bool,
         limiter: Limiter,
     ):
         self.router = APIRouter()
-        self.observe_client = observe_client
+        self.local_mode = local_mode
         self.chat = Chat()
         self.agent = Agent()
         self.logger = logging.getLogger(__name__)
 
         # Choose client based on REST_LOCAL_MODE environment variable
-        self.local_mode = os.getenv("REST_LOCAL_MODE", "false").lower() == "true"
         if self.local_mode:
             self.db_client = TraceRootSQLiteClient()
         else:
             self.db_client = TraceRootMongoDBClient()
+
+        # Create default observability provider
+        if self.local_mode:
+            self.default_observe_provider = ObservabilityProvider.create_jaeger_provider()
+        else:
+            self.default_observe_provider = ObservabilityProvider.create_aws_provider()
 
         self.github = GitHubClient()
         self.limiter = limiter
@@ -113,6 +105,31 @@ class ExploreRouter:
         # Cache for 10 minutes
         self.cache = SimpleMemoryCache(ttl=60 * 10)
         self._setup_routes()
+
+    def get_observe_provider(self, request: Request) -> ObservabilityProvider:
+        """Get observability provider based on request.
+
+        For local mode, always use the default Jaeger provider.
+        For non-local mode, use default AWS provider unless request specifies Tencent.
+
+        Args:
+            request: FastAPI request object
+
+        Returns:
+            ObservabilityProvider instance
+        """
+        if self.local_mode:
+            return self.default_observe_provider
+
+        # Check if request requires Tencent provider
+        # For now, check REST_OBSERVE_PROVIDER env var
+        # TODO: Check user settings from request to determine provider
+        provider_type = os.getenv("REST_OBSERVE_PROVIDER", "aws").lower()
+
+        if provider_type == "tencent":
+            return ObservabilityProvider.create_tencent_provider()
+        else:
+            return self.default_observe_provider
 
     def _setup_routes(self):
         r"""Set up API routes"""
@@ -386,7 +403,8 @@ class ExploreRouter:
             return resp.model_dump()
 
         try:
-            traces: list[Trace] = await self.observe_client.get_recent_traces(
+            observe_provider = self.get_observe_provider(request)
+            traces: list[Trace] = await observe_provider.trace_client.get_recent_traces(
                 start_time=start_time,
                 end_time=end_time,
                 log_group_name=log_group_name,
@@ -402,6 +420,7 @@ class ExploreRouter:
             # Filter traces by log content if log search is specified
             if log_search_values:
                 traces = await self._filter_traces_by_log_content(
+                    request=request,
                     traces=traces,
                     start_time=start_time,
                     end_time=end_time,
@@ -502,7 +521,8 @@ class ExploreRouter:
             return resp.model_dump()
 
         try:
-            logs: TraceLogs = await self.observe_client.get_logs_by_trace_id(
+            observe_provider = self.get_observe_provider(request)
+            logs: TraceLogs = await observe_provider.log_client.get_logs_by_trace_id(
                 trace_id=req_data.trace_id,
                 start_time=req_data.start_time,
                 end_time=req_data.end_time,
@@ -674,7 +694,8 @@ class ExploreRouter:
             traces = cached_traces
         else:
             # TODO: pass search in chat request
-            traces: list[Trace] = await self.observe_client.get_recent_traces(
+            observe_provider = self.get_observe_provider(request)
+            traces: list[Trace] = await observe_provider.trace_client.get_recent_traces(
                 start_time=start_time,
                 end_time=end_time,
                 log_group_name=log_group_name,
@@ -712,7 +733,8 @@ class ExploreRouter:
         keys = (trace_id, start_time, end_time, log_group_name)
         logs: TraceLogs | None = await self.cache.get(keys)
         if logs is None:
-            logs = await self.observe_client.get_logs_by_trace_id(
+            observe_provider = self.get_observe_provider(request)
+            logs = await observe_provider.log_client.get_logs_by_trace_id(
                 trace_id=trace_id,
                 start_time=start_time,
                 end_time=end_time,
@@ -948,10 +970,11 @@ class ExploreRouter:
 
         try:
             # Get comprehensive traces and logs data since the specified date
+            observe_provider = self.get_observe_provider(request)
             usage_data = await get_user_traces_and_logs_since_payment(
                 user_sub=user_sub,
                 last_payment_date=req_data.since_date,
-                observe_client=self.observe_client
+                observe_client=observe_provider
             )
 
             # Convert to TracesAndLogsStatistics model
@@ -983,6 +1006,7 @@ class ExploreRouter:
 
     async def _filter_traces_by_log_content(
         self,
+        request: Request,
         traces: list[Trace],
         start_time: datetime,
         end_time: datetime,
@@ -1018,12 +1042,14 @@ class ExploreRouter:
             # from semicolon-separated logs
 
             # Single query to get all matching trace IDs
-            matching_trace_ids = await self.observe_client.get_trace_ids_from_logs(
-                start_time=start_time,
-                end_time=end_time,
-                log_group_name=log_group_name,
-                search_term=search_term
-            )
+            observe_provider = self.get_observe_provider(request)
+            matching_trace_ids = \
+                await observe_provider.log_client.get_trace_ids_from_logs(
+                    start_time=start_time,
+                    end_time=end_time,
+                    log_group_name=log_group_name,
+                    search_term=search_term
+                )
 
             if not matching_trace_ids:
                 return []
