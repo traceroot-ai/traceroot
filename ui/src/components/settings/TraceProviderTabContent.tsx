@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Telescope, Trash2, Save, Copy, Eye, EyeOff } from "lucide-react";
+import {
+  Telescope,
+  Trash2,
+  Save,
+  Copy,
+  Eye,
+  EyeOff,
+  ShieldCheck,
+} from "lucide-react";
 import { FaAws } from "react-icons/fa";
 import { BsTencentQq } from "react-icons/bs";
 import { SiJaeger } from "react-icons/si";
@@ -22,6 +30,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   loadProviderSelection,
   saveProviderSelection,
@@ -153,9 +166,21 @@ export function TraceProviderTabContent() {
           // Server confirms MongoDB is available
           setMongoAvailable(data.mongoAvailable !== false);
 
-          if (data.config) {
+          // Decrypt sensitive fields from MongoDB
+          let decryptedConfig = data.config ? { ...data.config } : null;
+          if (decryptedConfig?.tencentTraceConfig) {
+            const { decryptSensitiveFields } = await import(
+              "@/utils/encryption"
+            );
+            decryptedConfig.tencentTraceConfig = await decryptSensitiveFields(
+              decryptedConfig.tencentTraceConfig,
+              ["secretId", "secretKey"],
+            );
+          }
+
+          if (decryptedConfig) {
             // Load configuration details from MongoDB
-            applyTraceConfig(data.config, {
+            applyTraceConfig(decryptedConfig, {
               setTencentRegion,
               setTencentSecretId,
               setTencentSecretKey,
@@ -163,32 +188,34 @@ export function TraceProviderTabContent() {
               setTencentInstanceId: setTencentApmInstanceId,
             });
 
-            // Store initial values
+            // Store initial values (use decrypted config)
             setInitialValues({
-              awsRegion: data.config.awsTraceConfig?.region || "us-west-2",
+              awsRegion: decryptedConfig.awsTraceConfig?.region || "us-west-2",
               tencentRegion:
-                data.config.tencentTraceConfig?.region || "ap-hongkong",
-              tencentSecretId: data.config.tencentTraceConfig?.secretId || "",
-              tencentSecretKey: data.config.tencentTraceConfig?.secretKey || "",
+                decryptedConfig.tencentTraceConfig?.region || "ap-hongkong",
+              tencentSecretId:
+                decryptedConfig.tencentTraceConfig?.secretId || "",
+              tencentSecretKey:
+                decryptedConfig.tencentTraceConfig?.secretKey || "",
               tencentApmInstanceId:
-                data.config.tencentTraceConfig?.apmInstanceId || "",
-              jaegerEndpoint: data.config.jaegerTraceConfig?.endpoint || "",
+                decryptedConfig.tencentTraceConfig?.apmInstanceId || "",
+              jaegerEndpoint: decryptedConfig.jaegerTraceConfig?.endpoint || "",
             });
 
             // Load AWS region
-            if (data.config.awsTraceConfig?.region) {
-              setAwsRegion(data.config.awsTraceConfig.region);
+            if (decryptedConfig.awsTraceConfig?.region) {
+              setAwsRegion(decryptedConfig.awsTraceConfig.region);
             }
           }
 
-          const resolvedProvider = resolveSelectedProvider(data.config);
+          const resolvedProvider = resolveSelectedProvider(decryptedConfig);
           setSelectedProvider(resolvedProvider);
         } else if (response.status === 503) {
           // Server says MongoDB not available, load from localStorage
           setMongoAvailable(false);
 
           // Load all provider configs separately
-          const allConfigs = loadAllProviderConfigs("trace");
+          const allConfigs = await loadAllProviderConfigs("trace");
           if (allConfigs && Object.keys(allConfigs).length > 0) {
             applyTraceConfig(allConfigs, {
               setTencentRegion,
@@ -423,7 +450,7 @@ export function TraceProviderTabContent() {
           selectedProvider === "tencent" &&
           (tencentSecretId || tencentSecretKey || tencentApmInstanceId)
         ) {
-          saveSpecificProviderConfig(
+          await saveSpecificProviderConfig(
             "trace",
             selectedProvider,
             currentProviderConfig,
@@ -431,7 +458,7 @@ export function TraceProviderTabContent() {
           // Save provider selection only when config is saved
           saveProviderSelection("trace", selectedProvider);
         } else if (selectedProvider === "jaeger" && jaegerEndpoint) {
-          saveSpecificProviderConfig(
+          await saveSpecificProviderConfig(
             "trace",
             selectedProvider,
             currentProviderConfig,
@@ -446,8 +473,17 @@ export function TraceProviderTabContent() {
       }
 
       // For MongoDB, we need to merge all provider configs
-      const allConfigs = loadAllProviderConfigs("trace");
-      const configData = { ...allConfigs, ...currentProviderConfig };
+      const allConfigs = await loadAllProviderConfigs("trace");
+      let configData = { ...allConfigs, ...currentProviderConfig };
+
+      // Encrypt sensitive fields before sending to MongoDB
+      if (selectedProvider === "tencent" && configData.tencentTraceConfig) {
+        const { encryptSensitiveFields } = await import("@/utils/encryption");
+        configData.tencentTraceConfig = await encryptSensitiveFields(
+          configData.tencentTraceConfig,
+          ["secretId", "secretKey"],
+        );
+      }
 
       // Save to MongoDB
       const payload: any = {
@@ -692,7 +728,19 @@ export function TraceProviderTabContent() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="tencent-trace-secret-id">Secret ID</Label>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="tencent-trace-secret-id">Secret ID</Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <ShieldCheck className="h-4 w-4 text-green-600 dark:text-green-400 cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>
+                            This credential will be encrypted before storage
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
                     <div className="relative">
                       <Input
                         id="tencent-trace-secret-id"
@@ -731,7 +779,21 @@ export function TraceProviderTabContent() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="tencent-trace-secret-key">Secret Key</Label>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="tencent-trace-secret-key">
+                        Secret Key
+                      </Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <ShieldCheck className="h-4 w-4 text-green-600 dark:text-green-400 cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>
+                            This credential will be encrypted before storage
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
                     <div className="relative">
                       <Input
                         id="tencent-trace-secret-key"

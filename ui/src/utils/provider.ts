@@ -2,6 +2,13 @@
  * Utility functions for managing provider configurations (Trace and Log providers)
  */
 
+import {
+  encryptValue,
+  decryptValue,
+  encryptSensitiveFields,
+  decryptSensitiveFields,
+} from "./encryption";
+
 export type ProviderType = "trace" | "log";
 
 /**
@@ -59,17 +66,32 @@ export const clearProviderSelection = (providerType: ProviderType): void => {
  * @param providerType - "trace" or "log"
  * @param provider - "aws", "tencent", or "jaeger"
  */
-export const loadSpecificProviderConfig = (
+export const loadSpecificProviderConfig = async (
   providerType: ProviderType,
   provider: string,
-): any | null => {
+): Promise<any | null> => {
   const storageKey = getUserStorageKey(
     `${providerType}ProviderConfig-${provider}`,
   );
   const savedConfig = localStorage.getItem(storageKey);
   if (savedConfig) {
     try {
-      return JSON.parse(savedConfig);
+      const config = JSON.parse(savedConfig);
+
+      // Decrypt sensitive fields only for Tencent provider (secretId and secretKey)
+      if (provider === "tencent") {
+        const configKey =
+          providerType === "trace" ? "tencentTraceConfig" : "tencentLogConfig";
+
+        if (config[configKey]) {
+          config[configKey] = await decryptSensitiveFields(config[configKey], [
+            "secretId",
+            "secretKey",
+          ]);
+        }
+      }
+
+      return config;
     } catch (e) {
       console.error(
         `Error parsing ${providerType} ${provider} provider config:`,
@@ -87,15 +109,30 @@ export const loadSpecificProviderConfig = (
  * @param provider - "aws", "tencent", or "jaeger"
  * @param config - The configuration object for this specific provider
  */
-export const saveSpecificProviderConfig = (
+export const saveSpecificProviderConfig = async (
   providerType: ProviderType,
   provider: string,
   config: any,
-): void => {
+): Promise<void> => {
   const storageKey = getUserStorageKey(
     `${providerType}ProviderConfig-${provider}`,
   );
-  localStorage.setItem(storageKey, JSON.stringify(config));
+
+  // Encrypt sensitive fields before saving
+  let configToSave = { ...config };
+  if (provider === "tencent") {
+    const configKey =
+      providerType === "trace" ? "tencentTraceConfig" : "tencentLogConfig";
+
+    if (configToSave[configKey]) {
+      configToSave[configKey] = await encryptSensitiveFields(
+        configToSave[configKey],
+        ["secretId", "secretKey"],
+      );
+    }
+  }
+
+  localStorage.setItem(storageKey, JSON.stringify(configToSave));
 };
 
 /**
@@ -117,12 +154,14 @@ export const deleteSpecificProviderConfig = (
  * Load all providers' configurations and merge them
  * Used for backward compatibility and MongoDB sync
  */
-export const loadAllProviderConfigs = (providerType: ProviderType): any => {
+export const loadAllProviderConfigs = async (
+  providerType: ProviderType,
+): Promise<any> => {
   const providers = ["aws", "tencent", "jaeger"];
   const allConfigs: any = {};
 
   for (const provider of providers) {
-    const config = loadSpecificProviderConfig(providerType, provider);
+    const config = await loadSpecificProviderConfig(providerType, provider);
     if (config) {
       Object.assign(allConfigs, config);
     }
