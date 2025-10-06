@@ -24,6 +24,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useCloudProvider } from "@/hooks/useCloudProvider";
+import { loadProviderSelection } from "@/utils/provider";
 
 export interface SearchCriterion {
   id: string;
@@ -63,6 +64,8 @@ const SearchBar: React.FC<SearchBarProps> = ({
   disabled = false,
 }) => {
   const { selectedProvider } = useCloudProvider();
+  const [traceProvider, setTraceProvider] = useState<string>("aws");
+  const [logProvider, setLogProvider] = useState<string>("aws");
   const [criteria, setCriteria] = useState<SearchCriterion[]>([]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [currentCriterion, setCurrentCriterion] = useState<
@@ -72,6 +75,31 @@ const SearchBar: React.FC<SearchBarProps> = ({
   const [metadataCategoryValue, setMetadataCategoryValue] = useState("");
   const [metadataValue, setMetadataValue] = useState("");
   const [logSearchValue, setLogSearchValue] = useState("");
+
+  // Load trace and log providers from localStorage
+  useEffect(() => {
+    const loadProviders = () => {
+      const trace = loadProviderSelection("trace") || "aws";
+      const log = loadProviderSelection("log") || "aws";
+      setTraceProvider(trace);
+      setLogProvider(log);
+    };
+
+    loadProviders();
+
+    // Listen for storage changes to update when providers are changed in settings
+    const handleStorageChange = () => {
+      loadProviders();
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    window.addEventListener("userDataUpdated", handleStorageChange);
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("userDataUpdated", handleStorageChange);
+    };
+  }, []);
 
   // Memoize extracted search terms to prevent unnecessary re-renders
   const logSearchTerm = useMemo(() => {
@@ -181,17 +209,61 @@ const SearchBar: React.FC<SearchBarProps> = ({
     return OPERATIONS.find((op) => op.value === value)?.label || value;
   };
 
-  const getProviderIcon = () => {
-    switch (selectedProvider) {
+  const getProviderIconComponent = (provider: string, size: number = 20) => {
+    switch (provider) {
       case "aws":
-        return <FaAws size={20} className="text-foreground" />;
+        return <FaAws size={size} className="text-foreground" />;
       case "tencent":
-        return <BsTencentQq size={20} className="text-foreground" />;
+        return <BsTencentQq size={size} className="text-foreground" />;
       case "jaeger":
-        return <SiJaeger size={20} className="text-foreground" />;
+        return <SiJaeger size={size} className="text-foreground" />;
       default:
-        return <FaAws size={20} className="text-foreground" />;
+        return <FaAws size={size} className="text-foreground" />;
     }
+  };
+
+  const getProviderIcon = () => {
+    // If both providers are the same, show single icon
+    if (traceProvider === logProvider) {
+      return getProviderIconComponent(traceProvider, 20);
+    }
+
+    // If different, show split diagonal design
+    return (
+      <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
+        {/* Top-left triangle - Trace Provider */}
+        <div
+          className="absolute inset-0 flex items-start justify-start pl-1 pt-1"
+          style={{ clipPath: "polygon(0 0, 100% 0, 0 100%)" }}
+        >
+          {getProviderIconComponent(traceProvider, 14)}
+        </div>
+        {/* Bottom-right triangle - Log Provider */}
+        <div
+          className="absolute inset-0 flex items-end justify-end pr-1 pb-1"
+          style={{ clipPath: "polygon(100% 0, 100% 100%, 0 100%)" }}
+        >
+          {getProviderIconComponent(logProvider, 14)}
+        </div>
+        {/* Diagonal line separator - from bottom-left to top-right */}
+        <svg
+          className="absolute inset-0 pointer-events-none"
+          width="100%"
+          height="100%"
+          viewBox="0 0 40 40"
+        >
+          <line
+            x1="2"
+            y1="38"
+            x2="38"
+            y2="2"
+            stroke="currentColor"
+            strokeWidth="1"
+            className="text-border"
+          />
+        </svg>
+      </div>
+    );
   };
 
   return (

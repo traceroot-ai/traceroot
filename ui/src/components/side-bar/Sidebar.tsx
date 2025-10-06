@@ -359,18 +359,18 @@ function ProfileComponent() {
         >
           <div
             key={`avatar-${avatarLetter || "no-letter"}`}
-            className="w-8 h-8 rounded-md flex items-center justify-center"
+            className="w-8 h-8 rounded-full bg-zinc-800 dark:bg-zinc-100 flex items-center justify-center"
             title="User Profile"
           >
             {avatarLetter ? (
               <span
-                className="text-sidebar-accent-foreground font-semibold text-sm"
+                className="text-white dark:text-black font-semibold text-sm"
                 style={{ zIndex: 100 }}
               >
                 {avatarLetter}
               </span>
             ) : (
-              <FaUser className="text-sidebar-foreground" size={14} />
+              <FaUser className="text-white dark:text-black" size={14} />
             )}
           </div>
           {state === "expanded" && (
