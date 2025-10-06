@@ -25,6 +25,10 @@ export interface ChatRequest {
   model: ChatModel;
   mode: ChatMode;
   chat_id: string;
+  trace_provider: string;
+  log_provider: string;
+  trace_region?: string;
+  log_region?: string;
   provider: Provider;
 }
 

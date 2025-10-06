@@ -25,7 +25,11 @@ class GetLogByTraceIdRequest(BaseModel):
     trace_id: str
     start_time: datetime
     end_time: datetime
+    trace_provider: str
+    log_provider: str
     log_group_name: str | None = None
+    trace_region: str | None = None
+    log_region: str | None = None
 
     @field_validator('start_time', 'end_time')
     @classmethod

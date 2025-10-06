@@ -25,6 +25,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { CirclePlus, CircleMinus } from "lucide-react";
+import { buildProviderParams } from "@/utils/provider";
 
 interface TraceProps {
   onTraceSelect?: (traceId: string | null) => void;
@@ -168,6 +169,9 @@ export const Trace: React.FC<TraceProps> = ({
 
         // Build API URL with search criteria
         let apiUrl = `/api/list_trace?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}`;
+
+        // Add provider information from URL (always required)
+        apiUrl += `&${buildProviderParams()}`;
 
         // Add search criteria to the API call
         searchCriteria.forEach((criterion) => {

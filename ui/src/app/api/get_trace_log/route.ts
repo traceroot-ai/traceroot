@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { TraceLog } from "@/models/log";
+import { appendProviderParams } from "@/utils/provider";
 
 export interface LogResponse {
   success: boolean;
@@ -15,6 +16,10 @@ async function fetchLogsFromRestAPI(
   endTime: string,
   userSecret: string,
   logGroupName?: string,
+  traceProvider?: string,
+  traceRegion?: string,
+  logProvider?: string,
+  logRegion?: string,
 ): Promise<TraceLog | null> {
   const restApiEndpoint = process.env.REST_API_ENDPOINT;
 
@@ -30,6 +35,9 @@ async function fetchLogsFromRestAPI(
   if (logGroupName) {
     url.searchParams.append("log_group_name", logGroupName);
   }
+
+  // Add provider information (required providers, optional regions)
+  appendProviderParams(url, traceProvider, traceRegion, logProvider, logRegion);
 
   const response = await fetch(url.toString(), {
     headers: {
@@ -97,6 +105,12 @@ export async function GET(
     // Convert null to undefined for the optional parameter
     const logGroupName = logGroupNameParam ?? undefined;
 
+    // Get provider information
+    const traceProvider = searchParams.get("trace_provider") ?? undefined;
+    const traceRegion = searchParams.get("trace_region") ?? undefined;
+    const logProvider = searchParams.get("log_provider") ?? undefined;
+    const logRegion = searchParams.get("log_region") ?? undefined;
+
     if (!traceId) {
       return NextResponse.json(
         {
@@ -130,6 +144,10 @@ export async function GET(
         endTime,
         userSecret,
         logGroupName,
+        traceProvider,
+        traceRegion,
+        logProvider,
+        logRegion,
       );
     } else {
       // Use file-based approach

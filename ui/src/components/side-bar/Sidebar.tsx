@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Telescope,
   LibraryBig,
@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { FaUser } from "react-icons/fa";
 import { APP_VERSION } from "@/constants/version";
+import { loadProviderSelection, getProviderRegion } from "@/utils/provider";
 
 import {
   Sidebar,
@@ -116,9 +117,37 @@ function LogoComponent() {
 function ExploreComponent() {
   const { state } = useSidebar();
   const pathname = usePathname();
+  const router = useRouter();
   const { hasActiveSubscription } = useSubscription();
 
   const isDisabled = !hasActiveSubscription;
+
+  // Build explore URL with provider parameters - called on click
+  const handleExploreClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+
+    // Read fresh data from localStorage on click
+    const traceProvider = loadProviderSelection("trace") || "aws";
+    const logProvider = loadProviderSelection("log") || "aws";
+
+    // Get the actual regions from saved configs
+    const traceRegion = getProviderRegion("trace", traceProvider);
+    const logRegion = getProviderRegion("log", logProvider);
+
+    // Build URL params
+    const params = new URLSearchParams();
+    params.set("trace_provider", traceProvider);
+    if (traceRegion) {
+      params.set("trace_region", traceRegion);
+    }
+    params.set("log_provider", logProvider);
+    if (logRegion) {
+      params.set("log_region", logRegion);
+    }
+
+    // Navigate with fresh params
+    router.push(`/explore?${params.toString()}`);
+  };
 
   return (
     <SidebarMenuButton
@@ -142,6 +171,7 @@ function ExploreComponent() {
       ) : (
         <Link
           href="/explore"
+          onClick={handleExploreClick}
           className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-3"} ${pathname === "/explore" ? "text-black dark:text-white" : "text-zinc-700 dark:text-zinc-300"}`}
         >
           <Telescope className="!w-5 !h-5 flex-shrink-0" />

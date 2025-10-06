@@ -24,7 +24,11 @@ class ChatRequest(BaseModel):
     model: ChatModel
     mode: ChatMode
     chat_id: str
+    trace_provider: str
+    log_provider: str
     service_name: str | None = None
+    trace_region: str | None = None
+    log_region: str | None = None
     provider: Provider = Provider.OPENAI
 
 

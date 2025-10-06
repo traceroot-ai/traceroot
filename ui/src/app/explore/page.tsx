@@ -5,8 +5,13 @@ import Trace from "@/components/explore/Trace";
 import ResizablePanel from "@/components/resizable/ResizablePanel";
 import RightPanelSwitch from "@/components/right-panel/RightPanelSwitch";
 import { Span, Trace as TraceType } from "@/models/trace";
+import { initializeProviders } from "@/utils/provider";
 
 export default function Explore() {
+  // Initialize providers from URL on mount, or use defaults
+  useEffect(() => {
+    initializeProviders();
+  }, []);
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
   const [timeRange, setTimeRange] = useState<{ start: Date; end: Date } | null>(

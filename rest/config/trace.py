@@ -11,6 +11,10 @@ class ListTraceRawRequest(BaseModel):
     categories: str | None = None
     values: str | None = None
     operations: str | None = None
+    trace_provider: str
+    log_provider: str
+    trace_region: str | None = None
+    log_region: str | None = None
 
     @field_validator('start_time', 'end_time')
     @classmethod

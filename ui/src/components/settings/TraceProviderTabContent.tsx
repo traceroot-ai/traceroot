@@ -45,6 +45,8 @@ import {
   saveSpecificProviderConfig,
   deleteSpecificProviderConfig,
   loadAllProviderConfigs,
+  writeProvidersToURL,
+  readProvidersFromURL,
 } from "@/utils/provider";
 import { useUser } from "@/hooks/useUser";
 
@@ -296,6 +298,21 @@ export function TraceProviderTabContent() {
 
       if (isLoaded) {
         saveProviderSelection("trace", value);
+
+        // Sync to URL only when on /explore route
+        if (window.location.pathname === "/explore") {
+          const urlConfig = readProvidersFromURL();
+          writeProvidersToURL({
+            ...urlConfig,
+            traceProvider: value,
+            traceRegion:
+              value === "aws"
+                ? awsRegion
+                : value === "tencent"
+                  ? tencentRegion
+                  : undefined,
+          });
+        }
       }
 
       // Reset the flag after a short delay
@@ -303,7 +320,7 @@ export function TraceProviderTabContent() {
         isUpdatingRef.current = false;
       }, 100);
     },
-    [isLoaded],
+    [isLoaded, awsRegion, tencentRegion],
   );
 
   const handleRegionChange = useCallback((value: string) => {
@@ -311,6 +328,15 @@ export function TraceProviderTabContent() {
 
     isUpdatingRegionRef.current = true;
     setTencentRegion(value);
+
+    // Sync to URL only when on /explore route
+    if (window.location.pathname === "/explore") {
+      const urlConfig = readProvidersFromURL();
+      writeProvidersToURL({
+        ...urlConfig,
+        traceRegion: value,
+      });
+    }
 
     // Reset the flag after a short delay
     setTimeout(() => {
@@ -323,6 +349,15 @@ export function TraceProviderTabContent() {
 
     isUpdatingAwsRegionRef.current = true;
     setAwsRegion(value);
+
+    // Sync to URL only when on /explore route
+    if (window.location.pathname === "/explore") {
+      const urlConfig = readProvidersFromURL();
+      writeProvidersToURL({
+        ...urlConfig,
+        traceRegion: value,
+      });
+    }
 
     // Reset the flag after a short delay
     setTimeout(() => {
@@ -518,6 +553,13 @@ export function TraceProviderTabContent() {
         });
         // Save provider selection after successful MongoDB save
         saveProviderSelection("trace", selectedProvider);
+
+        // Also save to localStorage for quick access (used by sidebar and URL)
+        await saveSpecificProviderConfig(
+          "trace",
+          selectedProvider,
+          currentProviderConfig,
+        );
       }
     } catch (error) {
       console.error("Error saving trace provider config:", error);

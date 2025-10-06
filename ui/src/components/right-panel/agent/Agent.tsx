@@ -24,6 +24,7 @@ interface ChatTab {
 }
 import MessageInput from "./MessageInput";
 import ChatMessage from "./ChatMessage";
+import { getProviderInfo } from "@/utils/provider";
 
 type Mode = "agent" | "chat";
 
@@ -475,6 +476,10 @@ export default function Agent({
       // Start polling for special messages every second
       pollingInterval = setInterval(fetchSpecialMessages, 1000);
 
+      // Get provider information from URL
+      const { traceProvider, logProvider, traceRegion, logRegion } =
+        getProviderInfo();
+
       // Create chat request using Chat.ts models
       const chatRequest: ChatRequest = {
         time: new Date().getTime(),
@@ -487,6 +492,10 @@ export default function Agent({
         model: selectedModel,
         mode: selectedMode,
         chat_id: currentChatId,
+        trace_provider: traceProvider,
+        log_provider: logProvider,
+        trace_region: traceRegion,
+        log_region: logRegion,
         provider: selectedProvider,
       };
 
