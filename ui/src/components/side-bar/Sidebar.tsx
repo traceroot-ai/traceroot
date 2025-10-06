@@ -389,7 +389,7 @@ function ProfileComponent() {
         >
           <div
             key={`avatar-${avatarLetter || "no-letter"}`}
-            className="w-8 h-8 rounded-full bg-zinc-800 dark:bg-zinc-100 flex items-center justify-center"
+            className="w-8 h-8 rounded-full bg-zinc-800 dark:bg-zinc-100 flex items-center justify-center flex-shrink-0"
             title="User Profile"
           >
             {avatarLetter ? (
