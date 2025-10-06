@@ -12,8 +12,8 @@ export interface LogResponse {
 
 async function fetchLogsFromRestAPI(
   traceId: string,
-  startTime: string,
-  endTime: string,
+  startTime: string | null,
+  endTime: string | null,
   userSecret: string,
   logGroupName?: string,
   traceProvider?: string,
@@ -29,8 +29,14 @@ async function fetchLogsFromRestAPI(
 
   const url = new URL(`${restApiEndpoint}/v1/explore/get-logs-by-trace-id`);
   url.searchParams.append("trace_id", traceId);
-  url.searchParams.append("start_time", startTime);
-  url.searchParams.append("end_time", endTime);
+
+  // Only add timestamps if provided
+  if (startTime) {
+    url.searchParams.append("start_time", startTime);
+  }
+  if (endTime) {
+    url.searchParams.append("end_time", endTime);
+  }
 
   if (logGroupName) {
     url.searchParams.append("log_group_name", logGroupName);
@@ -122,16 +128,8 @@ export async function GET(
       );
     }
 
-    if (!startTime || !endTime) {
-      return NextResponse.json(
-        {
-          success: false,
-          data: null,
-          error: "Start time and end time are required",
-        },
-        { status: 400 },
-      );
-    }
+    // Start time and end time are now optional when searching by trace_id
+    // If not provided, backend will search without time constraints
 
     let logData: TraceLog | null = null;
 

@@ -18,6 +18,16 @@ class AWSTraceClient(TraceClient):
         """
         self.aws_region = aws_region or "us-west-2"
 
+    async def get_trace_by_id(
+        self,
+        trace_id: str,
+        categories: list[str] | None = None,
+        values: list[str] | None = None,
+        operations: list[str] | None = None,
+    ) -> Trace | None:
+        """Get a single trace by ID - stub implementation."""
+        return None
+
     async def get_trace_with_spans_by_ids(
         self,
         trace_ids: list[str],

@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 import os
 from datetime import datetime
 from typing import Any, Optional
@@ -28,8 +29,8 @@ class JaegerLogClient(LogClient):
     async def get_logs_by_trace_id(
         self,
         trace_id: str,
-        start_time: datetime,
-        end_time: datetime,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
         log_group_name: str | None = None,
         log_search_term: str | None = None,
     ) -> TraceLogs:
@@ -37,14 +38,21 @@ class JaegerLogClient(LogClient):
 
         Args:
             trace_id (str): The trace ID to get logs for
-            start_time (datetime): Start time of the trace
-            end_time (datetime): End time of the trace
+            start_time (datetime, optional): Start time of the trace.
+                If not provided, searches last 30 days.
+            end_time (datetime, optional): End time of the trace.
+                If not provided, uses current time.
             log_group_name (str, optional): Not used in Jaeger implementation
             log_search_term (str, optional): Not used in Jaeger implementation
 
         Returns:
             TraceLogs: Trace logs for the given trace ID
         """
+        # If timestamps not provided, use a wide time range (30 days)
+        if end_time is None:
+            end_time = dt.datetime.now(dt.timezone.utc)
+        if start_time is None:
+            start_time = end_time - dt.timedelta(days=30)
 
         # First, get the trace data from Jaeger
         trace_data = await self._get_trace_by_id(trace_id)

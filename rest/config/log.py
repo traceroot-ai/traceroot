@@ -23,8 +23,8 @@ class TraceLogs(BaseModel):
 
 class GetLogByTraceIdRequest(BaseModel):
     trace_id: str
-    start_time: datetime
-    end_time: datetime
+    start_time: datetime | None = None
+    end_time: datetime | None = None
     trace_provider: str
     log_provider: str
     log_group_name: str | None = None
@@ -33,15 +33,17 @@ class GetLogByTraceIdRequest(BaseModel):
 
     @field_validator('start_time', 'end_time')
     @classmethod
-    def ensure_utc_timezone(cls, v: datetime) -> datetime:
+    def ensure_utc_timezone(cls, v: datetime | None) -> datetime | None:
         r"""Ensure datetime is timezone-aware and in UTC.
 
         Args:
-            v: datetime value from request
+            v: datetime value from request (can be None)
 
         Returns:
-            datetime in UTC timezone
+            datetime in UTC timezone or None
         """
+        if v is None:
+            return None
         if v.tzinfo is None:
             # If timezone-naive, assume UTC
             return v.replace(tzinfo=timezone.utc)

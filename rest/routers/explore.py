@@ -336,6 +336,38 @@ class ExploreRouter:
         categories = req_data.categories.copy()  # Make a copy to modify
         values = req_data.values.copy()
         operations = req_data.operations.copy()
+        trace_id = req_data.trace_id
+
+        # If trace_id is provided, fetch that specific trace directly
+        if trace_id:
+            try:
+                observe_provider = self.get_observe_provider(request)
+
+                # Use the new get_trace_by_id method which handles everything
+                trace = await observe_provider.trace_client.get_trace_by_id(
+                    trace_id=trace_id,
+                    categories=categories,
+                    values=values,
+                    operations=[Operation(op)
+                                for op in operations] if operations else None,
+                )
+
+                # If trace not found, return empty list
+                if trace is None:
+                    resp = ListTraceResponse(traces=[])
+                    return resp.model_dump()
+
+                resp = ListTraceResponse(traces=[trace])
+                return resp.model_dump()
+
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                self.logger.error(f"Error fetching trace by ID {trace_id}: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to fetch trace: {str(e)}"
+                )
 
         keys = (
             start_time,
@@ -689,30 +721,41 @@ class ExploreRouter:
             is_github_pr = github_related.is_github_pr
 
         # Get the trace #######################################################
-        keys = (start_time, end_time, service_name, log_group_name)
-        cached_traces: list[Trace] | None = await self.cache.get(keys)
-        if cached_traces:
-            traces = cached_traces
-        else:
-            # TODO: pass search in chat request
-            observe_provider = self.get_observe_provider(request)
-            traces: list[Trace] = await observe_provider.trace_client.get_recent_traces(
-                start_time=start_time,
-                end_time=end_time,
-                log_group_name=log_group_name,
-                service_name_values=None,
-                service_name_operations=None,
-                service_environment_values=None,
-                service_environment_operations=None,
+        observe_provider = self.get_observe_provider(request)
+        selected_trace: Trace | None = None
+
+        # If we have a trace_id, fetch it directly
+        if trace_id:
+            selected_trace = await observe_provider.trace_client.get_trace_by_id(
+                trace_id=trace_id,
                 categories=None,
                 values=None,
                 operations=None,
             )
-        selected_trace: Trace | None = None
-        for trace in traces:
-            if trace.id == trace_id:
-                selected_trace = trace
-                break
+        else:
+            # Otherwise get recent traces and search
+            keys = (start_time, end_time, service_name, log_group_name)
+            cached_traces: list[Trace] | None = await self.cache.get(keys)
+            if cached_traces:
+                traces = cached_traces
+            else:
+                traces: list[Trace
+                             ] = await observe_provider.trace_client.get_recent_traces(
+                                 start_time=start_time,
+                                 end_time=end_time,
+                                 log_group_name=log_group_name,
+                                 service_name_values=None,
+                                 service_name_operations=None,
+                                 service_environment_values=None,
+                                 service_environment_operations=None,
+                                 categories=None,
+                                 values=None,
+                                 operations=None,
+                             )
+            for trace in traces:
+                if trace.id == trace_id:
+                    selected_trace = trace
+                    break
         spans_latency_dict: dict[str, float] = {}
 
         # Compute the span latencies recursively ##############################

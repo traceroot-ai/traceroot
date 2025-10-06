@@ -23,6 +23,7 @@ export async function GET(
     const traceRegion = searchParams.get("trace_region");
     const logProvider = searchParams.get("log_provider");
     const logRegion = searchParams.get("log_region");
+    const traceId = searchParams.get("trace_id");
 
     // Check if REST_API_ENDPOINT environment variable is set
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
@@ -80,6 +81,11 @@ export async function GET(
         }
         if (logRegion) {
           apiUrl += `&log_region=${encodeURIComponent(logRegion)}`;
+        }
+
+        // Add trace_id if provided
+        if (traceId) {
+          apiUrl += `&trace_id=${encodeURIComponent(traceId)}`;
         }
 
         const controller = new AbortController();
