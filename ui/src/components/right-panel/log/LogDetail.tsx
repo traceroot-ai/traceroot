@@ -14,6 +14,7 @@ import { useUser } from "@/hooks/useUser";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/shadcn-io/spinner";
+import { getProviderInfo, appendProviderParams } from "@/utils/provider";
 
 interface LogDetailProps {
   traceId: string;
@@ -117,6 +118,17 @@ export default function LogDetail({
 
         url.searchParams.append("start_time", startTime.toISOString());
         url.searchParams.append("end_time", endTime.toISOString());
+
+        // Add provider information from URL (always required)
+        const { traceProvider, logProvider, traceRegion, logRegion } =
+          getProviderInfo();
+        appendProviderParams(
+          url,
+          traceProvider,
+          traceRegion,
+          logProvider,
+          logRegion,
+        );
 
         const response = await fetch(url.toString(), {
           headers: {

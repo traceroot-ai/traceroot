@@ -27,6 +27,10 @@ export async function POST(
       model,
       mode,
       chat_id,
+      trace_provider,
+      log_provider,
+      trace_region,
+      log_region,
       provider,
     } = body;
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
@@ -48,7 +52,11 @@ export async function POST(
           model,
           mode,
           chat_id,
+          trace_provider,
+          log_provider,
           service_name: null,
+          trace_region,
+          log_region,
           provider,
         };
 

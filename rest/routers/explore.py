@@ -513,6 +513,7 @@ class ExploreRouter:
         """
         _, _, user_sub = get_user_credentials(request)
         log_group_name = hash_user_sub(user_sub)
+
         # Try to get cached logs
         keys = (req_data.trace_id, req_data.start_time, req_data.end_time, log_group_name)
         cached_logs: TraceLogs | None = await self.cache.get(keys)

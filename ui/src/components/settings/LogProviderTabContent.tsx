@@ -45,6 +45,8 @@ import {
   saveSpecificProviderConfig,
   deleteSpecificProviderConfig,
   loadAllProviderConfigs,
+  writeProvidersToURL,
+  readProvidersFromURL,
 } from "@/utils/provider";
 import { useUser } from "@/hooks/useUser";
 
@@ -291,6 +293,21 @@ export function LogProviderTabContent() {
 
       if (isLoaded) {
         saveProviderSelection("log", value);
+
+        // Sync to URL only when on /explore route
+        if (window.location.pathname === "/explore") {
+          const urlConfig = readProvidersFromURL();
+          writeProvidersToURL({
+            ...urlConfig,
+            logProvider: value,
+            logRegion:
+              value === "aws"
+                ? awsRegion
+                : value === "tencent"
+                  ? tencentRegion
+                  : undefined,
+          });
+        }
       }
 
       // Reset the flag after a short delay
@@ -298,7 +315,7 @@ export function LogProviderTabContent() {
         isUpdatingRef.current = false;
       }, 100);
     },
-    [isLoaded],
+    [isLoaded, awsRegion, tencentRegion],
   );
 
   const handleRegionChange = useCallback((value: string) => {
@@ -306,6 +323,15 @@ export function LogProviderTabContent() {
 
     isUpdatingRegionRef.current = true;
     setTencentRegion(value);
+
+    // Sync to URL only when on /explore route
+    if (window.location.pathname === "/explore") {
+      const urlConfig = readProvidersFromURL();
+      writeProvidersToURL({
+        ...urlConfig,
+        logRegion: value,
+      });
+    }
 
     // Reset the flag after a short delay
     setTimeout(() => {
@@ -318,6 +344,15 @@ export function LogProviderTabContent() {
 
     isUpdatingAwsRegionRef.current = true;
     setAwsRegion(value);
+
+    // Sync to URL only when on /explore route
+    if (window.location.pathname === "/explore") {
+      const urlConfig = readProvidersFromURL();
+      writeProvidersToURL({
+        ...urlConfig,
+        logRegion: value,
+      });
+    }
 
     // Reset the flag after a short delay
     setTimeout(() => {
@@ -513,6 +548,13 @@ export function LogProviderTabContent() {
         });
         // Save provider selection after successful MongoDB save
         saveProviderSelection("log", selectedProvider);
+
+        // Also save to localStorage for quick access (used by sidebar and URL)
+        await saveSpecificProviderConfig(
+          "log",
+          selectedProvider,
+          currentProviderConfig,
+        );
       }
     } catch (error) {
       console.error("Error saving log provider config:", error);
