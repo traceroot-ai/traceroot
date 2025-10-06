@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from "react";
-import { Telescope } from "lucide-react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { Telescope, Trash2, Save, Copy, Eye, EyeOff } from "lucide-react";
 import { FaAws } from "react-icons/fa";
 import { BsTencentQq } from "react-icons/bs";
 import { SiJaeger } from "react-icons/si";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -13,78 +13,235 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  loadProviderSelection,
+  saveProviderSelection,
+  clearProviderSelection,
+  getUserEmail,
+  copyToClipboard,
+  applyTraceConfig,
+  saveSpecificProviderConfig,
+  deleteSpecificProviderConfig,
+  loadAllProviderConfigs,
+} from "@/utils/provider";
+import { useUser } from "@/hooks/useUser";
 
 type TraceProvider = "aws" | "tencent" | "jaeger";
 
-// Helper to get user-specific storage key
-const getUserStorageKey = (prefix: string): string => {
-  if (typeof window === "undefined") return prefix;
-
-  const userData = localStorage.getItem("user");
-  if (userData) {
-    try {
-      const user = JSON.parse(userData);
-      const userEmail = user?.email;
-      if (userEmail) {
-        return `${prefix}-${userEmail}`;
-      }
-    } catch (e) {
-      // If parsing fails, use default key
-    }
-  }
-  return prefix;
-};
-
 export function TraceProviderTabContent() {
+  const { getAuthState } = useUser();
   const [selectedProvider, setSelectedProvider] =
     useState<TraceProvider>("aws");
+  const isUpdatingRef = useRef(false);
+  const isUpdatingRegionRef = useRef(false);
+  const isUpdatingAwsRegionRef = useRef(false);
+  const [awsRegion, setAwsRegion] = useState("us-west-2");
   const [tencentRegion, setTencentRegion] = useState("ap-hongkong");
   const [tencentSecretId, setTencentSecretId] = useState("");
   const [tencentSecretKey, setTencentSecretKey] = useState("");
   const [tencentApmInstanceId, setTencentApmInstanceId] = useState("");
   const [jaegerEndpoint, setJaegerEndpoint] = useState("");
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [mongoAvailable, setMongoAvailable] = useState(true);
+  const [showSecretId, setShowSecretId] = useState(false);
+  const [showSecretKey, setShowSecretKey] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
-  // Load saved data from localStorage on component mount
+  // Track initial loaded values to detect changes
+  const [initialValues, setInitialValues] = useState({
+    awsRegion: "us-west-2",
+    tencentRegion: "ap-hongkong",
+    tencentSecretId: "",
+    tencentSecretKey: "",
+    tencentApmInstanceId: "",
+    jaegerEndpoint: "",
+  });
+
+  // Load saved data from API and localStorage on component mount
   useEffect(() => {
-    const storageKey = getUserStorageKey("traceProviderSettings");
-    const savedData = localStorage.getItem(storageKey);
-    if (savedData) {
-      try {
-        const parsedData = JSON.parse(savedData);
-        setSelectedProvider(parsedData.selectedProvider || "aws");
-        setTencentRegion(parsedData.tencentRegion || "ap-hongkong");
-        setJaegerEndpoint(parsedData.jaegerEndpoint || "");
-        setTencentApmInstanceId(parsedData.tencentApmInstanceId || "");
-        // Don't load sensitive Tencent credentials from localStorage
-      } catch (error) {
-        console.error("Error parsing saved trace provider settings:", error);
+    const loadConfig = async () => {
+      const userEmail = getUserEmail();
+      if (!userEmail) {
+        setIsLoaded(true);
+        return;
       }
-    }
-    setIsLoaded(true);
-  }, []);
+
+      try {
+        // Load selected provider from localStorage first
+        const savedSelection = loadProviderSelection(
+          "trace",
+        ) as TraceProvider | null;
+
+        const providerHasStoredConfig = (
+          provider: TraceProvider | null,
+          config: any,
+        ) => {
+          if (!provider || !config) return false;
+
+          if (provider === "aws") {
+            return Boolean(config.awsTraceConfig?.region);
+          }
+
+          if (provider === "tencent") {
+            const tencentConfig = config.tencentTraceConfig;
+            if (!tencentConfig) return false;
+            return Boolean(
+              tencentConfig.secretId ||
+                tencentConfig.secretKey ||
+                tencentConfig.apmInstanceId,
+            );
+          }
+
+          if (provider === "jaeger") {
+            return Boolean(config.jaegerTraceConfig?.endpoint);
+          }
+
+          return false;
+        };
+
+        const resolveSelectedProvider = (config: any): TraceProvider => {
+          if (savedSelection) {
+            if (providerHasStoredConfig(savedSelection, config)) {
+              return savedSelection;
+            }
+
+            if (savedSelection !== "aws") {
+              saveProviderSelection("trace", "aws");
+            }
+            return "aws";
+          }
+
+          const storedProvider = config?.traceProvider as
+            | TraceProvider
+            | undefined;
+          if (
+            storedProvider &&
+            providerHasStoredConfig(storedProvider, config)
+          ) {
+            saveProviderSelection("trace", storedProvider);
+            return storedProvider;
+          }
+
+          return "aws";
+        };
+
+        // Try to fetch from API - server will tell us if MongoDB is available
+        const authToken = getAuthState();
+        const response = await fetch(
+          `/api/provider-config?userEmail=${encodeURIComponent(userEmail)}`,
+          {
+            headers: {
+              Authorization: `Bearer ${authToken}`,
+            },
+          },
+        );
+        const data = await response.json();
+
+        if (response.ok) {
+          // Server confirms MongoDB is available
+          setMongoAvailable(data.mongoAvailable !== false);
+
+          if (data.config) {
+            // Load configuration details from MongoDB
+            applyTraceConfig(data.config, {
+              setTencentRegion,
+              setTencentSecretId,
+              setTencentSecretKey,
+              setJaegerEndpoint,
+              setTencentInstanceId: setTencentApmInstanceId,
+            });
+
+            // Store initial values
+            setInitialValues({
+              awsRegion: data.config.awsTraceConfig?.region || "us-west-2",
+              tencentRegion:
+                data.config.tencentTraceConfig?.region || "ap-hongkong",
+              tencentSecretId: data.config.tencentTraceConfig?.secretId || "",
+              tencentSecretKey: data.config.tencentTraceConfig?.secretKey || "",
+              tencentApmInstanceId:
+                data.config.tencentTraceConfig?.apmInstanceId || "",
+              jaegerEndpoint: data.config.jaegerTraceConfig?.endpoint || "",
+            });
+
+            // Load AWS region
+            if (data.config.awsTraceConfig?.region) {
+              setAwsRegion(data.config.awsTraceConfig.region);
+            }
+          }
+
+          const resolvedProvider = resolveSelectedProvider(data.config);
+          setSelectedProvider(resolvedProvider);
+        } else if (response.status === 503) {
+          // Server says MongoDB not available, load from localStorage
+          setMongoAvailable(false);
+
+          // Load all provider configs separately
+          const allConfigs = loadAllProviderConfigs("trace");
+          if (allConfigs && Object.keys(allConfigs).length > 0) {
+            applyTraceConfig(allConfigs, {
+              setTencentRegion,
+              setTencentSecretId,
+              setTencentSecretKey,
+              setJaegerEndpoint,
+              setTencentInstanceId: setTencentApmInstanceId,
+            });
+
+            // Store initial values
+            setInitialValues({
+              awsRegion: allConfigs.awsTraceConfig?.region || "us-west-2",
+              tencentRegion:
+                allConfigs.tencentTraceConfig?.region || "ap-hongkong",
+              tencentSecretId: allConfigs.tencentTraceConfig?.secretId || "",
+              tencentSecretKey: allConfigs.tencentTraceConfig?.secretKey || "",
+              tencentApmInstanceId:
+                allConfigs.tencentTraceConfig?.apmInstanceId || "",
+              jaegerEndpoint: allConfigs.jaegerTraceConfig?.endpoint || "",
+            });
+
+            // Load AWS region
+            if (allConfigs.awsTraceConfig?.region) {
+              setAwsRegion(allConfigs.awsTraceConfig.region);
+            }
+          }
+
+          const resolvedProvider = resolveSelectedProvider(allConfigs);
+          setSelectedProvider(resolvedProvider);
+        } else {
+          const resolvedProvider = resolveSelectedProvider(null);
+          setSelectedProvider(resolvedProvider);
+        }
+      } catch (error) {
+        console.error("Error loading trace provider settings:", error);
+      }
+
+      setIsLoaded(true);
+    };
+
+    loadConfig();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount - getAuthState just reads localStorage
 
   // Update settings when user changes
   useEffect(() => {
     const handleUserChange = () => {
-      const storageKey = getUserStorageKey("traceProviderSettings");
-      const savedData = localStorage.getItem(storageKey);
-      if (savedData) {
-        try {
-          const parsedData = JSON.parse(savedData);
-          setSelectedProvider(parsedData.selectedProvider || "aws");
-          setTencentRegion(parsedData.tencentRegion || "ap-hongkong");
-          setJaegerEndpoint(parsedData.jaegerEndpoint || "");
-          setTencentApmInstanceId(parsedData.tencentApmInstanceId || "");
-        } catch (error) {
-          console.error("Error parsing saved trace provider settings:", error);
-        }
+      const savedSelection = loadProviderSelection("trace");
+      if (savedSelection) {
+        setSelectedProvider(savedSelection as TraceProvider);
       } else {
         // Reset to defaults for new user
         setSelectedProvider("aws");
-        setTencentRegion("ap-hongkong");
-        setJaegerEndpoint("");
-        setTencentApmInstanceId("");
       }
     };
 
@@ -103,28 +260,48 @@ export function TraceProviderTabContent() {
     };
   }, []);
 
-  // Save data to localStorage whenever any setting changes (but only after initial load)
-  // Exclude sensitive Tencent credentials from localStorage
-  useEffect(() => {
-    if (!isLoaded) return; // Don't save during initial load
+  const handleProviderChange = useCallback(
+    (value: TraceProvider) => {
+      if (isUpdatingRef.current) return; // Prevent multiple rapid calls
 
-    const settingsData = {
-      selectedProvider,
-      tencentRegion,
-      jaegerEndpoint,
-      tencentApmInstanceId,
-      // Don't save sensitive Tencent credentials to localStorage
-    };
-    const storageKey = getUserStorageKey("traceProviderSettings");
-    localStorage.setItem(storageKey, JSON.stringify(settingsData));
-  }, [
-    isLoaded,
-    selectedProvider,
-    tencentRegion,
-    jaegerEndpoint,
-    tencentApmInstanceId,
-    // Removed sensitive credentials from dependency array
-  ]);
+      isUpdatingRef.current = true;
+      setSelectedProvider(value);
+
+      if (isLoaded) {
+        saveProviderSelection("trace", value);
+      }
+
+      // Reset the flag after a short delay
+      setTimeout(() => {
+        isUpdatingRef.current = false;
+      }, 100);
+    },
+    [isLoaded],
+  );
+
+  const handleRegionChange = useCallback((value: string) => {
+    if (isUpdatingRegionRef.current) return; // Prevent multiple rapid calls
+
+    isUpdatingRegionRef.current = true;
+    setTencentRegion(value);
+
+    // Reset the flag after a short delay
+    setTimeout(() => {
+      isUpdatingRegionRef.current = false;
+    }, 100);
+  }, []);
+
+  const handleAwsRegionChange = useCallback((value: string) => {
+    if (isUpdatingAwsRegionRef.current) return; // Prevent multiple rapid calls
+
+    isUpdatingAwsRegionRef.current = true;
+    setAwsRegion(value);
+
+    // Reset the flag after a short delay
+    setTimeout(() => {
+      isUpdatingAwsRegionRef.current = false;
+    }, 100);
+  }, []);
 
   const providers = [
     {
@@ -144,6 +321,10 @@ export function TraceProviderTabContent() {
     },
   ];
 
+  const awsRegions = [
+    { value: "us-west-2", label: "US West (Oregon) - us-west-2" },
+  ];
+
   const tencentRegions = [
     { value: "ap-hongkong", label: "Hong Kong (ap-hongkong)" },
     { value: "ap-beijing", label: "Beijing (ap-beijing)" },
@@ -151,6 +332,243 @@ export function TraceProviderTabContent() {
     { value: "ap-guangzhou", label: "Guangzhou (ap-guangzhou)" },
     { value: "ap-singapore", label: "Singapore (ap-singapore)" },
   ];
+
+  // Check if there's any data entered for the current provider
+  const hasData = () => {
+    if (selectedProvider === "aws") {
+      return true; // AWS always has region data
+    } else if (selectedProvider === "tencent") {
+      return !!(tencentSecretId || tencentSecretKey || tencentApmInstanceId);
+    } else if (selectedProvider === "jaeger") {
+      return !!jaegerEndpoint;
+    }
+    return false;
+  };
+
+  // Check if all required fields are filled for the current provider
+  const isFormValid = () => {
+    if (selectedProvider === "tencent") {
+      return !!(
+        tencentRegion &&
+        tencentSecretId &&
+        tencentSecretKey &&
+        tencentApmInstanceId
+      );
+    } else if (selectedProvider === "jaeger") {
+      return !!jaegerEndpoint;
+    }
+    return true; // AWS doesn't need validation
+  };
+
+  // Check if current values differ from initial loaded values
+  const hasChanges = () => {
+    if (selectedProvider === "aws") {
+      return awsRegion !== initialValues.awsRegion;
+    } else if (selectedProvider === "tencent") {
+      return (
+        tencentRegion !== initialValues.tencentRegion ||
+        tencentSecretId !== initialValues.tencentSecretId ||
+        tencentSecretKey !== initialValues.tencentSecretKey ||
+        tencentApmInstanceId !== initialValues.tencentApmInstanceId
+      );
+    } else if (selectedProvider === "jaeger") {
+      return jaegerEndpoint !== initialValues.jaegerEndpoint;
+    }
+    return false;
+  };
+
+  const handleSaveClick = () => {
+    setShowSaveDialog(true);
+  };
+
+  const handleSaveConfirm = async () => {
+    const userEmail = getUserEmail();
+    if (!userEmail) {
+      setShowSaveDialog(false);
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+
+      // Prepare config for current provider
+      let currentProviderConfig: any = {};
+      if (selectedProvider === "aws") {
+        currentProviderConfig = {
+          awsTraceConfig: {
+            region: awsRegion,
+          },
+        };
+      } else if (selectedProvider === "tencent") {
+        currentProviderConfig = {
+          tencentTraceConfig: {
+            region: tencentRegion,
+            secretId: tencentSecretId,
+            secretKey: tencentSecretKey,
+            apmInstanceId: tencentApmInstanceId,
+          },
+        };
+      } else if (selectedProvider === "jaeger") {
+        currentProviderConfig = {
+          jaegerTraceConfig: {
+            endpoint: jaegerEndpoint,
+          },
+        };
+      }
+
+      if (!mongoAvailable) {
+        // MongoDB not available, save to localStorage only (provider-specific)
+        // Only save if there are actual configuration values
+        if (
+          selectedProvider === "tencent" &&
+          (tencentSecretId || tencentSecretKey || tencentApmInstanceId)
+        ) {
+          saveSpecificProviderConfig(
+            "trace",
+            selectedProvider,
+            currentProviderConfig,
+          );
+          // Save provider selection only when config is saved
+          saveProviderSelection("trace", selectedProvider);
+        } else if (selectedProvider === "jaeger" && jaegerEndpoint) {
+          saveSpecificProviderConfig(
+            "trace",
+            selectedProvider,
+            currentProviderConfig,
+          );
+          // Save provider selection only when config is saved
+          saveProviderSelection("trace", selectedProvider);
+        }
+        // AWS is disabled for now, so we don't save it
+        setIsSaving(false);
+        setShowSaveDialog(false);
+        return;
+      }
+
+      // For MongoDB, we need to merge all provider configs
+      const allConfigs = loadAllProviderConfigs("trace");
+      const configData = { ...allConfigs, ...currentProviderConfig };
+
+      // Save to MongoDB
+      const payload: any = {
+        userEmail,
+        traceProvider: selectedProvider,
+        ...configData,
+      };
+
+      const authToken = getAuthState();
+      const response = await fetch("/api/provider-config", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error("Failed to save configuration:", data.error);
+      } else {
+        // Update initial values after successful save
+        setInitialValues({
+          awsRegion,
+          tencentRegion,
+          tencentSecretId,
+          tencentSecretKey,
+          tencentApmInstanceId,
+          jaegerEndpoint,
+        });
+        // Save provider selection after successful MongoDB save
+        saveProviderSelection("trace", selectedProvider);
+      }
+    } catch (error) {
+      console.error("Error saving trace provider config:", error);
+    } finally {
+      setIsSaving(false);
+      setShowSaveDialog(false);
+    }
+  };
+
+  const handleDeleteClick = () => {
+    setShowDeleteDialog(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    const userEmail = getUserEmail();
+    if (!userEmail) {
+      setShowDeleteDialog(false);
+      return;
+    }
+
+    try {
+      setIsDeleting(true);
+
+      // Reset to defaults
+      const resetDefaults = () => {
+        setAwsRegion("us-west-2");
+        setTencentRegion("ap-hongkong");
+        setTencentSecretId("");
+        setTencentSecretKey("");
+        setTencentApmInstanceId("");
+        setJaegerEndpoint("");
+      };
+
+      if (!mongoAvailable) {
+        // MongoDB not available, delete from localStorage only (provider-specific)
+        deleteSpecificProviderConfig("trace", selectedProvider);
+        // Clear provider selection after deleting config
+        clearProviderSelection("trace");
+        resetDefaults();
+        // Switch back to AWS after deletion
+        setSelectedProvider("aws");
+        setIsDeleting(false);
+        setShowDeleteDialog(false);
+        return;
+      }
+
+      // Delete from MongoDB
+      const authToken = getAuthState();
+      const response = await fetch(
+        `/api/provider-config?userEmail=${encodeURIComponent(
+          userEmail,
+        )}&providerType=trace`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+        },
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        resetDefaults();
+        // Clear provider selection after deleting config
+        clearProviderSelection("trace");
+        // Switch back to AWS after deletion
+        setSelectedProvider("aws");
+        // Reset initial values after delete
+        setInitialValues({
+          awsRegion: "us-west-2",
+          tencentRegion: "ap-hongkong",
+          tencentSecretId: "",
+          tencentSecretKey: "",
+          tencentApmInstanceId: "",
+          jaegerEndpoint: "",
+        });
+      } else {
+        console.error("Failed to delete configuration:", data.error);
+      }
+    } catch (error) {
+      console.error("Error deleting trace provider config:", error);
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteDialog(false);
+    }
+  };
 
   return (
     <div className="flex-1 p-6">
@@ -178,9 +596,7 @@ export function TraceProviderTabContent() {
               </Label>
               <Select
                 value={selectedProvider}
-                onValueChange={(value: TraceProvider) =>
-                  setSelectedProvider(value)
-                }
+                onValueChange={handleProviderChange}
               >
                 <SelectTrigger id="trace-provider-select">
                   <SelectValue placeholder="Select a trace provider" />
@@ -207,10 +623,38 @@ export function TraceProviderTabContent() {
                   <FaAws size={20} />
                   <span>Amazon Web Services Configuration</span>
                 </h3>
-                <p className="text-sm text-muted-foreground">
-                  AWS X-Ray tracing is automatically configured. No additional
-                  settings required.
-                </p>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="aws-trace-region">Region</Label>
+                    <Select
+                      value={awsRegion}
+                      onValueChange={handleAwsRegionChange}
+                    >
+                      <SelectTrigger id="aws-trace-region">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {awsRegions.map((region) => (
+                          <SelectItem key={region.value} value={region.value}>
+                            {region.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-4 pt-2">
+                    <Button onClick={handleSaveClick} disabled={true}>
+                      <Save size={16} />
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={handleDeleteClick}
+                      disabled={true}
+                    >
+                      <Trash2 size={16} />
+                    </Button>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -220,12 +664,20 @@ export function TraceProviderTabContent() {
                   <BsTencentQq size={20} />
                   <span>Tencent Cloud Configuration</span>
                 </h3>
+                {!mongoAvailable && (
+                  <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md p-3">
+                    <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                      MongoDB is not configured. Tencent Cloud settings will
+                      only be stored locally.
+                    </p>
+                  </div>
+                )}
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="tencent-trace-region">Region</Label>
                     <Select
                       value={tencentRegion}
-                      onValueChange={setTencentRegion}
+                      onValueChange={handleRegionChange}
                     >
                       <SelectTrigger id="tencent-trace-region">
                         <SelectValue />
@@ -241,35 +693,128 @@ export function TraceProviderTabContent() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="tencent-trace-secret-id">Secret ID</Label>
-                    <Input
-                      id="tencent-trace-secret-id"
-                      type="text"
-                      placeholder="Enter your Secret ID"
-                      value={tencentSecretId}
-                      onChange={(e) => setTencentSecretId(e.target.value)}
-                    />
+                    <div className="relative">
+                      <Input
+                        id="tencent-trace-secret-id"
+                        type={showSecretId ? "text" : "password"}
+                        placeholder="Enter your Secret ID"
+                        value={tencentSecretId}
+                        onChange={(e) => setTencentSecretId(e.target.value)}
+                        className="pr-20"
+                      />
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => setShowSecretId(!showSecretId)}
+                          disabled={!tencentSecretId}
+                        >
+                          {showSecretId ? (
+                            <EyeOff size={14} />
+                          ) : (
+                            <Eye size={14} />
+                          )}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => copyToClipboard(tencentSecretId)}
+                          disabled={!tencentSecretId}
+                        >
+                          <Copy size={14} />
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="tencent-trace-secret-key">Secret Key</Label>
-                    <Input
-                      id="tencent-trace-secret-key"
-                      type="password"
-                      placeholder="Enter your Secret Key"
-                      value={tencentSecretKey}
-                      onChange={(e) => setTencentSecretKey(e.target.value)}
-                    />
+                    <div className="relative">
+                      <Input
+                        id="tencent-trace-secret-key"
+                        type={showSecretKey ? "text" : "password"}
+                        placeholder="Enter your Secret Key"
+                        value={tencentSecretKey}
+                        onChange={(e) => setTencentSecretKey(e.target.value)}
+                        className="pr-20"
+                      />
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => setShowSecretKey(!showSecretKey)}
+                          disabled={!tencentSecretKey}
+                        >
+                          {showSecretKey ? (
+                            <EyeOff size={14} />
+                          ) : (
+                            <Eye size={14} />
+                          )}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => copyToClipboard(tencentSecretKey)}
+                          disabled={!tencentSecretKey}
+                        >
+                          <Copy size={14} />
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="tencent-apm-instance-id">
                       APM Instance ID
                     </Label>
-                    <Input
-                      id="tencent-apm-instance-id"
-                      type="text"
-                      placeholder="Enter your APM Instance ID"
-                      value={tencentApmInstanceId}
-                      onChange={(e) => setTencentApmInstanceId(e.target.value)}
-                    />
+                    <div className="relative">
+                      <Input
+                        id="tencent-apm-instance-id"
+                        type="text"
+                        placeholder="Enter your APM Instance ID"
+                        value={tencentApmInstanceId}
+                        onChange={(e) =>
+                          setTencentApmInstanceId(e.target.value)
+                        }
+                        className="pr-12"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7"
+                        onClick={() => copyToClipboard(tencentApmInstanceId)}
+                        disabled={!tencentApmInstanceId}
+                      >
+                        <Copy size={14} />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 pt-2">
+                    <Button
+                      onClick={handleSaveClick}
+                      disabled={
+                        isSaving ||
+                        isDeleting ||
+                        !isFormValid() ||
+                        !hasChanges()
+                      }
+                    >
+                      <Save size={16} />
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={handleDeleteClick}
+                      disabled={isDeleting || isSaving || !hasData()}
+                    >
+                      <Trash2 size={16} />
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -281,21 +826,107 @@ export function TraceProviderTabContent() {
                   <SiJaeger size={20} />
                   <span>Jaeger Configuration</span>
                 </h3>
-                <div className="space-y-2">
-                  <Label htmlFor="jaeger-endpoint">Jaeger Endpoint</Label>
-                  <Input
-                    id="jaeger-endpoint"
-                    type="url"
-                    placeholder="https://your-jaeger-endpoint.com"
-                    value={jaegerEndpoint}
-                    onChange={(e) => setJaegerEndpoint(e.target.value)}
-                  />
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="jaeger-endpoint">Jaeger Endpoint</Label>
+                    <div className="relative">
+                      <Input
+                        id="jaeger-endpoint"
+                        type="url"
+                        placeholder="https://your-jaeger-endpoint.com"
+                        value={jaegerEndpoint}
+                        onChange={(e) => setJaegerEndpoint(e.target.value)}
+                        className="pr-12"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7"
+                        onClick={() => copyToClipboard(jaegerEndpoint)}
+                        disabled={!jaegerEndpoint}
+                      >
+                        <Copy size={14} />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 pt-2">
+                    <Button
+                      onClick={handleSaveClick}
+                      disabled={
+                        isSaving ||
+                        isDeleting ||
+                        !isFormValid() ||
+                        !hasChanges()
+                      }
+                    >
+                      <Save size={16} />
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={handleDeleteClick}
+                      disabled={isDeleting || isSaving || !hasData()}
+                    >
+                      <Trash2 size={16} />
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save Configuration</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to save the trace provider configuration?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowSaveDialog(false)}
+              disabled={isSaving}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleSaveConfirm} disabled={isSaving}>
+              {isSaving ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Configuration</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete your trace provider configuration?
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteDialog(false)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              disabled={isDeleting}
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
