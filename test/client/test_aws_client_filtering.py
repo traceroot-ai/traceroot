@@ -5,11 +5,11 @@ import pytest
 
 # Try to import the AWS client, skip tests if not available
 try:
-    from rest.service.ee.aws_client import TraceRootAWSClient
+    from rest.service.trace.ee.aws_trace_client import AWSTraceClient
     aws_client_available = True
 except ImportError:
     aws_client_available = False
-    TraceRootAWSClient = None
+    AWSTraceClient = None
 
 # Skip all tests in this module if AWS client is not available
 pytestmark = pytest.mark.skipif(
@@ -23,7 +23,7 @@ async def test_get_trace_with_spans_by_ids_filtering():
     """Test filtering functionality in get_trace_with_spans_by_ids"""
 
     # Mock AWS client
-    client = TraceRootAWSClient(aws_region="us-west-2")
+    client = AWSTraceClient(aws_region="us-west-2")
 
     # Mock trace data with different metadata
     mock_trace_data = {
@@ -129,7 +129,7 @@ async def test_get_trace_with_spans_by_ids_filtering():
 async def test_get_trace_with_spans_by_ids_filtering_with_subsegments():
     """Test filtering with nested subsegments"""
 
-    client = TraceRootAWSClient(aws_region="us-west-2")
+    client = AWSTraceClient(aws_region="us-west-2")
 
     # Mock trace data with subsegments
     mock_trace_data = {
