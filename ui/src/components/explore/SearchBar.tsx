@@ -266,12 +266,37 @@ const SearchBar: React.FC<SearchBarProps> = ({
     );
   };
 
+  const getProviderName = (provider: string) => {
+    switch (provider) {
+      case "aws":
+        return "AWS";
+      case "tencent":
+        return "Tencent Cloud";
+      case "jaeger":
+        return "Jaeger";
+      default:
+        return provider.toUpperCase();
+    }
+  };
+
+  const getProviderTooltip = () => {
+    if (traceProvider === logProvider) {
+      return `Trace and Log from ${getProviderName(traceProvider)}`;
+    }
+    return `Trace from ${getProviderName(traceProvider)} and Log from ${getProviderName(logProvider)}`;
+  };
+
   return (
     <div className="relative flex items-start gap-2 justify-start">
       {/* Provider Icon */}
-      <div className="h-[2.5rem] w-[2.5rem] border border-input rounded-md bg-background flex items-center justify-center shrink-0">
-        {getProviderIcon()}
-      </div>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="h-[2.5rem] w-[2.5rem] border border-input rounded-md bg-background flex items-center justify-center shrink-0">
+            {getProviderIcon()}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>{getProviderTooltip()}</TooltipContent>
+      </Tooltip>
 
       <div
         className={`flex flex-col gap-2 px-2 py-1 border rounded-md transition-all duration-200 min-h-[2rem] max-h-[10rem] ${criteria.length === 0 ? "justify-center" : ""} w-auto max-w-md ${disabled ? "opacity-50 pointer-events-none" : ""}`}
