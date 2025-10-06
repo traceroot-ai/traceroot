@@ -11,7 +11,7 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "../../ui/hover-card";
-import { ChatReasoning } from "../../chat-reasoning";
+import { ChatReasoning } from "./chat-reasoning";
 import {
   Reasoning,
   ReasoningContent,
