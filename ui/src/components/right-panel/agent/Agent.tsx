@@ -15,7 +15,7 @@ import {
 import { useUser } from "@/hooks/useUser";
 import { generateUuidHex } from "@/utils/uuid";
 import TopBar, { TopBarRef } from "./TopBar";
-import { ChatReasoning } from "../../chat-reasoning";
+import { ChatReasoning } from "./chat-reasoning";
 
 interface ChatTab {
   chatId: string | null;

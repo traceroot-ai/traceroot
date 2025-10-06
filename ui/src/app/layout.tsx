@@ -5,7 +5,7 @@ import AppSidebar from "@/components/side-bar/Sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { Toaster } from "react-hot-toast";
 import { AutumnProvider } from "autumn-js/react";
-import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeProvider } from "@/providers/theme-provider";
 import AuthGuard from "@/components/auth/AuthGuard";
 import SubscriptionGuard from "@/components/auth/SubscriptionGuard";
 
