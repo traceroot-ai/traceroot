@@ -112,12 +112,8 @@ export default function LogDetail({
         const url = new URL("/api/get_trace_log", window.location.origin);
         url.searchParams.append("traceId", traceId);
 
-        const endTime = traceQueryEndTime || new Date();
-        const startTime =
-          traceQueryStartTime || new Date(endTime.getTime() - 10 * 60 * 1000); // 10 minutes before endTime
-
-        url.searchParams.append("start_time", startTime.toISOString());
-        url.searchParams.append("end_time", endTime.toISOString());
+        // DON'T send timestamps when querying by trace_id
+        // The backend will search without time constraints (30-day window)
 
         // Add provider information from URL (always required)
         const { traceProvider, logProvider, traceRegion, logRegion } =

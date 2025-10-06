@@ -21,8 +21,8 @@ class AWSLogClient(LogClient):
     async def get_logs_by_trace_id(
         self,
         trace_id: str,
-        start_time: datetime,
-        end_time: datetime,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
         log_group_name: str | None = None,
         log_search_term: str | None = None,
     ) -> TraceLogs:

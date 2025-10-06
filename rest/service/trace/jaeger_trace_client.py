@@ -40,6 +40,17 @@ class JaegerTraceClient(TraceClient):
         self.services_url = f"{api_url}/services"
         self.limit = limit
 
+    async def get_trace_by_id(
+        self,
+        trace_id: str,
+        categories: list[str] | None = None,
+        values: list[str] | None = None,
+        operations: list[str] | None = None,
+    ) -> Trace | None:
+        """Get a single trace by ID - not implemented for Jaeger yet."""
+        # TODO: Implement for Jaeger
+        return None
+
     async def get_recent_traces(
         self,
         start_time: datetime,

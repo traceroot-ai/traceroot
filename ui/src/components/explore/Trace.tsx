@@ -24,8 +24,17 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { CirclePlus, CircleMinus } from "lucide-react";
+import { CirclePlus, CircleMinus, Share2, Copy, Check } from "lucide-react";
 import { buildProviderParams } from "@/utils/provider";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 interface TraceProps {
   onTraceSelect?: (traceId: string | null) => void;
@@ -111,6 +120,10 @@ export const Trace: React.FC<TraceProps> = ({
   const [isTraceExpanded, setIsTraceExpanded] = useState<boolean>(true);
   const [expandedSpans, setExpandedSpans] = useState<Set<string>>(new Set());
   const timeRangeRef = useRef<{ start: Date; end: Date } | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState<boolean>(false);
+  const [shareTraceId, setShareTraceId] = useState<string | null>(null);
+  const [copied, setCopied] = useState<boolean>(false);
+  const [hasTraceIdInUrl, setHasTraceIdInUrl] = useState<boolean>(false);
 
   const handleTimeRangeSelect = (range: TimeRange) => {
     setSelectedTimeRange(range);
@@ -173,6 +186,13 @@ export const Trace: React.FC<TraceProps> = ({
         // Add provider information from URL (always required)
         apiUrl += `&${buildProviderParams()}`;
 
+        // Check if trace_id is in URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const traceIdParam = urlParams.get("trace_id");
+        if (traceIdParam) {
+          apiUrl += `&trace_id=${encodeURIComponent(traceIdParam)}`;
+        }
+
         // Add search criteria to the API call
         searchCriteria.forEach((criterion) => {
           apiUrl += `&categories=${encodeURIComponent(criterion.category)}`;
@@ -193,19 +213,30 @@ export const Trace: React.FC<TraceProps> = ({
 
         setTraces(result.data);
 
-        // Check if currently selected trace is still in the filtered results
-        if (selectedTraceId) {
-          const isSelectedTraceInResults = result.data.some(
-            (trace: TraceType) => trace.id === selectedTraceId,
+        // If trace_id in URL, auto-select that trace
+        if (traceIdParam && result.data.length > 0) {
+          const traceToSelect = result.data.find(
+            (trace: TraceType) => trace.id === traceIdParam,
           );
+          if (traceToSelect) {
+            setSelectedTraceId(traceToSelect.id);
+            onTraceSelect?.(traceToSelect.id);
+          }
+        } else {
+          // Check if currently selected trace is still in the filtered results
+          if (selectedTraceId) {
+            const isSelectedTraceInResults = result.data.some(
+              (trace: TraceType) => trace.id === selectedTraceId,
+            );
 
-          if (!isSelectedTraceInResults) {
-            // Clear selection if selected trace is not in new results
-            setSelectedTraceId(null);
-            setSelectedSpanId(null);
-            setSelectedSpanIds([]);
-            onTraceSelect?.(null);
-            onSpanSelect?.([]);
+            if (!isSelectedTraceInResults) {
+              // Clear selection if selected trace is not in new results
+              setSelectedTraceId(null);
+              setSelectedSpanId(null);
+              setSelectedSpanIds([]);
+              onTraceSelect?.(null);
+              onSpanSelect?.([]);
+            }
           }
         }
 
@@ -233,6 +264,13 @@ export const Trace: React.FC<TraceProps> = ({
 
   useEffect(() => {
     setLoading(true);
+  }, []);
+
+  // Check if trace_id is in URL on mount
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const traceIdParam = urlParams.get("trace_id");
+    setHasTraceIdInUrl(!!traceIdParam);
   }, []);
 
   const getPercentileTag = (percentile: string) => {
@@ -319,6 +357,33 @@ export const Trace: React.FC<TraceProps> = ({
     setLoading(true);
   };
 
+  const handleShareClick = (traceId: string, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent trace selection
+    setShareTraceId(traceId);
+    setShareDialogOpen(true);
+    setCopied(false);
+  };
+
+  const getShareUrl = (traceId: string): string => {
+    const baseUrl = window.location.origin + window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+    params.set("trace_id", traceId);
+    return `${baseUrl}?${params.toString()}`;
+  };
+
+  const handleCopyUrl = async () => {
+    if (shareTraceId) {
+      const url = getShareUrl(shareTraceId);
+      try {
+        await navigator.clipboard.writeText(url);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (err) {
+        console.error("Failed to copy:", err);
+      }
+    }
+  };
+
   useEffect(() => {
     if (externalSelectedTraceId !== selectedTraceId) {
       setSelectedTraceId(externalSelectedTraceId || null);
@@ -385,15 +450,18 @@ export const Trace: React.FC<TraceProps> = ({
                 onClear={handleClearSearch}
                 onLogSearchValueChange={handleLogSearchValueChange}
                 onMetadataSearchTermsChange={onMetadataSearchTermsChange}
-                disabled={loading}
+                disabled={loading || hasTraceIdInUrl}
               />
             </div>
             <div className="flex space-x-2 flex-shrink-0 justify-end">
-              <RefreshButton onRefresh={handleRefresh} disabled={loading} />
+              <RefreshButton
+                onRefresh={handleRefresh}
+                disabled={loading || hasTraceIdInUrl}
+              />
               <TimeButton
                 selectedTimeRange={selectedTimeRange}
                 onTimeRangeSelect={handleTimeRangeSelect}
-                disabled={loading}
+                disabled={loading || hasTraceIdInUrl}
               />
             </div>
           </div>
@@ -573,30 +641,50 @@ export const Trace: React.FC<TraceProps> = ({
                           </div>
                         </div>
 
-                        {/* Start time and Expand/Collapse icon */}
+                        {/* Start time, Share button, and Expand/Collapse icon */}
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <span className="text-xs text-neutral-600 dark:text-neutral-300 flex-shrink-0 whitespace-nowrap">
                             {formatDateTime(trace.start_time)}
                           </span>
                           {selectedTraceId === trace.id && (
-                            <button
-                              onClick={(e) =>
-                                handleTraceExpandToggle(trace.id, e)
-                              }
-                              className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
-                            >
-                              {isTraceExpanded ? (
-                                <CircleMinus
-                                  size={14}
-                                  className="text-neutral-600 dark:text-neutral-300"
-                                />
-                              ) : (
-                                <CirclePlus
-                                  size={14}
-                                  className="text-neutral-600 dark:text-neutral-300"
-                                />
-                              )}
-                            </button>
+                            <>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    onClick={(e) =>
+                                      handleShareClick(trace.id, e)
+                                    }
+                                    className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
+                                  >
+                                    <Share2
+                                      size={14}
+                                      className="text-neutral-600 dark:text-neutral-300"
+                                    />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Share trace</p>
+                                </TooltipContent>
+                              </Tooltip>
+                              <button
+                                onClick={(e) =>
+                                  handleTraceExpandToggle(trace.id, e)
+                                }
+                                className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
+                              >
+                                {isTraceExpanded ? (
+                                  <CircleMinus
+                                    size={14}
+                                    className="text-neutral-600 dark:text-neutral-300"
+                                  />
+                                ) : (
+                                  <CirclePlus
+                                    size={14}
+                                    className="text-neutral-600 dark:text-neutral-300"
+                                  />
+                                )}
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>
@@ -652,6 +740,47 @@ export const Trace: React.FC<TraceProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Share Dialog */}
+      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Share Trace</DialogTitle>
+            <DialogDescription>
+              Share this trace with others using the URL below.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center space-x-2">
+            <div className="grid flex-1 gap-2">
+              <div className="flex items-center space-x-2">
+                <input
+                  readOnly
+                  value={shareTraceId ? getShareUrl(shareTraceId) : ""}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  className="px-3"
+                  onClick={handleCopyUrl}
+                >
+                  {copied ? (
+                    <>
+                      <Check className="h-4 w-4" />
+                      <span className="sr-only">Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4" />
+                      <span className="sr-only">Copy</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };

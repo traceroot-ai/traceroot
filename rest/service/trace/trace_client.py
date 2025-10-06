@@ -10,6 +10,27 @@ class TraceClient(ABC):
     """
 
     @abstractmethod
+    async def get_trace_by_id(
+        self,
+        trace_id: str,
+        categories: list[str] | None = None,
+        values: list[str] | None = None,
+        operations: list[str] | None = None,
+    ) -> Trace | None:
+        """Get a single trace by trace ID with full metadata.
+
+        Args:
+            trace_id: Trace identifier
+            categories: Filter by categories if provided
+            values: Filter by values if provided
+            operations: Filter by operations for values if provided
+
+        Returns:
+            Trace object with full metadata (service_name, service_environment, etc.)
+            or None if trace not found
+        """
+
+    @abstractmethod
     async def get_trace_with_spans_by_ids(
         self,
         trace_ids: list[str],

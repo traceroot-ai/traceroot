@@ -13,8 +13,8 @@ class LogClient(ABC):
     async def get_logs_by_trace_id(
         self,
         trace_id: str,
-        start_time: datetime,
-        end_time: datetime,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
         log_group_name: str | None = None,
         log_search_term: str | None = None,
     ) -> TraceLogs:
@@ -22,8 +22,8 @@ class LogClient(ABC):
 
         Args:
             trace_id: Trace identifier
-            start_time: Start time of the trace
-            end_time: End time of the trace
+            start_time: Start time of the trace (optional, defaults to 30 days ago)
+            end_time: End time of the trace (optional, defaults to now)
             log_group_name: Log group name (provider-specific)
             log_search_term: Additional search term to filter logs
 

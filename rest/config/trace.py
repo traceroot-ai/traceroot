@@ -15,6 +15,7 @@ class ListTraceRawRequest(BaseModel):
     log_provider: str
     trace_region: str | None = None
     log_region: str | None = None
+    trace_id: str | None = None
 
     @field_validator('start_time', 'end_time')
     @classmethod
@@ -65,7 +66,8 @@ class ListTraceRawRequest(BaseModel):
             end_time=self.end_time,
             categories=categories,
             values=values,
-            operations=operations
+            operations=operations,
+            trace_id=self.trace_id
         )
 
 
@@ -77,6 +79,7 @@ class ListTraceRequest(BaseModel):
     categories: list[str] = []
     values: list[str] = []
     operations: list[str] = []
+    trace_id: str | None = None
 
     @field_validator('start_time', 'end_time')
     @classmethod
