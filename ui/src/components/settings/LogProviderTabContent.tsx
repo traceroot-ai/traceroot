@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Cloud, Trash2, Save, Copy, Eye, EyeOff } from "lucide-react";
+import {
+  Cloud,
+  Trash2,
+  Save,
+  Copy,
+  Eye,
+  EyeOff,
+  ShieldCheck,
+} from "lucide-react";
 import { FaAws } from "react-icons/fa";
 import { BsTencentQq } from "react-icons/bs";
 import { SiJaeger } from "react-icons/si";
@@ -22,6 +30,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   loadProviderSelection,
   saveProviderSelection,
@@ -150,9 +163,21 @@ export function LogProviderTabContent() {
           // Server confirms MongoDB is available
           setMongoAvailable(data.mongoAvailable !== false);
 
-          if (data.config) {
+          // Decrypt sensitive fields from MongoDB
+          let decryptedConfig = data.config ? { ...data.config } : null;
+          if (decryptedConfig?.tencentLogConfig) {
+            const { decryptSensitiveFields } = await import(
+              "@/utils/encryption"
+            );
+            decryptedConfig.tencentLogConfig = await decryptSensitiveFields(
+              decryptedConfig.tencentLogConfig,
+              ["secretId", "secretKey"],
+            );
+          }
+
+          if (decryptedConfig) {
             // Load configuration details from MongoDB
-            applyLogConfig(data.config, {
+            applyLogConfig(decryptedConfig, {
               setTencentRegion,
               setTencentSecretId,
               setTencentSecretKey,
@@ -160,31 +185,33 @@ export function LogProviderTabContent() {
               setTencentTopicId: setTencentClsTopicId,
             });
 
-            // Store initial values
+            // Store initial values (use decrypted config)
             setInitialValues({
-              awsRegion: data.config.awsLogConfig?.region || "us-west-2",
+              awsRegion: decryptedConfig.awsLogConfig?.region || "us-west-2",
               tencentRegion:
-                data.config.tencentLogConfig?.region || "ap-hongkong",
-              tencentSecretId: data.config.tencentLogConfig?.secretId || "",
-              tencentSecretKey: data.config.tencentLogConfig?.secretKey || "",
-              tencentClsTopicId: data.config.tencentLogConfig?.clsTopicId || "",
-              jaegerEndpoint: data.config.jaegerLogConfig?.endpoint || "",
+                decryptedConfig.tencentLogConfig?.region || "ap-hongkong",
+              tencentSecretId: decryptedConfig.tencentLogConfig?.secretId || "",
+              tencentSecretKey:
+                decryptedConfig.tencentLogConfig?.secretKey || "",
+              tencentClsTopicId:
+                decryptedConfig.tencentLogConfig?.clsTopicId || "",
+              jaegerEndpoint: decryptedConfig.jaegerLogConfig?.endpoint || "",
             });
 
             // Load AWS region
-            if (data.config.awsLogConfig?.region) {
-              setAwsRegion(data.config.awsLogConfig.region);
+            if (decryptedConfig.awsLogConfig?.region) {
+              setAwsRegion(decryptedConfig.awsLogConfig.region);
             }
           }
 
-          const resolvedProvider = resolveSelectedProvider(data.config);
+          const resolvedProvider = resolveSelectedProvider(decryptedConfig);
           setSelectedProvider(resolvedProvider);
         } else if (response.status === 503) {
           // Server says MongoDB not available, load from localStorage
           setMongoAvailable(false);
 
           // Load all provider configs separately
-          const allConfigs = loadAllProviderConfigs("log");
+          const allConfigs = await loadAllProviderConfigs("log");
           if (allConfigs && Object.keys(allConfigs).length > 0) {
             applyLogConfig(allConfigs, {
               setTencentRegion,
@@ -418,7 +445,7 @@ export function LogProviderTabContent() {
           selectedProvider === "tencent" &&
           (tencentSecretId || tencentSecretKey || tencentClsTopicId)
         ) {
-          saveSpecificProviderConfig(
+          await saveSpecificProviderConfig(
             "log",
             selectedProvider,
             currentProviderConfig,
@@ -426,7 +453,7 @@ export function LogProviderTabContent() {
           // Save provider selection only when config is saved
           saveProviderSelection("log", selectedProvider);
         } else if (selectedProvider === "jaeger" && jaegerEndpoint) {
-          saveSpecificProviderConfig(
+          await saveSpecificProviderConfig(
             "log",
             selectedProvider,
             currentProviderConfig,
@@ -441,8 +468,17 @@ export function LogProviderTabContent() {
       }
 
       // For MongoDB, we need to merge all provider configs
-      const allConfigs = loadAllProviderConfigs("log");
-      const configData = { ...allConfigs, ...currentProviderConfig };
+      const allConfigs = await loadAllProviderConfigs("log");
+      let configData = { ...allConfigs, ...currentProviderConfig };
+
+      // Encrypt sensitive fields before sending to MongoDB
+      if (selectedProvider === "tencent" && configData.tencentLogConfig) {
+        const { encryptSensitiveFields } = await import("@/utils/encryption");
+        configData.tencentLogConfig = await encryptSensitiveFields(
+          configData.tencentLogConfig,
+          ["secretId", "secretKey"],
+        );
+      }
 
       // Save to MongoDB
       const payload: any = {
@@ -685,7 +721,19 @@ export function LogProviderTabContent() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="tencent-log-secret-id">Secret ID</Label>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="tencent-log-secret-id">Secret ID</Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <ShieldCheck className="h-4 w-4 text-green-600 dark:text-green-400 cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>
+                            This credential will be encrypted before storage
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
                     <div className="relative">
                       <Input
                         id="tencent-log-secret-id"
@@ -724,7 +772,19 @@ export function LogProviderTabContent() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="tencent-log-secret-key">Secret Key</Label>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="tencent-log-secret-key">Secret Key</Label>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <ShieldCheck className="h-4 w-4 text-green-600 dark:text-green-400 cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>
+                            This credential will be encrypted before storage
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
                     <div className="relative">
                       <Input
                         id="tencent-log-secret-key"
