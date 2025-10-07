@@ -102,4 +102,11 @@ class Operation(str, Enum):
     CONTAINS = "contains"
 
 
+class ObservabilityProviderType(str, Enum):
+    """Enumeration of supported observability provider types."""
+    AWS = "aws"
+    TENCENT = "tencent"
+    JAEGER = "jaeger"
+
+
 NO_TEMPERATURE_MODEL = {"gpt-5", "gpt-5-mini", "gpt-o4-mini"}
