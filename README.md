@@ -52,7 +52,7 @@ TraceRoot accelerates the debugging process with AI-powered insights. It integra
 
 ### TraceRoot Cloud (Recommended)
 
-The fastest and most reliable way to start with TraceRoot is by signing up for free to [TraceRoot Cloud](https://auth.traceroot.ai/) for a **7-day trial**.
+The fastest and most reliable way to start with TraceRoot is by signing up for free to [TraceRoot Cloud](https://prod1.traceroot.ai/sign-up) for a **7-day trial**.
 You’ll get:
 
 - **100k** traces + logs storage with **30-day retention**
