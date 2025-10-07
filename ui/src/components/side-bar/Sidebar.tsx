@@ -359,7 +359,7 @@ function ProfileComponent() {
 
   const handleSignOut = () => {
     logout();
-    window.location.href = "https://auth.traceroot.ai/";
+    window.location.href = "https://prod1.traceroot.ai/sign-in";
   };
 
   if (isLoading) {
@@ -493,7 +493,7 @@ function ProfileComponent() {
             {!user ? (
               <Button asChild className="mx-auto">
                 <a
-                  href="https://auth.traceroot.ai"
+                  href="https://prod1.traceroot.ai/sign-in"
                   target="_blank"
                   rel="noopener noreferrer"
                 >

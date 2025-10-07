@@ -49,7 +49,7 @@ export default function AuthGuard({ children }: AuthGuardProps) {
             </p>
             <Button asChild className="mx-auto">
               <a
-                href="https://auth.traceroot.ai"
+                href="https://prod1.traceroot.ai/sign-in"
                 target="_blank"
                 rel="noopener noreferrer"
               >
