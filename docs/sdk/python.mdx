@@ -16,7 +16,7 @@ Create a [TraceRoot token](https://test.traceroot.ai/integrate) from the dashboa
 
 ```bash .env
 # The token for the TraceRoot API
-TRACEROOT_TOKEN=traceroot-430246
+TRACEROOT_TOKEN=your_traceroot_token_here
 
 # The name of the service you are tracking
 TRACEROOT_SERVICE_NAME=traceroot
@@ -63,27 +63,57 @@ traceroot.init()
 
 Uses `@traceroot.trace()` for traces and TraceRoot logger similar to the default Python logger.
 
-If you specify the `name` parameter in the decorator, it will be used as the span name shown in the TraceRoot.AI platform.
-
 ```python
+import os
+from typing import Dict
+
 import traceroot
-import asyncio
+import uvicorn
+from dotenv import find_dotenv, load_dotenv
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
-logger = traceroot.get_logger()
+# Load environment variables
+dotenv_path = find_dotenv()
+if dotenv_path:
+    load_dotenv(dotenv_path)
 
-@traceroot.trace(name="greet")
-async def greet(name: str) -> str:
-    logger.info(f"Greeting inside traced function: {name}")
-    # Simulate some async work
-    await asyncio.sleep(0.1)
-    return f"Hello, {name}!"
+# Initialize TraceRoot
+traceroot.init()
+from traceroot.integrations.fastapi import connect_fastapi
+from traceroot.logger import get_logger
 
-async def main():
-    result = await greet("world")
-    logger.info(f"Greeting result: {result}")
+logger = get_logger()
+
+# Create FastAPI app and connect TraceRoot
+app = FastAPI(title="My TraceRoot App")
+connect_fastapi(app)
+
+class QueryRequest(BaseModel):
+    message: str
+
+@app.post("/process")
+@traceroot.trace()
+async def process_request(request: QueryRequest) -> Dict[str, str]:
+    logger.info(f"Processing request: {request.message}")
+    try:
+        # Your business logic here
+        result = await process_message(request.message)
+        logger.info("Request processed successfully")
+        return {"status": "success", "response": result}
+    except Exception as e:
+        logger.error(f"Error processing request: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+
+@traceroot.trace()
+async def process_message(message: str) -> str:
+    logger.info(f"Processing message: {message}")
+    # Simulate some work
+    processed = f"Processed: {message}"
+    return processed
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
 
 ## Development Installation
