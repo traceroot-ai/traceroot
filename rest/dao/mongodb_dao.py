@@ -90,3 +90,33 @@ class TraceRootMongoDBClient:
     ) -> dict[str,
               Any] | None:
         pass
+
+    async def get_trace_provider_config(
+        self,
+        user_email: str,
+    ) -> dict[str,
+              Any] | None:
+        """Get trace provider configuration for a user from MongoDB.
+
+        Args:
+            user_email (str): The user's email
+
+        Returns:
+            dict[str, Any] | None: The trace provider config if found, None otherwise
+        """
+        return None
+
+    async def get_log_provider_config(
+        self,
+        user_email: str,
+    ) -> dict[str,
+              Any] | None:
+        """Get log provider configuration for a user from MongoDB.
+
+        Args:
+            user_email (str): The user's email
+
+        Returns:
+            dict[str, Any] | None: The log provider config if found, None otherwise
+        """
+        return None

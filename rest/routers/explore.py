@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any
@@ -106,11 +105,11 @@ class ExploreRouter:
         self.cache = SimpleMemoryCache(ttl=60 * 10)
         self._setup_routes()
 
-    def get_observe_provider(self, request: Request) -> ObservabilityProvider:
+    async def get_observe_provider(self, request: Request) -> ObservabilityProvider:
         """Get observability provider based on request.
 
         For local mode, always use the default Jaeger provider.
-        For non-local mode, use default AWS provider unless request specifies Tencent.
+        For non-local mode, fetch provider configuration from request params and MongoDB.
 
         Args:
             request: FastAPI request object
@@ -121,15 +120,82 @@ class ExploreRouter:
         if self.local_mode:
             return self.default_observe_provider
 
-        # Check if request requires Tencent provider
-        # For now, check REST_OBSERVE_PROVIDER env var
-        # TODO: Check user settings from request to determine provider
-        provider_type = os.getenv("REST_OBSERVE_PROVIDER", "aws").lower()
+        # Extract provider parameters from request
+        query_params = request.query_params
+        trace_provider = query_params.get("trace_provider", "aws")
+        log_provider = query_params.get("log_provider", "aws")
+        trace_region = query_params.get("trace_region")
+        log_region = query_params.get("log_region")
 
-        if provider_type == "tencent":
-            return ObservabilityProvider.create_tencent_provider()
-        else:
-            return self.default_observe_provider
+        # Get user email to fetch MongoDB config
+        user_email, _, _ = get_user_credentials(request)
+
+        # Prepare configurations
+        trace_config: dict[str, Any] = {}
+        log_config: dict[str, Any] = {}
+
+        # For Tencent, fetch credentials from MongoDB
+        if trace_provider == "tencent":
+            trace_provider_config = await self.db_client.get_trace_provider_config(
+                user_email
+            )
+            if trace_provider_config and trace_provider_config.get("tencentTraceConfig"):
+                tencent_config = trace_provider_config["tencentTraceConfig"]
+                trace_config = {
+                    "region": trace_region or tencent_config.get("region",
+                                                                 "ap-hongkong"),
+                    "secret_id": tencent_config.get("secretId"),
+                    "secret_key": tencent_config.get("secretKey"),
+                    "apm_instance_id": tencent_config.get("apmInstanceId"),
+                }
+            else:
+                # Fallback to region only if no MongoDB config
+                trace_config = {"region": trace_region or "ap-hongkong"}
+        elif trace_provider == "aws":
+            trace_config = {"region": trace_region}
+        elif trace_provider == "jaeger":
+            # Fetch jaeger config from MongoDB if available
+            trace_provider_config = await self.db_client.get_trace_provider_config(
+                user_email
+            )
+            if trace_provider_config and trace_provider_config.get("jaegerTraceConfig"):
+                jaeger_config = trace_provider_config["jaegerTraceConfig"]
+                trace_config = {"url": jaeger_config.get("endpoint")}
+            else:
+                trace_config = {}
+
+        if log_provider == "tencent":
+            log_provider_config = await self.db_client.get_log_provider_config(user_email)
+            if log_provider_config and log_provider_config.get("tencentLogConfig"):
+                tencent_config = log_provider_config["tencentLogConfig"]
+                log_config = {
+                    "region": log_region or tencent_config.get("region",
+                                                               "ap-hongkong"),
+                    "secret_id": tencent_config.get("secretId"),
+                    "secret_key": tencent_config.get("secretKey"),
+                    "cls_topic_id": tencent_config.get("clsTopicId"),
+                }
+            else:
+                # Fallback to region only if no MongoDB config
+                log_config = {"region": log_region or "ap-hongkong"}
+        elif log_provider == "aws":
+            log_config = {"region": log_region}
+        elif log_provider == "jaeger":
+            # Fetch jaeger config from MongoDB if available
+            log_provider_config = await self.db_client.get_log_provider_config(user_email)
+            if log_provider_config and log_provider_config.get("jaegerLogConfig"):
+                jaeger_config = log_provider_config["jaegerLogConfig"]
+                log_config = {"url": jaeger_config.get("endpoint")}
+            else:
+                log_config = {}
+
+        # Create and return the provider
+        return ObservabilityProvider.create(
+            trace_provider=trace_provider,
+            log_provider=log_provider,
+            trace_config=trace_config,
+            log_config=log_config,
+        )
 
     def _setup_routes(self):
         r"""Set up API routes"""
@@ -341,7 +407,7 @@ class ExploreRouter:
         # If trace_id is provided, fetch that specific trace directly
         if trace_id:
             try:
-                observe_provider = self.get_observe_provider(request)
+                observe_provider = await self.get_observe_provider(request)
 
                 # Use the new get_trace_by_id method which handles everything
                 trace = await observe_provider.trace_client.get_trace_by_id(
@@ -435,7 +501,7 @@ class ExploreRouter:
             return resp.model_dump()
 
         try:
-            observe_provider = self.get_observe_provider(request)
+            observe_provider = await self.get_observe_provider(request)
             traces: list[Trace] = await observe_provider.trace_client.get_recent_traces(
                 start_time=start_time,
                 end_time=end_time,
@@ -554,7 +620,7 @@ class ExploreRouter:
             return resp.model_dump()
 
         try:
-            observe_provider = self.get_observe_provider(request)
+            observe_provider = await self.get_observe_provider(request)
             logs: TraceLogs = await observe_provider.log_client.get_logs_by_trace_id(
                 trace_id=req_data.trace_id,
                 start_time=req_data.start_time,
@@ -721,7 +787,7 @@ class ExploreRouter:
             is_github_pr = github_related.is_github_pr
 
         # Get the trace #######################################################
-        observe_provider = self.get_observe_provider(request)
+        observe_provider = await self.get_observe_provider(request)
         selected_trace: Trace | None = None
 
         # If we have a trace_id, fetch it directly
@@ -777,7 +843,7 @@ class ExploreRouter:
         keys = (trace_id, start_time, end_time, log_group_name)
         logs: TraceLogs | None = await self.cache.get(keys)
         if logs is None:
-            observe_provider = self.get_observe_provider(request)
+            observe_provider = await self.get_observe_provider(request)
             logs = await observe_provider.log_client.get_logs_by_trace_id(
                 trace_id=trace_id,
                 start_time=start_time,
@@ -1014,7 +1080,7 @@ class ExploreRouter:
 
         try:
             # Get comprehensive traces and logs data since the specified date
-            observe_provider = self.get_observe_provider(request)
+            observe_provider = await self.get_observe_provider(request)
             usage_data = await get_user_traces_and_logs_since_payment(
                 user_sub=user_sub,
                 last_payment_date=req_data.since_date,
@@ -1086,7 +1152,7 @@ class ExploreRouter:
             # from semicolon-separated logs
 
             # Single query to get all matching trace IDs
-            observe_provider = self.get_observe_provider(request)
+            observe_provider = await self.get_observe_provider(request)
             matching_trace_ids = \
                 await observe_provider.log_client.get_trace_ids_from_logs(
                     start_time=start_time,

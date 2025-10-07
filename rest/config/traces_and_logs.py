@@ -11,6 +11,10 @@ from pydantic import BaseModel, field_validator
 class GetTracesAndLogsSinceDateRequest(BaseModel):
     """Request model for getting traces and logs since a specific date."""
     since_date: datetime
+    trace_provider: str = "aws"
+    log_provider: str = "aws"
+    trace_region: str | None = None
+    log_region: str | None = None
 
     @field_validator('since_date')
     @classmethod

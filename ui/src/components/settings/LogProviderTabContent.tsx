@@ -70,6 +70,7 @@ export function LogProviderTabContent() {
   const [mongoAvailable, setMongoAvailable] = useState(true);
   const [showSecretId, setShowSecretId] = useState(false);
   const [showSecretKey, setShowSecretKey] = useState(false);
+  const [showClsTopicId, setShowClsTopicId] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
@@ -502,9 +503,9 @@ export function LogProviderTabContent() {
         return;
       }
 
-      // For MongoDB, we need to merge all provider configs
-      const allConfigs = await loadAllProviderConfigs("log");
-      let configData = { ...allConfigs, ...currentProviderConfig };
+      // For MongoDB, only send the current provider's config
+      // Don't merge with other providers from localStorage
+      let configData = { ...currentProviderConfig };
 
       // Encrypt sensitive fields before sending to MongoDB
       if (selectedProvider === "tencent" && configData.tencentLogConfig) {
@@ -869,22 +870,38 @@ export function LogProviderTabContent() {
                     <div className="relative">
                       <Input
                         id="tencent-cls-topic-id"
-                        type="text"
+                        type={showClsTopicId ? "text" : "password"}
                         placeholder="Enter your CLS Topic ID"
                         value={tencentClsTopicId}
                         onChange={(e) => setTencentClsTopicId(e.target.value)}
-                        className="pr-12"
+                        className="pr-20"
                       />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7"
-                        onClick={() => copyToClipboard(tencentClsTopicId)}
-                        disabled={!tencentClsTopicId}
-                      >
-                        <Copy size={14} />
-                      </Button>
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => setShowClsTopicId(!showClsTopicId)}
+                          disabled={!tencentClsTopicId}
+                        >
+                          {showClsTopicId ? (
+                            <EyeOff size={14} />
+                          ) : (
+                            <Eye size={14} />
+                          )}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => copyToClipboard(tencentClsTopicId)}
+                          disabled={!tencentClsTopicId}
+                        >
+                          <Copy size={14} />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-4 pt-2">
