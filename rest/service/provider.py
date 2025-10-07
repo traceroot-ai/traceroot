@@ -1,5 +1,8 @@
+from typing import Any
+
 from rest.service.log.log_client import LogClient
 from rest.service.trace.trace_client import TraceClient
+from rest.typing import ObservabilityProviderType
 
 try:
     from rest.service.log.ee.aws_log_client import AWSLogClient
@@ -19,11 +22,76 @@ from rest.service.log.jaeger_log_client import JaegerLogClient
 from rest.service.trace.jaeger_trace_client import JaegerTraceClient
 
 
+class ProviderFactory:
+    """Factory for creating log and trace client instances on-the-fly.
+
+    Creates fresh client instances for each request, supporting dynamic
+    provider selection (e.g., per-request Tencent logs with default AWS traces).
+    """
+
+    @staticmethod
+    def create_log_client(
+        provider: ObservabilityProviderType | str,
+        **kwargs: Any
+    ) -> LogClient:
+        """Create a fresh log client instance for the specified provider.
+
+        Args:
+            provider: Provider type (enum or string like 'aws', 'tencent', 'jaeger')
+            **kwargs: Provider-specific configuration
+
+        Returns:
+            New LogClient instance
+
+        Raises:
+            ValueError: If provider is not supported
+        """
+        provider = ObservabilityProviderType(provider)
+
+        if provider == ObservabilityProviderType.AWS:
+            return AWSLogClient(aws_region=kwargs.get('region'))
+        elif provider == ObservabilityProviderType.TENCENT:
+            return TencentLogClient(tencent_region=kwargs.get('region'))
+        elif provider == ObservabilityProviderType.JAEGER:
+            return JaegerLogClient(jaeger_url=kwargs.get('url'))
+        else:
+            raise ValueError(f"Unknown log provider: {provider}")
+
+    @staticmethod
+    def create_trace_client(
+        provider: ObservabilityProviderType | str,
+        **kwargs: Any
+    ) -> TraceClient:
+        """Create a fresh trace client instance for the specified provider.
+
+        Args:
+            provider: Provider type (enum or string like 'aws', 'tencent', 'jaeger')
+            **kwargs: Provider-specific configuration
+
+        Returns:
+            New TraceClient instance
+
+        Raises:
+            ValueError: If provider is not supported
+        """
+        provider = ObservabilityProviderType(provider)
+
+        if provider == ObservabilityProviderType.AWS:
+            return AWSTraceClient(aws_region=kwargs.get('region'))
+        elif provider == ObservabilityProviderType.TENCENT:
+            return TencentTraceClient(tencent_region=kwargs.get('region'))
+        elif provider == ObservabilityProviderType.JAEGER:
+            return JaegerTraceClient(jaeger_url=kwargs.get('url'))
+        else:
+            raise ValueError(f"Unknown trace provider: {provider}")
+
+
 class ObservabilityProvider:
     """Unified provider that composes log and trace clients.
 
-    This class provides a single interface to access both log and trace
-    operations from different observability backends.
+    Supports dynamic, per-request provider selection. Creates fresh client
+    instances for each request, allowing mixed providers
+    (e.g., Tencent logs + AWS traces).
     """
 
     def __init__(
@@ -41,6 +109,60 @@ class ObservabilityProvider:
         self.trace_client = trace_client
 
     @classmethod
+    def create(
+        cls,
+        log_provider: ObservabilityProviderType | str = 'aws',
+        trace_provider: ObservabilityProviderType | str = 'aws',
+        log_config: dict[str,
+                         Any] | None = None,
+        trace_config: dict[str,
+                           Any] | None = None,
+    ) -> "ObservabilityProvider":
+        """Create an observability provider with fresh client instances.
+
+        Args:
+            log_provider: Log provider (enum or string: 'aws', 'tencent', 'jaeger')
+            trace_provider: Trace provider (enum or string: 'aws', 'tencent', 'jaeger')
+            log_config: Configuration dict for log provider
+            trace_config: Configuration dict for trace provider
+
+        Returns:
+            ObservabilityProvider instance with fresh client instances
+
+        Examples:
+            # Default: AWS for both
+            provider = ObservabilityProvider.create()
+
+            # Tencent logs + AWS traces (string)
+            provider = ObservabilityProvider.create(
+                log_provider='tencent',
+                log_config={'region': 'ap-guangzhou'}
+            )
+
+            # Tencent logs + AWS traces (enum)
+            provider = ObservabilityProvider.create(
+                log_provider=ObservabilityProviderType.TENCENT,
+                log_config={'region': 'ap-guangzhou'}
+            )
+
+            # Jaeger for both (local mode)
+            provider = ObservabilityProvider.create(
+                log_provider='jaeger',
+                trace_provider='jaeger',
+                log_config={'url': 'http://localhost:16686'},
+                trace_config={'url': 'http://localhost:16686'}
+            )
+        """
+        log_config = log_config or {}
+        trace_config = trace_config or {}
+
+        # Create fresh client instances for each request
+        log_client = ProviderFactory.create_log_client(log_provider, **log_config)
+        trace_client = ProviderFactory.create_trace_client(trace_provider, **trace_config)
+
+        return cls(log_client=log_client, trace_client=trace_client)
+
+    @classmethod
     def create_aws_provider(
         cls,
         aws_region: str | None = None,
@@ -53,9 +175,12 @@ class ObservabilityProvider:
         Returns:
             ObservabilityProvider configured for AWS
         """
-        log_client = AWSLogClient(aws_region=aws_region)
-        trace_client = AWSTraceClient(aws_region=aws_region)
-        return cls(log_client=log_client, trace_client=trace_client)
+        return cls.create(
+            log_provider='aws',
+            trace_provider='aws',
+            log_config={'region': aws_region},
+            trace_config={'region': aws_region}
+        )
 
     @classmethod
     def create_tencent_provider(
@@ -70,9 +195,12 @@ class ObservabilityProvider:
         Returns:
             ObservabilityProvider configured for Tencent
         """
-        log_client = TencentLogClient(tencent_region=tencent_region)
-        trace_client = TencentTraceClient(tencent_region=tencent_region)
-        return cls(log_client=log_client, trace_client=trace_client)
+        return cls.create(
+            log_provider='tencent',
+            trace_provider='tencent',
+            log_config={'region': tencent_region},
+            trace_config={'region': tencent_region}
+        )
 
     @classmethod
     def create_jaeger_provider(
@@ -87,7 +215,9 @@ class ObservabilityProvider:
         Returns:
             ObservabilityProvider configured for Jaeger
         """
-        # Jaeger clients share the same URL
-        log_client = JaegerLogClient(jaeger_url=jaeger_url)
-        trace_client = JaegerTraceClient(jaeger_url=jaeger_url)
-        return cls(log_client=log_client, trace_client=trace_client)
+        return cls.create(
+            log_provider='jaeger',
+            trace_provider='jaeger',
+            log_config={'url': jaeger_url},
+            trace_config={'url': jaeger_url}
+        )
