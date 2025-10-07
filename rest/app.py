@@ -15,7 +15,7 @@ try:
 except ImportError:
     from rest.routers.verify import VerifyRouter
 
-version = "0.1.2"
+version = "0.1.3"
 
 
 class App:
