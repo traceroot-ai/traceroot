@@ -51,7 +51,12 @@ class ProviderFactory:
         if provider == ObservabilityProviderType.AWS:
             return AWSLogClient(aws_region=kwargs.get('region'))
         elif provider == ObservabilityProviderType.TENCENT:
-            return TencentLogClient(tencent_region=kwargs.get('region'))
+            return TencentLogClient(
+                tencent_region=kwargs.get('region'),
+                secret_id=kwargs.get('secret_id'),
+                secret_key=kwargs.get('secret_key'),
+                cls_topic_id=kwargs.get('cls_topic_id')
+            )
         elif provider == ObservabilityProviderType.JAEGER:
             return JaegerLogClient(jaeger_url=kwargs.get('url'))
         else:
@@ -79,7 +84,12 @@ class ProviderFactory:
         if provider == ObservabilityProviderType.AWS:
             return AWSTraceClient(aws_region=kwargs.get('region'))
         elif provider == ObservabilityProviderType.TENCENT:
-            return TencentTraceClient(tencent_region=kwargs.get('region'))
+            return TencentTraceClient(
+                tencent_region=kwargs.get('region'),
+                secret_id=kwargs.get('secret_id'),
+                secret_key=kwargs.get('secret_key'),
+                apm_instance_id=kwargs.get('apm_instance_id')
+            )
         elif provider == ObservabilityProviderType.JAEGER:
             return JaegerTraceClient(jaeger_url=kwargs.get('url'))
         else:

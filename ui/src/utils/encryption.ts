@@ -38,11 +38,9 @@
  * Get encryption key from environment or use default for local mode
  */
 const getEncryptionSecret = (): string => {
-  // For local mode, use "LOCAL" as the secret
-  // For production, set SECRET_ENCRYPT_KEY environment variable
-  if (typeof process !== "undefined" && process.env?.SECRET_ENCRYPT_KEY) {
-    return process.env.SECRET_ENCRYPT_KEY;
-  }
+  // Always use "LOCAL" for now since client-side encryption key
+  // cannot be truly secret in browser environment
+  // TODO: Move encryption to server-side for better security
   return "LOCAL";
 };
 
@@ -100,16 +98,15 @@ export async function encryptValue(value: string): Promise<string> {
     // Generate random IV (16 bytes for AES)
     const iv = crypto.getRandomValues(new Uint8Array(16));
 
-    // Encode and pad the data
+    // Encode the data (no manual padding needed - Web Crypto API handles it)
     const encoder = new TextEncoder();
     const data = encoder.encode(value);
-    const paddedData = addPadding(data);
 
-    // Encrypt (use the buffer from Uint8Array)
+    // Encrypt (Web Crypto API automatically applies PKCS7 padding)
     const encrypted = await crypto.subtle.encrypt(
       { name: "AES-CBC", iv: iv.buffer as ArrayBuffer },
       key,
-      paddedData.buffer as ArrayBuffer,
+      data.buffer as ArrayBuffer,
     );
 
     // Combine IV and encrypted data
@@ -153,19 +150,16 @@ export async function decryptValue(encryptedValue: string): Promise<string> {
     const iv = combined.slice(0, 16);
     const data = combined.slice(16);
 
-    // Decrypt (use the buffer from Uint8Array)
+    // Decrypt (Web Crypto API automatically removes PKCS7 padding)
     const decrypted = await crypto.subtle.decrypt(
       { name: "AES-CBC", iv: iv.buffer as ArrayBuffer },
       key,
       data.buffer as ArrayBuffer,
     );
 
-    // Remove padding
-    const unpaddedData = removePadding(new Uint8Array(decrypted));
-
-    // Decode to string
+    // Decode to string (no manual unpadding needed)
     const decoder = new TextDecoder();
-    return decoder.decode(unpaddedData);
+    return decoder.decode(decrypted);
   } catch (e) {
     console.error("Error decrypting data:", e);
     return "";
