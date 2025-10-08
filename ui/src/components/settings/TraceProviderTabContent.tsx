@@ -8,6 +8,7 @@ import {
   EyeOff,
   ShieldCheck,
 } from "lucide-react";
+import { useAuth } from "@clerk/nextjs";
 import { FaAws } from "react-icons/fa";
 import { BsTencentQq } from "react-icons/bs";
 import { SiJaeger } from "react-icons/si";
@@ -48,12 +49,11 @@ import {
   writeProvidersToURL,
   readProvidersFromURL,
 } from "@/utils/provider";
-import { useUser } from "@/hooks/useUser";
 
 type TraceProvider = "aws" | "tencent" | "jaeger";
 
 export function TraceProviderTabContent() {
-  const { getAuthState } = useUser();
+  const { getToken } = useAuth();
   const [selectedProvider, setSelectedProvider] =
     useState<TraceProvider>("aws");
   const isUpdatingRef = useRef(false);
@@ -154,7 +154,7 @@ export function TraceProviderTabContent() {
         };
 
         // Try to fetch from API - server will tell us if MongoDB is available
-        const authToken = getAuthState();
+        const authToken = await getToken();
         const response = await fetch(
           `/api/provider-config?userEmail=${encodeURIComponent(userEmail)}`,
           {
@@ -528,7 +528,7 @@ export function TraceProviderTabContent() {
         ...configData,
       };
 
-      const authToken = getAuthState();
+      const authToken = await getToken();
       const response = await fetch("/api/provider-config", {
         method: "POST",
         headers: {
@@ -608,7 +608,7 @@ export function TraceProviderTabContent() {
       }
 
       // Delete from MongoDB
-      const authToken = getAuthState();
+      const authToken = await getToken();
       const response = await fetch(
         `/api/provider-config?userEmail=${encodeURIComponent(
           userEmail,

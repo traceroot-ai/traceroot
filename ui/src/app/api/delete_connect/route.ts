@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createBackendAuthHeaders } from "@/lib/server-auth-headers";
 
 interface DeleteIntegrationRequest {
   resource_type: string;
@@ -13,26 +14,21 @@ export async function DELETE(
   request: Request,
 ): Promise<NextResponse<DeleteIntegrationResponse>> {
   try {
-    // Get user_secret from middleware-processed header
-    const user_secret = request.headers.get("x-user-token") || "";
-
     // Parse the request body to get resource_type
     const { resource_type }: DeleteIntegrationRequest = await request.json();
 
-    // Check if REST_API_ENDPOINT environment variable is set
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
 
     if (restApiEndpoint) {
-      // Use REST API endpoint
       try {
-        // Construct the API URL
+        // Get auth headers (automatically uses Clerk's auth() and currentUser())
+        const headers = await createBackendAuthHeaders();
+
         const apiUrl = `${restApiEndpoint}/v1/integrate`;
+
         const response = await fetch(apiUrl, {
           method: "DELETE",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${user_secret}`,
-          },
+          headers,
           body: JSON.stringify({ resource_type }),
         });
 

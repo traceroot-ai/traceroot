@@ -8,7 +8,7 @@ import React, {
 import { GoHistory } from "react-icons/go";
 import { Plus, X, Check, Download } from "lucide-react";
 import { ChatMetadata, ChatMetadataHistory } from "@/models/chat";
-import { useUser } from "@/hooks/useUser";
+import { useAuth } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/shadcn-io/spinner";
 import {
@@ -73,7 +73,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
     },
     ref,
   ) => {
-    const { getAuthState } = useUser();
+    const { getToken } = useAuth();
     const [chatMetadata, setChatMetadata] = useState<ChatMetadata | null>(null);
     const [displayedTitle, setDisplayedTitle] = useState<string>("");
     const [isAnimating, setIsAnimating] = useState(false);
@@ -87,11 +87,12 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
 
       setIsLoadingHistory(true);
       try {
+        const token = await getToken();
         const response = await fetch(
           `/api/get_chat_metadata_history?trace_id=${encodeURIComponent(traceId)}`,
           {
             headers: {
-              Authorization: `Bearer ${getAuthState()}`,
+              Authorization: `Bearer ${token}`,
             },
           },
         );
@@ -125,11 +126,12 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
       }
 
       try {
+        const token = await getToken();
         const response = await fetch(
           `/api/get_chat_metadata?chat_id=${encodeURIComponent(activeChatId)}`,
           {
             headers: {
-              Authorization: `Bearer ${getAuthState()}`,
+              Authorization: `Bearer ${token}`,
             },
           },
         );

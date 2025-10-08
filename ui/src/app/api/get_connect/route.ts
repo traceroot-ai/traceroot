@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ResourceType } from "@/models/integrate";
+import { createBackendAuthHeaders } from "@/lib/server-auth-headers";
 
 interface GetIntegrationResponse {
   success: boolean;
@@ -7,14 +8,14 @@ interface GetIntegrationResponse {
   error?: string;
 }
 
+/**
+ * GET /api/get_connect
+ * Fetches integration tokens for a specific resource type
+ */
 export async function GET(
   request: Request,
 ): Promise<NextResponse<GetIntegrationResponse>> {
   try {
-    // Get user_secret from middleware-processed header
-    const user_secret = request.headers.get("x-user-token") || "";
-
-    // Parse query parameters from the URL
     const url = new URL(request.url);
     const resourceType = url.searchParams.get("resourceType") as ResourceType;
 
@@ -28,20 +29,17 @@ export async function GET(
       );
     }
 
-    // Check if REST_API_ENDPOINT environment variable is set
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
 
     if (restApiEndpoint) {
-      // Use REST API endpoint
       try {
-        // Construct the API URL with query parameters
+        // Get auth headers (automatically uses Clerk's auth() and currentUser())
+        const headers = await createBackendAuthHeaders();
+
         const apiUrl = `${restApiEndpoint}/v1/integrate?resourceType=${encodeURIComponent(resourceType)}`;
         const response = await fetch(apiUrl, {
           method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${user_secret}`,
-          },
+          headers,
         });
 
         if (!response.ok) {
@@ -71,14 +69,10 @@ export async function GET(
       }
     }
 
-    // Fallback: Simulate successful integration (for development/testing)
-    console.log(
-      "No REST API endpoint specified, simulating successful integration",
-    );
-
+    // Fallback: No REST API endpoint configured
     return NextResponse.json({
       success: true,
-      token: null, // No token found in fallback mode
+      token: null,
     });
   } catch (error: unknown) {
     console.error("Error processing get integration request:", error);

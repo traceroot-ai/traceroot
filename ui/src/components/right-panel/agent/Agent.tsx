@@ -12,7 +12,7 @@ import {
   ChatHistoryResponse,
   Reference,
 } from "@/models/chat";
-import { useUser } from "@/hooks/useUser";
+import { useAuth } from "@clerk/nextjs";
 import { generateUuidHex } from "@/utils/uuid";
 import TopBar, { TopBarRef } from "./TopBar";
 import { ChatReasoning } from "./chat-reasoning";
@@ -66,7 +66,7 @@ export default function Agent({
     useState<Provider>(DEFAULT_PROVIDER);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const topBarRef = useRef<TopBarRef>(null);
-  const { getAuthState } = useUser();
+  const { getToken } = useAuth();
 
   // Get current active chat
   const activeChat =
@@ -233,11 +233,12 @@ export default function Agent({
 
       try {
         // Fetch the chat history for each selected chat
+        const token = await getToken();
         const response = await fetch(
           `/api/get_chat_history?chat_id=${encodeURIComponent(chatId)}`,
           {
             headers: {
-              Authorization: `Bearer ${getAuthState()}`,
+              Authorization: `Bearer ${token}`,
             },
           },
         );
@@ -295,11 +296,12 @@ export default function Agent({
 
           // Get chat title from metadata
           try {
+            const token = await getToken();
             const metadataResponse = await fetch(
               `/api/get_chat_metadata?chat_id=${encodeURIComponent(chatId)}`,
               {
                 headers: {
-                  Authorization: `Bearer ${getAuthState()}`,
+                  Authorization: `Bearer ${token}`,
                 },
               },
             );
@@ -380,11 +382,12 @@ export default function Agent({
     // Function to fetch chat history and filter for GitHub and statistics messages
     const fetchSpecialMessages = async () => {
       try {
+        const token = await getToken();
         const historyResponse = await fetch(
           `/api/get_chat_history?chat_id=${encodeURIComponent(currentChatId!)}`,
           {
             headers: {
-              Authorization: `Bearer ${getAuthState()}`,
+              Authorization: `Bearer ${token}`,
             },
           },
         );
@@ -499,11 +502,12 @@ export default function Agent({
         provider: selectedProvider,
       };
 
+      const token = await getToken();
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${getAuthState()}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(chatRequest),
       });

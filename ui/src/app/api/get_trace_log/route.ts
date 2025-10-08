@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { TraceLog } from "@/models/log";
-import { appendProviderParams } from "@/utils/provider";
+import { createBackendAuthHeaders } from "@/lib/server-auth-headers";
 
 export interface LogResponse {
   success: boolean;
@@ -14,7 +14,6 @@ async function fetchLogsFromRestAPI(
   traceId: string,
   startTime: string | null,
   endTime: string | null,
-  userSecret: string,
   logGroupName?: string,
   traceProvider?: string,
   traceRegion?: string,
@@ -42,13 +41,24 @@ async function fetchLogsFromRestAPI(
     url.searchParams.append("log_group_name", logGroupName);
   }
 
-  // Add provider information (required providers, optional regions)
-  appendProviderParams(url, traceProvider, traceRegion, logProvider, logRegion);
+  // Add provider parameters if provided
+  if (traceProvider) {
+    url.searchParams.append("trace_provider", traceProvider);
+  }
+  if (traceRegion) {
+    url.searchParams.append("trace_region", traceRegion);
+  }
+  if (logProvider) {
+    url.searchParams.append("log_provider", logProvider);
+  }
+  if (logRegion) {
+    url.searchParams.append("log_region", logRegion);
+  }
 
+  // Get auth headers (automatically uses Clerk's auth() and currentUser())
+  const headers = await createBackendAuthHeaders();
   const response = await fetch(url.toString(), {
-    headers: {
-      Authorization: `Bearer ${userSecret}`,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -100,9 +110,6 @@ export async function GET(
   request: Request,
 ): Promise<NextResponse<LogResponse>> {
   try {
-    // Get user_secret from middleware-processed header
-    const userSecret = request.headers.get("x-user-token") || "";
-
     const { searchParams } = new URL(request.url);
     const traceId = searchParams.get("traceId");
     const startTime = searchParams.get("start_time");
@@ -140,7 +147,6 @@ export async function GET(
         traceId,
         startTime,
         endTime,
-        userSecret,
         logGroupName,
         traceProvider,
         traceRegion,

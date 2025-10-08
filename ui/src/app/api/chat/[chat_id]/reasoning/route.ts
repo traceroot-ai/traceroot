@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createBackendAuthHeaders } from "@/lib/server-auth-headers";
 
 interface ReasoningData {
   chunk_id: number;
@@ -24,21 +25,17 @@ export async function GET(
       return NextResponse.json(null, { status: 400 });
     }
 
-    // Get user_secret from middleware-processed header
-    const userSecret = request.headers.get("x-user-token") || "";
-
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
 
     if (restApiEndpoint) {
       try {
-        const apiUrl = `${restApiEndpoint}/v1/explore/chat/${encodeURIComponent(chat_id)}/reasoning`;
+        // Get auth headers (automatically uses Clerk's auth() and currentUser())
+        const headers = await createBackendAuthHeaders();
 
+        const apiUrl = `${restApiEndpoint}/v1/explore/chat/${encodeURIComponent(chat_id)}/reasoning`;
         const apiResponse = await fetch(apiUrl, {
           method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${userSecret}`,
-          },
+          headers,
         });
 
         if (!apiResponse.ok) {

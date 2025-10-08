@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useUser } from "../../hooks/useUser";
+import { useUser } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import { useCustomer } from "autumn-js/react";
 import { toast } from "react-hot-toast";
 import { SettingsSidebar } from "./SettingsSidebar";
@@ -23,26 +24,36 @@ export function SettingsContainer() {
   const isLocalMode = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
 
   const router = useRouter();
-  const {
-    user,
-    isLoading: userLoading,
-    getAuthState,
-  } = isLocalMode
-    ? { user: null, isLoading: false, getAuthState: () => null }
-    : useUser();
-  const {
-    customer,
-    isLoading: customerLoading,
-    error: customerError,
-    openBillingPortal,
-  } = isLocalMode
+
+  // Always call hooks to maintain consistent hook order
+  const { user: clerkUser, isLoaded: clerkLoaded } = useUser();
+  const { getToken } = useAuth();
+
+  // Map Clerk user to legacy user format
+  const rawUser = clerkUser
     ? {
-        customer: null,
-        isLoading: false,
-        error: null,
-        openBillingPortal: async () => {},
+        email: clerkUser.emailAddresses?.[0]?.emailAddress,
+        user_id: clerkUser.id,
       }
-    : useCustomer();
+    : null;
+  const rawUserLoading = !clerkLoaded;
+  const rawGetAuthState = async () => await getToken();
+
+  const {
+    customer: rawCustomer,
+    isLoading: rawCustomerLoading,
+    error: rawCustomerError,
+    openBillingPortal: rawOpenBillingPortal,
+  } = useCustomer();
+
+  // Override values when payment is disabled
+  const user = isLocalMode ? null : rawUser;
+  const userLoading = isLocalMode ? false : rawUserLoading;
+  const getAuthState = isLocalMode ? () => null : rawGetAuthState;
+  const customer = isLocalMode ? null : rawCustomer;
+  const customerLoading = isLocalMode ? false : rawCustomerLoading;
+  const customerError = isLocalMode ? null : rawCustomerError;
+  const openBillingPortal = isLocalMode ? async () => {} : rawOpenBillingPortal;
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [tracesAndLogsData, setTracesAndLogsData] = useState<any>(null);
@@ -103,7 +114,7 @@ export function SettingsContainer() {
   const fetchTracesAndLogsUsage = async () => {
     try {
       setIsLoadingTracesAndLogs(true);
-      const authState = getAuthState();
+      const authState = await getAuthState();
 
       if (!authState || !customer?.products) {
         setIsLoadingTracesAndLogs(false);

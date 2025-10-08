@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { Trace, TraceResponse } from "@/models/trace";
+import { getAuthTokenAndHeaders, createFetchHeaders } from "@/lib/clerk-auth";
 
 const FETCH_TIMEOUT = 30000; // 30 seconds
 
@@ -9,8 +10,18 @@ export async function GET(
   request: Request,
 ): Promise<NextResponse<TraceResponse>> {
   try {
-    // Get user_secret from middleware-processed header
-    const userSecret = request.headers.get("x-user-token") || "";
+    const authResult = await getAuthTokenAndHeaders(request);
+
+    if (!authResult) {
+      return NextResponse.json(
+        {
+          success: false,
+          data: [],
+          error: "Authentication required. Please sign in.",
+        },
+        { status: 401 },
+      );
+    }
 
     // Get URL parameters
     const { searchParams } = new URL(request.url);
@@ -93,10 +104,7 @@ export async function GET(
 
         const response = await fetch(apiUrl, {
           method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${userSecret}`,
-          },
+          headers: createFetchHeaders(authResult),
           signal: controller.signal,
         });
 

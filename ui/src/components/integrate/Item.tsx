@@ -8,7 +8,7 @@ import { SiNotion, SiSlack, SiOpenai, SiAnthropic } from "react-icons/si";
 import { FaCheck } from "react-icons/fa";
 import { Integration } from "@/types/integration";
 import { TokenResource, ResourceType } from "@/models/integrate";
-import { useUser } from "@/hooks/useUser";
+import { useAuth } from "@clerk/nextjs";
 import {
   Card,
   CardHeader,
@@ -36,7 +36,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
   const [displayToken, setDisplayToken] = useState<string>("");
   const [isEditing, setIsEditing] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
-  const { user, getAuthState } = useUser();
+  const { getToken } = useAuth();
 
   // Initialize display token from integration
   useEffect(() => {
@@ -119,7 +119,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
 
   const handleGenerateToken = async () => {
     // Check if user is authenticated (skip if in local mode)
-    const authState = getAuthState();
+    const authState = await getToken();
     // Show error if there is no NEXT_PUBLIC_LOCAL_MODE or
     // NEXT_PUBLIC_LOCAL_MODE is not set or not 'true', and no authState
     if (
@@ -142,7 +142,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${authState}`,
+          // Note: No Authorization header needed - Clerk uses cookies
         },
         body: JSON.stringify({
           token: null,
@@ -193,7 +193,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
     }
 
     // Check if user is authenticated (skip if in local mode)
-    const authState = getAuthState();
+    const authState = await getToken();
     // Show error if there is no NEXT_PUBLIC_LOCAL_MODE or
     // NEXT_PUBLIC_LOCAL_MODE is not set or not 'true', and no authState
     if (
@@ -220,7 +220,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${authState}`,
+          // Note: No Authorization header needed - Clerk uses cookies
         },
         body: JSON.stringify(tokenResource),
       });
@@ -267,7 +267,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
       return;
     }
 
-    const authState = getAuthState();
+    const authState = await getToken();
     // Show error if there is no NEXT_PUBLIC_LOCAL_MODE or
     // NEXT_PUBLIC_LOCAL_MODE is not set or not 'true', and no authState
     if (
@@ -289,7 +289,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${authState}`,
+          // Note: No Authorization header needed - Clerk uses cookies
         },
         body: JSON.stringify({
           resource_type: getResourceType(integration.id),

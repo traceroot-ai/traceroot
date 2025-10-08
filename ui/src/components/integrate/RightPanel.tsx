@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Item from "./Item";
 import { Integration } from "@/types/integration";
-import { useUser } from "@/hooks/useUser";
+import { useUser } from "@clerk/nextjs";
 import { ResourceType } from "@/models/integrate";
 
 const initialIntegrations: Integration[] = [
@@ -72,33 +72,19 @@ const initialIntegrations: Integration[] = [
 export default function RightPanel() {
   const [integrations, setIntegrations] =
     useState<Integration[]>(initialIntegrations);
-  const { user, getAuthState } = useUser();
+  const { user } = useUser();
 
   // Function to fetch token for a specific integration
   const fetchIntegrationToken = async (
     resourceType: ResourceType,
   ): Promise<string | null> => {
     try {
-      const user_secret = getAuthState();
-      if (
-        (!process.env.NEXT_PUBLIC_LOCAL_MODE ||
-          process.env.NEXT_PUBLIC_LOCAL_MODE !== "true") &&
-        !user_secret
-      ) {
-        console.warn(
-          "No user secret found, skipping token fetch for:",
-          resourceType,
-        );
-        return null;
-      }
-
       const response = await fetch(
         `/api/get_connect?resourceType=${resourceType}`,
         {
           method: "GET",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${user_secret}`,
           },
         },
       );

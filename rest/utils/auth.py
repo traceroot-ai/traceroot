@@ -4,14 +4,6 @@ from typing import Any
 from fastapi import Request
 
 
-def decode_user_email_from_secret(user_secret: str) -> str:
-    pass
-
-
-def decode_user_sub_from_secret(user_secret: str) -> str:
-    pass
-
-
 def get_user_credentials(request: Request) -> tuple[str, str, str]:
     fake_email = "user@example.com"
     fake_secret = "fake_secret"
@@ -26,10 +18,6 @@ def hash_user_sub(user_sub: str) -> str:
 
 
 def generate_traceroot_token() -> str:
-    pass
-
-
-def verify_cognito_token(token: str, token_use: str = "access"):
     pass
 
 

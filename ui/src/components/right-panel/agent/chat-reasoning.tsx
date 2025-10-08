@@ -5,7 +5,7 @@ import {
   ReasoningContent,
   ReasoningTrigger,
 } from "@/components/ui/shadcn-io/ai/reasoning";
-import { useUser } from "@/hooks/useUser";
+import { useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { processReasoningChunks } from "@/utils/streamingParser";
 
@@ -31,7 +31,7 @@ export const ChatReasoning = ({
   userMessageTimestamp,
   nextMessageTimestamp,
 }: ChatReasoningProps) => {
-  const { getAuthState } = useUser();
+  const { getToken } = useAuth();
   const [reasoningData, setReasoningData] = useState<ReasoningData[]>([]);
   const [hasReasoningData, setHasReasoningData] = useState(false);
   const [shouldPoll, setShouldPoll] = useState(false);
@@ -83,11 +83,12 @@ export const ChatReasoning = ({
 
     try {
       // Fetch reasoning data from the Next.js API route
+      const token = await getToken();
       const response = await fetch(
         `/api/chat/${chatId}/reasoning?t=${Date.now()}`,
         {
           headers: {
-            Authorization: `Bearer ${getAuthState()}`,
+            Authorization: `Bearer ${token}`,
           },
           cache: "no-store",
         },
@@ -149,7 +150,7 @@ export const ChatReasoning = ({
       setShouldPoll(false);
       setPollStartTime(null);
     }
-  }, [chatId, getAuthState]);
+  }, [chatId, getToken]);
 
   // Store the latest fetchReasoningData function in a ref
   fetchReasoningDataRef.current = fetchReasoningData;

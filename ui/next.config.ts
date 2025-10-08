@@ -16,12 +16,12 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-              "style-src 'self' 'unsafe-inline'",
-              "img-src 'self' data: https: http:",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.accounts.dev https://clerk.traceroot.ai https://challenges.cloudflare.com",
+              "style-src 'self' 'unsafe-inline' https://*.clerk.accounts.dev https://clerk.traceroot.ai",
+              "img-src 'self' data: https: http: https://*.clerk.accounts.dev https://clerk.traceroot.ai https://*.clerk.com",
               "font-src 'self' data:",
-              "connect-src 'self' https: http: ws: wss:",
-              "frame-src https: http:", // Block data:, javascript:, file: protocols
+              "connect-src 'self' https: http: ws: wss: https://*.clerk.accounts.dev https://clerk.traceroot.ai https://*.clerk.com",
+              "frame-src https: http: https://*.clerk.accounts.dev https://clerk.traceroot.ai", // Block data:, javascript:, file: protocols
             ].join("; "),
           },
         ],

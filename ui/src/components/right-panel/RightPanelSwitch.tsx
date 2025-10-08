@@ -6,7 +6,7 @@ import Agent from "./agent/Agent";
 import TracePanelSwitch from "./trace/TracePanelSwitch";
 import ModeToggle, { ViewType } from "./ModeToggle";
 import { Span, Trace as TraceModel } from "@/models/trace";
-import { useUser } from "@/hooks/useUser";
+import { useAuth } from "@clerk/nextjs";
 
 interface RightPanelSwitchProps {
   traceId?: string;
@@ -35,7 +35,7 @@ export default function RightPanelSwitch({
   onTraceSpansUpdate,
   onSpanSelect,
 }: RightPanelSwitchProps) {
-  const { getAuthState } = useUser();
+  const { getToken } = useAuth();
   const [viewType, setViewType] = useState<ViewType>("log");
   const [spans, setSpans] = useState<Span[] | undefined>(undefined);
   const [traceDurations, setTraceDurations] = useState<number[]>([]);
