@@ -12,7 +12,6 @@ import {
   PercentileKey,
 } from "@/constants/colors";
 import { fadeInAnimationStyles } from "@/constants/animations";
-import { useUser } from "@/hooks/useUser";
 import { IoWarningOutline, IoLogoJavascript } from "react-icons/io5";
 import { MdErrorOutline } from "react-icons/md";
 import { FaPython, FaJava } from "react-icons/fa";
@@ -105,7 +104,6 @@ export const Trace: React.FC<TraceProps> = ({
   traceQueryStartTime,
   traceQueryEndTime,
 }) => {
-  const { getAuthState } = useUser();
   const [traces, setTraces] = useState<TraceType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -200,11 +198,7 @@ export const Trace: React.FC<TraceProps> = ({
           apiUrl += `&operations=${encodeURIComponent(criterion.operation)}`;
         });
 
-        const response = await fetch(apiUrl, {
-          headers: {
-            Authorization: `Bearer ${getAuthState()}`,
-          },
-        });
+        const response = await fetch(apiUrl);
         const result = await response.json();
 
         if (!result.success) {

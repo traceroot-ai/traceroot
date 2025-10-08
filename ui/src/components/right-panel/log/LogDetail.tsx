@@ -10,7 +10,8 @@ import { fadeInAnimationStyles } from "@/constants/animations";
 import ShowCodeToggle from "./ShowCodeToggle";
 import CodeContext from "./CodeContext";
 import { ViewType } from "../ModeToggle";
-import { useUser } from "@/hooks/useUser";
+import { useUser } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/shadcn-io/spinner";
@@ -45,7 +46,7 @@ export default function LogDetail({
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(
     new Set(),
   );
-  const { getAuthState } = useUser();
+  const { getToken } = useAuth();
 
   useEffect(() => {
     // Inject styles on client side only
@@ -126,9 +127,10 @@ export default function LogDetail({
           logRegion,
         );
 
+        const token = await getToken();
         const response = await fetch(url.toString(), {
           headers: {
-            Authorization: `Bearer ${getAuthState()}`,
+            Authorization: `Bearer ${token}`,
           },
         });
         const result = await response.json();

@@ -5,12 +5,17 @@ import { useCustomer } from "autumn-js/react";
 const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
 
 export function useSubscription() {
-  // Only use useCustomer hook when payment is not disabled
-  const customerData = DISABLE_PAYMENT
-    ? { customer: null, isLoading: false, error: null }
-    : useCustomer();
+  // Always call useCustomer to maintain consistent hook order
+  // Override the values when payment is disabled
+  const {
+    customer: rawCustomer,
+    isLoading: rawIsLoading,
+    error: rawError,
+  } = useCustomer();
 
-  const { customer, isLoading, error } = customerData;
+  const customer = DISABLE_PAYMENT ? null : rawCustomer;
+  const isLoading = DISABLE_PAYMENT ? false : rawIsLoading;
+  const error = DISABLE_PAYMENT ? null : rawError;
 
   // Log payment status for debugging
   if (DISABLE_PAYMENT) {

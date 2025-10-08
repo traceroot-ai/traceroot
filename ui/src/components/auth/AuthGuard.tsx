@@ -1,32 +1,44 @@
 "use client";
 
-import { useUser } from "@/hooks/useUser";
-import { usePathname } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { useUser } from "@clerk/nextjs";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 interface AuthGuardProps {
   children: React.ReactNode;
+  isPublicRoute?: boolean;
 }
 
 // Routes that don't require authentication
-const publicRoutes = ["/auth/auth-callback"];
+const publicRoutes = ["/auth/auth-callback", "/sign-in"];
 
-export default function AuthGuard({ children }: AuthGuardProps) {
-  const { user, isLoading } = useUser();
+export default function AuthGuard({
+  children,
+  isPublicRoute = false,
+}: AuthGuardProps) {
+  const { user, isLoaded } = useUser();
   const pathname = usePathname();
+  const router = useRouter();
+
+  // User is authenticated if they're logged in with Clerk
+  const isAuthenticated = !!user;
+
+  // Check if current route is public (from prop or pathname)
+  const isPublic = isPublicRoute || publicRoutes.includes(pathname);
+
+  // Redirect to sign-in page if not authenticated
+  useEffect(() => {
+    if (isLoaded && !isAuthenticated && !isPublic) {
+      router.push("/sign-in");
+    }
+  }, [isLoaded, isAuthenticated, isPublic, router]);
 
   // Allow access to public routes without authentication
-  if (publicRoutes.includes(pathname)) {
+  if (isPublic) {
     return <>{children}</>;
   }
 
-  if (isLoading) {
+  if (!isLoaded) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -34,32 +46,8 @@ export default function AuthGuard({ children }: AuthGuardProps) {
     );
   }
 
-  if (!user) {
-    return (
-      <Dialog open={true}>
-        <DialogContent className="sm:max-w-[425px]" showCloseButton={false}>
-          <DialogHeader>
-            <DialogTitle className="text-center">
-              Authentication Required
-            </DialogTitle>
-          </DialogHeader>
-          <div className="flex flex-col space-y-4 pt-4">
-            <p className="text-center text-muted-foreground">
-              Please sign in to access this application.
-            </p>
-            <Button asChild className="mx-auto">
-              <a
-                href="https://prod1.traceroot.ai/sign-in"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Sign In / Register
-              </a>
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    );
+  if (!isAuthenticated) {
+    return null;
   }
 
   return <>{children}</>;

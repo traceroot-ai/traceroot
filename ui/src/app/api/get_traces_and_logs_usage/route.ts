@@ -1,12 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 
 export async function GET(request: NextRequest) {
   try {
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
 
-    // Get user_secret from middleware-processed header
-    const userSecret = request.headers.get("x-user-token") || "";
-    const authorization = `Bearer ${userSecret}`;
+    let authorization = request.headers.get("authorization");
+
+    // Try Clerk authentication if no Bearer token provided
+    if (!authorization) {
+      try {
+        const { userId, getToken } = await auth();
+        if (userId) {
+          const token = await getToken();
+          if (token) {
+            authorization = `Bearer ${token}`;
+          }
+        }
+      } catch (clerkError) {
+        console.log("Clerk auth not available");
+      }
+    }
+
+    if (!authorization) {
+      return NextResponse.json(
+        { error: "Authorization required" },
+        { status: 401 },
+      );
+    }
 
     // Get since_date from query parameters
     const { searchParams } = new URL(request.url);

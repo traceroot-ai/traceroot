@@ -46,7 +46,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
-import { useUser } from "../../hooks/useUser";
+import { useUser } from "@clerk/nextjs";
+import { useClerk } from "@clerk/nextjs";
 import { useSubscription } from "../../hooks/useSubscription";
 
 function LogoComponent() {
@@ -354,12 +355,23 @@ function SettingsComponent() {
 }
 
 function ProfileComponent() {
-  const { user, avatarLetter, isLoading, logout } = useUser();
+  const { user, isLoaded } = useUser();
+  const { signOut } = useClerk();
   const { state } = useSidebar();
 
-  const handleSignOut = () => {
-    logout();
-    window.location.href = "https://prod1.traceroot.ai/sign-in";
+  // User is loading if not loaded
+  const isLoading = !isLoaded;
+
+  // Get user display data
+  const email = user?.emailAddresses?.[0]?.emailAddress;
+  const givenName = user?.firstName;
+  const familyName = user?.lastName;
+  const company = user?.publicMetadata?.company as string;
+
+  const displayAvatarLetter = email?.charAt(0)?.toUpperCase() || "U";
+
+  const handleSignOut = async () => {
+    await signOut();
   };
 
   if (isLoading) {
@@ -388,16 +400,16 @@ function ProfileComponent() {
           }`}
         >
           <div
-            key={`avatar-${avatarLetter || "no-letter"}`}
+            key={`avatar-${displayAvatarLetter || "no-letter"}`}
             className="w-8 h-8 rounded-full bg-zinc-800 dark:bg-zinc-100 flex items-center justify-center flex-shrink-0"
             title="User Profile"
           >
-            {avatarLetter ? (
+            {displayAvatarLetter ? (
               <span
                 className="text-white dark:text-black font-semibold text-sm"
                 style={{ zIndex: 100 }}
               >
-                {avatarLetter}
+                {displayAvatarLetter}
               </span>
             ) : (
               <FaUser className="text-white dark:text-black" size={14} />
@@ -406,10 +418,10 @@ function ProfileComponent() {
           {state === "expanded" && (
             <div className="flex flex-col flex-1 min-w-0 text-left">
               <span className="text-xs font-medium truncate">
-                {user?.given_name || user?.email?.split("@")[0] || "First Name"}
+                {givenName || email?.split("@")[0] || "First Name"}
               </span>
               <span className="text-xs truncate">
-                {user?.family_name || "Last Name"}
+                {familyName || "Last Name"}
               </span>
             </div>
           )}
@@ -419,68 +431,68 @@ function ProfileComponent() {
         <DialogHeader>
           <div className="flex flex-col items-center space-y-4">
             <div className="w-16 h-16 rounded-full bg-sidebar-accent/50 flex items-center justify-center">
-              {avatarLetter ? (
+              {displayAvatarLetter ? (
                 <span className="text-sidebar-accent-foreground font-semibold text-2xl">
-                  {avatarLetter}
+                  {displayAvatarLetter}
                 </span>
               ) : (
                 <FaUser className="text-sidebar-foreground" size={24} />
               )}
             </div>
             <DialogTitle className="text-center">
-              {user?.given_name
-                ? `Hello ${user.given_name}!`
-                : user?.email
-                  ? `Hello ${user.email}!`
+              {givenName
+                ? `Hello ${givenName}!`
+                : email
+                  ? `Hello ${email}!`
                   : "Welcome!"}
             </DialogTitle>
           </div>
         </DialogHeader>
 
         <div className="flex flex-col space-y-4 pt-4">
-          {user?.email && (
+          {email && (
             <div className="grid gap-4">
               <div className="grid gap-3">
                 <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
                   name="email"
-                  value={user.email || ""}
+                  value={email || ""}
                   readOnly
                   className="bg-muted"
                 />
               </div>
-              {user?.given_name && (
+              {givenName && (
                 <div className="grid gap-3">
                   <Label htmlFor="given-name">Given Name</Label>
                   <Input
                     id="given-name"
                     name="given-name"
-                    value={user.given_name || ""}
+                    value={givenName || ""}
                     readOnly
                     className="bg-muted"
                   />
                 </div>
               )}
-              {user?.family_name && (
+              {familyName && (
                 <div className="grid gap-3">
                   <Label htmlFor="family-name">Family Name</Label>
                   <Input
                     id="family-name"
                     name="family-name"
-                    value={user.family_name || ""}
+                    value={familyName || ""}
                     readOnly
                     className="bg-muted"
                   />
                 </div>
               )}
-              {user?.company && (
+              {company && (
                 <div className="grid gap-3">
                   <Label htmlFor="company">Company</Label>
                   <Input
                     id="company"
                     name="company"
-                    value={user.company || ""}
+                    value={company || ""}
                     readOnly
                     className="bg-muted"
                   />
@@ -490,26 +502,12 @@ function ProfileComponent() {
           )}
 
           <DialogFooter className="flex justify-center">
-            {!user ? (
-              <Button asChild className="mx-auto">
-                <a
-                  href="https://prod1.traceroot.ai/sign-in"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Sign In / Register
-                </a>
-              </Button>
-            ) : (
-              <>
-                <DialogClose asChild>
-                  <Button variant="outline">Close</Button>
-                </DialogClose>
-                <Button onClick={handleSignOut} variant="destructive">
-                  Sign Out
-                </Button>
-              </>
-            )}
+            <DialogClose asChild>
+              <Button variant="outline">Close</Button>
+            </DialogClose>
+            <Button onClick={handleSignOut} variant="destructive">
+              Sign Out
+            </Button>
           </DialogFooter>
         </div>
       </DialogContent>

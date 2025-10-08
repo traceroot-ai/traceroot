@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { FaCode } from "react-icons/fa";
 import { LogEntry } from "@/models/log";
 import { CodeResponse } from "@/models/code";
-import { useUser } from "@/hooks/useUser";
+import { useAuth } from "@clerk/nextjs";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {
@@ -30,7 +30,7 @@ export default function ShowCodeToggle({
 }: ShowCodeToggleProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const { getAuthState } = useUser();
+  const { getToken } = useAuth();
 
   // Function to clear all code data from log entries
   const clearCodeDataFromLogEntries = () => {
@@ -102,8 +102,8 @@ export default function ShowCodeToggle({
         ),
       ];
 
-      // Get user secret for authentication
-      const user_secret = getAuthState();
+      // Get user token for authentication
+      const token = await getToken();
 
       // Fetch code content for each unique git URL
       const promises = uniqueGitUrls.map(async (gitUrl) => {
@@ -112,9 +112,9 @@ export default function ShowCodeToggle({
             "Content-Type": "application/json",
           };
 
-          // Add Authorization header if user secret is available
-          if (user_secret) {
-            headers["Authorization"] = `Bearer ${user_secret}`;
+          // Add Authorization header if token is available
+          if (token) {
+            headers["Authorization"] = `Bearer ${token}`;
           }
 
           console.log(`Fetching code content for ${gitUrl}`);

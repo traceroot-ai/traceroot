@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { GetChatMetadataRequest, ChatMetadata } from "@/models/chat";
+import { createBackendAuthHeaders } from "@/lib/server-auth-headers";
 
 export async function GET(
   request: Request,
@@ -12,20 +13,17 @@ export async function GET(
       return NextResponse.json(null, { status: 400 });
     }
 
-    // Get user_secret from middleware-processed header
-    const userSecret = request.headers.get("x-user-token") || "";
-
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
 
     if (restApiEndpoint) {
       try {
+        // Get auth headers (automatically uses Clerk's auth() and currentUser())
+        const headers = await createBackendAuthHeaders();
+
         const apiUrl = `${restApiEndpoint}/v1/explore/get-chat-metadata?chat_id=${encodeURIComponent(chat_id)}`;
         const apiResponse = await fetch(apiUrl, {
           method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${userSecret}`,
-          },
+          headers,
         });
 
         if (!apiResponse.ok) {
