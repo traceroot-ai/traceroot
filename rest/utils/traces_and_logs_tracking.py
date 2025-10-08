@@ -25,6 +25,7 @@ class TracesAndLogsTracker:
     def __init__(self):
         """Initialize the TracesAndLogsTracker with Autumn client."""
         self.autumn_token = os.getenv("AUTUMN_SECRET_KEY")
+
         if not self.autumn_token:
             logger.warning(
                 "AUTUMN_SECRET_KEY not found in environment variables. "
