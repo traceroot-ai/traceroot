@@ -17,13 +17,6 @@ export function useSubscription() {
   const isLoading = DISABLE_PAYMENT ? false : rawIsLoading;
   const error = DISABLE_PAYMENT ? null : rawError;
 
-  // Log payment status for debugging
-  if (DISABLE_PAYMENT) {
-    console.log("Payment is disabled.");
-  } else {
-    console.log("Payment is enabled.");
-  }
-
   const hasActiveSubscription = () => {
     // If payment is disabled, always return true to allow access
     if (DISABLE_PAYMENT) {
