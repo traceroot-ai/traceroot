@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@aws-sdk/client-sts": "^3.907.0",
     "@clerk/nextjs": "^6.25.4",
     "@icons-pack/react-simple-icons": "^13.7.0",
     "@lobehub/icons": "^2.26.0",

@@ -7,12 +7,13 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from rest.routers.explore import ExploreRouter
-from rest.routers.integrate import IntegrateRouter
 
 try:
     from rest.routers.ee.verify import VerifyRouter
 except ImportError:
     from rest.routers.verify import VerifyRouter
+
+from rest.routers.internal import InternalRouter
 
 version = "0.1.3"
 
@@ -44,20 +45,20 @@ class App:
             tags=["explore"],
         )
 
-        # Add connect router
-        self.integrate_router = IntegrateRouter(self.limiter)
-        self.app.include_router(
-            self.integrate_router.router,
-            prefix="/v1/integrate",
-            tags=["integrate"],
-        )
-
         # Add verify router for SDK verification
         self.verify_router = VerifyRouter(self.limiter)
         self.app.include_router(
             self.verify_router.router,
             prefix="/v1/verify",
             tags=["verify"],
+        )
+
+        # Add internal router for OTLP usage tracking
+        self.internal_router = InternalRouter()
+        self.app.include_router(
+            self.internal_router.router,
+            prefix="/v1/internal",
+            tags=["internal"],
         )
 
     def add_middleware(self):

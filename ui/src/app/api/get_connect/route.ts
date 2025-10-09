@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
+import { createHash } from "crypto";
 import { ResourceType } from "@/models/integrate";
-import { createBackendAuthHeaders } from "@/lib/server-auth-headers";
+import { connectToDatabase, isMongoDBAvailable } from "@/lib/mongodb";
+import { ConnectionToken, TracerootToken } from "@/models/token";
 
 interface GetIntegrationResponse {
   success: boolean;
@@ -9,8 +12,15 @@ interface GetIntegrationResponse {
 }
 
 /**
+ * Hash user_sub to create consistent identifier (matches Python implementation)
+ */
+function hashUserSub(userSub: string): string {
+  return createHash("sha256").update(userSub, "utf-8").digest("hex");
+}
+
+/**
  * GET /api/get_connect
- * Fetches integration tokens for a specific resource type
+ * Fetches integration tokens for a specific resource type directly from MongoDB
  */
 export async function GET(
   request: Request,
@@ -29,50 +39,62 @@ export async function GET(
       );
     }
 
-    const restApiEndpoint = process.env.REST_API_ENDPOINT;
-
-    if (restApiEndpoint) {
-      try {
-        // Get auth headers (automatically uses Clerk's auth() and currentUser())
-        const headers = await createBackendAuthHeaders();
-
-        const apiUrl = `${restApiEndpoint}/v1/integrate?resourceType=${encodeURIComponent(resourceType)}`;
-        const response = await fetch(apiUrl, {
-          method: "GET",
-          headers,
-        });
-
-        if (!response.ok) {
-          throw new Error(
-            `REST API request failed: ${response.status} ${response.statusText}`,
-          );
-        }
-
-        const responseData = await response.json();
-
-        return NextResponse.json({
-          success: true,
-          token: responseData.token,
-        });
-      } catch (apiError) {
-        console.error("Error getting from REST API:", apiError);
-        return NextResponse.json(
-          {
-            success: false,
-            error:
-              apiError instanceof Error
-                ? apiError.message
-                : "Failed to get integration from REST API",
-          },
-          { status: 500 },
-        );
-      }
+    // Check if MongoDB is available
+    if (!isMongoDBAvailable()) {
+      return NextResponse.json({
+        success: true,
+        token: null,
+      });
     }
 
-    // Fallback: No REST API endpoint configured
+    // Get authenticated user
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: "User not authenticated" },
+        { status: 401 },
+      );
+    }
+
+    const user = await currentUser();
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: "User not found" },
+        { status: 401 },
+      );
+    }
+
+    const userEmail = user.emailAddresses[0]?.emailAddress;
+    if (!userEmail) {
+      return NextResponse.json(
+        { success: false, error: "User email not found" },
+        { status: 401 },
+      );
+    }
+
+    // Connect to MongoDB
+    await connectToDatabase();
+
+    let token: string | null = null;
+
+    if (resourceType === ResourceType.TRACEROOT) {
+      // Query traceroot_tokens collection using user_email
+      const tracerootToken = await TracerootToken.findOne({
+        user_email: userEmail,
+      }).lean();
+      token = tracerootToken?.token || null;
+    } else {
+      // Query connection_tokens collection using user_email and token_type
+      const connectionToken = await ConnectionToken.findOne({
+        user_email: userEmail,
+        token_type: resourceType,
+      }).lean();
+      token = connectionToken?.token || null;
+    }
+
     return NextResponse.json({
       success: true,
-      token: null,
+      token,
     });
   } catch (error: unknown) {
     console.error("Error processing get integration request:", error);

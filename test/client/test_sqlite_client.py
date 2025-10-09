@@ -94,23 +94,12 @@ async def test_sqlite_client():
         metadata_history = await client.get_chat_metadata_history("trace_456")
         assert len(metadata_history.history) > 0
 
-        # Test 3: Integration tokens
-        await client.insert_integration_token(
-            "user@example.com",
-            "github_token_123",
-            "github"
-        )
-
+        # Test 3: Integration tokens (read-only, managed by Next.js)
+        # Note: insert and delete operations are now handled by Next.js API routes
+        # SQLite client only needs get_integration_token for reading tokens
         token = await client.get_integration_token("user@example.com", "github")
-        assert token is not None
-
-        # Test token deletion
-        deleted = await client.delete_integration_token("user@example.com", "github")
-        assert deleted
-
-        # Verify deletion
-        token = await client.get_integration_token("user@example.com", "github")
-        assert token is None
+        # Token may be None since we're not inserting in tests anymore
+        assert token is None  # Expected since no token was inserted
 
     finally:
         # Clean up test database

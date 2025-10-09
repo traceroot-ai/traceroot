@@ -411,67 +411,6 @@ class TraceRootSQLiteClient:
         """
         return
 
-    async def insert_integration_token(
-        self,
-        user_email: str,
-        token: str,
-        token_type: str
-    ):
-        """
-        Args:
-            user_email (str): The user's email address
-            token (str): The connection token
-            token_type (str): The type of token
-                (e.g., "github", "notion", "slack")
-        """
-        await self._init_db()
-
-        async with aiosqlite.connect(self.db_path) as db:
-            # Use INSERT OR REPLACE to handle existing tokens
-            await db.execute(
-                (
-                    "INSERT OR REPLACE INTO connection_tokens (user_email, "
-                    "token_type, token) VALUES (?, ?, ?)"
-                ),
-                (user_email,
-                 token_type,
-                 token)
-            )
-            await db.commit()
-
-    async def delete_integration_token(
-        self,
-        user_email: str,
-        token_type: str,
-    ) -> bool:
-        """
-        Args:
-            user_email (str): The user's email address
-            token_type (str): The type of token to delete
-
-        Returns:
-            bool: True if token was deleted, False if not found
-        """
-        await self._init_db()
-
-        async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                (
-                    "DELETE FROM connection_tokens WHERE user_email "
-                    "= ? AND token_type = ?"
-                ),
-                (user_email,
-                 token_type)
-            )
-            await db.commit()
-            return cursor.rowcount > 0
-
-    async def delete_traceroot_token(self, hashed_user_sub: str) -> bool:
-        """
-        Args:
-            hashed_user_sub (str): The hashed user sub
-        """
-
     async def get_integration_token(
         self,
         user_email: str,
@@ -498,13 +437,6 @@ class TraceRootSQLiteClient:
             )
             row = await cursor.fetchone()
             return row[0] if row else None
-
-    async def get_traceroot_token(self, hashed_user_sub: str) -> str | None:
-        """
-        Returns:
-            str | None: The token if found, None otherwise
-        """
-        return
 
     async def get_traceroot_credentials_by_token(self,
                                                  token: str) -> dict[str,

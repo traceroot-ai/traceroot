@@ -20,6 +20,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useTheme } from "next-themes";
 
 interface ItemProps {
@@ -347,7 +353,20 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
     <Card>
       <CardHeader>
         <div className="flex items-center space-x-2.5">
-          {renderIcon(integration.icon)}
+          {integration.id === "traceroot" ? (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>{renderIcon(integration.icon)}</div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>This token is generated for the default AWS backend</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            renderIcon(integration.icon)
+          )}
           <div className="flex-1 min-w-0">
             <CardTitle className="text-base font-semibold truncate">
               {integration.name}
