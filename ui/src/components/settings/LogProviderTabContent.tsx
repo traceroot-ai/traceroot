@@ -8,7 +8,6 @@ import {
   EyeOff,
   ShieldCheck,
 } from "lucide-react";
-import { useAuth } from "@clerk/nextjs";
 import { FaAws } from "react-icons/fa";
 import { BsTencentQq } from "react-icons/bs";
 import { SiJaeger } from "react-icons/si";
@@ -53,7 +52,6 @@ import {
 type LogProvider = "aws" | "tencent" | "jaeger";
 
 export function LogProviderTabContent() {
-  const { getToken } = useAuth();
   const [selectedProvider, setSelectedProvider] = useState<LogProvider>("aws");
   const isUpdatingRef = useRef(false);
   const isUpdatingRegionRef = useRef(false);
@@ -151,14 +149,8 @@ export function LogProviderTabContent() {
         };
 
         // Try to fetch from API - server will tell us if MongoDB is available
-        const authToken = await getToken();
         const response = await fetch(
           `/api/provider-config?userEmail=${encodeURIComponent(userEmail)}`,
-          {
-            headers: {
-              Authorization: `Bearer ${authToken}`,
-            },
-          },
         );
         const data = await response.json();
 
@@ -523,12 +515,10 @@ export function LogProviderTabContent() {
         ...configData,
       };
 
-      const authToken = await getToken();
       const response = await fetch("/api/provider-config", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify(payload),
       });
@@ -603,16 +593,12 @@ export function LogProviderTabContent() {
       }
 
       // Delete from MongoDB
-      const authToken = await getToken();
       const response = await fetch(
         `/api/provider-config?userEmail=${encodeURIComponent(
           userEmail,
         )}&providerType=log`,
         {
           method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${authToken}`,
-          },
         },
       );
 
