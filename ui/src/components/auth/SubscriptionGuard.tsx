@@ -80,15 +80,13 @@ function SubscriptionGuardInner({
     if (!hasActiveSubscription()) {
       router.push("/pricing");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    user,
-    customer,
+    user?.id, // Only depend on user ID, not the whole user object
+    customer?.id, // Only depend on customer ID, not the whole customer object
     customerError,
     isLoading,
-    customerLoading,
-    userLoading,
     pathname,
-    router,
   ]);
 
   // If payment is disabled or public route, always allow access

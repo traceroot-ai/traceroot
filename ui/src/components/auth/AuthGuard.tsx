@@ -31,7 +31,7 @@ export default function AuthGuard({
     if (isLoaded && !isAuthenticated && !isPublic) {
       router.push("/sign-in");
     }
-  }, [isLoaded, isAuthenticated, isPublic, router]);
+  }, [isLoaded, isAuthenticated, isPublic, router, pathname]);
 
   // Allow access to public routes without authentication
   if (isPublic) {
