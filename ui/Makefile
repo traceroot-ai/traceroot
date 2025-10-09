@@ -1,8 +1,7 @@
 start:
 	rm -rf .next
-	npm run build
-	npm start
+	bun run build
+	PORT=3001 bun start
 
 dev:
-	# PORT=3001 npm run dev
-	npm run dev
+	bun run dev
