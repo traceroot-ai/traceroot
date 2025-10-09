@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { connectToDatabase, isMongoDBAvailable } from "@/lib/mongodb";
 import {
   TraceProviderConfig,
@@ -43,10 +44,10 @@ function mergeProviderConfigs(
 // GET - Retrieve provider configuration for a user
 export async function GET(request: NextRequest) {
   try {
-    // Get user token from middleware-processed header
-    const userToken = request.headers.get("x-user-token") || "";
+    // Verify user is authenticated via Clerk
+    const { userId } = await auth();
 
-    if (!userToken) {
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -118,10 +119,10 @@ export async function GET(request: NextRequest) {
 // POST - Create or update provider configuration
 export async function POST(request: NextRequest) {
   try {
-    // Get user token from middleware-processed header
-    const userToken = request.headers.get("x-user-token") || "";
+    // Verify user is authenticated via Clerk
+    const { userId } = await auth();
 
-    if (!userToken) {
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -225,10 +226,10 @@ export async function POST(request: NextRequest) {
 // DELETE - Delete provider configuration for a user
 export async function DELETE(request: NextRequest) {
   try {
-    // Get user token from middleware-processed header
-    const userToken = request.headers.get("x-user-token") || "";
+    // Verify user is authenticated via Clerk
+    const { userId } = await auth();
 
-    if (!userToken) {
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

@@ -8,7 +8,6 @@ import {
   EyeOff,
   ShieldCheck,
 } from "lucide-react";
-import { useAuth } from "@clerk/nextjs";
 import { FaAws } from "react-icons/fa";
 import { BsTencentQq } from "react-icons/bs";
 import { SiJaeger } from "react-icons/si";
@@ -53,7 +52,6 @@ import {
 type TraceProvider = "aws" | "tencent" | "jaeger";
 
 export function TraceProviderTabContent() {
-  const { getToken } = useAuth();
   const [selectedProvider, setSelectedProvider] =
     useState<TraceProvider>("aws");
   const isUpdatingRef = useRef(false);
@@ -154,14 +152,8 @@ export function TraceProviderTabContent() {
         };
 
         // Try to fetch from API - server will tell us if MongoDB is available
-        const authToken = await getToken();
         const response = await fetch(
           `/api/provider-config?userEmail=${encodeURIComponent(userEmail)}`,
-          {
-            headers: {
-              Authorization: `Bearer ${authToken}`,
-            },
-          },
         );
         const data = await response.json();
 
@@ -528,12 +520,10 @@ export function TraceProviderTabContent() {
         ...configData,
       };
 
-      const authToken = await getToken();
       const response = await fetch("/api/provider-config", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify(payload),
       });
@@ -608,16 +598,12 @@ export function TraceProviderTabContent() {
       }
 
       // Delete from MongoDB
-      const authToken = await getToken();
       const response = await fetch(
         `/api/provider-config?userEmail=${encodeURIComponent(
           userEmail,
         )}&providerType=trace`,
         {
           method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${authToken}`,
-          },
         },
       );
 
