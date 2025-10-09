@@ -56,8 +56,6 @@ export function SettingsContainer() {
   const openBillingPortal = isLocalMode ? async () => {} : rawOpenBillingPortal;
 
   const [isProcessing, setIsProcessing] = useState(false);
-  const [tracesAndLogsData, setTracesAndLogsData] = useState<any>(null);
-  const [isLoadingTracesAndLogs, setIsLoadingTracesAndLogs] = useState(true);
   const [activeTab, setActiveTab] = useState<
     "usage" | "plan" | "trace-provider" | "log-provider"
   >("trace-provider");
@@ -91,15 +89,7 @@ export function SettingsContainer() {
   };
 
   function getTracesAndLogsInfo() {
-    if (isLoadingTracesAndLogs) {
-      return {
-        limit: 0,
-        usage: 0,
-        remaining: 0,
-        percentage: 0,
-        isLoading: true,
-      };
-    }
+    // Directly read from Autumn customer data - no backend fetch needed
     const tracesAndLogsFeature = customer?.features?.trace__log;
     if (!tracesAndLogsFeature) {
       return null;
@@ -110,71 +100,6 @@ export function SettingsContainer() {
     const percentage = limit > 0 ? Math.min(100, (usage / limit) * 100) : 0;
     return { limit, usage, remaining, percentage, isLoading: false };
   }
-
-  const fetchTracesAndLogsUsage = async () => {
-    try {
-      setIsLoadingTracesAndLogs(true);
-      const authState = await getAuthState();
-
-      if (!authState || !customer?.products) {
-        setIsLoadingTracesAndLogs(false);
-        return;
-      }
-
-      // Get the last payment date from customer subscription
-      const activeProduct = customer.products.find(
-        (product) =>
-          product.status === "active" || product.status === "trialing",
-      );
-      if (!activeProduct) {
-        setIsLoadingTracesAndLogs(false);
-        return;
-      }
-
-      const sinceDate = activeProduct.current_period_start
-        ? new Date(activeProduct.current_period_start).toISOString()
-        : new Date().toISOString(); // Fallback to current date
-
-      // Use GET with query parameters
-      const url = new URL(
-        "/api/get_traces_and_logs_usage",
-        window.location.origin,
-      );
-      console.log("sinceDate", sinceDate);
-      url.searchParams.set("since_date", sinceDate);
-
-      const response = await fetch(url.toString(), {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${authState}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setTracesAndLogsData(data.traces_and_logs);
-
-        if (customer?.features?.trace__log && data.traces_and_logs) {
-          // update in-memory usage for display
-          customer.features.trace__log.usage = data.traces_and_logs.trace__log;
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching traces and logs usage:", error);
-    } finally {
-      setIsLoadingTracesAndLogs(false);
-    }
-  };
-
-  // TODO (xinwei): properly fix this please, right now it is reloading
-  // whenever we go to another page and back which is not ideal
-  // useEffect to fetch data when customer is loaded
-  useEffect(() => {
-    if (customer && !isLoading) {
-      fetchTracesAndLogsUsage();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customer, isLoading]);
 
   // Format numbers with commas for better readability
   const formatNumber = (num: number) => {

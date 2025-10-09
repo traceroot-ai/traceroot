@@ -41,26 +41,11 @@ class TraceRootMongoDBClient:
     async def insert_chat_metadata(self, metadata: dict[str, Any]):
         pass
 
-    async def insert_integration_token(
-        self,
-        user_email: str,
-        token: str,
-        token_type: str,
-    ) -> bool:
-        pass
-
     async def get_integration_token(
         self,
         user_email: str,
         token_type: str,
     ) -> str | None:
-        pass
-
-    async def delete_integration_token(
-        self,
-        user_email: str,
-        token_type: str,
-    ) -> bool:
         pass
 
     async def insert_traceroot_token(
@@ -69,18 +54,6 @@ class TraceRootMongoDBClient:
         user_credentials: dict[str,
                                Any],
         delete_existing: bool = False,
-    ) -> bool:
-        pass
-
-    async def get_traceroot_token(
-        self,
-        hashed_user_sub: str,
-    ) -> str | None:
-        pass
-
-    async def delete_traceroot_token(
-        self,
-        hashed_user_sub: str,
     ) -> bool:
         pass
 

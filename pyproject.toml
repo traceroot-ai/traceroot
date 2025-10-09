@@ -70,6 +70,7 @@ dependencies = [
     "autumn-py==2.2.2",
     "aiohttp==3.12.15",
     "tencentcloud-sdk-python==3.0.1470",
+    "opentelemetry-proto==1.34.1",
 ]
 
 [project.optional-dependencies]

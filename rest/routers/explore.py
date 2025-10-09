@@ -34,14 +34,11 @@ from rest.config import (
     GetChatMetadataRequest,
     GetLogByTraceIdRequest,
     GetLogByTraceIdResponse,
-    GetTracesAndLogsSinceDateRequest,
-    GetTracesAndLogsSinceDateResponse,
     ListTraceRawRequest,
     ListTraceRequest,
     ListTraceResponse,
     Trace,
     TraceLogs,
-    TracesAndLogsStatistics,
 )
 from rest.config.rate_limit import get_rate_limit_config
 from rest.dao.sqlite_dao import TraceRootSQLiteClient
@@ -57,10 +54,6 @@ from rest.typing import (
     ResourceType,
 )
 from rest.utils.trace import collect_spans_latency_recursively
-from rest.utils.traces_and_logs_tracking import (
-    get_traces_and_logs_tracker,
-    get_user_traces_and_logs_since_payment,
-)
 
 try:
     from rest.utils.ee.auth import get_user_credentials, hash_user_sub
@@ -229,11 +222,6 @@ class ExploreRouter:
         self.router.get("/get-line-context-content")(
             self.limiter.limit(self.rate_limit_config.get_line_context_content_limit
                                )(self.get_line_context_content)
-        )
-        # New traces and logs tracking endpoint
-        # TODO (xinwei): follow the design principle of the other endpoints
-        self.router.get("/get-traces-and-logs-since-date")(
-            self.limiter.limit("20/minute")(self.get_traces_and_logs_since_date)
         )
 
     async def handle_github_file(
@@ -1059,60 +1047,6 @@ class ExploreRouter:
                 openai_token=openai_token,
             )
             return response.model_dump()
-
-    async def get_traces_and_logs_since_date(
-        self,
-        request: Request,
-        req_data: GetTracesAndLogsSinceDateRequest = Depends(),
-    ) -> dict[str,
-              Any]:
-        """
-        Get traces and logs statistics for a customer since a specific date.
-
-        Args:
-            req_data: Request object containing the since_date
-
-        Returns:
-            dict: Traces and logs statistics including trace count, log count,
-                and period info
-        """
-        _, _, user_sub = get_user_credentials(request)
-
-        try:
-            # Get comprehensive traces and logs data since the specified date
-            observe_provider = await self.get_observe_provider(request)
-            usage_data = await get_user_traces_and_logs_since_payment(
-                user_sub=user_sub,
-                last_payment_date=req_data.since_date,
-                observe_client=observe_provider
-            )
-
-            # Convert to TracesAndLogsStatistics model
-            usage_stats = TracesAndLogsStatistics(**usage_data)
-            resp = GetTracesAndLogsSinceDateResponse(traces_and_logs=usage_stats)
-
-            # Update Autumn with the total usage
-            tracker = get_traces_and_logs_tracker()
-            await tracker.set_traces_and_logs_usage(
-                customer_id=user_sub,
-                value=usage_stats.trace__log
-            )
-
-            self.logger.info(
-                f"Retrieved traces and logs statistics for user {user_sub}: "
-                f"{usage_stats.trace_count} traces, "
-                f"{usage_stats.log_count} logs ({usage_stats.trace__log} "
-                f"total) over {usage_stats.days_since_payment} days"
-            )
-
-            return resp.model_dump()
-
-        except Exception as e:
-            self.logger.error(f"Error getting traces and logs usage: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to get traces and logs usage"
-            )
 
     async def _filter_traces_by_log_content(
         self,

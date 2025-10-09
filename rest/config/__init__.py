@@ -9,14 +9,6 @@ from .chat import (
     GetChatMetadataRequest,
 )
 from .code import CodeRequest, CodeResponse
-from .integrate import (
-    DeleteIntegrateRequest,
-    DeleteIntegrateResponse,
-    GetIntegrateRequest,
-    GetIntegrateResponse,
-    IntegrateRequest,
-    IntegrateResponse,
-)
 from .log import GetLogByTraceIdRequest, GetLogByTraceIdResponse, LogEntry, TraceLogs
 from .trace import ListTraceRawRequest, ListTraceRequest, ListTraceResponse, Span, Trace
 from .traces_and_logs import (
@@ -45,12 +37,6 @@ __all__ = [
     "GetChatHistoryRequest",
     "CodeRequest",
     "CodeResponse",
-    "IntegrateRequest",
-    "IntegrateResponse",
-    "DeleteIntegrateRequest",
-    "DeleteIntegrateResponse",
-    "GetIntegrateRequest",
-    "GetIntegrateResponse",
     "GetTracesAndLogsSinceDateRequest",
     "GetTracesAndLogsSinceDateResponse",
     "TracesAndLogsStatistics",
