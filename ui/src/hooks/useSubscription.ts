@@ -1,17 +1,17 @@
 "use client";
 
-import { useCustomer } from "autumn-js/react";
+import { useStableCustomer } from "./useStableCustomer";
 
 const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
 
 export function useSubscription() {
-  // Always call useCustomer to maintain consistent hook order
+  // Always call useStableCustomer to maintain consistent hook order
   // Override the values when payment is disabled
   const {
     customer: rawCustomer,
     isLoading: rawIsLoading,
     error: rawError,
-  } = useCustomer();
+  } = useStableCustomer();
 
   const customer = DISABLE_PAYMENT ? null : rawCustomer;
   const isLoading = DISABLE_PAYMENT ? false : rawIsLoading;
@@ -29,7 +29,8 @@ export function useSubscription() {
     }
 
     return customer.products.some(
-      (product) => product.status === "active" || product.status === "trialing",
+      (product: { status: string }) =>
+        product.status === "active" || product.status === "trialing",
     );
   };
 
@@ -45,7 +46,8 @@ export function useSubscription() {
 
     // Find the currently active product (including trialing status)
     const activeProduct = customer.products.find(
-      (product) => product.status === "active" || product.status === "trialing",
+      (product: { status: string; name: string | null }) =>
+        product.status === "active" || product.status === "trialing",
     );
 
     return activeProduct?.name || "Free";
@@ -61,7 +63,9 @@ export function useSubscription() {
       return false;
     }
 
-    return customer.products.some((product) => product.status === "trialing");
+    return customer.products.some(
+      (product: { status: string }) => product.status === "trialing",
+    );
   };
 
   return {

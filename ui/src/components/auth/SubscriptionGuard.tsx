@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { useCustomer } from "autumn-js/react";
 import { useUser } from "@clerk/nextjs";
+import { useStableCustomer } from "@/hooks/useStableCustomer";
 
 interface SubscriptionGuardProps {
   children: React.ReactNode;
@@ -30,16 +30,34 @@ function SubscriptionGuardInner({
   // User is authenticated if they're logged in with Clerk
   const userLoading = !isLoaded;
 
-  // Call useCustomer hook (only called when wrapped in AutumnProvider)
+  // Call useStableCustomer hook (only called when wrapped in AutumnProvider)
   const {
     customer: rawCustomer,
     isLoading: rawCustomerLoading,
     error: rawCustomerError,
-  } = useCustomer();
+  } = useStableCustomer();
+
+  // Track if we've loaded customer data at least once to prevent loading screen on tab switch
+  const hasLoadedOnce = useRef(false);
+  const prevCustomerId = useRef<string | null | undefined>(undefined);
+
+  if (rawCustomer && !hasLoadedOnce.current) {
+    hasLoadedOnce.current = true;
+  }
+
+  // Track customer ID changes
+  useEffect(() => {
+    if (rawCustomer?.id !== prevCustomerId.current) {
+      prevCustomerId.current = rawCustomer?.id;
+    }
+  }, [rawCustomer?.id, rawCustomerLoading]);
 
   // Override customer data when payment is disabled
   const customer = DISABLE_PAYMENT ? null : rawCustomer;
-  const customerLoading = DISABLE_PAYMENT ? false : rawCustomerLoading;
+  // Only show loading on initial load, not on background refreshes (e.g., tab switch)
+  const customerLoading = DISABLE_PAYMENT
+    ? false
+    : rawCustomerLoading && !hasLoadedOnce.current;
   const customerError = DISABLE_PAYMENT ? null : rawCustomerError;
 
   const isLoading = userLoading || customerLoading;
@@ -51,7 +69,8 @@ function SubscriptionGuardInner({
     }
 
     return customer.products.some(
-      (product) => product.status === "active" || product.status === "trialing",
+      (product: { status: string }) =>
+        product.status === "active" || product.status === "trialing",
     );
   };
 

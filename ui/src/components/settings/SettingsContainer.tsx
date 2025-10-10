@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
-import { useCustomer } from "autumn-js/react";
 import { toast } from "react-hot-toast";
+import { useStableCustomer } from "@/hooks/useStableCustomer";
 import { SettingsSidebar } from "./SettingsSidebar";
 import { AccessLostWarning } from "./AccessLostWarning";
 import { TokenUsageCard, LocalTokenUsageCard } from "./TokenUsageCard";
@@ -44,14 +44,26 @@ export function SettingsContainer() {
     isLoading: rawCustomerLoading,
     error: rawCustomerError,
     openBillingPortal: rawOpenBillingPortal,
-  } = useCustomer();
+  } = useStableCustomer();
+
+  // Track if we've loaded customer data at least once
+  const hasLoadedOnce = useRef(false);
+
+  useEffect(() => {
+    if (rawCustomer && !hasLoadedOnce.current) {
+      hasLoadedOnce.current = true;
+    }
+  }, [rawCustomer]);
 
   // Override values when payment is disabled
   const user = isLocalMode ? null : rawUser;
   const userLoading = isLocalMode ? false : rawUserLoading;
   const getAuthState = isLocalMode ? () => null : rawGetAuthState;
   const customer = isLocalMode ? null : rawCustomer;
-  const customerLoading = isLocalMode ? false : rawCustomerLoading;
+  // Only show loading on initial load, not on background refreshes
+  const customerLoading = isLocalMode
+    ? false
+    : rawCustomerLoading && !hasLoadedOnce.current;
   const customerError = isLocalMode ? null : rawCustomerError;
   const openBillingPortal = isLocalMode ? async () => {} : rawOpenBillingPortal;
 
@@ -112,7 +124,6 @@ export function SettingsContainer() {
   };
 
   const getCurrentPlan = () => {
-    console.log("customer", customer);
     if (!customer?.products || customer.products.length === 0) {
       return "Free";
     }
@@ -152,12 +163,6 @@ export function SettingsContainer() {
       (product) => product.status === "trialing",
     );
 
-    // Debug: log the trial product to see available fields
-    if (trialProduct) {
-      console.log("Trial product:", trialProduct);
-      console.log("Trial product keys:", Object.keys(trialProduct));
-    }
-
     // Check multiple possible field names for trial end date
     return (
       trialProduct?.trial_ends_at || trialProduct?.current_period_end || null
@@ -188,7 +193,6 @@ export function SettingsContainer() {
       toast.dismiss("billing-redirect");
       toast.success("Redirecting to billing portal...");
     } catch (error) {
-      console.error("Error opening billing portal:", error);
       toast.dismiss("billing-redirect");
 
       // More specific error messages
