@@ -35,6 +35,7 @@ async function generateUserCredentials(
   userEmail: string,
 ): Promise<{
   user_email: string;
+  user_sub: string;
   aws_access_key_id: string;
   aws_secret_access_key: string;
   aws_session_token: string;
@@ -42,6 +43,7 @@ async function generateUserCredentials(
   hash: string;
   expiration_utc: Date;
   otlp_endpoint: string | undefined;
+  provider_type: string;
 }> {
   const hashedUserSub = hashUserSub(userSub);
 
@@ -81,13 +83,15 @@ async function generateUserCredentials(
 
     return {
       user_email: userEmail,
+      user_sub: userSub, // SDK will use this for span attributes
       aws_access_key_id: creds.AccessKeyId!,
       aws_secret_access_key: creds.SecretAccessKey!,
       aws_session_token: creds.SessionToken!,
       region: "us-west-2",
-      hash: hashedUserSub,
+      hash: hashedUserSub, // Keep for AWS log group naming only
       expiration_utc: creds.Expiration!,
       otlp_endpoint: process.env.OTLP_ENDPOINT,
+      provider_type: "aws",
     };
   } catch (e) {
     throw new Error(
@@ -202,7 +206,7 @@ export async function POST(
         await TracerootToken.create({
           token,
           user_email: userCredentials.user_email,
-          user_sub: userId,
+          user_sub: userCredentials.user_sub,
           aws_access_key_id: userCredentials.aws_access_key_id,
           aws_secret_access_key: userCredentials.aws_secret_access_key,
           aws_session_token: userCredentials.aws_session_token,
@@ -210,9 +214,8 @@ export async function POST(
           hash: userCredentials.hash,
           expiration_utc: userCredentials.expiration_utc,
           otlp_endpoint:
-            userCredentials.otlp_endpoint ||
-            "http://3.23.162.117:4318/v1/traces",
-          provider_type: "aws",
+            userCredentials.otlp_endpoint || "http://3.13.23.97:4318/v1/traces",
+          provider_type: userCredentials.provider_type,
         });
       } catch (credError) {
         console.error(
