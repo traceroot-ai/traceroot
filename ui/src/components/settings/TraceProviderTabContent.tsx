@@ -86,12 +86,6 @@ export function TraceProviderTabContent() {
   // Load saved data from API and localStorage on component mount
   useEffect(() => {
     const loadConfig = async () => {
-      const userEmail = getUserEmail();
-      if (!userEmail) {
-        setIsLoaded(true);
-        return;
-      }
-
       try {
         // Load selected provider from localStorage first
         const savedSelection = loadProviderSelection(
@@ -151,10 +145,8 @@ export function TraceProviderTabContent() {
           return "aws";
         };
 
-        // Try to fetch from API - server will tell us if MongoDB is available
-        const response = await fetch(
-          `/api/provider-config?userEmail=${encodeURIComponent(userEmail)}`,
-        );
+        // Try to fetch from API - server will get userEmail from Clerk auth
+        const response = await fetch(`/api/provider-config`);
         const data = await response.json();
 
         if (response.ok) {
@@ -437,14 +429,13 @@ export function TraceProviderTabContent() {
   };
 
   const handleSaveConfirm = async () => {
-    const userEmail = getUserEmail();
-    if (!userEmail) {
-      setShowSaveDialog(false);
-      return;
-    }
+    console.log("💾 [Frontend Save] handleSaveConfirm called");
+    console.log("🔧 [Frontend Save] mongoAvailable:", mongoAvailable);
+    console.log("🔧 [Frontend Save] selectedProvider:", selectedProvider);
 
     try {
       setIsSaving(true);
+      console.log("⏳ [Frontend Save] setIsSaving(true)");
 
       // Prepare config for current provider
       let currentProviderConfig: any = {};
@@ -472,6 +463,9 @@ export function TraceProviderTabContent() {
       }
 
       if (!mongoAvailable) {
+        console.log(
+          "⚠️ [Frontend Save] MongoDB not available - saving to localStorage only",
+        );
         // MongoDB not available, save to localStorage only (provider-specific)
         // Only save if there are actual configuration values
         if (
@@ -497,8 +491,13 @@ export function TraceProviderTabContent() {
         // AWS is disabled for now, so we don't save it
         setIsSaving(false);
         setShowSaveDialog(false);
+        console.log("✅ [Frontend Save] Saved to localStorage, exiting early");
         return;
       }
+
+      console.log(
+        "📦 [Frontend Save] MongoDB available - preparing to save to DB",
+      );
 
       // For MongoDB, only send the current provider's config
       // Don't merge with other providers from localStorage
@@ -514,11 +513,14 @@ export function TraceProviderTabContent() {
       }
 
       // Save to MongoDB
+      // Note: userEmail is no longer sent - API will get it from Clerk auth
       const payload: any = {
-        userEmail,
         traceProvider: selectedProvider,
         ...configData,
       };
+
+      console.log("🚀 [Frontend] Sending POST to /api/provider-config");
+      console.log("📦 [Frontend] payload keys:", Object.keys(payload));
 
       const response = await fetch("/api/provider-config", {
         method: "POST",
@@ -528,11 +530,19 @@ export function TraceProviderTabContent() {
         body: JSON.stringify(payload),
       });
 
+      console.log("📡 [Frontend] Response status:", response.status);
+      console.log("📡 [Frontend] Response ok:", response.ok);
+
       const data = await response.json();
+      console.log("📊 [Frontend] Response data:", data);
 
       if (!response.ok) {
-        console.error("Failed to save configuration:", data.error);
+        console.error(
+          "❌ [Frontend] Failed to save configuration:",
+          data.error,
+        );
       } else {
+        console.log("✅ [Frontend] Successfully saved configuration");
         // Update initial values after successful save
         setInitialValues({
           awsRegion,
@@ -565,12 +575,6 @@ export function TraceProviderTabContent() {
   };
 
   const handleDeleteConfirm = async () => {
-    const userEmail = getUserEmail();
-    if (!userEmail) {
-      setShowDeleteDialog(false);
-      return;
-    }
-
     try {
       setIsDeleting(true);
 
@@ -597,11 +601,10 @@ export function TraceProviderTabContent() {
         return;
       }
 
-      // Delete from MongoDB
+      // Delete from MongoDB - API will get userEmail from Clerk auth
+      // Pass provider parameter to delete only this provider's config
       const response = await fetch(
-        `/api/provider-config?userEmail=${encodeURIComponent(
-          userEmail,
-        )}&providerType=trace`,
+        `/api/provider-config?providerType=trace&provider=${selectedProvider}`,
         {
           method: "DELETE",
         },

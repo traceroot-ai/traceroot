@@ -13,7 +13,8 @@ interface SubscriptionGuardProps {
 // Routes that don't require subscription
 const publicRoutes = ["/auth/auth-callback", "/pricing"];
 
-const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
+// TEMPORARY: Force disable payment check for debugging
+const DISABLE_PAYMENT = true; // process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
 
 // Inner component that uses Autumn hooks
 function SubscriptionGuardInner({
