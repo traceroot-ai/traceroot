@@ -43,31 +43,23 @@ function mergeProviderConfigs(
 
 // GET - Retrieve provider configuration for a user
 export async function GET(request: NextRequest) {
-  console.log("🔍 [Provider Config GET] Request received");
   try {
     // Verify user is authenticated via Clerk
-    console.log("🔐 [Provider Config GET] Attempting Clerk auth...");
     const { userId } = await auth();
-    console.log("✅ [Provider Config GET] Auth result - userId:", userId);
 
     if (!userId) {
-      console.log("❌ [Provider Config GET] No userId - returning 401");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Get user details from Clerk
-    console.log("👤 [Provider Config GET] Fetching current user...");
     const user = await currentUser();
     if (!user) {
-      console.log("❌ [Provider Config GET] User not found");
       return NextResponse.json({ error: "User not found" }, { status: 401 });
     }
 
     const userEmail = user.emailAddresses[0]?.emailAddress;
-    console.log("📧 [Provider Config GET] userEmail from Clerk:", userEmail);
 
     if (!userEmail) {
-      console.log("❌ [Provider Config GET] User email not found");
       return NextResponse.json(
         { error: "User email not found" },
         { status: 401 },
@@ -76,7 +68,6 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const providerType = searchParams.get("providerType");
-    console.log("🔧 [Provider Config GET] providerType:", providerType);
 
     if (providerType && providerType !== "trace" && providerType !== "log") {
       return NextResponse.json(
@@ -86,9 +77,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Check if MongoDB is available
-    console.log("💾 [Provider Config GET] Checking MongoDB availability...");
     if (!isMongoDBAvailable()) {
-      console.log("❌ [Provider Config GET] MongoDB not available");
       return NextResponse.json(
         {
           error: "Database not configured",
@@ -100,25 +89,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    console.log("🔌 [Provider Config GET] Connecting to database...");
     await connectToDatabase();
 
-    console.log("🔎 [Provider Config GET] Fetching configs from DB...");
     const [traceConfig, logConfig] = await Promise.all([
       TraceProviderConfig.findOne({ userEmail }),
       LogProviderConfig.findOne({ userEmail }),
     ]);
 
-    console.log(
-      "📊 [Provider Config GET] Configs found - trace:",
-      !!traceConfig,
-      "log:",
-      !!logConfig,
-    );
     const mergedConfig = mergeProviderConfigs(traceConfig, logConfig);
 
     if (!mergedConfig) {
-      console.log("ℹ️ [Provider Config GET] No config found - returning null");
       return NextResponse.json(
         {
           userEmail,
@@ -128,8 +108,6 @@ export async function GET(request: NextRequest) {
         { status: 200 },
       );
     }
-
-    console.log("✅ [Provider Config GET] Returning merged config");
     return NextResponse.json({
       userEmail,
       mongoAvailable: true,
@@ -149,31 +127,23 @@ export async function GET(request: NextRequest) {
 
 // POST - Create or update provider configuration
 export async function POST(request: NextRequest) {
-  console.log("📝 [Provider Config POST] Request received");
   try {
     // Verify user is authenticated via Clerk
-    console.log("🔐 [Provider Config POST] Attempting Clerk auth...");
     const { userId } = await auth();
-    console.log("✅ [Provider Config POST] Auth result - userId:", userId);
 
     if (!userId) {
-      console.log("❌ [Provider Config POST] No userId - returning 401");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Get user details from Clerk
-    console.log("👤 [Provider Config POST] Fetching current user...");
     const user = await currentUser();
     if (!user) {
-      console.log("❌ [Provider Config POST] User not found");
       return NextResponse.json({ error: "User not found" }, { status: 401 });
     }
 
     const userEmail = user.emailAddresses[0]?.emailAddress;
-    console.log("📧 [Provider Config POST] userEmail from Clerk:", userEmail);
 
     if (!userEmail) {
-      console.log("❌ [Provider Config POST] User email not found");
       return NextResponse.json(
         { error: "User email not found" },
         { status: 401 },
@@ -182,15 +152,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const configData = body;
-    console.log(
-      "📦 [Provider Config POST] configData keys:",
-      Object.keys(configData),
-    );
 
     // Check if MongoDB is available
-    console.log("💾 [Provider Config POST] Checking MongoDB availability...");
     if (!isMongoDBAvailable()) {
-      console.log("❌ [Provider Config POST] MongoDB not available");
       return NextResponse.json(
         {
           error: "Database not configured",
@@ -202,11 +166,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log("🔌 [Provider Config POST] Connecting to database...");
     await connectToDatabase();
 
     // Update or create provider configuration
-    console.log("🔧 [Provider Config POST] Preparing updates...");
     const traceUpdate: Partial<ITraceProviderConfig> = {};
     const logUpdate: Partial<ILogProviderConfig> = {};
 
@@ -236,12 +198,6 @@ export async function POST(request: NextRequest) {
       logUpdate.jaegerLogConfig = configData.jaegerLogConfig;
     }
 
-    console.log(
-      "💾 [Provider Config POST] Saving to DB - trace keys:",
-      Object.keys(traceUpdate).length,
-      "log keys:",
-      Object.keys(logUpdate).length,
-    );
     await Promise.all([
       Object.keys(traceUpdate).length > 0
         ? TraceProviderConfig.findOneAndUpdate(
@@ -265,15 +221,10 @@ export async function POST(request: NextRequest) {
         : null,
     ]);
 
-    console.log("🔎 [Provider Config POST] Fetching updated configs...");
     const [traceConfig, logConfig] = await Promise.all([
       TraceProviderConfig.findOne({ userEmail }),
       LogProviderConfig.findOne({ userEmail }),
     ]);
-
-    console.log(
-      "✅ [Provider Config POST] Successfully saved and returning config",
-    );
     return NextResponse.json({
       success: true,
       message: "Provider configuration saved successfully",
@@ -293,31 +244,23 @@ export async function POST(request: NextRequest) {
 
 // DELETE - Delete provider configuration for a user
 export async function DELETE(request: NextRequest) {
-  console.log("🗑️ [Provider Config DELETE] Request received");
   try {
     // Verify user is authenticated via Clerk
-    console.log("🔐 [Provider Config DELETE] Attempting Clerk auth...");
     const { userId } = await auth();
-    console.log("✅ [Provider Config DELETE] Auth result - userId:", userId);
 
     if (!userId) {
-      console.log("❌ [Provider Config DELETE] No userId - returning 401");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Get user details from Clerk
-    console.log("👤 [Provider Config DELETE] Fetching current user...");
     const user = await currentUser();
     if (!user) {
-      console.log("❌ [Provider Config DELETE] User not found");
       return NextResponse.json({ error: "User not found" }, { status: 401 });
     }
 
     const userEmail = user.emailAddresses[0]?.emailAddress;
-    console.log("📧 [Provider Config DELETE] userEmail from Clerk:", userEmail);
 
     if (!userEmail) {
-      console.log("❌ [Provider Config DELETE] User email not found");
       return NextResponse.json(
         { error: "User email not found" },
         { status: 401 },
@@ -327,8 +270,6 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const providerTypeParam = searchParams.get("providerType");
     const provider = searchParams.get("provider"); // aws, tencent, or jaeger
-    console.log("🔧 [Provider Config DELETE] providerType:", providerTypeParam);
-    console.log("🔧 [Provider Config DELETE] provider:", provider);
 
     if (
       providerTypeParam &&
@@ -354,9 +295,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Check if MongoDB is available
-    console.log("💾 [Provider Config DELETE] Checking MongoDB availability...");
     if (!isMongoDBAvailable()) {
-      console.log("❌ [Provider Config DELETE] MongoDB not available");
       return NextResponse.json(
         {
           error: "Database not configured",
@@ -367,13 +306,10 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    console.log("🔌 [Provider Config DELETE] Connecting to database...");
     await connectToDatabase();
 
     let deleted = false;
     const providerType = providerTypeParam as "trace" | "log" | null;
-
-    console.log("🗑️ [Provider Config DELETE] Deleting configs...");
 
     // If specific provider is specified, only unset that provider's config
     if (provider) {
@@ -385,10 +321,6 @@ export async function DELETE(request: NextRequest) {
           { new: true },
         );
         deleted = deleted || !!traceResult;
-        console.log(
-          `📊 [Provider Config DELETE] Trace ${provider} config unset:`,
-          !!traceResult,
-        );
       }
 
       if (!providerType || providerType === "log") {
@@ -399,10 +331,6 @@ export async function DELETE(request: NextRequest) {
           { new: true },
         );
         deleted = deleted || !!logResult;
-        console.log(
-          `📊 [Provider Config DELETE] Log ${provider} config unset:`,
-          !!logResult,
-        );
       }
     } else {
       // If no provider specified, delete entire document(s)
@@ -411,10 +339,6 @@ export async function DELETE(request: NextRequest) {
           userEmail,
         });
         deleted = deleted || !!traceResult;
-        console.log(
-          "📊 [Provider Config DELETE] Trace config deleted:",
-          !!traceResult,
-        );
       }
 
       if (!providerType || providerType === "log") {
@@ -422,22 +346,16 @@ export async function DELETE(request: NextRequest) {
           userEmail,
         });
         deleted = deleted || !!logResult;
-        console.log(
-          "📊 [Provider Config DELETE] Log config deleted:",
-          !!logResult,
-        );
       }
     }
 
     if (!deleted) {
-      console.log("⚠️ [Provider Config DELETE] No config found to delete");
       return NextResponse.json(
         { error: "Configuration not found" },
         { status: 404 },
       );
     }
 
-    console.log("✅ [Provider Config DELETE] Successfully deleted config");
     return NextResponse.json({
       success: true,
       message: "Provider configuration deleted successfully",

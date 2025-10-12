@@ -429,13 +429,8 @@ export function TraceProviderTabContent() {
   };
 
   const handleSaveConfirm = async () => {
-    console.log("💾 [Frontend Save] handleSaveConfirm called");
-    console.log("🔧 [Frontend Save] mongoAvailable:", mongoAvailable);
-    console.log("🔧 [Frontend Save] selectedProvider:", selectedProvider);
-
     try {
       setIsSaving(true);
-      console.log("⏳ [Frontend Save] setIsSaving(true)");
 
       // Prepare config for current provider
       let currentProviderConfig: any = {};
@@ -463,9 +458,6 @@ export function TraceProviderTabContent() {
       }
 
       if (!mongoAvailable) {
-        console.log(
-          "⚠️ [Frontend Save] MongoDB not available - saving to localStorage only",
-        );
         // MongoDB not available, save to localStorage only (provider-specific)
         // Only save if there are actual configuration values
         if (
@@ -491,13 +483,8 @@ export function TraceProviderTabContent() {
         // AWS is disabled for now, so we don't save it
         setIsSaving(false);
         setShowSaveDialog(false);
-        console.log("✅ [Frontend Save] Saved to localStorage, exiting early");
         return;
       }
-
-      console.log(
-        "📦 [Frontend Save] MongoDB available - preparing to save to DB",
-      );
 
       // For MongoDB, only send the current provider's config
       // Don't merge with other providers from localStorage
@@ -519,9 +506,6 @@ export function TraceProviderTabContent() {
         ...configData,
       };
 
-      console.log("🚀 [Frontend] Sending POST to /api/provider-config");
-      console.log("📦 [Frontend] payload keys:", Object.keys(payload));
-
       const response = await fetch("/api/provider-config", {
         method: "POST",
         headers: {
@@ -530,11 +514,7 @@ export function TraceProviderTabContent() {
         body: JSON.stringify(payload),
       });
 
-      console.log("📡 [Frontend] Response status:", response.status);
-      console.log("📡 [Frontend] Response ok:", response.ok);
-
       const data = await response.json();
-      console.log("📊 [Frontend] Response data:", data);
 
       if (!response.ok) {
         console.error(
@@ -542,7 +522,6 @@ export function TraceProviderTabContent() {
           data.error,
         );
       } else {
-        console.log("✅ [Frontend] Successfully saved configuration");
         // Update initial values after successful save
         setInitialValues({
           awsRegion,
