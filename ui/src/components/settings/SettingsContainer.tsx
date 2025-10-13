@@ -7,6 +7,7 @@ import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-hot-toast";
 import { useStableCustomer } from "@/hooks/useStableCustomer";
 import { SettingsSidebar } from "./SettingsSidebar";
+import { AccessLostWarning } from "./AccessLostWarning";
 import { TokenUsageCard, LocalTokenUsageCard } from "./TokenUsageCard";
 import { TracesLogsCard, LocalTracesLogsCard } from "./TracesLogsCard";
 import { CurrentPlanCard, LocalCurrentPlanCard } from "./CurrentPlanCard";
@@ -275,6 +276,10 @@ export function SettingsContainer() {
             {APP_VERSION}
           </span>
         </div>
+
+        {!isLocalMode && (
+          <AccessLostWarning customer={customer} hasAccess={hasAccess} />
+        )}
 
         <div className="flex min-h-[600px]">
           <SettingsSidebar activeTab={activeTab} onTabChange={setActiveTab} />
