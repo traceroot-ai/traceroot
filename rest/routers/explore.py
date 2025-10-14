@@ -56,6 +56,11 @@ from rest.typing import (
 from rest.utils.trace import collect_spans_latency_recursively
 
 try:
+    from rest.service.trace.ee.aws_trace_client import AWSTraceClient
+except ImportError:
+    from rest.service.trace.aws_trace_client import AWSTraceClient
+
+try:
     from rest.utils.ee.auth import get_user_credentials, hash_user_sub
 except ImportError:
     from rest.utils.auth import get_user_credentials, hash_user_sub
@@ -1048,6 +1053,64 @@ class ExploreRouter:
             )
             return response.model_dump()
 
+    async def _add_limit_exceeded_traces(
+        self,
+        observe_provider: ObservabilityProvider,
+        trace_id_set: set[str],
+        filtered_traces: list[Trace],
+    ) -> None:
+        """Check for AWS X-Ray limit exceeded traces and add them to results.
+
+        Args:
+            observe_provider: Observability provider instance
+            trace_id_set: Set of expected trace IDs from logs
+            filtered_traces: List of filtered traces to append limit exceeded traces to
+        """
+        if not isinstance(observe_provider.trace_client, AWSTraceClient):
+            return
+
+        # Find unfound trace IDs (traces we expected but didn't find)
+        found_trace_ids = {trace.id for trace in filtered_traces}
+        unfound_trace_ids = trace_id_set - found_trace_ids
+
+        if not unfound_trace_ids:
+            return
+
+        try:
+            # Use batch_get_traces to check if these traces exist
+            unfound_list = list(unfound_trace_ids)
+            batch_size = 5  # AWS X-Ray limit
+            limit_exceeded_trace_ids = []
+
+            for i in range(0, len(unfound_list), batch_size):
+                batch = unfound_list[i:i + batch_size]
+                response = await observe_provider.trace_client._batch_get_traces(batch)
+
+                # Check for traces with LimitExceeded flag
+                if response.get('Traces'):
+                    for trace_data in response['Traces']:
+                        if trace_data.get('LimitExceeded'):
+                            trace_id = trace_data.get('Id')
+                            limit_exceeded_trace_ids.append(trace_id)
+
+            # Add traces with LimitExceeded back to the result
+            if limit_exceeded_trace_ids:
+                # Create empty Trace objects for LimitExceeded traces
+                for trace_id in limit_exceeded_trace_ids:
+                    empty_trace = Trace(
+                        id=trace_id,
+                        start_time=0.0,
+                        end_time=0.0,
+                        duration=0.0,
+                        percentile="",
+                        spans=[],
+                        service_name="LimitExceeded",
+                        service_environment="N/A",
+                    )
+                    filtered_traces.append(empty_trace)
+        except Exception as e:
+            self.logger.error(f"Error checking unfound traces in X-Ray: {e}")
+
     async def _filter_traces_by_log_content(
         self,
         request: Request,
@@ -1103,6 +1166,14 @@ class ExploreRouter:
 
             # Filter traces by matching trace IDs
             filtered_traces = [trace for trace in traces if trace.id in trace_id_set]
+
+            # Check if unfound traces exist in AWS X-Ray (may have hit limit)
+            await self._add_limit_exceeded_traces(
+                observe_provider,
+                trace_id_set,
+                filtered_traces
+            )
+
             return filtered_traces
 
         except Exception as e:

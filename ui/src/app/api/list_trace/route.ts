@@ -4,7 +4,7 @@ import path from "path";
 import { Trace, TraceResponse } from "@/models/trace";
 import { getAuthTokenAndHeaders, createFetchHeaders } from "@/lib/clerk-auth";
 
-const FETCH_TIMEOUT = 30000; // 30 seconds
+const FETCH_TIMEOUT = 60000; // 60 seconds
 
 export async function GET(
   request: Request,
