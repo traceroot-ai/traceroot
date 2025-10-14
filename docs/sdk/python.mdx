@@ -59,6 +59,15 @@ load_dotenv()  # load variables from .env into os.environ
 traceroot.init()
 ```
 
+**Important:** For best results, call `traceroot.init()` as early as possible
+in your application. Ideally before you import other TraceRoot components in
+any source files, e.g.
+```
+from traceroot.logger import get_logger
+logger = get_logger()
+```
+This ensures that tracing and logging are properly initialized.
+
 ## Examples
 
 Uses `@traceroot.trace()` for traces and TraceRoot logger similar to the default Python logger.
