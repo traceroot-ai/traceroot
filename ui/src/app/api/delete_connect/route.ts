@@ -94,6 +94,10 @@ export async function DELETE(
 
     return NextResponse.json({
       success: deleteResult.deletedCount > 0,
+      error:
+        deleteResult.deletedCount === 0
+          ? "No configuration found to remove"
+          : undefined,
     });
   } catch (error: unknown) {
     console.error("Error processing delete integration request:", error);

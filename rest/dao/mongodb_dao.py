@@ -64,6 +64,19 @@ class TraceRootMongoDBClient:
               Any] | None:
         pass
 
+    async def get_user_sub_by_hash(
+        self,
+        hashed_user_sub: str,
+    ) -> str | None:
+        r"""Get user_sub by hashed user sub.
+
+        Args:
+            hashed_user_sub (str): The hashed user sub to search for
+
+        Returns:
+            str | None: The user_sub if found, None otherwise
+        """
+
     async def get_trace_provider_config(
         self,
         user_email: str,
