@@ -553,15 +553,21 @@ export const Trace: React.FC<TraceProps> = ({
                           {(() => {
                             const fullServiceName =
                               trace.service_name || "Unknown Service";
+                            const isLimitExceeded =
+                              fullServiceName === "LimitExceeded";
                             const shouldShowTooltip =
-                              fullServiceName.length > 25;
+                              fullServiceName.length > 25 || isLimitExceeded;
 
                             const badge = (
                               <Badge
                                 variant="default"
-                                className="min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left"
+                                className={`min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left ${
+                                  isLimitExceeded
+                                    ? "bg-red-600 hover:bg-red-700 text-white"
+                                    : ""
+                                }`}
                                 title={
-                                  shouldShowTooltip
+                                  shouldShowTooltip && !isLimitExceeded
                                     ? fullServiceName
                                     : undefined
                                 }
@@ -574,7 +580,11 @@ export const Trace: React.FC<TraceProps> = ({
                               <Tooltip>
                                 <TooltipTrigger asChild>{badge}</TooltipTrigger>
                                 <TooltipContent>
-                                  <p>{fullServiceName}</p>
+                                  <p>
+                                    {isLimitExceeded
+                                      ? "The trace is too large or took too long to complete."
+                                      : fullServiceName}
+                                  </p>
                                 </TooltipContent>
                               </Tooltip>
                             ) : (
@@ -638,7 +648,9 @@ export const Trace: React.FC<TraceProps> = ({
                         {/* Start time, Share button, and Expand/Collapse icon */}
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <span className="text-xs text-neutral-600 dark:text-neutral-300 flex-shrink-0 whitespace-nowrap">
-                            {formatDateTime(trace.start_time)}
+                            {trace.start_time === 0
+                              ? "N/A"
+                              : formatDateTime(trace.start_time)}
                           </span>
                           {selectedTraceId === trace.id && (
                             <>

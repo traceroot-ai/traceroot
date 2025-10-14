@@ -5,7 +5,7 @@ import { TraceLog, LogEntry } from "@/models/log";
 import { Span } from "@/models/trace";
 import { FaGithub } from "react-icons/fa";
 import { IoCopyOutline } from "react-icons/io5";
-import { Plus, Minus } from "lucide-react";
+import { Plus, Minus, Download } from "lucide-react";
 import { fadeInAnimationStyles } from "@/constants/animations";
 import ShowCodeToggle from "./ShowCodeToggle";
 import CodeContext from "./CodeContext";
@@ -363,6 +363,74 @@ export default function LogDetail({
     return message.length > maxLength;
   };
 
+  // Download logs as CSV
+  const downloadLogsAsCSV = () => {
+    if (!orderedLogEntries || orderedLogEntries.length === 0) {
+      return;
+    }
+
+    // Sort by timestamp (latest to most recent, i.e., descending order)
+    const sortedEntries = [...orderedLogEntries].sort(
+      (a, b) => b.entry.time - a.entry.time,
+    );
+
+    // CSV header
+    const headers = [
+      "Log Level",
+      "Timestamp (UTC)",
+      "Log Line",
+      "Method Name",
+      "Message",
+    ];
+    const csvRows = [headers.join(",")];
+
+    // Add data rows
+    sortedEntries.forEach(({ entry }) => {
+      // Convert timestamp to UTC
+      const utcDate = new Date(entry.time * 1000).toISOString();
+
+      // Log line (file_name:line_number)
+      const logLine = `${entry.file_name}:${entry.line_number}`;
+
+      // Escape CSV fields (handle quotes and commas)
+      const escapeCSV = (field: string) => {
+        if (
+          field.includes('"') ||
+          field.includes(",") ||
+          field.includes("\n")
+        ) {
+          return `"${field.replace(/"/g, '""')}"`;
+        }
+        return field;
+      };
+
+      const row = [
+        escapeCSV(entry.level),
+        escapeCSV(utcDate),
+        escapeCSV(logLine),
+        escapeCSV(entry.function_name || ""),
+        escapeCSV(entry.message || ""),
+      ];
+
+      csvRows.push(row.join(","));
+    });
+
+    // Create CSV content
+    const csvContent = csvRows.join("\n");
+
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+
+    link.setAttribute("href", url);
+    link.setAttribute("download", `${traceId}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Format message with smart line breaks for long content
   const formatMessage = (message: string, maxLineLength: number = 80) => {
     // Split message into existing lines first
@@ -504,7 +572,7 @@ export default function LogDetail({
         {/* Render logs in the order of SpanLogs, using span depth for indentation */}
         {!loading && !error && orderedLogEntries.length > 0 && (
           <div className="text-sm bg-zinc-50 dark:bg-zinc-900 rounded-md pt-2 overflow-y-auto overflow-x-visible transition-all duration-100 ease-in-out">
-            {/* Log Level Statistics and Show Code Toggle Button */}
+            {/* Log Level Statistics and Action Buttons */}
             <div className="flex justify-between items-center mb-2">
               <div>
                 <div className="font-mono flex flex-wrap items-center gap-2 px-3 py-1 text-xs my-0.5 text-gray-700 dark:text-gray-200">
@@ -565,7 +633,16 @@ export default function LogDetail({
                   )}
                 </div>
               </div>
-              <div className="flex-shrink-0">
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Button
+                  onClick={downloadLogsAsCSV}
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5"
+                  title="Download logs as CSV"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                </Button>
                 <ShowCodeToggle
                   logEntries={orderedLogEntries}
                   onLogEntriesUpdate={handleForceUpdate}
