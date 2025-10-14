@@ -42,7 +42,7 @@ async function generateUserCredentials(
   region: string;
   hash: string;
   expiration_utc: Date;
-  otlp_endpoint: string | undefined;
+  otlp_endpoint: string;
   provider_type: string;
 }> {
   const hashedUserSub = hashUserSub(userSub);
@@ -56,6 +56,11 @@ async function generateUserCredentials(
   // Truncate if too long (max 64 characters)
   if (sessionName.length > 64) {
     sessionName = sessionName.substring(0, 64);
+  }
+
+  // Validate required environment variables
+  if (!process.env.OTLP_ENDPOINT) {
+    throw new Error("OTLP_ENDPOINT environment variable is required");
   }
 
   try {
@@ -213,8 +218,7 @@ export async function POST(
           region: userCredentials.region,
           hash: userCredentials.hash,
           expiration_utc: userCredentials.expiration_utc,
-          otlp_endpoint:
-            userCredentials.otlp_endpoint || "http://3.13.23.97:4318/v1/traces",
+          otlp_endpoint: userCredentials.otlp_endpoint,
           provider_type: userCredentials.provider_type,
         });
       } catch (credError) {
