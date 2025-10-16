@@ -373,6 +373,7 @@ export function LogProviderTabContent() {
     { value: "ap-shanghai", label: "Shanghai (ap-shanghai)" },
     { value: "ap-guangzhou", label: "Guangzhou (ap-guangzhou)" },
     { value: "ap-singapore", label: "Singapore (ap-singapore)" },
+    { value: "na-siliconvalley", label: "Silicon Valley (na-siliconvalley)" },
   ];
 
   // Check if there's any data entered for the current provider
