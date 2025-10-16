@@ -13,10 +13,8 @@ def get_encryption_secret() -> str:
     Returns:
         str: The encryption secret key
     """
-    secret = os.getenv("SECRET_ENCRYPT_KEY")
-    if not secret:
-        # Fallback to "LOCAL" for local development
-        secret = "LOCAL"
+    # TODO: improve this
+    secret = "LOCAL"
     return secret
 
 

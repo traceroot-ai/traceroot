@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { connectToDatabase, isMongoDBAvailable } from "@/lib/mongodb";
 import {
   TraceProviderConfig,
@@ -51,20 +51,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Get user details from Clerk
+    const user = await currentUser();
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 401 });
+    }
+
+    const userEmail = user.emailAddresses[0]?.emailAddress;
+
+    if (!userEmail) {
+      return NextResponse.json(
+        { error: "User email not found" },
+        { status: 401 },
+      );
+    }
+
     const { searchParams } = new URL(request.url);
-    const userEmail = searchParams.get("userEmail");
     const providerType = searchParams.get("providerType");
 
     if (providerType && providerType !== "trace" && providerType !== "log") {
       return NextResponse.json(
         { error: "providerType must be either 'trace' or 'log'" },
-        { status: 400 },
-      );
-    }
-
-    if (!userEmail) {
-      return NextResponse.json(
-        { error: "userEmail is required" },
         { status: 400 },
       );
     }
@@ -101,14 +108,16 @@ export async function GET(request: NextRequest) {
         { status: 200 },
       );
     }
-
     return NextResponse.json({
       userEmail,
       mongoAvailable: true,
       config: mergedConfig,
     });
   } catch (error) {
-    console.error("Error fetching provider config:", error);
+    console.error(
+      "💥 [Provider Config GET] Error fetching provider config:",
+      error,
+    );
     return NextResponse.json(
       { error: "Failed to fetch provider configuration" },
       { status: 500 },
@@ -126,15 +135,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await request.json();
-    const { userEmail, ...configData } = body;
+    // Get user details from Clerk
+    const user = await currentUser();
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 401 });
+    }
+
+    const userEmail = user.emailAddresses[0]?.emailAddress;
 
     if (!userEmail) {
       return NextResponse.json(
-        { error: "userEmail is required" },
-        { status: 400 },
+        { error: "User email not found" },
+        { status: 401 },
       );
     }
+
+    const body = await request.json();
+    const configData = body;
 
     // Check if MongoDB is available
     if (!isMongoDBAvailable()) {
@@ -208,14 +225,16 @@ export async function POST(request: NextRequest) {
       TraceProviderConfig.findOne({ userEmail }),
       LogProviderConfig.findOne({ userEmail }),
     ]);
-
     return NextResponse.json({
       success: true,
       message: "Provider configuration saved successfully",
       config: mergeProviderConfigs(traceConfig, logConfig),
     });
   } catch (error) {
-    console.error("Error saving provider config:", error);
+    console.error(
+      "💥 [Provider Config POST] Error saving provider config:",
+      error,
+    );
     return NextResponse.json(
       { error: "Failed to save provider configuration" },
       { status: 500 },
@@ -233,16 +252,24 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { searchParams } = new URL(request.url);
-    const userEmail = searchParams.get("userEmail");
-    const providerTypeParam = searchParams.get("providerType");
+    // Get user details from Clerk
+    const user = await currentUser();
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 401 });
+    }
+
+    const userEmail = user.emailAddresses[0]?.emailAddress;
 
     if (!userEmail) {
       return NextResponse.json(
-        { error: "userEmail is required" },
-        { status: 400 },
+        { error: "User email not found" },
+        { status: 401 },
       );
     }
+
+    const { searchParams } = new URL(request.url);
+    const providerTypeParam = searchParams.get("providerType");
+    const provider = searchParams.get("provider"); // aws, tencent, or jaeger
 
     if (
       providerTypeParam &&
@@ -251,6 +278,18 @@ export async function DELETE(request: NextRequest) {
     ) {
       return NextResponse.json(
         { error: "providerType must be either 'trace' or 'log'" },
+        { status: 400 },
+      );
+    }
+
+    if (
+      provider &&
+      provider !== "aws" &&
+      provider !== "tencent" &&
+      provider !== "jaeger"
+    ) {
+      return NextResponse.json(
+        { error: "provider must be either 'aws', 'tencent', or 'jaeger'" },
         { status: 400 },
       );
     }
@@ -272,16 +311,42 @@ export async function DELETE(request: NextRequest) {
     let deleted = false;
     const providerType = providerTypeParam as "trace" | "log" | null;
 
-    if (!providerType || providerType === "trace") {
-      const traceResult = await TraceProviderConfig.findOneAndDelete({
-        userEmail,
-      });
-      deleted = deleted || !!traceResult;
-    }
+    // If specific provider is specified, only unset that provider's config
+    if (provider) {
+      if (!providerType || providerType === "trace") {
+        const unsetField = `${provider}TraceConfig`;
+        const traceResult = await TraceProviderConfig.findOneAndUpdate(
+          { userEmail },
+          { $unset: { [unsetField]: "" } },
+          { new: true },
+        );
+        deleted = deleted || !!traceResult;
+      }
 
-    if (!providerType || providerType === "log") {
-      const logResult = await LogProviderConfig.findOneAndDelete({ userEmail });
-      deleted = deleted || !!logResult;
+      if (!providerType || providerType === "log") {
+        const unsetField = `${provider}LogConfig`;
+        const logResult = await LogProviderConfig.findOneAndUpdate(
+          { userEmail },
+          { $unset: { [unsetField]: "" } },
+          { new: true },
+        );
+        deleted = deleted || !!logResult;
+      }
+    } else {
+      // If no provider specified, delete entire document(s)
+      if (!providerType || providerType === "trace") {
+        const traceResult = await TraceProviderConfig.findOneAndDelete({
+          userEmail,
+        });
+        deleted = deleted || !!traceResult;
+      }
+
+      if (!providerType || providerType === "log") {
+        const logResult = await LogProviderConfig.findOneAndDelete({
+          userEmail,
+        });
+        deleted = deleted || !!logResult;
+      }
     }
 
     if (!deleted) {
@@ -296,7 +361,10 @@ export async function DELETE(request: NextRequest) {
       message: "Provider configuration deleted successfully",
     });
   } catch (error) {
-    console.error("Error deleting provider config:", error);
+    console.error(
+      "💥 [Provider Config DELETE] Error deleting provider config:",
+      error,
+    );
     return NextResponse.json(
       { error: "Failed to delete provider configuration" },
       { status: 500 },
