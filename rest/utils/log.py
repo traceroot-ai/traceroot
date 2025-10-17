@@ -59,12 +59,39 @@ def process_log_events(all_events: list[dict[str, Any]]) -> TraceLogs:
 
 
 def _load_json(message: str, ) -> tuple[LogEntry, str] | tuple[None, None]:
-    json_data = json.loads(message)
-    time_str = json_data['timestamp']
-    time_obj = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S,%f")
-    # Make it timezone-aware as UTC to avoid local timezone assumptions
-    time_obj = time_obj.replace(tzinfo=timezone.utc)
-    time = time_obj.timestamp()
+    try:
+        json_data = json.loads(message)
+        time_str = json_data.get('timestamp')
+        if not time_str:
+            return None, None
+
+        # Try parsing different timestamp formats
+        try:
+            if 'T' in time_str:
+                # ISO 8601 format (e.g., "2025-10-16T23:23:41.917Z" or
+                # "2025-10-16T23:23:41.917+00:00")
+                if time_str.endswith('Z'):
+                    # Replace Z with +00:00 for fromisoformat compatibility
+                    time_obj = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+                else:
+                    # Already has timezone or no timezone
+                    time_obj = datetime.fromisoformat(time_str)
+                    # If no timezone info, assume UTC
+                    if time_obj.tzinfo is None:
+                        time_obj = time_obj.replace(tzinfo=timezone.utc)
+            else:
+                # Original format: "2025-10-16 23:23:41,917"
+                time_obj = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S,%f")
+                # Make it timezone-aware as UTC to avoid local timezone assumptions
+                time_obj = time_obj.replace(tzinfo=timezone.utc)
+        except ValueError as ve:
+            print(f"[DEBUG] Failed to parse timestamp '{time_str}': {ve}")
+            return None, None
+
+        time = time_obj.timestamp()
+    except Exception as e:
+        print(f"[DEBUG] Error parsing JSON log: {e}, message: {message[:200]}")
+        return None, None
     level = json_data['level'].upper()
     # For now for WARN to WARNING for typescript case
     if level == "WARN":
@@ -91,6 +118,7 @@ def _load_json(message: str, ) -> tuple[LogEntry, str] | tuple[None, None]:
         function_name = code_info_items[-2]
         line_number = int(code_info_items[-1])
     else:
+        # Skip logs without stack trace information
         return None, None
 
     github_owner = json_data['github_owner']
