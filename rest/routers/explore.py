@@ -103,7 +103,14 @@ class ExploreRouter:
         self.cache = SimpleMemoryCache(ttl=60 * 10)
         self._setup_routes()
 
-    async def get_observe_provider(self, request: Request) -> ObservabilityProvider:
+    async def get_observe_provider(
+        self,
+        request: Request,
+        trace_provider: str | None = None,
+        log_provider: str | None = None,
+        trace_region: str | None = None,
+        log_region: str | None = None,
+    ) -> ObservabilityProvider:
         """Get observability provider based on request.
 
         For local mode, always use the default Jaeger provider.
@@ -111,6 +118,10 @@ class ExploreRouter:
 
         Args:
             request: FastAPI request object
+            trace_provider: Override trace provider (if None, read from query params)
+            log_provider: Override log provider (if None, read from query params)
+            trace_region: Override trace region (if None, read from query params)
+            log_region: Override log region (if None, read from query params)
 
         Returns:
             ObservabilityProvider instance
@@ -118,12 +129,16 @@ class ExploreRouter:
         if self.local_mode:
             return self.default_observe_provider
 
-        # Extract provider parameters from request
+        # Extract provider parameters from request query params if not provided
         query_params = request.query_params
-        trace_provider = query_params.get("trace_provider", "aws")
-        log_provider = query_params.get("log_provider", "aws")
-        trace_region = query_params.get("trace_region")
-        log_region = query_params.get("log_region")
+        if trace_provider is None:
+            trace_provider = query_params.get("trace_provider", "aws")
+        if log_provider is None:
+            log_provider = query_params.get("log_provider", "aws")
+        if trace_region is None:
+            trace_region = query_params.get("trace_region")
+        if log_region is None:
+            log_region = query_params.get("log_region")
 
         # Get user email to fetch MongoDB config
         user_email, _, _ = get_user_credentials(request)
@@ -780,7 +795,13 @@ class ExploreRouter:
             is_github_pr = github_related.is_github_pr
 
         # Get the trace #######################################################
-        observe_provider = await self.get_observe_provider(request)
+        observe_provider = await self.get_observe_provider(
+            request,
+            trace_provider=req_data.trace_provider,
+            log_provider=req_data.log_provider,
+            trace_region=req_data.trace_region,
+            log_region=req_data.log_region,
+        )
         selected_trace: Trace | None = None
 
         # If we have a trace_id, fetch it directly
