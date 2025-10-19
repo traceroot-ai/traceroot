@@ -15,6 +15,7 @@ export type TimeRange = {
 };
 
 export const TIME_RANGES: TimeRange[] = [
+  { label: "Last 1 Minute", minutes: 1 },
   { label: "Last 10 Minutes", minutes: 10 },
   { label: "Last 30 Minutes", minutes: 30 },
   { label: "Last 1 Hour", minutes: 60 },
