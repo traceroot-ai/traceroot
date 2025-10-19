@@ -88,7 +88,9 @@ class JaegerTraceClient(TraceClient):
         categories: list[str] | None = None,
         values: list[str] | None = None,
         operations: list[str] | None = None,
-    ) -> list[Trace]:
+        pagination_state: dict | None = None,
+    ) -> tuple[list[Trace],
+               dict | None]:
         """Get recent traces from Jaeger.
 
         Args:
@@ -148,7 +150,7 @@ class JaegerTraceClient(TraceClient):
                 traces_data.extend(curr_traces)
 
         if len(traces_data) == 0:
-            return []
+            return ([], None)
 
         # Convert Jaeger traces to our Trace model
         traces = []
@@ -159,7 +161,10 @@ class JaegerTraceClient(TraceClient):
 
         # Sort traces by start_time in descending order (newest first)
         traces.sort(key=lambda trace: trace.start_time, reverse=True)
-        return traces
+
+        # Jaeger doesn't support true pagination currently
+        # Return all traces with no next state
+        return (traces, None)
 
     async def get_trace_with_spans_by_ids(
         self,

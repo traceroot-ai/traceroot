@@ -35,4 +35,6 @@ export interface TraceResponse {
   success: boolean;
   data: Trace[];
   error?: string;
+  next_pagination_token?: string;
+  has_more?: boolean;
 }

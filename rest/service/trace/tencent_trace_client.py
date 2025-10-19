@@ -48,6 +48,8 @@ class TencentTraceClient(TraceClient):
         categories: list[str] | None = None,
         values: list[str] | None = None,
         operations: list[str] | None = None,
-    ) -> list[Trace]:
+        pagination_state: dict | None = None,
+    ) -> tuple[list[Trace],
+               dict | None]:
         """Get recent traces."""
-        return []
+        return ([], None)

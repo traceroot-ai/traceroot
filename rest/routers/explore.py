@@ -412,6 +412,18 @@ class ExploreRouter:
         operations = req_data.operations.copy()
         trace_id = req_data.trace_id
 
+        # Decode pagination token
+        pagination_state = None
+        if req_data.pagination_token:
+            from rest.utils.pagination import decode_pagination_token
+            try:
+                pagination_state = decode_pagination_token(req_data.pagination_token)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid pagination token: {str(e)}"
+                )
+
         # If trace_id is provided, fetch that specific trace directly
         if trace_id:
             try:
@@ -449,7 +461,8 @@ class ExploreRouter:
             tuple(categories),
             tuple(values),
             tuple(operations),
-            log_group_name
+            log_group_name,
+            req_data.pagination_token or 'first_page'
         )
 
         # Extract service names, service environment, and log search
@@ -503,14 +516,23 @@ class ExploreRouter:
             Operation(op) for op in service_environment_operations
         ]
 
-        cached_traces: list[Trace] | None = await self.cache.get(keys)
-        if cached_traces:
-            resp = ListTraceResponse(traces=cached_traces)
+        cached_result: tuple | None = await self.cache.get(keys)
+        if cached_result:
+            traces, next_state = cached_result
+            next_pagination_token = None
+            if next_state:
+                from rest.utils.pagination import encode_pagination_token
+                next_pagination_token = encode_pagination_token(next_state)
+            resp = ListTraceResponse(
+                traces=traces,
+                next_pagination_token=next_pagination_token,
+                has_more=next_pagination_token is not None
+            )
             return resp.model_dump()
 
         try:
             observe_provider = await self.get_observe_provider(request)
-            traces: list[Trace] = await observe_provider.trace_client.get_recent_traces(
+            traces, next_state = await observe_provider.trace_client.get_recent_traces(
                 start_time=start_time,
                 end_time=end_time,
                 log_group_name=log_group_name,
@@ -521,6 +543,7 @@ class ExploreRouter:
                 categories=categories,
                 values=values,
                 operations=operations,
+                pagination_state=pagination_state,
             )
 
             # Filter traces by log content if log search is specified
@@ -535,9 +558,19 @@ class ExploreRouter:
                     log_search_operations=log_search_operations
                 )
 
-            # Cache the traces for 10 minutes
-            await self.cache.set(keys, traces)
-            resp = ListTraceResponse(traces=traces)
+            # Encode next pagination token
+            next_pagination_token = None
+            if next_state:
+                from rest.utils.pagination import encode_pagination_token
+                next_pagination_token = encode_pagination_token(next_state)
+
+            # Cache the result for 10 minutes
+            await self.cache.set(keys, (traces, next_state))
+            resp = ListTraceResponse(
+                traces=traces,
+                next_pagination_token=next_pagination_token,
+                has_more=next_pagination_token is not None
+            )
             return resp.model_dump()
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
