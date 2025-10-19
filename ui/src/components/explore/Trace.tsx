@@ -122,6 +122,12 @@ export const Trace: React.FC<TraceProps> = ({
   const [shareTraceId, setShareTraceId] = useState<string | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
   const [hasTraceIdInUrl, setHasTraceIdInUrl] = useState<boolean>(false);
+  const [nextPaginationToken, setNextPaginationToken] = useState<string | null>(
+    null,
+  );
+  const [hasMore, setHasMore] = useState<boolean>(false);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
+  const previousTraceCountRef = useRef<number>(0);
 
   const handleTimeRangeSelect = (range: TimeRange) => {
     setSelectedTimeRange(range);
@@ -130,6 +136,9 @@ export const Trace: React.FC<TraceProps> = ({
     setSelectedSpanIds([]);
     setIsTraceExpanded(true);
     setExpandedSpans(new Set());
+    setNextPaginationToken(null);
+    setHasMore(false);
+    previousTraceCountRef.current = 0;
     onTraceSelect?.(null);
     onSpanSelect?.([]);
     setLoading(true);
@@ -137,6 +146,9 @@ export const Trace: React.FC<TraceProps> = ({
 
   const handleSearch = (criteria: SearchCriterion[]) => {
     setSearchCriteria(criteria);
+    setNextPaginationToken(null);
+    setHasMore(false);
+    previousTraceCountRef.current = 0;
     setLoading(true); // Trigger a new API call when search criteria change
   };
 
@@ -144,6 +156,9 @@ export const Trace: React.FC<TraceProps> = ({
     setSearchCriteria([]);
     setLogSearchValue("");
     setExpandedSpans(new Set());
+    setNextPaginationToken(null);
+    setHasMore(false);
+    previousTraceCountRef.current = 0;
     onLogSearchValueChange?.("");
     setLoading(true); // Trigger a new API call when search is cleared
   };
@@ -153,9 +168,13 @@ export const Trace: React.FC<TraceProps> = ({
     onLogSearchValueChange?.(value);
   };
 
-  useEffect(() => {
-    const fetchTraces = async () => {
-      if (!loading) return;
+  const fetchTraces = useCallback(
+    async (paginationToken?: string | null) => {
+      const isLoadingMore = !!paginationToken;
+
+      if (isLoadingMore) {
+        setLoadingMore(true);
+      }
 
       try {
         let startTime: Date;
@@ -198,6 +217,11 @@ export const Trace: React.FC<TraceProps> = ({
           apiUrl += `&operations=${encodeURIComponent(criterion.operation)}`;
         });
 
+        // Add pagination token if provided
+        if (paginationToken) {
+          apiUrl += `&pagination_token=${encodeURIComponent(paginationToken)}`;
+        }
+
         const response = await fetch(apiUrl);
         const result = await response.json();
 
@@ -205,37 +229,68 @@ export const Trace: React.FC<TraceProps> = ({
           throw new Error(result.error || "Failed to fetch traces");
         }
 
-        setTraces(result.data);
+        console.log("=== Pagination Debug ===");
+        console.log("isLoadingMore:", isLoadingMore);
+        console.log("pagination_token sent:", paginationToken);
+        console.log("Fetched traces count:", result.data.length);
+        console.log("next_pagination_token:", result.next_pagination_token);
+        console.log("has_more:", result.has_more);
+        console.log("First trace ID in response:", result.data[0]?.id);
+        console.log(
+          "Last trace ID in response:",
+          result.data[result.data.length - 1]?.id,
+        );
 
-        // If trace_id in URL, auto-select that trace
-        if (traceIdParam && result.data.length > 0) {
-          const traceToSelect = result.data.find(
-            (trace: TraceType) => trace.id === traceIdParam,
-          );
-          if (traceToSelect) {
-            setSelectedTraceId(traceToSelect.id);
-            onTraceSelect?.(traceToSelect.id);
-          }
-        } else {
-          // Check if currently selected trace is still in the filtered results
-          if (selectedTraceId) {
-            const isSelectedTraceInResults = result.data.some(
-              (trace: TraceType) => trace.id === selectedTraceId,
+        // Store pagination info
+        setNextPaginationToken(result.next_pagination_token || null);
+        setHasMore(result.has_more || false);
+
+        // If loading more, append to existing traces; otherwise replace
+        if (isLoadingMore) {
+          setTraces((prevTraces) => {
+            console.log("Previous traces count:", prevTraces.length);
+            console.log(
+              "Last trace ID before append:",
+              prevTraces[prevTraces.length - 1]?.id,
             );
+            const updatedTraces = [...prevTraces, ...result.data];
+            console.log("Total traces after append:", updatedTraces.length);
+            previousTraceCountRef.current = prevTraces.length;
+            return updatedTraces;
+          });
+        } else {
+          setTraces(result.data);
+          previousTraceCountRef.current = 0;
 
-            if (!isSelectedTraceInResults) {
-              // Clear selection if selected trace is not in new results
-              setSelectedTraceId(null);
-              setSelectedSpanId(null);
-              setSelectedSpanIds([]);
-              onTraceSelect?.(null);
-              onSpanSelect?.([]);
+          // If trace_id in URL, auto-select that trace
+          if (traceIdParam && result.data.length > 0) {
+            const traceToSelect = result.data.find(
+              (trace: TraceType) => trace.id === traceIdParam,
+            );
+            if (traceToSelect) {
+              setSelectedTraceId(traceToSelect.id);
+              onTraceSelect?.(traceToSelect.id);
+            }
+          } else {
+            // Check if currently selected trace is still in the filtered results
+            if (selectedTraceId) {
+              const isSelectedTraceInResults = result.data.some(
+                (trace: TraceType) => trace.id === selectedTraceId,
+              );
+
+              if (!isSelectedTraceInResults) {
+                // Clear selection if selected trace is not in new results
+                setSelectedTraceId(null);
+                setSelectedSpanId(null);
+                setSelectedSpanIds([]);
+                onTraceSelect?.(null);
+                onSpanSelect?.([]);
+              }
             }
           }
-        }
 
-        onTraceData?.(timeRangeRef.current.start, timeRangeRef.current.end);
-        onTracesUpdate?.(result.data);
+          onTraceData?.(timeRangeRef.current.start, timeRangeRef.current.end);
+        }
       } catch (err) {
         setError(
           err instanceof Error
@@ -243,10 +298,28 @@ export const Trace: React.FC<TraceProps> = ({
             : "An error occurred while fetching traces",
         );
       } finally {
-        setLoading(false);
+        if (isLoadingMore) {
+          setLoadingMore(false);
+        } else {
+          setLoading(false);
+        }
       }
-    };
+    },
+    [
+      selectedTimeRange,
+      traceQueryStartTime,
+      traceQueryEndTime,
+      searchCriteria,
+      selectedTraceId,
+      onTraceData,
+      onTracesUpdate,
+      onTraceSelect,
+      onSpanSelect,
+    ],
+  );
 
+  useEffect(() => {
+    if (!loading) return;
     fetchTraces();
   }, [
     selectedTimeRange,
@@ -255,6 +328,11 @@ export const Trace: React.FC<TraceProps> = ({
     traceQueryEndTime,
     searchCriteria,
   ]);
+
+  // Notify parent when traces change
+  useEffect(() => {
+    onTracesUpdate?.(traces);
+  }, [traces, onTracesUpdate]);
 
   useEffect(() => {
     setLoading(true);
@@ -346,6 +424,9 @@ export const Trace: React.FC<TraceProps> = ({
     setSelectedSpanIds([]);
     setIsTraceExpanded(true);
     setExpandedSpans(new Set());
+    setNextPaginationToken(null);
+    setHasMore(false);
+    previousTraceCountRef.current = 0;
     onTraceSelect?.(null);
     onSpanSelect?.([]);
     setLoading(true);
@@ -375,6 +456,12 @@ export const Trace: React.FC<TraceProps> = ({
       } catch (err) {
         console.error("Failed to copy:", err);
       }
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (nextPaginationToken && !loadingMore) {
+      fetchTraces(nextPaginationToken);
     }
   };
 
@@ -484,264 +571,300 @@ export const Trace: React.FC<TraceProps> = ({
             )}
 
             {!loading && !error && traces.length > 0 && (
-              <div className="space-y-1.5 transition-all duration-100 ease-in-out">
-                {traces.map((trace, index) => (
-                  <div key={trace.id} className="relative">
-                    {/* Trace Block */}
-                    <div
-                      className={`relative h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-100 ease-in-out hover:shadow-sm animate-fadeIn ${
-                        selectedTraceId === trace.id
-                          ? "bg-zinc-100 dark:bg-zinc-900"
-                          : "bg-white dark:bg-zinc-950"
-                      }`}
-                      style={{
-                        animationDelay: `${index * 5}ms`,
-                      }}
-                      onClick={() => handleTraceClick(trace.id)}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <div className="flex justify-between items-center h-full">
-                        <div className="flex items-center text-sm min-w-0 flex-1 pr-4">
-                          {/* Telemetry SDK Language Icons */}
-                          {trace.telemetry_sdk_language &&
-                            trace.telemetry_sdk_language.length > 0 && (
+              <>
+                <div className="space-y-1.5 transition-all duration-100 ease-in-out">
+                  {traces.map((trace, index) => {
+                    const isNewTrace = index >= previousTraceCountRef.current;
+                    const animationDelay = isNewTrace
+                      ? `${(index - previousTraceCountRef.current) * 5}ms`
+                      : "0ms";
+                    return (
+                      <div key={trace.id} className="relative">
+                        {/* Trace Block */}
+                        <div
+                          className={`relative h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-100 ease-in-out hover:shadow-sm ${isNewTrace ? "animate-fadeIn" : ""} ${
+                            selectedTraceId === trace.id
+                              ? "bg-zinc-100 dark:bg-zinc-900"
+                              : "bg-white dark:bg-zinc-950"
+                          }`}
+                          style={{
+                            animationDelay: animationDelay,
+                          }}
+                          onClick={() => handleTraceClick(trace.id)}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          <div className="flex justify-between items-center h-full">
+                            <div className="flex items-center text-sm min-w-0 flex-1 pr-4">
+                              {/* Telemetry SDK Language Icons */}
+                              {trace.telemetry_sdk_language &&
+                                trace.telemetry_sdk_language.length > 0 && (
+                                  <div className="flex items-center flex-shrink-0">
+                                    {/* Python Icon - show when telemetry_sdk_language includes "python" */}
+                                    {trace.telemetry_sdk_language.includes(
+                                      "python",
+                                    ) && (
+                                      <FaPython
+                                        className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                        size={14}
+                                      />
+                                    )}
+
+                                    {/* TypeScript Icon - show when telemetry_sdk_language includes "ts" */}
+                                    {trace.telemetry_sdk_language.includes(
+                                      "ts",
+                                    ) && (
+                                      <SiTypescript
+                                        className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                        size={14}
+                                      />
+                                    )}
+
+                                    {/* JavaScript Icon - show when telemetry_sdk_language includes "js" */}
+                                    {trace.telemetry_sdk_language.includes(
+                                      "js",
+                                    ) && (
+                                      <IoLogoJavascript
+                                        className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                        size={14}
+                                      />
+                                    )}
+
+                                    {/* Java Icon - show when telemetry_sdk_language includes "java" */}
+                                    {trace.telemetry_sdk_language.includes(
+                                      "java",
+                                    ) && (
+                                      <FaJava
+                                        className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                        size={14}
+                                      />
+                                    )}
+                                  </div>
+                                )}
+
+                              {/* Service Name Badge */}
+                              {(() => {
+                                const fullServiceName =
+                                  trace.service_name || "Unknown Service";
+                                const isLimitExceeded =
+                                  fullServiceName === "LimitExceeded";
+                                const shouldShowTooltip =
+                                  fullServiceName.length > 25 ||
+                                  isLimitExceeded;
+
+                                const badge = (
+                                  <Badge
+                                    variant="default"
+                                    className={`min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left ${
+                                      isLimitExceeded
+                                        ? "bg-red-600 hover:bg-red-700 text-white"
+                                        : ""
+                                    }`}
+                                    title={
+                                      shouldShowTooltip && !isLimitExceeded
+                                        ? fullServiceName
+                                        : undefined
+                                    }
+                                  >
+                                    {fullServiceName}
+                                  </Badge>
+                                );
+
+                                return shouldShowTooltip ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      {badge}
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>
+                                        {isLimitExceeded
+                                          ? "The trace is too large or took too long to complete."
+                                          : fullServiceName}
+                                      </p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                  badge
+                                );
+                              })()}
+
+                              {/* Environment */}
+                              <Badge
+                                variant="outline"
+                                className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
+                              >
+                                {trace.service_environment ||
+                                  "Unknown Environment"}
+                              </Badge>
+
+                              {/* Warning and Error Badges Container */}
                               <div className="flex items-center flex-shrink-0">
-                                {/* Python Icon - show when telemetry_sdk_language includes "python" */}
-                                {trace.telemetry_sdk_language.includes(
-                                  "python",
-                                ) && (
-                                  <FaPython
-                                    className="text-neutral-800 dark:text-neutral-200 mr-2"
-                                    size={14}
-                                  />
+                                {/* Error icon for error/critical logs */}
+                                {((trace.num_error_logs ?? 0) > 0 ||
+                                  (trace.num_critical_logs ?? 0) > 0) && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Badge
+                                        variant="destructive"
+                                        className="h-6 mr-1 px-1 font-light"
+                                      >
+                                        <MdErrorOutline
+                                          size={16}
+                                          className="text-white"
+                                        />
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>{`${trace.num_error_logs ?? 0} error logs, ${trace.num_critical_logs ?? 0} critical logs`}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
                                 )}
 
-                                {/* TypeScript Icon - show when telemetry_sdk_language includes "ts" */}
-                                {trace.telemetry_sdk_language.includes(
-                                  "ts",
-                                ) && (
-                                  <SiTypescript
-                                    className="text-neutral-800 dark:text-neutral-200 mr-2"
-                                    size={14}
-                                  />
-                                )}
-
-                                {/* JavaScript Icon - show when telemetry_sdk_language includes "js" */}
-                                {trace.telemetry_sdk_language.includes(
-                                  "js",
-                                ) && (
-                                  <IoLogoJavascript
-                                    className="text-neutral-800 dark:text-neutral-200 mr-2"
-                                    size={14}
-                                  />
-                                )}
-
-                                {/* Java Icon - show when telemetry_sdk_language includes "java" */}
-                                {trace.telemetry_sdk_language.includes(
-                                  "java",
-                                ) && (
-                                  <FaJava
-                                    className="text-neutral-800 dark:text-neutral-200 mr-2"
-                                    size={14}
-                                  />
+                                {/* Warning icon for error/critical logs */}
+                                {(trace.num_warning_logs ?? 0) > 0 && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Badge
+                                        variant="secondary"
+                                        className="h-6 m-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-light"
+                                      >
+                                        <IoWarningOutline
+                                          size={16}
+                                          className="text-white"
+                                        />
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>{`${trace.num_warning_logs ?? 0} warning logs`}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
                                 )}
                               </div>
-                            )}
+                            </div>
 
-                          {/* Service Name Badge */}
-                          {(() => {
-                            const fullServiceName =
-                              trace.service_name || "Unknown Service";
-                            const isLimitExceeded =
-                              fullServiceName === "LimitExceeded";
-                            const shouldShowTooltip =
-                              fullServiceName.length > 25 || isLimitExceeded;
-
-                            const badge = (
-                              <Badge
-                                variant="default"
-                                className={`min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left ${
-                                  isLimitExceeded
-                                    ? "bg-red-600 hover:bg-red-700 text-white"
-                                    : ""
-                                }`}
-                                title={
-                                  shouldShowTooltip && !isLimitExceeded
-                                    ? fullServiceName
-                                    : undefined
-                                }
-                              >
-                                {fullServiceName}
-                              </Badge>
-                            );
-
-                            return shouldShowTooltip ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>{badge}</TooltipTrigger>
-                                <TooltipContent>
-                                  <p>
-                                    {isLimitExceeded
-                                      ? "The trace is too large or took too long to complete."
-                                      : fullServiceName}
-                                  </p>
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              badge
-                            );
-                          })()}
-
-                          {/* Environment */}
-                          <Badge
-                            variant="outline"
-                            className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
-                          >
-                            {trace.service_environment || "Unknown Environment"}
-                          </Badge>
-
-                          {/* Warning and Error Badges Container */}
-                          <div className="flex items-center flex-shrink-0">
-                            {/* Error icon for error/critical logs */}
-                            {((trace.num_error_logs ?? 0) > 0 ||
-                              (trace.num_critical_logs ?? 0) > 0) && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Badge
-                                    variant="destructive"
-                                    className="h-6 mr-1 px-1 font-light"
-                                  >
-                                    <MdErrorOutline
-                                      size={16}
-                                      className="text-white"
-                                    />
-                                  </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>{`${trace.num_error_logs ?? 0} error logs, ${trace.num_critical_logs ?? 0} critical logs`}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-
-                            {/* Warning icon for error/critical logs */}
-                            {(trace.num_warning_logs ?? 0) > 0 && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Badge
-                                    variant="secondary"
-                                    className="h-6 m-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-light"
-                                  >
-                                    <IoWarningOutline
-                                      size={16}
-                                      className="text-white"
-                                    />
-                                  </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>{`${trace.num_warning_logs ?? 0} warning logs`}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Start time, Share button, and Expand/Collapse icon */}
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <span className="text-xs text-neutral-600 dark:text-neutral-300 flex-shrink-0 whitespace-nowrap">
-                            {trace.start_time === 0
-                              ? "N/A"
-                              : formatDateTime(trace.start_time)}
-                          </span>
-                          {selectedTraceId === trace.id && (
-                            <>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
+                            {/* Start time, Share button, and Expand/Collapse icon */}
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <span className="text-xs text-neutral-600 dark:text-neutral-300 flex-shrink-0 whitespace-nowrap">
+                                {trace.start_time === 0
+                                  ? "N/A"
+                                  : formatDateTime(trace.start_time)}
+                              </span>
+                              {selectedTraceId === trace.id && (
+                                <>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        onClick={(e) =>
+                                          handleShareClick(trace.id, e)
+                                        }
+                                        className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
+                                      >
+                                        <Share2
+                                          size={14}
+                                          className="text-neutral-600 dark:text-neutral-300"
+                                        />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Share trace</p>
+                                    </TooltipContent>
+                                  </Tooltip>
                                   <button
                                     onClick={(e) =>
-                                      handleShareClick(trace.id, e)
+                                      handleTraceExpandToggle(trace.id, e)
                                     }
                                     className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
                                   >
-                                    <Share2
-                                      size={14}
-                                      className="text-neutral-600 dark:text-neutral-300"
-                                    />
+                                    {isTraceExpanded ? (
+                                      <CircleMinus
+                                        size={14}
+                                        className="text-neutral-600 dark:text-neutral-300"
+                                      />
+                                    ) : (
+                                      <CirclePlus
+                                        size={14}
+                                        className="text-neutral-600 dark:text-neutral-300"
+                                      />
+                                    )}
                                   </button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Share trace</p>
-                                </TooltipContent>
-                              </Tooltip>
-                              <button
-                                onClick={(e) =>
-                                  handleTraceExpandToggle(trace.id, e)
-                                }
-                                className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
-                              >
-                                {isTraceExpanded ? (
-                                  <CircleMinus
-                                    size={14}
-                                    className="text-neutral-600 dark:text-neutral-300"
-                                  />
-                                ) : (
-                                  <CirclePlus
-                                    size={14}
-                                    className="text-neutral-600 dark:text-neutral-300"
-                                  />
-                                )}
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Spans Container - Only rendered when trace is selected AND expanded */}
-                    {selectedTraceId === trace.id && isTraceExpanded && (
-                      <div
-                        className="relative pb-1 pt-1.5"
-                        style={{ zIndex: 1 }}
-                      >
-                        {/* Vertical Line: extends naturally with the content */}
-                        <div
-                          className="absolute top-0 w-px"
-                          style={{
-                            left: "3%",
-                            height: "100%",
-                            background: "#e5e7eb",
-                            zIndex: -1,
-                          }}
-                        />
-
-                        <div
-                          className="overflow-y-auto"
-                          style={{
-                            width: "97%",
-                            marginLeft: "3%",
-                            maxHeight: "500px", // ✅ Enables vertical scroll
-                          }}
-                        >
-                          <div className="space-y-2">
-                            {trace.spans.map((span) => (
-                              <Span
-                                key={span.id}
-                                span={span}
-                                widthPercentage={97}
-                                isSelected={selectedSpanIds.includes(span.id)}
-                                selectedSpanId={selectedSpanId}
-                                selectedSpanIds={selectedSpanIds}
-                                onSpanSelect={handleSpanSelect}
-                                expandedSpans={expandedSpans}
-                                onSpanExpandToggle={handleSpanExpandToggle}
-                              />
-                            ))}
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
+
+                        {/* Spans Container - Only rendered when trace is selected AND expanded */}
+                        {selectedTraceId === trace.id && isTraceExpanded && (
+                          <div
+                            className="relative pb-1 pt-1.5"
+                            style={{ zIndex: 1 }}
+                          >
+                            {/* Vertical Line: extends naturally with the content */}
+                            <div
+                              className="absolute top-0 w-px"
+                              style={{
+                                left: "3%",
+                                height: "100%",
+                                background: "#e5e7eb",
+                                zIndex: -1,
+                              }}
+                            />
+
+                            <div
+                              className="overflow-y-auto"
+                              style={{
+                                width: "97%",
+                                marginLeft: "3%",
+                                maxHeight: "500px", // ✅ Enables vertical scroll
+                              }}
+                            >
+                              <div className="space-y-2">
+                                {trace.spans.map((span) => (
+                                  <Span
+                                    key={span.id}
+                                    span={span}
+                                    widthPercentage={97}
+                                    isSelected={selectedSpanIds.includes(
+                                      span.id,
+                                    )}
+                                    selectedSpanId={selectedSpanId}
+                                    selectedSpanIds={selectedSpanIds}
+                                    onSpanSelect={handleSpanSelect}
+                                    expandedSpans={expandedSpans}
+                                    onSpanExpandToggle={handleSpanExpandToggle}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )}
+                    );
+                  })}
+                </div>
+
+                {/* Load More Button */}
+                {hasMore && !loadingMore && (
+                  <div className="mt-1.5">
+                    <button
+                      onClick={handleLoadMore}
+                      className="w-full h-[40px] p-2 rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors cursor-pointer flex items-center justify-center text-sm text-neutral-600 dark:text-neutral-300"
+                    >
+                      <span className="text-xs">Load more traces...</span>
+                    </button>
                   </div>
-                ))}
-              </div>
+                )}
+
+                {/* Loading More Indicator */}
+                {loadingMore && (
+                  <div className="mt-1.5 flex justify-center py-3">
+                    <Spinner
+                      variant="infinite"
+                      className="w-6 h-6 text-gray-500 dark:text-gray-300"
+                    />
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

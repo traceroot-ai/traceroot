@@ -35,6 +35,7 @@ export async function GET(
     const logProvider = searchParams.get("log_provider");
     const logRegion = searchParams.get("log_region");
     const traceId = searchParams.get("trace_id");
+    const paginationToken = searchParams.get("pagination_token");
 
     // Check if REST_API_ENDPOINT environment variable is set
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
@@ -99,6 +100,11 @@ export async function GET(
           apiUrl += `&trace_id=${encodeURIComponent(traceId)}`;
         }
 
+        // Add pagination_token if provided
+        if (paginationToken) {
+          apiUrl += `&pagination_token=${encodeURIComponent(paginationToken)}`;
+        }
+
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
 
@@ -116,7 +122,11 @@ export async function GET(
           );
         }
 
-        const pythonResponse: { traces: Trace[] } = await response.json();
+        const pythonResponse: {
+          traces: Trace[];
+          next_pagination_token?: string;
+          has_more?: boolean;
+        } = await response.json();
 
         // The Python dataclass structure is already compatible with TypeScript Trace interface
         const traces: Trace[] = pythonResponse.traces;
@@ -124,6 +134,8 @@ export async function GET(
         return NextResponse.json({
           success: true,
           data: traces,
+          next_pagination_token: pythonResponse.next_pagination_token,
+          has_more: pythonResponse.has_more,
         });
       } catch (apiError) {
         const errorMessage =

@@ -16,6 +16,7 @@ class ListTraceRawRequest(BaseModel):
     trace_region: str | None = None
     log_region: str | None = None
     trace_id: str | None = None
+    pagination_token: str | None = None
 
     @field_validator('start_time', 'end_time')
     @classmethod
@@ -67,7 +68,8 @@ class ListTraceRawRequest(BaseModel):
             categories=categories,
             values=values,
             operations=operations,
-            trace_id=self.trace_id
+            trace_id=self.trace_id,
+            pagination_token=self.pagination_token
         )
 
 
@@ -80,6 +82,7 @@ class ListTraceRequest(BaseModel):
     values: list[str] = []
     operations: list[str] = []
     trace_id: str | None = None
+    pagination_token: str | None = None
 
     @field_validator('start_time', 'end_time')
     @classmethod
@@ -141,3 +144,5 @@ class ListTraceResponse(BaseModel):
     r"""Response model for listing traces.
     """
     traces: list[Trace] = Field(default_factory=list)
+    next_pagination_token: str | None = None
+    has_more: bool = False

@@ -64,8 +64,10 @@ class TraceClient(ABC):
         categories: list[str] | None = None,
         values: list[str] | None = None,
         operations: list[str] | None = None,
-    ) -> list[Trace]:
-        """Get recent traces.
+        pagination_state: dict | None = None,
+    ) -> tuple[list[Trace],
+               dict | None]:
+        """Get recent traces with pagination support.
 
         Args:
             start_time: Start time of the trace
@@ -79,7 +81,11 @@ class TraceClient(ABC):
             categories: Filter by categories if provided
             values: Filter by values if provided
             operations: Filter by operations for values if provided
+            pagination_state: Decoded pagination token state (None for first page)
 
         Returns:
-            List of traces
+            tuple: (traces, next_pagination_state)
+                - traces: List of at least 50 Trace objects
+                (or fewer if that's all available)
+                - next_pagination_state: Dict to encode as next token, or None if no more
         """
