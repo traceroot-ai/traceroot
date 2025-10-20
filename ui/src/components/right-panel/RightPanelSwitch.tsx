@@ -10,7 +10,6 @@ import { useAuth } from "@clerk/nextjs";
 
 interface RightPanelSwitchProps {
   traceId?: string;
-  selectedTraceIds?: string[];
   spanIds?: string[];
   traceQueryStartTime?: Date;
   traceQueryEndTime?: Date;
@@ -25,7 +24,6 @@ interface RightPanelSwitchProps {
 
 export default function RightPanelSwitch({
   traceId,
-  selectedTraceIds = [],
   spanIds = [],
   traceQueryStartTime,
   traceQueryEndTime,
@@ -144,12 +142,10 @@ export default function RightPanelSwitch({
         {viewType === "log" && (
           <LogPanelSwitch
             traceId={traceId}
-            selectedTraceIds={selectedTraceIds}
             spanIds={spanIds}
             traceQueryStartTime={traceQueryStartTime}
             traceQueryEndTime={traceQueryEndTime}
             segments={spans}
-            allTraces={allTraces}
             traceDurations={traceDurations}
             traceStartTimes={traceStartTimes}
             traceEndTimes={traceEndTimes}

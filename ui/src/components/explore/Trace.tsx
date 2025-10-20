@@ -37,7 +37,6 @@ import { Button } from "@/components/ui/button";
 
 interface TraceProps {
   onTraceSelect?: (traceId: string | null) => void;
-  onSelectedTracesChange?: (traceIds: string[]) => void;
   onSpanSelect?: (spanIds: string[]) => void;
   onTraceData?: (startTime: Date, endTime: Date) => void;
   onTracesUpdate?: (traces: TraceType[]) => void;
@@ -95,7 +94,6 @@ export function formatDateTime(ts: number) {
 
 export const Trace: React.FC<TraceProps> = ({
   onTraceSelect,
-  onSelectedTracesChange,
   onSpanSelect,
   onTraceData,
   onTracesUpdate,
@@ -112,24 +110,13 @@ export const Trace: React.FC<TraceProps> = ({
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>(
     TIME_RANGES[0],
   );
-
-  // Multi-trace state
-  const [selectedTraceIds, setSelectedTraceIds] = useState<Set<string>>(
-    new Set(),
-  );
-  const [expandedTraceIds, setExpandedTraceIds] = useState<Set<string>>(
-    new Set(),
-  );
-  const [activeTraceId, setActiveTraceId] = useState<string | null>(null);
-
-  // Span state
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
   const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
-  const [expandedSpans, setExpandedSpans] = useState<Set<string>>(new Set());
-
-  // Search and other state
   const [searchCriteria, setSearchCriteria] = useState<SearchCriterion[]>([]);
   const [logSearchValue, setLogSearchValue] = useState<string>("");
+  const [isTraceExpanded, setIsTraceExpanded] = useState<boolean>(true);
+  const [expandedSpans, setExpandedSpans] = useState<Set<string>>(new Set());
   const timeRangeRef = useRef<{ start: Date; end: Date } | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState<boolean>(false);
   const [shareTraceId, setShareTraceId] = useState<string | null>(null);
@@ -144,18 +131,16 @@ export const Trace: React.FC<TraceProps> = ({
 
   const handleTimeRangeSelect = (range: TimeRange) => {
     setSelectedTimeRange(range);
-    setSelectedTraceIds(new Set());
-    setExpandedTraceIds(new Set());
-    setActiveTraceId(null);
+    setSelectedTraceId(null);
     setSelectedSpanId(null);
     setSelectedSpanIds([]);
+    setIsTraceExpanded(true);
     setExpandedSpans(new Set());
     setNextPaginationToken(null);
     setHasMore(false);
     previousTraceCountRef.current = 0;
     onTraceSelect?.(null);
     onSpanSelect?.([]);
-    onSelectedTracesChange?.([]);
     setLoading(true);
   };
 
@@ -244,6 +229,18 @@ export const Trace: React.FC<TraceProps> = ({
           throw new Error(result.error || "Failed to fetch traces");
         }
 
+        console.log("=== Pagination Debug ===");
+        console.log("isLoadingMore:", isLoadingMore);
+        console.log("pagination_token sent:", paginationToken);
+        console.log("Fetched traces count:", result.data.length);
+        console.log("next_pagination_token:", result.next_pagination_token);
+        console.log("has_more:", result.has_more);
+        console.log("First trace ID in response:", result.data[0]?.id);
+        console.log(
+          "Last trace ID in response:",
+          result.data[result.data.length - 1]?.id,
+        );
+
         // Store pagination info
         setNextPaginationToken(result.next_pagination_token || null);
         setHasMore(result.has_more || false);
@@ -251,7 +248,13 @@ export const Trace: React.FC<TraceProps> = ({
         // If loading more, append to existing traces; otherwise replace
         if (isLoadingMore) {
           setTraces((prevTraces) => {
+            console.log("Previous traces count:", prevTraces.length);
+            console.log(
+              "Last trace ID before append:",
+              prevTraces[prevTraces.length - 1]?.id,
+            );
             const updatedTraces = [...prevTraces, ...result.data];
+            console.log("Total traces after append:", updatedTraces.length);
             previousTraceCountRef.current = prevTraces.length;
             return updatedTraces;
           });
@@ -265,21 +268,19 @@ export const Trace: React.FC<TraceProps> = ({
               (trace: TraceType) => trace.id === traceIdParam,
             );
             if (traceToSelect) {
-              setActiveTraceId(traceToSelect.id);
-              setSelectedTraceIds(new Set([traceToSelect.id]));
-              setExpandedTraceIds(new Set([traceToSelect.id]));
+              setSelectedTraceId(traceToSelect.id);
               onTraceSelect?.(traceToSelect.id);
             }
           } else {
-            // Check if currently active trace is still in the filtered results
-            if (activeTraceId) {
-              const isActiveTraceInResults = result.data.some(
-                (trace: TraceType) => trace.id === activeTraceId,
+            // Check if currently selected trace is still in the filtered results
+            if (selectedTraceId) {
+              const isSelectedTraceInResults = result.data.some(
+                (trace: TraceType) => trace.id === selectedTraceId,
               );
 
-              if (!isActiveTraceInResults) {
-                // Clear active trace if not in new results
-                setActiveTraceId(null);
+              if (!isSelectedTraceInResults) {
+                // Clear selection if selected trace is not in new results
+                setSelectedTraceId(null);
                 setSelectedSpanId(null);
                 setSelectedSpanIds([]);
                 onTraceSelect?.(null);
@@ -289,7 +290,6 @@ export const Trace: React.FC<TraceProps> = ({
           }
 
           onTraceData?.(timeRangeRef.current.start, timeRangeRef.current.end);
-          onTracesUpdate?.(result.data);
         }
       } catch (err) {
         setError(
@@ -310,7 +310,7 @@ export const Trace: React.FC<TraceProps> = ({
       traceQueryStartTime,
       traceQueryEndTime,
       searchCriteria,
-      activeTraceId,
+      selectedTraceId,
       onTraceData,
       onTracesUpdate,
       onTraceSelect,
@@ -321,26 +321,18 @@ export const Trace: React.FC<TraceProps> = ({
   useEffect(() => {
     if (!loading) return;
     fetchTraces();
-  }, [loading, fetchTraces]);
+  }, [
+    selectedTimeRange,
+    loading,
+    traceQueryStartTime,
+    traceQueryEndTime,
+    searchCriteria,
+  ]);
 
-  // Auto-select and auto-expand all traces when they load initially
-  // Only runs on initial load, not when loading more traces
+  // Notify parent when traces change
   useEffect(() => {
-    if (traces.length > 0 && !hasTraceIdInUrl && !loading && !loadingMore) {
-      // Only auto-select if we don't have any selections yet
-      if (selectedTraceIds.size === 0) {
-        const allTraceIds = traces.map((trace) => trace.id);
-
-        setSelectedTraceIds(new Set(allTraceIds));
-        setExpandedTraceIds(new Set(allTraceIds));
-      }
-    }
-  }, [traces, hasTraceIdInUrl, loading, loadingMore, selectedTraceIds.size]);
-
-  // Notify parent of selected traces changes
-  useEffect(() => {
-    onSelectedTracesChange?.(Array.from(selectedTraceIds));
-  }, [selectedTraceIds, onSelectedTracesChange]);
+    onTracesUpdate?.(traces);
+  }, [traces, onTracesUpdate]);
 
   useEffect(() => {
     setLoading(true);
@@ -374,65 +366,20 @@ export const Trace: React.FC<TraceProps> = ({
   };
 
   const handleTraceClick = (traceId: string) => {
-    const isCurrentlySelected = selectedTraceIds.has(traceId);
+    const newSelectedTraceId = selectedTraceId === traceId ? null : traceId;
+    setSelectedTraceId(newSelectedTraceId);
+    onTraceSelect?.(newSelectedTraceId);
 
-    if (isCurrentlySelected) {
-      // Deselecting - remove from selection
-      setSelectedTraceIds((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(traceId);
-        return newSet;
-      });
-
-      // Also collapse the trace spans
-      setExpandedTraceIds((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(traceId);
-        return newSet;
-      });
-
-      // If this was the active trace, set another one as active or clear
-      if (activeTraceId === traceId) {
-        const remainingTraces = Array.from(selectedTraceIds).filter(
-          (id) => id !== traceId,
-        );
-        if (remainingTraces.length > 0) {
-          // Set the first remaining trace as active
-          setActiveTraceId(remainingTraces[0]);
-          onTraceSelect?.(remainingTraces[0]);
-        } else {
-          // No traces left, clear everything
-          setActiveTraceId(null);
-          onTraceSelect?.(null);
-        }
-        setSelectedSpanId(null);
-        setSelectedSpanIds([]);
-        onSpanSelect?.([]);
-      }
-    } else {
-      // Selecting - add to selection
-      setSelectedTraceIds((prev) => {
-        const newSet = new Set(prev);
-        newSet.add(traceId);
-        return newSet;
-      });
-
-      // Also expand the trace spans
-      setExpandedTraceIds((prev) => {
-        const newSet = new Set(prev);
-        newSet.add(traceId);
-        return newSet;
-      });
-
-      // Make it the active trace for span interaction
-      setActiveTraceId(traceId);
-      onTraceSelect?.(traceId);
-
-      // Clear span selection when switching active trace
-      setSelectedSpanId(null);
-      setSelectedSpanIds([]);
-      onSpanSelect?.([]);
+    // When selecting a new trace, default to expanded
+    if (newSelectedTraceId && newSelectedTraceId !== selectedTraceId) {
+      setIsTraceExpanded(true);
     }
+
+    // Always clear span selection when trace selection changes
+    // This unifies behavior with right panel components
+    setSelectedSpanId(null);
+    setSelectedSpanIds([]);
+    onSpanSelect?.([]);
   };
 
   const handleTraceExpandToggle = (
@@ -440,18 +387,9 @@ export const Trace: React.FC<TraceProps> = ({
     event: React.MouseEvent,
   ) => {
     event.stopPropagation(); // Prevent trace selection
-
-    setExpandedTraceIds((prev) => {
-      const newSet = new Set(prev);
-
-      if (newSet.has(traceId)) {
-        newSet.delete(traceId); // Collapse spans
-      } else {
-        newSet.add(traceId); // Expand spans
-      }
-
-      return newSet;
-    });
+    if (selectedTraceId === traceId) {
+      setIsTraceExpanded(!isTraceExpanded);
+    }
   };
 
   const handleSpanExpandToggle = (spanId: string, event: React.MouseEvent) => {
@@ -469,11 +407,7 @@ export const Trace: React.FC<TraceProps> = ({
     });
   };
 
-  const handleSpanSelect = (
-    spanId: string,
-    childSpanIds: string[],
-    traceId: string,
-  ) => {
+  const handleSpanSelect = (spanId: string, childSpanIds: string[]) => {
     const newSelectedSpanId = selectedSpanId === spanId ? null : spanId;
     setSelectedSpanId(newSelectedSpanId);
 
@@ -481,36 +415,21 @@ export const Trace: React.FC<TraceProps> = ({
       ? [newSelectedSpanId, ...childSpanIds]
       : [];
     setSelectedSpanIds(allSpanIds);
-
-    // Set this trace as the active trace when a span is selected
-    if (newSelectedSpanId) {
-      setActiveTraceId(traceId);
-      onTraceSelect?.(traceId);
-    }
-
     onSpanSelect?.(allSpanIds);
   };
 
   const handleRefresh = () => {
-    setSelectedTraceIds(new Set());
-    setExpandedTraceIds(new Set());
-    setActiveTraceId(null);
+    setSelectedTraceId(null);
     setSelectedSpanId(null);
     setSelectedSpanIds([]);
+    setIsTraceExpanded(true);
     setExpandedSpans(new Set());
     setNextPaginationToken(null);
     setHasMore(false);
     previousTraceCountRef.current = 0;
     onTraceSelect?.(null);
     onSpanSelect?.([]);
-    onSelectedTracesChange?.([]);
     setLoading(true);
-  };
-
-  const handleLoadMore = () => {
-    if (nextPaginationToken && !loadingMore) {
-      fetchTraces(nextPaginationToken);
-    }
   };
 
   const handleShareClick = (traceId: string, event: React.MouseEvent) => {
@@ -540,11 +459,17 @@ export const Trace: React.FC<TraceProps> = ({
     }
   };
 
-  useEffect(() => {
-    if (externalSelectedTraceId !== activeTraceId) {
-      setActiveTraceId(externalSelectedTraceId || null);
+  const handleLoadMore = () => {
+    if (nextPaginationToken && !loadingMore) {
+      fetchTraces(nextPaginationToken);
     }
-  }, [externalSelectedTraceId, activeTraceId]);
+  };
+
+  useEffect(() => {
+    if (externalSelectedTraceId !== selectedTraceId) {
+      setSelectedTraceId(externalSelectedTraceId || null);
+    }
+  }, [externalSelectedTraceId, selectedTraceId]);
 
   // Sync external selectedSpanIds with internal state
   useEffect(() => {
@@ -658,13 +583,9 @@ export const Trace: React.FC<TraceProps> = ({
                         {/* Trace Block */}
                         <div
                           className={`relative h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-100 ease-in-out hover:shadow-sm ${isNewTrace ? "animate-fadeIn" : ""} ${
-                            selectedTraceIds.has(trace.id)
+                            selectedTraceId === trace.id
                               ? "bg-zinc-100 dark:bg-zinc-900"
                               : "bg-white dark:bg-zinc-950"
-                          } ${
-                            activeTraceId === trace.id
-                              ? "border-l-4 border-l-zinc-600 dark:border-l-zinc-400"
-                              : ""
                           }`}
                           style={{
                             animationDelay: animationDelay,
@@ -776,20 +697,6 @@ export const Trace: React.FC<TraceProps> = ({
                                   "Unknown Environment"}
                               </Badge>
 
-                              {/* Trace ID */}
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400 mr-2 flex-shrink-0">
-                                    {trace.id.substring(0, 8)}
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p className="font-mono text-xs">
-                                    {trace.id}
-                                  </p>
-                                </TooltipContent>
-                              </Tooltip>
-
                               {/* Warning and Error Badges Container */}
                               <div className="flex items-center flex-shrink-0">
                                 {/* Error icon for error/critical logs */}
@@ -842,7 +749,7 @@ export const Trace: React.FC<TraceProps> = ({
                                   ? "N/A"
                                   : formatDateTime(trace.start_time)}
                               </span>
-                              {selectedTraceIds.has(trace.id) && (
+                              {selectedTraceId === trace.id && (
                                 <>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -868,7 +775,7 @@ export const Trace: React.FC<TraceProps> = ({
                                     }
                                     className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
                                   >
-                                    {expandedTraceIds.has(trace.id) ? (
+                                    {isTraceExpanded ? (
                                       <CircleMinus
                                         size={14}
                                         className="text-neutral-600 dark:text-neutral-300"
@@ -886,8 +793,8 @@ export const Trace: React.FC<TraceProps> = ({
                           </div>
                         </div>
 
-                        {/* Spans Container - Only rendered when trace is expanded */}
-                        {expandedTraceIds.has(trace.id) && (
+                        {/* Spans Container - Only rendered when trace is selected AND expanded */}
+                        {selectedTraceId === trace.id && isTraceExpanded && (
                           <div
                             className="relative pb-1 pt-1.5"
                             style={{ zIndex: 1 }}
@@ -922,13 +829,7 @@ export const Trace: React.FC<TraceProps> = ({
                                     )}
                                     selectedSpanId={selectedSpanId}
                                     selectedSpanIds={selectedSpanIds}
-                                    onSpanSelect={(spanId, childSpanIds) =>
-                                      handleSpanSelect(
-                                        spanId,
-                                        childSpanIds,
-                                        trace.id,
-                                      )
-                                    }
+                                    onSpanSelect={handleSpanSelect}
                                     expandedSpans={expandedSpans}
                                     onSpanExpandToggle={handleSpanExpandToggle}
                                   />

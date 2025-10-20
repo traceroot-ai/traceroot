@@ -13,7 +13,6 @@ export default function Explore() {
     initializeProviders();
   }, []);
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
-  const [selectedTraceIds, setSelectedTraceIds] = useState<string[]>([]);
   const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
   const [timeRange, setTimeRange] = useState<{ start: Date; end: Date } | null>(
     null,
@@ -75,10 +74,6 @@ export default function Explore() {
     // Note: We don't clear spans here - the useEffect above will validate them
   }, []);
 
-  const handleSelectedTracesChange = useCallback((traceIds: string[]) => {
-    setSelectedTraceIds(traceIds);
-  }, []);
-
   const handleTraceData = useCallback((startTime: Date, endTime: Date) => {
     setTimeRange({ start: startTime, end: endTime });
   }, []);
@@ -111,7 +106,6 @@ export default function Explore() {
       leftPanel={
         <Trace
           onTraceSelect={handleTraceSelect}
-          onSelectedTracesChange={handleSelectedTracesChange}
           onSpanSelect={handleSpanSelect}
           onTraceData={handleTraceData}
           onTracesUpdate={handleTracesUpdate}
@@ -124,7 +118,6 @@ export default function Explore() {
       rightPanel={
         <RightPanelSwitch
           traceId={selectedTraceId || undefined}
-          selectedTraceIds={selectedTraceIds}
           spanIds={selectedSpanIds}
           traceQueryStartTime={timeRange?.start}
           traceQueryEndTime={timeRange?.end}
