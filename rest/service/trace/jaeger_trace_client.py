@@ -14,7 +14,7 @@ from rest.utils.trace import (
     sort_spans_recursively,
 )
 
-LIMIT = 1000
+PAGE_SIZE = 50  # Number of traces to return per page and fetch per service
 
 
 class JaegerTraceClient(TraceClient):
@@ -23,14 +23,12 @@ class JaegerTraceClient(TraceClient):
     def __init__(
         self,
         jaeger_url: str | None = None,
-        limit: int = LIMIT,
     ):
         """Initialize the Jaeger trace client.
 
         Args:
             jaeger_url (str | None): Jaeger base URL. If None,
                 uses JAEGER_URL env var or defaults to localhost.
-            limit: Maximum number of traces to fetch per service
         """
         if jaeger_url is None:
             jaeger_url = os.getenv("JAEGER_URL", "http://localhost:16686")
@@ -38,7 +36,6 @@ class JaegerTraceClient(TraceClient):
         api_url = f"{jaeger_url}/api"
         self.traces_url = f"{api_url}/traces"
         self.services_url = f"{api_url}/services"
-        self.limit = limit
 
     async def get_trace_by_id(
         self,
@@ -112,7 +109,7 @@ class JaegerTraceClient(TraceClient):
                 for values if provided
 
         Returns:
-            list[Trace]: List of traces
+            tuple[list[Trace], dict | None]: Tuple of (traces, next_pagination_state)
         """
         # Ensure UTC time is used for consistent API queries
         end_time = ensure_utc_datetime(end_time)
@@ -120,7 +117,6 @@ class JaegerTraceClient(TraceClient):
 
         # Convert to microseconds for Jaeger API
         start_time_us = int(start_time.timestamp() * 1_000_000)
-        end_time_us = int(end_time.timestamp() * 1_000_000)
 
         # Determine which services to query
         if categories:
@@ -132,39 +128,75 @@ class JaegerTraceClient(TraceClient):
             time_window_seconds = int((current_time - start_time).total_seconds())
             services = await self._get_services(lookback_seconds=time_window_seconds)
             if not services:
-                return []
+                return ([], None)
 
         # Remove jaeger service from list of services
         if "jaeger" in services:
             services.remove("jaeger")
 
-        traces_data: list[dict[str, Any]] = []
+        # Parse pagination state to get the last trace's start time
+        # Use this as the new end_time boundary for the next query
+        if pagination_state and "last_trace_start_time" in pagination_state:
+            # Use the last trace's start time - 1 microsecond as the new end boundary
+            # This ensures we don't get duplicate traces with the same timestamp
+            end_time_us = pagination_state.get("last_trace_start_time") - 1
+        else:
+            # First request - no pagination
+            end_time_us = int(end_time.timestamp() * 1_000_000)
+
+        # Fetch traces from each service (no offset needed with time-based pagination)
+        # Track which service each trace came from
+        traces_with_service: list[tuple[Trace, str]] = []
+
         for service in services:
             curr_traces = await self._get_traces(
                 service_name=service,
                 start_time=start_time_us,
                 end_time=end_time_us,
-                limit=self.limit,
+                limit=PAGE_SIZE,
+                offset=0,  # Always use offset=0 since we're using time boundaries
             )
-            if curr_traces:
-                traces_data.extend(curr_traces)
 
-        if len(traces_data) == 0:
+            if curr_traces:
+                # Convert Jaeger traces to our Trace model
+                for trace_data in curr_traces:
+                    trace = await self._convert_jaeger_trace_to_trace(trace_data)
+                    if trace:
+                        # Store trace with its source service
+                        traces_with_service.append((trace, service))
+
+        if len(traces_with_service) == 0:
             return ([], None)
 
-        # Convert Jaeger traces to our Trace model
-        traces = []
-        for trace_data in traces_data:
-            trace = await self._convert_jaeger_trace_to_trace(trace_data)
-            if trace:
-                traces.append(trace)
-
         # Sort traces by start_time in descending order (newest first)
-        traces.sort(key=lambda trace: trace.start_time, reverse=True)
+        traces_with_service.sort(key=lambda x: x[0].start_time, reverse=True)
 
-        # Jaeger doesn't support true pagination currently
-        # Return all traces with no next state
-        return (traces, None)
+        # Take PAGE_SIZE + 1 traces to determine if there are more
+        page_with_service = traces_with_service[:PAGE_SIZE + 1]
+
+        # Check if there are more traces beyond this page
+        has_more = len(page_with_service) > PAGE_SIZE
+
+        if has_more:
+            # Trim to PAGE_SIZE
+            page_with_service = page_with_service[:PAGE_SIZE]
+
+        # Extract just the traces (without service info) for return
+        page_traces = [trace for trace, _ in page_with_service]
+
+        # Use time-based pagination: store the last trace's start_time as the boundary
+        # Next query will use (last_trace_start_time - 1μs) as
+        # end_time to avoid duplicates
+        if has_more:
+            # Get the last (oldest) trace's start_time in microseconds
+            last_trace_start_time_us = int(page_traces[-1].start_time * 1_000_000)
+
+            next_pagination_state = {"last_trace_start_time": last_trace_start_time_us}
+        else:
+            # No more traces
+            next_pagination_state = None
+
+        return (page_traces, next_pagination_state)
 
     async def get_trace_with_spans_by_ids(
         self,
@@ -216,9 +248,21 @@ class JaegerTraceClient(TraceClient):
         start_time: int,
         end_time: int,
         limit: int,
+        offset: int = 0,
     ) -> list[dict[str,
                    Any]]:
-        """Get traces from Jaeger API."""
+        """Get traces from Jaeger API.
+
+        Args:
+            service_name: Name of the service to query
+            start_time: Start time in microseconds
+            end_time: End time in microseconds
+            limit: Maximum number of traces to fetch
+            offset: Number of traces to skip (for pagination)
+
+        Returns:
+            List of trace data dictionaries from Jaeger
+        """
         try:
             params = {
                 "service": service_name,
@@ -226,6 +270,10 @@ class JaegerTraceClient(TraceClient):
                 "end": end_time,
                 "limit": limit,
             }
+
+            # Add offset parameter if non-zero
+            if offset > 0:
+                params["offset"] = offset
 
             response = await self._make_request(f"{self.traces_url}", params=params)
 

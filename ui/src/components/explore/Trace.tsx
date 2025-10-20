@@ -180,22 +180,30 @@ export const Trace: React.FC<TraceProps> = ({
         let startTime: Date;
         let endTime: Date;
 
-        // Use provided time range if available, otherwise use time range selector
-        if (traceQueryStartTime && traceQueryEndTime) {
+        // When loading more (pagination), reuse the same time range from the first request
+        if (isLoadingMore && timeRangeRef.current) {
+          startTime = timeRangeRef.current.start;
+          endTime = timeRangeRef.current.end;
+        } else if (traceQueryStartTime && traceQueryEndTime) {
+          // Use provided time range if available
           startTime = traceQueryStartTime;
           endTime = traceQueryEndTime;
+          timeRangeRef.current = {
+            start: new Date(startTime),
+            end: new Date(endTime),
+          };
         } else {
+          // Calculate new time range based on selector
           endTime = new Date();
           startTime = new Date(endTime);
           startTime.setMinutes(
             endTime.getMinutes() - selectedTimeRange.minutes,
           );
+          timeRangeRef.current = {
+            start: new Date(startTime),
+            end: new Date(endTime),
+          };
         }
-
-        timeRangeRef.current = {
-          start: new Date(startTime),
-          end: new Date(endTime),
-        };
 
         // Build API URL with search criteria
         let apiUrl = `/api/list_trace?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}`;
@@ -248,13 +256,7 @@ export const Trace: React.FC<TraceProps> = ({
         // If loading more, append to existing traces; otherwise replace
         if (isLoadingMore) {
           setTraces((prevTraces) => {
-            console.log("Previous traces count:", prevTraces.length);
-            console.log(
-              "Last trace ID before append:",
-              prevTraces[prevTraces.length - 1]?.id,
-            );
             const updatedTraces = [...prevTraces, ...result.data];
-            console.log("Total traces after append:", updatedTraces.length);
             previousTraceCountRef.current = prevTraces.length;
             return updatedTraces;
           });
