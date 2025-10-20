@@ -1,4 +1,4 @@
-import * as traceroot from '../src/index';
+import * as traceroot from 'traceroot-sdk-ts';
 
 const logger = traceroot.getLogger();
 
