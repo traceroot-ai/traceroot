@@ -159,42 +159,34 @@ export default function LogDetail({
       return allLogs;
     }
 
-    // If no spanIds selected, show all logs
+    // If no spanIds selected, show all logs (for non-active traces)
     if (spanIds.length === 0) {
       return allLogs;
     }
 
-    // Check if any of the spanIds exist in the current trace data
+    // Only filter THIS trace's logs (not all traces in allLogs)
+    // Each LogDetail instance is responsible for filtering its own trace only
     const traceData = allLogs[traceId];
     if (!traceData) {
-      return allLogs;
-    }
-
-    // Get all span IDs that exist in current trace
-    const existingSpanIds = new Set<string>();
-    traceData.forEach((spanLog: any) => {
-      Object.keys(spanLog).forEach((spanId) => existingSpanIds.add(spanId));
-    });
-
-    // Check if any of the selected spanIds exist in the current trace
-    const hasValidSpanIds = spanIds.some((spanId) =>
-      existingSpanIds.has(spanId),
-    );
-    if (!hasValidSpanIds) {
+      // No logs for this trace
       return {};
     }
 
-    const filteredLogs: TraceLog = {};
-    Object.entries(allLogs).forEach(([traceId, spanLogs]) => {
-      const filteredSpanLogs = (spanLogs as any[]).filter((spanLog) => {
-        const spanId = Object.keys(spanLog)[0];
-        return spanIds.includes(spanId);
-      });
-      if (filteredSpanLogs.length > 0) {
-        filteredLogs[traceId] = filteredSpanLogs;
-      }
+    // Filter to only show logs from the selected spanIds
+    const filteredSpanLogs = (traceData as any[]).filter((spanLog: any) => {
+      const spanId = Object.keys(spanLog)[0];
+      return spanIds.includes(spanId);
     });
-    return filteredLogs;
+
+    // Return filtered result for THIS trace only
+    if (filteredSpanLogs.length > 0) {
+      return {
+        [traceId]: filteredSpanLogs,
+      };
+    }
+
+    // No matching logs found
+    return {};
   }, [allLogs, spanIds, traceId]);
 
   const formatTimestamp = (timestamp: number) => {
