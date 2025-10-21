@@ -381,7 +381,15 @@ export const Trace: React.FC<TraceProps> = ({
         // If loading more, append to existing traces; otherwise replace
         if (isLoadingMore) {
           setTraces((prevTraces) => {
-            const updatedTraces = [...prevTraces, ...result.data];
+            // Create a set of existing trace IDs to avoid duplicates
+            // especially for the AWS LimitExceeded traces which we
+            // handle differently.
+            const existingTraceIds = new Set(prevTraces.map((t) => t.id));
+            // Filter out any traces that already exist
+            const newTraces = result.data.filter(
+              (trace: TraceType) => !existingTraceIds.has(trace.id),
+            );
+            const updatedTraces = [...prevTraces, ...newTraces];
             previousTraceCountRef.current = prevTraces.length;
             return updatedTraces;
           });
