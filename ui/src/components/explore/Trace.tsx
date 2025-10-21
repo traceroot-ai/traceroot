@@ -845,14 +845,23 @@ export const Trace: React.FC<TraceProps> = ({
                   })}
                 </div>
 
-                {/* Load More Button */}
-                {hasMore && !loadingMore && (
+                {/* Load More Button / Summary */}
+                {!loadingMore && (
                   <div className="mt-1.5">
                     <button
-                      onClick={handleLoadMore}
-                      className="w-full h-[40px] p-2 rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors cursor-pointer flex items-center justify-center text-sm text-neutral-600 dark:text-neutral-300"
+                      onClick={hasMore ? handleLoadMore : undefined}
+                      disabled={!hasMore}
+                      className={`w-full h-[40px] p-2 rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-zinc-950 transition-colors flex items-center justify-center text-sm text-neutral-600 dark:text-neutral-300 ${
+                        hasMore
+                          ? "hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer"
+                          : "cursor-default opacity-75"
+                      }`}
                     >
-                      <span className="text-xs">Load more traces...</span>
+                      <span className="text-xs">
+                        {hasMore
+                          ? "Load more traces..."
+                          : `Showing all ${traces.length} trace${traces.length !== 1 ? "s" : ""}`}
+                      </span>
                     </button>
                   </div>
                 )}
