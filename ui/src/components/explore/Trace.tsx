@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import { Trace as TraceType } from "@/models/trace";
 import Span from "./span/Span";
 import TimeButton, { TimeRange, TIME_RANGES } from "./TimeButton";
+import { CustomTimeRange, TimezoneMode } from "./CustomTimeRangeDialog";
 import RefreshButton from "./RefreshButton";
 import SearchBar, { SearchCriterion } from "./SearchBar";
 import {
@@ -110,6 +111,7 @@ export const Trace: React.FC<TraceProps> = ({
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>(
     TIME_RANGES[0],
   );
+  const [timezone, setTimezone] = useState<TimezoneMode>("utc");
   const [selectedTraceIds, setSelectedTraceIds] = useState<Set<string>>(
     new Set(),
   );
@@ -191,6 +193,39 @@ export const Trace: React.FC<TraceProps> = ({
     setLoading(true);
   };
 
+  const handleCustomTimeRangeSelect = (
+    customRange: CustomTimeRange,
+    selectedTimezone: TimezoneMode,
+  ) => {
+    // Update timezone
+    setTimezone(selectedTimezone);
+
+    // Create a custom TimeRange object
+    const customTimeRange: TimeRange = {
+      label: customRange.label,
+      isCustom: true,
+      customRange: customRange,
+    };
+
+    if (customRange.type === "relative") {
+      customTimeRange.minutes = customRange.minutes;
+    }
+
+    setSelectedTimeRange(customTimeRange);
+    setSelectedTraceIds(new Set());
+    setLastSelectedTraceId(null);
+    setSelectedSpanId(null);
+    setSelectedSpanIds([]);
+    setExpandedTraces(new Map());
+    setExpandedSpans(new Set());
+    setNextPaginationToken(null);
+    setHasMore(false);
+    previousTraceCountRef.current = 0;
+    onTraceSelect?.([]);
+    onSpanSelect?.([]);
+    setLoading(true);
+  };
+
   const handleSearch = (criteria: SearchCriterion[]) => {
     setSearchCriteria(criteria);
     setNextPaginationToken(null);
@@ -227,6 +262,16 @@ export const Trace: React.FC<TraceProps> = ({
         let startTime: Date;
         let endTime: Date;
 
+        // Helper function to convert local time to UTC
+        const convertToUTC = (date: Date): Date => {
+          if (timezone === "utc") {
+            return date;
+          }
+          // If timezone is local, we need to convert to UTC for the API
+          // The date object is already in local time, so we create a new UTC date
+          return new Date(date.toISOString());
+        };
+
         // When loading more (pagination), reuse the same time range from the first request
         if (isLoadingMore && timeRangeRef.current) {
           startTime = timeRangeRef.current.start;
@@ -239,7 +284,27 @@ export const Trace: React.FC<TraceProps> = ({
             start: new Date(startTime),
             end: new Date(endTime),
           };
-        } else {
+        } else if (
+          selectedTimeRange.isCustom &&
+          selectedTimeRange.customRange
+        ) {
+          // Handle custom time range
+          const customRange = selectedTimeRange.customRange;
+          if (customRange.type === "absolute") {
+            // For absolute ranges, use the selected dates
+            startTime = customRange.startDate;
+            endTime = customRange.endDate;
+          } else {
+            // For relative ranges, calculate from current time
+            endTime = new Date();
+            startTime = new Date(endTime);
+            startTime.setMinutes(endTime.getMinutes() - customRange.minutes);
+          }
+          timeRangeRef.current = {
+            start: new Date(startTime),
+            end: new Date(endTime),
+          };
+        } else if (selectedTimeRange.minutes) {
           // Calculate new time range based on selector
           endTime = new Date();
           startTime = new Date(endTime);
@@ -250,10 +315,23 @@ export const Trace: React.FC<TraceProps> = ({
             start: new Date(startTime),
             end: new Date(endTime),
           };
+        } else {
+          // Fallback to default
+          endTime = new Date();
+          startTime = new Date(endTime);
+          startTime.setMinutes(endTime.getMinutes() - 60);
+          timeRangeRef.current = {
+            start: new Date(startTime),
+            end: new Date(endTime),
+          };
         }
 
+        // Convert to UTC for API call
+        const utcStartTime = convertToUTC(startTime);
+        const utcEndTime = convertToUTC(endTime);
+
         // Build API URL with search criteria
-        let apiUrl = `/api/list_trace?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}`;
+        let apiUrl = `/api/list_trace?startTime=${utcStartTime.toISOString()}&endTime=${utcEndTime.toISOString()}`;
 
         // Add provider information from URL (always required)
         apiUrl += `&${buildProviderParams()}`;
@@ -361,6 +439,7 @@ export const Trace: React.FC<TraceProps> = ({
     },
     [
       selectedTimeRange,
+      timezone,
       traceQueryStartTime,
       traceQueryEndTime,
       searchCriteria,
@@ -376,6 +455,7 @@ export const Trace: React.FC<TraceProps> = ({
     fetchTraces();
   }, [
     selectedTimeRange,
+    timezone,
     loading,
     traceQueryStartTime,
     traceQueryEndTime,
@@ -736,6 +816,8 @@ export const Trace: React.FC<TraceProps> = ({
               <TimeButton
                 selectedTimeRange={selectedTimeRange}
                 onTimeRangeSelect={handleTimeRangeSelect}
+                onCustomTimeRangeSelect={handleCustomTimeRangeSelect}
+                currentTimezone={timezone}
                 disabled={loading || hasTraceIdInUrl}
               />
             </div>
