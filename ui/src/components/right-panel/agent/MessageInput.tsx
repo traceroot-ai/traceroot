@@ -50,6 +50,7 @@ interface MessageInputProps {
   selectedProvider?: Provider;
   setSelectedProvider?: (provider: Provider) => void;
   traceId?: string;
+  traceIds?: string[];
   spanIds?: string[];
 }
 
@@ -65,11 +66,17 @@ export default function MessageInput({
   selectedProvider = DEFAULT_PROVIDER,
   setSelectedProvider,
   traceId,
+  traceIds = [],
   spanIds = [],
 }: MessageInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const status: PromptInputStatus = isLoading ? "streaming" : "ready";
-  const hasTraceOrSpans = !!(traceId || (spanIds && spanIds.length > 0));
+  const hasMultipleTraces = traceIds.length > 1;
+  const hasTraceOrSpans = !!(
+    traceId ||
+    traceIds.length > 0 ||
+    (spanIds && spanIds.length > 0)
+  );
 
   useEffect(() => {
     if (!isLoading && inputRef.current) {
@@ -135,21 +142,27 @@ export default function MessageInput({
     <div className="border border-zinc-300 rounded-lg dark:border-zinc-700 bg-white dark:bg-zinc-800 mx-4 mb-2">
       <div className="p-3">
         <div className="mb-1 text-xs text-gray-500 dark:text-gray-400 pb-2 flex gap-2 items-center">
-          {traceId && (
+          {hasMultipleTraces ? (
+            <Badge variant="outline" className="font-mono">
+              {traceIds.length} traces selected
+            </Badge>
+          ) : traceId ? (
             <Badge variant="outline" className="font-mono">
               Trace: {traceId}
             </Badge>
-          )}
+          ) : null}
           {spanIds && spanIds.length > 0 && (
             <Badge variant="outline" className="font-mono">
               Spans: {spanIds.length}
             </Badge>
           )}
-          {!traceId && (!spanIds || spanIds.length === 0) && (
-            <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono ml-0">
-              No trace or spans selected
-            </span>
-          )}
+          {!traceId &&
+            traceIds.length === 0 &&
+            (!spanIds || spanIds.length === 0) && (
+              <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono ml-0">
+                No trace or spans selected
+              </span>
+            )}
         </div>
         <PromptInput
           onSubmit={onSendMessage}
@@ -170,11 +183,13 @@ export default function MessageInput({
             placeholder={
               isLoading
                 ? "Agent is thinking..."
-                : hasTraceOrSpans
-                  ? "Type your message..."
-                  : "Select a trace to start chatting"
+                : hasMultipleTraces
+                  ? "Agent is disabled when multiple traces are selected"
+                  : hasTraceOrSpans
+                    ? "Type your message..."
+                    : "Select a trace to start chatting"
             }
-            disabled={isLoading || !hasTraceOrSpans}
+            disabled={isLoading || !hasTraceOrSpans || hasMultipleTraces}
             minRows={1}
             maxRows={5}
             className="rounded-md border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 focus:ring-1 focus:ring-neutral-500 focus:border-neutral-500 transition-all duration-200"
