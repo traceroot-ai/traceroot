@@ -22,7 +22,7 @@ interface LogOverviewProps {
   traceDurations?: number[]; // Array of durations in milliseconds
   tracePercentiles?: string[]; // Array of percentiles for each trace (e.g. 'P90', 'P50', ...)
   // Callback props
-  onTraceSelect?: (traceId: string) => void; // Add callback for trace selection
+  onTraceSelect?: (traceIds: string[]) => void; // Add callback for trace selection
 }
 
 export default function LogOverview({

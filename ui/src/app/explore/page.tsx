@@ -12,7 +12,7 @@ export default function Explore() {
   useEffect(() => {
     initializeProviders();
   }, []);
-  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
+  const [selectedTraceIds, setSelectedTraceIds] = useState<string[]>([]);
   const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
   const [timeRange, setTimeRange] = useState<{ start: Date; end: Date } | null>(
     null,
@@ -42,7 +42,7 @@ export default function Explore() {
   // Validate selected spans when trace changes
   useEffect(() => {
     if (
-      selectedTraceId &&
+      selectedTraceIds.length > 0 &&
       currentTraceSpans.length > 0 &&
       selectedSpanIds.length > 0
     ) {
@@ -55,11 +55,11 @@ export default function Explore() {
       if (validSelectedSpans.length !== selectedSpanIds.length) {
         setSelectedSpanIds(validSelectedSpans);
       }
-    } else if (!selectedTraceId) {
+    } else if (selectedTraceIds.length === 0) {
       // Clear spans when no trace is selected
       setSelectedSpanIds([]);
     }
-  }, [selectedTraceId, currentTraceSpans]);
+  }, [selectedTraceIds, currentTraceSpans]);
 
   const handleSpanSelect = (spanIds: string[]) => {
     setSelectedSpanIds(spanIds);
@@ -69,8 +69,8 @@ export default function Explore() {
     setSelectedSpanIds([]);
   };
 
-  const handleTraceSelect = useCallback((traceId: string | null) => {
-    setSelectedTraceId(traceId);
+  const handleTraceSelect = useCallback((traceIds: string[]) => {
+    setSelectedTraceIds(traceIds);
     // Note: We don't clear spans here - the useEffect above will validate them
   }, []);
 
@@ -111,13 +111,13 @@ export default function Explore() {
           onTracesUpdate={handleTracesUpdate}
           onLogSearchValueChange={handleLogSearchValueChange}
           onMetadataSearchTermsChange={handleMetadataSearchTermsChange}
-          selectedTraceId={selectedTraceId}
+          selectedTraceIds={selectedTraceIds}
           selectedSpanIds={selectedSpanIds}
         />
       }
       rightPanel={
         <RightPanelSwitch
-          traceId={selectedTraceId || undefined}
+          traceIds={selectedTraceIds}
           spanIds={selectedSpanIds}
           traceQueryStartTime={timeRange?.start}
           traceQueryEndTime={timeRange?.end}

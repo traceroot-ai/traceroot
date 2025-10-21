@@ -38,6 +38,7 @@ interface Message {
 
 interface AgentProps {
   traceId?: string;
+  traceIds?: string[];
   spanIds?: string[];
   userAvatarUrl?: string;
   queryStartTime?: Date;
@@ -48,6 +49,7 @@ interface AgentProps {
 
 export default function Agent({
   traceId,
+  traceIds = [],
   spanIds = [],
   userAvatarUrl,
   queryStartTime,
@@ -671,6 +673,7 @@ export default function Agent({
         selectedProvider={selectedProvider}
         setSelectedProvider={setSelectedProvider}
         traceId={traceId}
+        traceIds={traceIds}
         spanIds={spanIds}
       />
     </div>

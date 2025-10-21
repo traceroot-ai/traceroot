@@ -36,7 +36,7 @@ import {
 import { Button } from "@/components/ui/button";
 
 interface TraceProps {
-  onTraceSelect?: (traceId: string | null) => void;
+  onTraceSelect?: (traceIds: string[]) => void;
   onSpanSelect?: (spanIds: string[]) => void;
   onTraceData?: (startTime: Date, endTime: Date) => void;
   onTracesUpdate?: (traces: TraceType[]) => void;
@@ -44,7 +44,7 @@ interface TraceProps {
   onMetadataSearchTermsChange?: (
     terms: { category: string; value: string }[],
   ) => void;
-  selectedTraceId?: string | null;
+  selectedTraceIds?: string[];
   selectedSpanIds?: string[];
   traceQueryStartTime?: Date;
   traceQueryEndTime?: Date;
@@ -99,7 +99,7 @@ export const Trace: React.FC<TraceProps> = ({
   onTracesUpdate,
   onLogSearchValueChange,
   onMetadataSearchTermsChange,
-  selectedTraceId: externalSelectedTraceId,
+  selectedTraceIds: externalSelectedTraceIds,
   selectedSpanIds: externalSelectedSpanIds,
   traceQueryStartTime,
   traceQueryEndTime,
@@ -110,12 +110,19 @@ export const Trace: React.FC<TraceProps> = ({
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>(
     TIME_RANGES[0],
   );
-  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
+  const [selectedTraceIds, setSelectedTraceIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [lastSelectedTraceId, setLastSelectedTraceId] = useState<string | null>(
+    null,
+  );
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
   const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
   const [searchCriteria, setSearchCriteria] = useState<SearchCriterion[]>([]);
   const [logSearchValue, setLogSearchValue] = useState<string>("");
-  const [isTraceExpanded, setIsTraceExpanded] = useState<boolean>(true);
+  const [expandedTraces, setExpandedTraces] = useState<Map<string, boolean>>(
+    new Map(),
+  );
   const [expandedSpans, setExpandedSpans] = useState<Set<string>>(new Set());
   const timeRangeRef = useRef<{ start: Date; end: Date } | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState<boolean>(false);
@@ -128,18 +135,58 @@ export const Trace: React.FC<TraceProps> = ({
   const [hasMore, setHasMore] = useState<boolean>(false);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
   const previousTraceCountRef = useRef<number>(0);
+  const [isMetaKeyPressed, setIsMetaKeyPressed] = useState<boolean>(false);
+  const [isShiftKeyPressed, setIsShiftKeyPressed] = useState<boolean>(false);
+
+  // Keyboard event listeners for modifier keys
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Meta" || e.key === "Control") {
+        setIsMetaKeyPressed(true);
+      }
+      if (e.key === "Shift") {
+        setIsShiftKeyPressed(true);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Meta" || e.key === "Control") {
+        setIsMetaKeyPressed(false);
+      }
+      if (e.key === "Shift") {
+        setIsShiftKeyPressed(false);
+      }
+    };
+
+    // Reset modifier keys on window blur
+    const handleBlur = () => {
+      setIsMetaKeyPressed(false);
+      setIsShiftKeyPressed(false);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
 
   const handleTimeRangeSelect = (range: TimeRange) => {
     setSelectedTimeRange(range);
-    setSelectedTraceId(null);
+    setSelectedTraceIds(new Set());
+    setLastSelectedTraceId(null);
     setSelectedSpanId(null);
     setSelectedSpanIds([]);
-    setIsTraceExpanded(true);
+    setExpandedTraces(new Map());
     setExpandedSpans(new Set());
     setNextPaginationToken(null);
     setHasMore(false);
     previousTraceCountRef.current = 0;
-    onTraceSelect?.(null);
+    onTraceSelect?.([]);
     onSpanSelect?.([]);
     setLoading(true);
   };
@@ -149,7 +196,7 @@ export const Trace: React.FC<TraceProps> = ({
     setNextPaginationToken(null);
     setHasMore(false);
     previousTraceCountRef.current = 0;
-    setLoading(true); // Trigger a new API call when search criteria change
+    setLoading(true);
   };
 
   const handleClearSearch = () => {
@@ -160,7 +207,7 @@ export const Trace: React.FC<TraceProps> = ({
     setHasMore(false);
     previousTraceCountRef.current = 0;
     onLogSearchValueChange?.("");
-    setLoading(true); // Trigger a new API call when search is cleared
+    setLoading(true);
   };
 
   const handleLogSearchValueChange = (value: string) => {
@@ -270,25 +317,30 @@ export const Trace: React.FC<TraceProps> = ({
               (trace: TraceType) => trace.id === traceIdParam,
             );
             if (traceToSelect) {
-              setSelectedTraceId(traceToSelect.id);
-              onTraceSelect?.(traceToSelect.id);
+              const newSelection = new Set([traceToSelect.id]);
+              setSelectedTraceIds(newSelection);
+              setLastSelectedTraceId(traceToSelect.id);
+              onTraceSelect?.([traceToSelect.id]);
+              setExpandedTraces(new Map([[traceToSelect.id, true]]));
+              setExpandedSpans(new Set());
             }
+          } else if (result.data.length > 0) {
+            // Automatically select the first trace
+            const firstTrace = result.data[0];
+            const newSelection = new Set([firstTrace.id]);
+            setSelectedTraceIds(newSelection);
+            setLastSelectedTraceId(firstTrace.id);
+            onTraceSelect?.([firstTrace.id]);
+            setExpandedTraces(new Map([[firstTrace.id, true]]));
+            setExpandedSpans(new Set());
           } else {
-            // Check if currently selected trace is still in the filtered results
-            if (selectedTraceId) {
-              const isSelectedTraceInResults = result.data.some(
-                (trace: TraceType) => trace.id === selectedTraceId,
-              );
-
-              if (!isSelectedTraceInResults) {
-                // Clear selection if selected trace is not in new results
-                setSelectedTraceId(null);
-                setSelectedSpanId(null);
-                setSelectedSpanIds([]);
-                onTraceSelect?.(null);
-                onSpanSelect?.([]);
-              }
-            }
+            // No traces available, clear selection
+            setSelectedTraceIds(new Set());
+            setLastSelectedTraceId(null);
+            setSelectedSpanId(null);
+            setSelectedSpanIds([]);
+            onTraceSelect?.([]);
+            onSpanSelect?.([]);
           }
 
           onTraceData?.(timeRangeRef.current.start, timeRangeRef.current.end);
@@ -312,7 +364,6 @@ export const Trace: React.FC<TraceProps> = ({
       traceQueryStartTime,
       traceQueryEndTime,
       searchCriteria,
-      selectedTraceId,
       onTraceData,
       onTracesUpdate,
       onTraceSelect,
@@ -368,17 +419,72 @@ export const Trace: React.FC<TraceProps> = ({
   };
 
   const handleTraceClick = (traceId: string) => {
-    const newSelectedTraceId = selectedTraceId === traceId ? null : traceId;
-    setSelectedTraceId(newSelectedTraceId);
-    onTraceSelect?.(newSelectedTraceId);
+    let newSelection = new Set(selectedTraceIds);
 
-    // When selecting a new trace, default to expanded
-    if (newSelectedTraceId && newSelectedTraceId !== selectedTraceId) {
-      setIsTraceExpanded(true);
+    // Shift+click: range selection
+    if (isShiftKeyPressed && lastSelectedTraceId) {
+      const lastIndex = traces.findIndex((t) => t.id === lastSelectedTraceId);
+      const currentIndex = traces.findIndex((t) => t.id === traceId);
+
+      if (lastIndex !== -1 && currentIndex !== -1) {
+        const start = Math.min(lastIndex, currentIndex);
+        const end = Math.max(lastIndex, currentIndex);
+
+        // Add all traces in range
+        for (let i = start; i <= end; i++) {
+          newSelection.add(traces[i].id);
+        }
+      }
+    }
+    // Cmd/Ctrl+click: toggle individual selection
+    else if (isMetaKeyPressed) {
+      if (newSelection.has(traceId)) {
+        newSelection.delete(traceId);
+        // If we're deselecting the last selected trace, update lastSelectedTraceId
+        if (traceId === lastSelectedTraceId) {
+          setLastSelectedTraceId(
+            newSelection.size > 0 ? Array.from(newSelection)[0] : null,
+          );
+        }
+      } else {
+        newSelection.add(traceId);
+        setLastSelectedTraceId(traceId);
+      }
+    }
+    // Regular click: single selection (toggle)
+    else {
+      if (newSelection.size === 1 && newSelection.has(traceId)) {
+        // Deselect if clicking the only selected trace
+        newSelection.clear();
+        setLastSelectedTraceId(null);
+      } else {
+        // Select only this trace
+        newSelection = new Set([traceId]);
+        setLastSelectedTraceId(traceId);
+      }
+    }
+
+    setSelectedTraceIds(newSelection);
+    onTraceSelect?.(Array.from(newSelection));
+
+    // Update expansion state based on selection count
+    if (newSelection.size > 1) {
+      // Multiple selection: expand all selected traces
+      const newExpandedTraces = new Map<string, boolean>();
+      newSelection.forEach((id) => {
+        newExpandedTraces.set(id, true);
+      });
+      setExpandedTraces(newExpandedTraces);
+    } else if (newSelection.size === 1) {
+      // Single selection: expand the selected trace
+      const selectedId = Array.from(newSelection)[0];
+      setExpandedTraces(new Map([[selectedId, true]]));
+    } else {
+      // No selection: clear expansion
+      setExpandedTraces(new Map());
     }
 
     // Always clear span selection when trace selection changes
-    // This unifies behavior with right panel components
     setSelectedSpanId(null);
     setSelectedSpanIds([]);
     onSpanSelect?.([]);
@@ -389,8 +495,13 @@ export const Trace: React.FC<TraceProps> = ({
     event: React.MouseEvent,
   ) => {
     event.stopPropagation(); // Prevent trace selection
-    if (selectedTraceId === traceId) {
-      setIsTraceExpanded(!isTraceExpanded);
+    if (selectedTraceIds.has(traceId)) {
+      const currentExpanded = expandedTraces.get(traceId) ?? false;
+      setExpandedTraces((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(traceId, !currentExpanded);
+        return newMap;
+      });
     }
   };
 
@@ -410,26 +521,91 @@ export const Trace: React.FC<TraceProps> = ({
   };
 
   const handleSpanSelect = (spanId: string, childSpanIds: string[]) => {
-    const newSelectedSpanId = selectedSpanId === spanId ? null : spanId;
-    setSelectedSpanId(newSelectedSpanId);
+    // Find which trace this span belongs to
+    const findTraceForSpan = (spanId: string): string | null => {
+      for (const trace of traces) {
+        const spanExists = (spans: any[]): boolean => {
+          for (const span of spans) {
+            if (span.id === spanId) return true;
+            if (span.spans && span.spans.length > 0) {
+              if (spanExists(span.spans)) return true;
+            }
+          }
+          return false;
+        };
+        if (trace.spans && spanExists(trace.spans)) {
+          return trace.id;
+        }
+      }
+      return null;
+    };
 
-    const allSpanIds = newSelectedSpanId
-      ? [newSelectedSpanId, ...childSpanIds]
-      : [];
-    setSelectedSpanIds(allSpanIds);
-    onSpanSelect?.(allSpanIds);
+    // Build a map of spanId -> traceId for currently selected spans
+    const currentSpanToTraceMap = new Map<string, string>();
+    selectedSpanIds.forEach((id) => {
+      const traceId = findTraceForSpan(id);
+      if (traceId) {
+        currentSpanToTraceMap.set(id, traceId);
+      }
+    });
+
+    // Find the trace for the clicked span
+    const clickedSpanTraceId = findTraceForSpan(spanId);
+
+    if (!clickedSpanTraceId) {
+      // If we can't find the trace, fall back to simple toggle
+      const newSelectedSpanId = selectedSpanId === spanId ? null : spanId;
+      setSelectedSpanId(newSelectedSpanId);
+      const allSpanIds = newSelectedSpanId
+        ? [newSelectedSpanId, ...childSpanIds]
+        : [];
+      setSelectedSpanIds(allSpanIds);
+      onSpanSelect?.(allSpanIds);
+      return;
+    }
+
+    // Get all span IDs that belong to the clicked trace
+    const clickedTraceSpanIds = new Set(
+      Array.from(currentSpanToTraceMap.entries())
+        .filter(([_, traceId]) => traceId === clickedSpanTraceId)
+        .map(([spanId, _]) => spanId),
+    );
+
+    // Check if we're deselecting (clicking on an already selected span from the same trace)
+    const isDeselecting = clickedTraceSpanIds.has(spanId);
+
+    let newSelectedSpanIds: string[];
+    if (isDeselecting) {
+      // Remove all spans from this trace
+      newSelectedSpanIds = selectedSpanIds.filter(
+        (id) => currentSpanToTraceMap.get(id) !== clickedSpanTraceId,
+      );
+      setSelectedSpanId(null);
+    } else {
+      // Remove old spans from this trace and add new ones
+      const spansFromOtherTraces = selectedSpanIds.filter(
+        (id) => currentSpanToTraceMap.get(id) !== clickedSpanTraceId,
+      );
+      const newSpansForThisTrace = [spanId, ...childSpanIds];
+      newSelectedSpanIds = [...spansFromOtherTraces, ...newSpansForThisTrace];
+      setSelectedSpanId(spanId);
+    }
+
+    setSelectedSpanIds(newSelectedSpanIds);
+    onSpanSelect?.(newSelectedSpanIds);
   };
 
   const handleRefresh = () => {
-    setSelectedTraceId(null);
+    setSelectedTraceIds(new Set());
+    setLastSelectedTraceId(null);
     setSelectedSpanId(null);
     setSelectedSpanIds([]);
-    setIsTraceExpanded(true);
+    setExpandedTraces(new Map());
     setExpandedSpans(new Set());
     setNextPaginationToken(null);
     setHasMore(false);
     previousTraceCountRef.current = 0;
-    onTraceSelect?.(null);
+    onTraceSelect?.([]);
     onSpanSelect?.([]);
     setLoading(true);
   };
@@ -468,10 +644,26 @@ export const Trace: React.FC<TraceProps> = ({
   };
 
   useEffect(() => {
-    if (externalSelectedTraceId !== selectedTraceId) {
-      setSelectedTraceId(externalSelectedTraceId || null);
+    if (externalSelectedTraceIds) {
+      const externalSet = new Set(externalSelectedTraceIds);
+      const currentSet = selectedTraceIds;
+
+      // Check if sets are different
+      if (
+        externalSet.size !== currentSet.size ||
+        !Array.from(externalSet).every((id) => currentSet.has(id))
+      ) {
+        setSelectedTraceIds(externalSet);
+        if (externalSelectedTraceIds.length > 0) {
+          setLastSelectedTraceId(
+            externalSelectedTraceIds[externalSelectedTraceIds.length - 1],
+          );
+        } else {
+          setLastSelectedTraceId(null);
+        }
+      }
     }
-  }, [externalSelectedTraceId, selectedTraceId]);
+  }, [externalSelectedTraceIds]);
 
   // Sync external selectedSpanIds with internal state
   useEffect(() => {
@@ -585,7 +777,7 @@ export const Trace: React.FC<TraceProps> = ({
                         {/* Trace Block */}
                         <div
                           className={`relative h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-100 ease-in-out hover:shadow-sm ${isNewTrace ? "animate-fadeIn" : ""} ${
-                            selectedTraceId === trace.id
+                            selectedTraceIds.has(trace.id)
                               ? "bg-zinc-100 dark:bg-zinc-900"
                               : "bg-white dark:bg-zinc-950"
                           }`}
@@ -751,33 +943,35 @@ export const Trace: React.FC<TraceProps> = ({
                                   ? "N/A"
                                   : formatDateTime(trace.start_time)}
                               </span>
-                              {selectedTraceId === trace.id && (
+                              {selectedTraceIds.has(trace.id) && (
                                 <>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <button
-                                        onClick={(e) =>
-                                          handleShareClick(trace.id, e)
-                                        }
-                                        className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
-                                      >
-                                        <Share2
-                                          size={14}
-                                          className="text-neutral-600 dark:text-neutral-300"
-                                        />
-                                      </button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>Share trace</p>
-                                    </TooltipContent>
-                                  </Tooltip>
+                                  {selectedTraceIds.size === 1 && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          onClick={(e) =>
+                                            handleShareClick(trace.id, e)
+                                          }
+                                          className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
+                                        >
+                                          <Share2
+                                            size={14}
+                                            className="text-neutral-600 dark:text-neutral-300"
+                                          />
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>Share trace</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
                                   <button
                                     onClick={(e) =>
                                       handleTraceExpandToggle(trace.id, e)
                                     }
                                     className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
                                   >
-                                    {isTraceExpanded ? (
+                                    {expandedTraces.get(trace.id) ? (
                                       <CircleMinus
                                         size={14}
                                         className="text-neutral-600 dark:text-neutral-300"
@@ -796,50 +990,53 @@ export const Trace: React.FC<TraceProps> = ({
                         </div>
 
                         {/* Spans Container - Only rendered when trace is selected AND expanded */}
-                        {selectedTraceId === trace.id && isTraceExpanded && (
-                          <div
-                            className="relative pb-1 pt-1.5"
-                            style={{ zIndex: 1 }}
-                          >
-                            {/* Vertical Line: extends naturally with the content */}
+                        {selectedTraceIds.has(trace.id) &&
+                          expandedTraces.get(trace.id) && (
                             <div
-                              className="absolute top-0 w-px"
-                              style={{
-                                left: "3%",
-                                height: "100%",
-                                background: "#e5e7eb",
-                                zIndex: -1,
-                              }}
-                            />
-
-                            <div
-                              className="overflow-y-auto"
-                              style={{
-                                width: "97%",
-                                marginLeft: "3%",
-                                maxHeight: "500px", // ✅ Enables vertical scroll
-                              }}
+                              className="relative pb-1 pt-1.5"
+                              style={{ zIndex: 1 }}
                             >
-                              <div className="space-y-2">
-                                {trace.spans.map((span) => (
-                                  <Span
-                                    key={span.id}
-                                    span={span}
-                                    widthPercentage={97}
-                                    isSelected={selectedSpanIds.includes(
-                                      span.id,
-                                    )}
-                                    selectedSpanId={selectedSpanId}
-                                    selectedSpanIds={selectedSpanIds}
-                                    onSpanSelect={handleSpanSelect}
-                                    expandedSpans={expandedSpans}
-                                    onSpanExpandToggle={handleSpanExpandToggle}
-                                  />
-                                ))}
+                              {/* Vertical Line: extends naturally with the content */}
+                              <div
+                                className="absolute top-0 w-px"
+                                style={{
+                                  left: "3%",
+                                  height: "100%",
+                                  background: "#e5e7eb",
+                                  zIndex: -1,
+                                }}
+                              />
+
+                              <div
+                                className="overflow-y-auto"
+                                style={{
+                                  width: "97%",
+                                  marginLeft: "3%",
+                                  maxHeight: "500px", // ✅ Enables vertical scroll
+                                }}
+                              >
+                                <div className="space-y-2">
+                                  {trace.spans.map((span) => (
+                                    <Span
+                                      key={span.id}
+                                      span={span}
+                                      widthPercentage={97}
+                                      isSelected={selectedSpanIds.includes(
+                                        span.id,
+                                      )}
+                                      selectedSpanId={selectedSpanId}
+                                      selectedSpanIds={selectedSpanIds}
+                                      onSpanSelect={handleSpanSelect}
+                                      expandedSpans={expandedSpans}
+                                      onSpanExpandToggle={
+                                        handleSpanExpandToggle
+                                      }
+                                    />
+                                  ))}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        )}
+                          )}
                       </div>
                     );
                   })}

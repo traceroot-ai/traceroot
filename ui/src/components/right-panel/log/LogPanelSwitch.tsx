@@ -3,15 +3,16 @@
 import React from "react";
 import LogOverview from "./LogOverview";
 import LogDetail from "./LogDetail";
-import { Span } from "@/models/trace";
+import { Span, Trace as TraceModel } from "@/models/trace";
 import { ViewType } from "../ModeToggle";
 
 interface LogPanelSwitchProps {
-  traceId?: string;
+  traceIds?: string[];
   spanIds?: string[];
   traceQueryStartTime?: Date;
   traceQueryEndTime?: Date;
   segments?: Span[];
+  allTraces?: TraceModel[];
   traceDurations?: number[];
   traceStartTimes?: Date[];
   traceEndTimes?: Date[];
@@ -19,16 +20,17 @@ interface LogPanelSwitchProps {
   tracePercentiles?: string[];
   logSearchValue?: string;
   metadataSearchTerms?: { category: string; value: string }[];
-  onTraceSelect?: (traceId: string) => void;
+  onTraceSelect?: (traceIds: string[]) => void;
   viewType?: ViewType;
 }
 
 export default function LogPanelSwitch({
-  traceId,
+  traceIds = [],
   spanIds = [],
   traceQueryStartTime,
   traceQueryEndTime,
   segments,
+  allTraces = [],
   traceDurations = [],
   traceStartTimes = [],
   traceEndTimes = [],
@@ -41,13 +43,14 @@ export default function LogPanelSwitch({
 }: LogPanelSwitchProps) {
   return (
     <div className="h-screen flex flex-col dark:bg-zinc-950">
-      {traceId ? (
+      {traceIds.length > 0 ? (
         <LogDetail
-          traceId={traceId}
+          traceIds={traceIds}
           spanIds={spanIds}
           traceQueryStartTime={traceQueryStartTime}
           traceQueryEndTime={traceQueryEndTime}
           segments={segments}
+          allTraces={allTraces}
           logSearchValue={logSearchValue}
           metadataSearchTerms={metadataSearchTerms}
           viewType={viewType}
