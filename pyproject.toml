@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "traceroot-framework"
-version = "0.1.3"
+version = "0.1.4"
 description = "TraceRoot - Comprehensive AI-powered tracing, monitoring and REST API solution"
 readme = "README.md"
 requires-python = ">=3.10"
