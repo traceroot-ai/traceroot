@@ -155,6 +155,19 @@ export default function LogDetail({
               const url = new URL("/api/get_trace_log", window.location.origin);
               url.searchParams.append("traceId", traceId);
 
+              // Optimization: Pass trace start/end times for faster log queries
+              // Find the trace in allTraces to get its timestamps
+              const trace = allTraces.find((t) => t.id === traceId);
+              if (trace && trace.start_time && trace.end_time) {
+                // Convert Unix timestamps to ISO 8601 UTC strings
+                const startTime = new Date(
+                  trace.start_time * 1000,
+                ).toISOString();
+                const endTime = new Date(trace.end_time * 1000).toISOString();
+                url.searchParams.append("start_time", startTime);
+                url.searchParams.append("end_time", endTime);
+              }
+
               appendProviderParams(
                 url,
                 traceProvider,
