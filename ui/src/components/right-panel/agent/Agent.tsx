@@ -15,7 +15,6 @@ import {
 import { useAuth } from "@clerk/nextjs";
 import { generateUuidHex } from "@/utils/uuid";
 import TopBar, { TopBarRef } from "./TopBar";
-import { ChatReasoning } from "./chat-reasoning";
 
 interface ChatTab {
   chatId: string | null;
