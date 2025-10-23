@@ -53,13 +53,7 @@ export interface ChatMetadata {
   timestamp: number;
   chat_title: string;
   trace_id: string;
-}
-
-export interface ChatMetadata {
-  chat_id: string;
-  timestamp: number;
-  chat_title: string;
-  trace_id: string;
+  user_id?: string;
 }
 
 export interface ChatMetadataHistory {

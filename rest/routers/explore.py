@@ -886,6 +886,7 @@ class ExploreRouter:
                     "timestamp": orig_time,
                     "chat_title": title,
                     "trace_id": trace_id,
+                    "user_id": user_sub,
                 }
             )
 
