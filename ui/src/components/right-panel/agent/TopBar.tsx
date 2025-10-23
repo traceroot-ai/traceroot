@@ -6,11 +6,19 @@ import React, {
   forwardRef,
 } from "react";
 import { GoHistory } from "react-icons/go";
-import { Plus, X, Check, Download } from "lucide-react";
+import { Plus, X, Check, Download, ArrowUpRight } from "lucide-react";
 import { ChatMetadata, ChatMetadataHistory } from "@/models/chat";
 import { useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
+import { loadProviderSelection, getProviderRegion } from "@/utils/provider";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/shadcn-io/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,6 +53,7 @@ interface TopBarProps {
   onChatClose: (chatId: string | null) => void;
   onHistoryItemsSelect: (chatIds: string[]) => Promise<void>;
   onUpdateChatTitle: (chatId: string, title: string) => void;
+  useUserBasedHistory?: boolean;
 }
 
 export interface TopBarRef {
@@ -70,10 +79,12 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
       onChatClose,
       onHistoryItemsSelect,
       onUpdateChatTitle,
+      useUserBasedHistory = false,
     },
     ref,
   ) => {
     const { getToken } = useAuth();
+    const router = useRouter();
     const [chatMetadata, setChatMetadata] = useState<ChatMetadata | null>(null);
     const [displayedTitle, setDisplayedTitle] = useState<string>("");
     const [isAnimating, setIsAnimating] = useState(false);
@@ -83,19 +94,24 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
     const animationControllerRef = useRef<{ cancelled: boolean } | null>(null);
 
     const fetchChatHistory = async () => {
-      if (!traceId) return;
+      // When using user-based history, don't require traceId
+      if (!useUserBasedHistory && !traceId) return;
 
       setIsLoadingHistory(true);
       try {
         const token = await getToken();
-        const response = await fetch(
-          `/api/get_chat_metadata_history?trace_id=${encodeURIComponent(traceId)}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
+
+        // Use different API endpoint based on useUserBasedHistory flag
+        const apiUrl = useUserBasedHistory
+          ? `/api/get_chat_metadata_by_user`
+          : `/api/get_chat_metadata_history?trace_id=${encodeURIComponent(traceId!)}`;
+
+        const response = await fetch(apiUrl, {
+          headers: {
+            Authorization: `Bearer ${token}`,
           },
-        );
+        });
+
         if (response.ok) {
           const data: ChatMetadataHistory = await response.json();
           const formattedItems: HistoryItem[] = data.history
@@ -239,7 +255,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
       if (dropdownOpen) {
         fetchChatHistory();
       }
-    }, [dropdownOpen, traceId]);
+    }, [dropdownOpen, traceId, useUserBasedHistory]);
 
     const handleHistoryItemClick = async (selectedChatId: string) => {
       // Skip if chat is already open
@@ -262,6 +278,34 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
     const handleTabClose = (e: React.MouseEvent, chatId: string | null) => {
       e.stopPropagation();
       onChatClose(chatId);
+    };
+
+    const handleGoToTrace = () => {
+      // Get trace_id from chat metadata
+      const trace_id = chatMetadata?.trace_id;
+      if (!trace_id) return;
+
+      // Build explore URL with provider parameters and trace_id
+      const traceProvider = loadProviderSelection("trace") || "aws";
+      const logProvider = loadProviderSelection("log") || "aws";
+
+      const traceRegion = getProviderRegion("trace", traceProvider);
+      const logRegion = getProviderRegion("log", logProvider);
+
+      const params = new URLSearchParams();
+      params.set("trace_provider", traceProvider);
+      if (traceRegion) {
+        params.set("trace_region", traceRegion);
+      }
+      params.set("log_provider", logProvider);
+      if (logRegion) {
+        params.set("log_region", logRegion);
+      }
+      params.set("trace_id", trace_id);
+
+      // Open explore page in a new tab
+      const url = `/explore?${params.toString()}`;
+      window.open(url, "_blank");
     };
 
     const handleDownload = () => {
@@ -380,6 +424,27 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
             )}
           </div>
           <div className="absolute top-1 right-1 flex items-center bg-zinc-50 dark:bg-zinc-900 z-10">
+            {useUserBasedHistory && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="mr-1 h-8 w-8"
+                      onClick={handleGoToTrace}
+                      disabled={!chatMetadata?.trace_id}
+                    >
+                      <ArrowUpRight className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>View more details in a new tab</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+
             <Button
               variant="ghost"
               size="icon"

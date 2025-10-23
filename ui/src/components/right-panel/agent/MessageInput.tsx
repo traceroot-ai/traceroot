@@ -52,6 +52,7 @@ interface MessageInputProps {
   traceId?: string;
   traceIds?: string[];
   spanIds?: string[];
+  useUserBasedHistory?: boolean;
 }
 
 export default function MessageInput({
@@ -68,6 +69,7 @@ export default function MessageInput({
   traceId,
   traceIds = [],
   spanIds = [],
+  useUserBasedHistory = false,
 }: MessageInputProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const status: PromptInputStatus = isLoading ? "streaming" : "ready";
@@ -187,7 +189,9 @@ export default function MessageInput({
                   ? "Agent is disabled when multiple traces are selected"
                   : hasTraceOrSpans
                     ? "Type your message..."
-                    : "Select a trace to start chatting"
+                    : useUserBasedHistory
+                      ? "Select a previous chat to continue"
+                      : "Select a trace to start chatting"
             }
             disabled={isLoading || !hasTraceOrSpans || hasMultipleTraces}
             minRows={1}
