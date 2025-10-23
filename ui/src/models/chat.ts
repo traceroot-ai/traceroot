@@ -1,5 +1,6 @@
 import { ChatModel } from "@/constants/model";
 import { ChatMode } from "@/constants/model";
+import mongoose, { Schema, Model } from "mongoose";
 
 export type MessageType = "assistant" | "user" | "github" | "statistics";
 export type ActionType = "github_get_file" | "agent_chat";
@@ -75,3 +76,35 @@ export interface GetChatHistoryRequest {
 export interface ChatHistoryResponse {
   history: ChatbotResponse[];
 }
+
+// Mongoose model for chat_metadata collection
+export interface IChatMetadata {
+  chat_id: string;
+  timestamp: Date;
+  chat_title: string;
+  trace_id: string;
+  user_id: string;
+}
+
+const ChatMetadataSchema = new Schema<IChatMetadata>(
+  {
+    chat_id: { type: String, required: true },
+    timestamp: { type: Date, required: true },
+    chat_title: { type: String, required: true },
+    trace_id: { type: String, required: true },
+    user_id: { type: String, required: true },
+  },
+  {
+    collection: process.env.DB_CHAT_METADATA_COLLECTION || "chat_metadata",
+    versionKey: false, // Disable __v field
+  },
+);
+
+// Index on user_id for fast lookups
+ChatMetadataSchema.index({ user_id: 1 });
+// Index on chat_id for fast lookups
+ChatMetadataSchema.index({ chat_id: 1 });
+
+export const ChatMetadataModel: Model<IChatMetadata> =
+  mongoose.models.ChatMetadataModel ||
+  mongoose.model<IChatMetadata>("ChatMetadataModel", ChatMetadataSchema);
