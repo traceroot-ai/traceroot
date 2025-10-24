@@ -143,6 +143,40 @@ export function formatDateTimeWithoutYear(ts: number) {
   return `${m} ${d}${getOrdinalSuffix(d)} ${h}:${min}:${s}`;
 }
 
+// Helper function to recursively count all spans in a trace
+function countSpans(spans: any[]): number {
+  let count = 0;
+  for (const span of spans) {
+    count += 1; // Count this span
+    if (span.spans && span.spans.length > 0) {
+      count += countSpans(span.spans); // Recursively count child spans
+    }
+  }
+  return count;
+}
+
+// Helper function to format duration in ms, s, m, or h
+function formatDuration(durationMs: number): string {
+  const ms = Math.round(durationMs);
+
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
+
+  const seconds = ms / 1000;
+  if (seconds < 60) {
+    return `${Math.round(seconds)}s`;
+  }
+
+  const minutes = seconds / 60;
+  if (minutes < 60) {
+    return `${Math.round(minutes)}m`;
+  }
+
+  const hours = minutes / 60;
+  return `${Math.round(hours)}h`;
+}
+
 export const Trace: React.FC<TraceProps> = ({
   onTraceSelect,
   onSpanSelect,
@@ -1190,6 +1224,32 @@ export const Trace: React.FC<TraceProps> = ({
                                     "Unknown Environment"}
                                 </Badge>
 
+                                {/* Span Count */}
+                                <Badge
+                                  variant="outline"
+                                  className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
+                                >
+                                  {(() => {
+                                    const spanCount = countSpans(trace.spans);
+                                    return `${spanCount} span${spanCount === 1 ? "" : "s"}`;
+                                  })()}
+                                </Badge>
+
+                                {/* Latency */}
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge
+                                      variant="outline"
+                                      className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
+                                    >
+                                      {formatDuration(trace.duration)}
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>{trace.duration.toFixed(2)} ms</p>
+                                  </TooltipContent>
+                                </Tooltip>
+
                                 {/* Warning and Error Badges Container */}
                                 <div className="flex items-center flex-shrink-0">
                                   {/* Error icon for error/critical logs */}
@@ -1654,6 +1714,36 @@ export const Trace: React.FC<TraceProps> = ({
                                             {trace.service_environment ||
                                               "Unknown Environment"}
                                           </Badge>
+
+                                          {/* Span Count */}
+                                          <Badge
+                                            variant="outline"
+                                            className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
+                                          >
+                                            {(() => {
+                                              const spanCount = countSpans(
+                                                trace.spans,
+                                              );
+                                              return `${spanCount} span${spanCount === 1 ? "" : "s"}`;
+                                            })()}
+                                          </Badge>
+
+                                          {/* Latency */}
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Badge
+                                                variant="outline"
+                                                className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
+                                              >
+                                                {formatDuration(trace.duration)}
+                                              </Badge>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                              <p>
+                                                {trace.duration.toFixed(2)} ms
+                                              </p>
+                                            </TooltipContent>
+                                          </Tooltip>
 
                                           {/* Warning and Error Badges Container */}
                                           <div className="flex items-center flex-shrink-0">
