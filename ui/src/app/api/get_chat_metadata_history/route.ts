@@ -11,11 +11,16 @@ export async function GET(
   try {
     const url = new URL(request.url);
     const trace_id = url.searchParams.get("trace_id");
+    const limit = url.searchParams.get("limit") || "5";
+    const skip = url.searchParams.get("skip") || "0";
 
     if (!trace_id) {
-      return NextResponse.json({ history: [] } as ChatMetadataHistory, {
-        status: 400,
-      });
+      return NextResponse.json(
+        { history: [], hasMore: false } as ChatMetadataHistory,
+        {
+          status: 400,
+        },
+      );
     }
 
     const restApiEndpoint = process.env.REST_API_ENDPOINT;
@@ -25,7 +30,7 @@ export async function GET(
         // Get auth headers (automatically uses Clerk's auth() and currentUser())
         const headers = await createBackendAuthHeaders();
 
-        const apiUrl = `${restApiEndpoint}/v1/explore/get-chat-metadata-history?trace_id=${encodeURIComponent(trace_id)}`;
+        const apiUrl = `${restApiEndpoint}/v1/explore/get-chat-metadata-history?trace_id=${encodeURIComponent(trace_id)}&limit=${limit}&skip=${skip}`;
         const apiResponse = await fetch(apiUrl, {
           method: "GET",
           headers,
@@ -48,6 +53,7 @@ export async function GET(
                 ? new Date(item.timestamp).getTime()
                 : item.timestamp,
           })),
+          hasMore: apiData.hasMore,
         };
 
         return NextResponse.json(processedData);
@@ -61,6 +67,7 @@ export async function GET(
     // Fallback to empty response when REST_API_ENDPOINT is not set or API call fails
     const fallbackResponse: ChatMetadataHistory = {
       history: [],
+      hasMore: false,
     };
 
     return NextResponse.json(fallbackResponse);
@@ -69,6 +76,7 @@ export async function GET(
 
     const errorResponse: ChatMetadataHistory = {
       history: [],
+      hasMore: false,
     };
 
     return NextResponse.json(errorResponse, { status: 500 });

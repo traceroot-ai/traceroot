@@ -59,6 +59,7 @@ export interface ChatMetadata {
 
 export interface ChatMetadataHistory {
   history: ChatMetadata[];
+  hasMore?: boolean;
 }
 
 export interface GetChatMetadataHistoryRequest {
