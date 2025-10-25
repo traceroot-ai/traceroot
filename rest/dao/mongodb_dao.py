@@ -106,3 +106,10 @@ class TraceRootMongoDBClient:
             dict[str, Any] | None: The log provider config if found, None otherwise
         """
         return None
+
+    async def insert_chat_routing_record(self, routing_data: dict[str, Any]):
+        """Insert a chat routing decision record.
+
+        Args:
+            routing_data: Dictionary containing routing information
+        """
