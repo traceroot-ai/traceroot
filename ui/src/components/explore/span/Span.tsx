@@ -175,7 +175,7 @@ const Span: React.FC<SpanProps> = ({
       >
         <div
           onClick={handleSpanClick}
-          className={`h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-300 ease-in-out hover:shadow-sm ${
+          className={`h-[40px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-300 ease-in-out hover:shadow-sm ${
             isSelected
               ? "bg-zinc-100 dark:bg-zinc-900"
               : "bg-white dark:bg-zinc-950"
