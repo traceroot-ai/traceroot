@@ -628,7 +628,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="w-full text-xs h-6"
+                          className="w-full text-xs h-[40px]"
                           onClick={() => fetchChatHistory(true)}
                           disabled={isLoadingMore}
                         >
