@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 
 from openai import AsyncOpenAI
 
+from rest.agent.chunk.semantic import semantic_chunk
+
 try:
     from rest.dao.ee.mongodb_dao import TraceRootMongoDBClient
 except ImportError:
@@ -13,7 +15,6 @@ import json
 from copy import deepcopy
 from typing import Any, Tuple
 
-from rest.agent.chunk.sequential import sequential_chunk
 from rest.agent.context.tree import SpanNode
 from rest.agent.filter.feature import (
     SpanFeature,
@@ -467,8 +468,8 @@ class Agent:
 
     def get_context_messages(self, context: str) -> list[str]:
         r"""Get the context message."""
-        # TODO: Make this more efficient.
-        context_chunks = list(sequential_chunk(context))
+
+        context_chunks = list(semantic_chunk(context))
         if len(context_chunks) == 1:
             return [
                 (
