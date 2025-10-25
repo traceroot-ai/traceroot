@@ -8,7 +8,10 @@ from aiocache import SimpleMemoryCache
 from fastapi import APIRouter, Depends, HTTPException, Request
 from slowapi import Limiter
 
-from rest.agent import Chat
+from rest.agent.agents.code_agent import CodeAgent
+from rest.agent.agents.general_agent import GeneralAgent
+from rest.agent.agents.single_rca_agent import SingleRCAAgent
+from rest.agent.router import ChatRouter
 from rest.service.provider import ObservabilityProvider
 from rest.tools.github import GitHubClient
 
@@ -65,7 +68,6 @@ try:
 except ImportError:
     from rest.utils.auth import get_user_credentials, hash_user_sub
 
-from rest.agent.agent import Agent
 from rest.agent.summarizer.github import is_github_related, set_github_related
 from rest.utils.github import parse_github_url
 
@@ -80,8 +82,10 @@ class ExploreRouter:
     ):
         self.router = APIRouter()
         self.local_mode = local_mode
-        self.chat = Chat()
-        self.agent = Agent()
+        self.single_rca_agent = SingleRCAAgent()
+        self.code_agent = CodeAgent()
+        self.general_agent = GeneralAgent()
+        self.chat_router = ChatRouter()
         self.logger = logging.getLogger(__name__)
 
         # Choose client based on REST_LOCAL_MODE environment variable
@@ -842,7 +846,7 @@ class ExploreRouter:
             token_type=ResourceType.OPENAI.value,
         )
 
-        if openai_token is None and self.chat.local_mode:
+        if openai_token is None and self.single_rca_agent.local_mode:
             response = ChatbotResponse(
                 time=orig_time,
                 message=(
@@ -864,7 +868,7 @@ class ExploreRouter:
         title, github_related = await asyncio.gather(
             summarize_title(
                 user_message=message,
-                client=self.chat.chat_client,
+                client=self.single_rca_agent.chat_client,
                 openai_token=openai_token,
                 model=ChatModel.GPT_4_1_MINI,  # Use GPT-4.1-mini for title
                 first_chat=first_chat,
@@ -872,7 +876,7 @@ class ExploreRouter:
             ),
             is_github_related(
                 user_message=message,
-                client=self.chat.chat_client,
+                client=self.single_rca_agent.chat_client,
                 openai_token=openai_token,
                 model=ChatModel.GPT_4O,
                 user_sub=user_sub,
@@ -900,6 +904,53 @@ class ExploreRouter:
         if mode == ChatMode.AGENT:
             is_github_issue = github_related.is_github_issue
             is_github_pr = github_related.is_github_pr
+
+        # Route the query to appropriate agent #################################
+        # Always use router to decide which agent to use
+        # Provide context to help router make better decisions
+        # TODO: remove the github code related and only use the route query
+        router_output = await self.chat_router.route_query(
+            user_message=message,
+            chat_mode=mode,
+            model=ChatModel.GPT_4O,
+            user_sub=user_sub,
+            openai_token=openai_token,
+            has_trace_context=bool(trace_id),
+            is_github_issue=is_github_issue,
+            is_github_pr=is_github_pr,
+            source_code_related=source_code_related,
+        )
+
+        # Insert routing decision to MongoDB for tracking/analytics
+        await self.db_client.insert_chat_routing_record(
+            {
+                "chat_id": chat_id,
+                "timestamp": orig_time,
+                "user_message": message,
+                "agent_type": router_output.agent_type,
+                "reasoning": router_output.reasoning,
+                "chat_mode": mode.value,
+                "trace_id": trace_id or "",
+                "user_sub": user_sub,
+            }
+        )
+
+        # Route to GeneralAgent if router decides (no trace context needed)
+        if router_output.agent_type == "general":
+            # Fetch chat history for general agent
+            chat_history = await self.db_client.get_chat_history(chat_id=chat_id)
+            response = await self.general_agent.chat(
+                chat_id=chat_id,
+                user_message=message,
+                model=model,
+                db_client=self.db_client,
+                timestamp=orig_time,
+                user_sub=user_sub,
+                chat_history=chat_history,
+                openai_token=openai_token,
+                trace_id=trace_id,
+            )
+            return response.model_dump()
 
         # Get the trace #######################################################
         observe_provider = await self.get_observe_provider(
@@ -1175,7 +1226,8 @@ class ExploreRouter:
                 for child in current.children_spans:
                     queue.append(child)
 
-        if mode == ChatMode.AGENT and (is_github_issue or is_github_pr):
+        # Route based on router's decision
+        if router_output.agent_type == "code" and (is_github_issue or is_github_pr):
             issue_response: ChatbotResponse | None = None
             pr_response: ChatbotResponse | None = None
             issue_message: str = message
@@ -1184,7 +1236,7 @@ class ExploreRouter:
                 separate_issue_and_pr_output: SeparateIssueAndPrInput = \
                     await separate_issue_and_pr(
                         user_message=message,
-                        client=self.chat.chat_client,
+                        client=self.single_rca_agent.chat_client,
                         openai_token=openai_token,
                         model=model,
                         user_sub=user_sub,
@@ -1192,7 +1244,7 @@ class ExploreRouter:
                 issue_message = separate_issue_and_pr_output.issue_message
                 pr_message = separate_issue_and_pr_output.pr_message
             if is_github_issue:
-                issue_response = await self.agent.chat(
+                issue_response = await self.code_agent.chat(
                     trace_id=trace_id,
                     chat_id=chat_id,
                     user_message=issue_message,
@@ -1210,7 +1262,7 @@ class ExploreRouter:
                     provider=provider,
                 )
             if is_github_pr:
-                pr_response = await self.agent.chat(
+                pr_response = await self.code_agent.chat(
                     trace_id=trace_id,
                     chat_id=chat_id,
                     user_message=pr_message,
@@ -1232,7 +1284,7 @@ class ExploreRouter:
                 summary_response = await summarize_chatbot_output(
                     issue_response=issue_response,
                     pr_response=pr_response,
-                    client=self.chat.chat_client,
+                    client=self.single_rca_agent.chat_client,
                     openai_token=openai_token,
                     model=model,
                     user_sub=user_sub,
@@ -1245,7 +1297,8 @@ class ExploreRouter:
             else:
                 raise ValueError("Should not reach here")
         else:
-            response: ChatbotResponse = await self.chat.chat(
+            # Router decided single_rca - use SingleRCAAgent for root cause analysis
+            response: ChatbotResponse = await self.single_rca_agent.chat(
                 trace_id=trace_id,
                 chat_id=chat_id,
                 user_message=message,
