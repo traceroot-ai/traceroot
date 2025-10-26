@@ -13,6 +13,7 @@ import json
 from copy import deepcopy
 from typing import Any, Tuple
 
+from rest.agent.cache.manager import get_cache_manager
 from rest.agent.chunk.sequential import sequential_chunk
 from rest.agent.context.tree import SpanNode
 from rest.agent.filter.feature import (
@@ -48,6 +49,7 @@ class Agent:
             api_key = "fake_openai_api_key"
         self.chat_client = AsyncOpenAI(api_key=api_key)
         self.system_prompt = AGENT_SYSTEM_PROMPT
+        self.cache_manager = get_cache_manager()
 
     async def chat(
         self,
@@ -148,30 +150,31 @@ class Agent:
             if LogFeature.LOG_SOURCE_CODE_LINES_BELOW not in log_features:
                 log_features.append(LogFeature.LOG_SOURCE_CODE_LINES_BELOW)
 
-        tree = tree.to_dict(
-            log_features=log_features,
-            span_features=span_features,
+        context, context_chunks, estimated_tokens, was_cached = (
+            self.cache_manager.get_or_build_context(
+                trace_id=trace_id,
+                tree=tree,
+                log_features=log_features,
+                span_features=span_features,
+                user_message=user_message,
+                chat_history=chat_history
+            )
         )
 
-        context = f"{json.dumps(tree, indent=4)}"
-
-        # Compute estimated tokens for context and insert statistics record
-        estimated_tokens = len(context) * 4
+        cache_status = "cached" if was_cached else "built"
         await db_client.insert_chat_record(
             message={
                 "chat_id": chat_id,
                 "timestamp": datetime.now().astimezone(timezone.utc),
                 "role": "statistics",
-                "content":
-                f"Number of estimated tokens for TraceRoot context: {estimated_tokens}",
+                "content": f"Number of estimated tokens for TraceRoot context: "
+                f"{estimated_tokens} (context {cache_status})",
                 "trace_id": trace_id,
                 "chunk_id": 0,
                 "action_type": ActionType.STATISTICS.value,
                 "status": ActionStatus.SUCCESS.value,
             }
         )
-
-        context_chunks = self.get_context_messages(context)
         context_messages = [
             deepcopy(context_chunks[i]) for i in range(len(context_chunks))
         ]
