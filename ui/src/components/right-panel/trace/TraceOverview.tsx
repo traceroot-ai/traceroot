@@ -22,7 +22,7 @@ interface TraceOverviewProps {
   traceDurations?: number[]; // Array of durations in milliseconds
   tracePercentiles?: string[]; // Array of percentiles for each trace (e.g. 'P90', 'P50', ...)
   // Callback props
-  onTraceSelect?: (traceIds: string[]) => void; // Add callback for trace selection
+  onTraceSelect?: (traceId: string) => void; // Add callback for trace selection
 }
 
 export default function TraceOverview({
@@ -235,13 +235,6 @@ export default function TraceOverview({
 
     const isPercentilePlot = tracePercentiles.length > 0;
 
-    // Wrapper to convert single traceId to array for parent callback
-    const handlePointClick = (traceId: string) => {
-      if (onTraceSelect) {
-        onTraceSelect([traceId]);
-      }
-    };
-
     return (
       <div className="max-w-full bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-700">
         {/* Content */}
@@ -252,7 +245,7 @@ export default function TraceOverview({
             xAxisLabel="Start Time"
             yAxisLabel="Latency (s)"
             isPercentilePlot={isPercentilePlot}
-            onPointClick={handlePointClick} // Pass the wrapped callback
+            onPointClick={onTraceSelect} // Pass the trace selection callback
           />
         </div>
       </div>

@@ -539,7 +539,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
                   onChange={(e) => setLogSearchValue(e.target.value)}
                   onKeyPress={handleKeyPress}
                   placeholder=""
-                  className="w-24 min-w-[90px] h-6.5"
+                  className="w-32 min-w-[120px] h-6.5"
                   style={{ fontSize: "12px" }}
                 />
               </TooltipTrigger>

@@ -12,6 +12,7 @@ export default function Explore() {
   useEffect(() => {
     initializeProviders();
   }, []);
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [selectedTraceIds, setSelectedTraceIds] = useState<string[]>([]);
   const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
   const [timeRange, setTimeRange] = useState<{ start: Date; end: Date } | null>(
@@ -42,7 +43,7 @@ export default function Explore() {
   // Validate selected spans when trace changes
   useEffect(() => {
     if (
-      selectedTraceIds.length > 0 &&
+      selectedTraceId &&
       currentTraceSpans.length > 0 &&
       selectedSpanIds.length > 0
     ) {
@@ -55,11 +56,11 @@ export default function Explore() {
       if (validSelectedSpans.length !== selectedSpanIds.length) {
         setSelectedSpanIds(validSelectedSpans);
       }
-    } else if (selectedTraceIds.length === 0) {
+    } else if (!selectedTraceId) {
       // Clear spans when no trace is selected
       setSelectedSpanIds([]);
     }
-  }, [selectedTraceIds, currentTraceSpans]);
+  }, [selectedTraceId, currentTraceSpans]);
 
   const handleSpanSelect = (spanIds: string[]) => {
     setSelectedSpanIds(spanIds);
@@ -69,9 +70,13 @@ export default function Explore() {
     setSelectedSpanIds([]);
   };
 
-  const handleTraceSelect = useCallback((traceIds: string[]) => {
-    setSelectedTraceIds(traceIds);
+  const handleTraceSelect = useCallback((traceId: string | null) => {
+    setSelectedTraceId(traceId);
     // Note: We don't clear spans here - the useEffect above will validate them
+  }, []);
+
+  const handleSelectedTracesChange = useCallback((traceIds: string[]) => {
+    setSelectedTraceIds(traceIds);
   }, []);
 
   const handleTraceData = useCallback((startTime: Date, endTime: Date) => {
@@ -106,18 +111,20 @@ export default function Explore() {
       leftPanel={
         <Trace
           onTraceSelect={handleTraceSelect}
+          onSelectedTracesChange={handleSelectedTracesChange}
           onSpanSelect={handleSpanSelect}
           onTraceData={handleTraceData}
           onTracesUpdate={handleTracesUpdate}
           onLogSearchValueChange={handleLogSearchValueChange}
           onMetadataSearchTermsChange={handleMetadataSearchTermsChange}
-          selectedTraceIds={selectedTraceIds}
+          selectedTraceId={selectedTraceId}
           selectedSpanIds={selectedSpanIds}
         />
       }
       rightPanel={
         <RightPanelSwitch
-          traceIds={selectedTraceIds}
+          traceId={selectedTraceId || undefined}
+          selectedTraceIds={selectedTraceIds}
           spanIds={selectedSpanIds}
           traceQueryStartTime={timeRange?.start}
           traceQueryEndTime={timeRange?.end}

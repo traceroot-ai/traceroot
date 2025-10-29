@@ -16,7 +16,7 @@ interface TracePanelSwitchProps {
   traceEndTimes?: Date[];
   traceIDs?: string[];
   tracePercentiles?: string[];
-  onTraceSelect?: (traceIds: string[]) => void;
+  onTraceSelect?: (traceId: string) => void;
 }
 
 export default function TracePanelSwitch({

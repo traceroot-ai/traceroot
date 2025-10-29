@@ -452,11 +452,3 @@ class TraceRootSQLiteClient:
                 credentials if found, None otherwise
         """
         return
-
-    async def insert_chat_routing_record(self, routing_data: dict[str, Any]):
-        """Insert a chat routing decision record (SQLite stub).
-
-        Args:
-            routing_data: Dictionary containing routing information
-        """
-        # TODO: Implement SQLite storage for routing decisions

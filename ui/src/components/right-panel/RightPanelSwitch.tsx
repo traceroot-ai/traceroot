@@ -9,21 +9,23 @@ import { Span, Trace as TraceModel } from "@/models/trace";
 import { useAuth } from "@clerk/nextjs";
 
 interface RightPanelSwitchProps {
-  traceIds?: string[];
+  traceId?: string;
+  selectedTraceIds?: string[];
   spanIds?: string[];
   traceQueryStartTime?: Date;
   traceQueryEndTime?: Date;
   allTraces?: TraceModel[];
   logSearchValue?: string;
   metadataSearchTerms?: { category: string; value: string }[];
-  onTraceSelect?: (traceIds: string[]) => void;
+  onTraceSelect?: (traceId: string) => void;
   onSpanClear?: () => void;
   onTraceSpansUpdate?: (spans: Span[]) => void;
   onSpanSelect?: (spanIds: string[]) => void;
 }
 
 export default function RightPanelSwitch({
-  traceIds = [],
+  traceId,
+  selectedTraceIds = [],
   spanIds = [],
   traceQueryStartTime,
   traceQueryEndTime,
@@ -62,37 +64,21 @@ export default function RightPanelSwitch({
     }
   }, [allTraces]);
 
-  // Update spans when traceIds changes, using already fetched trace data
-  // For single trace selection, we load the spans from that trace.
-  // For multiple traces, we merge all spans from selected traces.
+  // Update spans when traceId changes, using already fetched trace data
   useEffect(() => {
-    if (traceIds.length > 0 && allTraces.length > 0) {
-      if (traceIds.length === 1) {
-        // Single trace: load spans from that trace
-        const trace: TraceModel | undefined = allTraces.find(
-          (t: TraceModel) => t.id === traceIds[0],
-        );
-        const newSpans = trace ? trace.spans : undefined;
-        setSpans(newSpans);
-        // Notify parent of spans update for validation
-        onTraceSpansUpdate?.(newSpans || []);
-      } else {
-        // Multiple traces: merge all spans from selected traces
-        const allSpans: Span[] = [];
-        traceIds.forEach((traceId) => {
-          const trace = allTraces.find((t) => t.id === traceId);
-          if (trace && trace.spans) {
-            allSpans.push(...trace.spans);
-          }
-        });
-        setSpans(allSpans.length > 0 ? allSpans : undefined);
-        onTraceSpansUpdate?.(allSpans);
-      }
+    if (traceId && allTraces.length > 0) {
+      const trace: TraceModel | undefined = allTraces.find(
+        (t: TraceModel) => t.id === traceId,
+      );
+      const newSpans = trace ? trace.spans : undefined;
+      setSpans(newSpans);
+      // Notify parent of spans update for validation
+      onTraceSpansUpdate?.(newSpans || []);
     } else {
       setSpans(undefined);
       onTraceSpansUpdate?.([]);
     }
-  }, [traceIds, allTraces, onTraceSpansUpdate]);
+  }, [traceId, allTraces, onTraceSpansUpdate]);
 
   // Handler for span selection from chat references
   const handleSpanSelectFromChat = (spanId: string) => {
@@ -157,7 +143,8 @@ export default function RightPanelSwitch({
         {/* Log view - conditionally rendered */}
         {viewType === "log" && (
           <LogPanelSwitch
-            traceIds={traceIds}
+            traceId={traceId}
+            selectedTraceIds={selectedTraceIds}
             spanIds={spanIds}
             traceQueryStartTime={traceQueryStartTime}
             traceQueryEndTime={traceQueryEndTime}
@@ -204,8 +191,7 @@ export default function RightPanelSwitch({
           }
         >
           <Agent
-            traceId={traceIds.length === 1 ? traceIds[0] : undefined}
-            traceIds={traceIds}
+            traceId={traceId}
             spanIds={spanIds}
             queryStartTime={traceQueryStartTime}
             queryEndTime={traceQueryEndTime}
@@ -217,7 +203,7 @@ export default function RightPanelSwitch({
         {/* Trace view - conditionally rendered */}
         {viewType === "trace" && (
           <TracePanelSwitch
-            traceId={traceIds.length === 1 ? traceIds[0] : undefined}
+            traceId={traceId}
             spanIds={spanIds}
             traceQueryStartTime={traceQueryStartTime}
             traceQueryEndTime={traceQueryEndTime}

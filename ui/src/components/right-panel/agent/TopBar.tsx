@@ -6,19 +6,11 @@ import React, {
   forwardRef,
 } from "react";
 import { GoHistory } from "react-icons/go";
-import { Plus, X, Check, Download, ArrowUpRight } from "lucide-react";
+import { Plus, X, Check, Download } from "lucide-react";
 import { ChatMetadata, ChatMetadataHistory } from "@/models/chat";
 import { useAuth } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
-import { loadProviderSelection, getProviderRegion } from "@/utils/provider";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/shadcn-io/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,7 +45,6 @@ interface TopBarProps {
   onChatClose: (chatId: string | null) => void;
   onHistoryItemsSelect: (chatIds: string[]) => Promise<void>;
   onUpdateChatTitle: (chatId: string, title: string) => void;
-  useUserBasedHistory?: boolean;
 }
 
 export interface TopBarRef {
@@ -65,69 +56,6 @@ interface HistoryItem {
   chat_title: string;
   timestamp: number;
 }
-
-interface GroupedHistoryItems {
-  label: string;
-  items: HistoryItem[];
-}
-
-// Helper function to format relative time
-const formatRelativeTime = (timestamp: number): string => {
-  const now = Date.now();
-  const diffInMs = now - timestamp;
-  const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
-  const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
-  const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
-
-  if (diffInMinutes < 1) {
-    return "now";
-  } else if (diffInMinutes < 60) {
-    return `${diffInMinutes}m`;
-  } else if (diffInHours < 24) {
-    return `${diffInHours}h`;
-  } else {
-    return `${diffInDays}d`;
-  }
-};
-
-// Helper function to group history items by time period
-const groupHistoryByTime = (items: HistoryItem[]): GroupedHistoryItems[] => {
-  const now = Date.now();
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const yesterdayStart = new Date(todayStart);
-  yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-  const lastWeekStart = new Date(todayStart);
-  lastWeekStart.setDate(lastWeekStart.getDate() - 7);
-  const lastMonthStart = new Date(todayStart);
-  lastMonthStart.setDate(lastMonthStart.getDate() - 30);
-
-  const groups: GroupedHistoryItems[] = [
-    { label: "Today", items: [] },
-    { label: "Yesterday", items: [] },
-    { label: "Last Week", items: [] },
-    { label: "Last Month", items: [] },
-    { label: "Older", items: [] },
-  ];
-
-  items.forEach((item) => {
-    const itemDate = item.timestamp;
-    if (itemDate >= todayStart.getTime()) {
-      groups[0].items.push(item);
-    } else if (itemDate >= yesterdayStart.getTime()) {
-      groups[1].items.push(item);
-    } else if (itemDate >= lastWeekStart.getTime()) {
-      groups[2].items.push(item);
-    } else if (itemDate >= lastMonthStart.getTime()) {
-      groups[3].items.push(item);
-    } else {
-      groups[4].items.push(item);
-    }
-  });
-
-  // Filter out empty groups
-  return groups.filter((group) => group.items.length > 0);
-};
 
 const TopBar = forwardRef<TopBarRef, TopBarProps>(
   (
@@ -142,50 +70,32 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
       onChatClose,
       onHistoryItemsSelect,
       onUpdateChatTitle,
-      useUserBasedHistory = false,
     },
     ref,
   ) => {
     const { getToken } = useAuth();
-    const router = useRouter();
     const [chatMetadata, setChatMetadata] = useState<ChatMetadata | null>(null);
     const [displayedTitle, setDisplayedTitle] = useState<string>("");
     const [isAnimating, setIsAnimating] = useState(false);
     const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
     const [dropdownOpen, setDropdownOpen] = useState(false);
-    const [hasMoreHistory, setHasMoreHistory] = useState(false);
-    const [isLoadingMore, setIsLoadingMore] = useState(false);
-    const [skip, setSkip] = useState(0);
     const animationControllerRef = useRef<{ cancelled: boolean } | null>(null);
 
-    const fetchChatHistory = async (loadMore: boolean = false) => {
-      // When using user-based history, don't require traceId
-      if (!useUserBasedHistory && !traceId) return;
+    const fetchChatHistory = async () => {
+      if (!traceId) return;
 
-      if (loadMore) {
-        setIsLoadingMore(true);
-      } else {
-        setIsLoadingHistory(true);
-        setSkip(0); // Reset skip when fetching initial history
-      }
-
+      setIsLoadingHistory(true);
       try {
         const token = await getToken();
-        const currentSkip = loadMore ? skip : 0;
-        const limit = 5;
-
-        // Use different API endpoint based on useUserBasedHistory flag
-        const apiUrl = useUserBasedHistory
-          ? `/api/get_chat_metadata_by_user?limit=${limit}&skip=${currentSkip}`
-          : `/api/get_chat_metadata_history?trace_id=${encodeURIComponent(traceId!)}&limit=${limit}&skip=${currentSkip}`;
-
-        const response = await fetch(apiUrl, {
-          headers: {
-            Authorization: `Bearer ${token}`,
+        const response = await fetch(
+          `/api/get_chat_metadata_history?trace_id=${encodeURIComponent(traceId)}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
           },
-        });
-
+        );
         if (response.ok) {
           const data: ChatMetadataHistory = await response.json();
           const formattedItems: HistoryItem[] = data.history
@@ -195,37 +105,16 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
               timestamp: item.timestamp,
             }))
             .sort((a, b) => b.timestamp - a.timestamp);
-
-          if (loadMore) {
-            // Append new items to existing items
-            setHistoryItems((prev) => [...prev, ...formattedItems]);
-            setSkip(currentSkip + limit);
-          } else {
-            // Replace items with new items
-            setHistoryItems(formattedItems);
-            setSkip(limit);
-          }
-
-          setHasMoreHistory(data.hasMore || false);
+          setHistoryItems(formattedItems);
         } else {
           console.error("Failed to fetch chat history:", response.statusText);
-          if (!loadMore) {
-            setHistoryItems([]);
-          }
-          setHasMoreHistory(false);
+          setHistoryItems([]);
         }
       } catch (error) {
         console.error("Error fetching chat history:", error);
-        if (!loadMore) {
-          setHistoryItems([]);
-        }
-        setHasMoreHistory(false);
+        setHistoryItems([]);
       } finally {
-        if (loadMore) {
-          setIsLoadingMore(false);
-        } else {
-          setIsLoadingHistory(false);
-        }
+        setIsLoadingHistory(false);
       }
     };
 
@@ -350,7 +239,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
       if (dropdownOpen) {
         fetchChatHistory();
       }
-    }, [dropdownOpen, traceId, useUserBasedHistory]);
+    }, [dropdownOpen, traceId]);
 
     const handleHistoryItemClick = async (selectedChatId: string) => {
       // Skip if chat is already open
@@ -373,34 +262,6 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
     const handleTabClose = (e: React.MouseEvent, chatId: string | null) => {
       e.stopPropagation();
       onChatClose(chatId);
-    };
-
-    const handleGoToTrace = () => {
-      // Get trace_id from chat metadata
-      const trace_id = chatMetadata?.trace_id;
-      if (!trace_id) return;
-
-      // Build explore URL with provider parameters and trace_id
-      const traceProvider = loadProviderSelection("trace") || "aws";
-      const logProvider = loadProviderSelection("log") || "aws";
-
-      const traceRegion = getProviderRegion("trace", traceProvider);
-      const logRegion = getProviderRegion("log", logProvider);
-
-      const params = new URLSearchParams();
-      params.set("trace_provider", traceProvider);
-      if (traceRegion) {
-        params.set("trace_region", traceRegion);
-      }
-      params.set("log_provider", logProvider);
-      if (logRegion) {
-        params.set("log_region", logRegion);
-      }
-      params.set("trace_id", trace_id);
-
-      // Open explore page in a new tab
-      const url = `/explore?${params.toString()}`;
-      window.open(url, "_blank");
     };
 
     const handleDownload = () => {
@@ -519,27 +380,6 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
             )}
           </div>
           <div className="absolute top-1 right-1 flex items-center bg-zinc-50 dark:bg-zinc-900 z-10">
-            {useUserBasedHistory && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="mr-1 h-8 w-8"
-                      onClick={handleGoToTrace}
-                      disabled={!chatMetadata?.trace_id}
-                    >
-                      <ArrowUpRight className="w-4 h-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>View more details in a new tab</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-
             <Button
               variant="ghost"
               size="icon"
@@ -589,62 +429,29 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
                   </div>
                 ) : (
                   <>
-                    {groupHistoryByTime(historyItems).map(
-                      (group, groupIndex) => (
-                        <div key={group.label}>
-                          <DropdownMenuLabel className="text-xs text-gray-500 dark:text-gray-500 px-2 py-1.5">
-                            {group.label}
-                          </DropdownMenuLabel>
-                          {group.items.map((item) => (
-                            <DropdownMenuItem
-                              key={item.chat_id}
-                              onClick={() =>
-                                handleHistoryItemClick(item.chat_id)
-                              }
-                              className="text-xs cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-900/20 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-200"
-                            >
-                              <div className="flex items-center gap-2 w-full">
-                                <div className="w-4 h-4 flex items-center justify-center flex-shrink-0">
-                                  {activeChatTabs.some(
-                                    (tab) => tab.chatId === item.chat_id,
-                                  ) && (
-                                    <Check className="w-3 h-3 text-zinc-600 dark:text-zinc-300" />
-                                  )}
-                                </div>
-                                <div className="font-normal truncate font-medium text-neutral-800 dark:text-neutral-300 flex-1 min-w-0">
-                                  {item.chat_title}
-                                </div>
-                                <div className="text-xs text-gray-500 dark:text-gray-500 flex-shrink-0 ml-2">
-                                  {formatRelativeTime(item.timestamp)}
-                                </div>
-                              </div>
-                            </DropdownMenuItem>
-                          ))}
+                    <DropdownMenuLabel className="text-xs text-gray-600 dark:text-gray-400">
+                      Chat History
+                    </DropdownMenuLabel>
+                    {historyItems.map((item) => (
+                      <DropdownMenuItem
+                        key={item.chat_id}
+                        onClick={() => handleHistoryItemClick(item.chat_id)}
+                        className="text-xs cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-900/20 hover:text-zinc-600 dark:hover:text-zinc-400 transition-colors duration-200"
+                      >
+                        <div className="flex items-center gap-2 w-full">
+                          <div className="w-4 h-4 flex items-center justify-center">
+                            {activeChatTabs.some(
+                              (tab) => tab.chatId === item.chat_id,
+                            ) && (
+                              <Check className="w-3 h-3 text-zinc-600 dark:text-zinc-300" />
+                            )}
+                          </div>
+                          <div className="font-normal truncate font-medium text-neutral-800 dark:text-neutral-300 flex-1">
+                            {item.chat_title}
+                          </div>
                         </div>
-                      ),
-                    )}
-                    {hasMoreHistory && (
-                      <div className="px-2 py-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="w-full text-xs h-[40px]"
-                          onClick={() => fetchChatHistory(true)}
-                          disabled={isLoadingMore}
-                        >
-                          {isLoadingMore ? (
-                            <div className="flex items-center justify-center space-x-1">
-                              <Spinner
-                                variant="infinite"
-                                className="w-4 h-4 text-gray-500 dark:text-gray-400"
-                              />
-                            </div>
-                          ) : (
-                            "Load more..."
-                          )}
-                        </Button>
-                      </div>
-                    )}
+                      </DropdownMenuItem>
+                    ))}
                   </>
                 )}
               </DropdownMenuContent>

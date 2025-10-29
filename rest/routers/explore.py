@@ -8,10 +8,7 @@ from aiocache import SimpleMemoryCache
 from fastapi import APIRouter, Depends, HTTPException, Request
 from slowapi import Limiter
 
-from rest.agent.agents.code_agent import CodeAgent
-from rest.agent.agents.general_agent import GeneralAgent
-from rest.agent.agents.single_rca_agent import SingleRCAAgent
-from rest.agent.router import ChatRouter
+from rest.agent import Chat
 from rest.service.provider import ObservabilityProvider
 from rest.tools.github import GitHubClient
 
@@ -68,6 +65,7 @@ try:
 except ImportError:
     from rest.utils.auth import get_user_credentials, hash_user_sub
 
+from rest.agent.agent import Agent
 from rest.agent.summarizer.github import is_github_related, set_github_related
 from rest.utils.github import parse_github_url
 
@@ -82,10 +80,8 @@ class ExploreRouter:
     ):
         self.router = APIRouter()
         self.local_mode = local_mode
-        self.single_rca_agent = SingleRCAAgent()
-        self.code_agent = CodeAgent()
-        self.general_agent = GeneralAgent()
-        self.chat_router = ChatRouter()
+        self.chat = Chat()
+        self.agent = Agent()
         self.logger = logging.getLogger(__name__)
 
         # Choose client based on REST_LOCAL_MODE environment variable
@@ -536,53 +532,31 @@ class ExploreRouter:
 
         try:
             observe_provider = await self.get_observe_provider(request)
-
-            # Check if this is log-search pagination (from "load more" click)
-            is_log_search_pagination = (
-                pagination_state and pagination_state.get('type') == 'log_search'
+            traces, next_state = await observe_provider.trace_client.get_recent_traces(
+                start_time=start_time,
+                end_time=end_time,
+                log_group_name=log_group_name,
+                service_name_values=service_name_values,
+                service_name_operations=service_name_operations,
+                service_environment_values=service_environment_values,
+                service_environment_operations=service_environment_operations,
+                categories=categories,
+                values=values,
+                operations=operations,
+                pagination_state=pagination_state,
             )
 
-            # If log search is active OR we're continuing log-search pagination
-            if log_search_values or is_log_search_pagination:
-                # For pagination continuation, retrieve search term from pagination state
-                if is_log_search_pagination and not log_search_values:
-                    # Extract search term from cache key (stored in pagination state)
-                    # We can re-query or store it in pagination state
-                    # For now, we'll store it in pagination state
-                    log_search_values = [pagination_state.get('search_term', '')]
-
-                # Get trace provider from request
-                trace_provider = request.query_params.get("trace_provider", "aws")
-
-                traces, next_state = await self._get_traces_by_log_search_paginated(
+            # Filter traces by log content if log search is specified
+            if log_search_values:
+                traces = await self._filter_traces_by_log_content(
                     request=request,
-                    observe_provider=observe_provider,
+                    traces=traces,
                     start_time=start_time,
                     end_time=end_time,
                     log_group_name=log_group_name,
                     log_search_values=log_search_values,
-                    categories=categories,
-                    values=values,
-                    operations=operations,
-                    pagination_state=pagination_state,
-                    trace_provider=trace_provider,
+                    log_search_operations=log_search_operations
                 )
-            else:
-                # Normal pagination flow for non-log-filtered requests
-                traces, next_state = \
-                    await observe_provider.trace_client.get_recent_traces(
-                        start_time=start_time,
-                        end_time=end_time,
-                        log_group_name=log_group_name,
-                        service_name_values=service_name_values,
-                        service_name_operations=service_name_operations,
-                        service_environment_values=service_environment_values,
-                        service_environment_operations=service_environment_operations,
-                        categories=categories,
-                        values=values,
-                        operations=operations,
-                        pagination_state=pagination_state,
-                    )
 
             # Encode next pagination token
             next_pagination_token = None
@@ -679,70 +653,19 @@ class ExploreRouter:
         _, _, user_sub = get_user_credentials(request)
         log_group_name = hash_user_sub(user_sub)
 
+        # Try to get cached logs
+        keys = (req_data.trace_id, req_data.start_time, req_data.end_time, log_group_name)
+        cached_logs: TraceLogs | None = await self.cache.get(keys)
+        if cached_logs:
+            resp = GetLogByTraceIdResponse(trace_id=req_data.trace_id, logs=cached_logs)
+            return resp.model_dump()
+
         try:
             observe_provider = await self.get_observe_provider(request)
-
-            # Optimization: If start_time/end_time not provided, fetch trace
-            # to get timestamps which allows for much faster log queries
-            log_start_time = req_data.start_time
-            log_end_time = req_data.end_time
-
-            if log_start_time is None or log_end_time is None:
-                trace = await observe_provider.trace_client.get_trace_by_id(
-                    trace_id=req_data.trace_id,
-                    categories=None,
-                    values=None,
-                    operations=None,
-                )
-                if trace:
-                    # Check if this is a LimitExceeded trace
-                    if (
-                        trace.service_name == "LimitExceeded" and trace.start_time == 0.0
-                        and trace.end_time == 0.0
-                    ):
-                        # For LimitExceeded traces, fetch timestamps from logs
-                        try:
-                            log_client = observe_provider.log_client
-                            (
-                                earliest,
-                                latest,
-                            ) = await log_client.get_log_timestamps_by_trace_id(
-                                trace_id=req_data.trace_id,
-                                log_group_name=log_group_name,
-                            )
-                            if earliest and latest:
-                                log_start_time = earliest
-                                log_end_time = latest
-                        except Exception as e:
-                            print(
-                                f"Failed to get log timestamps for "
-                                f"LimitExceeded trace {req_data.trace_id}: {e}"
-                            )
-                    else:
-                        # Normal trace with valid timestamps
-                        log_start_time = datetime.fromtimestamp(
-                            trace.start_time,
-                            tz=timezone.utc
-                        )
-                        log_end_time = datetime.fromtimestamp(
-                            trace.end_time,
-                            tz=timezone.utc
-                        )
-
-            # Try to get cached logs
-            keys = (req_data.trace_id, log_start_time, log_end_time, log_group_name)
-            cached_logs: TraceLogs | None = await self.cache.get(keys)
-            if cached_logs:
-                resp = GetLogByTraceIdResponse(
-                    trace_id=req_data.trace_id,
-                    logs=cached_logs
-                )
-                return resp.model_dump()
-
             logs: TraceLogs = await observe_provider.log_client.get_logs_by_trace_id(
                 trace_id=req_data.trace_id,
-                start_time=log_start_time,
-                end_time=log_end_time,
+                start_time=req_data.start_time,
+                end_time=req_data.end_time,
                 log_group_name=log_group_name,
             )
             # Cache the logs for 10 minutes
@@ -846,7 +769,7 @@ class ExploreRouter:
             token_type=ResourceType.OPENAI.value,
         )
 
-        if openai_token is None and self.single_rca_agent.local_mode:
+        if openai_token is None and self.chat.local_mode:
             response = ChatbotResponse(
                 time=orig_time,
                 message=(
@@ -868,7 +791,7 @@ class ExploreRouter:
         title, github_related = await asyncio.gather(
             summarize_title(
                 user_message=message,
-                client=self.single_rca_agent.chat_client,
+                client=self.chat.chat_client,
                 openai_token=openai_token,
                 model=ChatModel.GPT_4_1_MINI,  # Use GPT-4.1-mini for title
                 first_chat=first_chat,
@@ -876,7 +799,7 @@ class ExploreRouter:
             ),
             is_github_related(
                 user_message=message,
-                client=self.single_rca_agent.chat_client,
+                client=self.chat.chat_client,
                 openai_token=openai_token,
                 model=ChatModel.GPT_4O,
                 user_sub=user_sub,
@@ -890,7 +813,6 @@ class ExploreRouter:
                     "timestamp": orig_time,
                     "chat_title": title,
                     "trace_id": trace_id,
-                    "user_id": user_sub,
                 }
             )
 
@@ -904,53 +826,6 @@ class ExploreRouter:
         if mode == ChatMode.AGENT:
             is_github_issue = github_related.is_github_issue
             is_github_pr = github_related.is_github_pr
-
-        # Route the query to appropriate agent #################################
-        # Always use router to decide which agent to use
-        # Provide context to help router make better decisions
-        # TODO: remove the github code related and only use the route query
-        router_output = await self.chat_router.route_query(
-            user_message=message,
-            chat_mode=mode,
-            model=ChatModel.GPT_4O,
-            user_sub=user_sub,
-            openai_token=openai_token,
-            has_trace_context=bool(trace_id),
-            is_github_issue=is_github_issue,
-            is_github_pr=is_github_pr,
-            source_code_related=source_code_related,
-        )
-
-        # Insert routing decision to MongoDB for tracking/analytics
-        await self.db_client.insert_chat_routing_record(
-            {
-                "chat_id": chat_id,
-                "timestamp": orig_time,
-                "user_message": message,
-                "agent_type": router_output.agent_type,
-                "reasoning": router_output.reasoning,
-                "chat_mode": mode.value,
-                "trace_id": trace_id or "",
-                "user_sub": user_sub,
-            }
-        )
-
-        # Route to GeneralAgent if router decides (no trace context needed)
-        if router_output.agent_type == "general":
-            # Fetch chat history for general agent
-            chat_history = await self.db_client.get_chat_history(chat_id=chat_id)
-            response = await self.general_agent.chat(
-                chat_id=chat_id,
-                user_message=message,
-                model=model,
-                db_client=self.db_client,
-                timestamp=orig_time,
-                user_sub=user_sub,
-                chat_history=chat_history,
-                openai_token=openai_token,
-                trace_id=trace_id,
-            )
-            return response.model_dump()
 
         # Get the trace #######################################################
         observe_provider = await self.get_observe_provider(
@@ -1012,69 +887,14 @@ class ExploreRouter:
                 spans_latency_dict = selected_spans_latency_dict
 
         # Get the logs ########################################################
-        # Use trace's actual start/end times for optimal log search performance
-        # If we have the trace, use its timestamps (converted from Unix to datetime)
-        # Otherwise fall back to the request's start/end times
-        trace_start_time = None
-        trace_end_time = None
-        if selected_trace:
-            # Check if this is a LimitExceeded trace (start_time = 0)
-            if (
-                selected_trace.service_name == "LimitExceeded"
-                and selected_trace.start_time == 0.0 and selected_trace.end_time == 0.0
-            ):
-                # For LimitExceeded traces, fetch timestamps from
-                # logs using CloudWatch Insights
-                try:
-                    earliest, latest = \
-                        await observe_provider.log_client.get_log_timestamps_by_trace_id(
-                            trace_id=trace_id,
-                            log_group_name=log_group_name,
-                            start_time=start_time,
-                            end_time=end_time,
-                        )
-                    if earliest and latest:
-                        trace_start_time = earliest
-                        trace_end_time = latest
-                        # Update the trace object with the discovered timestamps
-                        selected_trace.start_time = earliest.timestamp()
-                        selected_trace.end_time = latest.timestamp()
-                        selected_trace.duration = latest.timestamp() - earliest.timestamp(
-                        )
-                        # Update the placeholder span with discovered timestamps
-                        if selected_trace.spans and len(selected_trace.spans) > 0:
-                            placeholder_span = selected_trace.spans[0]
-                            placeholder_span.start_time = earliest.timestamp()
-                            placeholder_span.end_time = latest.timestamp()
-                            placeholder_span.duration = latest.timestamp(
-                            ) - earliest.timestamp()
-                except Exception as e:
-                    print(
-                        f"Failed to get log timestamps for "
-                        f"LimitExceeded trace {trace_id}: {e}"
-                    )
-            else:
-                # Normal trace with valid timestamps
-                trace_start_time = datetime.fromtimestamp(
-                    selected_trace.start_time,
-                    tz=timezone.utc
-                )
-                trace_end_time = datetime.fromtimestamp(
-                    selected_trace.end_time,
-                    tz=timezone.utc
-                )
-
-        log_start_time = trace_start_time if trace_start_time else start_time
-        log_end_time = trace_end_time if trace_end_time else end_time
-
-        keys = (trace_id, log_start_time, log_end_time, log_group_name)
+        keys = (trace_id, start_time, end_time, log_group_name)
         logs: TraceLogs | None = await self.cache.get(keys)
         if logs is None:
             observe_provider = await self.get_observe_provider(request)
             logs = await observe_provider.log_client.get_logs_by_trace_id(
                 trace_id=trace_id,
-                start_time=log_start_time,
-                end_time=log_end_time,
+                start_time=start_time,
+                end_time=end_time,
                 log_group_name=log_group_name,
             )
             # Cache the logs for 10 minutes
@@ -1186,30 +1006,7 @@ class ExploreRouter:
 
         chat_history = await self.db_client.get_chat_history(chat_id=chat_id)
 
-        # For LimitExceeded traces, reassign all logs to the placeholder span
-        if selected_trace.service_name == "LimitExceeded":
-            # Get the placeholder span ID
-            placeholder_span_id = selected_trace.spans[0].id
-
-            # Reassign all logs to the placeholder span ID
-            reassigned_logs = []
-            for log_dict in logs.logs:
-                # Create new dict with all logs under placeholder span ID
-                all_log_entries = []
-                for span_id, log_entries in log_dict.items():
-                    all_log_entries.extend(log_entries)
-
-                if all_log_entries:
-                    reassigned_logs.append({placeholder_span_id: all_log_entries})
-
-            # Build tree with reassigned logs
-            node: SpanNode = build_heterogeneous_tree(
-                selected_trace.spans[0],
-                reassigned_logs
-            )
-        else:
-            # Normal trace - build tree normally
-            node: SpanNode = build_heterogeneous_tree(selected_trace.spans[0], logs.logs)
+        node: SpanNode = build_heterogeneous_tree(selected_trace.spans[0], logs.logs)
 
         if len(span_ids) > 0:
             # Use BFS to find the first span matching any of target span_ids
@@ -1226,8 +1023,7 @@ class ExploreRouter:
                 for child in current.children_spans:
                     queue.append(child)
 
-        # Route based on router's decision
-        if router_output.agent_type == "code" and (is_github_issue or is_github_pr):
+        if mode == ChatMode.AGENT and (is_github_issue or is_github_pr):
             issue_response: ChatbotResponse | None = None
             pr_response: ChatbotResponse | None = None
             issue_message: str = message
@@ -1236,7 +1032,7 @@ class ExploreRouter:
                 separate_issue_and_pr_output: SeparateIssueAndPrInput = \
                     await separate_issue_and_pr(
                         user_message=message,
-                        client=self.single_rca_agent.chat_client,
+                        client=self.chat.chat_client,
                         openai_token=openai_token,
                         model=model,
                         user_sub=user_sub,
@@ -1244,7 +1040,7 @@ class ExploreRouter:
                 issue_message = separate_issue_and_pr_output.issue_message
                 pr_message = separate_issue_and_pr_output.pr_message
             if is_github_issue:
-                issue_response = await self.code_agent.chat(
+                issue_response = await self.agent.chat(
                     trace_id=trace_id,
                     chat_id=chat_id,
                     user_message=issue_message,
@@ -1262,7 +1058,7 @@ class ExploreRouter:
                     provider=provider,
                 )
             if is_github_pr:
-                pr_response = await self.code_agent.chat(
+                pr_response = await self.agent.chat(
                     trace_id=trace_id,
                     chat_id=chat_id,
                     user_message=pr_message,
@@ -1284,7 +1080,7 @@ class ExploreRouter:
                 summary_response = await summarize_chatbot_output(
                     issue_response=issue_response,
                     pr_response=pr_response,
-                    client=self.single_rca_agent.chat_client,
+                    client=self.chat.chat_client,
                     openai_token=openai_token,
                     model=model,
                     user_sub=user_sub,
@@ -1297,8 +1093,7 @@ class ExploreRouter:
             else:
                 raise ValueError("Should not reach here")
         else:
-            # Router decided single_rca - use SingleRCAAgent for root cause analysis
-            response: ChatbotResponse = await self.single_rca_agent.chat(
+            response: ChatbotResponse = await self.chat.chat(
                 trace_id=trace_id,
                 chat_id=chat_id,
                 user_message=message,
@@ -1369,136 +1164,6 @@ class ExploreRouter:
                     filtered_traces.append(empty_trace)
         except Exception as e:
             self.logger.error(f"Error checking unfound traces in X-Ray: {e}")
-
-    async def _get_traces_by_log_search_paginated(
-        self,
-        request: Request,
-        observe_provider: ObservabilityProvider,
-        start_time: datetime,
-        end_time: datetime,
-        log_group_name: str,
-        log_search_values: list[str],
-        categories: list[str] | None = None,
-        values: list[str] | None = None,
-        operations: list[Operation] | None = None,
-        pagination_state: dict | None = None,
-        page_size: int = 50,
-        trace_provider: str = 'aws',
-    ) -> tuple[list[Trace],
-               dict | None]:
-        """Get traces matching log search criteria with pagination support.
-
-        This method implements pagination by:
-        1. First request: Query CloudWatch for ALL trace IDs and cache them
-        2. Subsequent requests: Use cached trace IDs
-        3. Fetch only a batch of traces per request
-
-        Args:
-            request: FastAPI request object
-            observe_provider: Observability provider instance
-            start_time: Start time for log query
-            end_time: End time for log query
-            log_group_name: Log group name
-            log_search_values: List of search terms to look for in logs
-            categories: Filter by categories if provided
-            values: Filter by values if provided
-            operations: Filter by operations if provided
-            pagination_state: State from previous request (contains cache_key and offset)
-            page_size: Number of traces to return per page
-
-        Returns:
-            Tuple of (traces, next_pagination_state)
-        """
-        if not log_search_values:
-            return [], None
-
-        search_term = log_search_values[0]
-
-        try:
-            # Generate cache key for this specific log search
-            import hashlib
-            cache_params = (
-                f"{start_time.isoformat()}_{end_time.isoformat()}"
-                f"_{log_group_name}_{search_term}"
-            )
-            cache_key = (
-                f"log_search_trace_ids:"
-                f"{hashlib.md5(cache_params.encode()).hexdigest()}"
-            )
-
-            # Determine offset
-            if pagination_state and pagination_state.get('type') == 'log_search':
-                offset = pagination_state.get('offset', 0)
-                # Try to get cached trace IDs
-                cached_trace_ids = await self.cache.get(cache_key)
-                if cached_trace_ids:
-                    all_trace_ids = cached_trace_ids
-                else:
-                    # Cache expired, need to re-query
-                    all_trace_ids = \
-                        await observe_provider.log_client.get_trace_ids_from_logs(
-                            start_time=start_time,
-                            end_time=end_time,
-                            log_group_name=log_group_name,
-                            search_term=search_term
-                        )
-                    # Re-cache for 10 minutes
-                    await self.cache.set(cache_key, all_trace_ids)
-            else:
-                # First request
-                offset = 0
-                # Get all matching trace IDs from CloudWatch logs
-                all_trace_ids = await observe_provider.log_client.get_trace_ids_from_logs(
-                    start_time=start_time,
-                    end_time=end_time,
-                    log_group_name=log_group_name,
-                    search_term=search_term
-                )
-                # Cache the trace IDs for 10 minutes
-                await self.cache.set(cache_key, all_trace_ids)
-
-            if not all_trace_ids:
-                return [], None
-
-            # Get the batch of trace IDs for this page
-            batch_trace_ids = all_trace_ids[offset:offset + page_size]
-
-            if not batch_trace_ids:
-                return [], None
-
-            # Fetch traces for this batch
-            traces = []
-            for trace_id in batch_trace_ids:
-                trace = await observe_provider.trace_client.get_trace_by_id(
-                    trace_id=trace_id,
-                    categories=categories,
-                    values=values,
-                    operations=operations,
-                )
-                if trace:
-                    traces.append(trace)
-
-            # Sort by start_time descending (newest first)
-            traces.sort(key=lambda t: t.start_time, reverse=True)
-
-            # Prepare next pagination state
-            next_offset = offset + page_size
-            if next_offset < len(all_trace_ids):
-                next_state = {
-                    'type': 'log_search',
-                    'provider': trace_provider,  # Provider type for compatibility
-                    'cache_key': cache_key,
-                    'offset': next_offset,
-                    'search_term': search_term  # Store for pagination continuation
-                }
-            else:
-                next_state = None
-
-            return traces, next_state
-
-        except Exception as e:
-            self.logger.error(f"Failed to get traces by log search: {e}")
-            return [], None
 
     async def _filter_traces_by_log_content(
         self,

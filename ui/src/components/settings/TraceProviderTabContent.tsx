@@ -925,7 +925,7 @@ export function TraceProviderTabContent() {
                       <Input
                         id="jaeger-endpoint"
                         type="url"
-                        placeholder="http://localhost:16686"
+                        placeholder="https://your-jaeger-endpoint.com"
                         value={jaegerEndpoint}
                         onChange={(e) => setJaegerEndpoint(e.target.value)}
                         className="pr-12"

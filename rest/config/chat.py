@@ -66,7 +66,6 @@ class ChatMetadata(BaseModel):
     timestamp: datetime
     chat_title: str
     trace_id: str
-    user_id: str | None = None
 
 
 class ChatMetadataHistory(BaseModel):
