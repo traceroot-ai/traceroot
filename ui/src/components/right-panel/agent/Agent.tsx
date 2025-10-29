@@ -20,6 +20,7 @@ interface ChatTab {
   chatId: string | null;
   title: string;
   messages: Message[];
+  tempId?: string; // Temporary ID for new chats before they get a real chatId
 }
 import MessageInput from "./MessageInput";
 import ChatMessage from "./ChatMessage";
@@ -43,8 +44,9 @@ interface AgentProps {
   queryStartTime?: Date;
   queryEndTime?: Date;
   onSpanSelect?: (spanId: string) => void;
-  onViewTypeChange?: (viewType: "log" | "agent" | "trace") => void;
+  onViewTypeChange?: (viewType: "log" | "trace") => void;
   useUserBasedHistory?: boolean;
+  onClosePanel?: () => void;
 }
 
 export default function Agent({
@@ -57,9 +59,13 @@ export default function Agent({
   onSpanSelect,
   onViewTypeChange,
   useUserBasedHistory = false,
+  onClosePanel,
 }: AgentProps) {
   const [chatTabs, setChatTabs] = useState<ChatTab[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeTempId, setActiveTempId] = useState<string | undefined>(
+    undefined,
+  );
   const [isInitialized, setIsInitialized] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -76,9 +82,15 @@ export default function Agent({
     string | undefined
   >(traceId);
 
-  // Get current active chat
+  // Get current active chat - match by chatId for saved chats, or by tempId for new chats
   const activeChat =
-    chatTabs.find((tab) => tab.chatId === activeChatId) || chatTabs[0];
+    chatTabs.find((tab) => {
+      if (activeChatId !== null) {
+        return tab.chatId === activeChatId;
+      } else {
+        return tab.tempId === activeTempId;
+      }
+    }) || chatTabs[0];
   const messages = activeChat?.messages || [];
 
   const scrollToBottom = () => {
@@ -92,13 +104,16 @@ export default function Agent({
   // Initialize with one new chat tab on first load
   useEffect(() => {
     if (!isInitialized) {
+      const tempId = generateUuidHex();
       const initialTab: ChatTab = {
         chatId: null,
         title: "New Chat",
         messages: [],
+        tempId: tempId,
       };
       setChatTabs([initialTab]);
       setActiveChatId(null);
+      setActiveTempId(tempId);
       setIsInitialized(true);
     }
   }, [isInitialized]);
@@ -115,22 +130,28 @@ export default function Agent({
     if (isInitialized) {
       if (!traceId) {
         // Show single "New Chat" tab when no trace is selected
+        const tempId = generateUuidHex();
         const defaultTab: ChatTab = {
           chatId: null,
           title: "New Chat",
           messages: [],
+          tempId: tempId,
         };
         setChatTabs([defaultTab]);
         setActiveChatId(null);
+        setActiveTempId(tempId);
       } else {
         // Reset all chat tabs and create a single new chat when a trace is selected
+        const tempId = generateUuidHex();
         const newTab: ChatTab = {
           chatId: null,
           title: "New Chat",
           messages: [],
+          tempId: tempId,
         };
         setChatTabs([newTab]);
         setActiveChatId(null);
+        setActiveTempId(tempId);
         setInputMessage("");
         setIsLoading(false);
       }
@@ -146,21 +167,26 @@ export default function Agent({
     if (useUserBasedHistory) {
       setFakeSelectedTraceId(undefined);
     }
-    // Check if there's already a "New Chat" tab (without chatId)
-    const existingNewChatTab = chatTabs.find((tab) => tab.chatId === null);
-    if (existingNewChatTab) {
-      // Just switch to the existing new chat tab
-      setActiveChatId(null);
-    } else {
-      // Add new chat tab at the beginning only if none exists
-      const newTab: ChatTab = { chatId: null, title: "New Chat", messages: [] };
-      setChatTabs((prev) => [newTab, ...prev]);
-      setActiveChatId(null);
-    }
+    // Always add a new chat tab at the beginning with a unique tempId
+    const tempId = generateUuidHex();
+    const newTab: ChatTab = {
+      chatId: null,
+      title: "New Chat",
+      messages: [],
+      tempId: tempId,
+    };
+    setChatTabs((prev) => [newTab, ...prev]);
+    setActiveChatId(null);
+    setActiveTempId(tempId);
   };
 
-  const handleChatSelect = async (chatId: string | null) => {
+  const handleChatSelect = async (chatId: string | null, tempId?: string) => {
     setActiveChatId(chatId);
+
+    // Set the activeTempId when selecting a new chat (chatId is null)
+    if (!chatId && tempId) {
+      setActiveTempId(tempId);
+    }
 
     // When selecting a chat in user-based history mode, fetch and set its trace_id
     if (useUserBasedHistory && chatId) {
@@ -189,21 +215,34 @@ export default function Agent({
     }
   };
 
-  const handleChatClose = (chatId: string | null) => {
+  const handleChatClose = (chatId: string | null, tempId?: string) => {
     setChatTabs((prev) => {
-      const filtered = prev.filter((tab) => tab.chatId !== chatId);
+      // Filter by both chatId and tempId to handle new chats correctly
+      const filtered = prev.filter((tab) => {
+        if (chatId !== null) {
+          return tab.chatId !== chatId;
+        } else {
+          // For new chats (chatId is null), match by tempId
+          return tab.tempId !== tempId;
+        }
+      });
       // If we're closing the active chat, switch to the first remaining tab
       if (chatId === activeChatId && filtered.length > 0) {
         setActiveChatId(filtered[0].chatId);
       }
-      // If no tabs left, create a new chat
+      // If no tabs left, close the chat panel and reset to initial state
       if (filtered.length === 0) {
+        // Reset to initial state before closing
         const newTab: ChatTab = {
           chatId: null,
           title: "New Chat",
           messages: [],
+          tempId: generateUuidHex(),
         };
         setActiveChatId(null);
+        setInputMessage("");
+        setIsLoading(false);
+        onClosePanel?.();
         return [newTab];
       }
       return filtered;
@@ -690,6 +729,7 @@ export default function Agent({
       <TopBar
         activeChatTabs={chatTabs}
         activeChatId={activeChatId}
+        activeTempId={activeTempId}
         traceId={traceId}
         messages={messages}
         chatTitle={activeChat?.title}

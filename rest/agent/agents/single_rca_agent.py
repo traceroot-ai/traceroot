@@ -12,7 +12,8 @@ except ImportError:
     from rest.dao.mongodb_dao import TraceRootMongoDBClient
 
 from rest.agent.agents.base import BaseAgent
-from rest.agent.chunk.sequential import sequential_chunk
+from rest.agent.context.chat_context import build_chat_history_messages
+from rest.agent.context.trace_context import get_trace_context_messages
 from rest.agent.context.tree import SpanNode
 from rest.agent.filter.feature import log_feature_selector, span_feature_selector
 from rest.agent.filter.structure import filter_log_node, log_node_selector
@@ -127,35 +128,20 @@ class SingleRCAAgent(BaseAgent):
             }
         )
 
-        context_chunks = self.get_context_messages(context)
+        context_chunks = get_trace_context_messages(context)
         context_messages = [
             deepcopy(context_chunks[i]) for i in range(len(context_chunks))
         ]
         for i, message in enumerate(context_chunks):
             context_messages[i] = (
-                f"{message}\n\nHere are my questions: "
+                f"{message}\n\nHere are my queries: "
                 f"{user_message}"
             )
         messages = [{"role": "system", "content": self.system_prompt}]
-        # Remove github and statistics messages from chat history
-        chat_history = [
-            chat for chat in chat_history
-            if chat["role"] != "github" and chat["role"] != "statistics"
-        ]
-        if chat_history is not None:
-            # Only append the last 10 chat history records
-            for record in chat_history[-10:]:
-                # We only need to include the user message
-                # (without the context information) in the
-                # chat history
-                if "user_message" in record and record["user_message"] is not None:
-                    content = record["user_message"]
-                else:
-                    content = record["content"]
-                messages.append({
-                    "role": record["role"],
-                    "content": content,
-                })
+
+        # Add formatted chat history
+        history_messages = build_chat_history_messages(chat_history, max_records=10)
+        messages.extend(history_messages)
         # To handle potential chunking calls, we need to create multiple
         # messages for each context chunk
         all_messages: list[list[dict[str,
@@ -214,8 +200,7 @@ class SingleRCAAgent(BaseAgent):
             )
             response_content = response.answer
             response_references = response.reference
-        print("References:", response_references)
-        print("Message content:", response_content)
+
         await db_client.insert_chat_record(
             message={
                 "chat_id": chat_id,
@@ -421,26 +406,3 @@ class SingleRCAAgent(BaseAgent):
         }
 
         await db_client.insert_reasoning_record(reasoning_data)
-
-    def get_context_messages(self, context: str) -> list[str]:
-        r"""Get the context message.
-        """
-        # Make this more efficient.
-        context_chunks = list(sequential_chunk(context))
-        if len(context_chunks) == 1:
-            return [
-                (
-                    f"\n\nHere is the structure of the tree with related "
-                    "information:\n\n"
-                    f"{context}"
-                )
-            ]
-        messages: list[str] = []
-        for i, chunk in enumerate(context_chunks):
-            messages.append(
-                f"\n\nHere is the structure of the tree "
-                f"with related information of the "
-                f"{i+1}th chunk of the tree:\n\n"
-                f"{chunk}"
-            )
-        return messages

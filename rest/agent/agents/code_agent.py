@@ -14,7 +14,8 @@ from copy import deepcopy
 from typing import Any, Tuple
 
 from rest.agent.agents.base import BaseAgent
-from rest.agent.chunk.sequential import sequential_chunk
+from rest.agent.context.chat_context import build_chat_history_messages
+from rest.agent.context.trace_context import get_trace_context_messages
 from rest.agent.context.tree import SpanNode
 from rest.agent.filter.feature import (
     SpanFeature,
@@ -175,7 +176,7 @@ class CodeAgent(BaseAgent):
             }
         )
 
-        context_chunks = self.get_context_messages(context)
+        context_chunks = get_trace_context_messages(context)
         context_messages = [
             deepcopy(context_chunks[i]) for i in range(len(context_chunks))
         ]
@@ -197,25 +198,13 @@ class CodeAgent(BaseAgent):
                 f"{user_message}\n\n{github_message}"
             )
         messages = [{"role": "system", "content": self.system_prompt}]
-        # Remove github messages from chat history
-        chat_history = [
-            chat for chat in chat_history
-            if chat["role"] != "github" and chat["role"] != "statistics"
-        ]
-        if chat_history is not None:
-            # Only append the last 10 chat history records
-            for record in chat_history[-MAX_PREV_RECORD:]:
-                # We only need to include the user message
-                # (without the context information) in the
-                # chat history
-                if "user_message" in record:
-                    content = record["user_message"]
-                else:
-                    content = record["content"]
-                messages.append({
-                    "role": record["role"],
-                    "content": content,
-                })
+
+        # Add formatted chat history
+        history_messages = build_chat_history_messages(
+            chat_history,
+            max_records=MAX_PREV_RECORD
+        )
+        messages.extend(history_messages)
         all_messages: list[list[dict[str,
                                      str]]
                            ] = [deepcopy(messages) for _ in range(len(context_messages))]
@@ -468,28 +457,6 @@ class CodeAgent(BaseAgent):
             chunk_id,
             start_time
         )
-
-    def get_context_messages(self, context: str) -> list[str]:
-        r"""Get the context message."""
-        # TODO: Make this more efficient.
-        context_chunks = list(sequential_chunk(context))
-        if len(context_chunks) == 1:
-            return [
-                (
-                    f"\n\nHere is the structure of the tree with related "
-                    "information:\n\n"
-                    f"{context}"
-                )
-            ]
-        messages: list[str] = []
-        for i, chunk in enumerate(context_chunks):
-            messages.append(
-                f"\n\nHere is the structure of the tree "
-                f"with related information of the "
-                f"{i + 1}th chunk of the tree:\n\n"
-                f"{chunk}"
-            )
-        return messages
 
     async def _selector_handler(
         self,

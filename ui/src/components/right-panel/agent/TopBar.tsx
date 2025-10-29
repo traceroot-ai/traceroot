@@ -40,17 +40,19 @@ interface Message {
 interface ChatTab {
   chatId: string | null;
   title: string;
+  tempId?: string;
 }
 
 interface TopBarProps {
   activeChatTabs: ChatTab[];
   activeChatId: string | null;
+  activeTempId?: string;
   traceId?: string;
   messages?: Message[];
   chatTitle?: string;
   onNewChat: () => void;
-  onChatSelect: (chatId: string | null) => Promise<void>;
-  onChatClose: (chatId: string | null) => void;
+  onChatSelect: (chatId: string | null, tempId?: string) => Promise<void>;
+  onChatClose: (chatId: string | null, tempId?: string) => void;
   onHistoryItemsSelect: (chatIds: string[]) => Promise<void>;
   onUpdateChatTitle: (chatId: string, title: string) => void;
   useUserBasedHistory?: boolean;
@@ -134,6 +136,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
     {
       activeChatTabs,
       activeChatId,
+      activeTempId,
       traceId,
       messages = [],
       chatTitle,
@@ -158,6 +161,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [skip, setSkip] = useState(0);
     const animationControllerRef = useRef<{ cancelled: boolean } | null>(null);
+    const previousTitleRef = useRef<string>("");
 
     const fetchChatHistory = async (loadMore: boolean = false) => {
       // When using user-based history, don't require traceId
@@ -281,6 +285,12 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
     useEffect(() => {
       const newTitle = chatMetadata?.chat_title || "";
 
+      // Only animate if the title actually changed from the previous value
+      if (newTitle === previousTitleRef.current) return;
+
+      // Update the previous title reference
+      previousTitleRef.current = newTitle;
+
       if (newTitle === displayedTitle) return;
 
       // Cancel any ongoing animation
@@ -366,13 +376,23 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
       await onHistoryItemsSelect([selectedChatId]);
     };
 
-    const handleTabChange = async (chatId: string) => {
-      await onChatSelect(chatId === "new" ? null : chatId);
+    const handleTabChange = async (value: string) => {
+      // Check if the value is a tempId or chatId
+      const tab = activeChatTabs.find(
+        (t) => t.chatId === value || t.tempId === value,
+      );
+      if (tab) {
+        await onChatSelect(tab.chatId, tab.tempId);
+      }
     };
 
-    const handleTabClose = (e: React.MouseEvent, chatId: string | null) => {
+    const handleTabClose = (
+      e: React.MouseEvent,
+      chatId: string | null,
+      tempId?: string,
+    ) => {
       e.stopPropagation();
-      onChatClose(chatId);
+      onChatClose(chatId, tempId);
     };
 
     const handleGoToTrace = () => {
@@ -472,40 +492,40 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
     };
 
     return (
-      <div className="bg-zinc-50 dark:bg-zinc-900 gap-2 mx-4 mt-0 rounded-md p-1 relative">
-        <div className="flex items-center">
-          <div className="flex-1 pr-20 overflow-hidden">
+      <div className="bg-zinc-50 dark:bg-zinc-900 gap-2 mx-4 mt-2 mb-1 rounded-md p-1 relative">
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0 overflow-hidden">
             {activeChatTabs.length > 0 ? (
               <Tabs
-                value={activeChatId || "new"}
+                value={activeChatId || activeTempId || "new"}
                 onValueChange={handleTabChange}
               >
-                <TabsList className="h-8 overflow-hidden">
+                <TabsList className="h-9 overflow-x-auto flex-nowrap w-full justify-start items-center">
                   {activeChatTabs.map((tab) => (
                     <TabsTrigger
-                      key={tab.chatId || "new"}
-                      value={tab.chatId || "new"}
-                      className="text-xs h-6 px-2 relative group"
+                      key={tab.chatId || tab.tempId || "new"}
+                      value={tab.chatId || tab.tempId || "new"}
+                      className="text-xs h-6 px-2 pr-6 relative group flex-none"
                     >
-                      <span className="mr-1">
+                      <span className="mr-1 whitespace-nowrap">
                         {!tab.chatId
                           ? "New Chat"
                           : tab.chatId === activeChatId && displayedTitle
                             ? displayedTitle + (isAnimating ? "|" : "")
-                            : truncateTitle(tab.title)}
+                            : tab.title}
                       </span>
-                      {(tab.chatId || activeChatTabs.length > 1) && (
-                        <div
-                          className={`absolute top-0 right-0 h-full w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer rounded-sm flex items-center justify-center ${
-                            tab.chatId === activeChatId
-                              ? "group-hover:bg-background/80 dark:group-hover:bg-input/50"
-                              : "group-hover:bg-muted/50 dark:group-hover:bg-muted/20"
-                          }`}
-                          onClick={(e) => handleTabClose(e, tab.chatId)}
-                        >
-                          <X className="h-3 w-3" />
-                        </div>
-                      )}
+                      <div
+                        className={`absolute top-0 right-0 h-full w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer rounded-sm flex items-center justify-center ${
+                          tab.chatId === activeChatId
+                            ? "group-hover:bg-background/80 dark:group-hover:bg-input/50"
+                            : "group-hover:bg-muted/50 dark:group-hover:bg-muted/20"
+                        }`}
+                        onClick={(e) =>
+                          handleTabClose(e, tab.chatId, tab.tempId)
+                        }
+                      >
+                        <X className="h-3 w-3" />
+                      </div>
                     </TabsTrigger>
                   ))}
                 </TabsList>
@@ -518,7 +538,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
               </div>
             )}
           </div>
-          <div className="absolute top-1 right-1 flex items-center bg-zinc-50 dark:bg-zinc-900 z-10">
+          <div className="flex items-center flex-shrink-0">
             {useUserBasedHistory && (
               <TooltipProvider>
                 <Tooltip>

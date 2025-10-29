@@ -10,6 +10,8 @@ class LogEntry(BaseModel):
     function_name: str
     file_name: str
     line_number: int
+    trace_id: str | None = None
+    span_id: str | None = None
     git_url: str | None = None
     commit_id: str | None = None
     line: str | None = None
@@ -55,3 +57,37 @@ class GetLogByTraceIdRequest(BaseModel):
 class GetLogByTraceIdResponse(BaseModel):
     trace_id: str
     logs: TraceLogs
+
+
+class GetLogsByTimeRangeRequest(BaseModel):
+    start_time: datetime
+    end_time: datetime
+    log_provider: str
+    log_group_name: str | None = None
+    log_region: str | None = None
+    log_search_term: str | None = None
+    pagination_token: str | None = None
+
+    @field_validator('start_time', 'end_time')
+    @classmethod
+    def ensure_utc_timezone(cls, v: datetime) -> datetime:
+        r"""Ensure datetime is timezone-aware and in UTC.
+
+        Args:
+            v: datetime value from request
+
+        Returns:
+            datetime in UTC timezone
+        """
+        if v.tzinfo is None:
+            # If timezone-naive, assume UTC
+            return v.replace(tzinfo=timezone.utc)
+        else:
+            # If timezone-aware, convert to UTC
+            return v.astimezone(timezone.utc)
+
+
+class GetLogsByTimeRangeResponse(BaseModel):
+    logs: TraceLogs
+    has_more: bool = False
+    next_pagination_token: str | None = None
