@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import LogPanelSwitch from "./log/LogPanelSwitch";
-import Agent from "./agent/Agent";
 import TracePanelSwitch from "./trace/TracePanelSwitch";
+import LogModeLayout from "./log/LogModeLayout";
 import ModeToggle, { ViewType } from "./ModeToggle";
 import { Span, Trace as TraceModel } from "@/models/trace";
 import { useAuth } from "@clerk/nextjs";
@@ -20,6 +20,7 @@ interface RightPanelSwitchProps {
   onSpanClear?: () => void;
   onTraceSpansUpdate?: (spans: Span[]) => void;
   onSpanSelect?: (spanIds: string[]) => void;
+  isLogMode?: boolean;
 }
 
 export default function RightPanelSwitch({
@@ -34,8 +35,8 @@ export default function RightPanelSwitch({
   onSpanClear,
   onTraceSpansUpdate,
   onSpanSelect,
+  isLogMode = false,
 }: RightPanelSwitchProps) {
-  const { getToken } = useAuth();
   const [viewType, setViewType] = useState<ViewType>("log");
   const [spans, setSpans] = useState<Span[] | undefined>(undefined);
   const [traceDurations, setTraceDurations] = useState<number[]>([]);
@@ -94,67 +95,26 @@ export default function RightPanelSwitch({
     }
   }, [traceIds, allTraces, onTraceSpansUpdate]);
 
-  // Handler for span selection from chat references
-  const handleSpanSelectFromChat = (spanId: string) => {
-    if (!spans) {
-      onSpanSelect?.([spanId]);
-      return;
-    }
+  // If in log mode (trace collapsed), render LogModeLayout
+  // Don't pass trace mode time range - let log mode use its own default
+  if (isLogMode) {
+    return (
+      <LogModeLayout
+        key="log-mode"
+        logSearchValue={logSearchValue}
+        metadataSearchTerms={metadataSearchTerms}
+      />
+    );
+  }
 
-    // Recursively find the span and get all its child span IDs
-    const findSpanWithChildren = (
-      spanNodes: Span[],
-      targetId: string,
-    ): { span: Span; childIds: string[] } | null => {
-      for (const span of spanNodes) {
-        if (span.id === targetId) {
-          // Found the target span, now get all child IDs recursively
-          const getAllChildSpanIds = (spanNode: Span): string[] => {
-            const childIds: string[] = [];
-            if (spanNode.spans) {
-              for (const childSpan of spanNode.spans) {
-                childIds.push(childSpan.id);
-                childIds.push(...getAllChildSpanIds(childSpan));
-              }
-            }
-            return childIds;
-          };
-
-          return { span, childIds: getAllChildSpanIds(span) };
-        }
-
-        // Recursively search in child spans
-        if (span.spans) {
-          const result = findSpanWithChildren(span.spans, targetId);
-          if (result) return result;
-        }
-      }
-      return null;
-    };
-
-    const result = findSpanWithChildren(spans, spanId);
-    if (result) {
-      // Include both the parent span and all child spans (same as Trace component)
-      const allSpanIds = [result.span.id, ...result.childIds];
-      onSpanSelect?.(allSpanIds);
-    } else {
-      // Fallback if span not found in current trace
-      onSpanSelect?.([spanId]);
-    }
-  };
-
-  // Handler for view type change from chat references
-  const handleViewTypeChangeFromChat = (newViewType: ViewType) => {
-    setViewType(newViewType);
-  };
-
+  // Normal mode with ModeToggle
   return (
     <div className="h-screen flex flex-col">
       <ModeToggle viewType={viewType} onViewTypeChange={setViewType} />
 
       {/* View content */}
       <div className="flex-1 overflow-hidden">
-        {/* Log view - conditionally rendered */}
+        {/* Log view */}
         {viewType === "log" && (
           <LogPanelSwitch
             traceIds={traceIds}
@@ -175,46 +135,7 @@ export default function RightPanelSwitch({
           />
         )}
 
-        {/*
-          Agent view - always rendered in same location to persist chat state
-          This ensures the Agent component never unmounts, preserving:
-          - Chat tabs and their content
-          - Active chat selection
-          - Input messages and loading states
-          - All other component state across view switches
-        */}
-        <div
-          style={
-            viewType !== "agent"
-              ? {
-                  // When hidden: overlay invisibly behind other content
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  height: "100%",
-                  visibility: "hidden", // Completely invisible
-                  pointerEvents: "none", // No interaction when hidden
-                  zIndex: -1, // Behind other content
-                }
-              : {
-                  // When visible: normal flex child with full height
-                  height: "100%",
-                }
-          }
-        >
-          <Agent
-            traceId={traceIds.length === 1 ? traceIds[0] : undefined}
-            traceIds={traceIds}
-            spanIds={spanIds}
-            queryStartTime={traceQueryStartTime}
-            queryEndTime={traceQueryEndTime}
-            onSpanSelect={handleSpanSelectFromChat}
-            onViewTypeChange={handleViewTypeChangeFromChat}
-          />
-        </div>
-
-        {/* Trace view - conditionally rendered */}
+        {/* Trace view */}
         {viewType === "trace" && (
           <TracePanelSwitch
             traceId={traceIds.length === 1 ? traceIds[0] : undefined}

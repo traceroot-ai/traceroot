@@ -125,6 +125,7 @@ def _load_json(message: str, ) -> tuple[LogEntry, str] | tuple[None, None]:
     github_repo = json_data['github_repo_name']
     commit_id = json_data['github_commit_hash']
     span_id = json_data['span_id']
+    trace_id = json_data.get('trace_id', 'unknown')
 
     github_url = (
         f"https://github.com/"
@@ -141,6 +142,8 @@ def _load_json(message: str, ) -> tuple[LogEntry, str] | tuple[None, None]:
         file_name=file_path,
         function_name=function_name,
         line_number=line_number,
+        trace_id=trace_id,
+        span_id=span_id,
         git_url=github_url,
         commit_id=commit_id,
     )
@@ -196,8 +199,9 @@ def _string_manipulation(message: str) -> tuple[LogEntry, str] | tuple[None, Non
     # Support other github like pages
     github_url = f"{github_url}{file_path}?plain=1#L{line_number}"
 
-    # Span ID
-    span_id = items[8]
+    # Trace ID and Span ID
+    trace_id = items[7] if len(items) > 7 else 'unknown'
+    span_id = items[8] if len(items) > 8 else 'no-span'
 
     log_entry = LogEntry(
         time=time,
@@ -206,6 +210,8 @@ def _string_manipulation(message: str) -> tuple[LogEntry, str] | tuple[None, Non
         file_name=file_path,
         function_name=function_name,
         line_number=line_number,
+        trace_id=trace_id,
+        span_id=span_id,
         git_url=github_url,
         commit_id=commit_id,
     )

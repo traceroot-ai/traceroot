@@ -1,11 +1,10 @@
 "use client";
 
 import React from "react";
-import { RiRobot2Line } from "react-icons/ri";
 import { Telescope, FileCode2 } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
-export type ViewType = "log" | "agent" | "trace";
+export type ViewType = "log" | "trace";
 
 interface ModeToggleProps {
   viewType: ViewType;
@@ -29,9 +28,6 @@ export default function ModeToggle({
       >
         <ToggleGroupItem value="log" aria-label="Toggle log view">
           <FileCode2 size={22} />
-        </ToggleGroupItem>
-        <ToggleGroupItem value="agent" aria-label="Toggle agent view">
-          <RiRobot2Line size={22} />
         </ToggleGroupItem>
         <ToggleGroupItem value="trace" aria-label="Toggle trace view">
           <Telescope size={22} />

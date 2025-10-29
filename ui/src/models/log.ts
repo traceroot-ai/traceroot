@@ -13,6 +13,8 @@ export interface LogEntry {
   message: string;
   file_name: string;
   line_number: number;
+  trace_id?: string;
+  span_id?: string;
   git_url?: string;
   commit_id?: string;
   line?: string;
@@ -26,4 +28,8 @@ export interface SpanLog {
 
 export interface TraceLog {
   [traceId: string]: SpanLog[];
+}
+
+export interface TraceLogs {
+  logs: TraceLog[];
 }

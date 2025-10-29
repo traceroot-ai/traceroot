@@ -4,7 +4,6 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
-from aiocache import SimpleMemoryCache
 from fastapi import APIRouter, Depends, HTTPException, Request
 from slowapi import Limiter
 
@@ -12,6 +11,7 @@ from rest.agent.agents.code_agent import CodeAgent
 from rest.agent.agents.general_agent import GeneralAgent
 from rest.agent.agents.single_rca_agent import SingleRCAAgent
 from rest.agent.router import ChatRouter
+from rest.cache import Cache, CacheType
 from rest.service.provider import ObservabilityProvider
 from rest.tools.github import GitHubClient
 
@@ -31,12 +31,13 @@ from rest.config import (
     ChatMetadataHistory,
     ChatRequest,
     CodeRequest,
-    CodeResponse,
     GetChatHistoryRequest,
     GetChatMetadataHistoryRequest,
     GetChatMetadataRequest,
     GetLogByTraceIdRequest,
     GetLogByTraceIdResponse,
+    GetLogsByTimeRangeRequest,
+    GetLogsByTimeRangeResponse,
     ListTraceRawRequest,
     ListTraceRequest,
     ListTraceResponse,
@@ -103,8 +104,7 @@ class ExploreRouter:
         self.github = GitHubClient()
         self.limiter = limiter
         self.rate_limit_config = get_rate_limit_config()
-        # Cache for 10 minutes
-        self.cache = SimpleMemoryCache(ttl=60 * 10)
+        self.cache = Cache()
         self._setup_routes()
 
     async def get_observe_provider(
@@ -225,6 +225,10 @@ class ExploreRouter:
             self.limiter.limit(self.rate_limit_config.get_logs_limit
                                )(self.get_logs_by_trace_id)
         )
+        self.router.get("/get-logs-by-time-range")(
+            self.limiter.limit(self.rate_limit_config.get_logs_limit
+                               )(self.get_logs_by_time_range)
+        )
         self.router.post("/post-chat")(
             self.limiter.limit(self.rate_limit_config.post_chat_limit)(self.post_chat)
         )
@@ -247,111 +251,6 @@ class ExploreRouter:
             self.limiter.limit(self.rate_limit_config.get_line_context_content_limit
                                )(self.get_line_context_content)
         )
-
-    async def handle_github_file(
-        self,
-        owner: str,
-        repo: str,
-        file_path: str,
-        ref: str,
-        line_num: int,
-        github_token: str | None,
-        line_context_len: int = 100,
-    ) -> dict[str,
-              Any]:
-        r"""Handle GitHub file content and cache it.
-
-        Args:
-            owner (str): Owner of the repository.
-            repo (str): Name of the repository.
-            file_path (str): Path of the file.
-            ref (str): Reference of the file.
-            line_num (int): Line number of the file.
-            github_token (str | None): GitHub token.
-
-        Returns:
-            dict[str, Any]: Dictionary of CodeResponse.model_dump().
-        """
-        context_key = (owner, repo, file_path, ref, line_num)
-        # Try to get cached context lines
-        context_lines = await self.cache.get(context_key)
-
-        # Cache hit
-        if context_lines is not None:
-            lines_above, line, lines_below = context_lines
-            response = CodeResponse(
-                line=line,
-                lines_above=lines_above,
-                lines_below=lines_below,
-            )
-            return response.model_dump()
-
-        # Cache miss then need to get file content at first
-        file_key = (owner, repo, file_path, ref)
-        file_content = await self.cache.get(file_key)
-
-        # File content is cached, get context lines from file content
-        if file_content is not None:
-            context_lines = await self.github.get_line_context_content(
-                file_content,
-                line_num
-            )
-            # Cache the context lines
-            await self.cache.set(context_key, context_lines)
-            if context_lines is not None:
-                lines_above, line, lines_below = context_lines
-                response = CodeResponse(
-                    line=line,
-                    lines_above=lines_above,
-                    lines_below=lines_below,
-                )
-                return response.model_dump()
-
-        # File content is not cached then need to get file content
-        file_content, error_message = await self.github.get_file_content(
-            owner, repo, file_path, ref, github_token)
-
-        # If file content is not found or cannot be retrieved,
-        # return the error message
-        if file_content is None:
-            response = CodeResponse(
-                line=None,
-                lines_above=None,
-                lines_below=None,
-                error_message=error_message,
-            )
-            return response.model_dump()
-
-        # Cache the file content at first
-        await self.cache.set(file_key, file_content)
-        context_lines = await self.github.get_line_context_content(
-            file_content,
-            line_num,
-            line_context_len=line_context_len,
-        )
-        if context_lines is None:
-            error_message = (
-                f"Failed to get line context content "
-                f"for line number {line_num} "
-                f"in {owner}/{repo}@{ref}"
-            )
-            response = CodeResponse(
-                line=None,
-                lines_above=None,
-                lines_below=None,
-                error_message=error_message,
-            )
-            return response.model_dump()
-
-        # Cache the context lines
-        await self.cache.set(context_key, context_lines)
-        lines_above, line, lines_below = context_lines
-        response = CodeResponse(
-            line=line,
-            lines_above=lines_above,
-            lines_below=lines_below,
-        )
-        return response.model_dump()
 
     async def get_line_context_content(
         self,
@@ -377,13 +276,14 @@ class ExploreRouter:
         github_token = await self.get_github_token(user_email)
 
         owner, repo, ref, file_path, line_num = parse_github_url(req_data.url)
-        return await self.handle_github_file(
-            owner,
-            repo,
-            file_path,
-            ref,
-            line_num,
-            github_token,
+        return await self.github.get_file_with_context(
+            owner=owner,
+            repo=repo,
+            file_path=file_path,
+            ref=ref,
+            line_num=line_num,
+            github_token=github_token,
+            cache=self.cache,
             line_context_len=4,
         )
 
@@ -520,7 +420,7 @@ class ExploreRouter:
             Operation(op) for op in service_environment_operations
         ]
 
-        cached_result: tuple | None = await self.cache.get(keys)
+        cached_result: tuple | None = await self.cache[CacheType.TRACE].get(keys)
         if cached_result:
             traces, next_state = cached_result
             next_pagination_token = None
@@ -591,7 +491,7 @@ class ExploreRouter:
                 next_pagination_token = encode_pagination_token(next_state)
 
             # Cache the result for 10 minutes
-            await self.cache.set(keys, (traces, next_state))
+            await self.cache[CacheType.TRACE].set(keys, (traces, next_state))
             resp = ListTraceResponse(
                 traces=traces,
                 next_pagination_token=next_pagination_token,
@@ -731,7 +631,7 @@ class ExploreRouter:
 
             # Try to get cached logs
             keys = (req_data.trace_id, log_start_time, log_end_time, log_group_name)
-            cached_logs: TraceLogs | None = await self.cache.get(keys)
+            cached_logs: TraceLogs | None = await self.cache[CacheType.LOG].get(keys)
             if cached_logs:
                 resp = GetLogByTraceIdResponse(
                     trace_id=req_data.trace_id,
@@ -746,8 +646,68 @@ class ExploreRouter:
                 log_group_name=log_group_name,
             )
             # Cache the logs for 10 minutes
-            await self.cache.set(keys, logs)
+            await self.cache[CacheType.LOG].set(keys, logs)
             resp = GetLogByTraceIdResponse(trace_id=req_data.trace_id, logs=logs)
+            return resp.model_dump()
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    async def get_logs_by_time_range(
+        self,
+        request: Request,
+        req_data: GetLogsByTimeRangeRequest = Depends(),
+    ) -> dict[str,
+              Any]:
+        r"""Get logs by time range without requiring a trace ID.
+
+        This is used in log mode where we fetch logs independently of traces.
+
+        Args:
+            request (Request): FastAPI request object
+            req_data (GetLogsByTimeRangeRequest): Request object
+                containing time range and optional search term.
+
+        Returns:
+            dict[str, Any]: Dictionary containing logs for the given time range.
+        """
+        _, _, user_sub = get_user_credentials(request)
+        log_group_name = hash_user_sub(user_sub)
+
+        # Decode pagination token
+        pagination_state = None
+        if req_data.pagination_token:
+            from rest.utils.pagination import decode_pagination_token
+            try:
+                pagination_state = decode_pagination_token(req_data.pagination_token)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid pagination token: {str(e)}"
+                )
+
+        try:
+            observe_provider = await self.get_observe_provider(request)
+
+            logs, has_more, next_state = \
+                await observe_provider.log_client.get_logs_by_time_range(
+                    start_time=req_data.start_time,
+                    end_time=req_data.end_time,
+                    log_group_name=log_group_name,
+                    log_search_term=req_data.log_search_term,
+                    pagination_state=pagination_state,
+                )
+
+            # Encode next pagination token
+            next_pagination_token = None
+            if next_state:
+                from rest.utils.pagination import encode_pagination_token
+                next_pagination_token = encode_pagination_token(next_state)
+
+            resp = GetLogsByTimeRangeResponse(
+                logs=logs,
+                has_more=has_more,
+                next_pagination_token=next_pagination_token,
+            )
             return resp.model_dump()
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -973,7 +933,8 @@ class ExploreRouter:
         else:
             # Otherwise get recent traces and search
             keys = (start_time, end_time, service_name, log_group_name)
-            cached_traces: list[Trace] | None = await self.cache.get(keys)
+            cached_traces: list[Trace] | None = await self.cache[CacheType.TRACE
+                                                                 ].get(keys)
             if cached_traces:
                 traces = cached_traces
             else:
@@ -1068,7 +1029,7 @@ class ExploreRouter:
         log_end_time = trace_end_time if trace_end_time else end_time
 
         keys = (trace_id, log_start_time, log_end_time, log_group_name)
-        logs: TraceLogs | None = await self.cache.get(keys)
+        logs: TraceLogs | None = await self.cache[CacheType.LOG].get(keys)
         if logs is None:
             observe_provider = await self.get_observe_provider(request)
             logs = await observe_provider.log_client.get_logs_by_trace_id(
@@ -1078,7 +1039,7 @@ class ExploreRouter:
                 log_group_name=log_group_name,
             )
             # Cache the logs for 10 minutes
-            await self.cache.set(keys, logs)
+            await self.cache[CacheType.LOG].set(keys, logs)
 
         # Get GitHub token
         github_token = await self.get_github_token(user_email)
@@ -1087,6 +1048,8 @@ class ExploreRouter:
         github_tasks: list[tuple[str, str, str, str]] = []
         log_entries_to_update: list = []
         github_task_keys: set[tuple[str, str, str, str]] = set()
+        # Track unique files and map them to log entries
+        unique_file_tasks: dict = {}  # key -> (task, [log_entries])
         if source_code_related:
             for log in logs.logs:
                 for span_id, span_logs in log.items():
@@ -1100,24 +1063,48 @@ class ExploreRouter:
                                 line_context_len = 200
                             else:
                                 line_context_len = 5
-                            task = self.handle_github_file(
-                                owner,
-                                repo_name,
-                                file_path,
-                                ref,
-                                line_number,
-                                github_token,
-                                line_context_len,
-                            )
-                            github_task_keys.add((owner, repo_name, file_path, ref))
-                            github_tasks.append(task)
-                            log_entries_to_update.append(log_entry)
 
-            # Process tasks in batches of 20 to avoid overwhelming API
+                            # Create unique key by file only (not line number)
+                            # The cache will handle different line requests efficiently
+                            file_key = (owner, repo_name, file_path, ref)
+
+                            # Only create task if we haven't seen this file before
+                            if file_key not in unique_file_tasks:
+                                # Fetch file once - first line/context we encounter
+                                task = self.github.get_file_with_context(
+                                    owner=owner,
+                                    repo=repo_name,
+                                    file_path=file_path,
+                                    ref=ref,
+                                    line_num=line_number,
+                                    github_token=github_token,
+                                    cache=self.cache,
+                                    line_context_len=line_context_len,
+                                )
+                                unique_file_tasks[file_key] = (task, [])
+                                github_task_keys.add((owner, repo_name, file_path, ref))
+
+                            # Add log entry with its specific line info
+                            unique_file_tasks[file_key][1].append(
+                                (line_number,
+                                 line_context_len,
+                                 log_entry)
+                            )
+
+            # Convert unique tasks to lists for batch processing
+            file_keys_list = []
+            for file_key, (task, entries) in unique_file_tasks.items():
+                print(f"file_key: {file_key}")
+                github_tasks.append(task)
+                log_entries_to_update.append(entries)
+                file_keys_list.append(file_key)
+
+            # Process unique file tasks in batches of 20 to avoid overwhelming API
             batch_size = 20
             for i in range(0, len(github_tasks), batch_size):
                 batch_tasks = github_tasks[i:i + batch_size]
-                batch_log_entries = log_entries_to_update[i:i + batch_size]
+                batch_log_entries_list = log_entries_to_update[i:i + batch_size]
+                batch_file_keys = file_keys_list[i:i + batch_size]
 
                 time = datetime.now().astimezone(timezone.utc)
                 await self.db_client.insert_chat_record(
@@ -1138,7 +1125,10 @@ class ExploreRouter:
 
                 # Process results and update log entries
                 num_failed = 0
-                for log_entry, code_response in zip(batch_log_entries, batch_results):
+                num_success = 0
+                for file_key, entries_with_lines, code_response in zip(
+                    batch_file_keys, batch_log_entries_list, batch_results
+                ):
                     # Handle exceptions gracefully
                     if isinstance(code_response, Exception):
                         num_failed += 1
@@ -1149,18 +1139,39 @@ class ExploreRouter:
                         num_failed += 1
                         continue
 
-                    log_entry.line = code_response["line"]
-                    # For now disable the context as it may hallucinate
-                    # on the case such as count number of error logs
-                    if not is_github_pr:
-                        log_entry.lines_above = None
-                        log_entry.lines_below = None
-                    else:
-                        log_entry.lines_above = code_response["lines_above"]
-                        log_entry.lines_below = code_response["lines_below"]
+                    # The first fetch cached the full file content
+                    # Now update all log entries for this file
+                    owner, repo_name, file_path, ref = file_key
+
+                    # Update all log entries that reference this file
+                    # (possibly at different lines)
+                    for line_number, line_context_len, log_entry in entries_with_lines:
+                        # Get line-specific context from cache
+                        # (file is now cached, so this will be fast)
+                        line_response = await self.github.get_file_with_context(
+                            owner=owner,
+                            repo=repo_name,
+                            file_path=file_path,
+                            ref=ref,
+                            line_num=line_number,
+                            github_token=github_token,
+                            cache=self.cache,
+                            line_context_len=line_context_len,
+                        )
+
+                        if not line_response["error_message"]:
+                            log_entry.line = line_response["line"]
+                            # For now disable the context as it may hallucinate
+                            # on the case such as count number of error logs
+                            if not is_github_pr:
+                                log_entry.lines_above = None
+                                log_entry.lines_below = None
+                            else:
+                                log_entry.lines_above = line_response["lines_above"]
+                                log_entry.lines_below = line_response["lines_below"]
+                    num_success += 1
 
                 time = datetime.now().astimezone(timezone.utc)
-                num_success = len(batch_log_entries) - num_failed
                 await self.db_client.insert_chat_record(
                     message={
                         "chat_id":
@@ -1430,7 +1441,7 @@ class ExploreRouter:
             if pagination_state and pagination_state.get('type') == 'log_search':
                 offset = pagination_state.get('offset', 0)
                 # Try to get cached trace IDs
-                cached_trace_ids = await self.cache.get(cache_key)
+                cached_trace_ids = await self.cache[CacheType.TRACE].get(cache_key)
                 if cached_trace_ids:
                     all_trace_ids = cached_trace_ids
                 else:
@@ -1443,7 +1454,7 @@ class ExploreRouter:
                             search_term=search_term
                         )
                     # Re-cache for 10 minutes
-                    await self.cache.set(cache_key, all_trace_ids)
+                    await self.cache[CacheType.TRACE].set(cache_key, all_trace_ids)
             else:
                 # First request
                 offset = 0
@@ -1455,7 +1466,7 @@ class ExploreRouter:
                     search_term=search_term
                 )
                 # Cache the trace IDs for 10 minutes
-                await self.cache.set(cache_key, all_trace_ids)
+                await self.cache[CacheType.TRACE].set(cache_key, all_trace_ids)
 
             if not all_trace_ids:
                 return [], None
