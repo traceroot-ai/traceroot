@@ -141,7 +141,7 @@ export default function MessageInput({
   );
 
   return (
-    <div className="border border-zinc-300 rounded-lg dark:border-zinc-700 bg-white dark:bg-zinc-800 mx-4 mb-2">
+    <div className="border border-zinc-300 rounded-lg dark:border-zinc-700 bg-white dark:bg-zinc-800 mx-4 mb-2 mt-2">
       <div className="p-3">
         <div className="mb-1 text-xs text-gray-500 dark:text-gray-400 pb-2 flex gap-2 items-center">
           {hasMultipleTraces ? (
@@ -158,13 +158,6 @@ export default function MessageInput({
               Spans: {spanIds.length}
             </Badge>
           )}
-          {!traceId &&
-            traceIds.length === 0 &&
-            (!spanIds || spanIds.length === 0) && (
-              <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono ml-0">
-                No trace or spans selected
-              </span>
-            )}
         </div>
         <PromptInput
           onSubmit={onSendMessage}
@@ -233,14 +226,6 @@ export default function MessageInput({
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
-
-              {/* Model selector */}
-              <Navbar13
-                options={modelOptions}
-                selectedValue={selectedModel}
-                onValueChange={setSelectedModel}
-                label=""
-              />
             </PromptInputTools>
 
             <PromptInputSubmit

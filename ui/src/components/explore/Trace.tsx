@@ -1000,7 +1000,7 @@ export const Trace: React.FC<TraceProps> = ({
   return (
     <>
       <style>{fadeInAnimationStyles}</style>
-      <div className="h-screen bg-white dark:bg-zinc-950 text-neutral-800 dark:text-neutral-200 transition-colors duration-300 p-4 overflow-y-auto overflow-x-hidden">
+      <div className="h-screen bg-white dark:bg-zinc-950 text-neutral-800 dark:text-neutral-200 overflow-y-auto overflow-x-hidden p-4">
         {/* Search and Time Range Selector */}
         <div className="space-y-4">
           <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-2">
@@ -1121,12 +1121,12 @@ export const Trace: React.FC<TraceProps> = ({
                             role="button"
                             tabIndex={0}
                           >
-                            <div className="flex justify-between items-center h-full">
-                              <div className="flex items-center text-sm min-w-0 flex-1 pr-4">
-                                {/* Telemetry SDK Language Icons */}
+                            <div className="flex justify-between items-center h-full gap-2">
+                              <div className="flex items-center text-sm min-w-0 flex-1 overflow-hidden">
+                                {/* Telemetry SDK Language Icons - Priority 3 */}
                                 {trace.telemetry_sdk_language &&
                                   trace.telemetry_sdk_language.length > 0 && (
-                                    <div className="flex items-center flex-shrink-0">
+                                    <div className="flex items-center flex-shrink-0 hidden [@media(min-width:650px)]:flex">
                                       {/* Python Icon - show when telemetry_sdk_language includes "python" */}
                                       {trace.telemetry_sdk_language.includes(
                                         "python",
@@ -1169,35 +1169,29 @@ export const Trace: React.FC<TraceProps> = ({
                                     </div>
                                   )}
 
-                                {/* Service Name Badge */}
+                                {/* Service Name Badge - Priority 4 */}
                                 {(() => {
                                   const fullServiceName =
                                     trace.service_name || "Unknown Service";
                                   const isLimitExceeded =
                                     fullServiceName === "LimitExceeded";
-                                  const shouldShowTooltip =
-                                    fullServiceName.length > 25 ||
-                                    isLimitExceeded;
 
                                   const badge = (
                                     <Badge
                                       variant="default"
-                                      className={`min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left ${
+                                      className={`min-w-16 max-w-[200px] h-6 mr-2 justify-start font-mono font-normal flex-shrink text-left overflow-hidden hidden [@media(min-width:550px)]:inline-flex ${
                                         isLimitExceeded
                                           ? "bg-red-600 hover:bg-red-700 text-white"
                                           : ""
                                       }`}
-                                      title={
-                                        shouldShowTooltip && !isLimitExceeded
-                                          ? fullServiceName
-                                          : undefined
-                                      }
                                     >
-                                      {fullServiceName}
+                                      <span className="truncate">
+                                        {fullServiceName}
+                                      </span>
                                     </Badge>
                                   );
 
-                                  return shouldShowTooltip ? (
+                                  return (
                                     <Tooltip>
                                       <TooltipTrigger asChild>
                                         {badge}
@@ -1210,24 +1204,22 @@ export const Trace: React.FC<TraceProps> = ({
                                         </p>
                                       </TooltipContent>
                                     </Tooltip>
-                                  ) : (
-                                    badge
                                   );
                                 })()}
 
-                                {/* Environment */}
+                                {/* Environment - Priority 5 */}
                                 <Badge
                                   variant="outline"
-                                  className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
+                                  className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 hidden [@media(min-width:450px)]:inline-flex"
                                 >
                                   {trace.service_environment ||
                                     "Unknown Environment"}
                                 </Badge>
 
-                                {/* Span Count */}
+                                {/* Span Count - Priority 6 */}
                                 <Badge
                                   variant="outline"
-                                  className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
+                                  className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 hidden [@media(min-width:350px)]:inline-flex"
                                 >
                                   {(() => {
                                     const spanCount = countSpans(trace.spans);
@@ -1235,12 +1227,12 @@ export const Trace: React.FC<TraceProps> = ({
                                   })()}
                                 </Badge>
 
-                                {/* Latency */}
+                                {/* Latency - Priority 7 */}
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <Badge
                                       variant="outline"
-                                      className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
+                                      className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 hidden [@media(min-width:250px)]:inline-flex"
                                     >
                                       {formatDuration(trace.duration)}
                                     </Badge>
@@ -1297,13 +1289,15 @@ export const Trace: React.FC<TraceProps> = ({
 
                               {/* Start time, Share button, and Expand/Collapse icon */}
                               <div className="flex items-center gap-2 flex-shrink-0">
-                                <span className="text-xs text-neutral-600 dark:text-neutral-300 flex-shrink-0 whitespace-nowrap">
+                                {/* Timestamp - Priority 8 (lowest - hide first) */}
+                                <span className="text-xs text-neutral-600 dark:text-neutral-300 flex-shrink-0 whitespace-nowrap hidden [@media(min-width:900px)]:inline">
                                   {trace.start_time === 0
                                     ? "N/A"
                                     : formatDateTime(trace.start_time)}
                                 </span>
                                 {selectedTraceIds.has(trace.id) && (
                                   <>
+                                    {/* Share button - Priority 2 */}
                                     {selectedTraceIds.size === 1 && (
                                       <Tooltip>
                                         <TooltipTrigger asChild>
@@ -1311,7 +1305,7 @@ export const Trace: React.FC<TraceProps> = ({
                                             onClick={(e) =>
                                               handleShareClick(trace.id, e)
                                             }
-                                            className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
+                                            className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors hidden [@media(min-width:750px)]:block"
                                           >
                                             <Share2
                                               size={14}
@@ -1324,6 +1318,7 @@ export const Trace: React.FC<TraceProps> = ({
                                         </TooltipContent>
                                       </Tooltip>
                                     )}
+                                    {/* Expand/Collapse button - Priority 1 (highest - never hide) */}
                                     <button
                                       onClick={(e) =>
                                         handleTraceExpandToggle(trace.id, e)
@@ -1615,13 +1610,13 @@ export const Trace: React.FC<TraceProps> = ({
                                       role="button"
                                       tabIndex={0}
                                     >
-                                      <div className="flex justify-between items-center h-full">
-                                        <div className="flex items-center text-sm min-w-0 flex-1 pr-4">
-                                          {/* Telemetry SDK Language Icons */}
+                                      <div className="flex justify-between items-center h-full gap-2">
+                                        <div className="flex items-center text-sm min-w-0 flex-1 overflow-hidden">
+                                          {/* Telemetry SDK Language Icons - Priority 3 */}
                                           {trace.telemetry_sdk_language &&
                                             trace.telemetry_sdk_language
                                               .length > 0 && (
-                                              <div className="flex items-center flex-shrink-0">
+                                              <div className="flex items-center flex-shrink-0 hidden [@media(min-width:650px)]:flex">
                                                 {trace.telemetry_sdk_language.includes(
                                                   "python",
                                                 ) && (
@@ -1657,7 +1652,7 @@ export const Trace: React.FC<TraceProps> = ({
                                               </div>
                                             )}
 
-                                          {/* Service Name Badge */}
+                                          {/* Service Name Badge - Priority 4 */}
                                           {(() => {
                                             const fullServiceName =
                                               trace.service_name ||
@@ -1665,30 +1660,23 @@ export const Trace: React.FC<TraceProps> = ({
                                             const isLimitExceeded =
                                               fullServiceName ===
                                               "LimitExceeded";
-                                            const shouldShowTooltip =
-                                              fullServiceName.length > 25 ||
-                                              isLimitExceeded;
 
                                             const badge = (
                                               <Badge
                                                 variant="default"
-                                                className={`min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left ${
+                                                className={`min-w-16 max-w-[200px] h-6 mr-2 justify-start font-mono font-normal flex-shrink text-left overflow-hidden hidden [@media(min-width:550px)]:inline-flex ${
                                                   isLimitExceeded
                                                     ? "bg-red-600 hover:bg-red-700 text-white"
                                                     : ""
                                                 }`}
-                                                title={
-                                                  shouldShowTooltip &&
-                                                  !isLimitExceeded
-                                                    ? fullServiceName
-                                                    : undefined
-                                                }
                                               >
-                                                {fullServiceName}
+                                                <span className="truncate">
+                                                  {fullServiceName}
+                                                </span>
                                               </Badge>
                                             );
 
-                                            return shouldShowTooltip ? (
+                                            return (
                                               <Tooltip>
                                                 <TooltipTrigger asChild>
                                                   {badge}
@@ -1701,24 +1689,22 @@ export const Trace: React.FC<TraceProps> = ({
                                                   </p>
                                                 </TooltipContent>
                                               </Tooltip>
-                                            ) : (
-                                              badge
                                             );
                                           })()}
 
-                                          {/* Environment */}
+                                          {/* Environment - Priority 5 */}
                                           <Badge
                                             variant="outline"
-                                            className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
+                                            className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 hidden [@media(min-width:450px)]:inline-flex"
                                           >
                                             {trace.service_environment ||
                                               "Unknown Environment"}
                                           </Badge>
 
-                                          {/* Span Count */}
+                                          {/* Span Count - Priority 6 */}
                                           <Badge
                                             variant="outline"
-                                            className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
+                                            className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 hidden [@media(min-width:350px)]:inline-flex"
                                           >
                                             {(() => {
                                               const spanCount = countSpans(
@@ -1728,12 +1714,12 @@ export const Trace: React.FC<TraceProps> = ({
                                             })()}
                                           </Badge>
 
-                                          {/* Latency */}
+                                          {/* Latency - Priority 7 */}
                                           <Tooltip>
                                             <TooltipTrigger asChild>
                                               <Badge
                                                 variant="outline"
-                                                className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
+                                                className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 hidden [@media(min-width:250px)]:inline-flex"
                                               >
                                                 {formatDuration(trace.duration)}
                                               </Badge>
@@ -1794,7 +1780,8 @@ export const Trace: React.FC<TraceProps> = ({
 
                                         {/* Start time, Share button, and Expand/Collapse icon */}
                                         <div className="flex items-center gap-2 flex-shrink-0">
-                                          <span className="text-xs text-neutral-600 dark:text-neutral-300 flex-shrink-0 whitespace-nowrap">
+                                          {/* Timestamp - Priority 8 (lowest - hide first) */}
+                                          <span className="text-xs text-neutral-600 dark:text-neutral-300 flex-shrink-0 whitespace-nowrap hidden [@media(min-width:900px)]:inline">
                                             {trace.start_time === 0
                                               ? "N/A"
                                               : formatDateTime(
@@ -1803,6 +1790,7 @@ export const Trace: React.FC<TraceProps> = ({
                                           </span>
                                           {selectedTraceIds.has(trace.id) && (
                                             <>
+                                              {/* Share button - Priority 2 */}
                                               {selectedTraceIds.size === 1 && (
                                                 <Tooltip>
                                                   <TooltipTrigger asChild>
@@ -1813,7 +1801,7 @@ export const Trace: React.FC<TraceProps> = ({
                                                           e,
                                                         )
                                                       }
-                                                      className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
+                                                      className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors hidden [@media(min-width:750px)]:block"
                                                     >
                                                       <Share2
                                                         size={14}
@@ -1826,6 +1814,7 @@ export const Trace: React.FC<TraceProps> = ({
                                                   </TooltipContent>
                                                 </Tooltip>
                                               )}
+                                              {/* Expand/Collapse button - Priority 1 (highest - never hide) */}
                                               <button
                                                 onClick={(e) =>
                                                   handleTraceExpandToggle(

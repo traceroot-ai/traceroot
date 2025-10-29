@@ -38,3 +38,16 @@ class AWSLogClient(LogClient):
     ) -> list[str]:
         """Get trace IDs from logs - stub implementation."""
         return []
+
+    async def get_logs_by_time_range(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+        log_group_name: str,
+        log_search_term: str | None = None,
+        pagination_state: dict | None = None,
+    ) -> tuple[TraceLogs,
+               bool,
+               dict | None]:
+        """Query logs by time range - stub implementation."""
+        return (TraceLogs(logs=[]), False, None)

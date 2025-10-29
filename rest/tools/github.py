@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from typing import Any
 
 from github import Github, GithubException
 
@@ -213,3 +214,117 @@ class GitHubClient:
 
         # Return the tuple of three elements
         return (lines_above, line, lines_below)
+
+    async def get_file_with_context(
+        self,
+        owner: str,
+        repo: str,
+        file_path: str,
+        ref: str,
+        line_num: int,
+        github_token: str | None,
+        cache: Any,  # Cache type from rest.cache
+        line_context_len: int = 100,
+    ) -> dict[str, Any]:
+        """Get file line with context, using cache for optimization.
+
+        This method handles the complete flow of fetching a file from GitHub
+        with caching at two levels:
+        1. Context cache: Caches the specific line context for a line number
+        2. File cache: Caches the entire file content
+
+        Args:
+            owner: Repository owner
+            repo: Repository name
+            file_path: Path to the file in the repository
+            ref: Branch / commit hash
+            line_num: Line number to retrieve (1-based indexing)
+            github_token: GitHub token for authentication
+            cache: Cache instance (from rest.cache.Cache)
+            line_context_len: Number of lines of context to retrieve above and below
+
+        Returns:
+            Dictionary containing line, lines_above, lines_below, and error_message
+            (matches CodeResponse.model_dump() format)
+        """
+        # Import here to avoid circular dependency
+        from rest.cache import CacheType
+        from rest.config import CodeResponse
+
+        context_key = (owner, repo, file_path, ref, line_num)
+        # Try to get cached context lines
+        context_lines = await cache[CacheType.GITHUB].get(context_key)
+
+        # Cache hit for context
+        if context_lines is not None:
+            lines_above, line, lines_below = context_lines
+            response = CodeResponse(
+                line=line,
+                lines_above=lines_above,
+                lines_below=lines_below,
+            )
+            return response.model_dump()
+
+        # Cache miss for context, check file content cache
+        file_key = (owner, repo, file_path, ref)
+        file_content = await cache[CacheType.GITHUB].get(file_key)
+
+        # File content is cached, get context lines from file content
+        if file_content is not None:
+            context_lines = await self.get_line_context_content(file_content, line_num)
+            # Cache the context lines
+            await cache[CacheType.GITHUB].set(context_key, context_lines)
+            if context_lines is not None:
+                lines_above, line, lines_below = context_lines
+                response = CodeResponse(
+                    line=line,
+                    lines_above=lines_above,
+                    lines_below=lines_below,
+                )
+                return response.model_dump()
+
+        # File content is not cached, need to fetch from GitHub
+        file_content, error_message = await self.get_file_content(
+            owner, repo, file_path, ref, github_token)
+
+        # If file content is not found or cannot be retrieved,
+        # return the error message
+        if file_content is None:
+            response = CodeResponse(
+                line=None,
+                lines_above=None,
+                lines_below=None,
+                error_message=error_message,
+            )
+            return response.model_dump()
+
+        # Cache the file content
+        await cache[CacheType.GITHUB].set(file_key, file_content)
+        context_lines = await self.get_line_context_content(
+            file_content,
+            line_num,
+            line_context_len=line_context_len,
+        )
+        if context_lines is None:
+            error_message = (
+                f"Failed to get line context content "
+                f"for line number {line_num} "
+                f"in {owner}/{repo}@{ref}"
+            )
+            response = CodeResponse(
+                line=None,
+                lines_above=None,
+                lines_below=None,
+                error_message=error_message,
+            )
+            return response.model_dump()
+
+        # Cache the context lines
+        await cache[CacheType.GITHUB].set(context_key, context_lines)
+        lines_above, line, lines_below = context_lines
+        response = CodeResponse(
+            line=line,
+            lines_above=lines_above,
+            lines_below=lines_below,
+        )
+        return response.model_dump()

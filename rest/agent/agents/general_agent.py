@@ -10,6 +10,7 @@ except ImportError:
     from rest.dao.mongodb_dao import TraceRootMongoDBClient
 
 from rest.agent.agents.base import BaseAgent
+from rest.agent.context.chat_context import build_chat_history_messages
 from rest.agent.prompts import GENERAL_AGENT_SYSTEM_PROMPT
 from rest.config import ChatbotResponse
 from rest.dao.sqlite_dao import TraceRootSQLiteClient
@@ -72,24 +73,9 @@ class GeneralAgent(BaseAgent):
         # Build messages for the conversation
         messages = [{"role": "system", "content": self.system_prompt}]
 
-        # Add chat history (filter out github and statistics messages)
-        if chat_history is not None:
-            chat_history = [
-                chat for chat in chat_history
-                if chat["role"] not in ["github", "statistics"]
-            ]
-            # Only append the last 10 chat history records
-            for record in chat_history[-10:]:
-                # We only need to include the user message
-                # (without the context information) in the chat history
-                if "user_message" in record and record["user_message"] is not None:
-                    content = record["user_message"]
-                else:
-                    content = record["content"]
-                messages.append({
-                    "role": record["role"],
-                    "content": content,
-                })
+        # Add formatted chat history
+        history_messages = build_chat_history_messages(chat_history, max_records=10)
+        messages.extend(history_messages)
 
         # Add current user message
         messages.append({"role": "user", "content": user_message})

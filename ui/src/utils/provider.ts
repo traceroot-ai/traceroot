@@ -51,6 +51,9 @@ export const saveProviderSelection = (
 ): void => {
   const storageKey = getUserStorageKey(`${providerType}ProviderSelection`);
   localStorage.setItem(storageKey, provider);
+
+  // Dispatch custom event to notify other components
+  window.dispatchEvent(new Event("userDataUpdated"));
 };
 
 /**
