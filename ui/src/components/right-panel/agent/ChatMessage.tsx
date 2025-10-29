@@ -32,7 +32,7 @@ interface ChatMessageProps {
   userAvatarUrl?: string;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
   onSpanSelect?: (spanId: string) => void;
-  onViewTypeChange?: (viewType: "log" | "agent" | "trace") => void;
+  onViewTypeChange?: (viewType: "log" | "trace") => void;
   chatId?: string | null;
 }
 
@@ -106,7 +106,7 @@ const renderMarkdown = (
   messageId: string,
   references?: Reference[],
   onSpanSelect?: (spanId: string) => void,
-  onViewTypeChange?: (viewType: "log" | "agent" | "trace") => void,
+  onViewTypeChange?: (viewType: "log" | "trace") => void,
   openHoverCard?: string | null,
   setOpenHoverCard?: (id: string | null) => void,
 ): React.ReactNode => {
@@ -519,6 +519,9 @@ export default function ChatMessage({
           .find((msg) => msg.role === "assistant");
         const nextMessageTimestamp = nextAssistantMessage?.timestamp;
 
+        // Only show isLoading for the last user message (when waiting for assistant response)
+        const isThisMessageLoading = isLoading && !nextAssistantMessage;
+
         return (
           <React.Fragment key={message.id}>
             <div
@@ -598,14 +601,14 @@ export default function ChatMessage({
                   <ChatReasoning
                     chatId={chatId}
                     className="w-full"
-                    isLoading={isLoading}
+                    isLoading={isThisMessageLoading}
                     userMessageTimestamp={message.timestamp}
                     nextMessageTimestamp={nextMessageTimestamp}
                   />
                 ) : (
                   <Reasoning
                     className="w-full"
-                    isStreaming={isLoading}
+                    isStreaming={isThisMessageLoading}
                     defaultOpen={true}
                   >
                     <ReasoningTrigger />

@@ -4,14 +4,15 @@ import { useState, useCallback, useEffect } from "react";
 import Trace from "@/components/explore/Trace";
 import ResizablePanel from "@/components/resizable/ResizablePanel";
 import RightPanelSwitch from "@/components/right-panel/RightPanelSwitch";
+import AgentPanel from "@/components/agent-panel/AgentPanel";
 import { Span, Trace as TraceType } from "@/models/trace";
-import { initializeProviders } from "@/utils/provider";
+import {
+  initializeProviders,
+  loadProviderSelection,
+  getProviderRegion,
+} from "@/utils/provider";
 
 export default function Explore() {
-  // Initialize providers from URL on mount, or use defaults
-  useEffect(() => {
-    initializeProviders();
-  }, []);
   const [selectedTraceIds, setSelectedTraceIds] = useState<string[]>([]);
   const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
   const [timeRange, setTimeRange] = useState<{ start: Date; end: Date } | null>(
@@ -23,6 +24,43 @@ export default function Explore() {
   const [metadataSearchTerms, setMetadataSearchTerms] = useState<
     { category: string; value: string }[]
   >([]);
+  const [initialCollapseState, setInitialCollapseState] = useState<
+    boolean | null
+  >(null);
+  const [isLogMode, setIsLogMode] = useState<boolean>(false);
+
+  // Initialize providers and determine initial collapse state from URL
+  useEffect(() => {
+    initializeProviders();
+
+    // Determine initial collapse state based on URL
+    const url = new URL(window.location.href);
+    const mode = url.searchParams.get("mode");
+    const hasTraceId = url.searchParams.has("trace_id");
+
+    // If URL has trace_id, force expand (trace mode)
+    // Otherwise, check mode parameter, default to localStorage
+    if (hasTraceId) {
+      setInitialCollapseState(false);
+      setIsLogMode(false);
+      localStorage.setItem("traceCollapsed", "false");
+      // Remove mode param if it exists
+      if (mode) {
+        url.searchParams.delete("mode");
+        window.history.replaceState({}, "", url);
+      }
+    } else if (mode === "log") {
+      setInitialCollapseState(true);
+      setIsLogMode(true);
+      localStorage.setItem("traceCollapsed", "true");
+    } else {
+      // Use localStorage or default to expanded
+      const stored = localStorage.getItem("traceCollapsed");
+      const isCollapsed = stored === "true";
+      setInitialCollapseState(isCollapsed);
+      setIsLogMode(isCollapsed);
+    }
+  }, []);
 
   // Helper function to get all span IDs from a trace recursively
   const getAllSpanIds = (spans: Span[]): string[] => {
@@ -100,39 +138,91 @@ export default function Explore() {
     [],
   );
 
+  // Handle trace panel collapse/expand
+  const handleLeftPanelCollapse = useCallback((isCollapsed: boolean) => {
+    const url = new URL(window.location.href);
+
+    if (isCollapsed) {
+      // Clear selected traces and spans
+      setSelectedTraceIds([]);
+      setSelectedSpanIds([]);
+      setIsLogMode(true);
+
+      // Rebuild URL with mode=log at the end
+      const traceProvider = url.searchParams.get("trace_provider");
+      const traceRegion = url.searchParams.get("trace_region");
+      const logProvider = url.searchParams.get("log_provider");
+      const logRegion = url.searchParams.get("log_region");
+
+      const newUrl = new URL(url.origin + url.pathname);
+      if (traceProvider) {
+        newUrl.searchParams.set("trace_provider", traceProvider);
+      }
+      if (traceRegion) {
+        newUrl.searchParams.set("trace_region", traceRegion);
+      }
+      if (logProvider) {
+        newUrl.searchParams.set("log_provider", logProvider);
+      }
+      if (logRegion) {
+        newUrl.searchParams.set("log_region", logRegion);
+      }
+      newUrl.searchParams.set("mode", "log");
+
+      window.history.replaceState({}, "", newUrl);
+    } else {
+      // Remove mode param when expanded (default is trace mode)
+      setIsLogMode(false);
+      url.searchParams.delete("mode");
+      window.history.replaceState({}, "", url);
+    }
+  }, []);
+
   // TODO (xinwei): Add ProtectedRoute
   return (
-    <ResizablePanel
-      leftPanel={
-        <Trace
-          onTraceSelect={handleTraceSelect}
-          onSpanSelect={handleSpanSelect}
-          onTraceData={handleTraceData}
-          onTracesUpdate={handleTracesUpdate}
-          onLogSearchValueChange={handleLogSearchValueChange}
-          onMetadataSearchTermsChange={handleMetadataSearchTermsChange}
-          selectedTraceIds={selectedTraceIds}
-          selectedSpanIds={selectedSpanIds}
-        />
-      }
-      rightPanel={
-        <RightPanelSwitch
-          traceIds={selectedTraceIds}
-          spanIds={selectedSpanIds}
-          traceQueryStartTime={timeRange?.start}
-          traceQueryEndTime={timeRange?.end}
-          allTraces={allTraces}
-          logSearchValue={logSearchValue}
-          metadataSearchTerms={metadataSearchTerms}
-          onTraceSelect={handleTraceSelect}
-          onSpanClear={handleSpanClear}
-          onTraceSpansUpdate={handleTraceSpansUpdate}
-          onSpanSelect={handleSpanSelect}
-        />
-      }
-      minLeftWidth={35}
-      maxLeftWidth={60}
-      defaultLeftWidth={46}
-    />
+    <AgentPanel
+      traceId={selectedTraceIds.length === 1 ? selectedTraceIds[0] : undefined}
+      traceIds={selectedTraceIds}
+      spanIds={selectedSpanIds}
+      queryStartTime={timeRange?.start}
+      queryEndTime={timeRange?.end}
+      onSpanSelect={(spanId) => handleSpanSelect([spanId])}
+    >
+      <ResizablePanel
+        leftPanel={
+          <Trace
+            onTraceSelect={handleTraceSelect}
+            onSpanSelect={handleSpanSelect}
+            onTraceData={handleTraceData}
+            onTracesUpdate={handleTracesUpdate}
+            onLogSearchValueChange={handleLogSearchValueChange}
+            onMetadataSearchTermsChange={handleMetadataSearchTermsChange}
+            selectedTraceIds={selectedTraceIds}
+            selectedSpanIds={selectedSpanIds}
+          />
+        }
+        rightPanel={
+          <RightPanelSwitch
+            traceIds={selectedTraceIds}
+            spanIds={selectedSpanIds}
+            traceQueryStartTime={timeRange?.start}
+            traceQueryEndTime={timeRange?.end}
+            allTraces={allTraces}
+            logSearchValue={logSearchValue}
+            metadataSearchTerms={metadataSearchTerms}
+            onTraceSelect={handleTraceSelect}
+            onSpanClear={handleSpanClear}
+            onTraceSpansUpdate={handleTraceSpansUpdate}
+            onSpanSelect={handleSpanSelect}
+            isLogMode={isLogMode}
+          />
+        }
+        minLeftWidth={35}
+        maxLeftWidth={60}
+        defaultLeftWidth={46}
+        initialCollapsed={initialCollapseState}
+        onLeftPanelCollapse={handleLeftPanelCollapse}
+      />
+    </AgentPanel>
   );
 }

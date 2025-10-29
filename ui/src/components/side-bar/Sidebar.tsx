@@ -15,7 +15,9 @@ import {
   Sun,
   Bot,
 } from "lucide-react";
-import { FaUser } from "react-icons/fa";
+import { FaUser, FaAws } from "react-icons/fa";
+import { BsTencentQq } from "react-icons/bs";
+import { SiJaeger } from "react-icons/si";
 import { APP_VERSION } from "@/constants/version";
 import { loadProviderSelection, getProviderRegion } from "@/utils/provider";
 
@@ -603,12 +605,153 @@ function ExpandCollapseButton() {
   );
 }
 
+function ProviderLogoComponent() {
+  const { state } = useSidebar();
+  const [traceProvider, setTraceProvider] = useState<string>("aws");
+  const [logProvider, setLogProvider] = useState<string>("aws");
+
+  // Load trace and log providers from localStorage
+  useEffect(() => {
+    const loadProviders = () => {
+      const trace = loadProviderSelection("trace") || "aws";
+      const log = loadProviderSelection("log") || "aws";
+      setTraceProvider(trace);
+      setLogProvider(log);
+    };
+
+    loadProviders();
+
+    // Listen for storage changes to update when providers are changed in settings
+    const handleStorageChange = () => {
+      loadProviders();
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    window.addEventListener("userDataUpdated", handleStorageChange);
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+      window.removeEventListener("userDataUpdated", handleStorageChange);
+    };
+  }, []);
+
+  const getProviderIconComponent = (provider: string, size: number = 20) => {
+    switch (provider) {
+      case "aws":
+        return <FaAws size={size} className="text-sidebar dark:text-sidebar" />;
+      case "tencent":
+        return (
+          <BsTencentQq size={size} className="text-sidebar dark:text-sidebar" />
+        );
+      case "jaeger":
+        return (
+          <SiJaeger size={size} className="text-sidebar dark:text-sidebar" />
+        );
+      default:
+        return <FaAws size={size} className="text-sidebar dark:text-sidebar" />;
+    }
+  };
+
+  const getProviderIcon = () => {
+    // If both providers are the same, show single icon
+    if (traceProvider === logProvider) {
+      return getProviderIconComponent(traceProvider, 19);
+    }
+
+    // If different, show split diagonal design
+    return (
+      <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
+        {/* Top-left triangle - Trace Provider */}
+        <div
+          className="absolute inset-0 flex items-start justify-start pl-0.5 pt-0.5"
+          style={{ clipPath: "polygon(0 0, 100% 0, 0 100%)" }}
+        >
+          {getProviderIconComponent(traceProvider, 14)}
+        </div>
+        {/* Bottom-right triangle - Log Provider */}
+        <div
+          className="absolute inset-0 flex items-end justify-end pr-0.5 pb-0.5"
+          style={{ clipPath: "polygon(100% 0, 100% 100%, 0 100%)" }}
+        >
+          {getProviderIconComponent(logProvider, 14)}
+        </div>
+        {/* Diagonal line separator - from bottom-left to top-right */}
+        <svg
+          className="absolute inset-0 pointer-events-none"
+          width="100%"
+          height="100%"
+          viewBox="0 0 32 32"
+        >
+          <line
+            x1="1"
+            y1="31"
+            x2="31"
+            y2="1"
+            stroke="currentColor"
+            strokeWidth="1"
+            className="text-sidebar dark:text-sidebar"
+          />
+        </svg>
+      </div>
+    );
+  };
+
+  const getProviderName = (provider: string) => {
+    switch (provider) {
+      case "aws":
+        return "AWS";
+      case "tencent":
+        return "Tencent";
+      case "jaeger":
+        return "Jaeger";
+      default:
+        return provider.toUpperCase();
+    }
+  };
+
+  const getProviderTooltip = () => {
+    if (traceProvider === logProvider) {
+      return `Trace and Log from ${getProviderName(traceProvider)}`;
+    }
+    return `Trace from ${getProviderName(traceProvider)} and Log from ${getProviderName(logProvider)}`;
+  };
+
+  return (
+    <SidebarMenuItem className="list-none">
+      <SidebarMenuButton
+        asChild
+        className="h-auto mt-2"
+        tooltip={getProviderTooltip()}
+      >
+        <div
+          className={`flex items-center ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
+        >
+          <div className="h-8 w-8 rounded-md bg-black dark:bg-white flex items-center justify-center shrink-0">
+            {getProviderIcon()}
+          </div>
+          {state === "expanded" && (
+            <div className="flex flex-col font-main">
+              <span className="font-normal text-xs text-neutral-800 dark:text-neutral-200">
+                Trace: {getProviderName(traceProvider)}
+              </span>
+              <span className="font-normal text-xs text-neutral-800 dark:text-neutral-200">
+                Log: {getProviderName(logProvider)}
+              </span>
+            </div>
+          )}
+        </div>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
 export default function AppSidebar() {
   return (
     <Sidebar collapsible="icon" className="relative font-main">
       <SidebarHeader>
         <LogoComponent />
         <Separator />
+        <ProviderLogoComponent />
       </SidebarHeader>
 
       <SidebarContent className="space-y-1">
