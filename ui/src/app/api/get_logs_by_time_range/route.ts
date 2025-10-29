@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { TraceLogs } from "@/models/log";
 import { createBackendAuthHeaders } from "@/lib/server-auth-headers";
 
+const FETCH_TIMEOUT = 90000; // 90 seconds
+
 export interface LogsByTimeRangeResponse {
   success: boolean;
   logs: TraceLogs | null;
@@ -50,9 +52,17 @@ async function fetchLogsFromRestAPI(
 
   // Get auth headers (automatically uses Clerk's auth() and currentUser())
   const headers = await createBackendAuthHeaders();
+
+  // Create abort controller for timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
   const response = await fetch(url.toString(), {
     headers,
+    signal: controller.signal,
   });
+
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     throw new Error(
