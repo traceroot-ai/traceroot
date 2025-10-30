@@ -73,6 +73,9 @@ const SearchBar: React.FC<SearchBarProps> = ({
   const [metadataCategoryValue, setMetadataCategoryValue] = useState("");
   const [metadataValue, setMetadataValue] = useState("");
   const [logSearchValue, setLogSearchValue] = useState("");
+  const [editingCriterionId, setEditingCriterionId] = useState<string | null>(
+    null,
+  );
   const searchBarRef = useRef<HTMLDivElement>(null);
 
   // Memoize extracted search terms to prevent unnecessary re-renders
@@ -106,11 +109,20 @@ const SearchBar: React.FC<SearchBarProps> = ({
   // Click-outside detection to collapse search
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        searchBarRef.current &&
-        !searchBarRef.current.contains(event.target as Node) &&
-        isSearchExpanded
-      ) {
+      const target = event.target as Node;
+
+      // Check if click is inside the search bar
+      if (searchBarRef.current && searchBarRef.current.contains(target)) {
+        return;
+      }
+
+      // Check if click is inside a dropdown menu portal
+      // Radix UI portals have data-radix-popper-content-wrapper attribute
+      const isInsideDropdown = (target as Element).closest?.(
+        '[role="menu"], [data-radix-popper-content-wrapper]',
+      );
+
+      if (isSearchExpanded && !isInsideDropdown) {
         setIsSearchExpanded(false);
       }
     };
@@ -140,6 +152,40 @@ const SearchBar: React.FC<SearchBarProps> = ({
     }
   }, [metadataSearchTerms, onMetadataSearchTermsChange]);
 
+  const handleEditCriterion = (criterion: SearchCriterion) => {
+    if (disabled) return;
+
+    // Load the criterion into the input fields
+    setEditingCriterionId(criterion.id);
+    setCurrentCriterion({
+      category: criterion.category,
+      operation: criterion.operation,
+    });
+
+    // Set the appropriate input value based on category
+    if (
+      criterion.category !== "metadata" &&
+      criterion.category !== "log" &&
+      criterion.category !== "service_name" &&
+      criterion.category !== "service_environment"
+    ) {
+      // For metadata categories, split category and value
+      setMetadataCategoryValue(criterion.category);
+      setMetadataValue(criterion.value);
+      setCurrentCriterion({
+        category: "metadata",
+        operation: criterion.operation,
+      });
+    } else if (criterion.category === "log") {
+      setLogSearchValue(criterion.value);
+    } else {
+      setInputValue(criterion.value);
+    }
+
+    // Ensure search bar is expanded
+    setIsSearchExpanded(true);
+  };
+
   const handleAddCriterion = () => {
     if (disabled) return;
 
@@ -154,24 +200,42 @@ const SearchBar: React.FC<SearchBarProps> = ({
     }
 
     if (categoryValue && currentCriterion.operation && searchValue) {
-      const newCriterion: SearchCriterion = {
-        id: Date.now().toString(),
-        category: categoryValue,
-        operation: currentCriterion.operation,
-        value: searchValue,
-        logicalOperator: criteria.length > 0 ? "AND" : undefined,
-      };
+      let newCriteria: SearchCriterion[];
+      const operation = currentCriterion.operation; // Guaranteed to be string due to the if condition
 
-      const newCriteria = [...criteria, newCriterion];
+      if (editingCriterionId) {
+        // Update existing criterion
+        newCriteria = criteria.map((c) =>
+          c.id === editingCriterionId
+            ? {
+                ...c,
+                category: categoryValue,
+                operation: operation,
+                value: searchValue,
+              }
+            : c,
+        );
+        setEditingCriterionId(null);
+      } else {
+        // Add new criterion
+        const newCriterion: SearchCriterion = {
+          id: Date.now().toString(),
+          category: categoryValue,
+          operation: operation,
+          value: searchValue,
+          logicalOperator: criteria.length > 0 ? "AND" : undefined,
+        };
+        newCriteria = [...criteria, newCriterion];
+      }
+
       setCriteria(newCriteria);
       setCurrentCriterion({ category: "log", operation: "contains" });
       setInputValue("");
       setMetadataCategoryValue("");
       setMetadataValue("");
-      // Clear logSearchValue when adding a criterion
       setLogSearchValue("");
       onSearch(newCriteria);
-      // Collapse search after adding criterion
+      // Collapse search after adding/updating criterion
       setIsSearchExpanded(false);
     }
   };
@@ -181,6 +245,17 @@ const SearchBar: React.FC<SearchBarProps> = ({
 
     const newCriteria = criteria.filter((c) => c.id !== id);
     setCriteria(newCriteria);
+
+    // If we're editing the criterion being removed, clear the edit state
+    if (editingCriterionId === id) {
+      setEditingCriterionId(null);
+      setCurrentCriterion({ category: "log", operation: "contains" });
+      setInputValue("");
+      setMetadataCategoryValue("");
+      setMetadataValue("");
+      setLogSearchValue("");
+    }
+
     // If no criteria left, default back to log category
     if (newCriteria.length === 0) {
       setCurrentCriterion({ category: "log", operation: "contains" });
@@ -237,7 +312,10 @@ const SearchBar: React.FC<SearchBarProps> = ({
                       {criterion.logicalOperator}
                     </span>
                   )}
-                  <div className="flex items-center space-x-1 bg-gray-100 dark:bg-gray-700 rounded-md px-2 py-1">
+                  <div
+                    className="flex items-center space-x-1 rounded-md px-2 py-1 cursor-pointer transition-all bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600"
+                    onClick={() => handleEditCriterion(criterion)}
+                  >
                     <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
                       {getCategoryLabel(criterion.category)}
                     </span>
@@ -250,7 +328,10 @@ const SearchBar: React.FC<SearchBarProps> = ({
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => handleRemoveCriterion(criterion.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveCriterion(criterion.id);
+                      }}
                       className="ml-0.5 h-4 w-4 p-0 opacity-70 transition-opacity hover:opacity-100 flex-shrink-0"
                       disabled={disabled}
                     >
@@ -427,7 +508,14 @@ const SearchBar: React.FC<SearchBarProps> = ({
                     if (currentCriterion.category === "log") {
                       return operation.value === "contains";
                     }
-                    // For other categories, show '=' operation
+                    // For service_name and service_environment, show both operations
+                    if (
+                      currentCriterion.category === "service_name" ||
+                      currentCriterion.category === "service_environment"
+                    ) {
+                      return true; // Show both '=' and 'contains'
+                    }
+                    // For other categories (metadata), show '=' operation only
                     return operation.value === "=";
                   }).map((operation) => (
                     <DropdownMenuRadioItem
@@ -460,7 +548,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
                   <div className="flex items-center gap-1">
                     <span>Press</span>
                     <Kbd>Enter</Kbd>
-                    <span>to add</span>
+                    <span>to {editingCriterionId ? "update" : "add"}</span>
                   </div>
                 </TooltipContent>
               </Tooltip>
@@ -484,7 +572,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
                   <div className="flex items-center gap-1">
                     <span>Press</span>
                     <Kbd>Enter</Kbd>
-                    <span>to add</span>
+                    <span>to {editingCriterionId ? "update" : "add"}</span>
                   </div>
                 </TooltipContent>
               </Tooltip>
@@ -509,7 +597,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
                     <div className="flex items-center gap-1">
                       <span>Press</span>
                       <Kbd>Enter</Kbd>
-                      <span>to add</span>
+                      <span>to {editingCriterionId ? "update" : "add"}</span>
                     </div>
                   </TooltipContent>
                 </Tooltip>
@@ -522,6 +610,8 @@ const SearchBar: React.FC<SearchBarProps> = ({
               onClick={() => {
                 // Clear all completed criteria
                 setCriteria([]);
+                // Clear editing state
+                setEditingCriterionId(null);
                 // Clear current criterion being built and reset to default
                 setCurrentCriterion({ category: "log", operation: "contains" });
                 // Clear input value
