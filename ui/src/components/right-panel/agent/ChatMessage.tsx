@@ -277,27 +277,36 @@ const renderMarkdown = (
                   {reference.span_id && (
                     <div>
                       <span className="font-semibold text-sm">Span ID:</span>{" "}
-                      <button
-                        onClick={(e) => {
-                          // Prevent event bubbling
-                          e.preventDefault();
-                          e.stopPropagation();
+                      {reference.span_id === "limit-exceeded-placeholder" ? (
+                        <span
+                          className="text-sm text-gray-500 dark:text-gray-400"
+                          title="This span is a placeholder for a limit-exceeded trace"
+                        >
+                          {reference.span_id}
+                        </span>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            // Prevent event bubbling
+                            e.preventDefault();
+                            e.stopPropagation();
 
-                          // Force close the hover card immediately to prevent popup persistence
-                          setOpenHoverCard?.(null);
+                            // Force close the hover card immediately to prevent popup persistence
+                            setOpenHoverCard?.(null);
 
-                          // Small delay to ensure hover card closes completely before view switch
-                          // This prevents visual artifacts during the transition
-                          setTimeout(() => {
-                            onSpanSelect?.(reference.span_id!);
-                            onViewTypeChange?.("log");
-                          }, 100);
-                        }}
-                        className="text-sm text-black dark:text-white hover:text-gray-700 dark:hover:text-gray-300 underline cursor-pointer transition-colors"
-                        title="Click to select this span and switch to log view"
-                      >
-                        {reference.span_id}
-                      </button>
+                            // Small delay to ensure hover card closes completely before view switch
+                            // This prevents visual artifacts during the transition
+                            setTimeout(() => {
+                              onSpanSelect?.(reference.span_id!);
+                              onViewTypeChange?.("log");
+                            }, 100);
+                          }}
+                          className="text-sm text-black dark:text-white hover:text-gray-700 dark:hover:text-gray-300 underline cursor-pointer transition-colors"
+                          title="Click to select this span and switch to log view"
+                        >
+                          {reference.span_id}
+                        </button>
+                      )}
                     </div>
                   )}
                   {reference.span_function_name && (
