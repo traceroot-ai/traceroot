@@ -2,8 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 import { toast } from "react-hot-toast";
 import { useStableCustomer } from "@/hooks/useStableCustomer";
 import { SettingsSidebar } from "./SettingsSidebar";
@@ -25,18 +24,17 @@ export function SettingsContainer() {
   const router = useRouter();
 
   // Always call hooks to maintain consistent hook order
-  const { user: clerkUser, isLoaded: clerkLoaded } = useUser();
-  const { getToken } = useAuth();
+  const { user, isLoaded } = useAuth();
 
-  // Map Clerk user to legacy user format
-  const rawUser = clerkUser
+  // Map user to legacy user format
+  const rawUser = user
     ? {
-        email: clerkUser.emailAddresses?.[0]?.emailAddress,
-        user_id: clerkUser.id,
+        email: user.email,
+        user_id: user.id,
       }
     : null;
-  const rawUserLoading = !clerkLoaded;
-  const rawGetAuthState = async () => await getToken();
+  const rawUserLoading = !isLoaded;
+  const rawGetAuthState = async () => "mock-token"; // Mock auth token for local mode
 
   const {
     customer: rawCustomer,

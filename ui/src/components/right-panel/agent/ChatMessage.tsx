@@ -3,7 +3,7 @@ import { RiRobot2Line } from "react-icons/ri";
 import { GoCopy } from "react-icons/go";
 import { FaGithub } from "react-icons/fa";
 import { ChartColumn } from "lucide-react";
-import { useUser } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 import { Reference } from "../../../models/chat";
 import { Spinner } from "../../ui/shadcn-io/spinner";
 import {
@@ -498,9 +498,8 @@ export default function ChatMessage({
   onViewTypeChange,
   chatId,
 }: ChatMessageProps) {
-  const { user } = useUser();
-  const avatarLetter =
-    user?.emailAddresses?.[0]?.emailAddress?.charAt(0)?.toUpperCase() || "U";
+  const { user } = useAuth();
+  const avatarLetter = user?.email?.charAt(0)?.toUpperCase() || "U";
   // State to control all hover cards in this component
   // We need controlled state to programmatically close hover cards when clicking span links
   // This prevents the popup from persisting and moving to the left panel during view transitions

@@ -6,7 +6,7 @@ import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AutumnProvider } from "autumn-js/react";
 import AuthGuard from "@/components/auth/AuthGuard";
 import SubscriptionGuard from "@/components/auth/SubscriptionGuard";
-import { useUser } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 
 export default function AuthenticatedLayout({
   children,
@@ -15,23 +15,23 @@ export default function AuthenticatedLayout({
   children: React.ReactNode;
   isPublicRoute?: boolean;
 }) {
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded, isAuthenticated } = useAuth();
 
   // Determine if user is authenticated - memoize based on user ID only
-  // This prevents AutumnProvider from re-rendering on Clerk token refresh (every 60s)
-  const isAuthenticated = useMemo(
-    () => isLoaded && !!user,
+  // This prevents AutumnProvider from re-rendering on token refresh (every 60s)
+  const isAuthenticatedMemo = useMemo(
+    () => isLoaded && isAuthenticated,
     [isLoaded, user?.id], // Only depend on user.id, not the whole user object
   );
 
   // Memoize customerData to prevent new object creation on every render
   const customerData = useMemo(
-    () => (isAuthenticated ? undefined : {}),
-    [isAuthenticated],
+    () => (isAuthenticatedMemo ? undefined : {}),
+    [isAuthenticatedMemo],
   );
 
   // Create a stable key for AutumnProvider based on user ID
-  // This prevents AutumnProvider from unmounting/remounting on Clerk token refresh
+  // This prevents AutumnProvider from unmounting/remounting on token refresh
   const autumnKey = useMemo(
     () => (user?.id ? `autumn-${user.id}` : "autumn-guest"),
     [user?.id],
@@ -42,7 +42,7 @@ export default function AuthenticatedLayout({
     <AuthGuard isPublicRoute={isPublicRoute}>
       <AutumnProvider
         key={autumnKey}
-        includeCredentials={isAuthenticated}
+        includeCredentials={isAuthenticatedMemo}
         customerData={customerData}
       >
         <SubscriptionGuard isPublicRoute={isPublicRoute}>

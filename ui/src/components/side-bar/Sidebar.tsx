@@ -49,8 +49,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
-import { useUser } from "@clerk/nextjs";
-import { useClerk } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 import { useSubscription } from "../../hooks/useSubscription";
 
 function LogoComponent() {
@@ -380,18 +379,17 @@ function SettingsComponent() {
 }
 
 function ProfileComponent() {
-  const { user, isLoaded } = useUser();
-  const { signOut } = useClerk();
+  const { user, isLoaded, signOut } = useAuth();
   const { state } = useSidebar();
 
   // User is loading if not loaded
   const isLoading = !isLoaded;
 
   // Get user display data
-  const email = user?.emailAddresses?.[0]?.emailAddress;
+  const email = user?.email;
   const givenName = user?.firstName;
   const familyName = user?.lastName;
-  const company = user?.publicMetadata?.company as string;
+  const company = undefined; // Not available in mock mode
 
   const displayAvatarLetter = email?.charAt(0)?.toUpperCase() || "U";
 

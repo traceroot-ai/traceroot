@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { TraceLog } from "@/models/log";
-import { createBackendAuthHeaders } from "@/lib/server-auth-headers";
+import { createBackendAuthHeaders } from "@/lib/auth/server";
 
 export interface LogResponse {
   success: boolean;
