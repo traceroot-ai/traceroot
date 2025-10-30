@@ -609,6 +609,8 @@ class ExploreRouter:
                             ) = await log_client.get_log_timestamps_by_trace_id(
                                 trace_id=req_data.trace_id,
                                 log_group_name=log_group_name,
+                                start_time=req_data.start_time,
+                                end_time=req_data.end_time,
                             )
                             if earliest and latest:
                                 log_start_time = earliest
