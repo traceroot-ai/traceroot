@@ -13,7 +13,15 @@ import {
 } from "@/components/ui/tooltip";
 import { getProviderInfo, appendProviderParams } from "@/utils/provider";
 import { IoCopyOutline } from "react-icons/io5";
-import { Download, ArrowDownUp, Group, Ungroup } from "lucide-react";
+import { FaGithub } from "react-icons/fa";
+import {
+  Download,
+  ArrowDownUp,
+  Group,
+  Ungroup,
+  Plus,
+  Minus,
+} from "lucide-react";
 
 interface LogModeDetailProps {
   startTime?: Date;
@@ -331,6 +339,13 @@ export default function LogModeDetail({
     }
   };
 
+  const getGitHubLink = (entry: LogEntry) => {
+    if (entry.git_url && entry.commit_id) {
+      return entry.git_url;
+    }
+    return null;
+  };
+
   const handleDownloadCSV = () => {
     const csvRows: string[] = [];
 
@@ -452,15 +467,15 @@ export default function LogModeDetail({
   }
 
   return (
-    <div className="text-sm bg-zinc-50 dark:bg-zinc-900 rounded-md pt-2 mx-4 overflow-y-auto overflow-x-visible transition-all duration-100 ease-in-out pb-25">
+    <div className="text-sm bg-zinc-50 dark:bg-zinc-900 rounded-md pt-2 mx-8 overflow-y-auto overflow-x-visible transition-all duration-100 ease-in-out pb-25">
       {/* Log Level Statistics and Action Buttons */}
-      <div className="flex justify-between items-center mb-2">
+      <div className="flex justify-between items-center mb-2 mx-2">
         <div>
           <div className="font-mono flex flex-wrap items-center gap-2 px-3 py-1 text-xs my-0.5 text-gray-700 dark:text-gray-200">
             {logStats.DEBUG > 0 && (
               <Badge
                 variant="secondary"
-                className="h-6 px-2 py-1.5 font-normal text-white"
+                className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
                 style={{ backgroundColor: "#a855f7" }}
               >
                 DEBUG: {logStats.DEBUG}
@@ -469,7 +484,7 @@ export default function LogModeDetail({
             {logStats.INFO > 0 && (
               <Badge
                 variant="secondary"
-                className="h-6 px-2 py-1.5 font-normal text-white"
+                className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
                 style={{ backgroundColor: "#64748b" }}
               >
                 INFO: {logStats.INFO}
@@ -478,7 +493,7 @@ export default function LogModeDetail({
             {logStats.WARNING > 0 && (
               <Badge
                 variant="secondary"
-                className="h-6 px-2 py-1.5 font-normal text-white"
+                className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
                 style={{ backgroundColor: "#fb923c" }}
               >
                 WARNING: {logStats.WARNING}
@@ -487,7 +502,7 @@ export default function LogModeDetail({
             {logStats.ERROR > 0 && (
               <Badge
                 variant="secondary"
-                className="h-6 px-2 py-1.5 font-normal text-white"
+                className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
                 style={{ backgroundColor: "#dc2626" }}
               >
                 ERROR: {logStats.ERROR}
@@ -496,7 +511,7 @@ export default function LogModeDetail({
             {logStats.CRITICAL > 0 && (
               <Badge
                 variant="secondary"
-                className="h-6 px-2 py-1.5 font-normal text-white"
+                className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
                 style={{ backgroundColor: "#7f1d1d" }}
               >
                 CRITICAL: {logStats.CRITICAL}
@@ -504,7 +519,7 @@ export default function LogModeDetail({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0 mx-3">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -562,7 +577,7 @@ export default function LogModeDetail({
       </div>
 
       {/* Render logs */}
-      <div className="space-y-1 px-3">
+      <div className="space-y-1 mx-5">
         {isGrouped ? (
           // Grouped view - group by trace ID
           Array.from(groupedLogEntries.entries()).map(([traceId, { logs }]) => {
@@ -590,20 +605,26 @@ export default function LogModeDetail({
                 <div className="bg-white dark:bg-black p-1 border-b border-neutral-300 dark:border-neutral-700">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-0.5 flex-1">
-                      <Badge
-                        variant="default"
-                        className="min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left"
-                        title={traceId}
-                      >
-                        {traceId.substring(0, 12)}...
-                      </Badge>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant="default"
+                            className="min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left cursor-default"
+                          >
+                            {traceId.substring(0, 12)}...
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="font-mono text-xs">{traceId}</p>
+                        </TooltipContent>
+                      </Tooltip>
                       <span className="text-xs text-gray-500 dark:text-gray-400 mr-2">
                         {logs.length} logs
                       </span>
                       {groupStats.ERROR > 0 && (
                         <Badge
                           variant="secondary"
-                          className="h-5 px-1.5 py-0.5 text-[10px] font-normal text-white"
+                          className="h-5 px-1.5 py-0.5 text-[10px] font-normal text-white mr-1"
                           style={{ backgroundColor: "#dc2626" }}
                         >
                           ERROR: {groupStats.ERROR}
@@ -612,7 +633,7 @@ export default function LogModeDetail({
                       {groupStats.WARNING > 0 && (
                         <Badge
                           variant="secondary"
-                          className="h-5 px-1.5 py-0.5 text-[10px] font-normal text-white ml-1"
+                          className="h-5 px-1.5 py-0.5 text-[10px] font-normal text-white"
                           style={{ backgroundColor: "#fb923c" }}
                         >
                           WARNING: {groupStats.WARNING}
@@ -622,19 +643,24 @@ export default function LogModeDetail({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-6 px-2"
+                      className="h-8 w-8 p-0"
                       onClick={() => toggleTraceBlock(traceId)}
                     >
-                      {isExpanded ? "▼" : "▶"}
+                      {isExpanded ? (
+                        <Minus className="w-4 h-4" />
+                      ) : (
+                        <Plus className="w-4 h-4" />
+                      )}
                     </Button>
                   </div>
                 </div>
 
                 {/* Trace logs */}
                 {isExpanded && (
-                  <div className="p-2 space-y-1 bg-zinc-50 dark:border-zinc-950">
+                  <div className="p-2 space-y-1 bg-zinc-50 dark:bg-zinc-950">
                     {logs.map(({ entry, spanId }, idx) => {
                       const entryKey = `${traceId}-${spanId}-${idx}`;
+                      const githubLink = getGitHubLink(entry);
                       return (
                         <div
                           key={entryKey}
@@ -658,6 +684,17 @@ export default function LogModeDetail({
                                 <span className="text-neutral-600 dark:text-neutral-300 italic break-all">
                                   {entry.function_name}
                                 </span>
+                                {githubLink && (
+                                  <a
+                                    href={githubLink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-neutral-500 dark:text-neutral-300 hover:text-neutral-600 dark:hover:text-neutral-400 transition-colors"
+                                    title="View on GitHub"
+                                  >
+                                    <FaGithub className="inline-block" />
+                                  </a>
+                                )}
                               </div>
                               <div className="relative font-mono p-1 bg-zinc-50 dark:bg-zinc-900 rounded text-neutral-800 dark:text-neutral-300 text-xs min-w-0 max-w-full overflow-hidden min-h-[1.5rem]">
                                 <Button
@@ -685,55 +722,69 @@ export default function LogModeDetail({
           })
         ) : (
           // Ungrouped view - show all logs in order
-          <div className="p-2 space-y-1">
-            {orderedLogEntries.map(({ entry, traceId, spanId }, idx) => (
-              <div
-                key={`${traceId}-${spanId}-${idx}`}
-                className="relative p-1.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 transform transition-all duration-100 ease-in-out hover:shadow"
-              >
-                <div className="flex items-start min-w-0">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex font-mono items-center space-x-2 text-xs flex-wrap min-w-0">
-                      <span
-                        className="font-medium"
-                        style={{ color: getLevelColor(entry.level) }}
-                      >
-                        {entry.level}
-                      </span>
-                      <span className="text-gray-500 dark:text-gray-400">
-                        {formatTimestamp(entry.time)}
-                      </span>
-                      <span className="text-gray-400 dark:text-gray-500 font-mono">
-                        {entry.file_name}:{entry.line_number}
-                      </span>
-                      <span className="text-neutral-600 dark:text-neutral-300 italic break-all">
-                        {entry.function_name}
-                      </span>
-                    </div>
-                    <div className="relative font-mono p-1 bg-zinc-50 dark:bg-zinc-900 rounded text-neutral-800 dark:text-neutral-300 text-xs min-w-0 max-w-full overflow-hidden min-h-[1.5rem]">
-                      <Button
-                        onClick={() => copyToClipboard(entry.message)}
-                        variant="ghost"
-                        size="icon"
-                        className="absolute top-0.5 right-0.5 h-5 w-5 opacity-70 hover:opacity-100 transition-opacity z-10"
-                        title="Copy message"
-                      >
-                        <IoCopyOutline className="w-3 h-3" />
-                      </Button>
-                      <span className="whitespace-pre-wrap break-all word-break-break-all overflow-wrap-anywhere m-0 max-w-full pr-7 block">
-                        {entry.message}
-                      </span>
+          <div className="p-2 space-y-1 bg-zinc-50 dark:bg-zinc-950">
+            {orderedLogEntries.map(({ entry, traceId, spanId }, idx) => {
+              const githubLink = getGitHubLink(entry);
+              return (
+                <div
+                  key={`${traceId}-${spanId}-${idx}`}
+                  className="relative p-1.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 transform transition-all duration-100 ease-in-out hover:shadow"
+                >
+                  <div className="flex items-start min-w-0">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex font-mono items-center space-x-2 text-xs flex-wrap min-w-0">
+                        <span
+                          className="font-medium"
+                          style={{ color: getLevelColor(entry.level) }}
+                        >
+                          {entry.level}
+                        </span>
+                        <span className="text-gray-500 dark:text-gray-400">
+                          {formatTimestamp(entry.time)}
+                        </span>
+                        <span className="text-gray-400 dark:text-gray-500 font-mono">
+                          {entry.file_name}:{entry.line_number}
+                        </span>
+                        <span className="text-neutral-600 dark:text-neutral-300 italic break-all">
+                          {entry.function_name}
+                        </span>
+                        {githubLink && (
+                          <a
+                            href={githubLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-neutral-500 dark:text-neutral-300 hover:text-neutral-600 dark:hover:text-neutral-400 transition-colors"
+                            title="View on GitHub"
+                          >
+                            <FaGithub className="inline-block" />
+                          </a>
+                        )}
+                      </div>
+                      <div className="relative font-mono p-1 bg-zinc-50 dark:bg-zinc-900 rounded text-neutral-800 dark:text-neutral-300 text-xs min-w-0 max-w-full overflow-hidden min-h-[1.5rem]">
+                        <Button
+                          onClick={() => copyToClipboard(entry.message)}
+                          variant="ghost"
+                          size="icon"
+                          className="absolute top-0.5 right-0.5 h-5 w-5 opacity-70 hover:opacity-100 transition-opacity z-10"
+                          title="Copy message"
+                        >
+                          <IoCopyOutline className="w-3 h-3" />
+                        </Button>
+                        <span className="whitespace-pre-wrap break-all word-break-break-all overflow-wrap-anywhere m-0 max-w-full pr-7 block">
+                          {entry.message}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
         {/* Load More Button / Summary */}
         {!loadingMore && orderedLogEntries.length > 0 && (
-          <div className="mt-3 px-3">
+          <div className="mt-3">
             <button
               onClick={
                 hasMore ? () => fetchLogs(nextPaginationToken) : undefined

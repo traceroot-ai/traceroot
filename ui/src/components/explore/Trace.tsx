@@ -1271,7 +1271,7 @@ export const Trace: React.FC<TraceProps> = ({
                                       <TooltipTrigger asChild>
                                         <Badge
                                           variant="secondary"
-                                          className="h-6 m-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-light"
+                                          className="h-6 mr-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-light"
                                         >
                                           <IoWarningOutline
                                             size={16}
@@ -1762,7 +1762,7 @@ export const Trace: React.FC<TraceProps> = ({
                                                 <TooltipTrigger asChild>
                                                   <Badge
                                                     variant="secondary"
-                                                    className="h-6 m-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-light"
+                                                    className="h-6 mr-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-light"
                                                   >
                                                     <IoWarningOutline
                                                       size={16}

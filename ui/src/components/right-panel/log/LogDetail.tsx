@@ -166,6 +166,17 @@ export default function LogDetail({
                 const endTime = new Date(trace.end_time * 1000).toISOString();
                 url.searchParams.append("start_time", startTime);
                 url.searchParams.append("end_time", endTime);
+              } else if (traceQueryStartTime && traceQueryEndTime) {
+                // For LimitExceeded traces (start_time=0, end_time=0) or when trace not found,
+                // use the query window from the trace search
+                url.searchParams.append(
+                  "start_time",
+                  traceQueryStartTime.toISOString(),
+                );
+                url.searchParams.append(
+                  "end_time",
+                  traceQueryEndTime.toISOString(),
+                );
               }
 
               appendProviderParams(
@@ -858,7 +869,7 @@ export default function LogDetail({
                     <div className="flex items-center">
                       <Badge
                         variant="secondary"
-                        className="h-6 px-2 py-1.5 font-normal text-white"
+                        className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
                         style={{ backgroundColor: "#a855f7" }}
                       >
                         DEBUG: {logStats.DEBUG}
@@ -869,7 +880,7 @@ export default function LogDetail({
                     <div className="flex items-center">
                       <Badge
                         variant="secondary"
-                        className="h-6 px-2 py-1.5 font-normal text-white"
+                        className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
                         style={{ backgroundColor: "#64748b" }}
                       >
                         INFO: {logStats.INFO}
@@ -880,7 +891,7 @@ export default function LogDetail({
                     <div className="flex items-center">
                       <Badge
                         variant="secondary"
-                        className="h-6 px-2 py-1.5 font-normal text-white"
+                        className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
                         style={{ backgroundColor: "#fb923c" }}
                       >
                         WARNING: {logStats.WARNING}
@@ -891,7 +902,7 @@ export default function LogDetail({
                     <div className="flex items-center">
                       <Badge
                         variant="secondary"
-                        className="h-6 px-2 py-1.5 font-normal text-white"
+                        className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
                         style={{ backgroundColor: "#dc2626" }}
                       >
                         ERROR: {logStats.ERROR}
@@ -902,7 +913,7 @@ export default function LogDetail({
                     <div className="flex items-center">
                       <Badge
                         variant="secondary"
-                        className="h-6 px-2 py-1.5 font-normal text-white"
+                        className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
                         style={{ backgroundColor: "#7f1d1d" }}
                       >
                         CRITICAL: {logStats.CRITICAL}
@@ -1041,13 +1052,21 @@ export default function LogDetail({
                                       )}
                                     </div>
                                   )}
-                                <Badge
-                                  variant="default"
-                                  className="min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left"
-                                  title={traceId}
-                                >
-                                  {traceId.substring(0, 12)}...
-                                </Badge>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge
+                                      variant="default"
+                                      className="min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left cursor-default"
+                                    >
+                                      {traceId.substring(0, 12)}...
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p className="font-mono text-xs">
+                                      {traceId}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
                                 {trace?.service_name && (
                                   <Badge
                                     variant="default"
