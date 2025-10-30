@@ -215,7 +215,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
           size="icon"
           onClick={() => !disabled && setIsSearchExpanded(true)}
           disabled={disabled}
-          className="w-10 h-10 flex-shrink-0"
+          className={`w-10 h-10 flex-shrink-0 ${criteria.length > 0 ? "bg-zinc-100 dark:bg-zinc-800" : ""}`}
         >
           <Search className="w-4 h-4" />
         </Button>
