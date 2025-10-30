@@ -131,8 +131,8 @@ export default function LogModeTopBar({
   };
 
   return (
-    <div className="bg-white dark:bg-zinc-950 p-4">
-      <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-2">
+    <div className="bg-white dark:bg-zinc-950 py-4">
+      <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-2 mx-8">
         <div className="flex-1 min-w-0">
           <SearchBar
             onSearch={handleSearch}
