@@ -1234,11 +1234,17 @@ export const Trace: React.FC<TraceProps> = ({
                                       variant="outline"
                                       className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 hidden [@media(min-width:250px)]:inline-flex"
                                     >
-                                      {formatDuration(trace.duration)}
+                                      {trace.service_name === "LimitExceeded"
+                                        ? "N/A"
+                                        : formatDuration(trace.duration)}
                                     </Badge>
                                   </TooltipTrigger>
                                   <TooltipContent>
-                                    <p>{trace.duration.toFixed(2)} ms</p>
+                                    <p>
+                                      {trace.service_name === "LimitExceeded"
+                                        ? "N/A"
+                                        : `${trace.duration.toFixed(2)} ms`}
+                                    </p>
                                   </TooltipContent>
                                 </Tooltip>
 
@@ -1721,12 +1727,20 @@ export const Trace: React.FC<TraceProps> = ({
                                                 variant="outline"
                                                 className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 hidden [@media(min-width:250px)]:inline-flex"
                                               >
-                                                {formatDuration(trace.duration)}
+                                                {trace.service_name ===
+                                                "LimitExceeded"
+                                                  ? "N/A"
+                                                  : formatDuration(
+                                                      trace.duration,
+                                                    )}
                                               </Badge>
                                             </TooltipTrigger>
                                             <TooltipContent>
                                               <p>
-                                                {trace.duration.toFixed(2)} ms
+                                                {trace.service_name ===
+                                                "LimitExceeded"
+                                                  ? "N/A"
+                                                  : `${trace.duration.toFixed(2)} ms`}
                                               </p>
                                             </TooltipContent>
                                           </Tooltip>
