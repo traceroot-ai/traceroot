@@ -44,6 +44,9 @@ export default function LogModeDetail({
   const [expandedTraceBlocks, setExpandedTraceBlocks] = useState<Set<string>>(
     new Set(),
   );
+  const [traceBlockSortOrder, setTraceBlockSortOrder] = useState<
+    Map<string, boolean>
+  >(new Map());
   const [nextPaginationToken, setNextPaginationToken] = useState<string | null>(
     null,
   );
@@ -430,6 +433,15 @@ export default function LogModeDetail({
     });
   };
 
+  const toggleTraceBlockSort = (traceId: string) => {
+    setTraceBlockSortOrder((prev) => {
+      const newMap = new Map(prev);
+      const currentOrder = newMap.get(traceId) ?? true; // default to descending
+      newMap.set(traceId, !currentOrder);
+      return newMap;
+    });
+  };
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-white dark:bg-zinc-950">
@@ -582,6 +594,7 @@ export default function LogModeDetail({
           // Grouped view - group by trace ID
           Array.from(groupedLogEntries.entries()).map(([traceId, { logs }]) => {
             const isExpanded = expandedTraceBlocks.has(traceId);
+            const isDescending = traceBlockSortOrder.get(traceId) ?? true;
             const groupStats = {
               DEBUG: 0,
               INFO: 0,
@@ -596,6 +609,12 @@ export default function LogModeDetail({
               }
             });
 
+            // Sort logs within this group based on the group's sort order
+            const sortedLogs = [...logs].sort((a, b) => {
+              const diff = a.entry.time - b.entry.time;
+              return isDescending ? -diff : diff;
+            });
+
             return (
               <div
                 key={traceId}
@@ -604,27 +623,28 @@ export default function LogModeDetail({
                 {/* Trace Block Header */}
                 <div className="bg-white dark:bg-black p-1 border-b border-neutral-300 dark:border-neutral-700">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-0.5 flex-1">
+                    <div className="flex items-center gap-0.5 flex-1 min-w-0">
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Badge
                             variant="default"
-                            className="min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left cursor-default"
+                            className="h-6 mr-2 justify-start font-mono font-normal overflow-hidden text-ellipsis flex-shrink text-left cursor-default"
+                            style={{ maxWidth: "fit-content" }}
                           >
-                            {traceId.substring(0, 12)}...
+                            {traceId}
                           </Badge>
                         </TooltipTrigger>
                         <TooltipContent>
                           <p className="font-mono text-xs">{traceId}</p>
                         </TooltipContent>
                       </Tooltip>
-                      <span className="text-xs text-gray-500 dark:text-gray-400 mr-2">
+                      <span className="text-xs text-gray-500 dark:text-gray-400 mr-2 flex-shrink-0">
                         {logs.length} logs
                       </span>
                       {groupStats.ERROR > 0 && (
                         <Badge
                           variant="secondary"
-                          className="h-5 px-1.5 py-0.5 text-[10px] font-normal text-white mr-1"
+                          className="h-5 px-1.5 py-0.5 text-[10px] font-normal text-white mr-1 flex-shrink-0"
                           style={{ backgroundColor: "#dc2626" }}
                         >
                           ERROR: {groupStats.ERROR}
@@ -633,32 +653,42 @@ export default function LogModeDetail({
                       {groupStats.WARNING > 0 && (
                         <Badge
                           variant="secondary"
-                          className="h-5 px-1.5 py-0.5 text-[10px] font-normal text-white"
+                          className="h-5 px-1.5 py-0.5 text-[10px] font-normal text-white flex-shrink-0"
                           style={{ backgroundColor: "#fb923c" }}
                         >
                           WARNING: {groupStats.WARNING}
                         </Badge>
                       )}
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      onClick={() => toggleTraceBlock(traceId)}
-                    >
-                      {isExpanded ? (
-                        <Minus className="w-4 h-4" />
-                      ) : (
-                        <Plus className="w-4 h-4" />
-                      )}
-                    </Button>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => toggleTraceBlockSort(traceId)}
+                      >
+                        <ArrowDownUp className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => toggleTraceBlock(traceId)}
+                      >
+                        {isExpanded ? (
+                          <Minus className="w-4 h-4" />
+                        ) : (
+                          <Plus className="w-4 h-4" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </div>
 
                 {/* Trace logs */}
                 {isExpanded && (
                   <div className="p-2 space-y-1 bg-zinc-50 dark:bg-zinc-950">
-                    {logs.map(({ entry, spanId }, idx) => {
+                    {sortedLogs.map(({ entry, spanId }, idx) => {
                       const entryKey = `${traceId}-${spanId}-${idx}`;
                       const githubLink = getGitHubLink(entry);
                       return (
@@ -733,6 +763,26 @@ export default function LogModeDetail({
                   <div className="flex items-start min-w-0">
                     <div className="flex-1 min-w-0">
                       <div className="flex font-mono items-center space-x-2 text-xs flex-wrap min-w-0">
+                        {/* Trace ID Badge */}
+                        {traceId &&
+                          traceId !== "unknown" &&
+                          !traceId.startsWith("no-trace") && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="default"
+                                  className="h-5 px-1.5 py-0.5 font-mono font-normal text-[10px] cursor-default"
+                                >
+                                  {traceId.length > 12
+                                    ? `${traceId.substring(0, 12)}...`
+                                    : traceId}
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="font-mono text-xs">{traceId}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
                         <span
                           className="font-medium"
                           style={{ color: getLevelColor(entry.level) }}
