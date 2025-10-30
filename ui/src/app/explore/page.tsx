@@ -146,6 +146,9 @@ export default function Explore() {
       // Clear selected traces and spans
       setSelectedTraceIds([]);
       setSelectedSpanIds([]);
+      // Clear search terms when switching to log mode
+      setMetadataSearchTerms([]);
+      setLogSearchValue("");
       setIsLogMode(true);
 
       // Rebuild URL with mode=log at the end
