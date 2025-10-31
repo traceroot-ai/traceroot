@@ -12,7 +12,7 @@ import {
   ChatHistoryResponse,
   Reference,
 } from "@/models/chat";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 import { generateUuidHex } from "@/utils/uuid";
 import TopBar, { TopBarRef } from "./TopBar";
 

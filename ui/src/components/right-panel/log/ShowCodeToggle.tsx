@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { FaCode } from "react-icons/fa";
 import { LogEntry } from "@/models/log";
 import { CodeResponse } from "@/models/code";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {

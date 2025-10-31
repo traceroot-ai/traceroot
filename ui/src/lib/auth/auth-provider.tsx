@@ -9,6 +9,7 @@ const AuthContext = createContext<AuthContextValue>({
   isLoaded: false,
   isAuthenticated: false,
   signOut: async () => {},
+  getToken: async () => null,
 });
 
 /**
@@ -38,11 +39,17 @@ export function LocalAuthProvider({ children }: AuthProviderProps) {
     window.location.href = "/";
   };
 
+  const getToken = async () => {
+    // In mock mode, return a fake token
+    return "mock-auth-token";
+  };
+
   const value: AuthContextValue = {
     user,
     isLoaded,
     isAuthenticated: !!user,
     signOut,
+    getToken,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

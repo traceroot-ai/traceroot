@@ -360,6 +360,15 @@ function SettingsComponent() {
   const { state } = useSidebar();
   const pathname = usePathname();
 
+  // Hide settings in local mode
+  const isLocalMode =
+    process.env.NEXT_PUBLIC_DISABLE_AUTH === "true" ||
+    process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
+
+  if (isLocalMode) {
+    return null;
+  }
+
   return (
     <SidebarMenuButton
       asChild

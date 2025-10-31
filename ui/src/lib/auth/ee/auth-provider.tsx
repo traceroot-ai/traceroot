@@ -28,7 +28,7 @@ export function ClerkAuthProvider({ children }: AuthProviderProps) {
  */
 export function useClerkAuth(): AuthContextValue {
   const { user: clerkUser, isLoaded } = useUser();
-  const { signOut: clerkSignOut } = useClerk();
+  const { signOut: clerkSignOut, getToken: clerkGetToken } = useClerk();
 
   const user: AuthUser | null = useMemo(() => {
     if (!clerkUser) return null;
@@ -45,10 +45,15 @@ export function useClerkAuth(): AuthContextValue {
     await clerkSignOut();
   };
 
+  const getToken = async () => {
+    return await clerkGetToken();
+  };
+
   return {
     user,
     isLoaded,
     isAuthenticated: !!user,
     signOut,
+    getToken,
   };
 }

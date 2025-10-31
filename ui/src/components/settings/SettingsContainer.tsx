@@ -53,7 +53,7 @@ export function SettingsContainer() {
   }, [rawCustomer]);
 
   // Override values when payment is disabled
-  const user = isLocalMode ? null : rawUser;
+  const settingsUser = isLocalMode ? null : rawUser;
   const userLoading = isLocalMode ? false : rawUserLoading;
   const getAuthState = isLocalMode ? () => null : rawGetAuthState;
   const customer = isLocalMode ? null : rawCustomer;
@@ -173,7 +173,7 @@ export function SettingsContainer() {
   };
 
   const handleManageBilling = async () => {
-    if (!user?.email) {
+    if (!settingsUser?.email) {
       toast.error("Please sign in to manage billing");
       return;
     }
@@ -348,7 +348,7 @@ export function SettingsContainer() {
                       isOnTrial={isOnTrial}
                       handleManageBilling={handleManageBilling}
                       isProcessing={isProcessing}
-                      user={user}
+                      user={settingsUser}
                     />
                     <PaymentHistoryCard customer={customer} />
                   </>

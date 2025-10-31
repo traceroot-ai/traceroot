@@ -14,6 +14,7 @@ export interface AuthContextValue {
   isLoaded: boolean;
   isAuthenticated: boolean;
   signOut: () => Promise<void>;
+  getToken: () => Promise<string | null>;
 }
 
 export interface AuthProviderProps {
