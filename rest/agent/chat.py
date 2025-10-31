@@ -11,7 +11,7 @@ try:
 except ImportError:
     from rest.dao.mongodb_dao import TraceRootMongoDBClient
 
-from rest.agent.chunk.sequential import sequential_chunk
+from rest.agent.chunk.semantic import semantic_chunk
 from rest.agent.context.tree import SpanNode
 from rest.agent.filter.feature import log_feature_selector, span_feature_selector
 from rest.agent.filter.structure import filter_log_node, log_node_selector
@@ -420,8 +420,8 @@ class Chat:
     def get_context_messages(self, context: str) -> list[str]:
         r"""Get the context message.
         """
-        # Make this more efficient.
-        context_chunks = list(sequential_chunk(context))
+
+        context_chunks = list(semantic_chunk(context))
         if len(context_chunks) == 1:
             return [
                 (
