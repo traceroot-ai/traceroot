@@ -5,7 +5,7 @@ import {
   ReasoningContent,
   ReasoningTrigger,
 } from "@/components/ui/shadcn-io/ai/reasoning";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { processReasoningChunks } from "@/utils/streamingParser";
 

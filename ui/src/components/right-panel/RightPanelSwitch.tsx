@@ -6,7 +6,7 @@ import TracePanelSwitch from "./trace/TracePanelSwitch";
 import LogModeLayout from "./log/LogModeLayout";
 import ModeToggle, { ViewType } from "./ModeToggle";
 import { Span, Trace as TraceModel } from "@/models/trace";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 
 interface RightPanelSwitchProps {
   traceIds?: string[];

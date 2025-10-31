@@ -8,7 +8,7 @@ import React, {
 import { GoHistory } from "react-icons/go";
 import { Plus, X, Check, Download, ArrowUpRight } from "lucide-react";
 import { ChatMetadata, ChatMetadataHistory } from "@/models/chat";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import { loadProviderSelection, getProviderRegion } from "@/utils/provider";
 import { Button } from "@/components/ui/button";

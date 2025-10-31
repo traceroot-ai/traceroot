@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 import { useStableCustomer } from "@/hooks/useStableCustomer";
 
 interface SubscriptionGuardProps {
@@ -23,11 +23,11 @@ function SubscriptionGuardInner({
   children: React.ReactNode;
   isPublicRoute?: boolean;
 }) {
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
-  // User is authenticated if they're logged in with Clerk
+  // User is authenticated if they're logged in
   const userLoading = !isLoaded;
 
   // Call useStableCustomer hook (only called when wrapped in AutumnProvider)

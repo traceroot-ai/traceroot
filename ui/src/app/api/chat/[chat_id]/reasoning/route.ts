@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createBackendAuthHeaders } from "@/lib/server-auth-headers";
+import { createBackendAuthHeaders } from "@/lib/auth/server";
 
 interface ReasoningData {
   chunk_id: number;

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { Trace, TraceResponse } from "@/models/trace";
-import { getAuthTokenAndHeaders, createFetchHeaders } from "@/lib/clerk-auth";
+import { getAuthTokenAndHeaders, createFetchHeaders } from "@/lib/auth/server";
 
 const FETCH_TIMEOUT = 60000; // 60 seconds
 

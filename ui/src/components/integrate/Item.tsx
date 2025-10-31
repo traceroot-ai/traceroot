@@ -8,7 +8,7 @@ import { SiNotion, SiSlack, SiOpenai, SiAnthropic } from "react-icons/si";
 import { FaCheck } from "react-icons/fa";
 import { Integration } from "@/types/integration";
 import { TokenResource, ResourceType } from "@/models/integrate";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 import {
   Card,
   CardHeader,

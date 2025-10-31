@@ -3,7 +3,7 @@ import {
   GetChatMetadataHistoryRequest,
   ChatMetadataHistory,
 } from "@/models/chat";
-import { createBackendAuthHeaders } from "@/lib/server-auth-headers";
+import { createBackendAuthHeaders } from "@/lib/auth/server";
 
 export async function GET(
   request: Request,
