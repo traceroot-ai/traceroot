@@ -10,6 +10,7 @@ from rest.typing import (
     MessageType,
     Provider,
     Reference,
+    ReferenceWithTrace,
 )
 
 
@@ -18,6 +19,7 @@ class ChatRequest(BaseModel):
     message: str
     messageType: MessageType
     trace_id: str
+    trace_ids: list[str] = []  # Support multiple traces
     span_ids: list[str]
     start_time: datetime
     end_time: datetime
@@ -35,7 +37,7 @@ class ChatRequest(BaseModel):
 class ChatbotResponse(BaseModel):
     time: datetime
     message: str
-    reference: list[Reference]
+    reference: list[Reference | ReferenceWithTrace]
     message_type: MessageType
     chat_id: str
     action_type: ActionType | None = None
@@ -65,8 +67,20 @@ class ChatMetadata(BaseModel):
     chat_id: str
     timestamp: datetime
     chat_title: str
-    trace_id: str
+    trace_id: str  # Keep for backward compatibility
+    trace_ids: list[str] = []  # Support multiple traces
     user_id: str | None = None
+
+    @field_serializer('timestamp')
+    def serialize_timestamp(self, dt: datetime, _info) -> str:
+        """Serialize datetime to ISO string with explicit UTC timezone indicator."""
+        if dt.tzinfo is None:
+            # If naive datetime, assume UTC
+            return dt.isoformat() + 'Z'
+        else:
+            # Convert to UTC and add Z suffix
+            utc_dt = dt.astimezone(timezone.utc)
+            return utc_dt.isoformat().replace('+00:00', 'Z')
 
 
 class ChatMetadataHistory(BaseModel):
@@ -77,5 +91,33 @@ class GetChatMetadataRequest(BaseModel):
     chat_id: str
 
 
+class GetChatMetadataHistoryRawRequest(BaseModel):
+    """Raw request for getting chat metadata history from query parameters."""
+    trace_id: str | None = None
+    trace_ids: str | None = None  # Will be parsed from multi_items()
+
+    def to_chat_metadata_history_request(
+        self,
+        request
+    ) -> 'GetChatMetadataHistoryRequest':
+        """Convert raw request to GetChatMetadataHistoryRequest with proper list parsing.
+
+        Args:
+            request: FastAPI request object to parse multi-value parameters
+
+        Returns:
+            GetChatMetadataHistoryRequest with properly parsed trace_ids list
+        """
+        query_params = request.query_params
+        trace_ids = []
+
+        for key, value in query_params.multi_items():
+            if key == 'trace_ids':
+                trace_ids.append(value)
+
+        return GetChatMetadataHistoryRequest(trace_id=self.trace_id, trace_ids=trace_ids)
+
+
 class GetChatMetadataHistoryRequest(BaseModel):
-    trace_id: str
+    trace_id: str | None = None
+    trace_ids: list[str] = []

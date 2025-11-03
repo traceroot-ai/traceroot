@@ -11,10 +11,12 @@ export async function GET(
   try {
     const url = new URL(request.url);
     const trace_id = url.searchParams.get("trace_id");
+    const trace_ids = url.searchParams.getAll("trace_ids");
     const limit = url.searchParams.get("limit") || "5";
     const skip = url.searchParams.get("skip") || "0";
 
-    if (!trace_id) {
+    // Need at least one trace ID (either trace_id or trace_ids)
+    if (!trace_id && trace_ids.length === 0) {
       return NextResponse.json(
         { history: [], hasMore: false } as ChatMetadataHistory,
         {
@@ -30,7 +32,16 @@ export async function GET(
         // Get auth headers (automatically uses Clerk's auth() and currentUser())
         const headers = await createBackendAuthHeaders();
 
-        const apiUrl = `${restApiEndpoint}/v1/explore/get-chat-metadata-history?trace_id=${encodeURIComponent(trace_id)}&limit=${limit}&skip=${skip}`;
+        // Build query params
+        const params = new URLSearchParams();
+        if (trace_id) {
+          params.append("trace_id", trace_id);
+        }
+        trace_ids.forEach((id) => params.append("trace_ids", id));
+        params.append("limit", limit);
+        params.append("skip", skip);
+
+        const apiUrl = `${restApiEndpoint}/v1/explore/get-chat-metadata-history?${params.toString()}`;
         const apiResponse = await fetch(apiUrl, {
           method: "GET",
           headers,

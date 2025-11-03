@@ -14,6 +14,8 @@ import {
   PercentileKey,
 } from "@/constants/colors";
 import { fadeInAnimationStyles } from "@/constants/animations";
+import { MAX_SELECTED_TRACES } from "@/constants/trace";
+import { toast } from "react-hot-toast";
 import { IoWarningOutline, IoLogoJavascript } from "react-icons/io5";
 import { MdErrorOutline } from "react-icons/md";
 import { FaPython, FaJava } from "react-icons/fa";
@@ -671,6 +673,7 @@ export const Trace: React.FC<TraceProps> = ({
 
   const handleTraceClick = (traceId: string) => {
     let newSelection = new Set(selectedTraceIds);
+    let hitLimit = false;
 
     // Shift+click: range selection
     if (isShiftKeyPressed && lastSelectedTraceId) {
@@ -681,8 +684,12 @@ export const Trace: React.FC<TraceProps> = ({
         const start = Math.min(lastIndex, currentIndex);
         const end = Math.max(lastIndex, currentIndex);
 
-        // Add all traces in range
+        // Add all traces in range, but respect the max limit
         for (let i = start; i <= end; i++) {
+          if (newSelection.size >= MAX_SELECTED_TRACES) {
+            hitLimit = true;
+            break;
+          }
           newSelection.add(traces[i].id);
         }
       }
@@ -698,8 +705,13 @@ export const Trace: React.FC<TraceProps> = ({
           );
         }
       } else {
-        newSelection.add(traceId);
-        setLastSelectedTraceId(traceId);
+        // Only add if we haven't reached the max limit
+        if (newSelection.size < MAX_SELECTED_TRACES) {
+          newSelection.add(traceId);
+          setLastSelectedTraceId(traceId);
+        } else {
+          hitLimit = true;
+        }
       }
     }
     // Regular click: single selection (toggle)
@@ -713,6 +725,32 @@ export const Trace: React.FC<TraceProps> = ({
         newSelection = new Set([traceId]);
         setLastSelectedTraceId(traceId);
       }
+    }
+
+    // Show toast if limit was hit
+    if (hitLimit) {
+      toast.error(`Maximum of ${MAX_SELECTED_TRACES} traces can be selected`, {
+        duration: 3000,
+        style: {
+          borderRadius: "8px",
+          background: "#ffffff",
+          color: "#0a0a0a",
+          border: "1px solid #e5e7eb",
+          padding: "10px 14px",
+          fontSize: "12px",
+          boxShadow:
+            "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)",
+        },
+      });
+    }
+
+    // Only update state if selection actually changed
+    const selectionChanged =
+      newSelection.size !== selectedTraceIds.size ||
+      !Array.from(newSelection).every((id) => selectedTraceIds.has(id));
+
+    if (!selectionChanged) {
+      return;
     }
 
     setSelectedTraceIds(newSelection);

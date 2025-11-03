@@ -32,7 +32,7 @@ from rest.config import (
     ChatRequest,
     CodeRequest,
     GetChatHistoryRequest,
-    GetChatMetadataHistoryRequest,
+    GetChatMetadataHistoryRawRequest,
     GetChatMetadataRequest,
     GetLogByTraceIdRequest,
     GetLogByTraceIdResponse,
@@ -55,6 +55,7 @@ from rest.typing import (
     Operation,
     Provider,
     Reference,
+    ReferenceWithTrace,
     ResourceType,
 )
 from rest.utils.trace import collect_spans_latency_recursively
@@ -526,7 +527,13 @@ class ExploreRouter:
                 message = item["content"]
             # Reference is only for assistant message
             if item["role"] == "assistant" and "reference" in item:
-                reference = [Reference(**ref) for ref in item["reference"]]
+                # Check if references have trace_id field (for multi-trace scenarios)
+                reference = []
+                for ref in item["reference"]:
+                    if "trace_id" in ref and ref["trace_id"]:
+                        reference.append(ReferenceWithTrace(**ref))
+                    else:
+                        reference.append(Reference(**ref))
             else:
                 reference = []
 
@@ -717,13 +724,20 @@ class ExploreRouter:
     async def get_chat_metadata_history(
         self,
         request: Request,
-        req_data: GetChatMetadataHistoryRequest = Depends(),
+        raw_req: GetChatMetadataHistoryRawRequest = Depends(),
     ) -> dict[str,
               Any]:
         # Get user credentials (fake in local mode, real in remote mode)
         _, _, _ = get_user_credentials(request)
+
+        # Convert raw request to proper request with parsed list parameters
+        req_data = raw_req.to_chat_metadata_history_request(request)
+
         chat_metadata_history: ChatMetadataHistory = await (
-            self.db_client.get_chat_metadata_history(trace_id=req_data.trace_id)
+            self.db_client.get_chat_metadata_history(
+                trace_id=req_data.trace_id,
+                trace_ids=req_data.trace_ids
+            )
         )
         return chat_metadata_history.model_dump()
 
@@ -779,13 +793,16 @@ class ExploreRouter:
         user_email, _, user_sub = get_user_credentials(request)
         log_group_name = hash_user_sub(user_sub)
         trace_id = req_data.trace_id
+        trace_ids = req_data.trace_ids if req_data.trace_ids else (
+            [trace_id] if trace_id else []
+        )
         span_ids = req_data.span_ids
         start_time = req_data.start_time
         end_time = req_data.end_time
         model = req_data.model
         message = req_data.message
         chat_id = req_data.chat_id
-        service_name = req_data.service_name
+        req_data.service_name
         mode = req_data.mode
         # TODO: For other model testing
         req_data.model
@@ -851,7 +868,8 @@ class ExploreRouter:
                     "chat_id": chat_id,
                     "timestamp": orig_time,
                     "chat_title": title,
-                    "trace_id": trace_id,
+                    "trace_id": trace_id,  # Keep for backward compatibility
+                    "trace_ids": trace_ids,  # Store multiple trace IDs
                     "user_id": user_sub,
                 }
             )
@@ -877,7 +895,7 @@ class ExploreRouter:
             model=ChatModel.GPT_4O,
             user_sub=user_sub,
             openai_token=openai_token,
-            has_trace_context=bool(trace_id),
+            has_trace_context=bool(trace_ids),  # Check if any traces are selected
             is_github_issue=is_github_issue,
             is_github_pr=is_github_pr,
             source_code_related=source_code_related,
@@ -892,7 +910,8 @@ class ExploreRouter:
                 "agent_type": router_output.agent_type,
                 "reasoning": router_output.reasoning,
                 "chat_mode": mode.value,
-                "trace_id": trace_id or "",
+                "trace_id": trace_id or "",  # Keep for backward compatibility
+                "trace_ids": trace_ids,  # Store multiple trace IDs
                 "user_sub": user_sub,
             }
         )
@@ -914,7 +933,7 @@ class ExploreRouter:
             )
             return response.model_dump()
 
-        # Get the trace #######################################################
+        # Get the traces (multiple if trace_ids provided) #####################
         observe_provider = await self.get_observe_provider(
             request,
             trace_provider=req_data.trace_provider,
@@ -922,41 +941,27 @@ class ExploreRouter:
             trace_region=req_data.trace_region,
             log_region=req_data.log_region,
         )
-        selected_trace: Trace | None = None
 
-        # If we have a trace_id, fetch it directly
-        if trace_id:
-            selected_trace = await observe_provider.trace_client.get_trace_by_id(
-                trace_id=trace_id,
-                categories=None,
-                values=None,
-                operations=None,
+        # Fetch all traces in parallel
+        selected_traces: dict[str, Trace] = {}
+        fetch_tasks = []
+        for tid in trace_ids:
+            fetch_tasks.append(
+                observe_provider.trace_client.get_trace_by_id(
+                    trace_id=tid,
+                    categories=None,
+                    values=None,
+                    operations=None,
+                )
             )
-        else:
-            # Otherwise get recent traces and search
-            keys = (start_time, end_time, service_name, log_group_name)
-            cached_traces: list[Trace] | None = await self.cache[CacheType.TRACE
-                                                                 ].get(keys)
-            if cached_traces:
-                traces = cached_traces
-            else:
-                traces: list[Trace
-                             ] = await observe_provider.trace_client.get_recent_traces(
-                                 start_time=start_time,
-                                 end_time=end_time,
-                                 log_group_name=log_group_name,
-                                 service_name_values=None,
-                                 service_name_operations=None,
-                                 service_environment_values=None,
-                                 service_environment_operations=None,
-                                 categories=None,
-                                 values=None,
-                                 operations=None,
-                             )
-            for trace in traces:
-                if trace.id == trace_id:
-                    selected_trace = trace
-                    break
+
+        fetched_traces = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+        for tid, trace in zip(trace_ids, fetched_traces):
+            if not isinstance(trace, Exception) and trace is not None:
+                selected_traces[tid] = trace
+
+        # Keep single trace for backward compatibility
+        selected_trace: Trace | None = selected_traces.get(trace_id) if trace_id else None
         spans_latency_dict: dict[str, float] = {}
 
         # Compute the span latencies recursively ##############################
@@ -974,24 +979,27 @@ class ExploreRouter:
                         selected_spans_latency_dict[span_id] = latency
                 spans_latency_dict = selected_spans_latency_dict
 
-        # Get the logs ########################################################
-        # Use trace's actual start/end times for optimal log search performance
-        # If we have the trace, use its timestamps (converted from Unix to datetime)
-        # Otherwise fall back to the request's start/end times
-        trace_start_time = None
-        trace_end_time = None
-        if selected_trace:
+        # Get the logs for all traces ########################################
+        # Fetch logs for each trace in parallel
+        all_logs: dict[str, TraceLogs] = {}
+        log_fetch_tasks = []
+        log_trace_ids = []
+
+        for tid, trace in selected_traces.items():
+            # Determine log start/end times for this trace
+            trace_start_time = None
+            trace_end_time = None
+
             # Check if this is a LimitExceeded trace (start_time = 0)
             if (
-                selected_trace.service_name == "LimitExceeded"
-                and selected_trace.start_time == 0.0 and selected_trace.end_time == 0.0
+                trace.service_name == "LimitExceeded" and trace.start_time == 0.0
+                and trace.end_time == 0.0
             ):
-                # For LimitExceeded traces, fetch timestamps from
-                # logs using CloudWatch Insights
+                # For LimitExceeded traces, fetch timestamps from logs
                 try:
                     earliest, latest = \
                         await observe_provider.log_client.get_log_timestamps_by_trace_id(
-                            trace_id=trace_id,
+                            trace_id=tid,
                             log_group_name=log_group_name,
                             start_time=start_time,
                             end_time=end_time,
@@ -999,49 +1007,59 @@ class ExploreRouter:
                     if earliest and latest:
                         trace_start_time = earliest
                         trace_end_time = latest
-                        # Update the trace object with the discovered timestamps
-                        selected_trace.start_time = earliest.timestamp()
-                        selected_trace.end_time = latest.timestamp()
-                        selected_trace.duration = latest.timestamp() - earliest.timestamp(
-                        )
-                        # Update the placeholder span with discovered timestamps
-                        if selected_trace.spans and len(selected_trace.spans) > 0:
-                            placeholder_span = selected_trace.spans[0]
+                        # Update the trace object
+                        trace.start_time = earliest.timestamp()
+                        trace.end_time = latest.timestamp()
+                        trace.duration = latest.timestamp() - earliest.timestamp()
+                        if trace.spans and len(trace.spans) > 0:
+                            placeholder_span = trace.spans[0]
                             placeholder_span.start_time = earliest.timestamp()
                             placeholder_span.end_time = latest.timestamp()
                             placeholder_span.duration = latest.timestamp(
                             ) - earliest.timestamp()
                 except Exception as e:
                     print(
-                        f"Failed to get log timestamps for "
-                        f"LimitExceeded trace {trace_id}: {e}"
+                        f"Failed to get log timestamps for LimitExceeded trace {tid}: {e}"
                     )
             else:
                 # Normal trace with valid timestamps
                 trace_start_time = datetime.fromtimestamp(
-                    selected_trace.start_time,
+                    trace.start_time,
                     tz=timezone.utc
                 )
-                trace_end_time = datetime.fromtimestamp(
-                    selected_trace.end_time,
-                    tz=timezone.utc
+                trace_end_time = datetime.fromtimestamp(trace.end_time, tz=timezone.utc)
+
+            log_start_time = trace_start_time if trace_start_time else start_time
+            log_end_time = trace_end_time if trace_end_time else end_time
+
+            # Check cache
+            keys = (tid, log_start_time, log_end_time, log_group_name)
+            cached_logs: TraceLogs | None = await self.cache[CacheType.LOG].get(keys)
+            if cached_logs:
+                all_logs[tid] = cached_logs
+            else:
+                # Create task to fetch logs
+                log_fetch_tasks.append(
+                    observe_provider.log_client.get_logs_by_trace_id(
+                        trace_id=tid,
+                        start_time=log_start_time,
+                        end_time=log_end_time,
+                        log_group_name=log_group_name,
+                    )
                 )
+                log_trace_ids.append((tid, keys))
 
-        log_start_time = trace_start_time if trace_start_time else start_time
-        log_end_time = trace_end_time if trace_end_time else end_time
+        # Fetch all logs in parallel
+        if log_fetch_tasks:
+            fetched_logs = await asyncio.gather(*log_fetch_tasks, return_exceptions=True)
+            for (tid, cache_keys), logs_result in zip(log_trace_ids, fetched_logs):
+                if not isinstance(logs_result, Exception):
+                    all_logs[tid] = logs_result
+                    # Cache the logs for 10 minutes
+                    await self.cache[CacheType.LOG].set(cache_keys, logs_result)
 
-        keys = (trace_id, log_start_time, log_end_time, log_group_name)
-        logs: TraceLogs | None = await self.cache[CacheType.LOG].get(keys)
-        if logs is None:
-            observe_provider = await self.get_observe_provider(request)
-            logs = await observe_provider.log_client.get_logs_by_trace_id(
-                trace_id=trace_id,
-                start_time=log_start_time,
-                end_time=log_end_time,
-                log_group_name=log_group_name,
-            )
-            # Cache the logs for 10 minutes
-            await self.cache[CacheType.LOG].set(keys, logs)
+        # Keep single logs for backward compatibility
+        logs: TraceLogs | None = all_logs.get(trace_id) if trace_id else None
 
         # Get GitHub token
         github_token = await self.get_github_token(user_email)
@@ -1052,6 +1070,7 @@ class ExploreRouter:
         github_task_keys: set[tuple[str, str, str, str]] = set()
         # Track unique files and map them to log entries
         unique_file_tasks: dict = {}  # key -> (task, [log_entries])
+        print(f"logs: {logs}")
         if source_code_related:
             for log in logs.logs:
                 for span_id, span_logs in log.items():
@@ -1199,45 +1218,53 @@ class ExploreRouter:
 
         chat_history = await self.db_client.get_chat_history(chat_id=chat_id)
 
-        # For LimitExceeded traces, reassign all logs to the placeholder span
-        if selected_trace.service_name == "LimitExceeded":
-            # Get the placeholder span ID
-            placeholder_span_id = selected_trace.spans[0].id
+        # Build trees for all traces #########################################
+        trees: dict[str, SpanNode] = {}
+        for tid, trace in selected_traces.items():
+            trace_logs = all_logs.get(tid)
+            if not trace_logs or not trace.spans:
+                continue
 
-            # Reassign all logs to the placeholder span ID
-            reassigned_logs = []
-            for log_dict in logs.logs:
-                # Create new dict with all logs under placeholder span ID
-                all_log_entries = []
-                for span_id, log_entries in log_dict.items():
-                    all_log_entries.extend(log_entries)
+            # For LimitExceeded traces, reassign all logs to the placeholder span
+            if trace.service_name == "LimitExceeded":
+                # Get the placeholder span ID
+                placeholder_span_id = trace.spans[0].id
 
-                if all_log_entries:
-                    reassigned_logs.append({placeholder_span_id: all_log_entries})
+                # Reassign all logs to the placeholder span ID
+                reassigned_logs = []
+                for log_dict in trace_logs.logs:
+                    # Create new dict with all logs under placeholder span ID
+                    all_log_entries = []
+                    for span_id, log_entries in log_dict.items():
+                        all_log_entries.extend(log_entries)
 
-            # Build tree with reassigned logs
-            node: SpanNode = build_heterogeneous_tree(
-                selected_trace.spans[0],
-                reassigned_logs
-            )
-        else:
-            # Normal trace - build tree normally
-            node: SpanNode = build_heterogeneous_tree(selected_trace.spans[0], logs.logs)
+                    if all_log_entries:
+                        reassigned_logs.append({placeholder_span_id: all_log_entries})
 
+                # Build tree with reassigned logs
+                trees[tid] = build_heterogeneous_tree(trace.spans[0], reassigned_logs)
+            else:
+                # Normal trace - build tree normally
+                trees[tid] = build_heterogeneous_tree(trace.spans[0], trace_logs.logs)
+
+        # If span_ids specified, filter trees to those spans
         if len(span_ids) > 0:
-            # Use BFS to find the first span matching any of target span_ids
-            queue = deque([node])
             target_set = set(span_ids)
+            for tid, tree in trees.items():
+                # Use BFS to find the first span matching any of target span_ids
+                queue = deque([tree])
+                while queue:
+                    current = queue.popleft()
+                    # Check if current node matches any target span
+                    if current.span_id in target_set:
+                        trees[tid] = current
+                        break
+                    # Add children to queue for next level
+                    for child in current.children_spans:
+                        queue.append(child)
 
-            while queue:
-                current = queue.popleft()
-                # Check if current node matches any target span
-                if current.span_id in target_set:
-                    node = current
-                    break
-                # Add children to queue for next level
-                for child in current.children_spans:
-                    queue.append(child)
+        # Keep single node for backward compatibility
+        node: SpanNode | None = trees.get(trace_id) if trace_id else None
 
         # Route based on router's decision
         if router_output.agent_type == "code" and (is_github_issue or is_github_pr):
@@ -1259,6 +1286,7 @@ class ExploreRouter:
             if is_github_issue:
                 issue_response = await self.code_agent.chat(
                     trace_id=trace_id,
+                    trace_ids=trace_ids,
                     chat_id=chat_id,
                     user_message=issue_message,
                     model=model,
@@ -1266,6 +1294,7 @@ class ExploreRouter:
                     chat_history=chat_history,
                     timestamp=orig_time,
                     tree=node,
+                    trees=trees,
                     user_sub=user_sub,
                     openai_token=openai_token,
                     github_token=github_token,
@@ -1277,6 +1306,7 @@ class ExploreRouter:
             if is_github_pr:
                 pr_response = await self.code_agent.chat(
                     trace_id=trace_id,
+                    trace_ids=trace_ids,
                     chat_id=chat_id,
                     user_message=pr_message,
                     model=model,
@@ -1284,6 +1314,7 @@ class ExploreRouter:
                     chat_history=chat_history,
                     timestamp=orig_time,
                     tree=node,
+                    trees=trees,
                     user_sub=user_sub,
                     openai_token=openai_token,
                     github_token=github_token,
@@ -1313,6 +1344,7 @@ class ExploreRouter:
             # Router decided single_rca - use SingleRCAAgent for root cause analysis
             response: ChatbotResponse = await self.single_rca_agent.chat(
                 trace_id=trace_id,
+                trace_ids=trace_ids,
                 chat_id=chat_id,
                 user_message=message,
                 model=model,
@@ -1320,6 +1352,7 @@ class ExploreRouter:
                 chat_history=chat_history,
                 timestamp=orig_time,
                 tree=node,
+                trees=trees,
                 user_sub=user_sub,
                 openai_token=openai_token,
             )
