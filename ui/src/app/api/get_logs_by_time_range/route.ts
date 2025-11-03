@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { TraceLogs } from "@/models/log";
-import { createBackendAuthHeaders } from "@/lib/server-auth-headers";
+import { createBackendAuthHeaders } from "@/lib/auth/server";
 
 const FETCH_TIMEOUT = 90000; // 90 seconds
 

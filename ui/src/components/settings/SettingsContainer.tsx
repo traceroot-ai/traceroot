@@ -2,8 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 import { toast } from "react-hot-toast";
 import { useStableCustomer } from "@/hooks/useStableCustomer";
 import { SettingsSidebar } from "./SettingsSidebar";
@@ -25,18 +24,17 @@ export function SettingsContainer() {
   const router = useRouter();
 
   // Always call hooks to maintain consistent hook order
-  const { user: clerkUser, isLoaded: clerkLoaded } = useUser();
-  const { getToken } = useAuth();
+  const { user, isLoaded } = useAuth();
 
-  // Map Clerk user to legacy user format
-  const rawUser = clerkUser
+  // Map user to legacy user format
+  const rawUser = user
     ? {
-        email: clerkUser.emailAddresses?.[0]?.emailAddress,
-        user_id: clerkUser.id,
+        email: user.email,
+        user_id: user.id,
       }
     : null;
-  const rawUserLoading = !clerkLoaded;
-  const rawGetAuthState = async () => await getToken();
+  const rawUserLoading = !isLoaded;
+  const rawGetAuthState = async () => "mock-token"; // Mock auth token for local mode
 
   const {
     customer: rawCustomer,
@@ -55,7 +53,7 @@ export function SettingsContainer() {
   }, [rawCustomer]);
 
   // Override values when payment is disabled
-  const user = isLocalMode ? null : rawUser;
+  const settingsUser = isLocalMode ? null : rawUser;
   const userLoading = isLocalMode ? false : rawUserLoading;
   const getAuthState = isLocalMode ? () => null : rawGetAuthState;
   const customer = isLocalMode ? null : rawCustomer;
@@ -175,7 +173,7 @@ export function SettingsContainer() {
   };
 
   const handleManageBilling = async () => {
-    if (!user?.email) {
+    if (!settingsUser?.email) {
       toast.error("Please sign in to manage billing");
       return;
     }
@@ -350,7 +348,7 @@ export function SettingsContainer() {
                       isOnTrial={isOnTrial}
                       handleManageBilling={handleManageBilling}
                       isProcessing={isProcessing}
-                      user={user}
+                      user={settingsUser}
                     />
                     <PaymentHistoryCard customer={customer} />
                   </>

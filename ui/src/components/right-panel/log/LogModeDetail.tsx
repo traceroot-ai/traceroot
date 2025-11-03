@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from "react";
 import { LogEntry, TraceLogs, TraceLog } from "@/models/log";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 import { Spinner } from "@/components/ui/shadcn-io/spinner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

@@ -1,31 +1,80 @@
-import { autumnHandler } from "autumn-js/next";
-import { auth } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
+import { LOCAL_USER_CONSTANTS } from "@/lib/constants/auth";
 
-export const { GET, POST } = autumnHandler({
-  identify: async (request) => {
-    if (process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true") {
-      return {
-        customerId: "local-user",
-        customerData: {
-          email: "local@example.com",
-        },
-      };
-    }
+const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
 
-    try {
-      // Clerk authentication
+// Export handlers that check at runtime
+export async function GET() {
+  // When payments are disabled, return mock data
+  if (DISABLE_PAYMENT) {
+    return NextResponse.json({
+      customerId: LOCAL_USER_CONSTANTS.USER_ID,
+      customerData: {
+        email: LOCAL_USER_CONSTANTS.USER_EMAIL,
+      },
+    });
+  }
+
+  // Otherwise delegate to real Autumn handler
+  const { autumnHandler } = await import("autumn-js/next");
+  const { auth } = await import("@clerk/nextjs/server");
+
+  const handlers = autumnHandler({
+    identify: async () => {
       const { userId } = await auth();
-
       if (!userId) {
-        // Return a dummy customer to prevent Autumn errors during login transition
         return {
           customerId: "pending",
           customerData: {},
         };
       }
 
-      if (userId) {
-        // Get user data from Clerk
+      const { clerkClient } = await import("@clerk/nextjs/server");
+      const client = await clerkClient();
+      const user = await client.users.getUser(userId);
+
+      return {
+        customerId: userId,
+        customerData: {
+          name:
+            `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
+            undefined,
+          email: user.emailAddresses[0]?.emailAddress || undefined,
+        },
+      };
+    },
+  });
+
+  // @ts-ignore - Dynamic handler delegation
+  return handlers.GET(...arguments);
+}
+
+export async function POST() {
+  // When payments are disabled, return mock data
+  if (DISABLE_PAYMENT) {
+    return NextResponse.json({
+      customerId: LOCAL_USER_CONSTANTS.USER_ID,
+      customerData: {
+        email: LOCAL_USER_CONSTANTS.USER_EMAIL,
+      },
+    });
+  }
+
+  // Otherwise delegate to real Autumn handler
+  const { autumnHandler } = await import("autumn-js/next");
+  const { auth } = await import("@clerk/nextjs/server");
+
+  const handlers = autumnHandler({
+    identify: async () => {
+      try {
+        const { userId } = await auth();
+        if (!userId) {
+          return {
+            customerId: "pending",
+            customerData: {},
+          };
+        }
+
         const { clerkClient } = await import("@clerk/nextjs/server");
         const client = await clerkClient();
         const user = await client.users.getUser(userId);
@@ -39,24 +88,13 @@ export const { GET, POST } = autumnHandler({
             email: user.emailAddresses[0]?.emailAddress || undefined,
           },
         };
+      } catch (error) {
+        console.error("Error in Autumn identify:", error);
+        return null;
       }
+    },
+  });
 
-      return null;
-    } catch (error) {
-      console.error("💥 ===== ERROR IN AUTUMN IDENTIFY =====");
-      console.error("❌ Error occurred during authentication process");
-      console.error("🔍 Error type:", typeof error);
-      console.error(
-        "📝 Error message:",
-        error instanceof Error ? error.message : String(error),
-      );
-      console.error(
-        "📚 Error stack:",
-        error instanceof Error ? error.stack : "No stack trace available",
-      );
-      console.error("🔍 Full error object:", error);
-      console.error("🏁 ===== AUTUMN IDENTIFY FUNCTION END (ERROR) =====");
-      return null;
-    }
-  },
-});
+  // @ts-ignore - Dynamic handler delegation
+  return handlers.POST(...arguments);
+}

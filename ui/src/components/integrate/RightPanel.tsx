@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Item from "./Item";
 import { Integration } from "@/types/integration";
-import { useUser } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 import { ResourceType } from "@/models/integrate";
 
 const initialIntegrations: Integration[] = [
@@ -72,7 +72,7 @@ const initialIntegrations: Integration[] = [
 export default function RightPanel() {
   const [integrations, setIntegrations] =
     useState<Integration[]>(initialIntegrations);
-  const { user } = useUser();
+  const { user } = useAuth();
 
   // Function to fetch token for a specific integration
   const fetchIntegrationToken = async (

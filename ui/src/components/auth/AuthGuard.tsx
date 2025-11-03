@@ -1,6 +1,6 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -12,16 +12,22 @@ interface AuthGuardProps {
 // Routes that don't require authentication
 const publicRoutes = ["/auth/auth-callback", "/sign-in"];
 
+const IS_AUTH_DISABLED =
+  process.env.NEXT_PUBLIC_DISABLE_AUTH === "true" ||
+  process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
+
 export default function AuthGuard({
   children,
   isPublicRoute = false,
 }: AuthGuardProps) {
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded, isAuthenticated } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
 
-  // User is authenticated if they're logged in with Clerk
-  const isAuthenticated = !!user;
+  // If auth is disabled, always allow access
+  if (IS_AUTH_DISABLED) {
+    return <>{children}</>;
+  }
 
   // Check if current route is public (from prop or pathname)
   const isPublic = isPublicRoute || publicRoutes.includes(pathname);

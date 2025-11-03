@@ -7,7 +7,7 @@ import {
   ChatbotResponse,
   MessageType,
 } from "@/models/chat";
-import { createBackendAuthHeaders } from "@/lib/server-auth-headers";
+import { createBackendAuthHeaders } from "@/lib/auth/server";
 
 export async function POST(
   request: Request,

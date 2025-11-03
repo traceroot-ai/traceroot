@@ -18,7 +18,7 @@ import { fadeInAnimationStyles } from "@/constants/animations";
 import ShowCodeToggle from "./ShowCodeToggle";
 import CodeContext from "./CodeContext";
 import { ViewType } from "../ModeToggle";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/shadcn-io/spinner";
