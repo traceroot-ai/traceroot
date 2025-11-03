@@ -43,7 +43,7 @@ interface AgentProps {
   userAvatarUrl?: string;
   queryStartTime?: Date;
   queryEndTime?: Date;
-  onSpanSelect?: (spanId: string) => void;
+  onSpanSelect?: (spanIds: string[] | string, traceId?: string) => void;
   onViewTypeChange?: (viewType: "log" | "trace") => void;
   useUserBasedHistory?: boolean;
   onClosePanel?: () => void;
@@ -81,6 +81,9 @@ export default function Agent({
   const [fakeSelectedTraceId, setFakeSelectedTraceId] = useState<
     string | undefined
   >(traceId);
+  const [fakeSelectedTraceIds, setFakeSelectedTraceIds] = useState<string[]>(
+    traceIds.length > 0 ? traceIds : traceId ? [traceId] : [],
+  );
 
   // Get current active chat - match by chatId for saved chats, or by tempId for new chats
   const activeChat =
@@ -118,10 +121,11 @@ export default function Agent({
     }
   }, [isInitialized]);
 
-  // Clear fake selected trace ID when in "New Chat" (activeChatId is null) in user-based history mode
+  // Clear fake selected trace IDs when in "New Chat" (activeChatId is null) in user-based history mode
   useEffect(() => {
     if (useUserBasedHistory && activeChatId === null) {
       setFakeSelectedTraceId(undefined);
+      setFakeSelectedTraceIds([]);
     }
   }, [activeChatId, useUserBasedHistory]);
 
@@ -163,9 +167,10 @@ export default function Agent({
     setIsLoading(false);
     // Clear input
     setInputMessage("");
-    // Clear fake selected trace ID when creating a new chat in user-based history mode
+    // Clear fake selected trace IDs when creating a new chat in user-based history mode
     if (useUserBasedHistory) {
       setFakeSelectedTraceId(undefined);
+      setFakeSelectedTraceIds([]);
     }
     // Always add a new chat tab at the beginning with a unique tempId
     const tempId = generateUuidHex();
@@ -188,7 +193,7 @@ export default function Agent({
       setActiveTempId(tempId);
     }
 
-    // When selecting a chat in user-based history mode, fetch and set its trace_id
+    // When selecting a chat in user-based history mode, fetch and set its trace_id/trace_ids
     if (useUserBasedHistory && chatId) {
       try {
         const token = await getToken();
@@ -202,16 +207,22 @@ export default function Agent({
         );
         if (metadataResponse.ok) {
           const metadata = await metadataResponse.json();
-          if (metadata.trace_id) {
+          // Prefer trace_ids over trace_id for backward compatibility
+          if (metadata.trace_ids && metadata.trace_ids.length > 0) {
+            setFakeSelectedTraceIds(metadata.trace_ids);
+            setFakeSelectedTraceId(metadata.trace_ids[0]); // Set first trace as primary
+          } else if (metadata.trace_id) {
             setFakeSelectedTraceId(metadata.trace_id);
+            setFakeSelectedTraceIds([metadata.trace_id]);
           }
         }
       } catch (error) {
         console.warn("Failed to fetch metadata when selecting chat:", chatId);
       }
     } else if (useUserBasedHistory && !chatId) {
-      // Clear fake trace ID when selecting "New Chat"
+      // Clear fake trace IDs when selecting "New Chat"
       setFakeSelectedTraceId(undefined);
+      setFakeSelectedTraceIds([]);
     }
   };
 
@@ -394,9 +405,15 @@ export default function Agent({
               if (metadata.chat_title) {
                 chatTitle = metadata.chat_title;
               }
-              // When using user-based history, set the fake selected trace ID
-              if (useUserBasedHistory && metadata.trace_id) {
-                setFakeSelectedTraceId(metadata.trace_id);
+              // When using user-based history, set the fake selected trace IDs
+              if (useUserBasedHistory) {
+                if (metadata.trace_ids && metadata.trace_ids.length > 0) {
+                  setFakeSelectedTraceIds(metadata.trace_ids);
+                  setFakeSelectedTraceId(metadata.trace_ids[0]); // Set first trace as primary
+                } else if (metadata.trace_id) {
+                  setFakeSelectedTraceId(metadata.trace_id);
+                  setFakeSelectedTraceIds([metadata.trace_id]);
+                }
               }
             }
           } catch (error) {
@@ -571,10 +588,13 @@ export default function Agent({
       const { traceProvider, logProvider, traceRegion, logRegion } =
         getProviderInfo();
 
-      // Use fake selected trace ID when in user-based history mode, otherwise use the prop
+      // Use fake selected trace IDs when in user-based history mode, otherwise use the props
       const effectiveTraceId = useUserBasedHistory
         ? fakeSelectedTraceId || ""
         : traceId || "";
+      const effectiveTraceIds = useUserBasedHistory
+        ? fakeSelectedTraceIds
+        : traceIds;
 
       // Create chat request using Chat.ts models
       const chatRequest: ChatRequest = {
@@ -582,6 +602,12 @@ export default function Agent({
         message: currentMessage,
         message_type: "user" as MessageType,
         trace_id: effectiveTraceId,
+        trace_ids:
+          effectiveTraceIds && effectiveTraceIds.length > 0
+            ? effectiveTraceIds
+            : effectiveTraceId
+              ? [effectiveTraceId]
+              : [], // Support multiple traces
         span_ids: spanIds || [],
         start_time: queryStartTime?.getTime() || new Date().getTime(),
         end_time: queryEndTime?.getTime() || new Date().getTime(),
@@ -731,6 +757,7 @@ export default function Agent({
         activeChatId={activeChatId}
         activeTempId={activeTempId}
         traceId={traceId}
+        traceIds={traceIds}
         messages={messages}
         chatTitle={activeChat?.title}
         onNewChat={handleNewChat}
@@ -766,7 +793,7 @@ export default function Agent({
         selectedProvider={selectedProvider}
         setSelectedProvider={setSelectedProvider}
         traceId={useUserBasedHistory ? fakeSelectedTraceId : traceId}
-        traceIds={traceIds}
+        traceIds={useUserBasedHistory ? fakeSelectedTraceIds : traceIds}
         spanIds={spanIds}
         useUserBasedHistory={useUserBasedHistory}
       />

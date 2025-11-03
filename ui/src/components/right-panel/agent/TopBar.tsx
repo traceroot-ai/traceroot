@@ -26,6 +26,13 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { truncateTitle } from "@/lib/utils";
 
@@ -48,6 +55,7 @@ interface TopBarProps {
   activeChatId: string | null;
   activeTempId?: string;
   traceId?: string;
+  traceIds?: string[];
   messages?: Message[];
   chatTitle?: string;
   onNewChat: () => void;
@@ -138,6 +146,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
       activeChatId,
       activeTempId,
       traceId,
+      traceIds = [],
       messages = [],
       chatTitle,
       onNewChat,
@@ -160,12 +169,16 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
     const [hasMoreHistory, setHasMoreHistory] = useState(false);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [skip, setSkip] = useState(0);
+    const [isTraceDialogOpen, setIsTraceDialogOpen] = useState(false);
     const animationControllerRef = useRef<{ cancelled: boolean } | null>(null);
     const previousTitleRef = useRef<string>("");
 
     const fetchChatHistory = async (loadMore: boolean = false) => {
       // When using user-based history, don't require traceId
-      if (!useUserBasedHistory && !traceId) return;
+      // When multiple traces are selected, use traceIds array
+      const effectiveTraceIds =
+        traceIds.length > 0 ? traceIds : traceId ? [traceId] : [];
+      if (!useUserBasedHistory && effectiveTraceIds.length === 0) return;
 
       if (loadMore) {
         setIsLoadingMore(true);
@@ -180,9 +193,16 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
         const limit = 5;
 
         // Use different API endpoint based on useUserBasedHistory flag
-        const apiUrl = useUserBasedHistory
-          ? `/api/get_chat_metadata_by_user?limit=${limit}&skip=${currentSkip}`
-          : `/api/get_chat_metadata_history?trace_id=${encodeURIComponent(traceId!)}&limit=${limit}&skip=${currentSkip}`;
+        let apiUrl: string;
+        if (useUserBasedHistory) {
+          apiUrl = `/api/get_chat_metadata_by_user?limit=${limit}&skip=${currentSkip}`;
+        } else {
+          // When multiple traces are selected, pass all trace IDs
+          const traceIdsParam = effectiveTraceIds
+            .map((id) => `trace_ids=${encodeURIComponent(id)}`)
+            .join("&");
+          apiUrl = `/api/get_chat_metadata_history?${traceIdsParam}&limit=${limit}&skip=${currentSkip}`;
+        }
 
         const response = await fetch(apiUrl, {
           headers: {
@@ -360,7 +380,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
       if (dropdownOpen) {
         fetchChatHistory();
       }
-    }, [dropdownOpen, traceId, useUserBasedHistory]);
+    }, [dropdownOpen, traceId, traceIds, useUserBasedHistory]);
 
     const handleHistoryItemClick = async (selectedChatId: string) => {
       // Skip if chat is already open
@@ -396,10 +416,25 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
     };
 
     const handleGoToTrace = () => {
-      // Get trace_id from chat metadata
-      const trace_id = chatMetadata?.trace_id;
-      if (!trace_id) return;
+      // Get trace_ids from chat metadata (prefer trace_ids over trace_id)
+      const trace_ids =
+        chatMetadata?.trace_ids && chatMetadata.trace_ids.length > 0
+          ? chatMetadata.trace_ids
+          : chatMetadata?.trace_id
+            ? [chatMetadata.trace_id]
+            : [];
 
+      if (trace_ids.length === 0) return;
+
+      // If multiple traces, show dialog; otherwise open directly
+      if (trace_ids.length > 1) {
+        setIsTraceDialogOpen(true);
+      } else {
+        openTraceInNewTab(trace_ids[0]);
+      }
+    };
+
+    const openTraceInNewTab = (trace_id: string) => {
       // Build explore URL with provider parameters and trace_id
       const traceProvider = loadProviderSelection("trace") || "aws";
       const logProvider = loadProviderSelection("log") || "aws";
@@ -548,7 +583,11 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
                       size="icon"
                       className="mr-1 h-8 w-8"
                       onClick={handleGoToTrace}
-                      disabled={!chatMetadata?.trace_id}
+                      disabled={
+                        !chatMetadata?.trace_id &&
+                        (!chatMetadata?.trace_ids ||
+                          chatMetadata.trace_ids.length === 0)
+                      }
                     >
                       <ArrowUpRight className="w-4 h-4" />
                     </Button>
@@ -671,6 +710,35 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
             </DropdownMenu>
           </div>
         </div>
+
+        {/* Dialog for multiple trace selection */}
+        <Dialog open={isTraceDialogOpen} onOpenChange={setIsTraceDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Select Trace to View</DialogTitle>
+              <DialogDescription>
+                This chat contains multiple traces. Select a trace to view its
+                details in a new tab.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 mt-4">
+              {(chatMetadata?.trace_ids || []).map((traceId, index) => (
+                <Button
+                  key={traceId}
+                  variant="outline"
+                  className="w-full justify-start font-mono text-sm"
+                  onClick={() => {
+                    openTraceInNewTab(traceId);
+                    setIsTraceDialogOpen(false);
+                  }}
+                >
+                  <ArrowUpRight className="w-4 h-4 mr-2" />
+                  Trace {index + 1}: {traceId.substring(0, 20)}...
+                </Button>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   },

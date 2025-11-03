@@ -24,6 +24,17 @@ class Reference(BaseModel):
         return f"[{self.number}]: {self.span_id} {self.line_number}"
 
 
+class ReferenceWithTrace(Reference):
+    r"""Reference with trace_id for multi-trace scenarios."""
+
+    trace_id: str = Field(
+        description=(
+            "The trace ID that this reference belongs to. "
+            "Required when analyzing multiple traces."
+        )
+    )
+
+
 class Percentile(str, Enum):
     P50 = "P50"
     P90 = "P90"

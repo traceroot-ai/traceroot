@@ -5,6 +5,7 @@ from .chat import (
     ChatMetadataHistory,
     ChatRequest,
     GetChatHistoryRequest,
+    GetChatMetadataHistoryRawRequest,
     GetChatMetadataHistoryRequest,
     GetChatMetadataRequest,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "LogEntry",
     "ChatRequest",
     "ChatbotResponse",
+    "GetChatMetadataHistoryRawRequest",
     "GetChatMetadataHistoryRequest",
     "ChatMetadata",
     "ChatMetadataHistory",

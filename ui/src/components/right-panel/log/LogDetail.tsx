@@ -1013,11 +1013,11 @@ export default function LogDetail({
                           {/* Trace Block Header */}
                           <div className="bg-white dark:bg-black p-1 border-b border-neutral-300 dark:border-neutral-700">
                             <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-0.5 flex-1">
-                                {/* Language Icon */}
+                              <div className="flex items-center gap-0.5 flex-1 min-w-0">
+                                {/* Language Icon - Priority 3 */}
                                 {trace?.telemetry_sdk_language &&
                                   trace.telemetry_sdk_language.length > 0 && (
-                                    <div className="flex items-center flex-shrink-0 ml-1 mr-2">
+                                    <div className="flex items-center flex-shrink-0 ml-1 mr-2 hidden [@media(min-width:433px)]:flex">
                                       {trace.telemetry_sdk_language.includes(
                                         "python",
                                       ) && (
@@ -1052,13 +1052,16 @@ export default function LogDetail({
                                       )}
                                     </div>
                                   )}
+                                {/* Trace ID - Priority 2 (always visible) */}
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <Badge
                                       variant="default"
-                                      className="min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left cursor-default"
+                                      className="min-w-16 max-w-[200px] h-6 mr-2 justify-start font-mono font-normal flex-shrink text-left overflow-hidden cursor-default inline-flex"
                                     >
-                                      {traceId.substring(0, 12)}...
+                                      <span className="truncate">
+                                        {traceId.substring(0, 12)}...
+                                      </span>
                                     </Badge>
                                   </TooltipTrigger>
                                   <TooltipContent>
@@ -1067,56 +1070,76 @@ export default function LogDetail({
                                     </p>
                                   </TooltipContent>
                                 </Tooltip>
+                                {/* Service Name - Priority 4 */}
                                 {trace?.service_name && (
-                                  <Badge
-                                    variant="default"
-                                    className="min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left"
-                                    title={
-                                      trace.service_name.length > 25
-                                        ? trace.service_name
-                                        : undefined
-                                    }
-                                  >
-                                    {trace.service_name}
-                                  </Badge>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Badge
+                                        variant="default"
+                                        className="min-w-16 max-w-[200px] h-6 mr-2 justify-start font-mono font-normal flex-shrink text-left overflow-hidden hidden [@media(min-width:367px)]:inline-flex"
+                                      >
+                                        <span className="truncate">
+                                          {trace.service_name}
+                                        </span>
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>{trace.service_name}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
                                 )}
+                                {/* Environment - Priority 5 */}
                                 {trace?.service_environment && (
-                                  <Badge
-                                    variant="outline"
-                                    className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
-                                  >
-                                    {trace.service_environment}
-                                  </Badge>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Badge
+                                        variant="outline"
+                                        className="max-w-[150px] h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 overflow-hidden hidden [@media(min-width:300px)]:inline-flex"
+                                      >
+                                        <span className="truncate">
+                                          {trace.service_environment}
+                                        </span>
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>{trace.service_environment}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
                                 )}
                               </div>
-                              {trace?.start_time && (
-                                <span className="text-xs text-gray-500 dark:text-gray-400 font-mono mr-2">
-                                  {formatTimestamp(trace.start_time)}
-                                </span>
-                              )}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation(); // Prevent trace selection
-                                  setExpandedTraceBlocks((prev) => {
-                                    const newSet = new Set(prev);
-                                    if (newSet.has(traceId)) {
-                                      newSet.delete(traceId);
-                                    } else {
-                                      newSet.add(traceId);
-                                    }
-                                    return newSet;
-                                  });
-                                }}
-                                className="h-8 w-8 p-0"
-                              >
-                                {isTraceExpanded ? (
-                                  <Minus className="w-4 h-4" />
-                                ) : (
-                                  <Plus className="w-4 h-4" />
+                              {/* Start time and Expand/Collapse button */}
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                {/* Timestamp - Priority 8 (lowest - hide first) */}
+                                {trace?.start_time && (
+                                  <span className="text-xs text-gray-500 dark:text-gray-400 font-mono flex-shrink-0 whitespace-nowrap hidden [@media(min-width:600px)]:inline">
+                                    {formatTimestamp(trace.start_time)}
+                                  </span>
                                 )}
-                              </Button>
+                                {/* Expand/Collapse button - Priority 1 (highest - never hide) */}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation(); // Prevent trace selection
+                                    setExpandedTraceBlocks((prev) => {
+                                      const newSet = new Set(prev);
+                                      if (newSet.has(traceId)) {
+                                        newSet.delete(traceId);
+                                      } else {
+                                        newSet.add(traceId);
+                                      }
+                                      return newSet;
+                                    });
+                                  }}
+                                  className="h-8 w-8 p-0 flex-shrink-0"
+                                >
+                                  {isTraceExpanded ? (
+                                    <Minus className="w-4 h-4" />
+                                  ) : (
+                                    <Plus className="w-4 h-4" />
+                                  )}
+                                </Button>
+                              </div>
                             </div>
                           </div>
 

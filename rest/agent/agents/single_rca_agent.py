@@ -20,10 +20,16 @@ from rest.agent.filter.structure import filter_log_node, log_node_selector
 from rest.agent.output.chat_output import ChatOutput
 from rest.agent.prompts import CHAT_SYSTEM_PROMPT, LOCAL_MODE_APPENDIX
 from rest.agent.summarizer.chunk import chunk_summarize
-from rest.agent.typing import LogFeature
 from rest.config import ChatbotResponse
 from rest.dao.sqlite_dao import TraceRootSQLiteClient
-from rest.typing import ActionStatus, ActionType, ChatModel, MessageType, Reference
+from rest.typing import (
+    ActionStatus,
+    ActionType,
+    ChatModel,
+    MessageType,
+    Reference,
+    ReferenceWithTrace,
+)
 from rest.utils.token_tracking import track_tokens_for_user
 
 
@@ -57,6 +63,9 @@ class SingleRCAAgent(BaseAgent):
         timestamp: datetime,
         tree: SpanNode,
         user_sub: str,
+        trace_ids: list[str] = None,
+        trees: dict[str,
+                    SpanNode] = None,
         chat_history: list[dict] | None = None,
         openai_token: str | None = None,
     ) -> ChatbotResponse:
@@ -88,27 +97,57 @@ class SingleRCAAgent(BaseAgent):
              ),
          )
 
-        # TODO: Make this more robust
-        try:
-            if (
-                LogFeature.LOG_LEVEL in log_node_selector_output.log_features
-                and len(log_node_selector_output.log_features) == 1
-            ):
-                tree = filter_log_node(
-                    feature_types=log_node_selector_output.log_features,
-                    feature_values=log_node_selector_output.log_feature_values,
-                    feature_ops=log_node_selector_output.log_feature_ops,
-                    node=tree,
+        # Handle multiple trees or single tree
+        is_multi_trace = trees and len(trees) > 0
+
+        def maybe_filter_tree(node: SpanNode | None) -> SpanNode | None:
+            if node is None or log_node_selector_output is None:
+                return node
+
+            features = getattr(log_node_selector_output, "log_features", []) or []
+            values = getattr(log_node_selector_output, "log_feature_values", []) or []
+            ops = getattr(log_node_selector_output, "log_feature_ops", []) or []
+
+            if not features or not values or not ops:
+                return node
+            if len(features) != len(values) or len(features) != len(ops):
+                return node
+
+            try:
+                normalized_values = [str(value) for value in values]
+                return filter_log_node(
+                    feature_types=features,
+                    feature_values=normalized_values,
+                    feature_ops=ops,
+                    node=node,
                 )
-        except Exception as e:
-            print(e)
+            except Exception as e:
+                print(e)
+                return node
 
-        tree = tree.to_dict(
-            log_features=log_features,
-            span_features=span_features,
-        )
+        if is_multi_trace:
+            # Multiple traces: build context as dict keyed by trace_id
+            context_dict = {}
+            for tid, tree_node in trees.items():
+                tree_node = maybe_filter_tree(tree_node)
 
-        context = f"{json.dumps(tree, indent=4)}"
+                tree_dict = tree_node.to_dict(
+                    log_features=log_features,
+                    span_features=span_features,
+                )
+                context_dict[tid] = tree_dict
+
+            context = f"{json.dumps(context_dict, indent=4)}"
+        else:
+            # Single trace (backward compatibility)
+            tree = maybe_filter_tree(tree)
+
+            tree_dict = tree.to_dict(
+                log_features=log_features,
+                span_features=span_features,
+            )
+
+            context = f"{json.dumps(tree_dict, indent=4)}"
 
         # Compute estimated tokens for context and insert statistics record
         estimated_tokens = len(context) * 4
@@ -137,7 +176,18 @@ class SingleRCAAgent(BaseAgent):
                 f"{message}\n\nHere are my queries: "
                 f"{user_message}"
             )
-        messages = [{"role": "system", "content": self.system_prompt}]
+
+        # Use modified system prompt for multi-trace scenarios
+        system_prompt = self.system_prompt
+        if is_multi_trace:
+            system_prompt += (
+                "\n\nIMPORTANT: The context contains multiple traces keyed by trace_id. "
+                "When providing references, you MUST include the 'trace_id' "
+                "field in each reference object to indicate which trace the "
+                "reference belongs to."
+            )
+
+        messages = [{"role": "system", "content": system_prompt}]
 
         # Add formatted chat history
         history_messages = build_chat_history_messages(chat_history, max_records=10)
@@ -176,7 +226,8 @@ class SingleRCAAgent(BaseAgent):
                     db_client,
                     chat_id,
                     trace_id,
-                    i  # chunk_id - each chunk gets unique ID
+                    i,  # chunk_id - each chunk gets unique ID
+                    is_multi_trace
                 ) for i, messages in enumerate(all_messages)
             ]
         )
@@ -234,6 +285,7 @@ class SingleRCAAgent(BaseAgent):
         chat_id: str,
         trace_id: str,
         chunk_id: int,
+        is_multi_trace: bool = False,
     ) -> ChatOutput:
         r"""Chat with context chunks in streaming mode with database updates.
         """
@@ -263,7 +315,8 @@ class SingleRCAAgent(BaseAgent):
             chat_id,
             trace_id,
             chunk_id,
-            start_time
+            start_time,
+            is_multi_trace
         )
 
     async def _chat_with_context_chunks_streaming_with_db(
@@ -278,6 +331,7 @@ class SingleRCAAgent(BaseAgent):
         trace_id: str,
         chunk_id: int,
         start_time,
+        is_multi_trace: bool = False,
     ) -> ChatOutput:
         r"""Chat with context chunks in streaming mode with real-time database updates.
         """
@@ -368,7 +422,12 @@ class SingleRCAAgent(BaseAgent):
             if "reference" in parsed_data and isinstance(parsed_data["reference"], list):
                 for ref_data in parsed_data["reference"]:
                     if isinstance(ref_data, dict):
-                        references.append(Reference(**ref_data))
+                        # Use ReferenceWithTrace if trace_id is present (multi-trace mode)
+                        # Otherwise use regular Reference (single trace mode)
+                        if "trace_id" in ref_data and is_multi_trace:
+                            references.append(ReferenceWithTrace(**ref_data))
+                        else:
+                            references.append(Reference(**ref_data))
 
             return ChatOutput(
                 answer=parsed_data.get("answer",

@@ -64,6 +64,9 @@ class CodeAgent(BaseAgent):
         timestamp: datetime,
         tree: SpanNode,
         user_sub: str,
+        trace_ids: list[str] = None,
+        trees: dict[str,
+                    SpanNode] = None,
         chat_history: list[dict] | None = None,
         openai_token: str | None = None,
         github_token: str | None = None,
@@ -129,36 +132,76 @@ class CodeAgent(BaseAgent):
                                          client,
                                          model)
 
-        # TODO: Make this more robust
-        try:
-            if (
-                LogFeature.LOG_LEVEL in log_node_selector_output.log_features
-                and len(log_node_selector_output.log_features) == 1
-            ):
-                tree = filter_log_node(
-                    feature_types=log_node_selector_output.log_features,
-                    feature_values=log_node_selector_output.log_feature_values,
-                    feature_ops=log_node_selector_output.log_feature_ops,
-                    node=tree,
-                    is_github_pr=is_github_pr,
+        # Handle multiple trees or single tree
+        is_multi_trace = trees and len(trees) > 0
+        if is_multi_trace:
+            # Multiple traces: build context as dict keyed by trace_id
+            context_dict = {}
+            for tid, tree_node in trees.items():
+                # TODO: Make this more robust
+                try:
+                    if (
+                        LogFeature.LOG_LEVEL in log_node_selector_output.log_features
+                        and len(log_node_selector_output.log_features) == 1
+                    ):
+                        tree_node = filter_log_node(
+                            feature_types=log_node_selector_output.log_features,
+                            feature_values=log_node_selector_output.log_feature_values,
+                            feature_ops=log_node_selector_output.log_feature_ops,
+                            node=tree_node,
+                            is_github_pr=is_github_pr,
+                        )
+                except Exception as e:
+                    print(e)
+
+                # Add source code features for GitHub PR
+                if is_github_pr:
+                    if LogFeature.LOG_SOURCE_CODE_LINE not in log_features:
+                        log_features.append(LogFeature.LOG_SOURCE_CODE_LINE)
+                    if LogFeature.LOG_SOURCE_CODE_LINES_ABOVE not in log_features:
+                        log_features.append(LogFeature.LOG_SOURCE_CODE_LINES_ABOVE)
+                    if LogFeature.LOG_SOURCE_CODE_LINES_BELOW not in log_features:
+                        log_features.append(LogFeature.LOG_SOURCE_CODE_LINES_BELOW)
+
+                tree_dict = tree_node.to_dict(
+                    log_features=log_features,
+                    span_features=span_features,
                 )
-        except Exception as e:
-            print(e)
+                context_dict[tid] = tree_dict
 
-        if is_github_pr:
-            if LogFeature.LOG_SOURCE_CODE_LINE not in log_features:
-                log_features.append(LogFeature.LOG_SOURCE_CODE_LINE)
-            if LogFeature.LOG_SOURCE_CODE_LINES_ABOVE not in log_features:
-                log_features.append(LogFeature.LOG_SOURCE_CODE_LINES_ABOVE)
-            if LogFeature.LOG_SOURCE_CODE_LINES_BELOW not in log_features:
-                log_features.append(LogFeature.LOG_SOURCE_CODE_LINES_BELOW)
+            context = f"{json.dumps(context_dict, indent=4)}"
+        else:
+            # Single trace (backward compatibility)
+            # TODO: Make this more robust
+            try:
+                if (
+                    LogFeature.LOG_LEVEL in log_node_selector_output.log_features
+                    and len(log_node_selector_output.log_features) == 1
+                ):
+                    tree = filter_log_node(
+                        feature_types=log_node_selector_output.log_features,
+                        feature_values=log_node_selector_output.log_feature_values,
+                        feature_ops=log_node_selector_output.log_feature_ops,
+                        node=tree,
+                        is_github_pr=is_github_pr,
+                    )
+            except Exception as e:
+                print(e)
 
-        tree = tree.to_dict(
-            log_features=log_features,
-            span_features=span_features,
-        )
+            if is_github_pr:
+                if LogFeature.LOG_SOURCE_CODE_LINE not in log_features:
+                    log_features.append(LogFeature.LOG_SOURCE_CODE_LINE)
+                if LogFeature.LOG_SOURCE_CODE_LINES_ABOVE not in log_features:
+                    log_features.append(LogFeature.LOG_SOURCE_CODE_LINES_ABOVE)
+                if LogFeature.LOG_SOURCE_CODE_LINES_BELOW not in log_features:
+                    log_features.append(LogFeature.LOG_SOURCE_CODE_LINES_BELOW)
 
-        context = f"{json.dumps(tree, indent=4)}"
+            tree_dict = tree.to_dict(
+                log_features=log_features,
+                span_features=span_features,
+            )
+
+            context = f"{json.dumps(tree_dict, indent=4)}"
 
         # Compute estimated tokens for context and insert statistics record
         estimated_tokens = len(context) * 4
@@ -197,7 +240,18 @@ class CodeAgent(BaseAgent):
                 f"{updated_message}\n\nHere are my questions: "
                 f"{user_message}\n\n{github_message}"
             )
-        messages = [{"role": "system", "content": self.system_prompt}]
+
+        # Use modified system prompt for multi-trace scenarios
+        system_prompt = self.system_prompt
+        if is_multi_trace:
+            system_prompt += (
+                "\n\nIMPORTANT: The context contains multiple traces keyed by trace_id. "
+                "When providing references, you MUST include the 'trace_id' "
+                "field in each reference object to indicate which trace the "
+                "reference belongs to."
+            )
+
+        messages = [{"role": "system", "content": system_prompt}]
 
         # Add formatted chat history
         history_messages = build_chat_history_messages(
