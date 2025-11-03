@@ -1,0 +1,72 @@
+{
+    "1-738b8522-07ba333ac9cdc8a0a6a43712": [
+        {
+            "f9d038bb6ea2eb12": [
+                {
+                    "time": 1749590695.018,
+                    "function_name": "__main__",
+                    "level": "INFO",
+                    "message": "CloudWatch logging configured",
+                    "file_name": "/experiments/data/ingest.py",
+                    "line_number": 65
+                },
+                {
+                    "time": 1749590695.018,
+                    "level": "DEBUG",
+                    "function_name": "__main__",
+                    "message": "Main function started",
+                    "file_name": "/experiments/data/ingest.py",
+                    "line_number": 74
+                }
+            ]
+        },
+        {
+            "65f8eee15821f012": [
+                {
+                    "time": 1749590696.023,
+                    "level": "INFO",
+                    "function_name": "main",
+                    "message": "This is an info message",
+                    "file_name": "/experiments/data/ingest.py",
+                    "line_number": 79
+                },
+                {
+                    "time": 1749590696.024,
+                    "level": "WARNING",
+                    "function_name": "main",
+                    "message": "This is a warning message",
+                    "file_name": "/experiments/data/ingest.py",
+                    "line_number": 80
+                },
+                {
+                    "time": 1749590696.024,
+                    "function_name": "main",
+                    "level": "ERROR",
+                    "message": "This is an error message",
+                    "file_name": "/experiments/data/ingest.py",
+                    "line_number": 81
+                }
+            ]
+        },
+        {
+            "f9d038bb6ea2eb12": [
+                {
+                    "time": 1749590696.025,
+                    "function_name": "__main__",
+                    "level": "DEBUG",
+                    "message": "Main function completed",
+                    "file_name": "/experiments/data/ingest.py",
+                    "line_number": 83
+                },
+                {
+                    "time": 1749590696.025,
+                    "function_name": "__main__",
+                    "level": "DEBUG",
+                    "message": "Application finished",
+                    "file_name": "/experiments/data/ingest.py",
+                    "line_number": 94
+                }
+            ]
+        }
+    ]
+}

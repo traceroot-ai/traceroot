@@ -1,0 +1,2042 @@
+"use client";
+
+import React, { useEffect, useState, useRef, useCallback } from "react";
+import { Trace as TraceType } from "@/models/trace";
+import Span from "./span/Span";
+import TimeButton, { TimeRange, TIME_RANGES } from "./TimeButton";
+import { CustomTimeRange, TimezoneMode } from "./CustomTimeRangeDialog";
+import RefreshButton from "./RefreshButton";
+import GroupButton from "./GroupButton";
+import SearchBar, { SearchCriterion } from "./SearchBar";
+import {
+  PERCENTILE_COLORS,
+  getPercentileColor,
+  PercentileKey,
+} from "@/constants/colors";
+import { fadeInAnimationStyles } from "@/constants/animations";
+import { MAX_SELECTED_TRACES } from "@/constants/trace";
+import { toast } from "react-hot-toast";
+import { IoWarningOutline, IoLogoJavascript } from "react-icons/io5";
+import { MdErrorOutline } from "react-icons/md";
+import { FaPython, FaJava } from "react-icons/fa";
+import { SiTypescript } from "react-icons/si";
+import { Badge } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/shadcn-io/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  CirclePlus,
+  CircleMinus,
+  Share2,
+  Copy,
+  Check,
+  ArrowUpDown,
+  X,
+} from "lucide-react";
+import { buildProviderParams } from "@/utils/provider";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+
+interface TraceProps {
+  onTraceSelect?: (traceIds: string[]) => void;
+  onSpanSelect?: (spanIds: string[]) => void;
+  onTraceData?: (startTime: Date, endTime: Date) => void;
+  onTracesUpdate?: (traces: TraceType[]) => void;
+  onLogSearchValueChange?: (value: string) => void;
+  onMetadataSearchTermsChange?: (
+    terms: { category: string; value: string }[],
+  ) => void;
+  selectedTraceIds?: string[];
+  selectedSpanIds?: string[];
+  traceQueryStartTime?: Date;
+  traceQueryEndTime?: Date;
+}
+
+export function formatDateTime(ts: number) {
+  const date = new Date(ts * 1000);
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+
+  const y = date.getFullYear();
+  const m = months[date.getMonth()];
+  const d = date.getDate();
+  const h = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  const s = String(date.getSeconds()).padStart(2, "0");
+
+  // Add ordinal suffix to day
+  const getOrdinalSuffix = (day: number) => {
+    if (day >= 11 && day <= 13) return "th";
+    switch (day % 10) {
+      case 1:
+        return "st";
+      case 2:
+        return "nd";
+      case 3:
+        return "rd";
+      default:
+        return "th";
+    }
+  };
+
+  return `${y} ${m} ${d}${getOrdinalSuffix(d)} ${h}:${min}:${s}`;
+}
+
+export function formatDateTimeWithoutYear(ts: number) {
+  const date = new Date(ts * 1000);
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+
+  const m = months[date.getMonth()];
+  const d = date.getDate();
+  const h = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  const s = String(date.getSeconds()).padStart(2, "0");
+
+  // Add ordinal suffix to day
+  const getOrdinalSuffix = (day: number) => {
+    if (day >= 11 && day <= 13) return "th";
+    switch (day % 10) {
+      case 1:
+        return "st";
+      case 2:
+        return "nd";
+      case 3:
+        return "rd";
+      default:
+        return "th";
+    }
+  };
+
+  return `${m} ${d}${getOrdinalSuffix(d)} ${h}:${min}:${s}`;
+}
+
+// Helper function to recursively count all spans in a trace
+function countSpans(spans: any[]): number {
+  let count = 0;
+  for (const span of spans) {
+    count += 1; // Count this span
+    if (span.spans && span.spans.length > 0) {
+      count += countSpans(span.spans); // Recursively count child spans
+    }
+  }
+  return count;
+}
+
+// Helper function to format duration in ms, s, m, or h
+function formatDuration(durationMs: number): string {
+  const ms = Math.round(durationMs);
+
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
+
+  const seconds = ms / 1000;
+  if (seconds < 60) {
+    return `${Math.round(seconds)}s`;
+  }
+
+  const minutes = seconds / 60;
+  if (minutes < 60) {
+    return `${Math.round(minutes)}m`;
+  }
+
+  const hours = minutes / 60;
+  return `${Math.round(hours)}h`;
+}
+
+export const Trace: React.FC<TraceProps> = ({
+  onTraceSelect,
+  onSpanSelect,
+  onTraceData,
+  onTracesUpdate,
+  onLogSearchValueChange,
+  onMetadataSearchTermsChange,
+  selectedTraceIds: externalSelectedTraceIds,
+  selectedSpanIds: externalSelectedSpanIds,
+  traceQueryStartTime,
+  traceQueryEndTime,
+}) => {
+  const [traces, setTraces] = useState<TraceType[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>(
+    TIME_RANGES[0],
+  );
+  const [timezone, setTimezone] = useState<TimezoneMode>("utc");
+  const [selectedTraceIds, setSelectedTraceIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [lastSelectedTraceId, setLastSelectedTraceId] = useState<string | null>(
+    null,
+  );
+  const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
+  const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
+  const [searchCriteria, setSearchCriteria] = useState<SearchCriterion[]>([]);
+  const [logSearchValue, setLogSearchValue] = useState<string>("");
+  const [expandedTraces, setExpandedTraces] = useState<Map<string, boolean>>(
+    new Map(),
+  );
+  const [expandedSpans, setExpandedSpans] = useState<Set<string>>(new Set());
+  const timeRangeRef = useRef<{ start: Date; end: Date } | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState<boolean>(false);
+  const [shareTraceId, setShareTraceId] = useState<string | null>(null);
+  const [copied, setCopied] = useState<boolean>(false);
+  const [hasTraceIdInUrl, setHasTraceIdInUrl] = useState<boolean>(false);
+  const [nextPaginationToken, setNextPaginationToken] = useState<string | null>(
+    null,
+  );
+  const [hasMore, setHasMore] = useState<boolean>(false);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
+  const previousTraceCountRef = useRef<number>(0);
+  const [isMetaKeyPressed, setIsMetaKeyPressed] = useState<boolean>(false);
+  const [isShiftKeyPressed, setIsShiftKeyPressed] = useState<boolean>(false);
+  const [isGrouped, setIsGrouped] = useState<boolean>(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [groupSortModes, setGroupSortModes] = useState<
+    Map<string, "timestamp" | "errors" | "warnings">
+  >(new Map());
+
+  // Keyboard event listeners for modifier keys
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Meta" || e.key === "Control") {
+        setIsMetaKeyPressed(true);
+      }
+      if (e.key === "Shift") {
+        setIsShiftKeyPressed(true);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Meta" || e.key === "Control") {
+        setIsMetaKeyPressed(false);
+      }
+      if (e.key === "Shift") {
+        setIsShiftKeyPressed(false);
+      }
+    };
+
+    // Reset modifier keys on window blur
+    const handleBlur = () => {
+      setIsMetaKeyPressed(false);
+      setIsShiftKeyPressed(false);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
+
+  const handleTimeRangeSelect = (range: TimeRange) => {
+    setSelectedTimeRange(range);
+    setSelectedTraceIds(new Set());
+    setLastSelectedTraceId(null);
+    setSelectedSpanId(null);
+    setSelectedSpanIds([]);
+    setExpandedTraces(new Map());
+    setExpandedSpans(new Set());
+    setNextPaginationToken(null);
+    setHasMore(false);
+    previousTraceCountRef.current = 0;
+    onTraceSelect?.([]);
+    onSpanSelect?.([]);
+    setLoading(true);
+  };
+
+  const handleCustomTimeRangeSelect = (
+    customRange: CustomTimeRange,
+    selectedTimezone: TimezoneMode,
+  ) => {
+    // Update timezone
+    setTimezone(selectedTimezone);
+
+    // Create a custom TimeRange object
+    const customTimeRange: TimeRange = {
+      label: customRange.label,
+      isCustom: true,
+      customRange: customRange,
+    };
+
+    if (customRange.type === "relative") {
+      customTimeRange.minutes = customRange.minutes;
+    }
+
+    setSelectedTimeRange(customTimeRange);
+    setSelectedTraceIds(new Set());
+    setLastSelectedTraceId(null);
+    setSelectedSpanId(null);
+    setSelectedSpanIds([]);
+    setExpandedTraces(new Map());
+    setExpandedSpans(new Set());
+    setNextPaginationToken(null);
+    setHasMore(false);
+    previousTraceCountRef.current = 0;
+    onTraceSelect?.([]);
+    onSpanSelect?.([]);
+    setLoading(true);
+  };
+
+  const handleSearch = (criteria: SearchCriterion[]) => {
+    setSearchCriteria(criteria);
+    setNextPaginationToken(null);
+    setHasMore(false);
+    previousTraceCountRef.current = 0;
+    setLoading(true);
+  };
+
+  const handleClearSearch = () => {
+    setSearchCriteria([]);
+    setLogSearchValue("");
+    setExpandedSpans(new Set());
+    setNextPaginationToken(null);
+    setHasMore(false);
+    previousTraceCountRef.current = 0;
+    onLogSearchValueChange?.("");
+    setLoading(true);
+  };
+
+  const handleLogSearchValueChange = (value: string) => {
+    setLogSearchValue(value);
+    onLogSearchValueChange?.(value);
+  };
+
+  // Group-related helper functions (must be defined before fetchTraces)
+  const getGroupKey = useCallback((trace: TraceType): string => {
+    const serviceName = trace.service_name || "Unknown Service";
+    const serviceEnv = trace.service_environment || "Unknown Environment";
+    return `${serviceName}|${serviceEnv}`;
+  }, []);
+
+  const sortTracesInGroup = useCallback(
+    (
+      traces: TraceType[],
+      sortMode: "timestamp" | "errors" | "warnings",
+    ): TraceType[] => {
+      const sortedTraces = [...traces];
+      if (sortMode === "timestamp") {
+        // Sort by start_time descending (latest first)
+        sortedTraces.sort((a, b) => b.start_time - a.start_time);
+      } else if (sortMode === "errors") {
+        // Sort by error count descending (most errors first)
+        sortedTraces.sort((a, b) => {
+          const aErrors = (a.num_error_logs ?? 0) + (a.num_critical_logs ?? 0);
+          const bErrors = (b.num_error_logs ?? 0) + (b.num_critical_logs ?? 0);
+          return bErrors - aErrors;
+        });
+      } else if (sortMode === "warnings") {
+        // Sort by warning count descending (most warnings first)
+        sortedTraces.sort((a, b) => {
+          const aWarnings = a.num_warning_logs ?? 0;
+          const bWarnings = b.num_warning_logs ?? 0;
+          return bWarnings - aWarnings;
+        });
+      }
+      return sortedTraces;
+    },
+    [],
+  );
+
+  const groupTraces = useCallback(
+    (traces: TraceType[]): Map<string, TraceType[]> => {
+      const grouped = new Map<string, TraceType[]>();
+      traces.forEach((trace) => {
+        const key = getGroupKey(trace);
+        if (!grouped.has(key)) {
+          grouped.set(key, []);
+        }
+        grouped.get(key)!.push(trace);
+      });
+
+      // Sort traces within each group using per-group sort mode
+      grouped.forEach((groupedTraces, key) => {
+        const sortMode = groupSortModes.get(key) || "timestamp";
+        grouped.set(key, sortTracesInGroup(groupedTraces, sortMode));
+      });
+
+      return grouped;
+    },
+    [getGroupKey, sortTracesInGroup, groupSortModes],
+  );
+
+  const fetchTraces = useCallback(
+    async (paginationToken?: string | null) => {
+      const isLoadingMore = !!paginationToken;
+
+      if (isLoadingMore) {
+        setLoadingMore(true);
+      }
+
+      try {
+        let startTime: Date;
+        let endTime: Date;
+
+        // Helper function to convert local time to UTC
+        const convertToUTC = (date: Date): Date => {
+          if (timezone === "utc") {
+            return date;
+          }
+          // If timezone is local, we need to convert to UTC for the API
+          // The date object is already in local time, so we create a new UTC date
+          return new Date(date.toISOString());
+        };
+
+        // When loading more (pagination), reuse the same time range from the first request
+        if (isLoadingMore && timeRangeRef.current) {
+          startTime = timeRangeRef.current.start;
+          endTime = timeRangeRef.current.end;
+        } else if (traceQueryStartTime && traceQueryEndTime) {
+          // Use provided time range if available
+          startTime = traceQueryStartTime;
+          endTime = traceQueryEndTime;
+          timeRangeRef.current = {
+            start: new Date(startTime),
+            end: new Date(endTime),
+          };
+        } else if (
+          selectedTimeRange.isCustom &&
+          selectedTimeRange.customRange
+        ) {
+          // Handle custom time range
+          const customRange = selectedTimeRange.customRange;
+          if (customRange.type === "absolute") {
+            // For absolute ranges, use the selected dates
+            startTime = customRange.startDate;
+            endTime = customRange.endDate;
+          } else {
+            // For relative ranges, calculate from current time
+            endTime = new Date();
+            startTime = new Date(endTime);
+            startTime.setMinutes(endTime.getMinutes() - customRange.minutes);
+          }
+          timeRangeRef.current = {
+            start: new Date(startTime),
+            end: new Date(endTime),
+          };
+        } else if (selectedTimeRange.minutes) {
+          // Calculate new time range based on selector
+          endTime = new Date();
+          startTime = new Date(endTime);
+          startTime.setMinutes(
+            endTime.getMinutes() - selectedTimeRange.minutes,
+          );
+          timeRangeRef.current = {
+            start: new Date(startTime),
+            end: new Date(endTime),
+          };
+        } else {
+          // Fallback to default
+          endTime = new Date();
+          startTime = new Date(endTime);
+          startTime.setMinutes(endTime.getMinutes() - 60);
+          timeRangeRef.current = {
+            start: new Date(startTime),
+            end: new Date(endTime),
+          };
+        }
+
+        // Convert to UTC for API call
+        const utcStartTime = convertToUTC(startTime);
+        const utcEndTime = convertToUTC(endTime);
+
+        // Build API URL with search criteria
+        let apiUrl = `/api/list_trace?startTime=${utcStartTime.toISOString()}&endTime=${utcEndTime.toISOString()}`;
+
+        // Add provider information from URL (always required)
+        apiUrl += `&${buildProviderParams()}`;
+
+        // Check if trace_id is in URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const traceIdParam = urlParams.get("trace_id");
+        if (traceIdParam) {
+          apiUrl += `&trace_id=${encodeURIComponent(traceIdParam)}`;
+        }
+
+        // Add search criteria to the API call
+        searchCriteria.forEach((criterion) => {
+          apiUrl += `&categories=${encodeURIComponent(criterion.category)}`;
+          apiUrl += `&values=${encodeURIComponent(criterion.value)}`;
+          apiUrl += `&operations=${encodeURIComponent(criterion.operation)}`;
+        });
+
+        // Add pagination token if provided
+        if (paginationToken) {
+          apiUrl += `&pagination_token=${encodeURIComponent(paginationToken)}`;
+        }
+
+        const response = await fetch(apiUrl);
+        const result = await response.json();
+
+        if (!result.success) {
+          throw new Error(result.error || "Failed to fetch traces");
+        }
+
+        // Store pagination info
+        setNextPaginationToken(result.next_pagination_token || null);
+        setHasMore(result.has_more || false);
+
+        // If loading more, append to existing traces; otherwise replace
+        if (isLoadingMore) {
+          // Calculate new traces before setting state
+          const existingTraceIds = new Set(traces.map((t) => t.id));
+          const newTraces = result.data.filter(
+            (trace: TraceType) => !existingTraceIds.has(trace.id),
+          );
+
+          setTraces((prevTraces) => {
+            const updatedTraces = [...prevTraces, ...newTraces];
+            previousTraceCountRef.current = prevTraces.length;
+            return updatedTraces;
+          });
+
+          // If grouped mode is active, expand only NEW groups (not existing ones)
+          if (isGrouped && newTraces.length > 0) {
+            setExpandedGroups((prevExpandedGroups) => {
+              const newExpandedGroups = new Set(prevExpandedGroups);
+              // Get all existing group keys before adding new traces
+              const existingGroupKeys = new Set(
+                traces.map((trace) => getGroupKey(trace)),
+              );
+
+              newTraces.forEach((trace: TraceType) => {
+                const groupKey = getGroupKey(trace);
+                // Only add to expanded set if this is a NEW group
+                if (!existingGroupKeys.has(groupKey)) {
+                  newExpandedGroups.add(groupKey);
+                }
+              });
+              return newExpandedGroups;
+            });
+          }
+        } else {
+          setTraces(result.data);
+          previousTraceCountRef.current = 0;
+
+          // If grouped mode is active, expand all groups on initial load
+          if (isGrouped && result.data.length > 0) {
+            const allGroups = new Set<string>(
+              result.data.map((trace: TraceType) => getGroupKey(trace)),
+            );
+            setExpandedGroups(allGroups);
+          }
+
+          // If trace_id in URL, auto-select that trace
+          if (traceIdParam && result.data.length > 0) {
+            const traceToSelect = result.data.find(
+              (trace: TraceType) => trace.id === traceIdParam,
+            );
+            if (traceToSelect) {
+              const newSelection = new Set([traceToSelect.id]);
+              setSelectedTraceIds(newSelection);
+              setLastSelectedTraceId(traceToSelect.id);
+              onTraceSelect?.([traceToSelect.id]);
+              setExpandedTraces(new Map([[traceToSelect.id, true]]));
+              setExpandedSpans(new Set());
+            }
+          } else if (result.data.length > 0) {
+            // Automatically select the first trace
+            const firstTrace = result.data[0];
+            const newSelection = new Set([firstTrace.id]);
+            setSelectedTraceIds(newSelection);
+            setLastSelectedTraceId(firstTrace.id);
+            onTraceSelect?.([firstTrace.id]);
+            setExpandedTraces(new Map([[firstTrace.id, true]]));
+            setExpandedSpans(new Set());
+          } else {
+            // No traces available, clear selection
+            setSelectedTraceIds(new Set());
+            setLastSelectedTraceId(null);
+            setSelectedSpanId(null);
+            setSelectedSpanIds([]);
+            onTraceSelect?.([]);
+            onSpanSelect?.([]);
+          }
+
+          onTraceData?.(timeRangeRef.current.start, timeRangeRef.current.end);
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "An error occurred while fetching traces",
+        );
+      } finally {
+        if (isLoadingMore) {
+          setLoadingMore(false);
+        } else {
+          setLoading(false);
+        }
+      }
+    },
+    [
+      selectedTimeRange,
+      timezone,
+      traceQueryStartTime,
+      traceQueryEndTime,
+      searchCriteria,
+      onTraceData,
+      onTracesUpdate,
+      onTraceSelect,
+      onSpanSelect,
+      isGrouped,
+      getGroupKey,
+    ],
+  );
+
+  useEffect(() => {
+    if (!loading) return;
+    fetchTraces();
+  }, [
+    selectedTimeRange,
+    timezone,
+    loading,
+    traceQueryStartTime,
+    traceQueryEndTime,
+    searchCriteria,
+  ]);
+
+  // Notify parent when traces change
+  useEffect(() => {
+    onTracesUpdate?.(traces);
+  }, [traces, onTracesUpdate]);
+
+  useEffect(() => {
+    setLoading(true);
+  }, []);
+
+  // Check if trace_id is in URL on mount
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const traceIdParam = urlParams.get("trace_id");
+    setHasTraceIdInUrl(!!traceIdParam);
+  }, []);
+
+  const getPercentileTag = (percentile: string) => {
+    // Ensure the percentile is a valid key
+    if (!Object.keys(PERCENTILE_COLORS).includes(percentile)) {
+      return null;
+    }
+    const color = getPercentileColor(percentile as PercentileKey);
+    return (
+      <span
+        className="inline-flex w-12 h-5 mr-2 text-xs font-mono items-center justify-center rounded-md"
+        style={{
+          background: `${color}`,
+          color: "black",
+          boxShadow: "inset 0 1px 1px rgba(255, 255, 255, 0.2)",
+        }}
+      >
+        {percentile}
+      </span>
+    );
+  };
+
+  const handleTraceClick = (traceId: string) => {
+    let newSelection = new Set(selectedTraceIds);
+    let hitLimit = false;
+
+    // Shift+click: range selection
+    if (isShiftKeyPressed && lastSelectedTraceId) {
+      const lastIndex = traces.findIndex((t) => t.id === lastSelectedTraceId);
+      const currentIndex = traces.findIndex((t) => t.id === traceId);
+
+      if (lastIndex !== -1 && currentIndex !== -1) {
+        const start = Math.min(lastIndex, currentIndex);
+        const end = Math.max(lastIndex, currentIndex);
+
+        // Add all traces in range, but respect the max limit
+        for (let i = start; i <= end; i++) {
+          if (newSelection.size >= MAX_SELECTED_TRACES) {
+            hitLimit = true;
+            break;
+          }
+          newSelection.add(traces[i].id);
+        }
+      }
+    }
+    // Cmd/Ctrl+click: toggle individual selection
+    else if (isMetaKeyPressed) {
+      if (newSelection.has(traceId)) {
+        newSelection.delete(traceId);
+        // If we're deselecting the last selected trace, update lastSelectedTraceId
+        if (traceId === lastSelectedTraceId) {
+          setLastSelectedTraceId(
+            newSelection.size > 0 ? Array.from(newSelection)[0] : null,
+          );
+        }
+      } else {
+        // Only add if we haven't reached the max limit
+        if (newSelection.size < MAX_SELECTED_TRACES) {
+          newSelection.add(traceId);
+          setLastSelectedTraceId(traceId);
+        } else {
+          hitLimit = true;
+        }
+      }
+    }
+    // Regular click: single selection (toggle)
+    else {
+      if (newSelection.size === 1 && newSelection.has(traceId)) {
+        // Deselect if clicking the only selected trace
+        newSelection.clear();
+        setLastSelectedTraceId(null);
+      } else {
+        // Select only this trace
+        newSelection = new Set([traceId]);
+        setLastSelectedTraceId(traceId);
+      }
+    }
+
+    // Show toast if limit was hit
+    if (hitLimit) {
+      toast.error(`Maximum of ${MAX_SELECTED_TRACES} traces can be selected`, {
+        duration: 3000,
+        style: {
+          borderRadius: "8px",
+          background: "#ffffff",
+          color: "#0a0a0a",
+          border: "1px solid #e5e7eb",
+          padding: "10px 14px",
+          fontSize: "12px",
+          boxShadow:
+            "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)",
+        },
+      });
+    }
+
+    // Only update state if selection actually changed
+    const selectionChanged =
+      newSelection.size !== selectedTraceIds.size ||
+      !Array.from(newSelection).every((id) => selectedTraceIds.has(id));
+
+    if (!selectionChanged) {
+      return;
+    }
+
+    setSelectedTraceIds(newSelection);
+    onTraceSelect?.(Array.from(newSelection));
+
+    // Update expansion state based on selection count
+    if (newSelection.size > 1) {
+      // Multiple selection: expand all selected traces
+      const newExpandedTraces = new Map<string, boolean>();
+      newSelection.forEach((id) => {
+        newExpandedTraces.set(id, true);
+      });
+      setExpandedTraces(newExpandedTraces);
+    } else if (newSelection.size === 1) {
+      // Single selection: expand the selected trace
+      const selectedId = Array.from(newSelection)[0];
+      setExpandedTraces(new Map([[selectedId, true]]));
+    } else {
+      // No selection: clear expansion
+      setExpandedTraces(new Map());
+    }
+
+    // Always clear span selection when trace selection changes
+    setSelectedSpanId(null);
+    setSelectedSpanIds([]);
+    onSpanSelect?.([]);
+  };
+
+  const handleTraceExpandToggle = (
+    traceId: string,
+    event: React.MouseEvent,
+  ) => {
+    event.stopPropagation(); // Prevent trace selection
+    if (selectedTraceIds.has(traceId)) {
+      const currentExpanded = expandedTraces.get(traceId) ?? false;
+      setExpandedTraces((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(traceId, !currentExpanded);
+        return newMap;
+      });
+    }
+  };
+
+  const handleSpanExpandToggle = (spanId: string, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent span selection
+    setExpandedSpans((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(spanId)) {
+        // If span is in the set (collapsed), remove it (expand it)
+        newSet.delete(spanId);
+      } else {
+        // If span is not in the set (expanded), add it (collapse it)
+        newSet.add(spanId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSpanSelect = (spanId: string, childSpanIds: string[]) => {
+    // Find which trace this span belongs to
+    const findTraceForSpan = (spanId: string): string | null => {
+      for (const trace of traces) {
+        const spanExists = (spans: any[]): boolean => {
+          for (const span of spans) {
+            if (span.id === spanId) return true;
+            if (span.spans && span.spans.length > 0) {
+              if (spanExists(span.spans)) return true;
+            }
+          }
+          return false;
+        };
+        if (trace.spans && spanExists(trace.spans)) {
+          return trace.id;
+        }
+      }
+      return null;
+    };
+
+    // Build a map of spanId -> traceId for currently selected spans
+    const currentSpanToTraceMap = new Map<string, string>();
+    selectedSpanIds.forEach((id) => {
+      const traceId = findTraceForSpan(id);
+      if (traceId) {
+        currentSpanToTraceMap.set(id, traceId);
+      }
+    });
+
+    // Find the trace for the clicked span
+    const clickedSpanTraceId = findTraceForSpan(spanId);
+
+    if (!clickedSpanTraceId) {
+      // If we can't find the trace, fall back to simple toggle
+      const newSelectedSpanId = selectedSpanId === spanId ? null : spanId;
+      setSelectedSpanId(newSelectedSpanId);
+      const allSpanIds = newSelectedSpanId
+        ? [newSelectedSpanId, ...childSpanIds]
+        : [];
+      setSelectedSpanIds(allSpanIds);
+      onSpanSelect?.(allSpanIds);
+      return;
+    }
+
+    // Get all span IDs that belong to the clicked trace
+    const clickedTraceSpanIds = new Set(
+      Array.from(currentSpanToTraceMap.entries())
+        .filter(([_, traceId]) => traceId === clickedSpanTraceId)
+        .map(([spanId, _]) => spanId),
+    );
+
+    // Check if we're deselecting (clicking on an already selected span from the same trace)
+    const isDeselecting = clickedTraceSpanIds.has(spanId);
+
+    let newSelectedSpanIds: string[];
+    if (isDeselecting) {
+      // Remove all spans from this trace
+      newSelectedSpanIds = selectedSpanIds.filter(
+        (id) => currentSpanToTraceMap.get(id) !== clickedSpanTraceId,
+      );
+      setSelectedSpanId(null);
+    } else {
+      // Remove old spans from this trace and add new ones
+      const spansFromOtherTraces = selectedSpanIds.filter(
+        (id) => currentSpanToTraceMap.get(id) !== clickedSpanTraceId,
+      );
+      const newSpansForThisTrace = [spanId, ...childSpanIds];
+      newSelectedSpanIds = [...spansFromOtherTraces, ...newSpansForThisTrace];
+      setSelectedSpanId(spanId);
+    }
+
+    setSelectedSpanIds(newSelectedSpanIds);
+    onSpanSelect?.(newSelectedSpanIds);
+  };
+
+  const handleGroupToggle = () => {
+    setIsGrouped(!isGrouped);
+    if (!isGrouped) {
+      // When enabling grouping, expand all groups by default
+      const allGroups = new Set(traces.map((trace) => getGroupKey(trace)));
+      setExpandedGroups(allGroups);
+    }
+  };
+
+  const handleGroupExpandToggle = (
+    groupKey: string,
+    event: React.MouseEvent,
+  ) => {
+    event.stopPropagation();
+    setExpandedGroups((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(groupKey)) {
+        newSet.delete(groupKey);
+      } else {
+        newSet.add(groupKey);
+      }
+      return newSet;
+    });
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedTraceIds(new Set());
+    setLastSelectedTraceId(null);
+    setSelectedSpanId(null);
+    setSelectedSpanIds([]);
+    onTraceSelect?.([]);
+    onSpanSelect?.([]);
+  };
+
+  const handleRefresh = () => {
+    setSelectedTraceIds(new Set());
+    setLastSelectedTraceId(null);
+    setSelectedSpanId(null);
+    setSelectedSpanIds([]);
+    setExpandedTraces(new Map());
+    setExpandedSpans(new Set());
+    setNextPaginationToken(null);
+    setHasMore(false);
+    previousTraceCountRef.current = 0;
+    onTraceSelect?.([]);
+    onSpanSelect?.([]);
+    setLoading(true);
+  };
+
+  const handleShareClick = (traceId: string, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent trace selection
+    setShareTraceId(traceId);
+    setShareDialogOpen(true);
+    setCopied(false);
+  };
+
+  const getShareUrl = (traceId: string): string => {
+    const baseUrl = window.location.origin + window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+    params.set("trace_id", traceId);
+    return `${baseUrl}?${params.toString()}`;
+  };
+
+  const handleCopyUrl = async () => {
+    if (shareTraceId) {
+      const url = getShareUrl(shareTraceId);
+      try {
+        await navigator.clipboard.writeText(url);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (err) {
+        console.error("Failed to copy:", err);
+      }
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (nextPaginationToken && !loadingMore) {
+      fetchTraces(nextPaginationToken);
+    }
+  };
+
+  useEffect(() => {
+    if (externalSelectedTraceIds) {
+      const externalSet = new Set(externalSelectedTraceIds);
+      const currentSet = selectedTraceIds;
+
+      // Check if sets are different
+      if (
+        externalSet.size !== currentSet.size ||
+        !Array.from(externalSet).every((id) => currentSet.has(id))
+      ) {
+        setSelectedTraceIds(externalSet);
+        if (externalSelectedTraceIds.length > 0) {
+          setLastSelectedTraceId(
+            externalSelectedTraceIds[externalSelectedTraceIds.length - 1],
+          );
+        } else {
+          setLastSelectedTraceId(null);
+        }
+      }
+    }
+  }, [externalSelectedTraceIds]);
+
+  // Sync external selectedSpanIds with internal state
+  useEffect(() => {
+    if (
+      externalSelectedSpanIds &&
+      JSON.stringify(externalSelectedSpanIds) !==
+        JSON.stringify(selectedSpanIds)
+    ) {
+      setSelectedSpanIds(externalSelectedSpanIds);
+      // Also set the first span as selected span for consistency
+      if (externalSelectedSpanIds.length > 0) {
+        setSelectedSpanId(externalSelectedSpanIds[0]);
+      } else {
+        setSelectedSpanId(null);
+      }
+    }
+  }, [externalSelectedSpanIds, selectedSpanIds]);
+
+  // Clean up expand state when traces change
+  useEffect(() => {
+    if (traces.length > 0) {
+      // Collect all valid span IDs from current traces
+      const allValidSpanIds = new Set<string>();
+      traces.forEach((trace) => {
+        const collectSpanIds = (span: any) => {
+          allValidSpanIds.add(span.id);
+          if (span.spans) {
+            span.spans.forEach(collectSpanIds);
+          }
+        };
+        if (trace.spans) {
+          trace.spans.forEach(collectSpanIds);
+        }
+      });
+
+      // Remove any collapsed span IDs that no longer exist
+      setExpandedSpans((prev) => {
+        const newSet = new Set<string>();
+        prev.forEach((spanId) => {
+          if (allValidSpanIds.has(spanId)) {
+            newSet.add(spanId);
+          }
+        });
+        return newSet;
+      });
+    }
+  }, [traces]);
+
+  return (
+    <>
+      <style>{fadeInAnimationStyles}</style>
+      <div className="h-screen bg-white dark:bg-zinc-950 text-neutral-800 dark:text-neutral-200 overflow-y-auto overflow-x-hidden p-4">
+        {/* Search and Time Range Selector */}
+        <div className="space-y-4">
+          <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <SearchBar
+                onSearch={handleSearch}
+                onClear={handleClearSearch}
+                onLogSearchValueChange={handleLogSearchValueChange}
+                onMetadataSearchTermsChange={onMetadataSearchTermsChange}
+                disabled={loading || hasTraceIdInUrl}
+              />
+            </div>
+            <div className="flex space-x-2 flex-shrink-0 justify-end">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={handleDeselectAll}
+                    variant="outline"
+                    size="default"
+                    className="min-h-[2.5rem]"
+                    disabled={
+                      loading || hasTraceIdInUrl || selectedTraceIds.size === 0
+                    }
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Deselect traces</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <GroupButton
+                      onToggle={handleGroupToggle}
+                      isGrouped={isGrouped}
+                      disabled={loading || hasTraceIdInUrl}
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>
+                    {isGrouped
+                      ? "Ungroup"
+                      : "Group traces by service name and environment"}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <RefreshButton
+                      onRefresh={handleRefresh}
+                      disabled={loading || hasTraceIdInUrl}
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Refresh the traces</p>
+                </TooltipContent>
+              </Tooltip>
+              <TimeButton
+                selectedTimeRange={selectedTimeRange}
+                onTimeRangeSelect={handleTimeRangeSelect}
+                onCustomTimeRangeSelect={handleCustomTimeRangeSelect}
+                currentTimezone={timezone}
+                disabled={loading || hasTraceIdInUrl}
+              />
+            </div>
+          </div>
+
+          {/* Content container with zinc-50 background */}
+          <div className="mt-4 bg-zinc-50 dark:bg-zinc-900 p-2.5 rounded-lg">
+            {loading && (
+              <div className="flex flex-col items-center justify-center py-1 space-y-1">
+                <Spinner
+                  variant="infinite"
+                  className="w-8 h-8 text-gray-500 dark:text-gray-300"
+                />
+              </div>
+            )}
+
+            {error && (
+              <div className="text-sm text-red-500 dark:text-red-400">
+                {error}
+              </div>
+            )}
+
+            {!loading && !error && traces.length === 0 && (
+              <div className="text-muted-foreground text-sm">
+                No Information Found
+              </div>
+            )}
+
+            {!loading && !error && traces.length > 0 && (
+              <>
+                <div className="space-y-1.5 transition-all duration-100 ease-in-out">
+                  {!isGrouped &&
+                    traces.map((trace, index) => {
+                      const isNewTrace = index >= previousTraceCountRef.current;
+                      const animationDelay = isNewTrace
+                        ? `${(index - previousTraceCountRef.current) * 5}ms`
+                        : "0ms";
+                      return (
+                        <div key={trace.id} className="relative">
+                          {/* Trace Block */}
+                          <div
+                            className={`relative h-[40px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-100 ease-in-out hover:shadow-sm ${isNewTrace ? "animate-fadeIn" : ""} ${
+                              selectedTraceIds.has(trace.id)
+                                ? "bg-zinc-100 dark:bg-zinc-900"
+                                : "bg-white dark:bg-zinc-950"
+                            }`}
+                            style={{
+                              animationDelay: animationDelay,
+                            }}
+                            onClick={() => handleTraceClick(trace.id)}
+                            role="button"
+                            tabIndex={0}
+                          >
+                            <div className="flex justify-between items-center h-full gap-2">
+                              <div className="flex items-center text-sm min-w-0 flex-1 overflow-hidden">
+                                {/* Telemetry SDK Language Icons - Priority 3 */}
+                                {trace.telemetry_sdk_language &&
+                                  trace.telemetry_sdk_language.length > 0 && (
+                                    <div className="flex items-center flex-shrink-0 hidden [@media(min-width:650px)]:flex">
+                                      {/* Python Icon - show when telemetry_sdk_language includes "python" */}
+                                      {trace.telemetry_sdk_language.includes(
+                                        "python",
+                                      ) && (
+                                        <FaPython
+                                          className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                          size={14}
+                                        />
+                                      )}
+
+                                      {/* TypeScript Icon - show when telemetry_sdk_language includes "ts" */}
+                                      {trace.telemetry_sdk_language.includes(
+                                        "ts",
+                                      ) && (
+                                        <SiTypescript
+                                          className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                          size={14}
+                                        />
+                                      )}
+
+                                      {/* JavaScript Icon - show when telemetry_sdk_language includes "js" */}
+                                      {trace.telemetry_sdk_language.includes(
+                                        "js",
+                                      ) && (
+                                        <IoLogoJavascript
+                                          className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                          size={14}
+                                        />
+                                      )}
+
+                                      {/* Java Icon - show when telemetry_sdk_language includes "java" */}
+                                      {trace.telemetry_sdk_language.includes(
+                                        "java",
+                                      ) && (
+                                        <FaJava
+                                          className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                          size={14}
+                                        />
+                                      )}
+                                    </div>
+                                  )}
+
+                                {/* Service Name Badge - Priority 4 */}
+                                {(() => {
+                                  const fullServiceName =
+                                    trace.service_name || "Unknown Service";
+                                  const isLimitExceeded =
+                                    fullServiceName === "LimitExceeded";
+
+                                  const badge = (
+                                    <Badge
+                                      variant="default"
+                                      className={`min-w-16 max-w-[200px] h-6 mr-2 justify-start font-mono font-normal flex-shrink text-left overflow-hidden hidden [@media(min-width:550px)]:inline-flex ${
+                                        isLimitExceeded
+                                          ? "bg-red-600 hover:bg-red-700 text-white"
+                                          : ""
+                                      }`}
+                                    >
+                                      <span className="truncate">
+                                        {fullServiceName}
+                                      </span>
+                                    </Badge>
+                                  );
+
+                                  return (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        {badge}
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>
+                                          {isLimitExceeded
+                                            ? "The trace is too large or took too long to complete."
+                                            : fullServiceName}
+                                        </p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  );
+                                })()}
+
+                                {/* Environment - Priority 5 */}
+                                <Badge
+                                  variant="outline"
+                                  className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 hidden [@media(min-width:450px)]:inline-flex"
+                                >
+                                  {trace.service_environment ||
+                                    "Unknown Environment"}
+                                </Badge>
+
+                                {/* Span Count - Priority 6 */}
+                                <Badge
+                                  variant="outline"
+                                  className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 hidden [@media(min-width:350px)]:inline-flex"
+                                >
+                                  {(() => {
+                                    const spanCount = countSpans(trace.spans);
+                                    return `${spanCount} span${spanCount === 1 ? "" : "s"}`;
+                                  })()}
+                                </Badge>
+
+                                {/* Latency - Priority 7 */}
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge
+                                      variant="outline"
+                                      className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 hidden [@media(min-width:250px)]:inline-flex"
+                                    >
+                                      {trace.service_name === "LimitExceeded"
+                                        ? "N/A"
+                                        : formatDuration(trace.duration)}
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>
+                                      {trace.service_name === "LimitExceeded"
+                                        ? "N/A"
+                                        : `${trace.duration.toFixed(2)} ms`}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+
+                                {/* Warning and Error Badges Container */}
+                                <div className="flex items-center flex-shrink-0">
+                                  {/* Error icon for error/critical logs */}
+                                  {((trace.num_error_logs ?? 0) > 0 ||
+                                    (trace.num_critical_logs ?? 0) > 0) && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Badge
+                                          variant="destructive"
+                                          className="h-6 mr-1 px-1 font-light"
+                                        >
+                                          <MdErrorOutline
+                                            size={16}
+                                            className="text-white"
+                                          />
+                                        </Badge>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>{`${trace.num_error_logs ?? 0} error logs, ${trace.num_critical_logs ?? 0} critical logs`}</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
+
+                                  {/* Warning icon for error/critical logs */}
+                                  {(trace.num_warning_logs ?? 0) > 0 && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Badge
+                                          variant="secondary"
+                                          className="h-6 mr-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-light"
+                                        >
+                                          <IoWarningOutline
+                                            size={16}
+                                            className="text-white"
+                                          />
+                                        </Badge>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>{`${trace.num_warning_logs ?? 0} warning logs`}</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Start time, Share button, and Expand/Collapse icon */}
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                {/* Timestamp - Priority 8 (lowest - hide first) */}
+                                <span className="text-xs text-neutral-600 dark:text-neutral-300 flex-shrink-0 whitespace-nowrap hidden [@media(min-width:900px)]:inline">
+                                  {trace.start_time === 0
+                                    ? "N/A"
+                                    : formatDateTime(trace.start_time)}
+                                </span>
+                                {selectedTraceIds.has(trace.id) && (
+                                  <>
+                                    {/* Share button - Priority 2 */}
+                                    {selectedTraceIds.size === 1 && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <button
+                                            onClick={(e) =>
+                                              handleShareClick(trace.id, e)
+                                            }
+                                            className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors hidden [@media(min-width:750px)]:block"
+                                          >
+                                            <Share2
+                                              size={14}
+                                              className="text-neutral-600 dark:text-neutral-300"
+                                            />
+                                          </button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          <p>Share trace</p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                    {/* Expand/Collapse button - Priority 1 (highest - never hide) */}
+                                    <button
+                                      onClick={(e) =>
+                                        handleTraceExpandToggle(trace.id, e)
+                                      }
+                                      className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
+                                    >
+                                      {expandedTraces.get(trace.id) ? (
+                                        <CircleMinus
+                                          size={14}
+                                          className="text-neutral-600 dark:text-neutral-300"
+                                        />
+                                      ) : (
+                                        <CirclePlus
+                                          size={14}
+                                          className="text-neutral-600 dark:text-neutral-300"
+                                        />
+                                      )}
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Spans Container - Only rendered when trace is selected AND expanded */}
+                          {selectedTraceIds.has(trace.id) &&
+                            expandedTraces.get(trace.id) && (
+                              <div
+                                className="relative pb-1 pt-1.5"
+                                style={{ zIndex: 1 }}
+                              >
+                                {/* Vertical Line: extends naturally with the content */}
+                                <div
+                                  className="absolute top-0 w-px"
+                                  style={{
+                                    left: "3%",
+                                    height: "100%",
+                                    background: "#e5e7eb",
+                                    zIndex: -1,
+                                  }}
+                                />
+
+                                <div
+                                  className="overflow-y-auto"
+                                  style={{
+                                    width: "97%",
+                                    marginLeft: "3%",
+                                    maxHeight: "500px", // ✅ Enables vertical scroll
+                                  }}
+                                >
+                                  <div className="space-y-2">
+                                    {trace.spans.map((span) => (
+                                      <Span
+                                        key={span.id}
+                                        span={span}
+                                        widthPercentage={97}
+                                        isSelected={selectedSpanIds.includes(
+                                          span.id,
+                                        )}
+                                        selectedSpanId={selectedSpanId}
+                                        selectedSpanIds={selectedSpanIds}
+                                        onSpanSelect={handleSpanSelect}
+                                        expandedSpans={expandedSpans}
+                                        onSpanExpandToggle={
+                                          handleSpanExpandToggle
+                                        }
+                                      />
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                        </div>
+                      );
+                    })}
+
+                  {isGrouped &&
+                    Array.from(groupTraces(traces).entries()).map(
+                      ([groupKey, groupedTraces], groupIndex) => {
+                        const [serviceName, serviceEnv] = groupKey.split("|");
+                        const isGroupExpanded = expandedGroups.has(groupKey);
+
+                        return (
+                          <div key={groupKey} className="relative">
+                            {/* Group Header */}
+                            <div
+                              className="relative h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 bg-zinc-100 dark:bg-zinc-900 transform transition-all duration-100 ease-in-out hover:shadow-sm"
+                              role="button"
+                              tabIndex={0}
+                            >
+                              <div className="flex justify-between items-center h-full">
+                                <div className="flex items-center text-sm min-w-0 flex-1 pr-4">
+                                  {/* Service Name Badge */}
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Badge
+                                        variant="default"
+                                        className="min-w-16 max-w-[200px] h-6 mr-2 justify-start font-mono font-normal flex-shrink text-left overflow-hidden"
+                                      >
+                                        <span className="truncate">
+                                          {serviceName}
+                                        </span>
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>{serviceName}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+
+                                  {/* Environment */}
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Badge
+                                        variant="outline"
+                                        className="max-w-[150px] h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 overflow-hidden"
+                                      >
+                                        <span className="truncate">
+                                          {serviceEnv}
+                                        </span>
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>{serviceEnv}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+
+                                  {/* Trace Count */}
+                                  <Badge
+                                    variant="default"
+                                    className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
+                                  >
+                                    {groupedTraces.length} trace
+                                    {groupedTraces.length !== 1 ? "s" : ""}
+                                  </Badge>
+
+                                  {/* Timestamp Range */}
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Badge
+                                        variant="outline"
+                                        className="max-w-[300px] h-6 mr-2 justify-center font-mono font-normal flex-shrink text-xs overflow-hidden"
+                                      >
+                                        <span className="truncate">
+                                          {(() => {
+                                            const timestamps =
+                                              groupedTraces.map(
+                                                (t) => t.start_time,
+                                              );
+                                            const earliest = Math.min(
+                                              ...timestamps,
+                                            );
+                                            const latest = Math.max(
+                                              ...timestamps,
+                                            );
+                                            return `${formatDateTimeWithoutYear(earliest)} - ${formatDateTimeWithoutYear(latest)}`;
+                                          })()}
+                                        </span>
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>
+                                        {(() => {
+                                          const timestamps = groupedTraces.map(
+                                            (t) => t.start_time,
+                                          );
+                                          const earliest = Math.min(
+                                            ...timestamps,
+                                          );
+                                          const latest = Math.max(
+                                            ...timestamps,
+                                          );
+                                          return `${formatDateTimeWithoutYear(earliest)} - ${formatDateTimeWithoutYear(latest)}`;
+                                        })()}
+                                      </p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+
+                                {/* Sort toggle and Expand/Collapse icon */}
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  {/* Sort Mode Toggle */}
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const currentMode =
+                                            groupSortModes.get(groupKey) ||
+                                            "timestamp";
+                                          const nextMode =
+                                            currentMode === "timestamp"
+                                              ? "errors"
+                                              : currentMode === "errors"
+                                                ? "warnings"
+                                                : "timestamp";
+                                          setGroupSortModes(
+                                            new Map(
+                                              groupSortModes.set(
+                                                groupKey,
+                                                nextMode,
+                                              ),
+                                            ),
+                                          );
+                                        }}
+                                        className="flex items-center gap-1 px-2 py-0.5 text-xs hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
+                                      >
+                                        <ArrowUpDown size={12} />
+                                        <span className="text-xs text-neutral-600 dark:text-neutral-300">
+                                          {(() => {
+                                            const mode =
+                                              groupSortModes.get(groupKey) ||
+                                              "timestamp";
+                                            return mode === "timestamp"
+                                              ? "Time"
+                                              : mode === "errors"
+                                                ? "Errors"
+                                                : "Warnings";
+                                          })()}
+                                        </span>
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>
+                                        {(() => {
+                                          const mode =
+                                            groupSortModes.get(groupKey) ||
+                                            "timestamp";
+                                          return mode === "timestamp"
+                                            ? "Sort by timestamp (click to sort by errors)"
+                                            : mode === "errors"
+                                              ? "Sort by errors (click to sort by warnings)"
+                                              : "Sort by warnings (click to sort by timestamp)";
+                                        })()}
+                                      </p>
+                                    </TooltipContent>
+                                  </Tooltip>
+
+                                  {/* Expand/Collapse Button */}
+                                  <button
+                                    onClick={(e) =>
+                                      handleGroupExpandToggle(groupKey, e)
+                                    }
+                                    className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
+                                  >
+                                    {isGroupExpanded ? (
+                                      <CircleMinus
+                                        size={14}
+                                        className="text-neutral-600 dark:text-neutral-300"
+                                      />
+                                    ) : (
+                                      <CirclePlus
+                                        size={14}
+                                        className="text-neutral-600 dark:text-neutral-300"
+                                      />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Grouped Traces */}
+                            {isGroupExpanded &&
+                              groupedTraces.map((trace, traceIndex) => {
+                                const globalIndex = traces.findIndex(
+                                  (t) => t.id === trace.id,
+                                );
+                                const isNewTrace =
+                                  globalIndex >= previousTraceCountRef.current;
+                                const animationDelay = isNewTrace
+                                  ? `${(globalIndex - previousTraceCountRef.current) * 5}ms`
+                                  : "0ms";
+
+                                return (
+                                  <div
+                                    key={trace.id}
+                                    className="relative mt-1.5 ml-6"
+                                  >
+                                    {/* Trace Block */}
+                                    <div
+                                      className={`relative h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-100 ease-in-out hover:shadow-sm ${isNewTrace ? "animate-fadeIn" : ""} ${
+                                        selectedTraceIds.has(trace.id)
+                                          ? "bg-zinc-100 dark:bg-zinc-900"
+                                          : "bg-white dark:bg-zinc-950"
+                                      }`}
+                                      style={{
+                                        animationDelay: animationDelay,
+                                      }}
+                                      onClick={() => handleTraceClick(trace.id)}
+                                      role="button"
+                                      tabIndex={0}
+                                    >
+                                      <div className="flex justify-between items-center h-full gap-2">
+                                        <div className="flex items-center text-sm min-w-0 flex-1 overflow-hidden">
+                                          {/* Telemetry SDK Language Icons - Priority 3 */}
+                                          {trace.telemetry_sdk_language &&
+                                            trace.telemetry_sdk_language
+                                              .length > 0 && (
+                                              <div className="flex items-center flex-shrink-0 hidden [@media(min-width:650px)]:flex">
+                                                {trace.telemetry_sdk_language.includes(
+                                                  "python",
+                                                ) && (
+                                                  <FaPython
+                                                    className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                                    size={14}
+                                                  />
+                                                )}
+                                                {trace.telemetry_sdk_language.includes(
+                                                  "ts",
+                                                ) && (
+                                                  <SiTypescript
+                                                    className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                                    size={14}
+                                                  />
+                                                )}
+                                                {trace.telemetry_sdk_language.includes(
+                                                  "js",
+                                                ) && (
+                                                  <IoLogoJavascript
+                                                    className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                                    size={14}
+                                                  />
+                                                )}
+                                                {trace.telemetry_sdk_language.includes(
+                                                  "java",
+                                                ) && (
+                                                  <FaJava
+                                                    className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                                    size={14}
+                                                  />
+                                                )}
+                                              </div>
+                                            )}
+
+                                          {/* Service Name Badge - Priority 4 */}
+                                          {(() => {
+                                            const fullServiceName =
+                                              trace.service_name ||
+                                              "Unknown Service";
+                                            const isLimitExceeded =
+                                              fullServiceName ===
+                                              "LimitExceeded";
+
+                                            const badge = (
+                                              <Badge
+                                                variant="default"
+                                                className={`min-w-16 max-w-[200px] h-6 mr-2 justify-start font-mono font-normal flex-shrink text-left overflow-hidden hidden [@media(min-width:550px)]:inline-flex ${
+                                                  isLimitExceeded
+                                                    ? "bg-red-600 hover:bg-red-700 text-white"
+                                                    : ""
+                                                }`}
+                                              >
+                                                <span className="truncate">
+                                                  {fullServiceName}
+                                                </span>
+                                              </Badge>
+                                            );
+
+                                            return (
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  {badge}
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                  <p>
+                                                    {isLimitExceeded
+                                                      ? "The trace is too large or took too long to complete."
+                                                      : fullServiceName}
+                                                  </p>
+                                                </TooltipContent>
+                                              </Tooltip>
+                                            );
+                                          })()}
+
+                                          {/* Environment - Priority 5 */}
+                                          <Badge
+                                            variant="outline"
+                                            className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 hidden [@media(min-width:450px)]:inline-flex"
+                                          >
+                                            {trace.service_environment ||
+                                              "Unknown Environment"}
+                                          </Badge>
+
+                                          {/* Span Count - Priority 6 */}
+                                          <Badge
+                                            variant="outline"
+                                            className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 hidden [@media(min-width:350px)]:inline-flex"
+                                          >
+                                            {(() => {
+                                              const spanCount = countSpans(
+                                                trace.spans,
+                                              );
+                                              return `${spanCount} span${spanCount === 1 ? "" : "s"}`;
+                                            })()}
+                                          </Badge>
+
+                                          {/* Latency - Priority 7 */}
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Badge
+                                                variant="outline"
+                                                className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0 hidden [@media(min-width:250px)]:inline-flex"
+                                              >
+                                                {trace.service_name ===
+                                                "LimitExceeded"
+                                                  ? "N/A"
+                                                  : formatDuration(
+                                                      trace.duration,
+                                                    )}
+                                              </Badge>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                              <p>
+                                                {trace.service_name ===
+                                                "LimitExceeded"
+                                                  ? "N/A"
+                                                  : `${trace.duration.toFixed(2)} ms`}
+                                              </p>
+                                            </TooltipContent>
+                                          </Tooltip>
+
+                                          {/* Warning and Error Badges Container */}
+                                          <div className="flex items-center flex-shrink-0">
+                                            {/* Error icon for error/critical logs */}
+                                            {((trace.num_error_logs ?? 0) > 0 ||
+                                              (trace.num_critical_logs ?? 0) >
+                                                0) && (
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  <Badge
+                                                    variant="destructive"
+                                                    className="h-6 mr-1 px-1 font-light"
+                                                  >
+                                                    <MdErrorOutline
+                                                      size={16}
+                                                      className="text-white"
+                                                    />
+                                                  </Badge>
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                  <p>{`${trace.num_error_logs ?? 0} error logs, ${trace.num_critical_logs ?? 0} critical logs`}</p>
+                                                </TooltipContent>
+                                              </Tooltip>
+                                            )}
+
+                                            {/* Warning icon for warning logs */}
+                                            {(trace.num_warning_logs ?? 0) >
+                                              0 && (
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  <Badge
+                                                    variant="secondary"
+                                                    className="h-6 mr-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-light"
+                                                  >
+                                                    <IoWarningOutline
+                                                      size={16}
+                                                      className="text-white"
+                                                    />
+                                                  </Badge>
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                  <p>{`${trace.num_warning_logs ?? 0} warning logs`}</p>
+                                                </TooltipContent>
+                                              </Tooltip>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {/* Start time, Share button, and Expand/Collapse icon */}
+                                        <div className="flex items-center gap-2 flex-shrink-0">
+                                          {/* Timestamp - Priority 8 (lowest - hide first) */}
+                                          <span className="text-xs text-neutral-600 dark:text-neutral-300 flex-shrink-0 whitespace-nowrap hidden [@media(min-width:900px)]:inline">
+                                            {trace.start_time === 0
+                                              ? "N/A"
+                                              : formatDateTime(
+                                                  trace.start_time,
+                                                )}
+                                          </span>
+                                          {selectedTraceIds.has(trace.id) && (
+                                            <>
+                                              {/* Share button - Priority 2 */}
+                                              {selectedTraceIds.size === 1 && (
+                                                <Tooltip>
+                                                  <TooltipTrigger asChild>
+                                                    <button
+                                                      onClick={(e) =>
+                                                        handleShareClick(
+                                                          trace.id,
+                                                          e,
+                                                        )
+                                                      }
+                                                      className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors hidden [@media(min-width:750px)]:block"
+                                                    >
+                                                      <Share2
+                                                        size={14}
+                                                        className="text-neutral-600 dark:text-neutral-300"
+                                                      />
+                                                    </button>
+                                                  </TooltipTrigger>
+                                                  <TooltipContent>
+                                                    <p>Share trace</p>
+                                                  </TooltipContent>
+                                                </Tooltip>
+                                              )}
+                                              {/* Expand/Collapse button - Priority 1 (highest - never hide) */}
+                                              <button
+                                                onClick={(e) =>
+                                                  handleTraceExpandToggle(
+                                                    trace.id,
+                                                    e,
+                                                  )
+                                                }
+                                                className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
+                                              >
+                                                {expandedTraces.get(
+                                                  trace.id,
+                                                ) ? (
+                                                  <CircleMinus
+                                                    size={14}
+                                                    className="text-neutral-600 dark:text-neutral-300"
+                                                  />
+                                                ) : (
+                                                  <CirclePlus
+                                                    size={14}
+                                                    className="text-neutral-600 dark:text-neutral-300"
+                                                  />
+                                                )}
+                                              </button>
+                                            </>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Spans Container - Only rendered when trace is selected AND expanded */}
+                                    {selectedTraceIds.has(trace.id) &&
+                                      expandedTraces.get(trace.id) && (
+                                        <div
+                                          className="relative pb-1 pt-1.5"
+                                          style={{ zIndex: 1 }}
+                                        >
+                                          {/* Vertical Line: extends naturally with the content */}
+                                          <div
+                                            className="absolute top-0 w-px"
+                                            style={{
+                                              left: "3%",
+                                              height: "100%",
+                                              background: "#e5e7eb",
+                                              zIndex: -1,
+                                            }}
+                                          />
+
+                                          <div
+                                            className="overflow-y-auto"
+                                            style={{
+                                              width: "97%",
+                                              marginLeft: "3%",
+                                              maxHeight: "500px",
+                                            }}
+                                          >
+                                            <div className="space-y-2">
+                                              {trace.spans.map((span) => (
+                                                <Span
+                                                  key={span.id}
+                                                  span={span}
+                                                  widthPercentage={97}
+                                                  isSelected={selectedSpanIds.includes(
+                                                    span.id,
+                                                  )}
+                                                  selectedSpanId={
+                                                    selectedSpanId
+                                                  }
+                                                  selectedSpanIds={
+                                                    selectedSpanIds
+                                                  }
+                                                  onSpanSelect={
+                                                    handleSpanSelect
+                                                  }
+                                                  expandedSpans={expandedSpans}
+                                                  onSpanExpandToggle={
+                                                    handleSpanExpandToggle
+                                                  }
+                                                />
+                                              ))}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        );
+                      },
+                    )}
+                </div>
+
+                {/* Load More Button / Summary */}
+                {!loadingMore && (
+                  <div className="mt-1.5">
+                    <button
+                      onClick={hasMore ? handleLoadMore : undefined}
+                      disabled={!hasMore}
+                      className={`w-full h-[40px] p-2 rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-zinc-950 transition-colors flex items-center justify-center text-sm text-neutral-600 dark:text-neutral-300 ${
+                        hasMore
+                          ? "hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer"
+                          : "cursor-default opacity-75"
+                      }`}
+                    >
+                      <span className="text-xs">
+                        {hasMore
+                          ? "Load more traces..."
+                          : `Showing all ${traces.length} trace${traces.length !== 1 ? "s" : ""}`}
+                      </span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Loading More Indicator */}
+                {loadingMore && (
+                  <div className="mt-1.5 flex justify-center py-3">
+                    <Spinner
+                      variant="infinite"
+                      className="w-6 h-6 text-gray-500 dark:text-gray-300"
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Share Dialog */}
+      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Share Trace</DialogTitle>
+            <DialogDescription>
+              Share this trace with others using the URL below.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center space-x-2">
+            <div className="grid flex-1 gap-2">
+              <div className="flex items-center space-x-2">
+                <input
+                  readOnly
+                  value={shareTraceId ? getShareUrl(shareTraceId) : ""}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  className="px-3"
+                  onClick={handleCopyUrl}
+                >
+                  {copied ? (
+                    <>
+                      <Check className="h-4 w-4" />
+                      <span className="sr-only">Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4" />
+                      <span className="sr-only">Copy</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+};
+
+export default Trace;

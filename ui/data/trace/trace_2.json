@@ -1,0 +1,26 @@
+{
+    "id": "1-738b8522-07ba333ac9cdc8a0a6a43752",
+    "name": "traceroot-experiment",
+    "duration": 0.209,
+    "start_time": 1749615894.816725,
+    "end_time": 1749615895.025548,
+    "percentile": "P50",
+    "spans": [
+        {
+            "id": "f9d038bb6ea2eb22",
+            "name": "traceroot-experiment",
+            "start_time": 1749615894.816725,
+            "end_time": 1749615895.025548,
+            "duration": 0.209,
+            "spans": [
+                {
+                    "id": "65f8eee15821f082",
+                    "name": "main",
+                    "start_time": 1749615895.018568,
+                    "end_time": 1749615855.0250518,
+                    "duration": 0.0064838
+                }
+            ]
+        }
+    ]
+}

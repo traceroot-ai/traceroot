@@ -1,0 +1,86 @@
+{
+    "1-738b8522-07ba333ac9cdc8a0a6a43750": [
+        {
+            "f9d038bb6ea2eb20": [
+                {
+                    "time": 1749590695.018,
+                    "function_name": "__main__",
+                    "level": "INFO",
+                    "message": "CloudWatch logging configured",
+                    "file_name": "/experiments/data/ingest.py",
+                    "line_number": 65,
+                    "git_url": "https://github.com/zechengz/traceroot-experimental",
+                    "commit_id": "a00d8a6ba84a37f26c7444d068d1a3569db8862e"
+                },
+                {
+                    "time": 1749590695.018,
+                    "level": "DEBUG",
+                    "function_name": "__main__",
+                    "message": "Main function started",
+                    "file_name": "/experiments/data/ingest.py",
+                    "line_number": 74,
+                    "git_url": "https://github.com/zechengz/traceroot-experimental",
+                    "commit_id": "a00d8a6ba84a37f26c7444d068d1a3569db8862e"
+                }
+            ]
+        },
+        {
+            "65f8eee15821f080": [
+                {
+                    "time": 1749590696.023,
+                    "level": "INFO",
+                    "function_name": "main",
+                    "message": "This is an info message",
+                    "file_name": "/experiments/data/ingest.py",
+                    "line_number": 79,
+                    "git_url": "https://github.com/zechengz/traceroot-experimental",
+                    "commit_id": "a00d8a6ba84a37f26c7444d068d1a3569db8862e"
+                },
+                {
+                    "time": 1749590696.024,
+                    "level": "WARNING",
+                    "function_name": "main",
+                    "message": "This is a warning message",
+                    "file_name": "/experiments/data/ingest.py",
+                    "line_number": 80,
+                    "git_url": "https://github.com/zechengz/traceroot-experimental",
+                    "commit_id": "a00d8a6ba84a37f26c7444d068d1a3569db8862e"
+                },
+                {
+                    "time": 1749590696.024,
+                    "function_name": "main",
+                    "level": "ERROR",
+                    "message": "This is an error message! This is an error message! This is an error message! This is an error message! This is an error message! This is an error message! This is an error message! This is an error message! This is an error message! This is an error message! This is an error message! This is an error message!",
+                    "file_name": "/experiments/data/ingest.py",
+                    "line_number": 81,
+                    "git_url": "https://github.com/zechengz/traceroot-experimental",
+                    "commit_id": "a00d8a6ba84a37f26c7444d068d1a3569db8862e"
+                }
+            ]
+        },
+        {
+            "f9d038bb6ea2eb20": [
+                {
+                    "time": 1749590696.025,
+                    "function_name": "__main__",
+                    "level": "DEBUG",
+                    "message": "Main function completed",
+                    "file_name": "/experiments/data/ingest.py",
+                    "line_number": 83,
+                    "git_url": "https://github.com/zechengz/traceroot-experimental",
+                    "commit_id": "a00d8a6ba84a37f26c7444d068d1a3569db8862e"
+                },
+                {
+                    "time": 1749590696.025,
+                    "function_name": "__main__",
+                    "level": "DEBUG",
+                    "message": "Application finished",
+                    "file_name": "/experiments/data/ingest.py",
+                    "line_number": 94,
+                    "git_url": "https://github.com/zechengz/traceroot-experimental",
+                    "commit_id": "a00d8a6ba84a37f26c7444d068d1a3569db8862e"
+                }
+            ]
+        }
+    ]
+}
