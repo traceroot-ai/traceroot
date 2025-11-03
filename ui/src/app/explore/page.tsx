@@ -99,8 +99,36 @@ export default function Explore() {
     }
   }, [selectedTraceIds, currentTraceSpans]);
 
-  const handleSpanSelect = (spanIds: string[]) => {
-    setSelectedSpanIds(spanIds);
+  // Map to track which span belongs to which trace
+  const [spanToTraceMap, setSpanToTraceMap] = useState<Map<string, string>>(
+    new Map(),
+  );
+
+  const handleSpanSelect = (spanIds: string[] | string, traceId?: string) => {
+    // Handle both array and single span ID for backward compatibility
+    const spanIdsArray = Array.isArray(spanIds) ? spanIds : [spanIds];
+
+    if (traceId && spanIdsArray.length === 1) {
+      // Multi-trace scenario: clicking a span from a specific trace
+      const newSpanId = spanIdsArray[0];
+
+      // Update the span-to-trace mapping
+      const newMap = new Map(spanToTraceMap);
+      newMap.set(newSpanId, traceId);
+
+      // Remove any previously selected span from the same trace
+      const spansToKeep = selectedSpanIds.filter((spanId) => {
+        const existingTraceId = spanToTraceMap.get(spanId);
+        return existingTraceId !== traceId; // Keep spans from other traces
+      });
+
+      // Add the new span
+      setSelectedSpanIds([...spansToKeep, newSpanId]);
+      setSpanToTraceMap(newMap);
+    } else {
+      // Standard selection (no trace context or batch selection)
+      setSelectedSpanIds(spanIdsArray);
+    }
   };
 
   const handleSpanClear = () => {
@@ -189,7 +217,7 @@ export default function Explore() {
       spanIds={selectedSpanIds}
       queryStartTime={timeRange?.start}
       queryEndTime={timeRange?.end}
-      onSpanSelect={(spanId) => handleSpanSelect([spanId])}
+      onSpanSelect={handleSpanSelect}
     >
       <ResizablePanel
         leftPanel={

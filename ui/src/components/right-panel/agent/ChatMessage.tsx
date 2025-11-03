@@ -31,7 +31,7 @@ interface ChatMessageProps {
   isLoading: boolean;
   userAvatarUrl?: string;
   messagesEndRef: React.RefObject<HTMLDivElement | null>;
-  onSpanSelect?: (spanId: string) => void;
+  onSpanSelect?: (spanIds: string[] | string, traceId?: string) => void;
   onViewTypeChange?: (viewType: "log" | "trace") => void;
   chatId?: string | null;
 }
@@ -105,7 +105,7 @@ const renderMarkdown = (
   text: string,
   messageId: string,
   references?: Reference[],
-  onSpanSelect?: (spanId: string) => void,
+  onSpanSelect?: (spanIds: string[] | string, traceId?: string) => void,
   onViewTypeChange?: (viewType: "log" | "trace") => void,
   openHoverCard?: string | null,
   setOpenHoverCard?: (id: string | null) => void,
@@ -274,6 +274,14 @@ const renderMarkdown = (
               </HoverCardTrigger>
               <HoverCardContent className="w-80">
                 <div className="space-y-2">
+                  {reference.trace_id && (
+                    <div>
+                      <span className="font-semibold text-sm">Trace ID:</span>{" "}
+                      <span className="text-sm text-gray-700 dark:text-gray-300 font-mono break-all">
+                        {reference.trace_id}
+                      </span>
+                    </div>
+                  )}
                   {reference.span_id && (
                     <div>
                       <span className="font-semibold text-sm">Span ID:</span>{" "}
@@ -297,7 +305,10 @@ const renderMarkdown = (
                             // Small delay to ensure hover card closes completely before view switch
                             // This prevents visual artifacts during the transition
                             setTimeout(() => {
-                              onSpanSelect?.(reference.span_id!);
+                              onSpanSelect?.(
+                                reference.span_id!,
+                                reference.trace_id,
+                              );
                               onViewTypeChange?.("log");
                             }, 100);
                           }}

@@ -13,6 +13,7 @@ export interface Reference {
   span_function_name?: string;
   line_number?: number;
   log_message?: string;
+  trace_id?: string; // Present when multiple traces are analyzed
 }
 
 export interface ChatRequest {
@@ -20,6 +21,7 @@ export interface ChatRequest {
   message: string;
   message_type: MessageType;
   trace_id: string;
+  trace_ids?: string[]; // Support multiple traces
   span_ids: string[];
   start_time: number;
   end_time: number;
@@ -53,7 +55,8 @@ export interface ChatMetadata {
   chat_id: string;
   timestamp: number;
   chat_title: string;
-  trace_id: string;
+  trace_id: string; // Keep for backward compatibility
+  trace_ids?: string[]; // Support multiple traces
   user_id?: string;
 }
 
@@ -63,7 +66,8 @@ export interface ChatMetadataHistory {
 }
 
 export interface GetChatMetadataHistoryRequest {
-  trace_id: string;
+  trace_id?: string;
+  trace_ids?: string[];
 }
 
 export interface GetChatMetadataRequest {
@@ -83,7 +87,8 @@ export interface IChatMetadata {
   chat_id: string;
   timestamp: Date;
   chat_title: string;
-  trace_id: string;
+  trace_id: string; // Keep for backward compatibility
+  trace_ids?: string[]; // Support multiple traces
   user_id: string;
 }
 
@@ -93,6 +98,7 @@ const ChatMetadataSchema = new Schema<IChatMetadata>(
     timestamp: { type: Date, required: true },
     chat_title: { type: String, required: true },
     trace_id: { type: String, required: true },
+    trace_ids: { type: [String], required: false }, // Support multiple traces
     user_id: { type: String, required: true },
   },
   {
