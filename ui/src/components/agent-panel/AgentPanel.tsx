@@ -11,7 +11,7 @@ interface AgentPanelProps {
   spanIds?: string[];
   queryStartTime?: Date;
   queryEndTime?: Date;
-  onSpanSelect?: (spanId: string) => void;
+  onSpanSelect?: (spanIds: string[] | string, traceId?: string) => void;
   onViewTypeChange?: (viewType: "log" | "trace") => void;
   children: React.ReactNode;
 }
