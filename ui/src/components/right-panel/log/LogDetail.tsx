@@ -27,7 +27,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { getProviderInfo, appendProviderParams } from "@/utils/provider";
+import { initializeProviders, appendProviderParams } from "@/utils/provider";
 
 interface LogDetailProps {
   traceIds: string[];
@@ -141,7 +141,7 @@ export default function LogDetail({
 
       try {
         const { traceProvider, logProvider, traceRegion, logRegion } =
-          getProviderInfo();
+          initializeProviders();
         const token = await getToken();
 
         // Fetch logs for all traces in parallel
@@ -158,7 +158,12 @@ export default function LogDetail({
               // Optimization: Pass trace start/end times for faster log queries
               // Find the trace in allTraces to get its timestamps
               const trace = allTraces.find((t) => t.id === traceId);
-              if (trace && trace.start_time && trace.end_time) {
+              if (
+                trace &&
+                trace.start_time &&
+                trace.end_time &&
+                trace.start_time !== 0
+              ) {
                 // Convert Unix timestamps to ISO 8601 UTC strings
                 const startTime = new Date(
                   trace.start_time * 1000,
@@ -166,18 +171,9 @@ export default function LogDetail({
                 const endTime = new Date(trace.end_time * 1000).toISOString();
                 url.searchParams.append("start_time", startTime);
                 url.searchParams.append("end_time", endTime);
-              } else if (traceQueryStartTime && traceQueryEndTime) {
-                // For LimitExceeded traces (start_time=0, end_time=0) or when trace not found,
-                // use the query window from the trace search
-                url.searchParams.append(
-                  "start_time",
-                  traceQueryStartTime.toISOString(),
-                );
-                url.searchParams.append(
-                  "end_time",
-                  traceQueryEndTime.toISOString(),
-                );
               }
+              // If trace not found or has invalid timestamps (start_time=0),
+              // don't send any time params - let backend fetch the trace and determine the correct time
 
               appendProviderParams(
                 url,
@@ -261,7 +257,7 @@ export default function LogDetail({
       }
     };
     fetchLogs();
-  }, [traceIds, traceQueryStartTime, traceQueryEndTime]);
+  }, [traceIds]); // Only re-fetch when trace selection changes
 
   // Filter logs based on selected spans
   const logs = React.useMemo(() => {

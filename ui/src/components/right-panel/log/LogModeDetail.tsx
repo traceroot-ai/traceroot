@@ -11,7 +11,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { getProviderInfo, appendProviderParams } from "@/utils/provider";
+import { initializeProviders, appendProviderParams } from "@/utils/provider";
 import { IoCopyOutline } from "react-icons/io5";
 import { FaGithub } from "react-icons/fa";
 import {
@@ -80,7 +80,7 @@ export default function LogModeDetail({
     setError(null);
 
     try {
-      const { logProvider, logRegion } = getProviderInfo();
+      const { logProvider, logRegion } = initializeProviders();
       const token = await getToken();
 
       const url = new URL(
