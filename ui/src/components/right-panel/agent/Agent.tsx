@@ -34,6 +34,8 @@ interface Message {
   role: MessageType;
   timestamp: Date | string; // Allow both Date and string for formatted timestamps
   references?: Reference[];
+  action_type?: string;
+  status?: string;
 }
 
 interface AgentProps {
@@ -366,6 +368,8 @@ export default function Agent({
               role: historyItem.message_type,
               timestamp: dateObj, // Store as Date object
               references: historyItem.reference,
+              action_type: historyItem.action_type,
+              status: historyItem.status,
             };
           });
 
@@ -524,6 +528,8 @@ export default function Agent({
                   role: historyItem.message_type,
                   timestamp: dateObj, // Store as Date object
                   references: historyItem.reference,
+                  action_type: historyItem.action_type,
+                  status: historyItem.status,
                 };
               });
 
@@ -778,6 +784,18 @@ export default function Agent({
         onSpanSelect={onSpanSelect}
         onViewTypeChange={onViewTypeChange}
         chatId={activeChatId}
+        onSendMessage={(message) => {
+          setInputMessage(message);
+          // Trigger form submit programmatically
+          setTimeout(() => {
+            const form = document.querySelector("form");
+            if (form) {
+              form.dispatchEvent(
+                new Event("submit", { cancelable: true, bubbles: true }),
+              );
+            }
+          }, 0);
+        }}
       />
 
       {/* Message input area - fixed at bottom */}
