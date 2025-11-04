@@ -573,8 +573,10 @@ export const Trace: React.FC<TraceProps> = ({
               setExpandedTraces(new Map([[traceToSelect.id, true]]));
               setExpandedSpans(new Set());
             }
-          } else if (result.data.length > 0) {
-            // Automatically select the first trace
+            // If trace_id in URL but not found, don't change selection
+            // The trace might be loading or not available in this time range
+          } else if (!traceIdParam && result.data.length > 0) {
+            // Only auto-select first trace if no trace_id in URL
             const firstTrace = result.data[0];
             const newSelection = new Set([firstTrace.id]);
             setSelectedTraceIds(newSelection);
@@ -582,8 +584,8 @@ export const Trace: React.FC<TraceProps> = ({
             onTraceSelect?.([firstTrace.id]);
             setExpandedTraces(new Map([[firstTrace.id, true]]));
             setExpandedSpans(new Set());
-          } else {
-            // No traces available, clear selection
+          } else if (!traceIdParam && result.data.length === 0) {
+            // Only clear selection if no trace_id in URL and no traces available
             setSelectedTraceIds(new Set());
             setLastSelectedTraceId(null);
             setSelectedSpanId(null);
