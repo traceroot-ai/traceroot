@@ -24,7 +24,7 @@ interface ChatTab {
 }
 import MessageInput from "./MessageInput";
 import ChatMessage from "./ChatMessage";
-import { getProviderInfo } from "@/utils/provider";
+import { initializeProviders } from "@/utils/provider";
 
 type Mode = "agent" | "chat";
 
@@ -590,9 +590,9 @@ export default function Agent({
       // Start polling for special messages every second
       pollingInterval = setInterval(fetchSpecialMessages, 1000);
 
-      // Get provider information from URL
+      // Get provider information from localStorage and URL (with fallback to defaults)
       const { traceProvider, logProvider, traceRegion, logRegion } =
-        getProviderInfo();
+        initializeProviders();
 
       // Use fake selected trace IDs when in user-based history mode, otherwise use the props
       const effectiveTraceId = useUserBasedHistory
