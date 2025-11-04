@@ -141,3 +141,38 @@ ChatMetadataSchema.index({ chat_id: 1 });
 export const ChatMetadataModel: Model<IChatMetadata> =
   mongoose.models.ChatMetadataModel ||
   mongoose.model<IChatMetadata>("ChatMetadataModel", ChatMetadataSchema);
+
+// Mongoose model for reasoning_streams collection
+export interface IReasoningRecord {
+  chat_id: string;
+  chunk_id: number;
+  content: string;
+  status: string;
+  timestamp: Date;
+  trace_id?: string;
+}
+
+const ReasoningRecordSchema = new Schema<IReasoningRecord>(
+  {
+    chat_id: { type: String, required: true },
+    chunk_id: { type: Number, required: true },
+    content: { type: String, required: true },
+    status: { type: String, required: true },
+    timestamp: { type: Date, required: true },
+    trace_id: { type: String, required: false },
+  },
+  {
+    collection: process.env.DB_REASONING_COLLECTION || "reasoning_streams",
+    versionKey: false,
+  },
+);
+
+// Index on chat_id for fast lookups
+ReasoningRecordSchema.index({ chat_id: 1 });
+
+export const ReasoningRecordModel: Model<IReasoningRecord> =
+  mongoose.models.ReasoningRecordModel ||
+  mongoose.model<IReasoningRecord>(
+    "ReasoningRecordModel",
+    ReasoningRecordSchema,
+  );
