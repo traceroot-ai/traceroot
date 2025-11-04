@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createBackendAuthHeaders } from "@/lib/server-auth-headers";
+import { connectToDatabase, isMongoDBAvailable } from "@/lib/mongodb";
+import { ReasoningRecordModel } from "@/models/chat";
 
 interface ReasoningData {
   chunk_id: number;
@@ -25,49 +26,46 @@ export async function GET(
       return NextResponse.json(null, { status: 400 });
     }
 
-    const restApiEndpoint = process.env.REST_API_ENDPOINT;
-
-    if (restApiEndpoint) {
-      try {
-        // Get auth headers (automatically uses Clerk's auth() and currentUser())
-        const headers = await createBackendAuthHeaders();
-
-        const apiUrl = `${restApiEndpoint}/v1/explore/chat/${encodeURIComponent(chat_id)}/reasoning`;
-        const apiResponse = await fetch(apiUrl, {
-          method: "GET",
-          headers,
-        });
-
-        if (!apiResponse.ok) {
-          if (apiResponse.status === 404) {
-            // Return empty reasoning data for 404 instead of null
-            return NextResponse.json({
-              chat_id,
-              reasoning: [],
-            });
-          }
-          throw new Error(
-            `REST API call failed with status: ${apiResponse.status}`,
-          );
-        }
-
-        const apiData: ReasoningResponse = await apiResponse.json();
-        return NextResponse.json(apiData);
-      } catch (apiError) {
-        console.error("REST API call failed:", apiError);
-        // Fall back to empty reasoning response if REST API fails
-        return NextResponse.json({
-          chat_id,
-          reasoning: [],
-        });
-      }
+    // Check if MongoDB is available
+    if (!isMongoDBAvailable()) {
+      return NextResponse.json({
+        chat_id,
+        reasoning: [],
+      });
     }
 
-    // Fallback to empty reasoning response when REST_API_ENDPOINT is not set
-    return NextResponse.json({
-      chat_id,
-      reasoning: [],
-    });
+    try {
+      // Connect to MongoDB
+      await connectToDatabase();
+
+      // Query reasoning_streams collection
+      const reasoningRecords = await ReasoningRecordModel.find({
+        chat_id,
+      })
+        .sort({ chunk_id: 1, timestamp: 1 })
+        .lean();
+
+      // Transform the data to match the expected format
+      const reasoning: ReasoningData[] = reasoningRecords.map((doc) => ({
+        chunk_id: doc.chunk_id,
+        content: doc.content,
+        status: doc.status,
+        timestamp: doc.timestamp.toISOString(),
+        trace_id: doc.trace_id,
+      }));
+
+      return NextResponse.json({
+        chat_id,
+        reasoning,
+      });
+    } catch (dbError) {
+      console.error("MongoDB query failed:", dbError);
+      // Fall back to empty reasoning response if MongoDB query fails
+      return NextResponse.json({
+        chat_id,
+        reasoning: [],
+      });
+    }
   } catch (error) {
     console.error("Get Chat Reasoning API Error:", error);
     return NextResponse.json(null, { status: 500 });

@@ -247,9 +247,6 @@ class ExploreRouter:
             self.limiter.limit(self.rate_limit_config.get_chat_history_limit
                                )(self.get_chat_history)
         )
-        self.router.get("/chat/{chat_id}/reasoning")(
-            self.limiter.limit("1200/minute")(self.get_chat_reasoning)
-        )
         self.router.get("/get-line-context-content")(
             self.limiter.limit(self.rate_limit_config.get_line_context_content_limit
                                )(self.get_line_context_content)
@@ -760,27 +757,6 @@ class ExploreRouter:
         if chat_metadata is None:
             return {}
         return chat_metadata.model_dump()
-
-    async def get_chat_reasoning(
-        self,
-        request: Request,
-        chat_id: str,
-    ) -> dict[str,
-              Any]:
-        """Get reasoning/thinking data for a specific chat."""
-        # Get user credentials (fake in local mode, real in remote mode)
-        _, _, _ = get_user_credentials(request)
-
-        try:
-            # Query for reasoning data from the database
-            # Look for records with is_streaming=True for the given chat_id
-            reasoning_records = await self.db_client.get_chat_reasoning(chat_id=chat_id)
-
-            return {"chat_id": chat_id, "reasoning": reasoning_records}
-
-        except Exception as e:
-            self.logger.error(f"Error fetching reasoning for chat {chat_id}: {e}")
-            raise HTTPException(status_code=500, detail="Failed to fetch reasoning data")
 
     async def get_github_token(self, user_email: str) -> str | None:
         return await self.db_client.get_integration_token(
