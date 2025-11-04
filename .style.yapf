@@ -1,0 +1,9 @@
+# .style.yapf
+[style]
+based_on_style = pep8
+column_limit = 90
+dedent_closing_brackets = true
+split_before_named_assigns = true
+split_before_logical_operator = true
+split_before_expression_after_opening_paren = true
+split_all_comma_separated_values = true

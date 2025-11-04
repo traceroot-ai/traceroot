@@ -1,0 +1,121 @@
+---
+title: "Multi-Agent Code Generation"
+description: "An end-to-end experience to use TraceRoot.AI for your multi-agent code generation system."
+icon: "lightbulb"
+---
+
+# Monitoring a Multi-Agent Code Generation System with TraceRoot.AI
+
+In this guide, we’ll walk through an end-to-end journey of using TraceRoot.AI to monitor tracing, logging, and metrics in an automated code generation system powered by multiple AI agents built with LangChain and LangGraph.
+
+The TraceRoot.AI platform not only offers a user-friendly interface for visualizing tracing, logging, and metrics data but also features a customizable AI agent that can resolve related issues or answer questions by linking directly to the source code.
+
+## 1. Setup Multi-Agent Project
+
+```bash
+git clone https://github.com/traceroot-ai/traceroot-examples.git
+cd traceroot-examples
+python3 -m venv venv
+source venv/bin/activate
+pip install -r examples/multi_code_agent/requirements.txt
+```
+
+## 2. Setup TraceRoot.AI
+
+Please follow the [Quickstart](https://docs.traceroot.ai/quickstart) to setup TraceRoot.AI.
+
+Then you can modify the [`.traceroot-config.yaml`](https://github.com/traceroot-ai/traceroot-examples/blob/main/.traceroot-config.yaml) to setup the TraceRoot.AI.
+
+## 3. A Multi-Agent Code Generation System
+
+In this project, we have an automated code generation system that uses multiple specialized AI agents, built with LangChain and LangGraph, to collaboratively write, test, and debug code.
+
+<img
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot-examples/refs/heads/main/examples/multi_code_agent/multi_agent_graph.png"
+  alt="Multi-Agent System"
+  style={{ display: "block", margin: "0 auto" }}
+/>
+
+
+The system contains four parts:
+
+1. A planning agent the plans the coding in general. The plan and the original query will be sent to the coding agent if the query is coding related. Otherwise, the planning agent will answer the query directly.
+
+2. A coding agent that writes the code based on the plan and the original query.
+
+3. An execution part that executes the code and returns the result or the error message.
+
+4. A summarization agent that summarizes the code and the result. If there are some errors for the code or execution, the summarization agent will summarize the error message and the code then fallback to the planning agent to plan the next step. Maximum retries here are 2.
+
+You can run the project by:
+
+```bash
+python3 examples/multi_code_agent/main.py
+```
+
+## 4. Code Generation System Challenges
+
+1. The code generation pipeline involving multiple agents is complex and hard to debug. The interactions between planning, coding, and review agents produce complex input/output chains that are difficult to track.
+
+2. Understanding how the system uses various code generation and execution tools across different agents is challenging to monitor.
+
+3. It’s difficult to identify performance bottlenecks in the code generation pipeline, particularly which agent (planning, coding, or review) is causing delays.
+
+4. Correlating generated code, execution logs, and debugging traces with the original source code is a manual and time-consuming process.
+
+## 5. TraceRoot.AI Solution
+
+By just adding TraceRoot.AI tracing and logging to the multi-agent system with several lines of code change, we can get the following benefits:
+
+1. The TraceRoot.AI provides an easy-to-use SDK to track all tracing, logging, and metrics data with just a few lines of code changes.
+
+[`examples/multi_code_agent/main.py`](https://github.com/traceroot-ai/traceroot-examples/tree/main/examples/multi_code_agent/main.py#L183)
+
+2. TraceRoot.AI provides a user-friendly UI to visualize the tracing, logging, and metrics data.
+
+You can view the whole tracing and logging in a structured way
+
+<img
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot-examples/refs/heads/main/images/multi_code_agent/0_ui.png"
+  alt="UI"
+  style={{ display: "block", margin: "0 auto" }}
+/>
+
+You can click the **Show Code** button to view the code that is related to the logging.
+
+<img
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot-examples/refs/heads/main/images/multi_code_agent/1_code.png"
+  alt="Code"
+  style={{ display: "block", margin: "0 auto" }}
+/>
+You can also view which agent has the highest latency.
+
+<img
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot-examples/refs/heads/main/images/multi_code_agent/2_latency.png"
+  alt="Latency"
+  style={{ display: "block", margin: "0 auto" }}
+/>
+3. TraceRoot.AI has a customized AI agent to help you summarize, analyze, and debug all your logs and traces by resolving aforementioned pain points directly.
+
+You can ask TraceRoot.AI agent to summarize the errors logged by the SDK
+
+<img
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot-examples/refs/heads/main/images/multi_code_agent/3_chat_error.png"
+  alt="Summarize Errors"
+  style={{ display: "block", margin: "0 auto" }}
+/>
+
+You can also ask TraceRoot.AI agent to analyze each agent's latency
+
+<img
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot-examples/refs/heads/main/images/multi_code_agent/4_chat_latency.png"
+  alt="Summarize Latency"
+  style={{ display: "block", margin: "0 auto" }}
+/>
+You can also ask TraceRoot.AI agent to analyze the final code generated by the multi-agent coding system
+
+<img
+  src="https://raw.githubusercontent.com/traceroot-ai/traceroot-examples/refs/heads/main/images/multi_code_agent/5_chat_code.png"
+  alt="Summarize Code"
+  style={{ display: "block", margin: "0 auto" }}
+/>
