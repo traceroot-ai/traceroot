@@ -31,6 +31,8 @@ from rest.config import (
     ChatMetadataHistory,
     ChatRequest,
     CodeRequest,
+    ConfirmActionRequest,
+    ConfirmActionResponse,
     GetChatHistoryRequest,
     GetChatMetadataHistoryRawRequest,
     GetChatMetadataRequest,
@@ -251,6 +253,9 @@ class ExploreRouter:
         self.router.get("/get-line-context-content")(
             self.limiter.limit(self.rate_limit_config.get_line_context_content_limit
                                )(self.get_line_context_content)
+        )
+        self.router.post("/confirm-github-action")(
+            self.limiter.limit("60/minute")(self.confirm_github_action)
         )
 
     async def get_line_context_content(
@@ -843,6 +848,154 @@ class ExploreRouter:
         if await self.db_client.get_chat_metadata(chat_id=chat_id) is None:
             first_chat = True
 
+        # Get GitHub token early (needed for confirmation flow)
+        github_token = await self.get_github_token(user_email)
+
+        # Check for pending action confirmation BEFORE routing ################
+        # Load chat history to check if this is a confirmation response
+        if not first_chat:  # Only check if not first chat
+            early_chat_history = await self.db_client.get_chat_history(chat_id=chat_id)
+            is_confirmation = self._check_user_confirmation_response(
+                early_chat_history,
+                message
+            )
+            if is_confirmation:
+                # User is responding with yes/no to a pending action
+                # Execute the action directly without going through code agent
+
+                # Find the pending action
+                pending_action = None
+                for msg in reversed(early_chat_history):
+                    if msg.get("role") == "user":
+                        continue
+                    if (
+                        msg.get("action_type") == ActionType.PENDING_CONFIRMATION.value
+                        and msg.get("status") == ActionStatus.AWAITING_CONFIRMATION.value
+                    ):
+                        pending_action = msg
+                        break
+
+                if not pending_action:
+                    # This shouldn't happen, but handle gracefully
+                    return {
+                        "time": orig_time.timestamp() * 1000,
+                        "message": "No pending action found.",
+                        "reference": [],
+                        "message_type": MessageType.ASSISTANT.value,
+                        "chat_id": chat_id,
+                    }
+
+                # Determine if user confirmed or rejected
+                user_msg_lower = message.lower().strip()
+                user_confirmed = user_msg_lower in [
+                    "yes",
+                    "y",
+                    "ok",
+                    "okay",
+                    "confirm",
+                    "proceed",
+                    "go ahead",
+                    "do it"
+                ]
+
+                # Get action metadata
+                action_metadata = pending_action.get("pending_action_data", {})
+                action_kind = action_metadata.get("action_kind")
+                action_data = action_metadata.get("action_data", {})
+
+                # Execute the action if user confirmed
+                if user_confirmed:
+                    if action_kind == "github_create_issue":
+                        issue_number = await self.github.create_issue(
+                            title=action_data["title"],
+                            body=action_data["body"],
+                            owner=action_data["owner"],
+                            repo_name=action_data["repo_name"],
+                            github_token=github_token,
+                        )
+                        url = (
+                            f"https://github.com/{action_data['owner']}"
+                            f"/{action_data['repo_name']}/issues/{issue_number}"
+                        )
+                        content = f"Issue created: {url}"
+                        action_type = ActionType.GITHUB_CREATE_ISSUE.value
+                        assistant_message = (
+                            f"✓ GitHub issue created successfully!\n\n"
+                            f"You can view it here: {url}"
+                        )
+
+                    elif action_kind == "github_create_pr":
+                        pr_number = await self.github.create_pr_with_file_changes(
+                            title=action_data["title"],
+                            body=action_data["body"],
+                            owner=action_data["owner"],
+                            repo_name=action_data["repo_name"],
+                            base_branch=action_data["base_branch"],
+                            head_branch=action_data["head_branch"],
+                            file_path_to_change=action_data["file_path_to_change"],
+                            file_content_to_change=action_data["file_content_to_change"],
+                            commit_message=action_data["commit_message"],
+                            github_token=github_token,
+                        )
+                        url = (
+                            f"https://github.com/{action_data['owner']}"
+                            f"/{action_data['repo_name']}/pull/{pr_number}"
+                        )
+                        content = f"PR created: {url}"
+                        action_type = ActionType.GITHUB_CREATE_PR.value
+                        assistant_message = (
+                            f"✓ Pull request created successfully!\n\n"
+                            f"You can view it here: {url}"
+                        )
+                    else:
+                        content = "Unknown action type"
+                        action_type = ActionType.AGENT_CHAT.value
+                        assistant_message = "Error: Unknown action type"
+                else:
+                    # User rejected the action
+                    if action_kind == "github_create_issue":
+                        action_display_name = "GitHub issue"
+                    else:
+                        action_display_name = "GitHub PR"
+                    content = f"{action_display_name} creation cancelled by user."
+                    action_type = ActionType.AGENT_CHAT.value
+                    assistant_message = f"{action_display_name} creation cancelled."
+
+                # Update the pending action record
+                await self.db_client.update_chat_record_status(
+                    chat_id=chat_id,
+                    timestamp=pending_action["timestamp"],
+                    status=ActionStatus.SUCCESS.value
+                    if user_confirmed else ActionStatus.CANCELLED.value,
+                    content=content,
+                    action_type=action_type,
+                    user_confirmation=user_confirmed,
+                )
+
+                # Insert assistant response
+                response_time = datetime.now().astimezone(timezone.utc)
+                await self.db_client.insert_chat_record(
+                    message={
+                        "chat_id": chat_id,
+                        "timestamp": response_time,
+                        "role": "assistant",
+                        "content": assistant_message,
+                        "reference": [],
+                        "trace_id": trace_id,
+                        "chunk_id": 0,
+                        "action_type": ActionType.AGENT_CHAT.value,
+                        "status": ActionStatus.SUCCESS.value,
+                    }
+                )
+
+                return {
+                    "time": response_time.timestamp() * 1000,
+                    "message": assistant_message,
+                    "reference": [],
+                    "message_type": MessageType.ASSISTANT.value,
+                    "chat_id": chat_id,
+                }
+
         # Get the title and GitHub related information ########################
         title, github_related = await asyncio.gather(
             summarize_title(
@@ -1061,8 +1214,7 @@ class ExploreRouter:
         # Keep single logs for backward compatibility
         logs: TraceLogs | None = all_logs.get(trace_id) if trace_id else None
 
-        # Get GitHub token
-        github_token = await self.get_github_token(user_email)
+        # GitHub token already retrieved earlier for confirmation flow
 
         # Only fetch the source code if it's source code related ##############
         github_tasks: list[tuple[str, str, str, str]] = []
@@ -1357,6 +1509,445 @@ class ExploreRouter:
                 openai_token=openai_token,
             )
             return response.model_dump()
+
+    async def confirm_github_action(
+        self,
+        request: Request,
+        req_data: ConfirmActionRequest,
+    ) -> dict[str,
+              Any]:
+        """Confirm or reject a pending action (generic handler).
+
+        Args:
+            request: FastAPI request object
+            req_data: Confirmation request data
+
+        Returns:
+            Confirmation response with result
+        """
+        user_email, _, user_sub = get_user_credentials(request)
+
+        try:
+            # Get the pending action from the database
+            chat_history = await self.db_client.get_chat_history(chat_id=req_data.chat_id)
+
+            # Find the pending message by timestamp
+            pending_message = None
+            for item in chat_history:
+                if (
+                    item.get("timestamp") and
+                    abs(item["timestamp"].timestamp() - req_data.message_timestamp) < 1.0
+                    and  # Within 1 second
+                    item.get("status") == ActionStatus.AWAITING_CONFIRMATION.value
+                ):
+                    pending_message = item
+                    break
+
+            if not pending_message:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Pending action not found or already processed"
+                )
+
+            # Get the pending action metadata
+            action_metadata = pending_message.get("pending_action_data")
+            if not action_metadata:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No pending action data found"
+                )
+
+            # Extract action kind and data from metadata
+            action_kind = action_metadata.get("action_kind")
+            action_data = action_metadata.get("action_data")
+
+            if not action_kind or not action_data:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid action metadata structure"
+                )
+
+            # Execute the action (if confirmed) or prepare cancellation message
+            if req_data.confirmed:
+                # User confirmed - execute the action based on action_kind
+                result_data = await self._execute_confirmed_action(
+                    action_kind=action_kind,
+                    action_data=action_data,
+                    user_email=user_email,
+                )
+                action_result_message = result_data["message"]
+                final_action_type = result_data["action_type"]
+            else:
+                # User rejected - prepare cancellation message
+                action_display_name = self._get_action_display_name(action_kind)
+                action_result_message = f"{action_display_name} cancelled by user."
+                final_action_type = pending_message.get("action_type")
+                result_data = {"message": action_result_message}
+
+            # Update the original pending message with the result
+            await self.db_client.update_chat_record_status(
+                chat_id=req_data.chat_id,
+                timestamp=pending_message["timestamp"],
+                status=ActionStatus.SUCCESS.value
+                if req_data.confirmed else ActionStatus.CANCELLED.value,
+                content=action_result_message,
+                action_type=final_action_type,
+                user_confirmation=req_data.confirmed,
+            )
+
+            # Now call LLM to generate a summary based on the user's decision
+            # and action result
+            summary_response = await self._generate_confirmation_summary(
+                chat_id=req_data.chat_id,
+                confirmed=req_data.confirmed,
+                action_kind=action_kind,
+                action_data=action_data,
+                result_message=action_result_message,
+                user_email=user_email,
+                user_sub=user_sub,
+            )
+
+            response = ConfirmActionResponse(
+                success=True,
+                message=summary_response["summary"],
+                data=result_data.get("data"),
+            )
+
+            return response.model_dump()
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error confirming action: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error processing confirmation: {str(e)}"
+            )
+
+    async def _execute_confirmed_action(
+        self,
+        action_kind: str,
+        action_data: dict,
+        user_email: str,
+    ) -> dict[str,
+              Any]:
+        """Execute a confirmed action based on its kind.
+
+        Args:
+            action_kind: The type of action to execute
+            action_data: The data needed to execute the action
+            user_email: User's email for token retrieval
+
+        Returns:
+            Dict with message, action_type, and optional data
+        """
+        if action_kind == "github_create_issue":
+            # Get GitHub token
+            github_token = await self.db_client.get_integration_token(
+                user_email=user_email,
+                token_type="github",
+            )
+            if not github_token:
+                raise HTTPException(
+                    status_code=400,
+                    detail="GitHub token not found. Please configure it in settings."
+                )
+
+            github_client = GitHubClient()
+            issue_number = await github_client.create_issue(
+                title=action_data["title"],
+                body=action_data["body"],
+                owner=action_data["owner"],
+                repo_name=action_data["repo_name"],
+                github_token=github_token,
+            )
+            url = (
+                f"https://github.com/{action_data['owner']}"
+                f"{action_data['repo_name']}"
+                f"/issues/{issue_number}"
+            )
+            return {
+                "message": f"Issue created: {url}",
+                "action_type": ActionType.GITHUB_CREATE_ISSUE.value,
+                "data": {
+                    "url": url,
+                    "issue_number": issue_number
+                },
+            }
+
+        elif action_kind == "github_create_pr":
+            # Get GitHub token
+            github_token = await self.db_client.get_integration_token(
+                user_email=user_email,
+                token_type="github",
+            )
+            if not github_token:
+                raise HTTPException(
+                    status_code=400,
+                    detail="GitHub token not found. Please configure it in settings."
+                )
+
+            github_client = GitHubClient()
+            pr_number = await github_client.create_pr_with_file_changes(
+                title=action_data["title"],
+                body=action_data["body"],
+                owner=action_data["owner"],
+                repo_name=action_data["repo_name"],
+                base_branch=action_data["base_branch"],
+                head_branch=action_data["head_branch"],
+                file_path_to_change=action_data["file_path_to_change"],
+                file_content_to_change=action_data["file_content_to_change"],
+                commit_message=action_data["commit_message"],
+                github_token=github_token,
+            )
+            url = (
+                f"https://github.com/{action_data['owner']}"
+                f"{action_data['repo_name']}"
+                f"/pull/{pr_number}"
+            )
+            return {
+                "message": f"PR created: {url}",
+                "action_type": ActionType.GITHUB_CREATE_PR.value,
+                "data": {
+                    "url": url,
+                    "pr_number": pr_number
+                },
+            }
+
+        else:
+            # Extensible: Add more action kinds here
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown action kind: {action_kind}"
+            )
+
+    def _get_action_display_name(self, action_kind: str) -> str:
+        """Get a human-readable display name for an action kind.
+
+        Args:
+            action_kind: The action kind identifier
+
+        Returns:
+            Human-readable action name
+        """
+        action_names = {
+            "github_create_issue": "GitHub issue creation",
+            "github_create_pr": "GitHub pull request creation",
+            # Add more action kinds here as needed
+        }
+        return action_names.get(action_kind, "Action")
+
+    async def _generate_confirmation_summary(
+        self,
+        chat_id: str,
+        confirmed: bool,
+        action_kind: str,
+        action_data: dict,
+        result_message: str,
+        user_email: str,
+        user_sub: str,
+    ) -> dict[str,
+              str]:
+        """Generate LLM summary after user confirms/rejects an action.
+
+        Args:
+            chat_id: The chat ID
+            confirmed: Whether user confirmed or rejected
+            action_kind: The type of action
+            action_data: The action data
+            result_message: The result message (success or cancellation)
+            user_email: User's email
+            user_sub: User's sub
+
+        Returns:
+            Dict with summary text
+        """
+        # Get OpenAI token
+        openai_token = await self.db_client.get_integration_token(
+            user_email=user_email,
+            token_type="openai",
+        )
+
+        # Use default if no custom token
+        from openai import AsyncOpenAI
+        if openai_token:
+            client = AsyncOpenAI(api_key=openai_token)
+        else:
+            client = AsyncOpenAI()
+
+        # Build the prompt for the LLM
+        decision_text = "confirmed" if confirmed else "rejected"
+        action_desc = self._get_action_display_name(action_kind)
+
+        prompt = (
+            f"The user was asked to confirm a {action_desc} with the following details:"
+            f"{self._format_action_data(action_kind, action_data)}"
+            f"The user {decision_text} this action."
+            f"Result: {result_message}"
+            f"Please provide a brief, friendly summary "
+            f"of what happened. Keep it conversational and "
+            f"to the point (1-2 sentences)."
+        )
+
+        # Call LLM to generate summary
+        response = await client.chat.completions.create(
+            model=ChatModel.GPT_4_1.value,
+            messages=[
+                {
+                    "role":
+                    "system",
+                    "content":
+                    "You are a helpful assistant that provides brief, friendly summaries."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+
+        # Stream the response and save to database
+        content_parts = []
+        usage_data = None
+        timestamp = datetime.now().astimezone(timezone.utc)
+
+        async for chunk in response:
+            if chunk.choices and len(chunk.choices) > 0:
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    content_parts.append(delta.content)
+
+            if hasattr(chunk, 'usage') and chunk.usage:
+                usage_data = chunk.usage
+
+        summary_content = "".join(content_parts)
+
+        # Save the assistant's summary response to chat history
+        await self.db_client.insert_chat_record(
+            message={
+                "chat_id": chat_id,
+                "timestamp": timestamp,
+                "role": "assistant",
+                "content": summary_content,
+                "reference": [],
+                "trace_id": None,
+                "chunk_id": 0,
+                "action_type": ActionType.AGENT_CHAT.value,
+                "status": ActionStatus.SUCCESS.value,
+            }
+        )
+
+        # Track token usage
+        if usage_data:
+            from rest.agent.token_tracker import track_tokens_for_user
+            mock_response = type(
+                'MockResponse',
+                (),
+                {
+                    'usage':
+                    usage_data,
+                    'choices': [
+                        type(
+                            'Choice',
+                            (),
+                            {
+                                'message':
+                                type('Message',
+                                     (),
+                                     {'content': summary_content})()
+                            }
+                        )()
+                    ]
+                }
+            )()
+            await track_tokens_for_user(
+                user_sub=user_sub,
+                openai_response=mock_response,
+                model=ChatModel.GPT_4_1.value
+            )
+
+        return {"summary": summary_content}
+
+    def _format_action_data(self, action_kind: str, action_data: dict) -> str:
+        """Format action data for LLM prompt.
+
+        Args:
+            action_kind: The type of action
+            action_data: The action data
+
+        Returns:
+            Formatted string
+        """
+        if action_kind == "github_create_issue":
+            return f"""Repository: {action_data['owner']}/{action_data['repo_name']}
+Title: {action_data['title']}
+Description: {action_data['body']}"""
+        elif action_kind == "github_create_pr":
+            return f"""Repository: {action_data['owner']}/{action_data['repo_name']}
+Title: {action_data['title']}
+Base Branch: {action_data['base_branch']} ← Head Branch: {action_data['head_branch']}
+Description: {action_data['body']}"""
+        else:
+            return str(action_data)
+
+    def _check_user_confirmation_response(
+        self,
+        chat_history: list[dict] | None,
+        user_message: str,
+    ) -> bool:
+        """Check if user message is a yes/no response to pending confirmation.
+
+        Args:
+            chat_history: The chat history
+            user_message: The current user message
+
+        Returns:
+            True if this is a confirmation response, False otherwise
+        """
+        if not chat_history:
+            return False
+
+        # Check if there's a recent pending confirmation in chat history
+        for message in reversed(chat_history):
+            # Skip user messages
+            if message.get("role") == "user":
+                continue
+
+            # Check if this is a pending confirmation
+            if (
+                message.get("action_type") == ActionType.PENDING_CONFIRMATION.value
+                and message.get("status") == ActionStatus.AWAITING_CONFIRMATION.value
+            ):
+                # Found pending action, check if user message is yes/no
+                user_msg_lower = user_message.lower().strip()
+                yes_variations = [
+                    "yes",
+                    "y",
+                    "ok",
+                    "okay",
+                    "confirm",
+                    "proceed",
+                    "go ahead",
+                    "do it"
+                ]
+                no_variations = [
+                    "no",
+                    "n",
+                    "cancel",
+                    "stop",
+                    "don't",
+                    "dont",
+                    "nope",
+                    "skip"
+                ]
+                return user_msg_lower in yes_variations or user_msg_lower in no_variations
+
+            # Continue searching through recent messages
+            # (don't break on first non-pending message)
+
+        return False
 
     async def _add_limit_exceeded_traces(
         self,

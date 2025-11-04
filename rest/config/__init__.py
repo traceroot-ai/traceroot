@@ -1,9 +1,13 @@
+from .chat import ConfirmGitHubActionRequest  # Backward compatibility
+from .chat import ConfirmGitHubActionResponse  # Backward compatibility
 from .chat import (
     ChatbotResponse,
     ChatHistoryResponse,
     ChatMetadata,
     ChatMetadataHistory,
     ChatRequest,
+    ConfirmActionRequest,
+    ConfirmActionResponse,
     GetChatHistoryRequest,
     GetChatMetadataHistoryRawRequest,
     GetChatMetadataHistoryRequest,
@@ -39,6 +43,10 @@ __all__ = [
     "LogEntry",
     "ChatRequest",
     "ChatbotResponse",
+    "ConfirmActionRequest",
+    "ConfirmActionResponse",
+    "ConfirmGitHubActionRequest",  # Backward compatibility
+    "ConfirmGitHubActionResponse",  # Backward compatibility
     "GetChatMetadataHistoryRawRequest",
     "GetChatMetadataHistoryRequest",
     "ChatMetadata",

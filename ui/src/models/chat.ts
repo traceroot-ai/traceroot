@@ -3,8 +3,18 @@ import { ChatMode } from "@/constants/model";
 import mongoose, { Schema, Model } from "mongoose";
 
 export type MessageType = "assistant" | "user" | "github" | "statistics";
-export type ActionType = "github_get_file" | "agent_chat";
-export type ActionStatus = "pending" | "success" | "failed" | "cancelled";
+export type ActionType =
+  | "github_get_file"
+  | "agent_chat"
+  | "pending_confirmation"
+  | "github_create_issue"
+  | "github_create_pr";
+export type ActionStatus =
+  | "pending"
+  | "success"
+  | "failed"
+  | "cancelled"
+  | "awaiting_confirmation";
 export type Provider = "openai" | "custom";
 
 export interface Reference {
@@ -81,6 +91,22 @@ export interface GetChatHistoryRequest {
 export interface ChatHistoryResponse {
   history: ChatbotResponse[];
 }
+
+export interface ConfirmActionRequest {
+  chat_id: string;
+  message_timestamp: number;
+  confirmed: boolean;
+}
+
+export interface ConfirmActionResponse {
+  success: boolean;
+  message: string;
+  data?: Record<string, any>;
+}
+
+// Backward compatibility aliases
+export type ConfirmGitHubActionRequest = ConfirmActionRequest;
+export type ConfirmGitHubActionResponse = ConfirmActionResponse;
 
 // Mongoose model for chat_metadata collection
 export interface IChatMetadata {

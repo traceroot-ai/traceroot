@@ -54,6 +54,186 @@ class CodeAgent(BaseAgent):
         self.system_prompt = AGENT_SYSTEM_PROMPT
         self.name = "CodeAgent"
 
+    async def _generate_summary_without_tools(
+        self,
+        messages: list[dict[str,
+                            str]],
+        model: ChatModel,
+        client: AsyncOpenAI,
+        provider: Provider,
+        user_sub: str,
+        db_client: TraceRootMongoDBClient,
+        chat_id: str,
+        trace_id: str,
+        timestamp: datetime,
+    ) -> ChatbotResponse:
+        """Generate LLM summary without function tools (for confirmations).
+
+        Args:
+            messages: The conversation messages
+            model: The model to use
+            client: The OpenAI client
+            provider: The provider
+            user_sub: User's sub ID
+            db_client: Database client
+            chat_id: Chat ID
+            trace_id: Trace ID
+            timestamp: Message timestamp
+
+        Returns:
+            ChatbotResponse with the summary
+        """
+        from rest.agent.token_tracker import track_tokens_for_user
+
+        # Call LLM without function tools
+        response = await client.chat.completions.create(
+            model=model.value,
+            messages=messages,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+
+        # Stream the response
+        content_parts = []
+        usage_data = None
+
+        async for chunk in response:
+            if chunk.choices and len(chunk.choices) > 0:
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    content_parts.append(delta.content)
+
+            if hasattr(chunk, 'usage') and chunk.usage:
+                usage_data = chunk.usage
+
+        summary_content = "".join(content_parts)
+
+        # Save to database
+        response_time = datetime.now().astimezone(timezone.utc)
+        await db_client.insert_chat_record(
+            message={
+                "chat_id": chat_id,
+                "timestamp": response_time,
+                "role": "assistant",
+                "content": summary_content,
+                "reference": [],
+                "trace_id": trace_id,
+                "chunk_id": 0,
+                "action_type": ActionType.AGENT_CHAT.value,
+                "status": ActionStatus.SUCCESS.value,
+            }
+        )
+
+        # Track tokens
+        if usage_data:
+            mock_response = type(
+                'MockResponse',
+                (),
+                {
+                    'usage':
+                    usage_data,
+                    'choices': [
+                        type(
+                            'Choice',
+                            (),
+                            {
+                                'message':
+                                type('Message',
+                                     (),
+                                     {'content': summary_content})()
+                            }
+                        )()
+                    ]
+                }
+            )()
+            await track_tokens_for_user(
+                user_sub=user_sub,
+                openai_response=mock_response,
+                model=str(model)
+            )
+
+        return ChatbotResponse(
+            time=response_time.timestamp() * 1000,
+            message=summary_content,
+            reference=[],
+            message_type=MessageType.ASSISTANT,
+            chat_id=chat_id,
+        )
+
+    def _check_pending_action_confirmation(
+        self,
+        chat_history: list[dict] | None,
+        user_message: str,
+    ) -> tuple[dict | None,
+               bool | None]:
+        """Check if user is responding to a pending action confirmation.
+
+        Args:
+            chat_history: The chat history
+            user_message: The current user message
+
+        Returns:
+            Tuple of (pending_action_record, user_confirmed)
+            - pending_action_record: The pending action record if found, None otherwise
+            - user_confirmed: True if user said yes, False
+            if no, None if not a confirmation
+        """
+        if not chat_history:
+            return None, None
+
+        # Check if there's a recent pending confirmation in chat history
+        # Look through the last few messages to find a pending action
+        pending_action = None
+        for message in reversed(chat_history):
+            # Skip user messages
+            if message.get("role") == "user":
+                continue
+
+            # Check if this is a pending confirmation
+            if (
+                message.get("action_type") == ActionType.PENDING_CONFIRMATION.value
+                and message.get("status") == ActionStatus.AWAITING_CONFIRMATION.value
+            ):
+                pending_action = message
+                break
+
+            # Stop searching if we've gone too far back (more than 2 non-user messages)
+            # This prevents matching old pending actions from earlier in the conversation
+
+        if not pending_action:
+            return None, None
+
+        # Check if user message is a confirmation (yes/no)
+        user_msg_lower = user_message.lower().strip()
+
+        # Detect "yes" variations
+        if user_msg_lower in [
+            "yes",
+            "y",
+            "ok",
+            "okay",
+            "confirm",
+            "proceed",
+            "go ahead",
+            "do it"
+        ]:
+            return pending_action, True
+
+        # Detect "no" variations
+        if user_msg_lower in [
+            "no",
+            "n",
+            "cancel",
+            "stop",
+            "don't",
+            "dont",
+            "nope",
+            "skip"
+        ]:
+            return pending_action, False
+
+        return None, None
+
     async def chat(
         self,
         trace_id: str,
@@ -100,6 +280,11 @@ class CodeAgent(BaseAgent):
         """
         if not (is_github_issue or is_github_pr):
             raise ValueError("Either is_github_issue or is_github_pr must be True.")
+
+        # Check if this is a confirmation response to a pending action
+        pending_action, user_confirmed = self._check_pending_action_confirmation(
+            chat_history, user_message
+        )
 
         if model == ChatModel.AUTO:
             model = ChatModel.GPT_4O
@@ -296,6 +481,9 @@ class CodeAgent(BaseAgent):
             "Specifying corresponding GitHub tools...\n"
         )
 
+        # Note: Confirmation handling is now done in the router (explore.py)
+        # This code path should not be reached for confirmations
+
         # Support streaming for both single and multiple chunks
         # Each chunk gets its own database record with unique chunk_id
         responses = await asyncio.gather(
@@ -340,21 +528,24 @@ class CodeAgent(BaseAgent):
                     )
                 )
 
-        github_client = GitHubClient()
+        GitHubClient()
         maybe_return_directly: bool = False
-        if is_github_issue:
-            content, action_type = await self._issue_handler(
-                response, github_token, github_client
-            )
-        elif is_github_pr:
-            if "file_path_to_change" in response:
-                _, content, action_type = await self._pr_handler(
-                    response, github_token, github_client
-                )
-            else:
-                maybe_return_directly = True
 
-        if not maybe_return_directly:
+        # Check if LLM wants to create a new action (not a confirmation response)
+        if is_github_issue:
+            # Use generic PENDING_CONFIRMATION action type
+            # Store action-specific metadata in pending_action_data
+            action_metadata = {
+                "action_kind": "github_create_issue",  # Specific action identifier
+                "action_data": response,  # The actual data needed to execute the action
+            }
+            content = (
+                f"**GitHub Issue Ready for Creation**\n\n"
+                f"**Repository:** {response['owner']}/{response['repo_name']}\n"
+                f"**Title:** {response['title']}\n\n"
+                f"**Description:**\n{response['body']}\n\n"
+                f"Do you want to create this issue?"
+            )
             await db_client.insert_chat_record(
                 message={
                     "chat_id": chat_id,
@@ -364,109 +555,127 @@ class CodeAgent(BaseAgent):
                     "reference": [],
                     "trace_id": trace_id,
                     "chunk_id": 0,
-                    "action_type": action_type,
+                    "action_type": ActionType.PENDING_CONFIRMATION.value,
+                    "status": ActionStatus.AWAITING_CONFIRMATION.value,
+                    "pending_action_data": action_metadata,
+                }
+            )
+            # Mark streaming as completed
+            await db_client.update_reasoning_status(chat_id, 0, "completed")
+
+            # Insert an assistant message prompting the user to confirm
+            response_time = datetime.now().astimezone(timezone.utc)
+            summary_message = (
+                f"I've prepared a GitHub issue for **{response['owner']}"
+                f"/{response['repo_name']}**. Please review the details above"
+                f"and let me know if you'd like me to create it."
+            )
+
+            await db_client.insert_chat_record(
+                message={
+                    "chat_id": chat_id,
+                    "timestamp": response_time,
+                    "role": "assistant",
+                    "content": summary_message,
+                    "reference": [],
+                    "trace_id": trace_id,
+                    "chunk_id": 0,
+                    "action_type": ActionType.AGENT_CHAT.value,
                     "status": ActionStatus.SUCCESS.value,
                 }
             )
 
-        response_time = datetime.now().astimezone(timezone.utc)
-        if not maybe_return_directly:
-            summary_response = await client.chat.completions.create(
-                model=ChatModel.GPT_4_1.value,
-                messages=[
-                    {
-                        "role":
-                        "system",
-                        "content": (
-                            "You are a helpful assistant "
-                            "that can summarize the "
-                            "created issue or the "
-                            "created PR."
-                        ),
-                    },
-                    {
-                        "role":
-                        "user",
-                        "content":
-                        (f"Here is the created issue or the created PR:\n{response}"),
-                    },
-                ],
-                stream=True,
-                stream_options={"include_usage": True},
+            # Return the response
+            return ChatbotResponse(
+                time=response_time.timestamp() * 1000,
+                message=summary_message,
+                reference=[],
+                message_type=MessageType.ASSISTANT,
+                chat_id=chat_id,
             )
 
-            # Handle streaming summary response
-            content_parts = []
-            usage_data = None
-
-            async for chunk in summary_response:
-                if chunk.choices and len(chunk.choices) > 0:
-                    delta = chunk.choices[0].delta
-                    if delta.content:
-                        content_parts.append(delta.content)
-
-                # Capture usage data from the final chunk
-                if hasattr(chunk, 'usage') and chunk.usage:
-                    usage_data = chunk.usage
-
-            # Mark streaming as completed
-            await db_client.update_reasoning_status(chat_id, 0, "completed")
-
-            summary_content = "".join(content_parts)
-
-            # Track token usage for this OpenAI call
-            if usage_data:
-                # Create a mock response object for token tracking
-                mock_response = type(
-                    'MockResponse',
-                    (),
-                    {
-                        'usage':
-                        usage_data,
-                        'choices': [
-                            type(
-                                'Choice',
-                                (),
-                                {
-                                    'message':
-                                    type('Message',
-                                         (),
-                                         {'content': summary_content})()
-                                }
-                            )()
-                        ]
-                    }
-                )()
-
-                await track_tokens_for_user(
-                    user_sub=user_sub,
-                    openai_response=mock_response,
-                    model=str(model)
+        elif is_github_pr:
+            if "file_path_to_change" in response:
+                # Use generic PENDING_CONFIRMATION action type
+                action_metadata = {
+                    "action_kind": "github_create_pr",
+                    "action_data": response,
+                }
+                content = (
+                    f"**GitHub Pull Request Ready for Creation**\n\n"
+                    f"**Repository:** {response['owner']}/{response['repo_name']}\n"
+                    f"**Title:** {response['title']}\n"
+                    f"**Base Branch:** {response['base_branch']}\n\n"
+                    f"**Head Branch:** {response['head_branch']}\n\n"
+                    f"**Description:**\n{response['body']}\n\n"
+                    f"**File to Change:** {response['file_path_to_change']}\n"
+                    f"**Commit Message:** {response['commit_message']}\n\n"
+                    f"Do you want to create this pull request?"
                 )
+                await db_client.insert_chat_record(
+                    message={
+                        "chat_id": chat_id,
+                        "timestamp": datetime.now().astimezone(timezone.utc),
+                        "role": "github",
+                        "content": content,
+                        "reference": [],
+                        "trace_id": trace_id,
+                        "chunk_id": 0,
+                        "action_type": ActionType.PENDING_CONFIRMATION.value,
+                        "status": ActionStatus.AWAITING_CONFIRMATION.value,
+                        "pending_action_data": action_metadata,
+                    }
+                )
+                # Mark streaming as completed
+                await db_client.update_reasoning_status(chat_id, 0, "completed")
+
+                # Insert an assistant message prompting the user to confirm
+                response_time = datetime.now().astimezone(timezone.utc)
+                summary_message = (
+                    f"I've prepared a pull request for **"
+                    f"{response['owner']}/{response['repo_name']}**."
+                    f"Please review the details above"
+                    f"and let me know if you'd like me to create it."
+                )
+
+                await db_client.insert_chat_record(
+                    message={
+                        "chat_id": chat_id,
+                        "timestamp": response_time,
+                        "role": "assistant",
+                        "content": summary_message,
+                        "reference": [],
+                        "trace_id": trace_id,
+                        "chunk_id": 0,
+                        "action_type": ActionType.AGENT_CHAT.value,
+                        "status": ActionStatus.SUCCESS.value,
+                    }
+                )
+
+                # Return the response
+                return ChatbotResponse(
+                    time=response_time.timestamp() * 1000,
+                    message=summary_message,
+                    reference=[],
+                    message_type=MessageType.ASSISTANT,
+                    chat_id=chat_id,
+                )
+            else:
+                maybe_return_directly = True
         else:
-            summary_content = response["content"]
+            maybe_return_directly = True
 
-        await db_client.insert_chat_record(
-            message={
-                "chat_id": chat_id,
-                "timestamp": response_time,
-                "role": "assistant",
-                "content": summary_content,
-                "reference": [],
-                "trace_id": trace_id,
-                "chunk_id": 0,
-                "action_type": ActionType.AGENT_CHAT.value,
-                "status": ActionStatus.SUCCESS.value,
-            }
-        )
-
-        return ChatbotResponse(
-            time=response_time,
-            message=summary_content,
-            reference=[],
-            message_type=MessageType.ASSISTANT,
-            chat_id=chat_id,
-        )
+        # If we reach here, it means we didn't create a pending action
+        # Return the original response content
+        if maybe_return_directly:
+            return ChatbotResponse(
+                time=datetime.now().astimezone(timezone.utc).timestamp() * 1000,
+                message=response.get("content",
+                                     ""),
+                reference=[],
+                message_type=MessageType.ASSISTANT,
+                chat_id=chat_id,
+            )
 
     async def chat_with_context_chunks_streaming(
         self,

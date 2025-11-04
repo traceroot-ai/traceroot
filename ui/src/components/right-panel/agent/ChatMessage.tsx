@@ -3,9 +3,14 @@ import { RiRobot2Line } from "react-icons/ri";
 import { GoCopy } from "react-icons/go";
 import { FaGithub } from "react-icons/fa";
 import { ChartColumn } from "lucide-react";
-import { useUser } from "@clerk/nextjs";
-import { Reference } from "../../../models/chat";
+import { useUser, useAuth } from "@clerk/nextjs";
+import {
+  Reference,
+  ConfirmActionRequest,
+  ConfirmActionResponse,
+} from "../../../models/chat";
 import { Spinner } from "../../ui/shadcn-io/spinner";
+import { Button } from "../../ui/button";
 import {
   HoverCard,
   HoverCardContent,
@@ -24,6 +29,8 @@ interface Message {
   role: "user" | "assistant" | "github" | "statistics";
   timestamp: Date | string; // Allow both Date and string for formatted timestamps
   references?: Reference[];
+  action_type?: string;
+  status?: string;
 }
 
 interface ChatMessageProps {
@@ -34,6 +41,7 @@ interface ChatMessageProps {
   onSpanSelect?: (spanIds: string[] | string, traceId?: string) => void;
   onViewTypeChange?: (viewType: "log" | "trace") => void;
   chatId?: string | null;
+  onSendMessage?: (message: string) => void;
 }
 
 // Helper function to format timestamp like in LogDetail
@@ -517,6 +525,7 @@ export default function ChatMessage({
   onSpanSelect,
   onViewTypeChange,
   chatId,
+  onSendMessage,
 }: ChatMessageProps) {
   const { user } = useUser();
   const avatarLetter =
@@ -525,6 +534,13 @@ export default function ChatMessage({
   // We need controlled state to programmatically close hover cards when clicking span links
   // This prevents the popup from persisting and moving to the left panel during view transitions
   const [openHoverCard, setOpenHoverCard] = React.useState<string | null>(null);
+
+  const handleConfirmAction = (confirmed: boolean) => {
+    if (onSendMessage) {
+      // Send "yes" or "no" as a regular chat message
+      onSendMessage(confirmed ? "yes" : "no");
+    }
+  };
 
   return (
     <div className="flex-1 overflow-y-auto p-4 flex flex-col bg-zinc-50 dark:bg-zinc-900 mt-2 ml-4 mr-4 mb-2 rounded-lg">
@@ -592,6 +608,31 @@ export default function ChatMessage({
                 <p className="text-xs mt-1 opacity-70">
                   {formatTimestamp(message.timestamp)}
                 </p>
+
+                {/* Confirmation buttons for pending actions */}
+                {message.role === "github" &&
+                  message.status === "awaiting_confirmation" &&
+                  message.action_type === "pending_confirmation" && (
+                    <div className="mt-3 flex gap-2">
+                      <Button
+                        onClick={() => handleConfirmAction(true)}
+                        disabled={isLoading}
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700 text-white"
+                      >
+                        Yes, create it
+                      </Button>
+                      <Button
+                        onClick={() => handleConfirmAction(false)}
+                        disabled={isLoading}
+                        size="sm"
+                        variant="outline"
+                        className="border-red-600 text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                      >
+                        No, cancel
+                      </Button>
+                    </div>
+                  )}
               </div>
 
               {/* Avatar for user */}

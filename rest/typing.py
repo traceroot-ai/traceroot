@@ -92,6 +92,7 @@ class ActionType(str, Enum):
     GITHUB_GET_FILE = "github_get_file"
     GITHUB_CREATE_ISSUE = "github_create_issue"
     GITHUB_CREATE_PR = "github_create_pr"
+    PENDING_CONFIRMATION = "pending_confirmation"
     AGENT_CHAT = "agent_chat"
     STATISTICS = "statistics"
 
@@ -101,6 +102,7 @@ class ActionStatus(str, Enum):
     SUCCESS = "success"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    AWAITING_CONFIRMATION = "awaiting_confirmation"
 
 
 class Provider(str, Enum):

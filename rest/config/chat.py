@@ -121,3 +121,22 @@ class GetChatMetadataHistoryRawRequest(BaseModel):
 class GetChatMetadataHistoryRequest(BaseModel):
     trace_id: str | None = None
     trace_ids: list[str] = []
+
+
+class ConfirmActionRequest(BaseModel):
+    """Request to confirm or reject a pending action."""
+    chat_id: str
+    message_timestamp: float  # Timestamp to identify the specific pending message
+    confirmed: bool  # True for yes, False for no
+
+
+class ConfirmActionResponse(BaseModel):
+    """Response after confirming or rejecting an action."""
+    success: bool
+    message: str
+    data: dict | None = None  # Optional data returned after action execution
+
+
+# Backward compatibility aliases
+ConfirmGitHubActionRequest = ConfirmActionRequest
+ConfirmGitHubActionResponse = ConfirmActionResponse

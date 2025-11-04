@@ -229,6 +229,27 @@ class TraceRootSQLiteClient:
             )
             await db.commit()
 
+    async def update_chat_record_status(
+        self,
+        chat_id: str,
+        timestamp: Any,
+        status: str,
+        content: str | None = None,
+        action_type: str | None = None,
+        user_confirmation: bool | None = None,
+    ):
+        """Update a chat record's status, content, and confirmation.
+
+        Args:
+            chat_id: The chat ID
+            timestamp: The message timestamp to identify the record
+            status: New status value
+            content: Optional new content
+            action_type: Optional new action type
+            user_confirmation: Optional user confirmation decision (True/False/None)
+        """
+        # TODO: Implement SQLite version
+
     async def insert_chat_metadata(self, metadata: dict[str, Any]):
         """
         Args:
