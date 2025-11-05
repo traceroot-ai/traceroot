@@ -103,6 +103,8 @@ const getLogLevelColor = (level: string) => {
       return "font-medium text-[#64748b]";
     case "DEBUG":
       return "font-medium text-[#a855f7]";
+    case "TRACE":
+      return "font-medium text-[#6366f1]";
     default:
       return "font-medium text-[#64748b]";
   }
