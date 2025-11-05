@@ -41,4 +41,7 @@ following rules:
    of reference objects with fields: number, span_id, span_function_name,
    line_number, log_message). Make sure if possible to include reference
    numbers like [1], [2] in your answer text where appropriate.
+13. IMPORTANT: Your response language should match the user's query language.
+   If the user asks in Chinese, respond in Chinese. If in English, respond in English.
+   Adapt to whatever language the user uses.
 """
