@@ -255,6 +255,7 @@ export default function LogModeDetail({
   // Calculate log level statistics
   const logStats = useMemo(() => {
     const stats = {
+      TRACE: 0,
       DEBUG: 0,
       INFO: 0,
       WARNING: 0,
@@ -314,6 +315,8 @@ export default function LogModeDetail({
 
   const getLevelColor = (level: string) => {
     switch (level) {
+      case "TRACE":
+        return "#6366f1";
       case "DEBUG":
         return "#a855f7";
       case "INFO":
@@ -484,6 +487,15 @@ export default function LogModeDetail({
       <div className="flex justify-between items-center mb-2 mx-2">
         <div>
           <div className="font-mono flex flex-wrap items-center gap-2 px-3 py-1 text-xs my-0.5 text-gray-700 dark:text-gray-200">
+            {logStats.TRACE > 0 && (
+              <Badge
+                variant="secondary"
+                className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
+                style={{ backgroundColor: "#6366f1" }}
+              >
+                TRACE: {logStats.TRACE}
+              </Badge>
+            )}
             {logStats.DEBUG > 0 && (
               <Badge
                 variant="secondary"

@@ -198,33 +198,6 @@ class JaegerTraceClient(TraceClient):
 
         return (page_traces, next_pagination_state)
 
-    async def get_trace_with_spans_by_ids(
-        self,
-        trace_ids: list[str],
-        categories: list[str] | None = None,
-        values: list[str] | None = None,
-        operations: list[str] | None = None,
-    ) -> dict[str,
-              list[Span]]:
-        """Get trace with spans by trace IDs.
-
-        Args:
-            trace_ids (list[str]): List of trace IDs to fetch
-            categories (list[str], optional): Filter by categories if provided
-            values (list[str], optional): Filter by values if provided
-            operations (list[str], optional): Filter by operations
-                for values if provided
-
-        Returns:
-            dict[str, list[Span]]: Dictionary of trace_id and list of spans.
-
-        Note:
-            This method signature is provided for interface consistency.
-            Implementation not provided as requested.
-        """
-        # Implementation not provided as requested
-        return {}
-
     async def _get_services(
         self,
         lookback_seconds: int = 10 * 60,

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from rest.config.trace import Span, Trace
+from rest.config.trace import Trace
 from rest.service.trace.trace_client import TraceClient
 
 
@@ -24,17 +24,6 @@ class TencentTraceClient(TraceClient):
     ) -> Trace | None:
         """Get a single trace by ID - stub implementation."""
         return None
-
-    async def get_trace_with_spans_by_ids(
-        self,
-        trace_ids: list[str],
-        categories: list[str] | None = None,
-        values: list[str] | None = None,
-        operations: list[str] | None = None,
-    ) -> dict[str,
-              list[Span]]:
-        """Get traces with spans by trace IDs."""
-        return {}
 
     async def get_recent_traces(
         self,
