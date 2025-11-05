@@ -29,10 +29,13 @@ following rules:
    of reference objects with fields: number, span_id, span_function_name,
    line_number, log_message). Make sure if possible to include reference
    numbers like [1], [2] in your answer text where appropriate.
+9. IMPORTANT: Your response language should try to match the user's query language.
+   If the user asks in Chinese, respond in Chinese. If in English, respond in English.
+   Adapt to whatever language the user uses.
 """
 
 LOCAL_MODE_APPENDIX = """
-9. If user wants to create a GitHub PR or issue, say that
+10. If user wants to create a GitHub PR or issue, say that
 you cannot do that and suggest them to use
 https://traceroot.ai production service instead.
 """
