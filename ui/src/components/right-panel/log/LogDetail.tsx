@@ -381,6 +381,8 @@ export default function LogDetail({
         return "font-medium text-[#64748b]";
       case "DEBUG":
         return "font-medium text-[#a855f7]";
+      case "TRACE":
+        return "font-medium text-[#6366f1]";
       default:
         return "font-medium text-[#64748b]";
     }
@@ -550,6 +552,7 @@ export default function LogDetail({
     logEntries: { entry: LogEntry; spanId: string; traceId: string }[],
   ) => {
     const stats = {
+      TRACE: 0,
       DEBUG: 0,
       INFO: 0,
       WARNING: 0,
@@ -571,6 +574,7 @@ export default function LogDetail({
     logEntries: { entry: LogEntry; spanId: string }[],
   ) => {
     const stats = {
+      TRACE: 0,
       DEBUG: 0,
       INFO: 0,
       WARNING: 0,
@@ -861,6 +865,17 @@ export default function LogDetail({
             <div className="flex justify-between items-center mb-2">
               <div>
                 <div className="font-mono flex flex-wrap items-center gap-2 px-3 py-1 text-xs my-0.5 text-gray-700 dark:text-gray-200">
+                  {logStats.TRACE > 0 && (
+                    <div className="flex items-center">
+                      <Badge
+                        variant="secondary"
+                        className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
+                        style={{ backgroundColor: "#6366f1" }}
+                      >
+                        TRACE: {logStats.TRACE}
+                      </Badge>
+                    </div>
+                  )}
                   {logStats.DEBUG > 0 && (
                     <div className="flex items-center">
                       <Badge

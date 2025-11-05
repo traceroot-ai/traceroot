@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from rest.config.trace import Span, Trace
+from rest.config.trace import Trace
 
 
 class TraceClient(ABC):
@@ -28,27 +28,6 @@ class TraceClient(ABC):
         Returns:
             Trace object with full metadata (service_name, service_environment, etc.)
             or None if trace not found
-        """
-
-    @abstractmethod
-    async def get_trace_with_spans_by_ids(
-        self,
-        trace_ids: list[str],
-        categories: list[str] | None = None,
-        values: list[str] | None = None,
-        operations: list[str] | None = None,
-    ) -> dict[str,
-              list[Span]]:
-        """Get traces with spans by trace IDs.
-
-        Args:
-            trace_ids: List of trace identifiers
-            categories: Filter by categories if provided
-            values: Filter by values if provided
-            operations: Filter by operations for values if provided
-
-        Returns:
-            Dictionary mapping trace_id to list of spans
         """
 
     @abstractmethod
