@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { auth, currentUser } from "@clerk/nextjs/server";
 import { createHash } from "crypto";
 import { ResourceType } from "@/models/integrate";
 import { connectToDatabase, isMongoDBAvailable } from "@/lib/mongodb";
 import { ConnectionToken, TracerootToken } from "@/models/token";
+import { getLocalTokenStorage } from "@/lib/sqlite";
+import { LOCAL_USER_CONSTANTS } from "@/lib/constants/auth";
 
 interface GetIntegrationResponse {
   success: boolean;
@@ -39,6 +40,28 @@ export async function GET(
       );
     }
 
+    // Handle local mode
+    const isLocalMode = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
+
+    if (isLocalMode) {
+      // Local mode: Retrieve from SQLite
+      const storage = getLocalTokenStorage();
+      const userEmail = LOCAL_USER_CONSTANTS.USER_EMAIL;
+
+      let token: string | null = null;
+
+      if (resourceType === ResourceType.TRACEROOT) {
+        token = storage.getTracerootToken(userEmail);
+      } else {
+        token = storage.getConnectionToken(userEmail, resourceType);
+      }
+
+      return NextResponse.json({
+        success: true,
+        token,
+      });
+    }
+
     // Check if MongoDB is available
     if (!isMongoDBAvailable()) {
       return NextResponse.json({
@@ -47,8 +70,11 @@ export async function GET(
       });
     }
 
-    // Get authenticated user
-    const { userId } = await auth();
+    // Production mode: Get authenticated user
+    const { auth, currentUser } = await import("@clerk/nextjs/server");
+    const authResult = await auth();
+    const userId = authResult.userId;
+
     if (!userId) {
       return NextResponse.json(
         { success: false, error: "User not authenticated" },

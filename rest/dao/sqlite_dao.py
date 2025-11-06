@@ -7,7 +7,9 @@ import aiosqlite
 
 from rest.config import ChatMetadata, ChatMetadataHistory
 
-DB_PATH = os.getenv("SQLITE_DB_PATH", "traceroot.db")
+# Default to traceroot-local.db to match UI's database name
+# This allows UI and backend to share the same database file in self-hosted mode
+DB_PATH = os.getenv("SQLITE_DB_PATH", "traceroot-local.db")
 
 
 class TraceRootSQLiteClient:
@@ -73,6 +75,19 @@ class TraceRootSQLiteClient:
             """
             )
 
+            # TraceRoot tokens table (includes token for SDK authentication)
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS traceroot_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    token TEXT NOT NULL UNIQUE,
+                    user_email TEXT NOT NULL UNIQUE,
+                    user_sub TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """
+            )
+
             # Reasoning records table (dedicated reasoning storage)
             await db.execute(
                 """
@@ -105,6 +120,14 @@ class TraceRootSQLiteClient:
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_connection_tokens_user_email "
                 "ON connection_tokens(user_email)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_traceroot_tokens_token "
+                "ON traceroot_tokens(token)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_traceroot_tokens_user_email "
+                "ON traceroot_tokens(user_email)"
             )
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_reasoning_records_chat_id "
@@ -405,11 +428,45 @@ class TraceRootSQLiteClient:
         delete_existing: bool = False,
     ):
         """
+        Insert or update a traceroot token in the SQLite database.
+
+        For self-hosted mode, we only store the token and user info.
+        No AWS credentials are stored - the SDK will use local Jaeger.
+
         Args:
             token (str): The traceroot token
-            user_credentials (dict[str, Any]): The user's AWS credentials
+            user_credentials (dict[str, Any]): User info containing
+                user_email and user_sub
+            delete_existing (bool): Whether to delete existing token first
         """
-        return
+        await self._init_db()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            user_email = user_credentials.get("user_email", "local@example.com")
+            user_sub = user_credentials.get("user_sub", "local-user")
+
+            if delete_existing:
+                await db.execute(
+                    "DELETE FROM traceroot_tokens WHERE user_email = ?",
+                    (user_email,
+                     )
+                )
+
+            # Upsert: insert or replace if user_email already exists
+            await db.execute(
+                """
+                INSERT INTO traceroot_tokens (token, user_email, user_sub)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_email)
+                DO UPDATE SET token = excluded.token,
+                              user_sub = excluded.user_sub,
+                              created_at = CURRENT_TIMESTAMP
+                """,
+                (token,
+                 user_email,
+                 user_sub)
+            )
+            await db.commit()
 
     async def get_integration_token(
         self,
@@ -444,14 +501,42 @@ class TraceRootSQLiteClient:
         """
         Query traceroot credentials by token.
 
+        For self-hosted mode, this returns the local configuration
+        (not AWS credentials) that the SDK needs to send traces to Jaeger.
+
         Args:
             token (str): The traceroot token to search for
 
         Returns:
-            dict[str, Any] | None: The full
-                credentials if found, None otherwise
+            dict[str, Any] | None: Configuration containing otlp_endpoint
+                and user info if token is valid, None otherwise
         """
-        return
+        await self._init_db()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT * FROM traceroot_tokens WHERE token = ?",
+                (token,
+                 )
+            )
+            row = await cursor.fetchone()
+
+            if not row:
+                return None
+
+            # Get OTLP endpoint from environment (where Jaeger is running)
+            otlp_endpoint = os.getenv("OTLP_ENDPOINT", "http://localhost:4318/v1/traces")
+
+            # Return configuration for self-hosted mode
+            return {
+                "user_email": row["user_email"],
+                "user_sub": row["user_sub"],
+                "otlp_endpoint": otlp_endpoint,
+                "provider_type": "jaeger",
+                "region": "local",  # Not used for Jaeger, but SDK expects it
+                "hash": row["user_sub"],  # Use user_sub as hash for local mode
+            }
 
     async def insert_chat_routing_record(self, routing_data: dict[str, Any]):
         """Insert a chat routing decision record (SQLite stub).

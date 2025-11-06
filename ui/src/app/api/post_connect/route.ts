@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
-import { auth, currentUser } from "@clerk/nextjs/server";
 import { randomBytes, createHash } from "crypto";
 import { TokenResource, ResourceType } from "@/models/integrate";
 import { connectToDatabase, isMongoDBAvailable } from "@/lib/mongodb";
 import { ConnectionToken, TracerootToken } from "@/models/token";
 import { STSClient, AssumeRoleCommand } from "@aws-sdk/client-sts";
+import { getLocalTokenStorage } from "@/lib/sqlite";
+import { LOCAL_USER_CONSTANTS } from "@/lib/constants/auth";
+import { createBackendAuthHeaders } from "@/lib/auth/server";
 
 interface IntegrationSecretResponse {
   success: boolean;
@@ -149,29 +151,42 @@ export async function POST(
       );
     }
 
-    // Get authenticated user
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json(
-        { success: false, error: "User not authenticated" },
-        { status: 401 },
-      );
-    }
+    // Get authenticated user (different approach for local mode)
+    let userId: string;
+    let userEmail: string;
 
-    const user = await currentUser();
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "User not found" },
-        { status: 401 },
-      );
-    }
+    if (isLocalMode) {
+      // Local mode: Use mock user
+      userId = LOCAL_USER_CONSTANTS.USER_ID;
+      userEmail = LOCAL_USER_CONSTANTS.USER_EMAIL;
+    } else {
+      // Production mode: Use Clerk auth
+      const { auth, currentUser } = await import("@clerk/nextjs/server");
+      const authResult = await auth();
+      userId = authResult.userId!;
 
-    const userEmail = user.emailAddresses[0]?.emailAddress;
-    if (!userEmail) {
-      return NextResponse.json(
-        { success: false, error: "User email not found" },
-        { status: 401 },
-      );
+      if (!userId) {
+        return NextResponse.json(
+          { success: false, error: "User not authenticated" },
+          { status: 401 },
+        );
+      }
+
+      const user = await currentUser();
+      if (!user) {
+        return NextResponse.json(
+          { success: false, error: "User not found" },
+          { status: 401 },
+        );
+      }
+
+      userEmail = user.emailAddresses[0]?.emailAddress!;
+      if (!userEmail) {
+        return NextResponse.json(
+          { success: false, error: "User email not found" },
+          { status: 401 },
+        );
+      }
     }
 
     let token = tokenResource.token;
@@ -179,13 +194,21 @@ export async function POST(
     // Handle TraceRoot resource type
     if (tokenResource.resourceType === ResourceType.TRACEROOT) {
       if (isLocalMode) {
-        // Return fake token for local mode
-        console.log(
-          `[${requestId}] Local mode - returning fake TraceRoot token`,
+        // Local mode: Store token in SQLite
+        console.log(`[${requestId}] Local mode - generating TraceRoot token`);
+        token = generateTracerootToken();
+
+        const storage = getLocalTokenStorage();
+        storage.storeTracerootToken(
+          LOCAL_USER_CONSTANTS.USER_EMAIL,
+          LOCAL_USER_CONSTANTS.USER_ID,
+          token,
         );
+
+        console.log(`[${requestId}] Stored TraceRoot token in local SQLite`);
         return NextResponse.json({
           success: true,
-          token: "fake_traceroot_token_for_local_mode",
+          token,
         });
       }
 
@@ -238,24 +261,38 @@ export async function POST(
         );
       }
     } else {
-      // Handle regular integration tokens
-      await connectToDatabase();
+      // Handle regular integration tokens (GitHub, Slack, etc.)
+      if (isLocalMode) {
+        // Local mode: Store in SQLite
+        const storage = getLocalTokenStorage();
+        storage.storeConnectionToken(
+          userEmail,
+          tokenResource.resourceType,
+          token!,
+        );
+        console.log(
+          `[${requestId}] Stored ${tokenResource.resourceType} token in local SQLite`,
+        );
+      } else {
+        // Production mode: Store in MongoDB
+        await connectToDatabase();
 
-      // Upsert the integration token
-      await ConnectionToken.updateOne(
-        {
-          user_email: userEmail,
-          token_type: tokenResource.resourceType,
-        },
-        {
-          $set: {
+        // Upsert the integration token
+        await ConnectionToken.updateOne(
+          {
             user_email: userEmail,
-            token: token!,
             token_type: tokenResource.resourceType,
           },
-        },
-        { upsert: true },
-      );
+          {
+            $set: {
+              user_email: userEmail,
+              token: token!,
+              token_type: tokenResource.resourceType,
+            },
+          },
+          { upsert: true },
+        );
+      }
     }
     return NextResponse.json({
       success: true,

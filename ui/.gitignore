@@ -44,3 +44,4 @@ package-lock.json
 
 # clerk configuration (can include secrets)
 /.clerk/
+traceroot-local.db
