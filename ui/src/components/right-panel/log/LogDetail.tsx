@@ -64,11 +64,11 @@ export default function LogDetail({
   const [showCode, setShowCode] = useState(false);
   const [, forceUpdate] = useState({});
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(
-    new Set()
+    new Set(),
   );
   const [isGrouped, setIsGrouped] = useState(false);
   const [expandedTraceBlocks, setExpandedTraceBlocks] = useState<Set<string>>(
-    new Set()
+    new Set(),
   );
   const [isSortDescending, setIsSortDescending] = useState(false);
 
@@ -187,7 +187,7 @@ export default function LogDetail({
           (spanLog: SpanLog) => {
             const spanId = Object.keys(spanLog)[0];
             return selectedSpansForThisTrace.includes(spanId);
-          }
+          },
         );
         if (filteredSpanLogs.length > 0) {
           filteredLogs[traceId] = filteredSpanLogs;
@@ -293,7 +293,7 @@ export default function LogDetail({
   const buildOrderedLogEntries = (
     logs: TraceLog | null,
     traceIds: string[],
-    sortDescending: boolean
+    sortDescending: boolean,
   ) => {
     const result: { entry: LogEntry; spanId: string; traceId: string }[] = [];
     if (!logs) return result;
@@ -307,7 +307,7 @@ export default function LogDetail({
             entries.forEach((entry) => {
               result.push({ entry, spanId, traceId });
             });
-          }
+          },
         );
       });
     });
@@ -327,7 +327,7 @@ export default function LogDetail({
     orderedEntries: { entry: LogEntry; spanId: string; traceId: string }[],
     traceIds: string[],
     allTraces: TraceModel[],
-    sortDescending: boolean
+    sortDescending: boolean,
   ) => {
     const groupedData: Map<
       string,
@@ -399,14 +399,14 @@ export default function LogDetail({
   const orderedLogEntries = buildOrderedLogEntries(
     logs,
     traceIds,
-    isSortDescending
+    isSortDescending,
   );
   // Compute grouped log entries (for grouped view) - reuses same entry references from orderedLogEntries
   const groupedLogEntries = buildGroupedLogEntries(
     orderedLogEntries,
     traceIds,
     allTraces,
-    isSortDescending
+    isSortDescending,
   );
 
   // Get all log entries for ShowCodeToggle (flattened from grouped view or ungrouped view)
@@ -425,7 +425,7 @@ export default function LogDetail({
 
   // Calculate log level statistics
   const calculateLogStats = (
-    logEntries: { entry: LogEntry; spanId: string; traceId: string }[]
+    logEntries: { entry: LogEntry; spanId: string; traceId: string }[],
   ) => {
     const stats = {
       TRACE: 0,
@@ -490,7 +490,7 @@ export default function LogDetail({
 
     // Sort by timestamp (latest to most recent, i.e., descending order)
     const sortedEntries = [...orderedLogEntries].sort(
-      (a, b) => b.entry.time - a.entry.time
+      (a, b) => b.entry.time - a.entry.time,
     );
 
     // CSV header - include Trace ID if multiple traces
@@ -637,7 +637,7 @@ export default function LogDetail({
   const highlightText = (
     text: string,
     logSearchTerm: string,
-    metadataTerms: { category: string; value: string }[]
+    metadataTerms: { category: string; value: string }[],
   ) => {
     // Collect all search patterns
     const searchPatterns: RegExp[] = [];
@@ -653,7 +653,7 @@ export default function LogDetail({
       if (term.category.trim() && term.value.trim()) {
         const escapedCategory = term.category.replace(
           /[.*+?^${}()|[\]\\]/g,
-          "\\$&"
+          "\\$&",
         );
         const escapedValue = term.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         // Match pattern: "key": "value" (with optional whitespace)
@@ -668,7 +668,7 @@ export default function LogDetail({
     // Create a combined pattern that captures all search terms
     const combinedPattern = new RegExp(
       `(${searchPatterns.map((p) => p.source.slice(1, -1)).join("|")})`,
-      "gi"
+      "gi",
     );
 
     const parts = text.split(combinedPattern);
@@ -884,7 +884,7 @@ export default function LogDetail({
                                   trace.telemetry_sdk_language.length > 0 && (
                                     <div className="flex items-center flex-shrink-0 ml-1 mr-2 hidden [@media(min-width:433px)]:flex">
                                       {trace.telemetry_sdk_language.includes(
-                                        "python"
+                                        "python",
                                       ) && (
                                         <FaPython
                                           className="text-neutral-800 dark:text-neutral-200"
@@ -892,7 +892,7 @@ export default function LogDetail({
                                         />
                                       )}
                                       {trace.telemetry_sdk_language.includes(
-                                        "ts"
+                                        "ts",
                                       ) && (
                                         <SiTypescript
                                           className="text-neutral-800 dark:text-neutral-200"
@@ -900,7 +900,7 @@ export default function LogDetail({
                                         />
                                       )}
                                       {trace.telemetry_sdk_language.includes(
-                                        "js"
+                                        "js",
                                       ) && (
                                         <IoLogoJavascript
                                           className="text-neutral-800 dark:text-neutral-200"
@@ -908,7 +908,7 @@ export default function LogDetail({
                                         />
                                       )}
                                       {trace.telemetry_sdk_language.includes(
-                                        "java"
+                                        "java",
                                       ) && (
                                         <FaJava
                                           className="text-neutral-800 dark:text-neutral-200"
@@ -1017,7 +1017,7 @@ export default function LogDetail({
                                 const isExpanded =
                                   expandedEntries.has(entryKey);
                                 const formattedMessage = formatMessage(
-                                  entry.message
+                                  entry.message,
                                 );
                                 const messageExpandable =
                                   isMessageExpandable(formattedMessage);
@@ -1031,7 +1031,7 @@ export default function LogDetail({
                                     key={entryKey}
                                     className={`relative p-1.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 transform transition-all duration-100 ease-in-out hover:shadow`}
                                     style={getLogStyle(
-                                      spanDepthMap[spanId] ?? 0
+                                      spanDepthMap[spanId] ?? 0,
                                     )}
                                   >
                                     <div className="flex items-start min-w-0">
@@ -1082,7 +1082,7 @@ export default function LogDetail({
                                               ? highlightText(
                                                   displayMessage,
                                                   logSearchValue,
-                                                  metadataSearchTerms
+                                                  metadataSearchTerms,
                                                 )
                                               : displayMessage}
                                           </span>
@@ -1127,7 +1127,7 @@ export default function LogDetail({
                           )}
                         </div>
                       );
-                    }
+                    },
                   )
                 : /* Ungrouped View: Show all logs merged chronologically */
                   orderedLogEntries.map(({ entry, spanId, traceId }, idx) => {
@@ -1211,7 +1211,7 @@ export default function LogDetail({
                                     ? highlightText(
                                         displayMessage,
                                         logSearchValue,
-                                        metadataSearchTerms
+                                        metadataSearchTerms,
                                       )
                                     : displayMessage}
                                 </span>
