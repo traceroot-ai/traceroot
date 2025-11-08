@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
-import { TraceLog, LogEntry } from "@/models/log";
+import React, { useEffect, useState } from "react";
+import { TraceLog, LogEntry, SpanLog } from "@/models/log";
 import { Span, Trace as TraceModel } from "@/models/trace";
 import { FaGithub, FaPython, FaJava } from "react-icons/fa";
 import { IoCopyOutline, IoLogoJavascript } from "react-icons/io5";
@@ -18,7 +18,6 @@ import { fadeInAnimationStyles } from "@/constants/animations";
 import ShowCodeToggle from "./ShowCodeToggle";
 import CodeContext from "./CodeContext";
 import { ViewType } from "../ModeToggle";
-import { useAuth } from "@clerk/nextjs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/shadcn-io/spinner";
@@ -27,7 +26,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { initializeProviders, appendProviderParams } from "@/utils/provider";
+import { useLogs } from "@/hooks/useLogs";
 
 interface LogDetailProps {
   traceIds: string[];
@@ -44,29 +43,34 @@ interface LogDetailProps {
 export default function LogDetail({
   traceIds,
   spanIds = [],
-  traceQueryStartTime,
-  traceQueryEndTime,
   segments,
   allTraces = [],
   logSearchValue = "",
   metadataSearchTerms = [],
   viewType,
 }: LogDetailProps) {
-  const [allLogs, setAllLogs] = useState<TraceLog | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadingTraces, setLoadingTraces] = useState<Set<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
+  // Now using TanStack Query for data fetching with caching
+  const {
+    data: allLogs,
+    isLoading: loading,
+    error: errorObj,
+  } = useLogs({
+    traceIds,
+    allTraces,
+  });
+
+  const error = errorObj ? (errorObj as Error).message : null;
+
   const [showCode, setShowCode] = useState(false);
   const [, forceUpdate] = useState({});
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(
-    new Set(),
+    new Set()
   );
   const [isGrouped, setIsGrouped] = useState(false);
   const [expandedTraceBlocks, setExpandedTraceBlocks] = useState<Set<string>>(
-    new Set(),
+    new Set()
   );
   const [isSortDescending, setIsSortDescending] = useState(false);
-  const { getToken } = useAuth();
 
   // When switching to grouped mode, expand all trace blocks by default
   useEffect(() => {
@@ -92,10 +96,10 @@ export default function LogDetail({
     setShowCode(false);
     // Clear code data from all log entries
     if (allLogs) {
-      Object.values(allLogs).forEach((spanLogs) => {
-        (spanLogs as any[]).forEach((spanLog) => {
-          Object.values(spanLog).forEach((entries) => {
-            (entries as LogEntry[]).forEach((entry) => {
+      Object.values(allLogs).forEach((spanLogs: SpanLog[]) => {
+        spanLogs.forEach((spanLog: SpanLog) => {
+          Object.values(spanLog).forEach((entries: LogEntry[]) => {
+            entries.forEach((entry) => {
               entry.line = undefined;
               entry.lines_above = undefined;
               entry.lines_below = undefined;
@@ -112,10 +116,10 @@ export default function LogDetail({
       setShowCode(false);
       // Clear code data from all log entries
       if (allLogs) {
-        Object.values(allLogs).forEach((spanLogs) => {
-          (spanLogs as any[]).forEach((spanLog) => {
-            Object.values(spanLog).forEach((entries) => {
-              (entries as LogEntry[]).forEach((entry) => {
+        Object.values(allLogs).forEach((spanLogs: SpanLog[]) => {
+          spanLogs.forEach((spanLog: SpanLog) => {
+            Object.values(spanLog).forEach((entries: LogEntry[]) => {
+              entries.forEach((entry) => {
                 entry.line = undefined;
                 entry.lines_above = undefined;
                 entry.lines_below = undefined;
@@ -127,142 +131,10 @@ export default function LogDetail({
     }
   }, [viewType, allLogs]);
 
-  useEffect(() => {
-    const fetchLogs = async () => {
-      if (!traceIds || traceIds.length === 0) {
-        setAllLogs(null);
-        setLoadingTraces(new Set());
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-      setLoadingTraces(new Set(traceIds));
-
-      try {
-        const { traceProvider, logProvider, traceRegion, logRegion } =
-          initializeProviders();
-        const token = await getToken();
-
-        // Fetch logs for all traces in parallel
-        type FetchResult =
-          | { traceId: string; data: TraceLog; success: true }
-          | { traceId: string; data: null; success: false; error: string };
-
-        const fetchPromises = traceIds.map(
-          async (traceId): Promise<FetchResult> => {
-            try {
-              const url = new URL("/api/get_trace_log", window.location.origin);
-              url.searchParams.append("traceId", traceId);
-
-              // Optimization: Pass trace start/end times for faster log queries
-              // Find the trace in allTraces to get its timestamps
-              const trace = allTraces.find((t) => t.id === traceId);
-              if (
-                trace &&
-                trace.start_time &&
-                trace.end_time &&
-                trace.start_time !== 0
-              ) {
-                // Convert Unix timestamps to ISO 8601 UTC strings
-                const startTime = new Date(
-                  trace.start_time * 1000,
-                ).toISOString();
-                const endTime = new Date(trace.end_time * 1000).toISOString();
-                url.searchParams.append("start_time", startTime);
-                url.searchParams.append("end_time", endTime);
-              }
-              // If trace not found or has invalid timestamps (start_time=0),
-              // don't send any time params - let backend fetch the trace and determine the correct time
-
-              appendProviderParams(
-                url,
-                traceProvider,
-                traceRegion,
-                logProvider,
-                logRegion,
-              );
-
-              const response = await fetch(url.toString(), {
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                },
-              });
-              const result = await response.json();
-
-              if (!result.success) {
-                throw new Error(result.error || "Failed to fetch logs");
-              }
-
-              return { traceId, data: result.data as TraceLog, success: true };
-            } catch (err) {
-              console.error(`LogDetail fetchLogs - error for ${traceId}:`, err);
-              return {
-                traceId,
-                data: null,
-                success: false,
-                error:
-                  err instanceof Error
-                    ? err.message
-                    : "An error occurred while fetching logs",
-              };
-            }
-          },
-        );
-
-        // Wait for all requests to complete
-        const results = await Promise.all(fetchPromises);
-
-        // Merge all successful results
-        const mergedLogs: TraceLog = {};
-        let hasErrors = false;
-        let errorMessage = "";
-
-        results.forEach((result) => {
-          if (result.success && result.data) {
-            // Merge the trace logs
-            Object.entries(result.data).forEach(([traceId, spanLogs]) => {
-              mergedLogs[traceId] = spanLogs;
-            });
-          } else {
-            hasErrors = true;
-            errorMessage =
-              result.error || "Failed to fetch logs for some traces";
-          }
-
-          // Remove from loading set as we process each result
-          setLoadingTraces((prev) => {
-            const newSet = new Set(prev);
-            newSet.delete(result.traceId);
-            return newSet;
-          });
-        });
-
-        setAllLogs(mergedLogs);
-
-        if (hasErrors && Object.keys(mergedLogs).length === 0) {
-          // Only set error if ALL requests failed
-          setError(errorMessage);
-        }
-      } catch (err) {
-        console.error("LogDetail fetchLogs - error:", err);
-        setError(
-          err instanceof Error
-            ? err.message
-            : "An error occurred while fetching logs",
-        );
-        setLoadingTraces(new Set());
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchLogs();
-  }, [traceIds]); // Only re-fetch when trace selection changes
-
   // Filter logs based on selected spans
   const logs = React.useMemo(() => {
     if (!allLogs) {
-      return allLogs;
+      return null;
     }
 
     // If no spanIds selected, show all logs for selected traces
@@ -311,10 +183,12 @@ export default function LogDetail({
 
       if (selectedSpansForThisTrace && selectedSpansForThisTrace.length > 0) {
         // This trace has selected spans - filter to show only those spans
-        const filteredSpanLogs = (spanLogs as any[]).filter((spanLog) => {
-          const spanId = Object.keys(spanLog)[0];
-          return selectedSpansForThisTrace.includes(spanId);
-        });
+        const filteredSpanLogs = (spanLogs as SpanLog[]).filter(
+          (spanLog: SpanLog) => {
+            const spanId = Object.keys(spanLog)[0];
+            return selectedSpansForThisTrace.includes(spanId);
+          }
+        );
         if (filteredSpanLogs.length > 0) {
           filteredLogs[traceId] = filteredSpanLogs;
         }
@@ -419,7 +293,7 @@ export default function LogDetail({
   const buildOrderedLogEntries = (
     logs: TraceLog | null,
     traceIds: string[],
-    sortDescending: boolean,
+    sortDescending: boolean
   ) => {
     const result: { entry: LogEntry; spanId: string; traceId: string }[] = [];
     if (!logs) return result;
@@ -427,12 +301,14 @@ export default function LogDetail({
     // Collect logs from all selected traces
     traceIds.forEach((traceId) => {
       if (!logs[traceId]) return;
-      logs[traceId].forEach((spanLog: any) => {
-        Object.entries(spanLog).forEach(([spanId, entries]) => {
-          (entries as LogEntry[]).forEach((entry) => {
-            result.push({ entry, spanId, traceId });
-          });
-        });
+      logs[traceId].forEach((spanLog: SpanLog) => {
+        Object.entries(spanLog).forEach(
+          ([spanId, entries]: [string, LogEntry[]]) => {
+            entries.forEach((entry) => {
+              result.push({ entry, spanId, traceId });
+            });
+          }
+        );
       });
     });
 
@@ -451,7 +327,7 @@ export default function LogDetail({
     orderedEntries: { entry: LogEntry; spanId: string; traceId: string }[],
     traceIds: string[],
     allTraces: TraceModel[],
-    sortDescending: boolean,
+    sortDescending: boolean
   ) => {
     const groupedData: Map<
       string,
@@ -523,14 +399,14 @@ export default function LogDetail({
   const orderedLogEntries = buildOrderedLogEntries(
     logs,
     traceIds,
-    isSortDescending,
+    isSortDescending
   );
   // Compute grouped log entries (for grouped view) - reuses same entry references from orderedLogEntries
   const groupedLogEntries = buildGroupedLogEntries(
     orderedLogEntries,
     traceIds,
     allTraces,
-    isSortDescending,
+    isSortDescending
   );
 
   // Get all log entries for ShowCodeToggle (flattened from grouped view or ungrouped view)
@@ -549,29 +425,7 @@ export default function LogDetail({
 
   // Calculate log level statistics
   const calculateLogStats = (
-    logEntries: { entry: LogEntry; spanId: string; traceId: string }[],
-  ) => {
-    const stats = {
-      TRACE: 0,
-      DEBUG: 0,
-      INFO: 0,
-      WARNING: 0,
-      ERROR: 0,
-      CRITICAL: 0,
-    };
-
-    logEntries.forEach(({ entry }) => {
-      if (entry.level in stats) {
-        stats[entry.level as keyof typeof stats]++;
-      }
-    });
-
-    return stats;
-  };
-
-  // Calculate log level statistics for grouped traces
-  const calculateGroupedLogStats = (
-    logEntries: { entry: LogEntry; spanId: string }[],
+    logEntries: { entry: LogEntry; spanId: string; traceId: string }[]
   ) => {
     const stats = {
       TRACE: 0,
@@ -636,7 +490,7 @@ export default function LogDetail({
 
     // Sort by timestamp (latest to most recent, i.e., descending order)
     const sortedEntries = [...orderedLogEntries].sort(
-      (a, b) => b.entry.time - a.entry.time,
+      (a, b) => b.entry.time - a.entry.time
     );
 
     // CSV header - include Trace ID if multiple traces
@@ -768,7 +622,7 @@ export default function LogDetail({
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-    } catch (err) {
+    } catch {
       // Fallback for older browsers
       const textArea = document.createElement("textarea");
       textArea.value = text;
@@ -783,7 +637,7 @@ export default function LogDetail({
   const highlightText = (
     text: string,
     logSearchTerm: string,
-    metadataTerms: { category: string; value: string }[],
+    metadataTerms: { category: string; value: string }[]
   ) => {
     // Collect all search patterns
     const searchPatterns: RegExp[] = [];
@@ -799,7 +653,7 @@ export default function LogDetail({
       if (term.category.trim() && term.value.trim()) {
         const escapedCategory = term.category.replace(
           /[.*+?^${}()|[\]\\]/g,
-          "\\$&",
+          "\\$&"
         );
         const escapedValue = term.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         // Match pattern: "key": "value" (with optional whitespace)
@@ -814,7 +668,7 @@ export default function LogDetail({
     // Create a combined pattern that captures all search terms
     const combinedPattern = new RegExp(
       `(${searchPatterns.map((p) => p.source.slice(1, -1)).join("|")})`,
-      "gi",
+      "gi"
     );
 
     const parts = text.split(combinedPattern);
@@ -1030,7 +884,7 @@ export default function LogDetail({
                                   trace.telemetry_sdk_language.length > 0 && (
                                     <div className="flex items-center flex-shrink-0 ml-1 mr-2 hidden [@media(min-width:433px)]:flex">
                                       {trace.telemetry_sdk_language.includes(
-                                        "python",
+                                        "python"
                                       ) && (
                                         <FaPython
                                           className="text-neutral-800 dark:text-neutral-200"
@@ -1038,7 +892,7 @@ export default function LogDetail({
                                         />
                                       )}
                                       {trace.telemetry_sdk_language.includes(
-                                        "ts",
+                                        "ts"
                                       ) && (
                                         <SiTypescript
                                           className="text-neutral-800 dark:text-neutral-200"
@@ -1046,7 +900,7 @@ export default function LogDetail({
                                         />
                                       )}
                                       {trace.telemetry_sdk_language.includes(
-                                        "js",
+                                        "js"
                                       ) && (
                                         <IoLogoJavascript
                                           className="text-neutral-800 dark:text-neutral-200"
@@ -1054,7 +908,7 @@ export default function LogDetail({
                                         />
                                       )}
                                       {trace.telemetry_sdk_language.includes(
-                                        "java",
+                                        "java"
                                       ) && (
                                         <FaJava
                                           className="text-neutral-800 dark:text-neutral-200"
@@ -1163,7 +1017,7 @@ export default function LogDetail({
                                 const isExpanded =
                                   expandedEntries.has(entryKey);
                                 const formattedMessage = formatMessage(
-                                  entry.message,
+                                  entry.message
                                 );
                                 const messageExpandable =
                                   isMessageExpandable(formattedMessage);
@@ -1177,7 +1031,7 @@ export default function LogDetail({
                                     key={entryKey}
                                     className={`relative p-1.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 transform transition-all duration-100 ease-in-out hover:shadow`}
                                     style={getLogStyle(
-                                      spanDepthMap[spanId] ?? 0,
+                                      spanDepthMap[spanId] ?? 0
                                     )}
                                   >
                                     <div className="flex items-start min-w-0">
@@ -1228,7 +1082,7 @@ export default function LogDetail({
                                               ? highlightText(
                                                   displayMessage,
                                                   logSearchValue,
-                                                  metadataSearchTerms,
+                                                  metadataSearchTerms
                                                 )
                                               : displayMessage}
                                           </span>
@@ -1273,7 +1127,7 @@ export default function LogDetail({
                           )}
                         </div>
                       );
-                    },
+                    }
                   )
                 : /* Ungrouped View: Show all logs merged chronologically */
                   orderedLogEntries.map(({ entry, spanId, traceId }, idx) => {
@@ -1357,7 +1211,7 @@ export default function LogDetail({
                                     ? highlightText(
                                         displayMessage,
                                         logSearchValue,
-                                        metadataSearchTerms,
+                                        metadataSearchTerms
                                       )
                                     : displayMessage}
                                 </span>
