@@ -11,6 +11,7 @@ try:
 except ImportError:
     from rest.dao.mongodb_dao import TraceRootMongoDBClient
 
+from rest.agent.cache.manager import get_cache_manager
 from rest.agent.chunk.sequential import sequential_chunk
 from rest.agent.context.tree import SpanNode
 from rest.agent.filter.feature import log_feature_selector, span_feature_selector
@@ -40,6 +41,7 @@ class Chat:
         self.system_prompt = CHAT_SYSTEM_PROMPT
         if self.local_mode:
             self.system_prompt += LOCAL_MODE_APPENDIX
+        self.cache_manager = get_cache_manager()
 
     async def chat(
         self,
@@ -97,32 +99,32 @@ class Chat:
         except Exception as e:
             print(e)
 
-        tree = tree.to_dict(
-            log_features=log_features,
-            span_features=span_features,
+        context, context_chunks, estimated_tokens, was_cached = (
+            self.cache_manager.get_or_build_context(
+                trace_id=trace_id,
+                tree=tree,
+                log_features=log_features,
+                span_features=span_features,
+                user_message=user_message,
+                chat_history=chat_history
+            )
         )
 
-        context = f"{json.dumps(tree, indent=4)}"
-
-        # Compute estimated tokens for context and insert statistics record
-        estimated_tokens = len(context) * 4
+        cache_status = "cached" if was_cached else "built"
         stats_timestamp = datetime.now().astimezone(timezone.utc)
-
         await db_client.insert_chat_record(
             message={
                 "chat_id": chat_id,
                 "timestamp": stats_timestamp,
                 "role": "statistics",
-                "content":
-                f"Number of estimated tokens for TraceRoot context: {estimated_tokens}",
+                "content": f"Number of estimated tokens for TraceRoot context: "
+                f"{estimated_tokens} (context {cache_status})",
                 "trace_id": trace_id,
                 "chunk_id": 0,
                 "action_type": ActionType.STATISTICS.value,
                 "status": ActionStatus.SUCCESS.value,
             }
         )
-
-        context_chunks = self.get_context_messages(context)
         context_messages = [
             deepcopy(context_chunks[i]) for i in range(len(context_chunks))
         ]
