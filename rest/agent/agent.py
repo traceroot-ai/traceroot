@@ -25,7 +25,6 @@ from rest.agent.filter.structure import (
     filter_log_node,
     log_node_selector,
 )
-from rest.agent.github_tools import create_issue, create_pr_with_file_changes
 from rest.agent.prompts import AGENT_SYSTEM_PROMPT
 from rest.agent.typing import ISSUE_TYPE, LogFeature
 from rest.agent.utils.openai_tools import get_openai_tool_schema
@@ -34,6 +33,9 @@ from rest.constants import MAX_PREV_RECORD
 from rest.tools.github import GitHubClient
 from rest.typing import ActionStatus, ActionType, ChatModel, MessageType, Provider
 from rest.utils.token_tracking import track_tokens_for_user
+
+from .tools.create_issue import CreateIssueTool
+from .tools.create_pr import CreatePRTool
 
 
 class Agent:
@@ -601,8 +603,8 @@ class Agent:
             model=model,
             messages=messages,
             tools=[
-                get_openai_tool_schema(create_issue),
-                get_openai_tool_schema(create_pr_with_file_changes),
+                get_openai_tool_schema(CreateIssueTool().run),
+                get_openai_tool_schema(CreatePRTool().run),
             ],
             stream=False,
         )
@@ -692,8 +694,8 @@ class Agent:
             model=model,
             messages=messages,
             tools=[
-                get_openai_tool_schema(create_issue),
-                get_openai_tool_schema(create_pr_with_file_changes),
+                get_openai_tool_schema(CreateIssueTool().run),
+                get_openai_tool_schema(CreatePRTool().run),
             ],
             stream=stream,
         )
