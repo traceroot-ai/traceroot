@@ -11,7 +11,7 @@ interface AgentPanelProps {
   spanIds?: string[];
   queryStartTime?: Date;
   queryEndTime?: Date;
-  onSpanSelect?: (spanIds: string[] | string, traceId?: string) => void;
+  onSpanSelect?: (spanId: string) => void;
   onViewTypeChange?: (viewType: "log" | "trace") => void;
   children: React.ReactNode;
 }
@@ -130,7 +130,6 @@ export default function AgentPanel({
                 queryEndTime={queryEndTime}
                 onSpanSelect={onSpanSelect}
                 onViewTypeChange={onViewTypeChange}
-                onClosePanel={() => setIsOpen(false)}
               />
             )}
           </div>

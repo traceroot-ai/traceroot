@@ -3,10 +3,8 @@
 import React, { useState, useEffect } from "react";
 import LogPanelSwitch from "./log/LogPanelSwitch";
 import TracePanelSwitch from "./trace/TracePanelSwitch";
-import LogModeLayout from "./log/LogModeLayout";
 import ModeToggle, { ViewType } from "./ModeToggle";
 import { Span, Trace as TraceModel } from "@/models/trace";
-import { useAuth } from "@clerk/nextjs";
 
 interface RightPanelSwitchProps {
   traceIds?: string[];
@@ -20,7 +18,6 @@ interface RightPanelSwitchProps {
   onSpanClear?: () => void;
   onTraceSpansUpdate?: (spans: Span[]) => void;
   onSpanSelect?: (spanIds: string[]) => void;
-  isLogMode?: boolean;
 }
 
 export default function RightPanelSwitch({
@@ -35,7 +32,6 @@ export default function RightPanelSwitch({
   onSpanClear,
   onTraceSpansUpdate,
   onSpanSelect,
-  isLogMode = false,
 }: RightPanelSwitchProps) {
   const [viewType, setViewType] = useState<ViewType>("log");
   const [spans, setSpans] = useState<Span[] | undefined>(undefined);
@@ -95,19 +91,6 @@ export default function RightPanelSwitch({
     }
   }, [traceIds, allTraces, onTraceSpansUpdate]);
 
-  // If in log mode (trace collapsed), render LogModeLayout
-  // Don't pass trace mode time range - let log mode use its own default
-  if (isLogMode) {
-    return (
-      <LogModeLayout
-        key="log-mode"
-        logSearchValue={logSearchValue}
-        metadataSearchTerms={metadataSearchTerms}
-      />
-    );
-  }
-
-  // Normal mode with ModeToggle
   return (
     <div className="h-screen flex flex-col">
       <ModeToggle viewType={viewType} onViewTypeChange={setViewType} />
