@@ -44,7 +44,6 @@ export async function POST(
           message,
           messageType,
           trace_id,
-          trace_ids: body.trace_ids || [], // Support multiple traces
           span_ids,
           start_time,
           end_time,

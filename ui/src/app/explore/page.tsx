@@ -24,42 +24,10 @@ export default function Explore() {
   const [metadataSearchTerms, setMetadataSearchTerms] = useState<
     { category: string; value: string }[]
   >([]);
-  const [initialCollapseState, setInitialCollapseState] = useState<
-    boolean | null
-  >(null);
-  const [isLogMode, setIsLogMode] = useState<boolean>(false);
 
-  // Initialize providers and determine initial collapse state from URL
+  // Initialize providers
   useEffect(() => {
     initializeProviders();
-
-    // Determine initial collapse state based on URL
-    const url = new URL(window.location.href);
-    const mode = url.searchParams.get("mode");
-    const hasTraceId = url.searchParams.has("trace_id");
-
-    // If URL has trace_id, force expand (trace mode)
-    // Otherwise, check mode parameter, default to localStorage
-    if (hasTraceId) {
-      setInitialCollapseState(false);
-      setIsLogMode(false);
-      localStorage.setItem("traceCollapsed", "false");
-      // Remove mode param if it exists
-      if (mode) {
-        url.searchParams.delete("mode");
-        window.history.replaceState({}, "", url);
-      }
-    } else if (mode === "log") {
-      setInitialCollapseState(true);
-      setIsLogMode(true);
-      localStorage.setItem("traceCollapsed", "true");
-    } else {
-      // Use localStorage or default to expanded
-      const stored = localStorage.getItem("traceCollapsed");
-      const isCollapsed = stored === "true";
-      setInitialCollapseState(isCollapsed);
-      setIsLogMode(isCollapsed);
-    }
   }, []);
 
   // Helper function to get all span IDs from a trace recursively
@@ -99,36 +67,8 @@ export default function Explore() {
     }
   }, [selectedTraceIds, currentTraceSpans]);
 
-  // Map to track which span belongs to which trace
-  const [spanToTraceMap, setSpanToTraceMap] = useState<Map<string, string>>(
-    new Map(),
-  );
-
-  const handleSpanSelect = (spanIds: string[] | string, traceId?: string) => {
-    // Handle both array and single span ID for backward compatibility
-    const spanIdsArray = Array.isArray(spanIds) ? spanIds : [spanIds];
-
-    if (traceId && spanIdsArray.length === 1) {
-      // Multi-trace scenario: clicking a span from a specific trace
-      const newSpanId = spanIdsArray[0];
-
-      // Update the span-to-trace mapping
-      const newMap = new Map(spanToTraceMap);
-      newMap.set(newSpanId, traceId);
-
-      // Remove any previously selected span from the same trace
-      const spansToKeep = selectedSpanIds.filter((spanId) => {
-        const existingTraceId = spanToTraceMap.get(spanId);
-        return existingTraceId !== traceId; // Keep spans from other traces
-      });
-
-      // Add the new span
-      setSelectedSpanIds([...spansToKeep, newSpanId]);
-      setSpanToTraceMap(newMap);
-    } else {
-      // Standard selection (no trace context or batch selection)
-      setSelectedSpanIds(spanIdsArray);
-    }
+  const handleSpanSelect = (spanIds: string[]) => {
+    setSelectedSpanIds(spanIds);
   };
 
   const handleSpanClear = () => {
@@ -166,49 +106,6 @@ export default function Explore() {
     [],
   );
 
-  // Handle trace panel collapse/expand
-  const handleLeftPanelCollapse = useCallback((isCollapsed: boolean) => {
-    const url = new URL(window.location.href);
-
-    if (isCollapsed) {
-      // Clear selected traces and spans
-      setSelectedTraceIds([]);
-      setSelectedSpanIds([]);
-      // Clear search terms when switching to log mode
-      setMetadataSearchTerms([]);
-      setLogSearchValue("");
-      setIsLogMode(true);
-
-      // Rebuild URL with mode=log at the end
-      const traceProvider = url.searchParams.get("trace_provider");
-      const traceRegion = url.searchParams.get("trace_region");
-      const logProvider = url.searchParams.get("log_provider");
-      const logRegion = url.searchParams.get("log_region");
-
-      const newUrl = new URL(url.origin + url.pathname);
-      if (traceProvider) {
-        newUrl.searchParams.set("trace_provider", traceProvider);
-      }
-      if (traceRegion) {
-        newUrl.searchParams.set("trace_region", traceRegion);
-      }
-      if (logProvider) {
-        newUrl.searchParams.set("log_provider", logProvider);
-      }
-      if (logRegion) {
-        newUrl.searchParams.set("log_region", logRegion);
-      }
-      newUrl.searchParams.set("mode", "log");
-
-      window.history.replaceState({}, "", newUrl);
-    } else {
-      // Remove mode param when expanded (default is trace mode)
-      setIsLogMode(false);
-      url.searchParams.delete("mode");
-      window.history.replaceState({}, "", url);
-    }
-  }, []);
-
   // TODO (xinwei): Add ProtectedRoute
   return (
     <AgentPanel
@@ -217,7 +114,7 @@ export default function Explore() {
       spanIds={selectedSpanIds}
       queryStartTime={timeRange?.start}
       queryEndTime={timeRange?.end}
-      onSpanSelect={handleSpanSelect}
+      onSpanSelect={(spanId) => handleSpanSelect([spanId])}
     >
       <ResizablePanel
         leftPanel={
@@ -245,14 +142,11 @@ export default function Explore() {
             onSpanClear={handleSpanClear}
             onTraceSpansUpdate={handleTraceSpansUpdate}
             onSpanSelect={handleSpanSelect}
-            isLogMode={isLogMode}
           />
         }
         minLeftWidth={35}
         maxLeftWidth={60}
         defaultLeftWidth={46}
-        initialCollapsed={initialCollapseState}
-        onLeftPanelCollapse={handleLeftPanelCollapse}
       />
     </AgentPanel>
   );

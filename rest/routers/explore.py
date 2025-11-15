@@ -11,7 +11,7 @@ from rest.agent.agents.code_agent import CodeAgent
 from rest.agent.agents.general_agent import GeneralAgent
 from rest.agent.agents.single_rca_agent import SingleRCAAgent
 from rest.agent.router import ChatRouter
-from rest.cache import Cache, CacheType
+from rest.cache import Cache
 from rest.service.provider import ObservabilityProvider
 from rest.tools.github import GitHubClient
 
@@ -34,12 +34,10 @@ from rest.config import (
     ConfirmActionRequest,
     ConfirmActionResponse,
     GetChatHistoryRequest,
-    GetChatMetadataHistoryRawRequest,
+    GetChatMetadataHistoryRequest,
     GetChatMetadataRequest,
     GetLogByTraceIdRequest,
     GetLogByTraceIdResponse,
-    GetLogsByTimeRangeRequest,
-    GetLogsByTimeRangeResponse,
     ListTraceRawRequest,
     ListTraceRequest,
     ListTraceResponse,
@@ -57,7 +55,6 @@ from rest.typing import (
     Operation,
     Provider,
     Reference,
-    ReferenceWithTrace,
     ResourceType,
 )
 from rest.utils.trace import collect_spans_latency_recursively
@@ -74,6 +71,13 @@ except ImportError:
 
 from rest.agent.summarizer.github import is_github_related, set_github_related
 from rest.utils.github import parse_github_url
+from rest.utils.pagination import PaginationHelper
+from rest.utils.trace_cache import TraceCacheHelper
+from rest.utils.trace_query import (
+    FilterCategories,
+    TraceQueryHelper,
+    separate_filter_categories,
+)
 
 
 class ExploreRouter:
@@ -108,6 +112,7 @@ class ExploreRouter:
         self.limiter = limiter
         self.rate_limit_config = get_rate_limit_config()
         self.cache = Cache()
+        self.cache_helper = TraceCacheHelper(self.cache)
         self._setup_routes()
 
     async def get_observe_provider(
@@ -228,10 +233,6 @@ class ExploreRouter:
             self.limiter.limit(self.rate_limit_config.get_logs_limit
                                )(self.get_logs_by_trace_id)
         )
-        self.router.get("/get-logs-by-time-range")(
-            self.limiter.limit(self.rate_limit_config.get_logs_limit
-                               )(self.get_logs_by_time_range)
-        )
         self.router.post("/post-chat")(
             self.limiter.limit(self.rate_limit_config.post_chat_limit)(self.post_chat)
         )
@@ -290,6 +291,55 @@ class ExploreRouter:
             line_context_len=4,
         )
 
+    async def _get_trace_by_id_direct(
+        self,
+        request: Request,
+        trace_id: str,
+        filter_cats: FilterCategories,
+    ) -> dict[str,
+              Any]:
+        """Fetch a single trace by ID directly.
+
+        This is an optimized path when user requests a specific trace.
+
+        Args:
+            request: FastAPI request object
+            trace_id: Trace ID to fetch
+            filter_cats: Filter categories to apply
+
+        Returns:
+            ListTraceResponse dict
+
+        Raises:
+            HTTPException: If trace fetch fails
+        """
+        try:
+            observe_provider = await self.get_observe_provider(request)
+
+            trace = await observe_provider.trace_client.get_trace_by_id(
+                trace_id=trace_id,
+                categories=filter_cats.remaining_categories,
+                values=filter_cats.remaining_values,
+                operations=filter_cats.remaining_operations,
+            )
+
+            # If trace not found, return empty list
+            if trace is None:
+                resp = ListTraceResponse(traces=[])
+                return resp.model_dump()
+
+            resp = ListTraceResponse(traces=[trace])
+            return resp.model_dump()
+
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            self.logger.error(f"Error fetching trace by ID {trace_id}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to fetch trace: {str(e)}"
+            )
+
     async def list_traces(
         self,
         request: Request,
@@ -298,209 +348,114 @@ class ExploreRouter:
               Any]:
         r"""Get trace data with optional timestamp filtering or trace ID.
 
+        This function handles three main use cases:
+        1. Direct trace ID lookup - returns single trace (optimized path)
+        2. Log search filtering - searches logs then fetches matching traces
+        3. Normal trace filtering - fetches traces with optional filters
+
         Args:
-            request (Request): FastAPI request object
-            raw_req (ListTraceRawRequest): Raw request data from
-                query parameters
+            request: FastAPI request object
+            raw_req: Raw request data from query parameters
 
         Returns:
             dict[str, Any]: Dictionary containing list of trace data.
         """
+        # 1. Setup - Get user info and parse request
         _, _, user_sub = get_user_credentials(request)
         log_group_name = hash_user_sub(user_sub)
-
-        # Convert raw request to proper ListTraceRequest
-        # with correct list parsing
         req_data: ListTraceRequest = raw_req.to_list_trace_request(request)
-        start_time = req_data.start_time
-        end_time = req_data.end_time
-        categories = req_data.categories.copy()  # Make a copy to modify
-        values = req_data.values.copy()
-        operations = req_data.operations.copy()
-        trace_id = req_data.trace_id
 
-        # Decode pagination token
-        pagination_state = None
-        if req_data.pagination_token:
-            from rest.utils.pagination import decode_pagination_token
-            try:
-                pagination_state = decode_pagination_token(req_data.pagination_token)
-            except ValueError as e:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid pagination token: {str(e)}"
-                )
-
-        # If trace_id is provided, fetch that specific trace directly
-        if trace_id:
-            try:
-                observe_provider = await self.get_observe_provider(request)
-
-                # Use the new get_trace_by_id method which handles everything
-                trace = await observe_provider.trace_client.get_trace_by_id(
-                    trace_id=trace_id,
-                    categories=categories,
-                    values=values,
-                    operations=[Operation(op)
-                                for op in operations] if operations else None,
-                )
-
-                # If trace not found, return empty list
-                if trace is None:
-                    resp = ListTraceResponse(traces=[])
-                    return resp.model_dump()
-
-                resp = ListTraceResponse(traces=[trace])
-                return resp.model_dump()
-
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-            except Exception as e:
-                self.logger.error(f"Error fetching trace by ID {trace_id}: {e}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to fetch trace: {str(e)}"
-                )
-
-        keys = (
-            start_time,
-            end_time,
-            tuple(categories),
-            tuple(values),
-            tuple(operations),
-            log_group_name,
-            req_data.pagination_token or 'first_page'
+        # 2. Separate filter categories (service_name, service_environment, log, etc.)
+        filter_cats = separate_filter_categories(
+            req_data.categories.copy(),
+            req_data.values.copy(),
+            req_data.operations.copy(),
         )
 
-        # Extract service names, service environment, and log search
-        # values from categories/values/operations
-        service_name_values = []
-        service_name_operations = []
-        service_environment_values = []
-        service_environment_operations = []
-        log_search_values = []
-        log_search_operations = []
+        # 3. Handle direct trace ID lookup (early return for optimization)
+        if req_data.trace_id:
+            return await self._get_trace_by_id_direct(
+                request,
+                req_data.trace_id,
+                filter_cats
+            )
 
-        # Create lists to hold remaining categories/values/operations
-        # after extraction
-        remaining_categories = []
-        remaining_values = []
-        remaining_operations = []
+        # 4. Decode pagination token
+        pagination_state = PaginationHelper.decode(req_data.pagination_token)
 
-        # Process each category/value/operation triplet
-        for i, category in enumerate(categories):
-            if i < len(values) and i < len(operations):
-                value = values[i]
-                operation = operations[i]
+        # 5. Build cache key and check cache
+        cache_key = self.cache_helper.build_cache_key(
+            req_data.start_time,
+            req_data.end_time,
+            req_data.categories,
+            req_data.values,
+            req_data.operations,
+            log_group_name,
+            req_data.pagination_token,
+        )
 
-                if category == "service_name":
-                    service_name_values.append(value)
-                    service_name_operations.append(operation)
-                elif category == "service_environment":
-                    service_environment_values.append(value)
-                    service_environment_operations.append(operation)
-                elif category == "log":
-                    log_search_values.append(value)
-                    log_search_operations.append(operation)
-                else:
-                    # Keep non-service categories
-                    remaining_categories.append(category)
-                    remaining_values.append(value)
-                    remaining_operations.append(operation)
-            else:
-                # Keep categories without corresponding values/operations
-                remaining_categories.append(category)
-
-        # Update categories/values/operations with remaining items
-        categories = remaining_categories
-        values = remaining_values
-        operations = remaining_operations
-
-        # Convert operations to Operation enum
-        operations = [Operation(op) for op in operations]
-        service_name_operations = [Operation(op) for op in service_name_operations]
-        service_environment_operations = [
-            Operation(op) for op in service_environment_operations
-        ]
-
-        cached_result: tuple | None = await self.cache[CacheType.TRACE].get(keys)
+        cached_result = await self.cache_helper.get_traces(cache_key)
         if cached_result:
             traces, next_state = cached_result
-            next_pagination_token = None
-            if next_state:
-                from rest.utils.pagination import encode_pagination_token
-                next_pagination_token = encode_pagination_token(next_state)
-            resp = ListTraceResponse(
-                traces=traces,
-                next_pagination_token=next_pagination_token,
-                has_more=next_pagination_token is not None
-            )
-            return resp.model_dump()
+            next_token = PaginationHelper.encode(next_state)
+            return TraceQueryHelper.format_response(traces, next_token)
 
+        # 6. Fetch traces based on filter type
         try:
             observe_provider = await self.get_observe_provider(request)
 
-            # Check if this is log-search pagination (from "load more" click)
-            is_log_search_pagination = (
-                pagination_state and pagination_state.get('type') == 'log_search'
-            )
+            # Check if this is log-search pagination or new log search
+            is_log_search_pagination = PaginationHelper.is_log_search(pagination_state)
 
-            # If log search is active OR we're continuing log-search pagination
-            if log_search_values or is_log_search_pagination:
-                # For pagination continuation, retrieve search term from pagination state
+            if filter_cats.has_log_search or is_log_search_pagination:
+                # Log search path: Search logs first, then fetch matching traces
+                log_search_values = filter_cats.log_search_values
+
+                # For pagination continuation, retrieve search term from state
                 if is_log_search_pagination and not log_search_values:
-                    # Extract search term from cache key (stored in pagination state)
-                    # We can re-query or store it in pagination state
-                    # For now, we'll store it in pagination state
                     log_search_values = [pagination_state.get('search_term', '')]
 
-                # Get trace provider from request
                 trace_provider = request.query_params.get("trace_provider", "aws")
 
                 traces, next_state = await self._get_traces_by_log_search_paginated(
                     request=request,
                     observe_provider=observe_provider,
-                    start_time=start_time,
-                    end_time=end_time,
+                    start_time=req_data.start_time,
+                    end_time=req_data.end_time,
                     log_group_name=log_group_name,
                     log_search_values=log_search_values,
-                    categories=categories,
-                    values=values,
-                    operations=operations,
+                    categories=filter_cats.remaining_categories,
+                    values=filter_cats.remaining_values,
+                    operations=filter_cats.remaining_operations,
                     pagination_state=pagination_state,
                     trace_provider=trace_provider,
                 )
             else:
-                # Normal pagination flow for non-log-filtered requests
+                # Normal path: Fetch traces directly with filters
                 traces, next_state = \
                     await observe_provider.trace_client.get_recent_traces(
-                        start_time=start_time,
-                        end_time=end_time,
+                        start_time=req_data.start_time,
+                        end_time=req_data.end_time,
                         log_group_name=log_group_name,
-                        service_name_values=service_name_values,
-                        service_name_operations=service_name_operations,
-                        service_environment_values=service_environment_values,
-                        service_environment_operations=service_environment_operations,
-                        categories=categories,
-                        values=values,
-                        operations=operations,
+                        service_name_values=filter_cats.service_name_values,
+                        service_name_operations=filter_cats.service_name_operations,
+                        service_environment_values=(
+                            filter_cats.service_environment_values
+                        ),
+                        service_environment_operations=(
+                            filter_cats.service_environment_operations
+                        ),
+                        categories=filter_cats.remaining_categories,
+                        values=filter_cats.remaining_values,
+                        operations=filter_cats.remaining_operations,
                         pagination_state=pagination_state,
                     )
 
-            # Encode next pagination token
-            next_pagination_token = None
-            if next_state:
-                from rest.utils.pagination import encode_pagination_token
-                next_pagination_token = encode_pagination_token(next_state)
+            # 7. Cache results and return
+            await self.cache_helper.cache_traces(cache_key, traces, next_state)
+            next_token = PaginationHelper.encode(next_state)
+            return TraceQueryHelper.format_response(traces, next_token)
 
-            # Cache the result for 10 minutes
-            await self.cache[CacheType.TRACE].set(keys, (traces, next_state))
-            resp = ListTraceResponse(
-                traces=traces,
-                next_pagination_token=next_pagination_token,
-                has_more=next_pagination_token is not None
-            )
-            return resp.model_dump()
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
@@ -529,13 +484,7 @@ class ExploreRouter:
                 message = item["content"]
             # Reference is only for assistant message
             if item["role"] == "assistant" and "reference" in item:
-                # Check if references have trace_id field (for multi-trace scenarios)
-                reference = []
-                for ref in item["reference"]:
-                    if "trace_id" in ref and ref["trace_id"]:
-                        reference.append(ReferenceWithTrace(**ref))
-                    else:
-                        reference.append(Reference(**ref))
+                reference = [Reference(**ref) for ref in item["reference"]]
             else:
                 reference = []
 
@@ -641,8 +590,15 @@ class ExploreRouter:
                         )
 
             # Try to get cached logs
-            keys = (req_data.trace_id, log_start_time, log_end_time, log_group_name)
-            cached_logs: TraceLogs | None = await self.cache[CacheType.LOG].get(keys)
+            log_cache_key = self.cache_helper.build_log_cache_key(
+                req_data.trace_id,
+                log_start_time,
+                log_end_time,
+                log_group_name
+            )
+            cached_logs: TraceLogs | None = await self.cache_helper.get_logs(
+                log_cache_key
+            )
             if cached_logs:
                 resp = GetLogByTraceIdResponse(
                     trace_id=req_data.trace_id,
@@ -657,68 +613,8 @@ class ExploreRouter:
                 log_group_name=log_group_name,
             )
             # Cache the logs for 10 minutes
-            await self.cache[CacheType.LOG].set(keys, logs)
+            await self.cache_helper.cache_logs(log_cache_key, logs)
             resp = GetLogByTraceIdResponse(trace_id=req_data.trace_id, logs=logs)
-            return resp.model_dump()
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    async def get_logs_by_time_range(
-        self,
-        request: Request,
-        req_data: GetLogsByTimeRangeRequest = Depends(),
-    ) -> dict[str,
-              Any]:
-        r"""Get logs by time range without requiring a trace ID.
-
-        This is used in log mode where we fetch logs independently of traces.
-
-        Args:
-            request (Request): FastAPI request object
-            req_data (GetLogsByTimeRangeRequest): Request object
-                containing time range and optional search term.
-
-        Returns:
-            dict[str, Any]: Dictionary containing logs for the given time range.
-        """
-        _, _, user_sub = get_user_credentials(request)
-        log_group_name = hash_user_sub(user_sub)
-
-        # Decode pagination token
-        pagination_state = None
-        if req_data.pagination_token:
-            from rest.utils.pagination import decode_pagination_token
-            try:
-                pagination_state = decode_pagination_token(req_data.pagination_token)
-            except ValueError as e:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid pagination token: {str(e)}"
-                )
-
-        try:
-            observe_provider = await self.get_observe_provider(request)
-
-            logs, has_more, next_state = \
-                await observe_provider.log_client.get_logs_by_time_range(
-                    start_time=req_data.start_time,
-                    end_time=req_data.end_time,
-                    log_group_name=log_group_name,
-                    log_search_term=req_data.log_search_term,
-                    pagination_state=pagination_state,
-                )
-
-            # Encode next pagination token
-            next_pagination_token = None
-            if next_state:
-                from rest.utils.pagination import encode_pagination_token
-                next_pagination_token = encode_pagination_token(next_state)
-
-            resp = GetLogsByTimeRangeResponse(
-                logs=logs,
-                has_more=has_more,
-                next_pagination_token=next_pagination_token,
-            )
             return resp.model_dump()
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -726,20 +622,13 @@ class ExploreRouter:
     async def get_chat_metadata_history(
         self,
         request: Request,
-        raw_req: GetChatMetadataHistoryRawRequest = Depends(),
+        req_data: GetChatMetadataHistoryRequest = Depends(),
     ) -> dict[str,
               Any]:
         # Get user credentials (fake in local mode, real in remote mode)
         _, _, _ = get_user_credentials(request)
-
-        # Convert raw request to proper request with parsed list parameters
-        req_data = raw_req.to_chat_metadata_history_request(request)
-
         chat_metadata_history: ChatMetadataHistory = await (
-            self.db_client.get_chat_metadata_history(
-                trace_id=req_data.trace_id,
-                trace_ids=req_data.trace_ids
-            )
+            self.db_client.get_chat_metadata_history(trace_id=req_data.trace_id)
         )
         return chat_metadata_history.model_dump()
 
@@ -774,16 +663,13 @@ class ExploreRouter:
         user_email, _, user_sub = get_user_credentials(request)
         log_group_name = hash_user_sub(user_sub)
         trace_id = req_data.trace_id
-        trace_ids = req_data.trace_ids if req_data.trace_ids else (
-            [trace_id] if trace_id else []
-        )
         span_ids = req_data.span_ids
         start_time = req_data.start_time
         end_time = req_data.end_time
         model = req_data.model
         message = req_data.message
         chat_id = req_data.chat_id
-        req_data.service_name
+        service_name = req_data.service_name
         mode = req_data.mode
         # TODO: For other model testing
         req_data.model
@@ -997,8 +883,7 @@ class ExploreRouter:
                     "chat_id": chat_id,
                     "timestamp": orig_time,
                     "chat_title": title,
-                    "trace_id": trace_id,  # Keep for backward compatibility
-                    "trace_ids": trace_ids,  # Store multiple trace IDs
+                    "trace_id": trace_id,
                     "user_id": user_sub,
                 }
             )
@@ -1024,7 +909,7 @@ class ExploreRouter:
             model=ChatModel.GPT_4O,
             user_sub=user_sub,
             openai_token=openai_token,
-            has_trace_context=bool(trace_ids),  # Check if any traces are selected
+            has_trace_context=bool(trace_id),
             is_github_issue=is_github_issue,
             is_github_pr=is_github_pr,
             source_code_related=source_code_related,
@@ -1039,8 +924,7 @@ class ExploreRouter:
                 "agent_type": router_output.agent_type,
                 "reasoning": router_output.reasoning,
                 "chat_mode": mode.value,
-                "trace_id": trace_id or "",  # Keep for backward compatibility
-                "trace_ids": trace_ids,  # Store multiple trace IDs
+                "trace_id": trace_id or "",
                 "user_sub": user_sub,
             }
         )
@@ -1062,7 +946,7 @@ class ExploreRouter:
             )
             return response.model_dump()
 
-        # Get the traces (multiple if trace_ids provided) #####################
+        # Get the trace #######################################################
         observe_provider = await self.get_observe_provider(
             request,
             trace_provider=req_data.trace_provider,
@@ -1070,27 +954,49 @@ class ExploreRouter:
             trace_region=req_data.trace_region,
             log_region=req_data.log_region,
         )
+        selected_trace: Trace | None = None
 
-        # Fetch all traces in parallel
-        selected_traces: dict[str, Trace] = {}
-        fetch_tasks = []
-        for tid in trace_ids:
-            fetch_tasks.append(
-                observe_provider.trace_client.get_trace_by_id(
-                    trace_id=tid,
-                    categories=None,
-                    values=None,
-                    operations=None,
-                )
+        # If we have a trace_id, fetch it directly
+        if trace_id:
+            selected_trace = await observe_provider.trace_client.get_trace_by_id(
+                trace_id=trace_id,
+                categories=None,
+                values=None,
+                operations=None,
             )
-
-        fetched_traces = await asyncio.gather(*fetch_tasks, return_exceptions=True)
-        for tid, trace in zip(trace_ids, fetched_traces):
-            if not isinstance(trace, Exception) and trace is not None:
-                selected_traces[tid] = trace
-
-        # Keep single trace for backward compatibility
-        selected_trace: Trace | None = selected_traces.get(trace_id) if trace_id else None
+        else:
+            # Otherwise get recent traces and search
+            simple_cache_key = self.cache_helper.build_simple_trace_cache_key(
+                start_time,
+                end_time,
+                service_name,
+                log_group_name
+            )
+            cached_traces: list[Trace] | None = await self.cache_helper.get_simple_traces(
+                simple_cache_key
+            )
+            if cached_traces:
+                traces = cached_traces
+            else:
+                traces: list[Trace
+                             ] = await observe_provider.trace_client.get_recent_traces(
+                                 start_time=start_time,
+                                 end_time=end_time,
+                                 log_group_name=log_group_name,
+                                 service_name_values=None,
+                                 service_name_operations=None,
+                                 service_environment_values=None,
+                                 service_environment_operations=None,
+                                 categories=None,
+                                 values=None,
+                                 operations=None,
+                             )
+                # Cache the fetched traces
+                await self.cache_helper.cache_simple_traces(simple_cache_key, traces)
+            for trace in traces:
+                if trace.id == trace_id:
+                    selected_trace = trace
+                    break
         spans_latency_dict: dict[str, float] = {}
 
         # Compute the span latencies recursively ##############################
@@ -1108,27 +1014,24 @@ class ExploreRouter:
                         selected_spans_latency_dict[span_id] = latency
                 spans_latency_dict = selected_spans_latency_dict
 
-        # Get the logs for all traces ########################################
-        # Fetch logs for each trace in parallel
-        all_logs: dict[str, TraceLogs] = {}
-        log_fetch_tasks = []
-        log_trace_ids = []
-
-        for tid, trace in selected_traces.items():
-            # Determine log start/end times for this trace
-            trace_start_time = None
-            trace_end_time = None
-
+        # Get the logs ########################################################
+        # Use trace's actual start/end times for optimal log search performance
+        # If we have the trace, use its timestamps (converted from Unix to datetime)
+        # Otherwise fall back to the request's start/end times
+        trace_start_time = None
+        trace_end_time = None
+        if selected_trace:
             # Check if this is a LimitExceeded trace (start_time = 0)
             if (
-                trace.service_name == "LimitExceeded" and trace.start_time == 0.0
-                and trace.end_time == 0.0
+                selected_trace.service_name == "LimitExceeded"
+                and selected_trace.start_time == 0.0 and selected_trace.end_time == 0.0
             ):
-                # For LimitExceeded traces, fetch timestamps from logs
+                # For LimitExceeded traces, fetch timestamps from
+                # logs using CloudWatch Insights
                 try:
                     earliest, latest = \
                         await observe_provider.log_client.get_log_timestamps_by_trace_id(
-                            trace_id=tid,
+                            trace_id=trace_id,
                             log_group_name=log_group_name,
                             start_time=start_time,
                             end_time=end_time,
@@ -1136,59 +1039,54 @@ class ExploreRouter:
                     if earliest and latest:
                         trace_start_time = earliest
                         trace_end_time = latest
-                        # Update the trace object
-                        trace.start_time = earliest.timestamp()
-                        trace.end_time = latest.timestamp()
-                        trace.duration = latest.timestamp() - earliest.timestamp()
-                        if trace.spans and len(trace.spans) > 0:
-                            placeholder_span = trace.spans[0]
+                        # Update the trace object with the discovered timestamps
+                        selected_trace.start_time = earliest.timestamp()
+                        selected_trace.end_time = latest.timestamp()
+                        selected_trace.duration = latest.timestamp() - earliest.timestamp(
+                        )
+                        # Update the placeholder span with discovered timestamps
+                        if selected_trace.spans and len(selected_trace.spans) > 0:
+                            placeholder_span = selected_trace.spans[0]
                             placeholder_span.start_time = earliest.timestamp()
                             placeholder_span.end_time = latest.timestamp()
                             placeholder_span.duration = latest.timestamp(
                             ) - earliest.timestamp()
                 except Exception as e:
                     print(
-                        f"Failed to get log timestamps for LimitExceeded trace {tid}: {e}"
+                        f"Failed to get log timestamps for "
+                        f"LimitExceeded trace {trace_id}: {e}"
                     )
             else:
                 # Normal trace with valid timestamps
                 trace_start_time = datetime.fromtimestamp(
-                    trace.start_time,
+                    selected_trace.start_time,
                     tz=timezone.utc
                 )
-                trace_end_time = datetime.fromtimestamp(trace.end_time, tz=timezone.utc)
-
-            log_start_time = trace_start_time if trace_start_time else start_time
-            log_end_time = trace_end_time if trace_end_time else end_time
-
-            # Check cache
-            keys = (tid, log_start_time, log_end_time, log_group_name)
-            cached_logs: TraceLogs | None = await self.cache[CacheType.LOG].get(keys)
-            if cached_logs:
-                all_logs[tid] = cached_logs
-            else:
-                # Create task to fetch logs
-                log_fetch_tasks.append(
-                    observe_provider.log_client.get_logs_by_trace_id(
-                        trace_id=tid,
-                        start_time=log_start_time,
-                        end_time=log_end_time,
-                        log_group_name=log_group_name,
-                    )
+                trace_end_time = datetime.fromtimestamp(
+                    selected_trace.end_time,
+                    tz=timezone.utc
                 )
-                log_trace_ids.append((tid, keys))
 
-        # Fetch all logs in parallel
-        if log_fetch_tasks:
-            fetched_logs = await asyncio.gather(*log_fetch_tasks, return_exceptions=True)
-            for (tid, cache_keys), logs_result in zip(log_trace_ids, fetched_logs):
-                if not isinstance(logs_result, Exception):
-                    all_logs[tid] = logs_result
-                    # Cache the logs for 10 minutes
-                    await self.cache[CacheType.LOG].set(cache_keys, logs_result)
+        log_start_time = trace_start_time if trace_start_time else start_time
+        log_end_time = trace_end_time if trace_end_time else end_time
 
-        # Keep single logs for backward compatibility
-        logs: TraceLogs | None = all_logs.get(trace_id) if trace_id else None
+        log_cache_key = self.cache_helper.build_log_cache_key(
+            trace_id,
+            log_start_time,
+            log_end_time,
+            log_group_name
+        )
+        logs: TraceLogs | None = await self.cache_helper.get_logs(log_cache_key)
+        if logs is None:
+            observe_provider = await self.get_observe_provider(request)
+            logs = await observe_provider.log_client.get_logs_by_trace_id(
+                trace_id=trace_id,
+                start_time=log_start_time,
+                end_time=log_end_time,
+                log_group_name=log_group_name,
+            )
+            # Cache the logs for 10 minutes
+            await self.cache_helper.cache_logs(log_cache_key, logs)
 
         # GitHub token already retrieved earlier for confirmation flow
 
@@ -1198,7 +1096,6 @@ class ExploreRouter:
         github_task_keys: set[tuple[str, str, str, str]] = set()
         # Track unique files and map them to log entries
         unique_file_tasks: dict = {}  # key -> (task, [log_entries])
-        print(f"logs: {logs}")
         if source_code_related:
             for log in logs.logs:
                 for span_id, span_logs in log.items():
@@ -1346,53 +1243,45 @@ class ExploreRouter:
 
         chat_history = await self.db_client.get_chat_history(chat_id=chat_id)
 
-        # Build trees for all traces #########################################
-        trees: dict[str, SpanNode] = {}
-        for tid, trace in selected_traces.items():
-            trace_logs = all_logs.get(tid)
-            if not trace_logs or not trace.spans:
-                continue
+        # For LimitExceeded traces, reassign all logs to the placeholder span
+        if selected_trace.service_name == "LimitExceeded":
+            # Get the placeholder span ID
+            placeholder_span_id = selected_trace.spans[0].id
 
-            # For LimitExceeded traces, reassign all logs to the placeholder span
-            if trace.service_name == "LimitExceeded":
-                # Get the placeholder span ID
-                placeholder_span_id = trace.spans[0].id
+            # Reassign all logs to the placeholder span ID
+            reassigned_logs = []
+            for log_dict in logs.logs:
+                # Create new dict with all logs under placeholder span ID
+                all_log_entries = []
+                for span_id, log_entries in log_dict.items():
+                    all_log_entries.extend(log_entries)
 
-                # Reassign all logs to the placeholder span ID
-                reassigned_logs = []
-                for log_dict in trace_logs.logs:
-                    # Create new dict with all logs under placeholder span ID
-                    all_log_entries = []
-                    for span_id, log_entries in log_dict.items():
-                        all_log_entries.extend(log_entries)
+                if all_log_entries:
+                    reassigned_logs.append({placeholder_span_id: all_log_entries})
 
-                    if all_log_entries:
-                        reassigned_logs.append({placeholder_span_id: all_log_entries})
+            # Build tree with reassigned logs
+            node: SpanNode = build_heterogeneous_tree(
+                selected_trace.spans[0],
+                reassigned_logs
+            )
+        else:
+            # Normal trace - build tree normally
+            node: SpanNode = build_heterogeneous_tree(selected_trace.spans[0], logs.logs)
 
-                # Build tree with reassigned logs
-                trees[tid] = build_heterogeneous_tree(trace.spans[0], reassigned_logs)
-            else:
-                # Normal trace - build tree normally
-                trees[tid] = build_heterogeneous_tree(trace.spans[0], trace_logs.logs)
-
-        # If span_ids specified, filter trees to those spans
         if len(span_ids) > 0:
+            # Use BFS to find the first span matching any of target span_ids
+            queue = deque([node])
             target_set = set(span_ids)
-            for tid, tree in trees.items():
-                # Use BFS to find the first span matching any of target span_ids
-                queue = deque([tree])
-                while queue:
-                    current = queue.popleft()
-                    # Check if current node matches any target span
-                    if current.span_id in target_set:
-                        trees[tid] = current
-                        break
-                    # Add children to queue for next level
-                    for child in current.children_spans:
-                        queue.append(child)
 
-        # Keep single node for backward compatibility
-        node: SpanNode | None = trees.get(trace_id) if trace_id else None
+            while queue:
+                current = queue.popleft()
+                # Check if current node matches any target span
+                if current.span_id in target_set:
+                    node = current
+                    break
+                # Add children to queue for next level
+                for child in current.children_spans:
+                    queue.append(child)
 
         # Route based on router's decision
         if router_output.agent_type == "code" and (is_github_issue or is_github_pr):
@@ -1414,7 +1303,6 @@ class ExploreRouter:
             if is_github_issue:
                 issue_response = await self.code_agent.chat(
                     trace_id=trace_id,
-                    trace_ids=trace_ids,
                     chat_id=chat_id,
                     user_message=issue_message,
                     model=model,
@@ -1422,7 +1310,6 @@ class ExploreRouter:
                     chat_history=chat_history,
                     timestamp=orig_time,
                     tree=node,
-                    trees=trees,
                     user_sub=user_sub,
                     openai_token=openai_token,
                     github_token=github_token,
@@ -1434,7 +1321,6 @@ class ExploreRouter:
             if is_github_pr:
                 pr_response = await self.code_agent.chat(
                     trace_id=trace_id,
-                    trace_ids=trace_ids,
                     chat_id=chat_id,
                     user_message=pr_message,
                     model=model,
@@ -1442,7 +1328,6 @@ class ExploreRouter:
                     chat_history=chat_history,
                     timestamp=orig_time,
                     tree=node,
-                    trees=trees,
                     user_sub=user_sub,
                     openai_token=openai_token,
                     github_token=github_token,
@@ -1472,7 +1357,6 @@ class ExploreRouter:
             # Router decided single_rca - use SingleRCAAgent for root cause analysis
             response: ChatbotResponse = await self.single_rca_agent.chat(
                 trace_id=trace_id,
-                trace_ids=trace_ids,
                 chat_id=chat_id,
                 user_message=message,
                 model=model,
@@ -1480,7 +1364,6 @@ class ExploreRouter:
                 chat_history=chat_history,
                 timestamp=orig_time,
                 tree=node,
-                trees=trees,
                 user_sub=user_sub,
                 openai_token=openai_token,
             )
@@ -2006,6 +1889,16 @@ Description: {action_data['body']}"""
         2. Subsequent requests: Use cached trace IDs
         3. Fetch only a batch of traces per request
 
+        ORDERING STRATEGY:
+        Trace IDs are returned from CloudWatch sorted by LOG timestamp (newest first),
+        NOT by span start_time. This is a deliberate trade-off:
+        - Pro: Fast and cheap (single CloudWatch query, no X-Ray calls)
+        - Con: Log timestamp ≠ span start time (usually close, but can differ)
+        - Result: 99% of traces appear in chronological order, occasional outliers
+
+        CRITICAL: The trace ID list from CloudWatch MUST preserve order for pagination
+        to work correctly. See aws_log_client.py for implementation details.
+
         Args:
             request: FastAPI request object
             observe_provider: Observability provider instance
@@ -2040,10 +1933,10 @@ Description: {action_data['body']}"""
             )
 
             # Determine offset
-            if pagination_state and pagination_state.get('type') == 'log_search':
+            if PaginationHelper.is_log_search(pagination_state):
                 offset = pagination_state.get('offset', 0)
                 # Try to get cached trace IDs
-                cached_trace_ids = await self.cache[CacheType.TRACE].get(cache_key)
+                cached_trace_ids = await self.cache_helper.get_trace_ids(cache_key)
                 if cached_trace_ids:
                     all_trace_ids = cached_trace_ids
                 else:
@@ -2056,7 +1949,7 @@ Description: {action_data['body']}"""
                             search_term=search_term
                         )
                     # Re-cache for 10 minutes
-                    await self.cache[CacheType.TRACE].set(cache_key, all_trace_ids)
+                    await self.cache_helper.cache_trace_ids(cache_key, all_trace_ids)
             else:
                 # First request
                 offset = 0
@@ -2068,7 +1961,7 @@ Description: {action_data['body']}"""
                     search_term=search_term
                 )
                 # Cache the trace IDs for 10 minutes
-                await self.cache[CacheType.TRACE].set(cache_key, all_trace_ids)
+                await self.cache_helper.cache_trace_ids(cache_key, all_trace_ids)
 
             if not all_trace_ids:
                 return [], None
@@ -2079,31 +1972,94 @@ Description: {action_data['body']}"""
             if not batch_trace_ids:
                 return [], None
 
-            # Fetch traces for this batch
+            # NOTE: When categorical filters are applied, we may need to fetch
+            # multiple batches to find matching traces (since traces are filtered
+            # one-by-one in get_trace_by_id). Keep fetching until we get results
+            # or exhaust all available trace IDs.
+            has_categorical_filter = categories is not None and values is not None
+
             traces = []
-            for trace_id in batch_trace_ids:
-                trace = await observe_provider.trace_client.get_trace_by_id(
-                    trace_id=trace_id,
-                    categories=categories,
-                    values=values,
-                    operations=operations,
+            current_offset = offset
+            batches_tried = 0
+
+            # Keep fetching batches until we find matches or exhaust all trace IDs
+            # No arbitrary limit - bounded naturally by total trace IDs and timeouts
+            while True:
+                # Get batch for current offset
+                current_batch = all_trace_ids[current_offset:current_offset + page_size]
+                if not current_batch:
+                    print(f"No more trace IDs at offset {current_offset}")
+                    break
+
+                batches_tried += 1
+                print(
+                    f"Batch {batches_tried}: Fetching {len(current_batch)} traces "
+                    f"from offset {current_offset}..."
                 )
-                if trace:
-                    traces.append(trace)
+
+                # Fetch traces for this batch
+                batch_traces = []
+                for i, trace_id in enumerate(current_batch):
+                    print(f"Fetching trace {i+1}/{len(current_batch)}: {trace_id}")
+                    trace = await observe_provider.trace_client.get_trace_by_id(
+                        trace_id=trace_id,
+                        categories=categories,
+                        values=values,
+                        operations=operations,
+                    )
+                    if trace:
+                        batch_traces.append(trace)
+                        print("Trace fetched successfully")
+                    else:
+                        print("Trace not found or filtered out")
+
+                traces.extend(batch_traces)
+                print(
+                    f"Batch {batches_tried} yielded {len(batch_traces)} matching traces"
+                )
+
+                # If we got results OR no categorical filter OR no more traces,
+                # stop and return
+                if len(
+                    traces
+                ) > 0 or not has_categorical_filter or current_offset + page_size > len(
+                    all_trace_ids
+                ):
+                    if batches_tried > 1 and len(traces) > 0:
+                        print(
+                            f"✓ Found {len(traces)} matching traces after "
+                            f"checking {batches_tried} batches"
+                        )
+                    break
+
+                # No matches yet, try next batch
+                print(
+                    f"⚠️ Batch {batches_tried}: Categorical filter found 0 matches, "
+                    f"trying next batch..."
+                )
+                current_offset += page_size
+
+            print(
+                f"Successfully fetched {len(traces)} traces total "
+                f"(tried {batches_tried} batches)"
+            )
 
             # Sort by start_time descending (newest first)
             traces.sort(key=lambda t: t.start_time, reverse=True)
 
             # Prepare next pagination state
-            next_offset = offset + page_size
+            next_offset = current_offset + page_size
+            print(
+                f"Calculating next state: next_offset={next_offset}, "
+                f"total_traces={len(all_trace_ids)}"
+            )
             if next_offset < len(all_trace_ids):
-                next_state = {
-                    'type': 'log_search',
-                    'provider': trace_provider,  # Provider type for compatibility
-                    'cache_key': cache_key,
-                    'offset': next_offset,
-                    'search_term': search_term  # Store for pagination continuation
-                }
+                next_state = PaginationHelper.create_log_search_state(
+                    offset=next_offset,
+                    search_term=search_term,
+                    cache_key=cache_key,
+                    provider=trace_provider
+                )
             else:
                 next_state = None
 
@@ -2112,73 +2068,3 @@ Description: {action_data['body']}"""
         except Exception as e:
             self.logger.error(f"Failed to get traces by log search: {e}")
             return [], None
-
-    async def _filter_traces_by_log_content(
-        self,
-        request: Request,
-        traces: list[Trace],
-        start_time: datetime,
-        end_time: datetime,
-        log_group_name: str,
-        log_search_values: list[str],
-        log_search_operations: list[Operation]
-    ) -> list[Trace]:
-        """Filter traces by log content using CloudWatch Insights.
-
-        Args:
-            traces: List of traces to filter
-            start_time: Start time for log query
-            end_time: End time for log query
-            log_group_name: Log group name
-            log_search_values: List of search terms to look for in logs
-            log_search_operations: List of operations (currently only '=' supported)
-
-        Returns:
-            Filtered list of traces that contain the searched log content
-        """
-        if not log_search_values:
-            return traces
-
-        search_term = log_search_values[0]
-
-        try:
-            # Use CloudWatch Insights to find trace IDs
-            # from logs containing search term
-            # TODO: change all of this to JSON format
-            # Log format: timestamp;level;service;function;
-            # org;project;env;trace_id;span_id;details
-            # Extract trace_id (field 8, 0-indexed field 7)
-            # from semicolon-separated logs
-
-            # Single query to get all matching trace IDs
-            observe_provider = await self.get_observe_provider(request)
-            matching_trace_ids = \
-                await observe_provider.log_client.get_trace_ids_from_logs(
-                    start_time=start_time,
-                    end_time=end_time,
-                    log_group_name=log_group_name,
-                    search_term=search_term
-                )
-
-            if not matching_trace_ids:
-                return []
-
-            # Convert to set for fast O(1) lookup
-            trace_id_set = set(matching_trace_ids)
-
-            # Filter traces by matching trace IDs
-            filtered_traces = [trace for trace in traces if trace.id in trace_id_set]
-
-            # Check if unfound traces exist in AWS X-Ray (may have hit limit)
-            await self._add_limit_exceeded_traces(
-                observe_provider,
-                trace_id_set,
-                filtered_traces
-            )
-
-            return filtered_traces
-
-        except Exception as e:
-            self.logger.error(f"Failed to filter traces by log content: {e}")
-            # Fallback: return all traces if log filtering fails
-            return traces
