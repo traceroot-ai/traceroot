@@ -126,6 +126,7 @@ def _load_json(message: str, ) -> tuple[LogEntry, str] | tuple[None, None]:
     commit_id = json_data['github_commit_hash']
     span_id = json_data['span_id']
     trace_id = json_data.get('trace_id', 'unknown')
+    service_name = json_data.get('service_name')
 
     github_url = (
         f"https://github.com/"
@@ -139,6 +140,7 @@ def _load_json(message: str, ) -> tuple[LogEntry, str] | tuple[None, None]:
         time=time,
         level=level,
         message=message,
+        service_name=service_name,
         file_name=file_path,
         function_name=function_name,
         line_number=line_number,
@@ -156,6 +158,13 @@ def _string_manipulation(message: str) -> tuple[LogEntry, str] | tuple[None, Non
 
     items = message.split(';')
 
+    # SDK Format Detection:
+    # OLD (v1): timestamp;level;service;function;org;project;env;trace_id;
+    # span_id;stack_trace;MESSAGE
+    # 2025-11-14
+    # NEW (v2): timestamp;level;service;function;org;project;env;trace_id;
+    # span_id;stack_trace;MESSAGE;parent_span_id;span_name
+
     # Time
     time_str = items[0]
     # Handle milliseconds by padding to microseconds if needed
@@ -172,8 +181,11 @@ def _string_manipulation(message: str) -> tuple[LogEntry, str] | tuple[None, Non
     # Log level
     level = items[1].upper()
 
+    # Service name
+    service_name = items[2]
+
     # Message
-    message = items[-1]
+    message = items[10]
 
     # Commit ID
     github_owner = items[4]
@@ -207,6 +219,7 @@ def _string_manipulation(message: str) -> tuple[LogEntry, str] | tuple[None, Non
         time=time,
         level=level,
         message=message,
+        service_name=service_name,
         file_name=file_path,
         function_name=function_name,
         line_number=line_number,
