@@ -6,19 +6,11 @@ import React, {
   forwardRef,
 } from "react";
 import { GoHistory } from "react-icons/go";
-import { Plus, X, Check, Download, ArrowUpRight } from "lucide-react";
+import { Plus, X, Check, Download } from "lucide-react";
 import { ChatMetadata, ChatMetadataHistory } from "@/models/chat";
 import { useAuth } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
-import { loadProviderSelection, getProviderRegion } from "@/utils/provider";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/shadcn-io/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,13 +18,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { truncateTitle } from "@/lib/utils";
 
@@ -55,7 +40,6 @@ interface TopBarProps {
   activeChatId: string | null;
   activeTempId?: string;
   traceId?: string;
-  traceIds?: string[];
   messages?: Message[];
   chatTitle?: string;
   onNewChat: () => void;
@@ -63,7 +47,6 @@ interface TopBarProps {
   onChatClose: (chatId: string | null, tempId?: string) => void;
   onHistoryItemsSelect: (chatIds: string[]) => Promise<void>;
   onUpdateChatTitle: (chatId: string, title: string) => void;
-  useUserBasedHistory?: boolean;
 }
 
 export interface TopBarRef {
@@ -146,7 +129,6 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
       activeChatId,
       activeTempId,
       traceId,
-      traceIds = [],
       messages = [],
       chatTitle,
       onNewChat,
@@ -154,62 +136,34 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
       onChatClose,
       onHistoryItemsSelect,
       onUpdateChatTitle,
-      useUserBasedHistory = false,
     },
     ref,
   ) => {
     const { getToken } = useAuth();
-    const router = useRouter();
     const [chatMetadata, setChatMetadata] = useState<ChatMetadata | null>(null);
     const [displayedTitle, setDisplayedTitle] = useState<string>("");
     const [isAnimating, setIsAnimating] = useState(false);
     const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
     const [dropdownOpen, setDropdownOpen] = useState(false);
-    const [hasMoreHistory, setHasMoreHistory] = useState(false);
-    const [isLoadingMore, setIsLoadingMore] = useState(false);
-    const [skip, setSkip] = useState(0);
-    const [isTraceDialogOpen, setIsTraceDialogOpen] = useState(false);
     const animationControllerRef = useRef<{ cancelled: boolean } | null>(null);
     const previousTitleRef = useRef<string>("");
 
-    const fetchChatHistory = async (loadMore: boolean = false) => {
-      // When using user-based history, don't require traceId
-      // When multiple traces are selected, use traceIds array
-      const effectiveTraceIds =
-        traceIds.length > 0 ? traceIds : traceId ? [traceId] : [];
-      if (!useUserBasedHistory && effectiveTraceIds.length === 0) return;
+    const fetchChatHistory = async () => {
+      if (!traceId) return;
 
-      if (loadMore) {
-        setIsLoadingMore(true);
-      } else {
-        setIsLoadingHistory(true);
-        setSkip(0); // Reset skip when fetching initial history
-      }
+      setIsLoadingHistory(true);
 
       try {
         const token = await getToken();
-        const currentSkip = loadMore ? skip : 0;
-        const limit = 5;
-
-        // Use different API endpoint based on useUserBasedHistory flag
-        let apiUrl: string;
-        if (useUserBasedHistory) {
-          apiUrl = `/api/get_chat_metadata_by_user?limit=${limit}&skip=${currentSkip}`;
-        } else {
-          // When multiple traces are selected, pass all trace IDs
-          const traceIdsParam = effectiveTraceIds
-            .map((id) => `trace_ids=${encodeURIComponent(id)}`)
-            .join("&");
-          apiUrl = `/api/get_chat_metadata_history?${traceIdsParam}&limit=${limit}&skip=${currentSkip}`;
-        }
-
-        const response = await fetch(apiUrl, {
-          headers: {
-            Authorization: `Bearer ${token}`,
+        const response = await fetch(
+          `/api/get_chat_metadata_history?trace_id=${encodeURIComponent(traceId)}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
           },
-        });
-
+        );
         if (response.ok) {
           const data: ChatMetadataHistory = await response.json();
           const formattedItems: HistoryItem[] = data.history
@@ -220,36 +174,16 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
             }))
             .sort((a, b) => b.timestamp - a.timestamp);
 
-          if (loadMore) {
-            // Append new items to existing items
-            setHistoryItems((prev) => [...prev, ...formattedItems]);
-            setSkip(currentSkip + limit);
-          } else {
-            // Replace items with new items
-            setHistoryItems(formattedItems);
-            setSkip(limit);
-          }
-
-          setHasMoreHistory(data.hasMore || false);
+          setHistoryItems(formattedItems);
         } else {
           console.error("Failed to fetch chat history:", response.statusText);
-          if (!loadMore) {
-            setHistoryItems([]);
-          }
-          setHasMoreHistory(false);
+          setHistoryItems([]);
         }
       } catch (error) {
         console.error("Error fetching chat history:", error);
-        if (!loadMore) {
-          setHistoryItems([]);
-        }
-        setHasMoreHistory(false);
+        setHistoryItems([]);
       } finally {
-        if (loadMore) {
-          setIsLoadingMore(false);
-        } else {
-          setIsLoadingHistory(false);
-        }
+        setIsLoadingHistory(false);
       }
     };
 
@@ -380,7 +314,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
       if (dropdownOpen) {
         fetchChatHistory();
       }
-    }, [dropdownOpen, traceId, traceIds, useUserBasedHistory]);
+    }, [dropdownOpen, traceId]);
 
     const handleHistoryItemClick = async (selectedChatId: string) => {
       // Skip if chat is already open
@@ -413,49 +347,6 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
     ) => {
       e.stopPropagation();
       onChatClose(chatId, tempId);
-    };
-
-    const handleGoToTrace = () => {
-      // Get trace_ids from chat metadata (prefer trace_ids over trace_id)
-      const trace_ids =
-        chatMetadata?.trace_ids && chatMetadata.trace_ids.length > 0
-          ? chatMetadata.trace_ids
-          : chatMetadata?.trace_id
-            ? [chatMetadata.trace_id]
-            : [];
-
-      if (trace_ids.length === 0) return;
-
-      // If multiple traces, show dialog; otherwise open directly
-      if (trace_ids.length > 1) {
-        setIsTraceDialogOpen(true);
-      } else {
-        openTraceInNewTab(trace_ids[0]);
-      }
-    };
-
-    const openTraceInNewTab = (trace_id: string) => {
-      // Build explore URL with provider parameters and trace_id
-      const traceProvider = loadProviderSelection("trace") || "aws";
-      const logProvider = loadProviderSelection("log") || "aws";
-
-      const traceRegion = getProviderRegion("trace", traceProvider);
-      const logRegion = getProviderRegion("log", logProvider);
-
-      const params = new URLSearchParams();
-      params.set("trace_provider", traceProvider);
-      if (traceRegion) {
-        params.set("trace_region", traceRegion);
-      }
-      params.set("log_provider", logProvider);
-      if (logRegion) {
-        params.set("log_region", logRegion);
-      }
-      params.set("trace_id", trace_id);
-
-      // Open explore page in a new tab
-      const url = `/explore?${params.toString()}`;
-      window.open(url, "_blank");
     };
 
     const handleDownload = () => {
@@ -573,32 +464,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
               </div>
             )}
           </div>
-          <div className="flex items-center flex-shrink-0">
-            {useUserBasedHistory && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="mr-1 h-8 w-8"
-                      onClick={handleGoToTrace}
-                      disabled={
-                        !chatMetadata?.trace_id &&
-                        (!chatMetadata?.trace_ids ||
-                          chatMetadata.trace_ids.length === 0)
-                      }
-                    >
-                      <ArrowUpRight className="w-4 h-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>View more details in a new tab</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-
+          <div className="absolute top-1 right-1 flex items-center bg-zinc-50 dark:bg-zinc-900 z-10">
             <Button
               variant="ghost"
               size="icon"
@@ -682,63 +548,12 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
                         </div>
                       ),
                     )}
-                    {hasMoreHistory && (
-                      <div className="px-2 py-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="w-full text-xs h-[40px]"
-                          onClick={() => fetchChatHistory(true)}
-                          disabled={isLoadingMore}
-                        >
-                          {isLoadingMore ? (
-                            <div className="flex items-center justify-center space-x-1">
-                              <Spinner
-                                variant="infinite"
-                                className="w-4 h-4 text-gray-500 dark:text-gray-400"
-                              />
-                            </div>
-                          ) : (
-                            "Load more..."
-                          )}
-                        </Button>
-                      </div>
-                    )}
                   </>
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </div>
-
-        {/* Dialog for multiple trace selection */}
-        <Dialog open={isTraceDialogOpen} onOpenChange={setIsTraceDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Select Trace to View</DialogTitle>
-              <DialogDescription>
-                This chat contains multiple traces. Select a trace to view its
-                details in a new tab.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-2 mt-4">
-              {(chatMetadata?.trace_ids || []).map((traceId, index) => (
-                <Button
-                  key={traceId}
-                  variant="outline"
-                  className="w-full justify-start font-mono text-sm"
-                  onClick={() => {
-                    openTraceInNewTab(traceId);
-                    setIsTraceDialogOpen(false);
-                  }}
-                >
-                  <ArrowUpRight className="w-4 h-4 mr-2" />
-                  Trace {index + 1}: {traceId.substring(0, 20)}...
-                </Button>
-              ))}
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
     );
   },
