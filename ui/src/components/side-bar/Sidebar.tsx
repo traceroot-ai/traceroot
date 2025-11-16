@@ -13,7 +13,6 @@ import {
   BookText,
   Moon,
   Sun,
-  Bot,
 } from "lucide-react";
 import { FaUser, FaAws } from "react-icons/fa";
 import { BsTencentQq } from "react-icons/bs";
@@ -221,28 +220,6 @@ function IntegrateComponent() {
           {state === "expanded" && <span className="text-sm">Integrate</span>}
         </Link>
       )}
-    </SidebarMenuButton>
-  );
-}
-
-function AgentComponent() {
-  const { state } = useSidebar();
-  const pathname = usePathname();
-
-  return (
-    <SidebarMenuButton
-      asChild
-      isActive={pathname === "/agent"}
-      tooltip="Agent"
-      className={`flex items-center rounded-md py-3 px-2 mb-0.5 ${state === "collapsed" ? "!justify-center" : "!justify-start gap-3"}`}
-    >
-      <Link
-        href="/agent"
-        className={`flex items-center w-full ${state === "collapsed" ? "justify-center" : "justify-start gap-3"} ${pathname === "/agent" ? "text-black dark:text-white" : "text-zinc-700 dark:text-zinc-300"}`}
-      >
-        <Bot className="!w-5 !h-5 flex-shrink-0" />
-        {state === "expanded" && <span className="text-sm">Agent</span>}
-      </Link>
     </SidebarMenuButton>
   );
 }
@@ -767,10 +744,6 @@ export default function AppSidebar() {
 
               <SidebarMenuItem className="mb-1">
                 <IntegrateComponent />
-              </SidebarMenuItem>
-
-              <SidebarMenuItem className="mb-1">
-                <AgentComponent />
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>

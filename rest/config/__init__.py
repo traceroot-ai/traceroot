@@ -9,19 +9,11 @@ from .chat import (
     ConfirmActionRequest,
     ConfirmActionResponse,
     GetChatHistoryRequest,
-    GetChatMetadataHistoryRawRequest,
     GetChatMetadataHistoryRequest,
     GetChatMetadataRequest,
 )
 from .code import CodeRequest, CodeResponse
-from .log import (
-    GetLogByTraceIdRequest,
-    GetLogByTraceIdResponse,
-    GetLogsByTimeRangeRequest,
-    GetLogsByTimeRangeResponse,
-    LogEntry,
-    TraceLogs,
-)
+from .log import GetLogByTraceIdRequest, GetLogByTraceIdResponse, LogEntry, TraceLogs
 from .trace import ListTraceRawRequest, ListTraceRequest, ListTraceResponse, Span, Trace
 from .traces_and_logs import (
     GetTracesAndLogsSinceDateRequest,
@@ -37,8 +29,6 @@ __all__ = [
     "Span",
     "GetLogByTraceIdRequest",
     "GetLogByTraceIdResponse",
-    "GetLogsByTimeRangeRequest",
-    "GetLogsByTimeRangeResponse",
     "TraceLogs",
     "LogEntry",
     "ChatRequest",
@@ -47,7 +37,6 @@ __all__ = [
     "ConfirmActionResponse",
     "ConfirmGitHubActionRequest",  # Backward compatibility
     "ConfirmGitHubActionResponse",  # Backward compatibility
-    "GetChatMetadataHistoryRawRequest",
     "GetChatMetadataHistoryRequest",
     "ChatMetadata",
     "ChatMetadataHistory",

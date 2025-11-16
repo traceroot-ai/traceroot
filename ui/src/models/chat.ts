@@ -1,6 +1,6 @@
 import { ChatModel } from "@/constants/model";
 import { ChatMode } from "@/constants/model";
-import mongoose, { Schema, Model } from "mongoose";
+import mongoose, { Model, Schema } from "mongoose";
 
 export type MessageType = "assistant" | "user" | "github" | "statistics";
 export type ActionType =
@@ -23,7 +23,6 @@ export interface Reference {
   span_function_name?: string;
   line_number?: number;
   log_message?: string;
-  trace_id?: string; // Present when multiple traces are analyzed
 }
 
 export interface ChatRequest {
@@ -31,7 +30,6 @@ export interface ChatRequest {
   message: string;
   message_type: MessageType;
   trace_id: string;
-  trace_ids?: string[]; // Support multiple traces
   span_ids: string[];
   start_time: number;
   end_time: number;
@@ -65,8 +63,7 @@ export interface ChatMetadata {
   chat_id: string;
   timestamp: number;
   chat_title: string;
-  trace_id: string; // Keep for backward compatibility
-  trace_ids?: string[]; // Support multiple traces
+  trace_id: string;
   user_id?: string;
 }
 
@@ -76,8 +73,7 @@ export interface ChatMetadataHistory {
 }
 
 export interface GetChatMetadataHistoryRequest {
-  trace_id?: string;
-  trace_ids?: string[];
+  trace_id: string;
 }
 
 export interface GetChatMetadataRequest {
@@ -92,6 +88,7 @@ export interface ChatHistoryResponse {
   history: ChatbotResponse[];
 }
 
+// Note: These interfaces were originally part of PR #276 but are kept because newer code depends on them
 export interface ConfirmActionRequest {
   chat_id: string;
   message_timestamp: number;
@@ -108,41 +105,8 @@ export interface ConfirmActionResponse {
 export type ConfirmGitHubActionRequest = ConfirmActionRequest;
 export type ConfirmGitHubActionResponse = ConfirmActionResponse;
 
-// Mongoose model for chat_metadata collection
-export interface IChatMetadata {
-  chat_id: string;
-  timestamp: Date;
-  chat_title: string;
-  trace_id: string; // Keep for backward compatibility
-  trace_ids?: string[]; // Support multiple traces
-  user_id: string;
-}
-
-const ChatMetadataSchema = new Schema<IChatMetadata>(
-  {
-    chat_id: { type: String, required: true },
-    timestamp: { type: Date, required: true },
-    chat_title: { type: String, required: true },
-    trace_id: { type: String, required: true },
-    trace_ids: { type: [String], required: false }, // Support multiple traces
-    user_id: { type: String, required: true },
-  },
-  {
-    collection: process.env.DB_CHAT_METADATA_COLLECTION || "chat_metadata",
-    versionKey: false, // Disable __v field
-  },
-);
-
-// Index on user_id for fast lookups
-ChatMetadataSchema.index({ user_id: 1 });
-// Index on chat_id for fast lookups
-ChatMetadataSchema.index({ chat_id: 1 });
-
-export const ChatMetadataModel: Model<IChatMetadata> =
-  mongoose.models.ChatMetadataModel ||
-  mongoose.model<IChatMetadata>("ChatMetadataModel", ChatMetadataSchema);
-
 // Mongoose model for reasoning_streams collection
+// Note: This was originally part of PR #276 but is kept because newer code depends on it
 export interface IReasoningRecord {
   chat_id: string;
   chunk_id: number;
