@@ -6,7 +6,8 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from rest.routers.explore import ExploreRouter
+from rest.routers.chat import ChatRouterClass
+from rest.routers.telemetry import TelemetryRouter
 
 try:
     from rest.routers.ee.verify import VerifyRouter
@@ -38,11 +39,20 @@ class App:
         # Add CORS middleware
         self.add_middleware()
 
-        self.explore_router = ExploreRouter(self.local_mode, self.limiter)
+        # Register telemetry router (trace and log endpoints)
+        self.telemetry_router = TelemetryRouter(self.local_mode, self.limiter)
         self.app.include_router(
-            self.explore_router.router,
+            self.telemetry_router.router,
             prefix="/v1/explore",
-            tags=["explore"],
+            tags=["telemetry"],
+        )
+
+        # Register chat router (AI chat and agent endpoints)
+        self.chat_router = ChatRouterClass(self.local_mode, self.limiter)
+        self.app.include_router(
+            self.chat_router.router,
+            prefix="/v1/explore",
+            tags=["chat"],
         )
 
         # Add verify router for SDK verification
