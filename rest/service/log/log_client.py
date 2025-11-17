@@ -32,7 +32,7 @@ class LogClient(ABC):
         """
 
     @abstractmethod
-    async def get_trace_ids_from_logs(
+    async def get_trace_metadata_from_logs(
         self,
         start_time: datetime,
         end_time: datetime,
