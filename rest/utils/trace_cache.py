@@ -186,55 +186,73 @@ class TraceCacheHelper:
         """
         await self.cache[CacheType.TRACE].set(cache_key, (traces, next_state))
 
-    async def get_trace_ids(
+    async def get_trace_metadata(
         self,
         cache_key: str,
-    ) -> list[str] | None:
-        """Get cached trace IDs (for log search).
+    ) -> dict[str,
+              dict] | None:
+        """Get cached trace metadata from log search.
 
-        Retrieves a cached list of trace IDs from a log search query. This is
-        used for log search pagination where we cache ALL matching trace IDs
-        and paginate through them.
+        Retrieves cached trace metadata dict from a log search query. Each trace
+        has associated metadata including timestamps and log stream information.
 
         Args:
             cache_key: String cache key (e.g., 'log_search_trace_ids:abc123')
 
         Returns:
-            List of trace ID strings if cached, None otherwise
+            Dict mapping trace_id to metadata {start_time, end_time, log_stream},
+            or None if not cached
 
         Example:
-            >>> trace_ids = await helper.get_trace_ids('log_search_trace_ids:abc')
-            >>> if trace_ids:
-            ...     print(f"Found {len(trace_ids)} cached trace IDs")
+            >>> metadata = await helper.get_trace_metadata('log_search_trace_ids:abc')
+            >>> if metadata:
+            ...     print(f"Found {len(metadata)} cached trace metadata entries")
+            ...     for trace_id, meta in metadata.items():
+            ...         print(f"{trace_id}: {meta['start_time']} to {meta['end_time']}")
         """
         return await self.cache[CacheType.TRACE].get(cache_key)
 
-    async def cache_trace_ids(
+    async def cache_trace_metadata(
         self,
         cache_key: str,
-        trace_ids: list[str],
+        trace_id_to_metadata: dict[str,
+                                   dict],
     ) -> None:
-        """Cache trace IDs (for log search).
+        """Cache trace metadata from log search.
 
-        Stores a list of trace IDs from a log search query. These IDs are then
-        used for pagination - each page fetches a batch of traces from this list.
+        Stores trace metadata dict from a log search query. The metadata includes
+        timestamps and log stream for each trace, enabling log-only trace creation.
 
         Args:
             cache_key: String cache key (e.g., 'log_search_trace_ids:abc123')
-            trace_ids: List of trace ID strings to cache
+            trace_id_to_metadata: Dict mapping trace_id to metadata:
+                {
+                    'trace-1': {
+                        'start_time': datetime,
+                        'end_time': datetime,
+                        'log_stream': str
+                    },
+                    'trace-2': {...}
+                }
 
         Note:
             This is specifically for log search pagination. The cache stores ALL
-            matching trace IDs so we can efficiently paginate without re-querying
+            matching trace metadata so we can efficiently paginate without re-querying
             CloudWatch Logs.
 
         Example:
-            >>> await helper.cache_trace_ids(
+            >>> await helper.cache_trace_metadata(
             ...     cache_key='log_search_trace_ids:abc123',
-            ...     trace_ids=['trace-1', 'trace-2', 'trace-3', ...]
+            ...     trace_id_to_metadata={
+            ...         'trace-1': {
+            ...             'start_time': datetime.now(),
+            ...             'end_time': datetime.now(),
+            ...             'log_stream': 'my-service-prod'
+            ...         }
+            ...     }
             ... )
         """
-        await self.cache[CacheType.TRACE].set(cache_key, trace_ids)
+        await self.cache[CacheType.TRACE].set(cache_key, trace_id_to_metadata)
 
     def build_log_cache_key(
         self,
