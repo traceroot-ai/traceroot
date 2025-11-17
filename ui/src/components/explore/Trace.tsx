@@ -1018,7 +1018,7 @@ export const Trace: React.FC<TraceProps> = ({
                               >
                                 {(() => {
                                   const count = countTotalSpans(trace.spans);
-                                  return `${count} span${count !== 1 ? "s" : ""}`;
+                                  return `${count} span${count !== 1 ? 's' : ''}`;
                                 })()}
                               </Badge>
 
