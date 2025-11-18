@@ -34,6 +34,7 @@ class GeneralAgent(BaseAgent):
         self.chat_client = AsyncOpenAI(api_key=api_key)
         self.system_prompt = GENERAL_AGENT_SYSTEM_PROMPT
         self.name = "GeneralAgent"
+        self.model = ChatModel.GPT_4O  # Default model for general agent
 
     async def chat(
         self,
