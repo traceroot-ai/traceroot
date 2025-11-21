@@ -12,7 +12,7 @@ interface AuthGuardProps {
 // Routes that don't require authentication
 const publicRoutes = ["/auth/auth-callback", "/sign-in"];
 
-const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
+const LOCAL_MODE = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
 export default function AuthGuard({
   children,
@@ -25,11 +25,11 @@ export default function AuthGuard({
   const { user: clerkUser, isLoaded: clerkIsLoaded } = useUser();
 
   // In self-host mode, override with mock values
-  const user = DISABLE_PAYMENT ? { id: "local-user" } : clerkUser;
-  const isLoaded = DISABLE_PAYMENT ? true : clerkIsLoaded;
+  const user = LOCAL_MODE ? { id: "local-user" } : clerkUser;
+  const isLoaded = LOCAL_MODE ? true : clerkIsLoaded;
 
   // User is authenticated if they're logged in with Clerk or in self-host mode
-  const isAuthenticated = DISABLE_PAYMENT || !!user;
+  const isAuthenticated = LOCAL_MODE || !!user;
 
   // Check if current route is public (from prop or pathname)
   const isPublic = isPublicRoute || publicRoutes.includes(pathname);
