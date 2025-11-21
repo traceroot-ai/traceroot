@@ -11,6 +11,16 @@ import {
 
 export type ProviderType = "trace" | "log";
 
+const LOCAL_MODE = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
+
+/**
+ * Get Jaeger endpoint for local mode
+ * Default: http://localhost:16686
+ */
+export const getJaegerEndpoint = (): string => {
+  return process.env.NEXT_PUBLIC_JAEGER_ENDPOINT || "http://localhost:16686";
+};
+
 /**
  * Get user-specific storage key for localStorage
  */
@@ -34,10 +44,16 @@ export const getUserStorageKey = (prefix: string): string => {
 
 /**
  * Load provider selection from localStorage
+ * In LOCAL_MODE, always return "jaeger"
  */
 export const loadProviderSelection = (
   providerType: ProviderType,
 ): string | null => {
+  // Force Jaeger in local mode
+  if (LOCAL_MODE) {
+    return "jaeger";
+  }
+
   const storageKey = getUserStorageKey(`${providerType}ProviderSelection`);
   return localStorage.getItem(storageKey);
 };
@@ -320,11 +336,17 @@ export const writeProvidersToURL = (config: {
 /**
  * Get region for a specific provider from localStorage (synchronous)
  * Returns empty string for Jaeger since it doesn't use regions
+ * In LOCAL_MODE, returns "local"
  */
 export const getProviderRegion = (
   providerType: ProviderType,
   provider: string,
 ): string => {
+  // Force local region in local mode
+  if (LOCAL_MODE) {
+    return "local";
+  }
+
   // Jaeger doesn't use regions
   if (provider === "jaeger") {
     return "";
@@ -363,6 +385,7 @@ export const getProviderRegion = (
 
 /**
  * Initialize providers from URL or localStorage, with defaults
+ * In LOCAL_MODE, force Jaeger provider
  */
 export const initializeProviders = (): {
   traceProvider: string;
@@ -370,6 +393,16 @@ export const initializeProviders = (): {
   logProvider: string;
   logRegion: string;
 } => {
+  // Force Jaeger in local mode
+  if (LOCAL_MODE) {
+    return {
+      traceProvider: "jaeger",
+      traceRegion: "local",
+      logProvider: "jaeger",
+      logRegion: "local",
+    };
+  }
+
   // First check URL parameters
   const urlConfig = readProvidersFromURL();
 
@@ -409,6 +442,7 @@ export const initializeProviders = (): {
 /**
  * Get provider info with defaults applied
  * @returns Provider info object with defaults (aws) for missing providers
+ * In LOCAL_MODE, force Jaeger
  */
 export const getProviderInfo = (): {
   traceProvider: string;
@@ -416,6 +450,16 @@ export const getProviderInfo = (): {
   traceRegion?: string;
   logRegion?: string;
 } => {
+  // Force Jaeger in local mode
+  if (LOCAL_MODE) {
+    return {
+      traceProvider: "jaeger",
+      logProvider: "jaeger",
+      traceRegion: "local",
+      logRegion: "local",
+    };
+  }
+
   const providerInfo = readProvidersFromURL();
   return {
     traceProvider: providerInfo.traceProvider || "aws",

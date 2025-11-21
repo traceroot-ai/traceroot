@@ -51,6 +51,9 @@ import { useEffect, useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useClerk } from "@clerk/nextjs";
 import { useSubscription } from "../../hooks/useSubscription";
+import { LOCAL_USER } from "@/lib/self-host-constants";
+
+const LOCAL_MODE = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
 function LogoComponent() {
   const { state } = useSidebar();
@@ -357,22 +360,32 @@ function SettingsComponent() {
 }
 
 function ProfileComponent() {
-  const { user, isLoaded } = useUser();
+  const { user: clerkUser, isLoaded: clerkIsLoaded } = useUser();
   const { signOut } = useClerk();
   const { state } = useSidebar();
 
-  // User is loading if not loaded
-  const isLoading = !isLoaded;
+  // In self-host mode, use local user data
+  const isLoading = LOCAL_MODE ? false : !clerkIsLoaded;
 
-  // Get user display data
-  const email = user?.emailAddresses?.[0]?.emailAddress;
-  const givenName = user?.firstName;
-  const familyName = user?.lastName;
-  const company = user?.publicMetadata?.company as string;
+  // Get user display data - use local user in self-host mode
+  const email = LOCAL_MODE
+    ? LOCAL_USER.USER_EMAIL
+    : clerkUser?.emailAddresses?.[0]?.emailAddress;
+  const givenName = LOCAL_MODE ? "Local" : clerkUser?.firstName;
+  const familyName = LOCAL_MODE ? "User" : clerkUser?.lastName;
+  const company = LOCAL_MODE
+    ? undefined
+    : (clerkUser?.publicMetadata?.company as string);
 
-  const displayAvatarLetter = email?.charAt(0)?.toUpperCase() || "U";
+  const displayAvatarLetter = LOCAL_MODE
+    ? "L"
+    : email?.charAt(0)?.toUpperCase() || "U";
 
   const handleSignOut = async () => {
+    if (LOCAL_MODE) {
+      // In self-host mode, just show a message or do nothing
+      return;
+    }
     await signOut();
   };
 
@@ -507,9 +520,11 @@ function ProfileComponent() {
             <DialogClose asChild>
               <Button variant="outline">Close</Button>
             </DialogClose>
-            <Button onClick={handleSignOut} variant="destructive">
-              Sign Out
-            </Button>
+            {!LOCAL_MODE && (
+              <Button onClick={handleSignOut} variant="destructive">
+                Sign Out
+              </Button>
+            )}
           </DialogFooter>
         </div>
       </DialogContent>
@@ -755,7 +770,7 @@ export default function AppSidebar() {
         <DarkModeToggle />
         <DocumentationComponent />
         <NeedHelpComponent />
-        <SettingsComponent />
+        {!LOCAL_MODE && <SettingsComponent />}
         <Separator />
         <ProfileComponent />
       </SidebarFooter>

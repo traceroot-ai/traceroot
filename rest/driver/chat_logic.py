@@ -10,6 +10,7 @@ This driver orchestrates chat operations, including:
 
 import asyncio
 import logging
+import os
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any
@@ -101,7 +102,11 @@ class ChatLogic:
 
         # Create default observability provider (shared with telemetry)
         if self.local_mode:
-            self.default_observe_provider = ObservabilityProvider.create_jaeger_provider()
+            # Get Jaeger endpoint from env or use localhost default
+            jaeger_url = os.getenv("JAEGER_ENDPOINT", "http://localhost:16686")
+            self.default_observe_provider = ObservabilityProvider.create_jaeger_provider(
+                jaeger_url=jaeger_url
+            )
         else:
             self.default_observe_provider = ObservabilityProvider.create_aws_provider()
 
