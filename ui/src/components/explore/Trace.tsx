@@ -130,10 +130,7 @@ function getDisplayServiceName(fullServiceName: string): string {
     return fullServiceName;
   }
 
-  return `${fullServiceName.slice(
-    0,
-    SERVICE_NAME_TRUNCATION_LENGTH,
-  )}...`;
+  return `${fullServiceName.slice(0, SERVICE_NAME_TRUNCATION_LENGTH)}...`;
 }
 
 export const Trace: React.FC<TraceProps> = ({
