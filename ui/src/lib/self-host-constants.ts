@@ -1,6 +1,6 @@
 /**
  * Constants for self-hosted mode
- * Used when NEXT_PUBLIC_DISABLE_PAYMENT=true
+ * Used when NEXT_PUBLIC_LOCAL_MODE=true
  */
 
 export const LOCAL_USER = {
