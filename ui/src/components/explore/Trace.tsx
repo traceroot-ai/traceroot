@@ -123,6 +123,16 @@ function formatDuration(durationSeconds: number): string {
   }
 }
 
+const SERVICE_NAME_TRUNCATION_LENGTH = 25;
+
+function getDisplayServiceName(fullServiceName: string): string {
+  if (fullServiceName.length <= SERVICE_NAME_TRUNCATION_LENGTH) {
+    return fullServiceName;
+  }
+
+  return `${fullServiceName.slice(0, SERVICE_NAME_TRUNCATION_LENGTH)}...`;
+}
+
 export const Trace: React.FC<TraceProps> = ({
   onTraceSelect,
   onSpanSelect,
@@ -962,14 +972,18 @@ export const Trace: React.FC<TraceProps> = ({
                                   trace.service_name || "Unknown Service";
                                 const isLimitExceeded =
                                   fullServiceName === "LimitExceeded";
+                                const displayServiceName =
+                                  getDisplayServiceName(fullServiceName);
+                                const isTruncated =
+                                  fullServiceName.length >
+                                  SERVICE_NAME_TRUNCATION_LENGTH;
                                 const shouldShowTooltip =
-                                  fullServiceName.length > 25 ||
-                                  isLimitExceeded;
+                                  isLimitExceeded || isTruncated;
 
                                 const badge = (
                                   <Badge
                                     variant="default"
-                                    className={`min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left ${
+                                    className={`min-w-[4.5rem] h-6 mr-2 flex-shrink-0 justify-center font-mono font-normal text-center truncate whitespace-nowrap max-w-[11rem] ${
                                       isLimitExceeded
                                         ? "bg-red-600 hover:bg-red-700 text-white"
                                         : ""
@@ -980,7 +994,7 @@ export const Trace: React.FC<TraceProps> = ({
                                         : undefined
                                     }
                                   >
-                                    {fullServiceName}
+                                    {displayServiceName}
                                   </Badge>
                                 );
 
