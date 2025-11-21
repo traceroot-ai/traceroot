@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useEffect } from "react";
+import { useMemo } from "react";
 import AppSidebar from "@/components/side-bar/Sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AutumnProvider } from "autumn-js/react";
 import AuthGuard from "@/components/auth/AuthGuard";
 import SubscriptionGuard from "@/components/auth/SubscriptionGuard";
 import { useUser } from "@clerk/nextjs";
+
+const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
 
 export default function AuthenticatedLayout({
   children,
@@ -15,12 +17,17 @@ export default function AuthenticatedLayout({
   children: React.ReactNode;
   isPublicRoute?: boolean;
 }) {
-  const { user, isLoaded } = useUser();
+  // Always call useUser to satisfy hooks rules
+  const { user: clerkUser, isLoaded: clerkIsLoaded } = useUser();
+
+  // In self-host mode, override with mock values
+  const user = DISABLE_PAYMENT ? { id: "local-user" } : clerkUser;
+  const isLoaded = DISABLE_PAYMENT ? true : clerkIsLoaded;
 
   // Determine if user is authenticated - memoize based on user ID only
   // This prevents AutumnProvider from re-rendering on Clerk token refresh (every 60s)
   const isAuthenticated = useMemo(
-    () => isLoaded && !!user,
+    () => DISABLE_PAYMENT || (isLoaded && !!user),
     [isLoaded, user?.id], // Only depend on user.id, not the whole user object
   );
 
@@ -37,27 +44,36 @@ export default function AuthenticatedLayout({
     [user?.id],
   );
 
-  // ALWAYS render the same component structure (for consistent hooks)
+  // Content to render (with or without Autumn provider)
+  const content = (
+    <SubscriptionGuard isPublicRoute={isPublicRoute}>
+      {isPublicRoute ? (
+        // For public routes, just render children
+        children
+      ) : (
+        // For protected routes, wrap with sidebar
+        <SidebarProvider defaultOpen={false}>
+          <AppSidebar />
+          <SidebarInset>{children}</SidebarInset>
+        </SidebarProvider>
+      )}
+    </SubscriptionGuard>
+  );
+
+  // In self-host mode, skip AutumnProvider entirely
   return (
     <AuthGuard isPublicRoute={isPublicRoute}>
-      <AutumnProvider
-        key={autumnKey}
-        includeCredentials={isAuthenticated}
-        customerData={customerData}
-      >
-        <SubscriptionGuard isPublicRoute={isPublicRoute}>
-          {isPublicRoute ? (
-            // For public routes, just render children
-            children
-          ) : (
-            // For protected routes, wrap with sidebar
-            <SidebarProvider defaultOpen={false}>
-              <AppSidebar />
-              <SidebarInset>{children}</SidebarInset>
-            </SidebarProvider>
-          )}
-        </SubscriptionGuard>
-      </AutumnProvider>
+      {DISABLE_PAYMENT ? (
+        content
+      ) : (
+        <AutumnProvider
+          key={autumnKey}
+          includeCredentials={isAuthenticated}
+          customerData={customerData}
+        >
+          {content}
+        </AutumnProvider>
+      )}
     </AuthGuard>
   );
 }
