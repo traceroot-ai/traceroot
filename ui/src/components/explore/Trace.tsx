@@ -898,7 +898,7 @@ export const Trace: React.FC<TraceProps> = ({
                         <div
                           className={`relative h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-100 ease-in-out hover:shadow-sm ${isNewTrace ? "animate-fadeIn" : ""} ${
                             selectedTraceIds.has(trace.id)
-                              ? "bg-zinc-100 dark:bg-zinc-900"
+                              ? "bg-zinc-200 dark:bg-zinc-800 border-l-4 border-l-zinc-400 dark:border-l-zinc-600"
                               : "bg-white dark:bg-zinc-950"
                           }`}
                           style={{
