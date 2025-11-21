@@ -16,6 +16,8 @@ export const metadata: Metadata = {
   },
 };
 
+const LOCAL_MODE = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
+
 export default function RootLayout({
   children,
 }: {
@@ -25,6 +27,13 @@ export default function RootLayout({
     <ClerkProvider
       appearance={{
         baseTheme: undefined,
+        // Hide all Clerk UI elements in self-host mode
+        elements: LOCAL_MODE
+          ? {
+              // Hide the development mode badge
+              rootBox: { display: "none" },
+            }
+          : undefined,
       }}
       publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
     >
