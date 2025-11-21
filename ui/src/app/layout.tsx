@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   },
 };
 
-const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
+const LOCAL_MODE = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
 export default function RootLayout({
   children,
@@ -28,7 +28,7 @@ export default function RootLayout({
       appearance={{
         baseTheme: undefined,
         // Hide all Clerk UI elements in self-host mode
-        elements: DISABLE_PAYMENT
+        elements: LOCAL_MODE
           ? {
               // Hide the development mode badge
               rootBox: { display: "none" },

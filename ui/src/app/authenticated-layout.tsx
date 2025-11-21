@@ -8,7 +8,7 @@ import AuthGuard from "@/components/auth/AuthGuard";
 import SubscriptionGuard from "@/components/auth/SubscriptionGuard";
 import { useUser } from "@clerk/nextjs";
 
-const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
+const LOCAL_MODE = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
 export default function AuthenticatedLayout({
   children,
@@ -21,13 +21,13 @@ export default function AuthenticatedLayout({
   const { user: clerkUser, isLoaded: clerkIsLoaded } = useUser();
 
   // In self-host mode, override with mock values
-  const user = DISABLE_PAYMENT ? { id: "local-user" } : clerkUser;
-  const isLoaded = DISABLE_PAYMENT ? true : clerkIsLoaded;
+  const user = LOCAL_MODE ? { id: "local-user" } : clerkUser;
+  const isLoaded = LOCAL_MODE ? true : clerkIsLoaded;
 
   // Determine if user is authenticated - memoize based on user ID only
   // This prevents AutumnProvider from re-rendering on Clerk token refresh (every 60s)
   const isAuthenticated = useMemo(
-    () => DISABLE_PAYMENT || (isLoaded && !!user),
+    () => LOCAL_MODE || (isLoaded && !!user),
     [isLoaded, user?.id], // Only depend on user.id, not the whole user object
   );
 
@@ -63,7 +63,7 @@ export default function AuthenticatedLayout({
   // In self-host mode, skip AutumnProvider entirely
   return (
     <AuthGuard isPublicRoute={isPublicRoute}>
-      {DISABLE_PAYMENT ? (
+      {LOCAL_MODE ? (
         content
       ) : (
         <AutumnProvider

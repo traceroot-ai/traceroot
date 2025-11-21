@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { LOCAL_USER } from "./self-host-constants";
 
-const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
+const LOCAL_MODE = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
 export interface ClerkAuthResult {
   userSecret: string;
@@ -11,13 +11,13 @@ export interface ClerkAuthResult {
 
 /**
  * Get authentication token and user info for Clerk users
- * In self-host mode (DISABLE_PAYMENT=true), returns mock local user data
+ * In self-host mode (LOCAL_MODE=true), returns mock local user data
  */
 export async function getAuthTokenAndHeaders(
   _request: Request,
 ): Promise<ClerkAuthResult | null> {
   // Self-host mode: return mock local user
-  if (DISABLE_PAYMENT) {
+  if (LOCAL_MODE) {
     return {
       userSecret: LOCAL_USER.USER_SECRET,
       clerkUserId: LOCAL_USER.USER_ID,

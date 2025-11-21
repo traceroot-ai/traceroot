@@ -1,7 +1,7 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
-const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
+const LOCAL_MODE = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
 // Define public routes that don't require authentication
 const isPublicRoute = createRouteMatcher([
@@ -28,7 +28,7 @@ const cloudMiddleware = clerkMiddleware(async (auth, req) => {
   await auth.protect();
 });
 
-export default DISABLE_PAYMENT ? selfHostMiddleware : cloudMiddleware;
+export default LOCAL_MODE ? selfHostMiddleware : cloudMiddleware;
 
 export const config = {
   matcher: [
