@@ -23,9 +23,14 @@ function SubscriptionGuardInner({
   children: React.ReactNode;
   isPublicRoute?: boolean;
 }) {
-  const { user, isLoaded } = useUser();
+  // Always call useUser to satisfy hooks rules
+  const { user: clerkUser, isLoaded: clerkIsLoaded } = useUser();
   const router = useRouter();
   const pathname = usePathname();
+
+  // In self-host mode, override with mock values
+  const user = DISABLE_PAYMENT ? { id: "local-user" } : clerkUser;
+  const isLoaded = DISABLE_PAYMENT ? true : clerkIsLoaded;
 
   // User is authenticated if they're logged in with Clerk
   const userLoading = !isLoaded;
@@ -158,8 +163,12 @@ export default function SubscriptionGuard({
   children,
   isPublicRoute = false,
 }: SubscriptionGuardProps) {
-  // ALWAYS render SubscriptionGuardInner for consistent hooks
-  // Pass isPublicRoute so it can skip subscription logic
+  // In self-host mode, skip AutumnProvider and subscription checks entirely
+  if (DISABLE_PAYMENT) {
+    return <>{children}</>;
+  }
+
+  // In cloud mode, use SubscriptionGuardInner with Autumn hooks
   return (
     <SubscriptionGuardInner isPublicRoute={isPublicRoute}>
       {children}

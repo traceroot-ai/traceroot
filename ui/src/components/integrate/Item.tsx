@@ -28,6 +28,8 @@ import {
 } from "@/components/ui/tooltip";
 import { useTheme } from "next-themes";
 
+const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
+
 interface ItemProps {
   integration: Integration;
   onUpdateIntegration?: (integration: Integration) => void;
@@ -360,7 +362,11 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
                   <div>{renderIcon(integration.icon)}</div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>This token is generated for the default AWS backend</p>
+                  <p>
+                    {DISABLE_PAYMENT
+                      ? "Configure SDK with local_mode=true instead"
+                      : "This token is generated for the default AWS backend"}
+                  </p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -442,7 +448,9 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
               }}
               placeholder={
                 integration.id === "traceroot"
-                  ? "Generate the TraceRoot token"
+                  ? DISABLE_PAYMENT
+                    ? "Not needed in self-host mode"
+                    : "Generate the TraceRoot token"
                   : `Enter your ${integration.name} Authentication`
               }
               readOnly={integration.id === "traceroot"}
@@ -480,7 +488,11 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
             {integration.id === "traceroot" ? (
               <Button
                 onClick={handleGenerateToken}
-                disabled={isLoading || displayToken !== ""}
+                disabled={
+                  isLoading ||
+                  displayToken !== "" ||
+                  (DISABLE_PAYMENT && integration.id === "traceroot")
+                }
                 variant="default"
                 size="sm"
                 className="flex-1"
@@ -500,7 +512,9 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
             )}
             <Button
               onClick={handleCancel}
-              disabled={isLoading}
+              disabled={
+                isLoading || (DISABLE_PAYMENT && integration.id === "traceroot")
+              }
               variant="outline"
               size="sm"
               className="flex-1"

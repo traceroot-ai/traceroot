@@ -1,4 +1,7 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
+
+const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
 
 // Define public routes that don't require authentication
 const isPublicRoute = createRouteMatcher([
@@ -9,7 +12,13 @@ const isPublicRoute = createRouteMatcher([
   "/api/autumn(.*)",
 ]);
 
-export default clerkMiddleware(async (auth, req) => {
+// Self-host mode: skip all Clerk authentication
+const selfHostMiddleware = () => {
+  return NextResponse.next();
+};
+
+// Cloud mode: use Clerk authentication
+const cloudMiddleware = clerkMiddleware(async (auth, req) => {
   // Allow public routes without auth
   if (isPublicRoute(req)) {
     return;
@@ -18,6 +27,8 @@ export default clerkMiddleware(async (auth, req) => {
   // Protect all other routes - redirect to sign-in if not authenticated
   await auth.protect();
 });
+
+export default DISABLE_PAYMENT ? selfHostMiddleware : cloudMiddleware;
 
 export const config = {
   matcher: [
