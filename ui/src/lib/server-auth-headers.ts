@@ -1,7 +1,7 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { LOCAL_USER } from "./self-host-constants";
 
-const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
+const LOCAL_MODE = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
 /**
  * Helper to create backend API headers with proper authentication
@@ -12,7 +12,7 @@ export async function createBackendAuthHeaders(): Promise<
   Record<string, string>
 > {
   // Self-host mode: return mock local user headers
-  if (DISABLE_PAYMENT) {
+  if (LOCAL_MODE) {
     return {
       "Content-Type": "application/json",
       "x-clerk-user-id": LOCAL_USER.USER_ID,

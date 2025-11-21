@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useTheme } from "next-themes";
 
-const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
+const LOCAL_MODE = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
 interface ItemProps {
   integration: Integration;
@@ -363,7 +363,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>
-                    {DISABLE_PAYMENT
+                    {LOCAL_MODE
                       ? "Configure SDK with local_mode=true instead"
                       : "This token is generated for the default AWS backend"}
                   </p>
@@ -448,7 +448,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
               }}
               placeholder={
                 integration.id === "traceroot"
-                  ? DISABLE_PAYMENT
+                  ? LOCAL_MODE
                     ? "Not needed in self-host mode"
                     : "Generate the TraceRoot token"
                   : `Enter your ${integration.name} Authentication`
@@ -491,7 +491,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
                 disabled={
                   isLoading ||
                   displayToken !== "" ||
-                  (DISABLE_PAYMENT && integration.id === "traceroot")
+                  (LOCAL_MODE && integration.id === "traceroot")
                 }
                 variant="default"
                 size="sm"
@@ -513,7 +513,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
             <Button
               onClick={handleCancel}
               disabled={
-                isLoading || (DISABLE_PAYMENT && integration.id === "traceroot")
+                isLoading || (LOCAL_MODE && integration.id === "traceroot")
               }
               variant="outline"
               size="sm"

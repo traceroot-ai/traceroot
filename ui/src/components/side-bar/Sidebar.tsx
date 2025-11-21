@@ -53,7 +53,7 @@ import { useClerk } from "@clerk/nextjs";
 import { useSubscription } from "../../hooks/useSubscription";
 import { LOCAL_USER } from "@/lib/self-host-constants";
 
-const DISABLE_PAYMENT = process.env.NEXT_PUBLIC_DISABLE_PAYMENT === "true";
+const LOCAL_MODE = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
 function LogoComponent() {
   const { state } = useSidebar();
@@ -365,24 +365,24 @@ function ProfileComponent() {
   const { state } = useSidebar();
 
   // In self-host mode, use local user data
-  const isLoading = DISABLE_PAYMENT ? false : !clerkIsLoaded;
+  const isLoading = LOCAL_MODE ? false : !clerkIsLoaded;
 
   // Get user display data - use local user in self-host mode
-  const email = DISABLE_PAYMENT
+  const email = LOCAL_MODE
     ? LOCAL_USER.USER_EMAIL
     : clerkUser?.emailAddresses?.[0]?.emailAddress;
-  const givenName = DISABLE_PAYMENT ? "Local" : clerkUser?.firstName;
-  const familyName = DISABLE_PAYMENT ? "User" : clerkUser?.lastName;
-  const company = DISABLE_PAYMENT
+  const givenName = LOCAL_MODE ? "Local" : clerkUser?.firstName;
+  const familyName = LOCAL_MODE ? "User" : clerkUser?.lastName;
+  const company = LOCAL_MODE
     ? undefined
     : (clerkUser?.publicMetadata?.company as string);
 
-  const displayAvatarLetter = DISABLE_PAYMENT
+  const displayAvatarLetter = LOCAL_MODE
     ? "L"
     : email?.charAt(0)?.toUpperCase() || "U";
 
   const handleSignOut = async () => {
-    if (DISABLE_PAYMENT) {
+    if (LOCAL_MODE) {
       // In self-host mode, just show a message or do nothing
       return;
     }
@@ -520,7 +520,7 @@ function ProfileComponent() {
             <DialogClose asChild>
               <Button variant="outline">Close</Button>
             </DialogClose>
-            {!DISABLE_PAYMENT && (
+            {!LOCAL_MODE && (
               <Button onClick={handleSignOut} variant="destructive">
                 Sign Out
               </Button>
@@ -770,7 +770,7 @@ export default function AppSidebar() {
         <DarkModeToggle />
         <DocumentationComponent />
         <NeedHelpComponent />
-        {!DISABLE_PAYMENT && <SettingsComponent />}
+        {!LOCAL_MODE && <SettingsComponent />}
         <Separator />
         <ProfileComponent />
       </SidebarFooter>
