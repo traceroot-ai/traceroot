@@ -1230,7 +1230,7 @@ export const Trace: React.FC<TraceProps> = ({
 
       {/* Share Dialog */}
       <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
-        <DialogContent className="@[640px]:max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Share Trace</DialogTitle>
             <DialogDescription>
