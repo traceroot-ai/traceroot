@@ -846,7 +846,7 @@ export const Trace: React.FC<TraceProps> = ({
       <div className="h-screen bg-white dark:bg-zinc-950 text-neutral-800 dark:text-neutral-200 transition-colors duration-300 p-4 overflow-y-auto overflow-x-hidden @container">
         {/* Search and Time Range Selector */}
         <div className="space-y-4">
-          <div className="flex flex-col @[600px]:flex-row @[600px]:justify-between @[600px]:items-center gap-2">
+          <div className="flex flex-row justify-between items-center gap-2">
             <div className="flex-1 min-w-0">
               <SearchBar
                 onSearch={handleSearch}
