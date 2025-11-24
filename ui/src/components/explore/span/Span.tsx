@@ -26,6 +26,16 @@ const formatLatency = (startTime: number, endTime: number): string => {
   }
 };
 
+const FUNCTION_NAME_TRUNCATION_LENGTH = 50;
+
+function getDisplayFunctionName(fullFunctionName: string): string {
+  if (fullFunctionName.length <= FUNCTION_NAME_TRUNCATION_LENGTH) {
+    return fullFunctionName;
+  }
+
+  return `${fullFunctionName.slice(0, FUNCTION_NAME_TRUNCATION_LENGTH)}...`;
+}
+
 interface SpanProps {
   span: SpanType;
   widthPercentage?: number;
@@ -102,14 +112,6 @@ const Span: React.FC<SpanProps> = ({
       spanNameCounts.set(leafSpan.name, count + 1);
     });
 
-    // Determine which spans are repeated (name appears more than once among leaf spans)
-    // const repeatedNames = new Set<string>();
-    // spanNameCounts.forEach((count, name) => {
-    //   if (count > 1) {
-    //     repeatedNames.add(name);
-    //   }
-    // });
-
     return (
       <div className="relative">
         {/* Vertical Line: extends naturally with the content */}
@@ -135,8 +137,6 @@ const Span: React.FC<SpanProps> = ({
         >
           {childSpans.map((childSpan, index) => {
             const isLast = index === childSpans.length - 1;
-            // const isLeaf = !childSpan.spans || childSpan.spans.length === 0;
-            // const isRepeatedLeaf = isLeaf && repeatedNames.has(childSpan.name);
 
             return (
               <Span
@@ -181,8 +181,8 @@ const Span: React.FC<SpanProps> = ({
               : "bg-white dark:bg-zinc-950"
           }`}
         >
-          <div className="flex justify-between items-center h-full">
-            <div className="flex items-center min-w-0 flex-1 pr-4">
+          <div className="flex items-center h-full">
+            <div className="flex items-center min-w-0 flex-1">
               {/* Language Icons Container */}
               <div className="flex items-center flex-shrink-0">
                 {/* Python Icon - show when telemetry_sdk_language is "python" */}
@@ -218,44 +218,22 @@ const Span: React.FC<SpanProps> = ({
                 )}
               </div>
 
-              {/* Span Tag */}
-              {/* <span
-              className="inline-flex w-16 h-6 mr-2 text-xs items-center justify-center rounded-md italic"
-              style={{
-                background: '#f3f4f6',
-                color: '#374151',
-                boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.2)'
-              }}
-            >
-              func
-            </span> */}
-
-              {/* Repeated Tag - only show for repeated leaf spans */}
-              {/* {isRepeated && (
-              <span
-                className="inline-flex h-6 mr-2 text-xs items-center justify-center rounded-md px-2"
-                style={{
-                  background: '#fef3c7',
-                  color: '#92400e',
-                  boxShadow: 'inset 0 1px 1px rgba(255, 255, 255, 0.2)'
-                }}
-              >
-                Repeated
-              </span>
-            )} */}
-
               {/* Function Name Badge */}
               {(() => {
                 const fullFunctionName = span.name;
-                const shouldShowTooltip = fullFunctionName.length > 20;
+                const displayFunctionName =
+                  getDisplayFunctionName(fullFunctionName);
+                const isTruncated =
+                  fullFunctionName.length > FUNCTION_NAME_TRUNCATION_LENGTH;
+                const shouldShowTooltip = isTruncated;
 
                 const badge = (
                   <Badge
                     variant="outline"
-                    className="h-6 mr-1 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left"
+                    className="min-w-[6rem] h-6 mr-1 flex-shrink-0 justify-center font-mono font-normal text-center whitespace-nowrap max-w-[26rem]"
                     title={shouldShowTooltip ? fullFunctionName : undefined}
                   >
-                    {fullFunctionName}
+                    {displayFunctionName}
                   </Badge>
                 );
 
@@ -273,14 +251,14 @@ const Span: React.FC<SpanProps> = ({
 
               {/* Warning and Error Badges Container */}
               <div className="flex items-center flex-shrink-0">
-                {/* Error icon for error/critical logs */}
+                {/* Error icon for error/critical logs - hidden below 300px */}
                 {((span.num_error_logs ?? 0) > 0 ||
                   (span.num_critical_logs ?? 0) > 0) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Badge
                         variant="destructive"
-                        className="h-6 mr-1 px-1 font-normal"
+                        className="h-6 mr-1 px-1 font-normal flex-shrink-0 hidden @[300px]:inline-flex"
                       >
                         <MdErrorOutline size={16} className="text-white" />
                       </Badge>
@@ -291,13 +269,13 @@ const Span: React.FC<SpanProps> = ({
                   </Tooltip>
                 )}
 
-                {/* Warning icon for warning logs */}
+                {/* Warning icon for warning logs - hidden below 300px */}
                 {(span.num_warning_logs ?? 0) > 0 && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Badge
                         variant="secondary"
-                        className="h-6 mr-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-normal"
+                        className="h-6 mr-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-normal flex-shrink-0 hidden @[300px]:inline-flex"
                       >
                         <IoWarningOutline size={16} className="text-white" />
                       </Badge>
@@ -308,31 +286,35 @@ const Span: React.FC<SpanProps> = ({
                   </Tooltip>
                 )}
               </div>
-            </div>
 
-            {/* Latency and Expand/Collapse icon */}
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <span className="text-xs text-neutral-600 dark:text-neutral-300">
-                {formatLatency(span.start_time, span.end_time)}
-              </span>
-              {hasChildren && onSpanExpandToggle && (
-                <button
-                  onClick={(e) => onSpanExpandToggle(span.id, e)}
-                  className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
+              {/* Spacer to push right-side badges to the right */}
+              <div className="flex-1 min-w-4" />
+
+              {/* Right-side badges container */}
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {/* Duration Badge - hidden below 500px */}
+                <Badge
+                  variant="outline"
+                  className="h-6 px-2 font-mono text-xs font-normal flex-shrink-0 whitespace-nowrap hidden @[500px]:inline-flex"
                 >
-                  {isSpanExpanded ? (
-                    <CircleMinus
-                      size={14}
-                      className="text-neutral-600 dark:text-neutral-300"
-                    />
-                  ) : (
-                    <CirclePlus
-                      size={14}
-                      className="text-neutral-600 dark:text-neutral-300"
-                    />
-                  )}
-                </button>
-              )}
+                  {formatLatency(span.start_time, span.end_time)}
+                </Badge>
+
+                {/* Expand/Collapse Badge - hidden below 550px */}
+                {hasChildren && onSpanExpandToggle && (
+                  <Badge
+                    variant="outline"
+                    className="h-6 px-1.5 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0 whitespace-nowrap hidden @[550px]:inline-flex"
+                    onClick={(e) => onSpanExpandToggle(span.id, e)}
+                  >
+                    {isSpanExpanded ? (
+                      <CircleMinus size={12} />
+                    ) : (
+                      <CirclePlus size={12} />
+                    )}
+                  </Badge>
+                )}
+              </div>
             </div>
           </div>
         </div>
