@@ -6,7 +6,13 @@ import { Span, Trace as TraceModel } from "@/models/trace";
 import { FaPython, FaJava } from "react-icons/fa";
 import { IoLogoJavascript } from "react-icons/io5";
 import { SiTypescript } from "react-icons/si";
-import { Group, Ungroup, ArrowDownUp, Plus, Minus } from "lucide-react";
+import {
+  Group,
+  Ungroup,
+  ArrowDownUp,
+  CirclePlus,
+  CircleMinus,
+} from "lucide-react";
 import { fadeInAnimationStyles } from "@/constants/animations";
 import { ViewType } from "../ModeToggle";
 import { useAuth } from "@clerk/nextjs";
@@ -378,7 +384,6 @@ export default function LogDetail({
     }
   };
 
-
   // Build flat list of log entries from all selected traces
   const buildOrderedLogEntries = (
     logs: TraceLog | null,
@@ -620,7 +625,15 @@ export default function LogDetail({
 
   return (
     <div className="h-screen flex flex-col text-xs">
-      <div className="bg-white dark:bg-zinc-950 pt-0 px-4 pb-6 overflow-y-auto overflow-x-visible">
+      {/*
+        TODO: The 'pt-0' (padding-top: 0) and 'pb-22' (padding-bottom: 5.5rem)
+        classes are used here, but it's not clear why these specific values
+        are required for the layout.
+        If you refactor the layout or see layout issues related to the
+        top/bottom spacing, please confirm if these are still necessary, and
+        feel free to adjust as needed.
+      */}
+      <div className="bg-white dark:bg-zinc-950 pt-0 px-4 pb-22 overflow-y-auto overflow-x-visible">
         {loading && (
           <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-md border border-zinc-200 dark:border-zinc-700">
             <div className="flex flex-col items-center justify-center py-1 space-y-1">
@@ -638,7 +651,7 @@ export default function LogDetail({
         )}
         {/* Render logs in the order of SpanLogs, using span depth for indentation */}
         {!loading && !error && orderedLogEntries.length > 0 && (
-          <div className="text-sm bg-zinc-50 dark:bg-zinc-900 rounded-md pt-2 overflow-y-auto overflow-x-visible transition-all duration-100 ease-in-out">
+          <div className="text-sm bg-zinc-50 dark:bg-zinc-900 rounded-lg pt-1 px-2.5 pb-2.5 overflow-x-visible transition-all duration-100 ease-in-out">
             {/* Action Buttons */}
             <div className="flex justify-end items-center mb-2">
               <div className="flex items-center gap-2 flex-shrink-0">
@@ -690,9 +703,7 @@ export default function LogDetail({
                 )}
               </div>{" "}
             </div>
-            <div
-              className={`space-y-1 overflow-y-auto ${showCode ? "pb-20" : "pb-25"}`}
-            >
+            <div className="space-y-1.5">
               {/* Grouped View: Show logs grouped by trace */}
               {traceIds.length > 1 && isGrouped
                 ? Array.from(groupedLogEntries.entries()).map(
@@ -702,7 +713,7 @@ export default function LogDetail({
                       return (
                         <div
                           key={traceId}
-                          className="border border-neutral-300 dark:border-neutral-700 rounded-lg bg-white dark:bg-zinc-950 overflow-hidden mb-2 mr-3 ml-3"
+                          className="border border-neutral-300 dark:border-neutral-700 rounded-lg bg-white dark:bg-zinc-950 overflow-hidden mb-2"
                         >
                           {/* Trace Block Header */}
                           <div className="bg-white dark:bg-black p-1 border-b border-neutral-300 dark:border-neutral-700">
@@ -784,13 +795,16 @@ export default function LogDetail({
                                 )}
                               </div>
                               {trace?.start_time && (
-                                <span className="text-xs text-gray-500 dark:text-gray-400 font-mono mr-2">
+                                <Badge
+                                  variant="outline"
+                                  className="h-6 px-2 font-mono text-xs font-normal flex-shrink-0 whitespace-nowrap mr-1"
+                                >
                                   {formatTimestamp(trace.start_time)}
-                                </span>
+                                </Badge>
                               )}
-                              <Button
-                                variant="ghost"
-                                size="sm"
+                              <Badge
+                                variant="outline"
+                                className="h-6 px-1.5 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0 whitespace-nowrap"
                                 onClick={(e) => {
                                   e.stopPropagation(); // Prevent trace selection
                                   setExpandedTraceBlocks((prev) => {
@@ -803,14 +817,13 @@ export default function LogDetail({
                                     return newSet;
                                   });
                                 }}
-                                className="h-8 w-8 p-0"
                               >
                                 {isTraceExpanded ? (
-                                  <Minus className="w-4 h-4" />
+                                  <CircleMinus size={12} />
                                 ) : (
-                                  <Plus className="w-4 h-4" />
+                                  <CirclePlus size={12} />
                                 )}
-                              </Button>
+                              </Badge>
                             </div>
                           </div>
 
@@ -834,55 +847,51 @@ export default function LogDetail({
                                 return (
                                   <div
                                     key={entryKey}
-                                    className={`relative p-1.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 transform transition-all duration-100 ease-in-out hover:shadow`}
+                                    className={`relative rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 transform transition-all duration-100 ease-in-out hover:shadow overflow-hidden`}
                                   >
-                                    <div className="flex items-start min-w-0">
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex font-mono items-center space-x-2 text-xs flex-wrap min-w-0">
-                                          <span
-                                            className={`font-medium ${getLogLevelColor(entry.level)}`}
-                                          >
-                                            {entry.level}
-                                          </span>
-                                          <span className="text-gray-500 dark:text-gray-400">
-                                            {formatTimestamp(entry.time)}
-                                          </span>
-                                          <span className="text-gray-400 dark:text-gray-500 font-mono">
-                                            {entry.file_name}:
-                                            {entry.line_number}
-                                          </span>
-                                        </div>
-                                        <div className="relative font-mono p-1 bg-zinc-50 dark:bg-zinc-900 rounded text-neutral-800 dark:text-neutral-300 text-xs min-w-0 max-w-full overflow-hidden min-h-[1.5rem]">
-                                          <span className="whitespace-pre-wrap break-all word-break-break-all overflow-wrap-anywhere m-0 max-w-full block">
-                                            {logSearchValue ||
-                                            metadataSearchTerms.length > 0
-                                              ? highlightText(
-                                                  displayMessage,
-                                                  logSearchValue,
-                                                  metadataSearchTerms,
-                                                )
-                                              : displayMessage}
-                                          </span>
-                                        </div>
+                                    {/* Header Section */}
+                                    <div className="flex items-center justify-between px-2 py-1.5 border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-black">
+                                      <div className="flex font-mono items-center space-x-2 text-xs flex-wrap min-w-0">
+                                        <span
+                                          className={`font-medium ${getLogLevelColor(entry.level)}`}
+                                        >
+                                          {entry.level}
+                                        </span>
+                                        <span className="text-gray-500 dark:text-gray-400">
+                                          {formatTimestamp(entry.time)}
+                                        </span>
+                                        <span className="text-gray-400 dark:text-gray-500 font-mono">
+                                          {entry.file_name}:{entry.line_number}
+                                        </span>
                                       </div>
                                       {messageExpandable && (
-                                        <div className="ml-2 flex-shrink-0">
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() =>
-                                              toggleExpandEntry(entryKey)
-                                            }
-                                            className="h-6 w-6 p-0"
-                                          >
-                                            {isExpanded ? (
-                                              <Minus className="w-3 h-3 transition-transform duration-200 ease-in-out" />
-                                            ) : (
-                                              <Plus className="w-3 h-3 transition-transform duration-200 ease-in-out" />
-                                            )}
-                                          </Button>
-                                        </div>
+                                        <Badge
+                                          variant="outline"
+                                          className="h-6 px-1.5 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0 whitespace-nowrap"
+                                          onClick={() =>
+                                            toggleExpandEntry(entryKey)
+                                          }
+                                        >
+                                          {isExpanded ? (
+                                            <CircleMinus size={12} />
+                                          ) : (
+                                            <CirclePlus size={12} />
+                                          )}
+                                        </Badge>
                                       )}
+                                    </div>
+                                    {/* Content Section */}
+                                    <div className="relative font-mono p-2 bg-white dark:bg-zinc-900 text-neutral-800 dark:text-neutral-300 text-xs">
+                                      <span className="whitespace-pre-wrap break-all word-break-break-all overflow-wrap-anywhere m-0 max-w-full block">
+                                        {logSearchValue ||
+                                        metadataSearchTerms.length > 0
+                                          ? highlightText(
+                                              displayMessage,
+                                              logSearchValue,
+                                              metadataSearchTerms,
+                                            )
+                                          : displayMessage}
+                                      </span>
                                     </div>
                                   </div>
                                 );
@@ -908,62 +917,58 @@ export default function LogDetail({
                     return (
                       <div
                         key={entryKey}
-                        className={`relative p-1.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 transform transition-all duration-100 ease-in-out hover:shadow animate-fadeIn ${traceIds.length > 1 ? "mx-3" : ""}`}
+                        className="relative rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 transform transition-all duration-100 ease-in-out hover:shadow animate-fadeIn overflow-hidden"
                         style={{ animationDelay: `${idx * 3}ms` }}
                       >
-                        <div className="flex items-start min-w-0">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex font-mono items-center space-x-2 text-xs flex-wrap min-w-0">
-                              {traceIds.length > 1 && (
-                                <Badge
-                                  variant="default"
-                                  className="h-5 px-1.5 text-xs font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left"
-                                  title={traceId}
-                                >
-                                  {traceId.substring(0, 8)}...
-                                </Badge>
-                              )}
-                              <span
-                                className={`font-medium ${getLogLevelColor(entry.level)}`}
+                        {/* Header Section */}
+                        <div className="flex items-center justify-between px-2 py-1.5 border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-black">
+                          <div className="flex font-mono items-center space-x-2 text-xs flex-wrap min-w-0">
+                            {traceIds.length > 1 && (
+                              <Badge
+                                variant="default"
+                                className="h-5 px-1.5 text-xs font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left"
+                                title={traceId}
                               >
-                                {entry.level}
-                              </span>
-                              <span className="text-gray-500 dark:text-gray-400">
-                                {formatTimestamp(entry.time)}
-                              </span>
-                              <span className="text-gray-400 dark:text-gray-500 font-mono">
-                                {entry.file_name}:{entry.line_number}
-                              </span>
-                            </div>
-                            <div className="font-mono p-1 bg-zinc-50 dark:bg-zinc-900 rounded text-neutral-800 dark:text-neutral-300 text-xs mt-1">
-                              <span className="whitespace-pre-wrap break-all">
-                                {logSearchValue ||
-                                metadataSearchTerms.length > 0
-                                  ? highlightText(
-                                      displayMessage,
-                                      logSearchValue,
-                                      metadataSearchTerms,
-                                    )
-                                  : displayMessage}
-                              </span>
-                            </div>
+                                {traceId.substring(0, 8)}...
+                              </Badge>
+                            )}
+                            <span
+                              className={`font-medium ${getLogLevelColor(entry.level)}`}
+                            >
+                              {entry.level}
+                            </span>
+                            <span className="text-gray-500 dark:text-gray-400">
+                              {formatTimestamp(entry.time)}
+                            </span>
+                            <span className="text-gray-400 dark:text-gray-500 font-mono">
+                              {entry.file_name}:{entry.line_number}
+                            </span>
                           </div>
                           {messageExpandable && (
-                            <div className="ml-2 flex-shrink-0">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => toggleExpandEntry(entryKey)}
-                                className="h-6 w-6 p-0"
-                              >
-                                {isExpanded ? (
-                                  <Minus className="w-3 h-3 transition-transform duration-200 ease-in-out" />
-                                ) : (
-                                  <Plus className="w-3 h-3 transition-transform duration-200 ease-in-out" />
-                                )}
-                              </Button>
-                            </div>
+                            <Badge
+                              variant="outline"
+                              className="h-6 px-1.5 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0 whitespace-nowrap"
+                              onClick={() => toggleExpandEntry(entryKey)}
+                            >
+                              {isExpanded ? (
+                                <CircleMinus size={12} />
+                              ) : (
+                                <CirclePlus size={12} />
+                              )}
+                            </Badge>
                           )}
+                        </div>
+                        {/* Content Section */}
+                        <div className="relative font-mono p-2 bg-white dark:bg-zinc-900 text-neutral-800 dark:text-neutral-300 text-xs">
+                          <span className="whitespace-pre-wrap break-all">
+                            {logSearchValue || metadataSearchTerms.length > 0
+                              ? highlightText(
+                                  displayMessage,
+                                  logSearchValue,
+                                  metadataSearchTerms,
+                                )
+                              : displayMessage}
+                          </span>
                         </div>
                       </div>
                     );
