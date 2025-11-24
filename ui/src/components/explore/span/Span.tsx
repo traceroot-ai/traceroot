@@ -164,7 +164,7 @@ const Span: React.FC<SpanProps> = ({
     <>
       {level === 0 && <style>{fadeInAnimationStyles}</style>}
       <div
-        className={`relative space-y-1.5 transition-all duration-100 ease-in-out ${isExpanded ? "animate-fadeIn" : ""}`}
+        className={`relative space-y-1.5 transition-all duration-100 ease-in-out @container ${isExpanded ? "animate-fadeIn" : ""}`}
         style={{
           width: `${widthPercentage}%`,
           marginLeft: `${100 - widthPercentage}%`,
@@ -251,14 +251,14 @@ const Span: React.FC<SpanProps> = ({
 
               {/* Warning and Error Badges Container */}
               <div className="flex items-center flex-shrink-0">
-                {/* Error icon for error/critical logs - hidden below 300px */}
+                {/* Error icon for error/critical logs - hidden below 400px */}
                 {((span.num_error_logs ?? 0) > 0 ||
                   (span.num_critical_logs ?? 0) > 0) && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Badge
                         variant="destructive"
-                        className="h-6 mr-1 px-1 font-normal flex-shrink-0 hidden @[300px]:inline-flex"
+                        className="h-6 mr-1 px-1 font-normal flex-shrink-0 hidden @[400px]:inline-flex"
                       >
                         <MdErrorOutline size={16} className="text-white" />
                       </Badge>
@@ -269,13 +269,13 @@ const Span: React.FC<SpanProps> = ({
                   </Tooltip>
                 )}
 
-                {/* Warning icon for warning logs - hidden below 300px */}
+                {/* Warning icon for warning logs - hidden below 400px */}
                 {(span.num_warning_logs ?? 0) > 0 && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Badge
                         variant="secondary"
-                        className="h-6 mr-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-normal flex-shrink-0 hidden @[300px]:inline-flex"
+                        className="h-6 mr-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-normal flex-shrink-0 hidden @[400px]:inline-flex"
                       >
                         <IoWarningOutline size={16} className="text-white" />
                       </Badge>
