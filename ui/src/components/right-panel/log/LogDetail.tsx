@@ -6,18 +6,11 @@ import { Span, Trace as TraceModel } from "@/models/trace";
 import { FaPython, FaJava } from "react-icons/fa";
 import { IoLogoJavascript } from "react-icons/io5";
 import { SiTypescript } from "react-icons/si";
-import {
-  Group,
-  Ungroup,
-  ArrowDownUp,
-  CirclePlus,
-  CircleMinus,
-} from "lucide-react";
+import { CirclePlus, CircleMinus } from "lucide-react";
 import { fadeInAnimationStyles } from "@/constants/animations";
 import { ViewType } from "../ModeToggle";
 import { useAuth } from "@clerk/nextjs";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/shadcn-io/spinner";
 import {
   Tooltip,
@@ -51,25 +44,21 @@ export default function LogDetail({
 }: LogDetailProps) {
   const [allLogs, setAllLogs] = useState<TraceLog | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadingTraces, setLoadingTraces] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
-  const [showCode, setShowCode] = useState(false);
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(
     new Set(),
   );
-  const [isGrouped, setIsGrouped] = useState(false);
   const [expandedTraceBlocks, setExpandedTraceBlocks] = useState<Set<string>>(
     new Set(),
   );
-  const [isSortDescending, setIsSortDescending] = useState(false);
   const { getToken } = useAuth();
 
-  // When switching to grouped mode, expand all trace blocks by default
+  // Expand all trace blocks by default when multiple traces are selected
   useEffect(() => {
-    if (isGrouped && traceIds.length > 1) {
+    if (traceIds.length > 1) {
       setExpandedTraceBlocks(new Set(traceIds));
     }
-  }, [isGrouped, traceIds]);
+  }, [traceIds]);
 
   useEffect(() => {
     // Inject styles on client side only
@@ -83,57 +72,15 @@ export default function LogDetail({
     };
   }, []); // Empty dependency array means this only runs once on mount
 
-  // Reset showCode and clear code data when traceIds or spanIds changes
-  useEffect(() => {
-    setShowCode(false);
-    // Clear code data from all log entries
-    if (allLogs) {
-      Object.values(allLogs).forEach((spanLogs) => {
-        (spanLogs as any[]).forEach((spanLog) => {
-          Object.values(spanLog).forEach((entries) => {
-            (entries as LogEntry[]).forEach((entry) => {
-              entry.line = undefined;
-              entry.lines_above = undefined;
-              entry.lines_below = undefined;
-            });
-          });
-        });
-      });
-    }
-  }, [traceIds, spanIds, allLogs]);
-
-  // Reset showCode when viewType is not 'log'
-  useEffect(() => {
-    if (viewType && viewType !== "log") {
-      setShowCode(false);
-      // Clear code data from all log entries
-      if (allLogs) {
-        Object.values(allLogs).forEach((spanLogs) => {
-          (spanLogs as any[]).forEach((spanLog) => {
-            Object.values(spanLog).forEach((entries) => {
-              (entries as LogEntry[]).forEach((entry) => {
-                entry.line = undefined;
-                entry.lines_above = undefined;
-                entry.lines_below = undefined;
-              });
-            });
-          });
-        });
-      }
-    }
-  }, [viewType, allLogs]);
-
   useEffect(() => {
     const fetchLogs = async () => {
       if (!traceIds || traceIds.length === 0) {
         setAllLogs(null);
-        setLoadingTraces(new Set());
         return;
       }
 
       setLoading(true);
       setError(null);
-      setLoadingTraces(new Set(traceIds));
 
       try {
         const { traceProvider, logProvider, traceRegion, logRegion } =
@@ -225,13 +172,6 @@ export default function LogDetail({
             errorMessage =
               result.error || "Failed to fetch logs for some traces";
           }
-
-          // Remove from loading set as we process each result
-          setLoadingTraces((prev) => {
-            const newSet = new Set(prev);
-            newSet.delete(result.traceId);
-            return newSet;
-          });
         });
 
         setAllLogs(mergedLogs);
@@ -247,7 +187,6 @@ export default function LogDetail({
             ? err.message
             : "An error occurred while fetching logs",
         );
-        setLoadingTraces(new Set());
       } finally {
         setLoading(false);
       }
@@ -481,17 +420,14 @@ export default function LogDetail({
   };
 
   // Compute ordered log entries (for ungrouped view)
-  const orderedLogEntries = buildOrderedLogEntries(
-    logs,
-    traceIds,
-    isSortDescending,
-  );
+  // Sort logs in descending order (latest first)
+  const orderedLogEntries = buildOrderedLogEntries(logs, traceIds, true);
   // Compute grouped log entries (for grouped view) - reuses same entry references from orderedLogEntries
   const groupedLogEntries = buildGroupedLogEntries(
     orderedLogEntries,
     traceIds,
     allTraces,
-    isSortDescending,
+    true,
   );
 
   const toggleExpandEntry = (entryKey: string) => {
@@ -652,60 +588,9 @@ export default function LogDetail({
         {/* Render logs in the order of SpanLogs, using span depth for indentation */}
         {!loading && !error && orderedLogEntries.length > 0 && (
           <div className="text-sm bg-zinc-50 dark:bg-zinc-900 rounded-lg pt-1 px-2.5 pb-2.5 overflow-x-visible transition-all duration-100 ease-in-out">
-            {/* Action Buttons */}
-            <div className="flex justify-end items-center mb-2">
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {traceIds.length > 1 && (
-                  <>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          onClick={() => setIsSortDescending(!isSortDescending)}
-                          variant="outline"
-                          size="sm"
-                          className="h-8 gap-1.5"
-                        >
-                          <ArrowDownUp className="w-3.5 h-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>
-                          {isGrouped
-                            ? "Reverse group order by trace timestamp"
-                            : "Reverse log order by logging timestamp"}
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          onClick={() => setIsGrouped(!isGrouped)}
-                          variant="outline"
-                          size="sm"
-                          className="h-8 gap-1.5"
-                        >
-                          {isGrouped ? (
-                            <Ungroup className="w-3.5 h-3.5" />
-                          ) : (
-                            <Group className="w-3.5 h-3.5" />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>
-                          {isGrouped
-                            ? "Flatten loggings"
-                            : "Group loggings according to traces"}
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </>
-                )}
-              </div>{" "}
-            </div>
             <div className="space-y-1.5">
               {/* Grouped View: Show logs grouped by trace */}
-              {traceIds.length > 1 && isGrouped
+              {traceIds.length > 1
                 ? Array.from(groupedLogEntries.entries()).map(
                     ([traceId, { trace, logs }]) => {
                       const isTraceExpanded = expandedTraceBlocks.has(traceId);
@@ -763,7 +648,7 @@ export default function LogDetail({
                                       variant="default"
                                       className="min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left cursor-default"
                                     >
-                                      {traceId.substring(0, 12)}...
+                                      {traceId.substring(0, 8)}...
                                     </Badge>
                                   </TooltipTrigger>
                                   <TooltipContent>
@@ -772,27 +657,6 @@ export default function LogDetail({
                                     </p>
                                   </TooltipContent>
                                 </Tooltip>
-                                {trace?.service_name && (
-                                  <Badge
-                                    variant="default"
-                                    className="min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left"
-                                    title={
-                                      trace.service_name.length > 25
-                                        ? trace.service_name
-                                        : undefined
-                                    }
-                                  >
-                                    {trace.service_name}
-                                  </Badge>
-                                )}
-                                {trace?.service_environment && (
-                                  <Badge
-                                    variant="outline"
-                                    className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
-                                  >
-                                    {trace.service_environment}
-                                  </Badge>
-                                )}
                               </div>
                               {trace?.start_time && (
                                 <Badge
