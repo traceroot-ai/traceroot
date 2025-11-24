@@ -1,22 +1,13 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { TraceLog, LogEntry } from "@/models/log";
 import { Span, Trace as TraceModel } from "@/models/trace";
-import { FaGithub, FaPython, FaJava } from "react-icons/fa";
-import { IoCopyOutline, IoLogoJavascript } from "react-icons/io5";
+import { FaPython, FaJava } from "react-icons/fa";
+import { IoLogoJavascript } from "react-icons/io5";
 import { SiTypescript } from "react-icons/si";
-import {
-  Plus,
-  Minus,
-  Download,
-  Group,
-  Ungroup,
-  ArrowDownUp,
-} from "lucide-react";
+import { Group, Ungroup, ArrowDownUp, Plus, Minus } from "lucide-react";
 import { fadeInAnimationStyles } from "@/constants/animations";
-import ShowCodeToggle from "./ShowCodeToggle";
-import CodeContext from "./CodeContext";
 import { ViewType } from "../ModeToggle";
 import { useAuth } from "@clerk/nextjs";
 import { Badge } from "@/components/ui/badge";
@@ -57,7 +48,6 @@ export default function LogDetail({
   const [loadingTraces, setLoadingTraces] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [showCode, setShowCode] = useState(false);
-  const [, forceUpdate] = useState({});
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(
     new Set(),
   );
@@ -388,32 +378,6 @@ export default function LogDetail({
     }
   };
 
-  const getLogStyle = (level: number) => {
-    const leftMargin = level * 3 + 1.5;
-    const rightMargin = 1.5;
-    const width = 100 - leftMargin - rightMargin;
-
-    return {
-      width: `${width}%`,
-      marginLeft: `${leftMargin}%`,
-      marginRight: `${rightMargin}%`,
-    };
-  };
-
-  // Build spanId -> depth mapping by traversing the span tree
-  const buildSpanDepthMap = (spans: Span[] | undefined) => {
-    const map: { [spanId: string]: number } = {};
-    const traverse = (span: Span, depth: number) => {
-      map[span.id] = depth;
-      if (span.spans && span.spans.length > 0) {
-        span.spans.forEach((childSpan) => traverse(childSpan, depth + 1));
-      }
-    };
-    if (spans) {
-      spans.forEach((span) => traverse(span, 0));
-    }
-    return map;
-  };
 
   // Build flat list of log entries from all selected traces
   const buildOrderedLogEntries = (
@@ -458,7 +422,6 @@ export default function LogDetail({
       {
         trace: TraceModel | undefined;
         logs: { entry: LogEntry; spanId: string }[];
-        spanDepthMap: { [spanId: string]: number };
       }
     > = new Map();
 
@@ -471,7 +434,6 @@ export default function LogDetail({
         {
           trace: TraceModel | undefined;
           logs: { entry: LogEntry; spanId: string }[];
-          spanDepthMap: { [spanId: string]: number };
         },
       ]
     > = [];
@@ -485,16 +447,12 @@ export default function LogDetail({
         .filter((item) => item.traceId === traceId)
         .map(({ entry, spanId }) => ({ entry, spanId }));
 
-      // Build span depth map for this trace
-      const spanDepthMap = buildSpanDepthMap(trace?.spans);
-
       if (traceLogs.length > 0) {
         entries.push([
           traceId,
           {
             trace,
             logs: traceLogs,
-            spanDepthMap,
           },
         ]);
       }
@@ -517,8 +475,6 @@ export default function LogDetail({
     return groupedData;
   };
 
-  // Compute spanId->depth map (for single trace or ungrouped multi-trace)
-  const spanDepthMap = buildSpanDepthMap(segments);
   // Compute ordered log entries (for ungrouped view)
   const orderedLogEntries = buildOrderedLogEntries(
     logs,
@@ -532,78 +488,6 @@ export default function LogDetail({
     allTraces,
     isSortDescending,
   );
-
-  // Get all log entries for ShowCodeToggle (flattened from grouped view or ungrouped view)
-  const allLogEntriesForCodeToggle = React.useMemo(() => {
-    if (traceIds.length > 1 && isGrouped) {
-      // Flatten all logs from grouped entries
-      const flattened: { entry: LogEntry; spanId: string }[] = [];
-      groupedLogEntries.forEach(({ logs }) => {
-        flattened.push(...logs);
-      });
-      return flattened;
-    }
-    // For ungrouped view, remove traceId property to match expected format
-    return orderedLogEntries.map(({ entry, spanId }) => ({ entry, spanId }));
-  }, [traceIds, isGrouped, groupedLogEntries, orderedLogEntries]);
-
-  // Calculate log level statistics
-  const calculateLogStats = (
-    logEntries: { entry: LogEntry; spanId: string; traceId: string }[],
-  ) => {
-    const stats = {
-      TRACE: 0,
-      DEBUG: 0,
-      INFO: 0,
-      WARNING: 0,
-      ERROR: 0,
-      CRITICAL: 0,
-    };
-
-    logEntries.forEach(({ entry }) => {
-      if (entry.level in stats) {
-        stats[entry.level as keyof typeof stats]++;
-      }
-    });
-
-    return stats;
-  };
-
-  // Calculate log level statistics for grouped traces
-  const calculateGroupedLogStats = (
-    logEntries: { entry: LogEntry; spanId: string }[],
-  ) => {
-    const stats = {
-      TRACE: 0,
-      DEBUG: 0,
-      INFO: 0,
-      WARNING: 0,
-      ERROR: 0,
-      CRITICAL: 0,
-    };
-
-    logEntries.forEach(({ entry }) => {
-      if (entry.level in stats) {
-        stats[entry.level as keyof typeof stats]++;
-      }
-    });
-
-    return stats;
-  };
-
-  const logStats = calculateLogStats(orderedLogEntries);
-
-  // Callback to trigger re-render when log entries are updated
-  const handleForceUpdate = () => {
-    forceUpdate({});
-  };
-
-  const getGitHubLink = (entry: LogEntry) => {
-    if (entry.git_url && entry.commit_id) {
-      return entry.git_url;
-    }
-    return null;
-  };
 
   const toggleExpandEntry = (entryKey: string) => {
     setExpandedEntries((prev) => {
@@ -626,98 +510,6 @@ export default function LogDetail({
 
   const isMessageExpandable = (message: string, maxLength: number = 500) => {
     return message.length > maxLength;
-  };
-
-  // Download logs as CSV
-  const downloadLogsAsCSV = () => {
-    if (!orderedLogEntries || orderedLogEntries.length === 0) {
-      return;
-    }
-
-    // Sort by timestamp (latest to most recent, i.e., descending order)
-    const sortedEntries = [...orderedLogEntries].sort(
-      (a, b) => b.entry.time - a.entry.time,
-    );
-
-    // CSV header - include Trace ID if multiple traces
-    const headers =
-      traceIds.length > 1
-        ? [
-            "Trace ID",
-            "Log Level",
-            "Timestamp (UTC)",
-            "Log Line",
-            "Method Name",
-            "Message",
-          ]
-        : [
-            "Log Level",
-            "Timestamp (UTC)",
-            "Log Line",
-            "Method Name",
-            "Message",
-          ];
-    const csvRows = [headers.join(",")];
-
-    // Add data rows
-    sortedEntries.forEach(({ entry, traceId }) => {
-      // Convert timestamp to UTC
-      const utcDate = new Date(entry.time * 1000).toISOString();
-
-      // Log line (file_name:line_number)
-      const logLine = `${entry.file_name}:${entry.line_number}`;
-
-      // Escape CSV fields (handle quotes and commas)
-      const escapeCSV = (field: string) => {
-        if (
-          field.includes('"') ||
-          field.includes(",") ||
-          field.includes("\n")
-        ) {
-          return `"${field.replace(/"/g, '""')}"`;
-        }
-        return field;
-      };
-
-      const row =
-        traceIds.length > 1
-          ? [
-              escapeCSV(traceId),
-              escapeCSV(entry.level),
-              escapeCSV(utcDate),
-              escapeCSV(logLine),
-              escapeCSV(entry.function_name || ""),
-              escapeCSV(entry.message || ""),
-            ]
-          : [
-              escapeCSV(entry.level),
-              escapeCSV(utcDate),
-              escapeCSV(logLine),
-              escapeCSV(entry.function_name || ""),
-              escapeCSV(entry.message || ""),
-            ];
-
-      csvRows.push(row.join(","));
-    });
-
-    // Create CSV content
-    const csvContent = csvRows.join("\n");
-
-    // Create blob and download
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-
-    link.setAttribute("href", url);
-    const filename =
-      traceIds.length === 1
-        ? `${traceIds[0]}.csv`
-        : `traces_${traceIds.length}.csv`;
-    link.setAttribute("download", filename);
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
 
   // Format message with smart line breaks for long content
@@ -763,20 +555,6 @@ export default function LogDetail({
     }
 
     return processedLines.join("\n");
-  };
-
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch (err) {
-      // Fallback for older browsers
-      const textArea = document.createElement("textarea");
-      textArea.value = text;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textArea);
-    }
   };
 
   // Helper function to highlight search terms in text
@@ -861,78 +639,8 @@ export default function LogDetail({
         {/* Render logs in the order of SpanLogs, using span depth for indentation */}
         {!loading && !error && orderedLogEntries.length > 0 && (
           <div className="text-sm bg-zinc-50 dark:bg-zinc-900 rounded-md pt-2 overflow-y-auto overflow-x-visible transition-all duration-100 ease-in-out">
-            {/* Log Level Statistics and Action Buttons */}
-            <div className="flex justify-between items-center mb-2">
-              <div>
-                <div className="font-mono flex flex-wrap items-center gap-2 px-3 py-1 text-xs my-0.5 text-gray-700 dark:text-gray-200">
-                  {logStats.TRACE > 0 && (
-                    <div className="flex items-center">
-                      <Badge
-                        variant="secondary"
-                        className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
-                        style={{ backgroundColor: "#6366f1" }}
-                      >
-                        TRACE: {logStats.TRACE}
-                      </Badge>
-                    </div>
-                  )}
-                  {logStats.DEBUG > 0 && (
-                    <div className="flex items-center">
-                      <Badge
-                        variant="secondary"
-                        className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
-                        style={{ backgroundColor: "#a855f7" }}
-                      >
-                        DEBUG: {logStats.DEBUG}
-                      </Badge>
-                    </div>
-                  )}
-                  {logStats.INFO > 0 && (
-                    <div className="flex items-center">
-                      <Badge
-                        variant="secondary"
-                        className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
-                        style={{ backgroundColor: "#64748b" }}
-                      >
-                        INFO: {logStats.INFO}
-                      </Badge>
-                    </div>
-                  )}
-                  {logStats.WARNING > 0 && (
-                    <div className="flex items-center">
-                      <Badge
-                        variant="secondary"
-                        className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
-                        style={{ backgroundColor: "#fb923c" }}
-                      >
-                        WARNING: {logStats.WARNING}
-                      </Badge>
-                    </div>
-                  )}
-                  {logStats.ERROR > 0 && (
-                    <div className="flex items-center">
-                      <Badge
-                        variant="secondary"
-                        className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
-                        style={{ backgroundColor: "#dc2626" }}
-                      >
-                        ERROR: {logStats.ERROR}
-                      </Badge>
-                    </div>
-                  )}
-                  {logStats.CRITICAL > 0 && (
-                    <div className="flex items-center">
-                      <Badge
-                        variant="secondary"
-                        className="h-6 px-2 py-1.5 font-normal text-white rounded-sm"
-                        style={{ backgroundColor: "#7f1d1d" }}
-                      >
-                        CRITICAL: {logStats.CRITICAL}
-                      </Badge>
-                    </div>
-                  )}
-                </div>
-              </div>
+            {/* Action Buttons */}
+            <div className="flex justify-end items-center mb-2">
               <div className="flex items-center gap-2 flex-shrink-0">
                 {traceIds.length > 1 && (
                   <>
@@ -980,31 +688,6 @@ export default function LogDetail({
                     </Tooltip>
                   </>
                 )}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={downloadLogsAsCSV}
-                      variant="outline"
-                      size="sm"
-                      className="h-8 gap-1.5"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>
-                      {traceIds.length === 1
-                        ? `Download logs for ${traceIds[0].substring(0, 12)}...`
-                        : `Download logs for ${traceIds.length} traces`}
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-                <ShowCodeToggle
-                  logEntries={allLogEntriesForCodeToggle}
-                  onLogEntriesUpdate={handleForceUpdate}
-                  showCode={showCode}
-                  onShowCodeChange={setShowCode}
-                />
               </div>{" "}
             </div>
             <div
@@ -1013,7 +696,7 @@ export default function LogDetail({
               {/* Grouped View: Show logs grouped by trace */}
               {traceIds.length > 1 && isGrouped
                 ? Array.from(groupedLogEntries.entries()).map(
-                    ([traceId, { trace, logs, spanDepthMap }]) => {
+                    ([traceId, { trace, logs }]) => {
                       const isTraceExpanded = expandedTraceBlocks.has(traceId);
 
                       return (
@@ -1135,7 +818,6 @@ export default function LogDetail({
                           {isTraceExpanded && (
                             <div className="p-2 space-y-1 bg-zinc-50 dark:bg-zinc-950">
                               {logs.map(({ entry, spanId }, idx) => {
-                                const githubLink = getGitHubLink(entry);
                                 const entryKey = `${traceId}-${spanId}-${idx}`;
                                 const isExpanded =
                                   expandedEntries.has(entryKey);
@@ -1153,9 +835,6 @@ export default function LogDetail({
                                   <div
                                     key={entryKey}
                                     className={`relative p-1.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 transform transition-all duration-100 ease-in-out hover:shadow`}
-                                    style={getLogStyle(
-                                      spanDepthMap[spanId] ?? 0,
-                                    )}
                                   >
                                     <div className="flex items-start min-w-0">
                                       <div className="flex-1 min-w-0">
@@ -1172,34 +851,9 @@ export default function LogDetail({
                                             {entry.file_name}:
                                             {entry.line_number}
                                           </span>
-                                          <span className="text-neutral-600 dark:text-neutral-300 italic break-all">
-                                            {entry.function_name}
-                                          </span>
-                                          {githubLink && (
-                                            <a
-                                              href={githubLink}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              className="text-neutral-500 dark:text-neutral-300 hover:text-neutral-600 dark:hover:text-neutral-400 transition-colors"
-                                              title="View on GitHub"
-                                            >
-                                              <FaGithub className="inline-block" />
-                                            </a>
-                                          )}
                                         </div>
                                         <div className="relative font-mono p-1 bg-zinc-50 dark:bg-zinc-900 rounded text-neutral-800 dark:text-neutral-300 text-xs min-w-0 max-w-full overflow-hidden min-h-[1.5rem]">
-                                          <Button
-                                            onClick={() =>
-                                              copyToClipboard(entry.message)
-                                            }
-                                            variant="ghost"
-                                            size="icon"
-                                            className="absolute top-0.5 right-0.5 h-5 w-5 opacity-70 hover:opacity-100 transition-opacity z-10"
-                                            title="Copy message"
-                                          >
-                                            <IoCopyOutline className="w-3 h-3" />
-                                          </Button>
-                                          <span className="whitespace-pre-wrap break-all word-break-break-all overflow-wrap-anywhere m-0 max-w-full pr-7 block">
+                                          <span className="whitespace-pre-wrap break-all word-break-break-all overflow-wrap-anywhere m-0 max-w-full block">
                                             {logSearchValue ||
                                             metadataSearchTerms.length > 0
                                               ? highlightText(
@@ -1210,28 +864,15 @@ export default function LogDetail({
                                               : displayMessage}
                                           </span>
                                         </div>
-                                        {/* Show code context if available */}
-                                        <CodeContext
-                                          entry={entry}
-                                          showCode={showCode}
-                                        />
                                       </div>
                                       {messageExpandable && (
                                         <div className="ml-2 flex-shrink-0">
                                           <Button
                                             variant="ghost"
                                             size="sm"
-                                            onClick={() => {
-                                              setExpandedEntries((prev) => {
-                                                const newSet = new Set(prev);
-                                                if (newSet.has(entryKey)) {
-                                                  newSet.delete(entryKey);
-                                                } else {
-                                                  newSet.add(entryKey);
-                                                }
-                                                return newSet;
-                                              });
-                                            }}
+                                            onClick={() =>
+                                              toggleExpandEntry(entryKey)
+                                            }
                                             className="h-6 w-6 p-0"
                                           >
                                             {isExpanded ? (
@@ -1254,7 +895,6 @@ export default function LogDetail({
                   )
                 : /* Ungrouped View: Show all logs merged chronologically */
                   orderedLogEntries.map(({ entry, spanId, traceId }, idx) => {
-                    const githubLink = getGitHubLink(entry);
                     const entryKey = `${traceId}-${spanId}-${idx}`;
                     const isExpanded = expandedEntries.has(entryKey);
                     const formattedMessage = formatMessage(entry.message);
@@ -1265,21 +905,11 @@ export default function LogDetail({
                         ? truncateMessage(formattedMessage)
                         : formattedMessage;
 
-                    // For multiple traces, use flat layout (no indentation)
-                    // For single trace, use tree structure with indentation
-                    const logStyle =
-                      traceIds.length > 1
-                        ? { animationDelay: `${idx * 3}ms` }
-                        : {
-                            ...getLogStyle(spanDepthMap[spanId] ?? 0),
-                            animationDelay: `${idx * 3}ms`,
-                          };
-
                     return (
                       <div
                         key={entryKey}
                         className={`relative p-1.5 rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 transform transition-all duration-100 ease-in-out hover:shadow animate-fadeIn ${traceIds.length > 1 ? "mx-3" : ""}`}
-                        style={logStyle}
+                        style={{ animationDelay: `${idx * 3}ms` }}
                       >
                         <div className="flex items-start min-w-0">
                           <div className="flex-1 min-w-0">
@@ -1304,54 +934,27 @@ export default function LogDetail({
                               <span className="text-gray-400 dark:text-gray-500 font-mono">
                                 {entry.file_name}:{entry.line_number}
                               </span>
-                              <span className="text-neutral-600 dark:text-neutral-300 italic break-all">
-                                {entry.function_name}
-                              </span>
-                              {githubLink && (
-                                <a
-                                  href={githubLink}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-neutral-500 dark:text-neutral-300 hover:text-neutral-600 dark:hover:text-neutral-400 transition-colors"
-                                  title="View on GitHub"
-                                >
-                                  <FaGithub className="inline-block" />
-                                </a>
-                              )}
-                              <div className="relative font-mono p-1 bg-zinc-50 dark:bg-zinc-900 rounded text-neutral-800 dark:text-neutral-300 text-xs min-w-0 max-w-full overflow-hidden min-h-[1.5rem]">
-                                <Button
-                                  onClick={() => copyToClipboard(entry.message)}
-                                  variant="ghost"
-                                  size="icon"
-                                  className="absolute top-0.5 right-0.5 h-5 w-5 opacity-70 hover:opacity-100 transition-opacity z-10"
-                                  title="Copy message"
-                                >
-                                  <IoCopyOutline className="w-3 h-3" />
-                                </Button>
-                                <span className="whitespace-pre-wrap break-all word-break-break-all overflow-wrap-anywhere m-0 max-w-full pr-7 block">
-                                  {logSearchValue ||
-                                  metadataSearchTerms.length > 0
-                                    ? highlightText(
-                                        displayMessage,
-                                        logSearchValue,
-                                        metadataSearchTerms,
-                                      )
-                                    : displayMessage}
-                                </span>
-                              </div>
                             </div>
-                            {/* Show code context if available */}
-                            <CodeContext entry={entry} showCode={showCode} />
+                            <div className="font-mono p-1 bg-zinc-50 dark:bg-zinc-900 rounded text-neutral-800 dark:text-neutral-300 text-xs mt-1">
+                              <span className="whitespace-pre-wrap break-all">
+                                {logSearchValue ||
+                                metadataSearchTerms.length > 0
+                                  ? highlightText(
+                                      displayMessage,
+                                      logSearchValue,
+                                      metadataSearchTerms,
+                                    )
+                                  : displayMessage}
+                              </span>
+                            </div>
                           </div>
-                          {/* Expand/Collapse Icon - Only show if message is expandable */}
                           {messageExpandable && (
-                            <div className="ml-2 flex-shrink-0 bg-zinc-100 dark:bg-zinc-800 rounded-md">
+                            <div className="ml-2 flex-shrink-0">
                               <Button
-                                onClick={() => toggleExpandEntry(entryKey)}
                                 variant="ghost"
-                                size="icon"
-                                title={isExpanded ? "Collapse" : "Expand"}
-                                className="h-8 w-8"
+                                size="sm"
+                                onClick={() => toggleExpandEntry(entryKey)}
+                                className="h-6 w-6 p-0"
                               >
                                 {isExpanded ? (
                                   <Minus className="w-3 h-3 transition-transform duration-200 ease-in-out" />
