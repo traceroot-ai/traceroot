@@ -18,6 +18,7 @@ export function useStableCustomer(params?: Parameters<typeof useCustomer>[0]) {
       customer: null,
       isLoading: false,
       error: null,
+      openBillingPortal: async () => {},
     };
   }
 
