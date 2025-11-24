@@ -843,10 +843,10 @@ export const Trace: React.FC<TraceProps> = ({
   return (
     <>
       <style>{fadeInAnimationStyles}</style>
-      <div className="h-screen bg-white dark:bg-zinc-950 text-neutral-800 dark:text-neutral-200 transition-colors duration-300 p-4 overflow-y-auto overflow-x-hidden">
+      <div className="h-screen bg-white dark:bg-zinc-950 text-neutral-800 dark:text-neutral-200 transition-colors duration-300 p-4 overflow-y-auto overflow-x-hidden @container">
         {/* Search and Time Range Selector */}
         <div className="space-y-4">
-          <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-2">
+          <div className="flex flex-col @[600px]:flex-row @[600px]:justify-between @[600px]:items-center gap-2">
             <div className="flex-1 min-w-0">
               <SearchBar
                 onSearch={handleSearch}
@@ -872,7 +872,7 @@ export const Trace: React.FC<TraceProps> = ({
           </div>
 
           {/* Content container with zinc-50 background */}
-          <div className="mt-4 bg-zinc-50 dark:bg-zinc-900 p-2.5 rounded-lg">
+          <div className="mt-4 bg-zinc-50 dark:bg-zinc-900 p-2.5 rounded-lg overflow-x-hidden">
             {loading && (
               <div className="flex flex-col items-center justify-center py-1 space-y-1">
                 <Spinner
@@ -903,10 +903,10 @@ export const Trace: React.FC<TraceProps> = ({
                       ? `${(index - previousTraceCountRef.current) * 5}ms`
                       : "0ms";
                     return (
-                      <div key={trace.id} className="relative">
+                      <div key={trace.id} className="relative @container">
                         {/* Trace Block */}
                         <div
-                          className={`relative h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-100 ease-in-out hover:shadow-sm ${isNewTrace ? "animate-fadeIn" : ""} ${
+                          className={`relative h-[43px] p-2 rounded border border-neutral-300 dark:border-neutral-700 transition-colors cursor-pointer transform transition-all duration-100 ease-in-out hover:shadow-sm overflow-hidden ${isNewTrace ? "animate-fadeIn" : ""} ${
                             selectedTraceIds.has(trace.id)
                               ? "bg-zinc-200 dark:bg-zinc-800 border-l-4 border-l-zinc-400 dark:border-l-zinc-600"
                               : "bg-white dark:bg-zinc-950"
@@ -918,225 +918,222 @@ export const Trace: React.FC<TraceProps> = ({
                           role="button"
                           tabIndex={0}
                         >
-                          <div className="flex justify-between items-center h-full">
-                            <div className="flex items-center text-sm min-w-0 flex-1 pr-4">
-                              {/* Telemetry SDK Language Icons */}
-                              {trace.telemetry_sdk_language &&
-                                trace.telemetry_sdk_language.length > 0 && (
-                                  <div className="flex items-center flex-shrink-0">
-                                    {/* Python Icon - show when telemetry_sdk_language includes "python" */}
-                                    {trace.telemetry_sdk_language.includes(
-                                      "python",
-                                    ) && (
-                                      <FaPython
-                                        className="text-neutral-800 dark:text-neutral-200 mr-2"
-                                        size={14}
-                                      />
-                                    )}
+                          <div className="flex items-center gap-1 h-full text-sm min-w-0">
+                            {/* Telemetry SDK Language Icons */}
+                            {trace.telemetry_sdk_language &&
+                              trace.telemetry_sdk_language.length > 0 && (
+                                <div className="flex items-center flex-shrink-0">
+                                  {/* Python Icon - show when telemetry_sdk_language includes "python" */}
+                                  {trace.telemetry_sdk_language.includes(
+                                    "python",
+                                  ) && (
+                                    <FaPython
+                                      className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                      size={14}
+                                    />
+                                  )}
 
-                                    {/* TypeScript Icon - show when telemetry_sdk_language includes "ts" */}
-                                    {trace.telemetry_sdk_language.includes(
-                                      "ts",
-                                    ) && (
-                                      <SiTypescript
-                                        className="text-neutral-800 dark:text-neutral-200 mr-2"
-                                        size={14}
-                                      />
-                                    )}
+                                  {/* TypeScript Icon - show when telemetry_sdk_language includes "ts" */}
+                                  {trace.telemetry_sdk_language.includes(
+                                    "ts",
+                                  ) && (
+                                    <SiTypescript
+                                      className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                      size={14}
+                                    />
+                                  )}
 
-                                    {/* JavaScript Icon - show when telemetry_sdk_language includes "js" */}
-                                    {trace.telemetry_sdk_language.includes(
-                                      "js",
-                                    ) && (
-                                      <IoLogoJavascript
-                                        className="text-neutral-800 dark:text-neutral-200 mr-2"
-                                        size={14}
-                                      />
-                                    )}
+                                  {/* JavaScript Icon - show when telemetry_sdk_language includes "js" */}
+                                  {trace.telemetry_sdk_language.includes(
+                                    "js",
+                                  ) && (
+                                    <IoLogoJavascript
+                                      className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                      size={14}
+                                    />
+                                  )}
 
-                                    {/* Java Icon - show when telemetry_sdk_language includes "java" */}
-                                    {trace.telemetry_sdk_language.includes(
-                                      "java",
-                                    ) && (
-                                      <FaJava
-                                        className="text-neutral-800 dark:text-neutral-200 mr-2"
-                                        size={14}
-                                      />
-                                    )}
-                                  </div>
-                                )}
+                                  {/* Java Icon - show when telemetry_sdk_language includes "java" */}
+                                  {trace.telemetry_sdk_language.includes(
+                                    "java",
+                                  ) && (
+                                    <FaJava
+                                      className="text-neutral-800 dark:text-neutral-200 mr-2"
+                                      size={14}
+                                    />
+                                  )}
+                                </div>
+                              )}
 
-                              {/* Service Name Badge */}
+                            {/* Service Name Badge */}
+                            {(() => {
+                              const fullServiceName =
+                                trace.service_name || "Unknown Service";
+                              const isLimitExceeded =
+                                fullServiceName === "LimitExceeded";
+                              const displayServiceName =
+                                getDisplayServiceName(fullServiceName);
+                              const isTruncated =
+                                fullServiceName.length >
+                                SERVICE_NAME_TRUNCATION_LENGTH;
+                              const shouldShowTooltip =
+                                isLimitExceeded || isTruncated;
+
+                              const badge = (
+                                <Badge
+                                  variant="default"
+                                  className={`min-w-[4.5rem] h-6 flex-shrink-0 justify-center font-mono font-normal text-center truncate whitespace-nowrap max-w-[11rem] ${
+                                    isLimitExceeded
+                                      ? "bg-red-600 hover:bg-red-700 text-white"
+                                      : ""
+                                  }`}
+                                  title={
+                                    shouldShowTooltip && !isLimitExceeded
+                                      ? fullServiceName
+                                      : undefined
+                                  }
+                                >
+                                  {displayServiceName}
+                                </Badge>
+                              );
+
+                              return shouldShowTooltip ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    {badge}
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>
+                                      {isLimitExceeded
+                                        ? "The trace is too large or took too long to complete."
+                                        : fullServiceName}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                badge
+                              );
+                            })()}
+
+                            {/* Environment - hidden below 300px */}
+                            <Badge
+                              variant="outline"
+                              className="h-6 justify-center font-mono font-normal flex-shrink-0 whitespace-nowrap hidden @[300px]:inline-flex"
+                            >
+                              {trace.service_environment ||
+                                "Unknown Environment"}
+                            </Badge>
+
+                            {/* Span count - hidden below 400px */}
+                            <Badge
+                              variant="outline"
+                              className="h-6 px-2 font-mono text-xs font-normal flex-shrink-0 whitespace-nowrap hidden @[400px]:inline-flex"
+                            >
                               {(() => {
-                                const fullServiceName =
-                                  trace.service_name || "Unknown Service";
-                                const isLimitExceeded =
-                                  fullServiceName === "LimitExceeded";
-                                const displayServiceName =
-                                  getDisplayServiceName(fullServiceName);
-                                const isTruncated =
-                                  fullServiceName.length >
-                                  SERVICE_NAME_TRUNCATION_LENGTH;
-                                const shouldShowTooltip =
-                                  isLimitExceeded || isTruncated;
-
-                                const badge = (
-                                  <Badge
-                                    variant="default"
-                                    className={`min-w-[4.5rem] h-6 mr-2 flex-shrink-0 justify-center font-mono font-normal text-center truncate whitespace-nowrap max-w-[11rem] ${
-                                      isLimitExceeded
-                                        ? "bg-red-600 hover:bg-red-700 text-white"
-                                        : ""
-                                    }`}
-                                    title={
-                                      shouldShowTooltip && !isLimitExceeded
-                                        ? fullServiceName
-                                        : undefined
-                                    }
-                                  >
-                                    {displayServiceName}
-                                  </Badge>
-                                );
-
-                                return shouldShowTooltip ? (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      {badge}
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>
-                                        {isLimitExceeded
-                                          ? "The trace is too large or took too long to complete."
-                                          : fullServiceName}
-                                      </p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                ) : (
-                                  badge
-                                );
+                                const count = countTotalSpans(trace.spans);
+                                return `${count} span${count !== 1 ? "s" : ""}`;
                               })()}
+                            </Badge>
 
-                              {/* Environment */}
+                            {/* Duration - hidden below 450px */}
+                            <Badge
+                              variant="outline"
+                              className="h-6 px-2 font-mono text-xs font-normal flex-shrink-0 whitespace-nowrap hidden @[450px]:inline-flex"
+                            >
+                              {formatDuration(trace.duration)}
+                            </Badge>
+
+                            {/* Error icon for error/critical logs - hidden below 520px */}
+                            {((trace.num_error_logs ?? 0) > 0 ||
+                              (trace.num_critical_logs ?? 0) > 0) && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    variant="destructive"
+                                    className="h-6 px-1 font-light flex-shrink-0 hidden @[520px]:inline-flex"
+                                  >
+                                    <MdErrorOutline
+                                      size={16}
+                                      className="text-white"
+                                    />
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{`${trace.num_error_logs ?? 0} error logs, ${trace.num_critical_logs ?? 0} critical logs`}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+
+                            {/* Warning icon for warning logs - hidden below 550px */}
+                            {(trace.num_warning_logs ?? 0) > 0 && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    variant="secondary"
+                                    className="h-6 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-light flex-shrink-0 hidden @[550px]:inline-flex"
+                                  >
+                                    <IoWarningOutline
+                                      size={16}
+                                      className="text-white"
+                                    />
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{`${trace.num_warning_logs ?? 0} warning logs`}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+
+                            {/* Spacer to push right-side badges to the right */}
+                            <div className="flex-1 min-w-4" />
+
+                            {/* Right-side badges container */}
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              {/* Timestamp Badge - disappears last (below 580px container width) */}
                               <Badge
                                 variant="outline"
-                                className="h-6 mr-2 justify-center font-mono font-normal flex-shrink-0"
+                                className="h-6 px-2 font-mono text-xs font-normal flex-shrink-0 whitespace-nowrap hidden @[580px]:inline-flex"
                               >
-                                {trace.service_environment ||
-                                  "Unknown Environment"}
-                              </Badge>
-
-                              {/* Span count */}
-                              <Badge
-                                variant="outline"
-                                className="h-6 mr-2 px-2 font-mono text-xs font-normal flex-shrink-0"
-                              >
-                                {(() => {
-                                  const count = countTotalSpans(trace.spans);
-                                  return `${count} span${count !== 1 ? "s" : ""}`;
-                                })()}
-                              </Badge>
-
-                              {/* Duration */}
-                              <Badge
-                                variant="outline"
-                                className="h-6 mr-2 px-2 font-mono text-xs font-normal flex-shrink-0"
-                              >
-                                {formatDuration(trace.duration)}
-                              </Badge>
-
-                              {/* Warning and Error Badges Container */}
-                              <div className="flex items-center flex-shrink-0">
-                                {/* Error icon for error/critical logs */}
-                                {((trace.num_error_logs ?? 0) > 0 ||
-                                  (trace.num_critical_logs ?? 0) > 0) && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Badge
-                                        variant="destructive"
-                                        className="h-6 mr-1 px-1 font-light"
-                                      >
-                                        <MdErrorOutline
-                                          size={16}
-                                          className="text-white"
-                                        />
-                                      </Badge>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>{`${trace.num_error_logs ?? 0} error logs, ${trace.num_critical_logs ?? 0} critical logs`}</p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                )}
-
-                                {/* Warning icon for error/critical logs */}
-                                {(trace.num_warning_logs ?? 0) > 0 && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Badge
-                                        variant="secondary"
-                                        className="h-6 m-1 px-1 bg-[#fb923c] text-white hover:bg-[#fb923c]/80 font-light"
-                                      >
-                                        <IoWarningOutline
-                                          size={16}
-                                          className="text-white"
-                                        />
-                                      </Badge>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      <p>{`${trace.num_warning_logs ?? 0} warning logs`}</p>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Start time, Share button, and Expand/Collapse icon */}
-                            <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
-                              <span className="text-xs text-neutral-600 dark:text-neutral-300 flex-shrink-0 whitespace-nowrap">
                                 {trace.start_time === 0
                                   ? "N/A"
                                   : formatDateTime(trace.start_time)}
-                              </span>
+                              </Badge>
+
+                              {/* Share Badge - disappears first (below 600px container width) */}
+                              {selectedTraceIds.has(trace.id) &&
+                                selectedTraceIds.size === 1 && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Badge
+                                        variant="outline"
+                                        className="h-6 px-1.5 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0 whitespace-nowrap hidden @[600px]:inline-flex"
+                                        onClick={(e) =>
+                                          handleShareClick(trace.id, e)
+                                        }
+                                      >
+                                        <Share2 size={12} />
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Share trace</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                              {/* Collapse Badge - disappears second (below 600px container width) */}
                               {selectedTraceIds.has(trace.id) && (
-                                <>
-                                  {selectedTraceIds.size === 1 && (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <button
-                                          onClick={(e) =>
-                                            handleShareClick(trace.id, e)
-                                          }
-                                          className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
-                                        >
-                                          <Share2
-                                            size={14}
-                                            className="text-neutral-600 dark:text-neutral-300"
-                                          />
-                                        </button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        <p>Share trace</p>
-                                      </TooltipContent>
-                                    </Tooltip>
+                                <Badge
+                                  variant="outline"
+                                  className="h-6 px-1.5 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0 whitespace-nowrap hidden @[600px]:inline-flex"
+                                  onClick={(e) =>
+                                    handleTraceExpandToggle(trace.id, e)
+                                  }
+                                >
+                                  {expandedTraces.get(trace.id) ? (
+                                    <CircleMinus size={12} />
+                                  ) : (
+                                    <CirclePlus size={12} />
                                   )}
-                                  <button
-                                    onClick={(e) =>
-                                      handleTraceExpandToggle(trace.id, e)
-                                    }
-                                    className="p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded transition-colors"
-                                  >
-                                    {expandedTraces.get(trace.id) ? (
-                                      <CircleMinus
-                                        size={14}
-                                        className="text-neutral-600 dark:text-neutral-300"
-                                      />
-                                    ) : (
-                                      <CirclePlus
-                                        size={14}
-                                        className="text-neutral-600 dark:text-neutral-300"
-                                      />
-                                    )}
-                                  </button>
-                                </>
+                                </Badge>
                               )}
                             </div>
                           </div>
