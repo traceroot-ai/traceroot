@@ -965,7 +965,22 @@ export const Trace: React.FC<TraceProps> = ({
                                 </div>
                               )}
 
-                            {/* Service Name Badge */}
+                            {/* Trace ID Badge - Always visible */}
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="default"
+                                  className="h-6 px-2 justify-center font-mono font-normal text-xs flex-shrink-0 whitespace-nowrap"
+                                >
+                                  {trace.id.substring(0, 8)}...
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="font-mono text-xs">{trace.id}</p>
+                              </TooltipContent>
+                            </Tooltip>
+
+                            {/* Service Name Badge - Hidden below 250px */}
                             {(() => {
                               const fullServiceName =
                                 trace.service_name || "Unknown Service";
@@ -981,10 +996,12 @@ export const Trace: React.FC<TraceProps> = ({
 
                               const badge = (
                                 <Badge
-                                  variant="default"
-                                  className={`min-w-[4.5rem] h-6 flex-shrink-0 justify-center font-mono font-normal text-center truncate whitespace-nowrap max-w-[11rem] ${
+                                  variant={
+                                    isLimitExceeded ? "default" : "outline"
+                                  }
+                                  className={`min-w-[4.5rem] h-6 flex-shrink-0 justify-center font-mono font-normal text-center truncate whitespace-nowrap max-w-[11rem] hidden @[250px]:inline-flex ${
                                     isLimitExceeded
-                                      ? "bg-red-600 hover:bg-red-700 text-white"
+                                      ? "bg-red-600 hover:bg-red-700 text-white border-red-600"
                                       : ""
                                   }`}
                                   title={
