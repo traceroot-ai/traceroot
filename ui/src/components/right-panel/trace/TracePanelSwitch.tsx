@@ -48,7 +48,7 @@ export default function TracePanelSwitch({
   };
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-full flex flex-col">
       {traceId ? (
         <TraceDetail
           traceId={traceId}
