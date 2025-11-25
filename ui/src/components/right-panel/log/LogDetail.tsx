@@ -53,9 +53,9 @@ export default function LogDetail({
   );
   const { getToken } = useAuth();
 
-  // Expand all trace blocks by default when multiple traces are selected
+  // Expand all trace blocks by default when traces are selected
   useEffect(() => {
-    if (traceIds.length > 1) {
+    if (traceIds.length > 0) {
       setExpandedTraceBlocks(new Set(traceIds));
     }
   }, [traceIds]);
@@ -587,256 +587,181 @@ export default function LogDetail({
         )}
         {/* Render logs in the order of SpanLogs, using span depth for indentation */}
         {!loading && !error && orderedLogEntries.length > 0 && (
-          <div className="text-sm bg-zinc-50 dark:bg-zinc-900 rounded-lg pt-1 px-2.5 pb-2.5 overflow-x-visible transition-all duration-100 ease-in-out">
+          <div className="text-sm bg-zinc-50 dark:bg-zinc-900 rounded-lg pt-2.5 px-2.5 pb-2.5 overflow-x-visible transition-all duration-100 ease-in-out">
             <div className="space-y-1.5">
               {/* Grouped View: Show logs grouped by trace */}
-              {traceIds.length > 1
-                ? Array.from(groupedLogEntries.entries()).map(
-                    ([traceId, { trace, logs }]) => {
-                      const isTraceExpanded = expandedTraceBlocks.has(traceId);
+              {Array.from(groupedLogEntries.entries()).map(
+                ([traceId, { trace, logs }]) => {
+                  const isTraceExpanded = expandedTraceBlocks.has(traceId);
 
-                      return (
-                        <div
-                          key={traceId}
-                          className="border border-neutral-300 dark:border-neutral-700 rounded-lg bg-white dark:bg-zinc-950 overflow-hidden mb-2"
-                        >
-                          {/* Trace Block Header */}
-                          <div className="bg-white dark:bg-black p-1 border-b border-neutral-300 dark:border-neutral-700">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-0.5 flex-1">
-                                {/* Language Icon */}
-                                {trace?.telemetry_sdk_language &&
-                                  trace.telemetry_sdk_language.length > 0 && (
-                                    <div className="flex items-center flex-shrink-0 ml-1 mr-2">
-                                      {trace.telemetry_sdk_language.includes(
-                                        "python",
-                                      ) && (
-                                        <FaPython
-                                          className="text-neutral-800 dark:text-neutral-200"
-                                          size={14}
-                                        />
-                                      )}
-                                      {trace.telemetry_sdk_language.includes(
-                                        "ts",
-                                      ) && (
-                                        <SiTypescript
-                                          className="text-neutral-800 dark:text-neutral-200"
-                                          size={14}
-                                        />
-                                      )}
-                                      {trace.telemetry_sdk_language.includes(
-                                        "js",
-                                      ) && (
-                                        <IoLogoJavascript
-                                          className="text-neutral-800 dark:text-neutral-200"
-                                          size={14}
-                                        />
-                                      )}
-                                      {trace.telemetry_sdk_language.includes(
-                                        "java",
-                                      ) && (
-                                        <FaJava
-                                          className="text-neutral-800 dark:text-neutral-200"
-                                          size={14}
-                                        />
-                                      )}
-                                    </div>
+                  return (
+                    <div
+                      key={traceId}
+                      className="border border-neutral-300 dark:border-neutral-700 rounded-lg bg-white dark:bg-zinc-950 overflow-hidden mb-2"
+                    >
+                      {/* Trace Block Header */}
+                      <div className="bg-white dark:bg-black p-1 border-b border-neutral-300 dark:border-neutral-700">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-0.5 flex-1">
+                            {/* Language Icon */}
+                            {trace?.telemetry_sdk_language &&
+                              trace.telemetry_sdk_language.length > 0 && (
+                                <div className="flex items-center flex-shrink-0 ml-1 mr-2">
+                                  {trace.telemetry_sdk_language.includes(
+                                    "python",
+                                  ) && (
+                                    <FaPython
+                                      className="text-neutral-800 dark:text-neutral-200"
+                                      size={14}
+                                    />
                                   )}
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Badge
-                                      variant="default"
-                                      className="min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left cursor-default"
-                                    >
-                                      {traceId.substring(0, 8)}...
-                                    </Badge>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <p className="font-mono text-xs">
-                                      {traceId}
-                                    </p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </div>
-                              {trace?.start_time && (
-                                <Badge
-                                  variant="outline"
-                                  className="h-6 px-2 font-mono text-xs font-normal flex-shrink-0 whitespace-nowrap mr-1"
-                                >
-                                  {formatTimestamp(trace.start_time)}
-                                </Badge>
+                                  {trace.telemetry_sdk_language.includes(
+                                    "ts",
+                                  ) && (
+                                    <SiTypescript
+                                      className="text-neutral-800 dark:text-neutral-200"
+                                      size={14}
+                                    />
+                                  )}
+                                  {trace.telemetry_sdk_language.includes(
+                                    "js",
+                                  ) && (
+                                    <IoLogoJavascript
+                                      className="text-neutral-800 dark:text-neutral-200"
+                                      size={14}
+                                    />
+                                  )}
+                                  {trace.telemetry_sdk_language.includes(
+                                    "java",
+                                  ) && (
+                                    <FaJava
+                                      className="text-neutral-800 dark:text-neutral-200"
+                                      size={14}
+                                    />
+                                  )}
+                                </div>
                               )}
-                              <Badge
-                                variant="outline"
-                                className="h-6 px-1.5 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0 whitespace-nowrap"
-                                onClick={(e) => {
-                                  e.stopPropagation(); // Prevent trace selection
-                                  setExpandedTraceBlocks((prev) => {
-                                    const newSet = new Set(prev);
-                                    if (newSet.has(traceId)) {
-                                      newSet.delete(traceId);
-                                    } else {
-                                      newSet.add(traceId);
-                                    }
-                                    return newSet;
-                                  });
-                                }}
-                              >
-                                {isTraceExpanded ? (
-                                  <CircleMinus size={12} />
-                                ) : (
-                                  <CirclePlus size={12} />
-                                )}
-                              </Badge>
-                            </div>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge
+                                  variant="default"
+                                  className="min-w-16 h-6 mr-2 justify-start font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left cursor-default"
+                                >
+                                  {traceId.substring(0, 8)}...
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="font-mono text-xs">{traceId}</p>
+                              </TooltipContent>
+                            </Tooltip>
                           </div>
-
-                          {/* Trace Logs */}
-                          {isTraceExpanded && (
-                            <div className="p-2 space-y-1 bg-zinc-50 dark:bg-zinc-950">
-                              {logs.map(({ entry, spanId }, idx) => {
-                                const entryKey = `${traceId}-${spanId}-${idx}`;
-                                const isExpanded =
-                                  expandedEntries.has(entryKey);
-                                const formattedMessage = formatMessage(
-                                  entry.message,
-                                );
-                                const messageExpandable =
-                                  isMessageExpandable(formattedMessage);
-                                const displayMessage =
-                                  messageExpandable && !isExpanded
-                                    ? truncateMessage(formattedMessage)
-                                    : formattedMessage;
-
-                                return (
-                                  <div
-                                    key={entryKey}
-                                    className={`relative rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 transform transition-all duration-100 ease-in-out hover:shadow overflow-hidden`}
-                                  >
-                                    {/* Header Section */}
-                                    <div className="flex items-center justify-between px-2 py-1.5 border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-black">
-                                      <div className="flex font-mono items-center space-x-2 text-xs flex-wrap min-w-0">
-                                        <span
-                                          className={`font-medium ${getLogLevelColor(entry.level)}`}
-                                        >
-                                          {entry.level}
-                                        </span>
-                                        <span className="text-gray-500 dark:text-gray-400">
-                                          {formatTimestamp(entry.time)}
-                                        </span>
-                                        <span className="text-gray-400 dark:text-gray-500 font-mono">
-                                          {entry.file_name}:{entry.line_number}
-                                        </span>
-                                      </div>
-                                      {messageExpandable && (
-                                        <Badge
-                                          variant="outline"
-                                          className="h-6 px-1.5 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0 whitespace-nowrap"
-                                          onClick={() =>
-                                            toggleExpandEntry(entryKey)
-                                          }
-                                        >
-                                          {isExpanded ? (
-                                            <CircleMinus size={12} />
-                                          ) : (
-                                            <CirclePlus size={12} />
-                                          )}
-                                        </Badge>
-                                      )}
-                                    </div>
-                                    {/* Content Section */}
-                                    <div className="relative font-mono p-2 bg-white dark:bg-zinc-900 text-neutral-800 dark:text-neutral-300 text-xs">
-                                      <span className="whitespace-pre-wrap break-all word-break-break-all overflow-wrap-anywhere m-0 max-w-full block">
-                                        {logSearchValue ||
-                                        metadataSearchTerms.length > 0
-                                          ? highlightText(
-                                              displayMessage,
-                                              logSearchValue,
-                                              metadataSearchTerms,
-                                            )
-                                          : displayMessage}
-                                      </span>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    },
-                  )
-                : /* Ungrouped View: Show all logs merged chronologically */
-                  orderedLogEntries.map(({ entry, spanId, traceId }, idx) => {
-                    const entryKey = `${traceId}-${spanId}-${idx}`;
-                    const isExpanded = expandedEntries.has(entryKey);
-                    const formattedMessage = formatMessage(entry.message);
-                    const messageExpandable =
-                      isMessageExpandable(formattedMessage);
-                    const displayMessage =
-                      messageExpandable && !isExpanded
-                        ? truncateMessage(formattedMessage)
-                        : formattedMessage;
-
-                    return (
-                      <div
-                        key={entryKey}
-                        className="relative rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 transform transition-all duration-100 ease-in-out hover:shadow animate-fadeIn overflow-hidden"
-                        style={{ animationDelay: `${idx * 3}ms` }}
-                      >
-                        {/* Header Section */}
-                        <div className="flex items-center justify-between px-2 py-1.5 border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-black">
-                          <div className="flex font-mono items-center space-x-2 text-xs flex-wrap min-w-0">
-                            {traceIds.length > 1 && (
-                              <Badge
-                                variant="default"
-                                className="h-5 px-1.5 text-xs font-mono font-normal max-w-full overflow-hidden text-ellipsis flex-shrink text-left"
-                                title={traceId}
-                              >
-                                {traceId.substring(0, 8)}...
-                              </Badge>
-                            )}
-                            <span
-                              className={`font-medium ${getLogLevelColor(entry.level)}`}
-                            >
-                              {entry.level}
-                            </span>
-                            <span className="text-gray-500 dark:text-gray-400">
-                              {formatTimestamp(entry.time)}
-                            </span>
-                            <span className="text-gray-400 dark:text-gray-500 font-mono">
-                              {entry.file_name}:{entry.line_number}
-                            </span>
-                          </div>
-                          {messageExpandable && (
+                          {trace?.start_time && (
                             <Badge
                               variant="outline"
-                              className="h-6 px-1.5 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0 whitespace-nowrap"
-                              onClick={() => toggleExpandEntry(entryKey)}
+                              className="h-6 px-2 font-mono text-xs font-normal flex-shrink-0 whitespace-nowrap mr-1"
                             >
-                              {isExpanded ? (
-                                <CircleMinus size={12} />
-                              ) : (
-                                <CirclePlus size={12} />
-                              )}
+                              {formatTimestamp(trace.start_time)}
                             </Badge>
                           )}
-                        </div>
-                        {/* Content Section */}
-                        <div className="relative font-mono p-2 bg-white dark:bg-zinc-900 text-neutral-800 dark:text-neutral-300 text-xs">
-                          <span className="whitespace-pre-wrap break-all">
-                            {logSearchValue || metadataSearchTerms.length > 0
-                              ? highlightText(
-                                  displayMessage,
-                                  logSearchValue,
-                                  metadataSearchTerms,
-                                )
-                              : displayMessage}
-                          </span>
+                          <Badge
+                            variant="outline"
+                            className="h-6 px-1.5 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0 whitespace-nowrap"
+                            onClick={(e) => {
+                              e.stopPropagation(); // Prevent trace selection
+                              setExpandedTraceBlocks((prev) => {
+                                const newSet = new Set(prev);
+                                if (newSet.has(traceId)) {
+                                  newSet.delete(traceId);
+                                } else {
+                                  newSet.add(traceId);
+                                }
+                                return newSet;
+                              });
+                            }}
+                          >
+                            {isTraceExpanded ? (
+                              <CircleMinus size={12} />
+                            ) : (
+                              <CirclePlus size={12} />
+                            )}
+                          </Badge>
                         </div>
                       </div>
-                    );
-                  })}
+
+                      {/* Trace Logs */}
+                      {isTraceExpanded && (
+                        <div className="p-2 space-y-1 bg-zinc-50 dark:bg-zinc-950">
+                          {logs.map(({ entry, spanId }, idx) => {
+                            const entryKey = `${traceId}-${spanId}-${idx}`;
+                            const isExpanded = expandedEntries.has(entryKey);
+                            const formattedMessage = formatMessage(
+                              entry.message,
+                            );
+                            const messageExpandable =
+                              isMessageExpandable(formattedMessage);
+                            const displayMessage =
+                              messageExpandable && !isExpanded
+                                ? truncateMessage(formattedMessage)
+                                : formattedMessage;
+
+                            return (
+                              <div
+                                key={entryKey}
+                                className={`relative rounded bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 transform transition-all duration-100 ease-in-out hover:shadow overflow-hidden`}
+                              >
+                                {/* Header Section */}
+                                <div className="flex items-center justify-between px-2 py-1.5 border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-black">
+                                  <div className="flex font-mono items-center space-x-2 text-xs flex-wrap min-w-0">
+                                    <span
+                                      className={`font-medium ${getLogLevelColor(entry.level)}`}
+                                    >
+                                      {entry.level}
+                                    </span>
+                                    <span className="text-gray-500 dark:text-gray-400">
+                                      {formatTimestamp(entry.time)}
+                                    </span>
+                                    <span className="text-gray-400 dark:text-gray-500 font-mono">
+                                      {entry.file_name}:{entry.line_number}
+                                    </span>
+                                  </div>
+                                  {messageExpandable && (
+                                    <Badge
+                                      variant="outline"
+                                      className="h-6 px-1.5 cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors flex-shrink-0 whitespace-nowrap"
+                                      onClick={() =>
+                                        toggleExpandEntry(entryKey)
+                                      }
+                                    >
+                                      {isExpanded ? (
+                                        <CircleMinus size={12} />
+                                      ) : (
+                                        <CirclePlus size={12} />
+                                      )}
+                                    </Badge>
+                                  )}
+                                </div>
+                                {/* Content Section */}
+                                <div className="relative font-mono p-2 bg-white dark:bg-zinc-900 text-neutral-800 dark:text-neutral-300 text-xs">
+                                  <span className="whitespace-pre-wrap break-all word-break-break-all overflow-wrap-anywhere m-0 max-w-full block">
+                                    {logSearchValue ||
+                                    metadataSearchTerms.length > 0
+                                      ? highlightText(
+                                          displayMessage,
+                                          logSearchValue,
+                                          metadataSearchTerms,
+                                        )
+                                      : displayMessage}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                },
+              )}
             </div>
           </div>
         )}
