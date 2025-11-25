@@ -24,6 +24,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Checkbox } from "@/components/ui/checkbox";
 import { CirclePlus, CircleMinus, Share2, Copy, Check } from "lucide-react";
 import { buildProviderParams } from "@/utils/provider";
 import {
@@ -177,45 +178,6 @@ export const Trace: React.FC<TraceProps> = ({
   const [hasMore, setHasMore] = useState<boolean>(false);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
   const previousTraceCountRef = useRef<number>(0);
-  const [isMetaKeyPressed, setIsMetaKeyPressed] = useState<boolean>(false);
-  const [isShiftKeyPressed, setIsShiftKeyPressed] = useState<boolean>(false);
-
-  // Keyboard event listeners for modifier keys
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Meta" || e.key === "Control") {
-        setIsMetaKeyPressed(true);
-      }
-      if (e.key === "Shift") {
-        setIsShiftKeyPressed(true);
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key === "Meta" || e.key === "Control") {
-        setIsMetaKeyPressed(false);
-      }
-      if (e.key === "Shift") {
-        setIsShiftKeyPressed(false);
-      }
-    };
-
-    // Reset modifier keys on window blur
-    const handleBlur = () => {
-      setIsMetaKeyPressed(false);
-      setIsShiftKeyPressed(false);
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    window.addEventListener("blur", handleBlur);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-      window.removeEventListener("blur", handleBlur);
-    };
-  }, []);
 
   const handleTimeRangeSelect = (range: TimeRange) => {
     setSelectedTimeRange(range);
@@ -549,68 +511,29 @@ export const Trace: React.FC<TraceProps> = ({
   const handleTraceClick = (traceId: string) => {
     let newSelection = new Set(selectedTraceIds);
 
-    // Shift+click: range selection
-    if (isShiftKeyPressed && lastSelectedTraceId) {
-      const lastIndex = traces.findIndex((t) => t.id === lastSelectedTraceId);
-      const currentIndex = traces.findIndex((t) => t.id === traceId);
-
-      if (lastIndex !== -1 && currentIndex !== -1) {
-        const start = Math.min(lastIndex, currentIndex);
-        const end = Math.max(lastIndex, currentIndex);
-
-        // Add all traces in range
-        for (let i = start; i <= end; i++) {
-          newSelection.add(traces[i].id);
-        }
+    // Toggle selection: if selected, deselect it; if not selected, add it
+    if (newSelection.has(traceId)) {
+      newSelection.delete(traceId);
+      // If we're deselecting the last selected trace, update lastSelectedTraceId
+      if (traceId === lastSelectedTraceId) {
+        setLastSelectedTraceId(
+          newSelection.size > 0 ? Array.from(newSelection)[0] : null,
+        );
       }
-    }
-    // Cmd/Ctrl+click: toggle individual selection
-    else if (isMetaKeyPressed) {
-      if (newSelection.has(traceId)) {
-        newSelection.delete(traceId);
-        // If we're deselecting the last selected trace, update lastSelectedTraceId
-        if (traceId === lastSelectedTraceId) {
-          setLastSelectedTraceId(
-            newSelection.size > 0 ? Array.from(newSelection)[0] : null,
-          );
-        }
-      } else {
-        newSelection.add(traceId);
-        setLastSelectedTraceId(traceId);
-      }
-    }
-    // Regular click: single selection (toggle)
-    else {
-      if (newSelection.size === 1 && newSelection.has(traceId)) {
-        // Deselect if clicking the only selected trace
-        newSelection.clear();
-        setLastSelectedTraceId(null);
-      } else {
-        // Select only this trace
-        newSelection = new Set([traceId]);
-        setLastSelectedTraceId(traceId);
-      }
+    } else {
+      newSelection.add(traceId);
+      setLastSelectedTraceId(traceId);
     }
 
     setSelectedTraceIds(newSelection);
     onTraceSelect?.(Array.from(newSelection));
 
-    // Update expansion state based on selection count
-    if (newSelection.size > 1) {
-      // Multiple selection: expand all selected traces
-      const newExpandedTraces = new Map<string, boolean>();
-      newSelection.forEach((id) => {
-        newExpandedTraces.set(id, true);
-      });
-      setExpandedTraces(newExpandedTraces);
-    } else if (newSelection.size === 1) {
-      // Single selection: expand the selected trace
-      const selectedId = Array.from(newSelection)[0];
-      setExpandedTraces(new Map([[selectedId, true]]));
-    } else {
-      // No selection: clear expansion
-      setExpandedTraces(new Map());
-    }
+    // Update expansion state: expand all selected traces
+    const newExpandedTraces = new Map<string, boolean>();
+    newSelection.forEach((id) => {
+      newExpandedTraces.set(id, true);
+    });
+    setExpandedTraces(newExpandedTraces);
 
     // Always clear span selection when trace selection changes
     setSelectedSpanId(null);
@@ -919,6 +842,19 @@ export const Trace: React.FC<TraceProps> = ({
                           tabIndex={0}
                         >
                           <div className="flex items-center gap-1 h-full text-sm min-w-0">
+                            {/* Checkbox for trace selection */}
+                            <div
+                              className="flex items-center flex-shrink-0 mr-1"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Checkbox
+                                checked={selectedTraceIds.has(trace.id)}
+                                onCheckedChange={() =>
+                                  handleTraceClick(trace.id)
+                                }
+                              />
+                            </div>
+
                             {/* Telemetry SDK Language Icons */}
                             {trace.telemetry_sdk_language &&
                               trace.telemetry_sdk_language.length > 0 && (
