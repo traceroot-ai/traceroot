@@ -560,16 +560,8 @@ export default function LogDetail({
   };
 
   return (
-    <div className="h-screen flex flex-col text-xs">
-      {/*
-        TODO: The 'pt-0' (padding-top: 0) and 'pb-22' (padding-bottom: 5.5rem)
-        classes are used here, but it's not clear why these specific values
-        are required for the layout.
-        If you refactor the layout or see layout issues related to the
-        top/bottom spacing, please confirm if these are still necessary, and
-        feel free to adjust as needed.
-      */}
-      <div className="bg-white dark:bg-zinc-950 pt-0 px-4 pb-22 overflow-y-auto overflow-x-visible">
+    <div className="h-full flex flex-col text-xs">
+      <div className="bg-white dark:bg-zinc-950 flex-1 px-4 pt-4 pb-4 overflow-y-auto overflow-x-visible">
         {loading && (
           <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-md border border-zinc-200 dark:border-zinc-700">
             <div className="flex flex-col items-center justify-center py-1 space-y-1">
