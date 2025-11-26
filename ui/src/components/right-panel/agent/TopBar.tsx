@@ -6,7 +6,7 @@ import React, {
   forwardRef,
 } from "react";
 import { GoHistory } from "react-icons/go";
-import { Plus, X, Check, Download } from "lucide-react";
+import { Plus, X, Check } from "lucide-react";
 import { ChatMetadata, ChatMetadataHistory } from "@/models/chat";
 import { useAuth } from "@clerk/nextjs";
 import { Spinner } from "@/components/ui/shadcn-io/spinner";
@@ -464,15 +464,6 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
             )}
           </div>
           <div className="absolute top-1/2 -translate-y-1/2 right-2 flex items-center gap-1.5 bg-white dark:bg-black z-10">
-            <button
-              onClick={handleDownload}
-              title="Download chat as markdown"
-              disabled={messages.length === 0}
-              className="h-7 w-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Download className="w-3.5 h-3.5" />
-            </button>
-
             <button
               onClick={onNewChat}
               title="Start new chat"
