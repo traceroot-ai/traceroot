@@ -52,7 +52,7 @@ export default function AuthenticatedLayout({
         children
       ) : (
         // For protected routes, wrap with sidebar
-        <SidebarProvider defaultOpen={false}>
+        <SidebarProvider defaultOpen={true}>
           <AppSidebar />
           <SidebarInset>{children}</SidebarInset>
         </SidebarProvider>
