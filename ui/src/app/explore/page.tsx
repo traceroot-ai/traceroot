@@ -73,12 +73,12 @@ export default function Explore() {
   const [loading, setLoading] = useState(true);
   const [hasTraceIdInUrl, setHasTraceIdInUrl] = useState(false);
 
-  // Agent panel state - always start closed (no persistence)
-  const [agentOpen, setAgentOpen] = useState(false);
+  // Agent panel state - persisted to localStorage, defaults to closed
+  const [agentOpen, setAgentOpen] = usePersistentState("agentPanelOpen", false);
 
   const handleAgentToggle = useCallback(() => {
     setAgentOpen((prev) => !prev);
-  }, []);
+  }, [setAgentOpen]);
 
   // Initialize providers
   useEffect(() => {
