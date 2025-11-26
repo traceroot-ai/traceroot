@@ -740,9 +740,11 @@ function ProviderLogoComponent() {
 export default function AppSidebar() {
   return (
     <Sidebar collapsible="icon" className="relative font-main">
-      <SidebarHeader>
-        <LogoComponent />
-        <Separator />
+      <SidebarHeader className="pb-0 gap-0">
+        <div className="pb-3">
+          <LogoComponent />
+        </div>
+        <div className="border-b border-zinc-200 dark:border-zinc-700 -mx-2" />
         <ProviderLogoComponent />
       </SidebarHeader>
 
