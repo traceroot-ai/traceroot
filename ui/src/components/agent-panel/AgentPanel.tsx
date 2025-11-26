@@ -1,8 +1,6 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { RiRobot2Line } from "react-icons/ri";
-import { X } from "lucide-react";
 import Agent from "@/components/right-panel/agent/Agent";
 
 interface AgentPanelProps {
@@ -13,6 +11,8 @@ interface AgentPanelProps {
   queryEndTime?: Date;
   onSpanSelect?: (spanId: string) => void;
   onViewTypeChange?: (viewType: "log" | "trace") => void;
+  isOpen: boolean;
+  onToggle: () => void;
   children: React.ReactNode;
 }
 
@@ -24,10 +24,10 @@ export default function AgentPanel({
   queryEndTime,
   onSpanSelect,
   onViewTypeChange,
+  isOpen,
+  onToggle,
   children,
 }: AgentPanelProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
   const [panelWidth, setPanelWidth] = useState(30); // Track panel width percentage (default 30%)
   const [hasBeenOpened, setHasBeenOpened] = useState(false); // Track if panel has ever been opened
   const panelRef = useRef<HTMLDivElement>(null);
@@ -35,22 +35,23 @@ export default function AgentPanel({
   const MIN_WIDTH = 20;
   const MAX_WIDTH = 35;
 
-  // Ensure panel stays closed unless explicitly opened
+  // Track when panel has been opened at least once
   useEffect(() => {
-    // Do NOT auto-open when traceId changes
-    // Panel should only open via user click on the robot icon
-  }, [traceId, traceIds]);
+    if (isOpen && !hasBeenOpened) {
+      setHasBeenOpened(true);
+    }
+  }, [isOpen, hasBeenOpened]);
 
   // Handle ESC key to close panel
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === "Escape" && isOpen) {
-        setIsOpen(false);
+        onToggle();
       }
     };
     window.addEventListener("keydown", handleEsc);
     return () => window.removeEventListener("keydown", handleEsc);
-  }, [isOpen]);
+  }, [isOpen, onToggle]);
 
   // Handle Cmd+Shift+I (Mac) or Ctrl+Shift+I (Windows) to toggle panel
   useEffect(() => {
@@ -63,39 +64,13 @@ export default function AgentPanel({
       ) {
         e.preventDefault();
         e.stopPropagation();
-        if (!isOpen) {
-          setHasBeenOpened(true);
-        }
-        setIsOpen((prev) => !prev);
+        onToggle();
       }
     };
     window.addEventListener("keydown", handleToggleShortcut, true); // Use capture phase
     return () =>
       window.removeEventListener("keydown", handleToggleShortcut, true);
-  }, [isOpen]);
-
-  // Calculate the icon position based on panel width when open
-  useEffect(() => {
-    if (isOpen && panelRef.current) {
-      const updateIconPosition = () => {
-        const windowWidth = window.innerWidth;
-        const panelPixelWidth = (windowWidth * panelWidth) / 100;
-        setPanelWidth(panelWidth);
-      };
-      updateIconPosition();
-      window.addEventListener("resize", updateIconPosition);
-      return () => window.removeEventListener("resize", updateIconPosition);
-    }
-  }, [isOpen, panelWidth]);
-
-  // Calculate icon right position: when closed = 0 (50% hidden), when open = at panel left edge
-  const getIconRightPosition = () => {
-    if (!isOpen) {
-      return isHovered ? "4px" : "-12px"; // Half-hidden when closed, centered on edge
-    }
-    // When open, position at the panel's left edge (border)
-    return `calc(${panelWidth}% - 16px)`; // Centered on the border line
-  };
+  }, [onToggle]);
 
   return (
     <div className="relative w-full h-full flex overflow-hidden">
@@ -119,7 +94,7 @@ export default function AgentPanel({
           ref={panelRef}
         >
           {/* Agent content area */}
-          <div className="h-full overflow-hidden pt-2">
+          <div className="h-full overflow-hidden pt-1">
             {/* Only render Agent when opened at least once */}
             {hasBeenOpened && (
               <Agent
@@ -170,20 +145,6 @@ export default function AgentPanel({
             document.addEventListener("mouseup", handleMouseUp);
           }}
         />
-      )}
-
-      {/* Robot icon trigger - only visible when closed */}
-      {!isOpen && (
-        <div
-          className="fixed bottom-4 right-4 z-50 cursor-pointer"
-          onClick={(e) => {
-            e.stopPropagation();
-            setHasBeenOpened(true);
-            setIsOpen(true);
-          }}
-        >
-          <RiRobot2Line className="h-7 w-7 text-black dark:text-white drop-shadow-lg" />
-        </div>
       )}
     </div>
   );
