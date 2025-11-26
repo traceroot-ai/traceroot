@@ -399,7 +399,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
             <button
               onClick={onNewChat}
               title="Start new chat"
-              className="h-7 w-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+              className="h-7 w-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -408,7 +408,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
               <DropdownMenuTrigger asChild>
                 <button
                   title="View chat history"
-                  className="h-7 w-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+                  className="h-7 w-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors cursor-pointer"
                 >
                   <GoHistory className="w-3.5 h-3.5" />
                 </button>
