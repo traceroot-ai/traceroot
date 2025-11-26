@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -103,7 +104,7 @@ export const TimeButton: React.FC<TimeButtonProps> = ({
             <ChevronDownIcon className="ml-2 size-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuContent align="end" className="min-w-[140px]">
           <DropdownMenuRadioGroup
             value={selectedTimeRange.label}
             onValueChange={handleTimeRangeSelect}
@@ -117,12 +118,15 @@ export const TimeButton: React.FC<TimeButtonProps> = ({
                 {range.label}
               </DropdownMenuRadioItem>
             ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuRadioItem value="custom" className="text-xs">
-              <CalendarDays className="mr-2 size-4" />
-              Custom
-            </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-xs justify-center gap-2"
+            onClick={() => handleTimeRangeSelect("custom")}
+          >
+            <CalendarDays className="size-4" />
+            Custom
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
