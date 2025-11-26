@@ -5,8 +5,10 @@ from dotenv import find_dotenv, load_dotenv
 
 from rest.app import App
 
-# Load environment variables from .env.local or .env
+# Load environment variables from .env.local, .env.development, or .env
 dotenv_path = find_dotenv(".env.local")
+if not dotenv_path:
+    dotenv_path = find_dotenv(".env.development")
 if not dotenv_path:
     dotenv_path = find_dotenv()
 
