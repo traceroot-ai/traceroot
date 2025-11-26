@@ -33,7 +33,6 @@ import {
   SidebarGroupContent,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -773,7 +772,7 @@ export default function AppSidebar() {
         <DocumentationComponent />
         <NeedHelpComponent />
         {!LOCAL_MODE && <SettingsComponent />}
-        <Separator />
+        <div className="border-b border-zinc-200 dark:border-zinc-700 -mx-2" />
         <ProfileComponent />
       </SidebarFooter>
     </Sidebar>
