@@ -585,7 +585,7 @@ export default function ChatMessage({
                         : "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-700"
                 }`}
               >
-                <div className="whitespace-pre-wrap break-words text-sm">
+                <div className="whitespace-pre-wrap break-words text-xs">
                   {renderMarkdown(
                     message.content,
                     message.id,

@@ -103,7 +103,7 @@ export const PromptInputTextarea = forwardRef<
       <textarea
         ref={combinedRef}
         className={cn(
-          "w-full resize-none bg-white dark:bg-zinc-700 px-4 py-2 text-sm leading-relaxed placeholder:text-gray-400 dark:placeholder:text-gray-500 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-hidden border-0",
+          "w-full resize-none bg-white dark:bg-zinc-700 px-3 py-2 text-xs leading-relaxed placeholder:text-gray-400 dark:placeholder:text-gray-500 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 overflow-y-hidden border-0",
           className,
         )}
         onInput={handleInput}
