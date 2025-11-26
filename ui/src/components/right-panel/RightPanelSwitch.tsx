@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import LogPanelSwitch from "./log/LogPanelSwitch";
 import TracePanelSwitch from "./trace/TracePanelSwitch";
-import ModeToggle, { ViewType } from "./ModeToggle";
+import { ViewType } from "./ModeToggle";
 import { Span, Trace as TraceModel } from "@/models/trace";
 
 interface RightPanelSwitchProps {
@@ -18,6 +18,7 @@ interface RightPanelSwitchProps {
   onSpanClear?: () => void;
   onTraceSpansUpdate?: (spans: Span[]) => void;
   onSpanSelect?: (spanIds: string[]) => void;
+  viewType: ViewType;
 }
 
 export default function RightPanelSwitch({
@@ -32,8 +33,8 @@ export default function RightPanelSwitch({
   onSpanClear,
   onTraceSpansUpdate,
   onSpanSelect,
+  viewType,
 }: RightPanelSwitchProps) {
-  const [viewType, setViewType] = useState<ViewType>("log");
   const [spans, setSpans] = useState<Span[] | undefined>(undefined);
   const [traceDurations, setTraceDurations] = useState<number[]>([]);
   const [traceStartTimes, setTraceStartTimes] = useState<Date[]>([]);
@@ -92,11 +93,9 @@ export default function RightPanelSwitch({
   }, [traceIds, allTraces, onTraceSpansUpdate]);
 
   return (
-    <div className="h-screen flex flex-col">
-      <ModeToggle viewType={viewType} onViewTypeChange={setViewType} />
-
-      {/* View content */}
-      <div className="flex-1 overflow-hidden">
+    <div className="h-full flex flex-col">
+      {/* Scrollable View content */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden">
         {/* Log view */}
         {viewType === "log" && (
           <LogPanelSwitch

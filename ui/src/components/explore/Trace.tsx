@@ -3,10 +3,9 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import { Trace as TraceType } from "@/models/trace";
 import Span from "./span/Span";
-import TimeButton, { TimeRange, TIME_RANGES } from "./TimeButton";
-import { CustomTimeRange, TimezoneMode } from "./CustomTimeRangeDialog";
-import RefreshButton from "./RefreshButton";
-import SearchBar, { SearchCriterion } from "./SearchBar";
+import { TimeRange } from "./TimeButton";
+import { TimezoneMode } from "./CustomTimeRangeDialog";
+import { SearchCriterion } from "./SearchBar";
 import {
   PERCENTILE_COLORS,
   getPercentileColor,
@@ -24,6 +23,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Checkbox } from "@/components/ui/checkbox";
 import { CirclePlus, CircleMinus, Share2, Copy, Check } from "lucide-react";
 import { buildProviderParams } from "@/utils/provider";
 import {
@@ -41,14 +41,16 @@ interface TraceProps {
   onSpanSelect?: (spanIds: string[]) => void;
   onTraceData?: (startTime: Date, endTime: Date) => void;
   onTracesUpdate?: (traces: TraceType[]) => void;
-  onLogSearchValueChange?: (value: string) => void;
-  onMetadataSearchTermsChange?: (
-    terms: { category: string; value: string }[],
-  ) => void;
   selectedTraceIds?: string[];
   selectedSpanIds?: string[];
   traceQueryStartTime?: Date;
   traceQueryEndTime?: Date;
+  // Props lifted to page level
+  selectedTimeRange: TimeRange;
+  timezone: TimezoneMode;
+  searchCriteria: SearchCriterion[];
+  loading: boolean;
+  onLoadingChange: (isLoading: boolean) => void;
 }
 
 export function formatDateTime(ts: number) {
@@ -138,20 +140,19 @@ export const Trace: React.FC<TraceProps> = ({
   onSpanSelect,
   onTraceData,
   onTracesUpdate,
-  onLogSearchValueChange,
-  onMetadataSearchTermsChange,
   selectedTraceIds: externalSelectedTraceIds,
   selectedSpanIds: externalSelectedSpanIds,
   traceQueryStartTime,
   traceQueryEndTime,
+  // Props lifted to page level
+  selectedTimeRange,
+  timezone,
+  searchCriteria,
+  loading,
+  onLoadingChange,
 }) => {
   const [traces, setTraces] = useState<TraceType[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>(
-    TIME_RANGES[0],
-  );
-  const [timezone, setTimezone] = useState<TimezoneMode>("utc");
   const [selectedTraceIds, setSelectedTraceIds] = useState<Set<string>>(
     new Set(),
   );
@@ -160,8 +161,6 @@ export const Trace: React.FC<TraceProps> = ({
   );
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
   const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
-  const [searchCriteria, setSearchCriteria] = useState<SearchCriterion[]>([]);
-  const [logSearchValue, setLogSearchValue] = useState<string>("");
   const [expandedTraces, setExpandedTraces] = useState<Map<string, boolean>>(
     new Map(),
   );
@@ -170,125 +169,12 @@ export const Trace: React.FC<TraceProps> = ({
   const [shareDialogOpen, setShareDialogOpen] = useState<boolean>(false);
   const [shareTraceId, setShareTraceId] = useState<string | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
-  const [hasTraceIdInUrl, setHasTraceIdInUrl] = useState<boolean>(false);
   const [nextPaginationToken, setNextPaginationToken] = useState<string | null>(
     null,
   );
   const [hasMore, setHasMore] = useState<boolean>(false);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
   const previousTraceCountRef = useRef<number>(0);
-  const [isMetaKeyPressed, setIsMetaKeyPressed] = useState<boolean>(false);
-  const [isShiftKeyPressed, setIsShiftKeyPressed] = useState<boolean>(false);
-
-  // Keyboard event listeners for modifier keys
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Meta" || e.key === "Control") {
-        setIsMetaKeyPressed(true);
-      }
-      if (e.key === "Shift") {
-        setIsShiftKeyPressed(true);
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key === "Meta" || e.key === "Control") {
-        setIsMetaKeyPressed(false);
-      }
-      if (e.key === "Shift") {
-        setIsShiftKeyPressed(false);
-      }
-    };
-
-    // Reset modifier keys on window blur
-    const handleBlur = () => {
-      setIsMetaKeyPressed(false);
-      setIsShiftKeyPressed(false);
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    window.addEventListener("blur", handleBlur);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-      window.removeEventListener("blur", handleBlur);
-    };
-  }, []);
-
-  const handleTimeRangeSelect = (range: TimeRange) => {
-    setSelectedTimeRange(range);
-    setSelectedTraceIds(new Set());
-    setLastSelectedTraceId(null);
-    setSelectedSpanId(null);
-    setSelectedSpanIds([]);
-    setExpandedTraces(new Map());
-    setExpandedSpans(new Set());
-    setNextPaginationToken(null);
-    setHasMore(false);
-    previousTraceCountRef.current = 0;
-    onTraceSelect?.([]);
-    onSpanSelect?.([]);
-    setLoading(true);
-  };
-
-  const handleCustomTimeRangeSelect = (
-    customRange: CustomTimeRange,
-    selectedTimezone: TimezoneMode,
-  ) => {
-    // Update timezone
-    setTimezone(selectedTimezone);
-
-    // Create a custom TimeRange object
-    const customTimeRange: TimeRange = {
-      label: customRange.label,
-      isCustom: true,
-      customRange: customRange,
-    };
-
-    if (customRange.type === "relative") {
-      customTimeRange.minutes = customRange.minutes;
-    }
-
-    setSelectedTimeRange(customTimeRange);
-    setSelectedTraceIds(new Set());
-    setLastSelectedTraceId(null);
-    setSelectedSpanId(null);
-    setSelectedSpanIds([]);
-    setExpandedTraces(new Map());
-    setExpandedSpans(new Set());
-    setNextPaginationToken(null);
-    setHasMore(false);
-    previousTraceCountRef.current = 0;
-    onTraceSelect?.([]);
-    onSpanSelect?.([]);
-    setLoading(true);
-  };
-
-  const handleSearch = (criteria: SearchCriterion[]) => {
-    setSearchCriteria(criteria);
-    setNextPaginationToken(null);
-    setHasMore(false);
-    previousTraceCountRef.current = 0;
-    setLoading(true);
-  };
-
-  const handleClearSearch = () => {
-    setSearchCriteria([]);
-    setLogSearchValue("");
-    setExpandedSpans(new Set());
-    setNextPaginationToken(null);
-    setHasMore(false);
-    previousTraceCountRef.current = 0;
-    onLogSearchValueChange?.("");
-    setLoading(true);
-  };
-
-  const handleLogSearchValueChange = (value: string) => {
-    setLogSearchValue(value);
-    onLogSearchValueChange?.(value);
-  };
 
   const fetchTraces = useCallback(
     async (paginationToken?: string | null) => {
@@ -481,7 +367,7 @@ export const Trace: React.FC<TraceProps> = ({
         if (isLoadingMore) {
           setLoadingMore(false);
         } else {
-          setLoading(false);
+          onLoadingChange(false);
         }
       }
     },
@@ -495,6 +381,7 @@ export const Trace: React.FC<TraceProps> = ({
       onTracesUpdate,
       onTraceSelect,
       onSpanSelect,
+      onLoadingChange,
     ],
   );
 
@@ -515,16 +402,20 @@ export const Trace: React.FC<TraceProps> = ({
     onTracesUpdate?.(traces);
   }, [traces, onTracesUpdate]);
 
+  // Reset state when time range or search criteria change
   useEffect(() => {
-    setLoading(true);
-  }, []);
-
-  // Check if trace_id is in URL on mount
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const traceIdParam = urlParams.get("trace_id");
-    setHasTraceIdInUrl(!!traceIdParam);
-  }, []);
+    setSelectedTraceIds(new Set());
+    setLastSelectedTraceId(null);
+    setSelectedSpanId(null);
+    setSelectedSpanIds([]);
+    setExpandedTraces(new Map());
+    setExpandedSpans(new Set());
+    setNextPaginationToken(null);
+    setHasMore(false);
+    previousTraceCountRef.current = 0;
+    onTraceSelect?.([]);
+    onSpanSelect?.([]);
+  }, [selectedTimeRange, searchCriteria]);
 
   const getPercentileTag = (percentile: string) => {
     // Ensure the percentile is a valid key
@@ -549,68 +440,29 @@ export const Trace: React.FC<TraceProps> = ({
   const handleTraceClick = (traceId: string) => {
     let newSelection = new Set(selectedTraceIds);
 
-    // Shift+click: range selection
-    if (isShiftKeyPressed && lastSelectedTraceId) {
-      const lastIndex = traces.findIndex((t) => t.id === lastSelectedTraceId);
-      const currentIndex = traces.findIndex((t) => t.id === traceId);
-
-      if (lastIndex !== -1 && currentIndex !== -1) {
-        const start = Math.min(lastIndex, currentIndex);
-        const end = Math.max(lastIndex, currentIndex);
-
-        // Add all traces in range
-        for (let i = start; i <= end; i++) {
-          newSelection.add(traces[i].id);
-        }
+    // Toggle selection: if selected, deselect it; if not selected, add it
+    if (newSelection.has(traceId)) {
+      newSelection.delete(traceId);
+      // If we're deselecting the last selected trace, update lastSelectedTraceId
+      if (traceId === lastSelectedTraceId) {
+        setLastSelectedTraceId(
+          newSelection.size > 0 ? Array.from(newSelection)[0] : null,
+        );
       }
-    }
-    // Cmd/Ctrl+click: toggle individual selection
-    else if (isMetaKeyPressed) {
-      if (newSelection.has(traceId)) {
-        newSelection.delete(traceId);
-        // If we're deselecting the last selected trace, update lastSelectedTraceId
-        if (traceId === lastSelectedTraceId) {
-          setLastSelectedTraceId(
-            newSelection.size > 0 ? Array.from(newSelection)[0] : null,
-          );
-        }
-      } else {
-        newSelection.add(traceId);
-        setLastSelectedTraceId(traceId);
-      }
-    }
-    // Regular click: single selection (toggle)
-    else {
-      if (newSelection.size === 1 && newSelection.has(traceId)) {
-        // Deselect if clicking the only selected trace
-        newSelection.clear();
-        setLastSelectedTraceId(null);
-      } else {
-        // Select only this trace
-        newSelection = new Set([traceId]);
-        setLastSelectedTraceId(traceId);
-      }
+    } else {
+      newSelection.add(traceId);
+      setLastSelectedTraceId(traceId);
     }
 
     setSelectedTraceIds(newSelection);
     onTraceSelect?.(Array.from(newSelection));
 
-    // Update expansion state based on selection count
-    if (newSelection.size > 1) {
-      // Multiple selection: expand all selected traces
-      const newExpandedTraces = new Map<string, boolean>();
-      newSelection.forEach((id) => {
-        newExpandedTraces.set(id, true);
-      });
-      setExpandedTraces(newExpandedTraces);
-    } else if (newSelection.size === 1) {
-      // Single selection: expand the selected trace
-      const selectedId = Array.from(newSelection)[0];
-      setExpandedTraces(new Map([[selectedId, true]]));
-    } else {
-      // No selection: clear expansion
-      setExpandedTraces(new Map());
-    }
+    // Update expansion state: expand all selected traces
+    const newExpandedTraces = new Map<string, boolean>();
+    newSelection.forEach((id) => {
+      newExpandedTraces.set(id, true);
+    });
+    setExpandedTraces(newExpandedTraces);
 
     // Always clear span selection when trace selection changes
     setSelectedSpanId(null);
@@ -723,21 +575,6 @@ export const Trace: React.FC<TraceProps> = ({
     onSpanSelect?.(newSelectedSpanIds);
   };
 
-  const handleRefresh = () => {
-    setSelectedTraceIds(new Set());
-    setLastSelectedTraceId(null);
-    setSelectedSpanId(null);
-    setSelectedSpanIds([]);
-    setExpandedTraces(new Map());
-    setExpandedSpans(new Set());
-    setNextPaginationToken(null);
-    setHasMore(false);
-    previousTraceCountRef.current = 0;
-    onTraceSelect?.([]);
-    onSpanSelect?.([]);
-    setLoading(true);
-  };
-
   const handleShareClick = (traceId: string, event: React.MouseEvent) => {
     event.stopPropagation(); // Prevent trace selection
     setShareTraceId(traceId);
@@ -843,36 +680,10 @@ export const Trace: React.FC<TraceProps> = ({
   return (
     <>
       <style>{fadeInAnimationStyles}</style>
-      <div className="h-screen bg-white dark:bg-zinc-950 text-neutral-800 dark:text-neutral-200 transition-colors duration-300 p-4 overflow-y-auto overflow-x-hidden @container">
-        {/* Search and Time Range Selector */}
-        <div className="space-y-4">
-          <div className="flex flex-row justify-between items-center gap-2">
-            <div className="flex-1 min-w-0">
-              <SearchBar
-                onSearch={handleSearch}
-                onClear={handleClearSearch}
-                onLogSearchValueChange={handleLogSearchValueChange}
-                onMetadataSearchTermsChange={onMetadataSearchTermsChange}
-                disabled={loading || hasTraceIdInUrl}
-              />
-            </div>
-            <div className="flex space-x-2 flex-shrink-0 justify-end">
-              <RefreshButton
-                onRefresh={handleRefresh}
-                disabled={loading || hasTraceIdInUrl}
-              />
-              <TimeButton
-                selectedTimeRange={selectedTimeRange}
-                onTimeRangeSelect={handleTimeRangeSelect}
-                onCustomTimeRangeSelect={handleCustomTimeRangeSelect}
-                currentTimezone={timezone}
-                disabled={loading || hasTraceIdInUrl}
-              />
-            </div>
-          </div>
-
-          {/* Content container with zinc-50 background */}
-          <div className="mt-4 bg-zinc-50 dark:bg-zinc-900 p-2.5 rounded-lg overflow-x-hidden">
+      <div className="h-full bg-white dark:bg-zinc-950 text-neutral-800 dark:text-neutral-200 transition-colors duration-300 flex flex-col @container">
+        {/* Scrollable Content container with zinc-50 background */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4">
+          <div className="bg-zinc-50 dark:bg-zinc-900 p-2.5 rounded-lg overflow-x-hidden">
             {loading && (
               <div className="flex flex-col items-center justify-center py-1 space-y-1">
                 <Spinner
@@ -919,6 +730,19 @@ export const Trace: React.FC<TraceProps> = ({
                           tabIndex={0}
                         >
                           <div className="flex items-center gap-1 h-full text-sm min-w-0">
+                            {/* Checkbox for trace selection */}
+                            <div
+                              className="flex items-center flex-shrink-0 mr-1"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Checkbox
+                                checked={selectedTraceIds.has(trace.id)}
+                                onCheckedChange={() =>
+                                  handleTraceClick(trace.id)
+                                }
+                              />
+                            </div>
+
                             {/* Telemetry SDK Language Icons */}
                             {trace.telemetry_sdk_language &&
                               trace.telemetry_sdk_language.length > 0 && (

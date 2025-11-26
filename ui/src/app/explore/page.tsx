@@ -2,15 +2,19 @@
 
 import { useState, useCallback, useEffect } from "react";
 import Trace from "@/components/explore/Trace";
+import ExploreHeader from "@/components/explore/ExploreHeader";
+import { TimeRange, TIME_RANGES } from "@/components/explore/TimeButton";
+import {
+  CustomTimeRange,
+  TimezoneMode,
+} from "@/components/explore/CustomTimeRangeDialog";
+import { SearchCriterion } from "@/components/explore/SearchBar";
 import ResizablePanel from "@/components/resizable/ResizablePanel";
 import RightPanelSwitch from "@/components/right-panel/RightPanelSwitch";
+import { ViewType } from "@/components/right-panel/ModeToggle";
 import AgentPanel from "@/components/agent-panel/AgentPanel";
 import { Span, Trace as TraceType } from "@/models/trace";
-import {
-  initializeProviders,
-  loadProviderSelection,
-  getProviderRegion,
-} from "@/utils/provider";
+import { initializeProviders } from "@/utils/provider";
 
 export default function Explore() {
   const [selectedTraceIds, setSelectedTraceIds] = useState<string[]>([]);
@@ -25,9 +29,26 @@ export default function Explore() {
     { category: string; value: string }[]
   >([]);
 
+  // Header state - lifted from Trace.tsx and RightPanelSwitch.tsx
+  const [viewType, setViewType] = useState<ViewType>("log");
+  const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>(
+    TIME_RANGES[0],
+  );
+  const [timezone, setTimezone] = useState<TimezoneMode>("utc");
+  const [searchCriteria, setSearchCriteria] = useState<SearchCriterion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [hasTraceIdInUrl, setHasTraceIdInUrl] = useState(false);
+
   // Initialize providers
   useEffect(() => {
     initializeProviders();
+  }, []);
+
+  // Check if trace_id is in URL on mount
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const traceIdParam = urlParams.get("trace_id");
+    setHasTraceIdInUrl(!!traceIdParam);
   }, []);
 
   // Helper function to get all span IDs from a trace recursively
@@ -106,6 +127,58 @@ export default function Explore() {
     [],
   );
 
+  // Header handlers
+  const handleTimeRangeSelect = useCallback((range: TimeRange) => {
+    setSelectedTimeRange(range);
+    setSelectedTraceIds([]);
+    setSelectedSpanIds([]);
+    setLoading(true);
+  }, []);
+
+  const handleCustomTimeRangeSelect = useCallback(
+    (customRange: CustomTimeRange, selectedTimezone: TimezoneMode) => {
+      setTimezone(selectedTimezone);
+
+      const customTimeRange: TimeRange = {
+        label: customRange.label,
+        isCustom: true,
+        customRange: customRange,
+      };
+
+      if (customRange.type === "relative") {
+        customTimeRange.minutes = customRange.minutes;
+      }
+
+      setSelectedTimeRange(customTimeRange);
+      setSelectedTraceIds([]);
+      setSelectedSpanIds([]);
+      setLoading(true);
+    },
+    [],
+  );
+
+  const handleSearch = useCallback((criteria: SearchCriterion[]) => {
+    setSearchCriteria(criteria);
+    setLoading(true);
+  }, []);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchCriteria([]);
+    setLogSearchValue("");
+    handleLogSearchValueChange("");
+    setLoading(true);
+  }, [handleLogSearchValueChange]);
+
+  const handleRefresh = useCallback(() => {
+    setSelectedTraceIds([]);
+    setSelectedSpanIds([]);
+    setLoading(true);
+  }, []);
+
+  const handleLoadingChange = useCallback((isLoading: boolean) => {
+    setLoading(isLoading);
+  }, []);
+
   // TODO (xinwei): Add ProtectedRoute
   return (
     <AgentPanel
@@ -116,38 +189,62 @@ export default function Explore() {
       queryEndTime={timeRange?.end}
       onSpanSelect={(spanId) => handleSpanSelect([spanId])}
     >
-      <ResizablePanel
-        leftPanel={
-          <Trace
-            onTraceSelect={handleTraceSelect}
-            onSpanSelect={handleSpanSelect}
-            onTraceData={handleTraceData}
-            onTracesUpdate={handleTracesUpdate}
-            onLogSearchValueChange={handleLogSearchValueChange}
-            onMetadataSearchTermsChange={handleMetadataSearchTermsChange}
-            selectedTraceIds={selectedTraceIds}
-            selectedSpanIds={selectedSpanIds}
+      <div className="h-screen flex flex-col">
+        <ExploreHeader
+          onSearch={handleSearch}
+          onClearSearch={handleClearSearch}
+          onLogSearchValueChange={handleLogSearchValueChange}
+          onMetadataSearchTermsChange={handleMetadataSearchTermsChange}
+          searchDisabled={loading || hasTraceIdInUrl}
+          selectedTimeRange={selectedTimeRange}
+          onTimeRangeSelect={handleTimeRangeSelect}
+          onCustomTimeRangeSelect={handleCustomTimeRangeSelect}
+          currentTimezone={timezone}
+          timeDisabled={loading || hasTraceIdInUrl}
+          onRefresh={handleRefresh}
+          refreshDisabled={loading || hasTraceIdInUrl}
+          viewType={viewType}
+          onViewTypeChange={setViewType}
+        />
+        <div className="flex-1 overflow-hidden">
+          <ResizablePanel
+            leftPanel={
+              <Trace
+                onTraceSelect={handleTraceSelect}
+                onSpanSelect={handleSpanSelect}
+                onTraceData={handleTraceData}
+                onTracesUpdate={handleTracesUpdate}
+                selectedTraceIds={selectedTraceIds}
+                selectedSpanIds={selectedSpanIds}
+                selectedTimeRange={selectedTimeRange}
+                timezone={timezone}
+                searchCriteria={searchCriteria}
+                loading={loading}
+                onLoadingChange={handleLoadingChange}
+              />
+            }
+            rightPanel={
+              <RightPanelSwitch
+                traceIds={selectedTraceIds}
+                spanIds={selectedSpanIds}
+                traceQueryStartTime={timeRange?.start}
+                traceQueryEndTime={timeRange?.end}
+                allTraces={allTraces}
+                logSearchValue={logSearchValue}
+                metadataSearchTerms={metadataSearchTerms}
+                onTraceSelect={handleTraceSelect}
+                onSpanClear={handleSpanClear}
+                onTraceSpansUpdate={handleTraceSpansUpdate}
+                onSpanSelect={handleSpanSelect}
+                viewType={viewType}
+              />
+            }
+            minLeftWidth={35}
+            maxLeftWidth={60}
+            defaultLeftWidth={46}
           />
-        }
-        rightPanel={
-          <RightPanelSwitch
-            traceIds={selectedTraceIds}
-            spanIds={selectedSpanIds}
-            traceQueryStartTime={timeRange?.start}
-            traceQueryEndTime={timeRange?.end}
-            allTraces={allTraces}
-            logSearchValue={logSearchValue}
-            metadataSearchTerms={metadataSearchTerms}
-            onTraceSelect={handleTraceSelect}
-            onSpanClear={handleSpanClear}
-            onTraceSpansUpdate={handleTraceSpansUpdate}
-            onSpanSelect={handleSpanSelect}
-          />
-        }
-        minLeftWidth={35}
-        maxLeftWidth={60}
-        defaultLeftWidth={46}
-      />
+        </div>
+      </div>
     </AgentPanel>
   );
 }
