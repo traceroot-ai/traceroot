@@ -3,9 +3,6 @@
 import React, { useEffect, useState } from "react";
 import { TraceLog, LogEntry } from "@/models/log";
 import { Span, Trace as TraceModel } from "@/models/trace";
-import { FaPython, FaJava } from "react-icons/fa";
-import { IoLogoJavascript } from "react-icons/io5";
-import { SiTypescript } from "react-icons/si";
 import { CirclePlus, CircleMinus } from "lucide-react";
 import { fadeInAnimationStyles } from "@/constants/animations";
 import { ViewType } from "../ModeToggle";
@@ -595,44 +592,6 @@ export default function LogDetail({
                       <div className="bg-white dark:bg-black p-1 border-b border-neutral-300 dark:border-neutral-700">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-0.5 flex-1">
-                            {/* Language Icon */}
-                            {trace?.telemetry_sdk_language &&
-                              trace.telemetry_sdk_language.length > 0 && (
-                                <div className="flex items-center flex-shrink-0 ml-1 mr-2">
-                                  {trace.telemetry_sdk_language.includes(
-                                    "python",
-                                  ) && (
-                                    <FaPython
-                                      className="text-neutral-800 dark:text-neutral-200"
-                                      size={14}
-                                    />
-                                  )}
-                                  {trace.telemetry_sdk_language.includes(
-                                    "ts",
-                                  ) && (
-                                    <SiTypescript
-                                      className="text-neutral-800 dark:text-neutral-200"
-                                      size={14}
-                                    />
-                                  )}
-                                  {trace.telemetry_sdk_language.includes(
-                                    "js",
-                                  ) && (
-                                    <IoLogoJavascript
-                                      className="text-neutral-800 dark:text-neutral-200"
-                                      size={14}
-                                    />
-                                  )}
-                                  {trace.telemetry_sdk_language.includes(
-                                    "java",
-                                  ) && (
-                                    <FaJava
-                                      className="text-neutral-800 dark:text-neutral-200"
-                                      size={14}
-                                    />
-                                  )}
-                                </div>
-                              )}
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Badge
