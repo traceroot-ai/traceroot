@@ -34,6 +34,10 @@ interface ExploreHeaderProps {
   // Mode toggle props
   viewType: ViewType;
   onViewTypeChange: (type: ViewType) => void;
+
+  // Agent panel props
+  agentOpen?: boolean;
+  onAgentToggle?: () => void;
 }
 
 export default function ExploreHeader({
@@ -51,6 +55,8 @@ export default function ExploreHeader({
   refreshDisabled = false,
   viewType,
   onViewTypeChange,
+  agentOpen,
+  onAgentToggle,
 }: ExploreHeaderProps) {
   return (
     <div className="sticky top-0 z-10 bg-white dark:bg-zinc-950 pt-1 pl-6 pr-2 pb-1 border-b border-zinc-200 dark:border-zinc-700">
@@ -73,7 +79,12 @@ export default function ExploreHeader({
             currentTimezone={currentTimezone}
             disabled={timeDisabled}
           />
-          <ModeToggle viewType={viewType} onViewTypeChange={onViewTypeChange} />
+          <ModeToggle
+            viewType={viewType}
+            onViewTypeChange={onViewTypeChange}
+            agentOpen={agentOpen}
+            onAgentToggle={onAgentToggle}
+          />
         </div>
       </div>
     </div>

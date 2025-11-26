@@ -534,7 +534,7 @@ export default function ChatMessage({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 flex flex-col bg-zinc-50 dark:bg-zinc-900 mt-2 ml-4 mr-4 mb-2 rounded-lg">
+    <div className="flex-1 overflow-y-auto p-3 flex flex-col bg-zinc-50 dark:bg-zinc-900 min-h-0">
       <div className="flex-1"></div>
       {messages.map((message, index) => {
         // Show reasoning after every user message
@@ -554,7 +554,7 @@ export default function ChatMessage({
             <div
               className={`flex ${
                 message.role === "user" ? "justify-end" : "justify-start"
-              } mb-4 items-start gap-2`}
+              } mb-3 items-start gap-2`}
             >
               {/* Avatar for assistant, github, and statistics */}
               {(message.role === "assistant" ||
@@ -648,7 +648,7 @@ export default function ChatMessage({
 
             {/* Show reasoning after user messages */}
             {shouldShowReasoning && (
-              <div className="mb-4">
+              <div className="mb-3">
                 {chatId ? (
                   <ChatReasoning
                     chatId={chatId}
@@ -674,7 +674,7 @@ export default function ChatMessage({
       })}
       {/* Loading indicator */}
       {isLoading && (
-        <div className="flex justify-start mb-4 items-start gap-2">
+        <div className="flex justify-start mb-3 items-start gap-2">
           <div className="w-8 h-8 rounded-full bg-zinc-700 dark:bg-zinc-200 flex items-center justify-center flex-shrink-0 animate-pulse">
             <RiRobot2Line className="w-5 h-5 text-white dark:text-zinc-700" />
           </div>

@@ -669,62 +669,64 @@ export default function Agent({
   };
 
   return (
-    <div className="h-full bg-white dark:bg-zinc-950 flex flex-col">
-      {/* Top bar */}
-      <TopBar
-        activeChatTabs={chatTabs}
-        activeChatId={activeChatId}
-        activeTempId={activeTempId}
-        traceId={traceId}
-        messages={messages}
-        chatTitle={activeChat?.title}
-        onNewChat={handleNewChat}
-        onChatSelect={handleChatSelect}
-        onChatClose={handleChatClose}
-        onHistoryItemsSelect={handleHistoryItemsSelect}
-        onUpdateChatTitle={updateChatTitle}
-        ref={topBarRef}
-      />
+    <div className="h-full bg-white dark:bg-zinc-950 flex flex-col px-4 pt-2 pb-2">
+      {/* Unified card container */}
+      <div className="flex-1 flex flex-col min-h-0 rounded-lg border border-neutral-300 dark:border-neutral-700 bg-zinc-50 dark:bg-zinc-900 overflow-hidden">
+        {/* Top bar */}
+        <TopBar
+          activeChatTabs={chatTabs}
+          activeChatId={activeChatId}
+          activeTempId={activeTempId}
+          traceId={traceId}
+          messages={messages}
+          chatTitle={activeChat?.title}
+          onNewChat={handleNewChat}
+          onChatSelect={handleChatSelect}
+          onChatClose={handleChatClose}
+          onHistoryItemsSelect={handleHistoryItemsSelect}
+          onUpdateChatTitle={updateChatTitle}
+          ref={topBarRef}
+        />
 
-      {/* Chat messages area */}
-      <ChatMessage
-        messages={messages}
-        isLoading={isLoading}
-        userAvatarUrl={userAvatarUrl}
-        messagesEndRef={messagesEndRef}
-        onSpanSelect={onSpanSelect}
-        onViewTypeChange={onViewTypeChange}
-        chatId={activeChatId}
-        onSendMessage={(message) => {
-          setInputMessage(message);
-          // Trigger form submit programmatically
-          setTimeout(() => {
-            const form = document.querySelector("form");
-            if (form) {
-              form.dispatchEvent(
-                new Event("submit", { cancelable: true, bubbles: true }),
-              );
-            }
-          }, 0);
-        }}
-      />
+        {/* Chat messages area */}
+        <ChatMessage
+          messages={messages}
+          isLoading={isLoading}
+          userAvatarUrl={userAvatarUrl}
+          messagesEndRef={messagesEndRef}
+          onSpanSelect={onSpanSelect}
+          onViewTypeChange={onViewTypeChange}
+          chatId={activeChatId}
+          onSendMessage={(message) => {
+            setInputMessage(message);
+            // Trigger form submit programmatically
+            setTimeout(() => {
+              const form = document.querySelector("form");
+              if (form) {
+                form.dispatchEvent(
+                  new Event("submit", { cancelable: true, bubbles: true }),
+                );
+              }
+            }, 0);
+          }}
+        />
 
-      {/* Message input area - fixed at bottom */}
-      <MessageInput
-        inputMessage={inputMessage}
-        setInputMessage={setInputMessage}
-        isLoading={isLoading}
-        onSendMessage={handleSendMessage}
-        selectedModel={selectedModel}
-        setSelectedModel={setSelectedModel}
-        selectedMode={selectedMode}
-        setSelectedMode={handleModeChange}
-        selectedProvider={selectedProvider}
-        setSelectedProvider={setSelectedProvider}
-        traceId={traceId}
-        traceIds={traceIds}
-        spanIds={spanIds}
-      />
+        {/* Message input area - fixed at bottom */}
+        <MessageInput
+          inputMessage={inputMessage}
+          setInputMessage={setInputMessage}
+          isLoading={isLoading}
+          onSendMessage={handleSendMessage}
+          selectedModel={selectedModel}
+          setSelectedModel={setSelectedModel}
+          selectedMode={selectedMode}
+          setSelectedMode={handleModeChange}
+          selectedProvider={selectedProvider}
+          traceId={traceId}
+          traceIds={traceIds}
+          spanIds={spanIds}
+        />
+      </div>
     </div>
   );
 }
