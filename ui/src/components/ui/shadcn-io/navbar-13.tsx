@@ -52,7 +52,7 @@ export const Navbar13 = React.forwardRef<HTMLDivElement, Navbar13Props<any>>(
         <Select value={String(selectedValue)} onValueChange={handleValueChange}>
           <SelectTrigger
             size="sm"
-            className="gap-1.5 px-2.5 bg-zinc-50 dark:bg-zinc-900 text-xs"
+            className="gap-1.5 px-2.5 bg-zinc-50 dark:bg-zinc-900 text-xs w-[100px]"
           >
             {currentOption && (
               <>
@@ -63,22 +63,23 @@ export const Navbar13 = React.forwardRef<HTMLDivElement, Navbar13Props<any>>(
               </>
             )}
           </SelectTrigger>
-          <SelectContent side="top" align="start" className="w-80">
+          <SelectContent
+            side="top"
+            align="start"
+            className="min-w-[220px] w-auto"
+          >
             <SelectGroup>
-              <SelectLabel className="ps-2">{label}</SelectLabel>
+              <SelectLabel className="px-3 py-1.5 text-xs">{label}</SelectLabel>
               {options.map((option) => (
                 <SelectItem
                   key={String(option.value)}
                   value={String(option.value)}
-                  className="p-3"
+                  className="px-3 py-2"
                 >
-                  <div className="flex flex-col items-start gap-1">
-                    <div className="flex items-center gap-2">
-                      <option.icon className="w-4 h-4 dark:text-zinc-200 text-zinc-900" />
-                      <span className="font-medium dark:text-zinc-200 text-zinc-900">
-                        {option.name}
-                      </span>
-                    </div>
+                  <div className="flex flex-col items-start gap-0.5 pr-4">
+                    <span className="text-sm font-medium dark:text-zinc-200 text-zinc-900">
+                      {option.name}
+                    </span>
                     <span className="text-xs text-muted-foreground">
                       {option.description}
                     </span>
