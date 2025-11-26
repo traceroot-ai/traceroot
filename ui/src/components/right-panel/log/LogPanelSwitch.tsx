@@ -42,7 +42,7 @@ export default function LogPanelSwitch({
   viewType,
 }: LogPanelSwitchProps) {
   return (
-    <div className="h-screen flex flex-col dark:bg-zinc-950">
+    <div className="h-full flex flex-col dark:bg-zinc-950">
       {traceIds.length > 0 ? (
         <LogDetail
           traceIds={traceIds}

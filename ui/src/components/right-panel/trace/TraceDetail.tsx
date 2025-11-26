@@ -113,7 +113,7 @@ export default function TraceDetail({
 
   if (!traceId || !spans.length) {
     return (
-      <div className="h-screen flex flex-col">
+      <div className="h-full flex flex-col">
         <div className="bg-white dark:bg-gray-800 p-2 overflow-y-auto flex-1 min-h-0">
           <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700">
             <p className="text-gray-600 dark:text-gray-300 text-sm">
@@ -174,7 +174,7 @@ export default function TraceDetail({
   };
 
   return (
-    <div className="h-screen flex flex-col overflow-y-auto">
+    <div className="h-full flex flex-col overflow-y-auto">
       <div className="bg-zinc-50 dark:bg-zinc-900 mt-1 ml-4 mr-4 rounded-lg flex flex-col min-h-0 flex-1">
         {/* Trace header */}
         <div className="bg-white dark:bg-zinc-900 p-2 rounded-lg border border-zinc-200 dark:border-zinc-700 m-2 flex-shrink-0">
