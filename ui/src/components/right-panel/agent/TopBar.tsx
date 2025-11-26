@@ -9,7 +9,6 @@ import { GoHistory } from "react-icons/go";
 import { Plus, X, Check, Download } from "lucide-react";
 import { ChatMetadata, ChatMetadataHistory } from "@/models/chat";
 import { useAuth } from "@clerk/nextjs";
-import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/shadcn-io/spinner";
 import {
   DropdownMenu,
@@ -19,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import { truncateTitle } from "@/lib/utils";
 
 interface Message {
@@ -418,7 +418,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
     };
 
     return (
-      <div className="bg-zinc-50 dark:bg-zinc-900 gap-2 mx-4 mt-2 mb-1 rounded-md p-1 relative">
+      <div className="bg-white dark:bg-black px-2 py-2 relative border-b border-neutral-300 dark:border-neutral-700 flex-shrink-0">
         <div className="flex items-center gap-2">
           <div className="flex-1 min-w-0 overflow-hidden">
             {activeChatTabs.length > 0 ? (
@@ -426,12 +426,12 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
                 value={activeChatId || activeTempId || "new"}
                 onValueChange={handleTabChange}
               >
-                <TabsList className="h-9 overflow-x-auto flex-nowrap w-full justify-start items-center">
+                <TabsList className="h-auto p-0 bg-transparent overflow-x-auto flex-nowrap w-full justify-start items-center gap-1.5">
                   {activeChatTabs.map((tab) => (
                     <TabsTrigger
                       key={tab.chatId || tab.tempId || "new"}
                       value={tab.chatId || tab.tempId || "new"}
-                      className="text-xs h-6 px-2 pr-6 relative group flex-none"
+                      className="text-xs h-6 px-2 pr-6 relative group flex-none rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 data-[state=active]:bg-zinc-50 dark:data-[state=active]:bg-zinc-700 data-[state=active]:border-zinc-300 dark:data-[state=active]:border-zinc-600"
                     >
                       <span className="mr-1 whitespace-nowrap">
                         {!tab.chatId
@@ -441,11 +441,7 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
                             : tab.title}
                       </span>
                       <div
-                        className={`absolute top-0 right-0 h-full w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer rounded-sm flex items-center justify-center ${
-                          tab.chatId === activeChatId
-                            ? "group-hover:bg-background/80 dark:group-hover:bg-input/50"
-                            : "group-hover:bg-muted/50 dark:group-hover:bg-muted/20"
-                        }`}
+                        className={`absolute top-0 right-0 h-full w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer rounded-sm flex items-center justify-center`}
                         onClick={(e) =>
                           handleTabClose(e, tab.chatId, tab.tempId)
                         }
@@ -457,45 +453,42 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
                 </TabsList>
               </Tabs>
             ) : (
-              <div className="flex items-center ml-2">
-                <span className="text-xs font-medium font-mono text-neutral-800 dark:text-neutral-300">
+              <div className="flex items-center ml-1">
+                <Badge
+                  variant="outline"
+                  className="text-xs font-medium bg-white dark:bg-zinc-800"
+                >
                   New Chat
-                </span>
+                </Badge>
               </div>
             )}
           </div>
-          <div className="absolute top-1 right-1 flex items-center bg-zinc-50 dark:bg-zinc-900 z-10">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="mr-1 h-8 w-8"
+          <div className="absolute top-1/2 -translate-y-1/2 right-2 flex items-center gap-1.5 bg-white dark:bg-black z-10">
+            <button
               onClick={handleDownload}
               title="Download chat as markdown"
               disabled={messages.length === 0}
+              className="h-7 w-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Download className="w-4 h-4" />
-            </Button>
+              <Download className="w-3.5 h-3.5" />
+            </button>
 
-            <Button
-              variant="ghost"
-              size="icon"
-              className="mr-1 h-8 w-8"
+            <button
               onClick={onNewChat}
               title="Start new chat"
+              className="h-7 w-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
             >
-              <Plus className="w-4 h-4" />
-            </Button>
+              <Plus className="w-3.5 h-3.5" />
+            </button>
 
             <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
               <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="mr-1 h-8 w-8"
+                <button
                   title="View chat history"
+                  className="h-7 w-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
                 >
-                  <GoHistory className="w-4 h-4" />
-                </Button>
+                  <GoHistory className="w-3.5 h-3.5" />
+                </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
