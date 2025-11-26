@@ -66,7 +66,7 @@ export const Navbar13 = React.forwardRef<HTMLDivElement, Navbar13Props<any>>(
           <SelectContent
             side="top"
             align="start"
-            className="min-w-[220px] w-auto"
+            className="min-w-[160px] w-auto"
           >
             <SelectGroup>
               <SelectLabel className="px-3 py-1.5 text-xs">{label}</SelectLabel>
@@ -74,13 +74,13 @@ export const Navbar13 = React.forwardRef<HTMLDivElement, Navbar13Props<any>>(
                 <SelectItem
                   key={String(option.value)}
                   value={String(option.value)}
-                  className="px-3 py-2"
+                  className="px-3 py-1.5"
                 >
                   <div className="flex flex-col items-start gap-0.5 pr-4">
-                    <span className="text-sm font-medium dark:text-zinc-200 text-zinc-900">
+                    <span className="text-xs font-medium dark:text-zinc-200 text-zinc-900">
                       {option.name}
                     </span>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-[10px] text-muted-foreground">
                       {option.description}
                     </span>
                   </div>
