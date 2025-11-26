@@ -180,7 +180,7 @@ export default function MessageInput({
             disabled={isLoading || !hasTraceOrSpans || hasMultipleTraces}
             minRows={1}
             maxRows={5}
-            className="rounded-md border border-zinc-200 dark:border-zinc-700 text-gray-900 dark:text-gray-100 focus:ring-1 focus:ring-neutral-500 focus:border-neutral-500 transition-all duration-200 text-sm"
+            className="rounded-md border border-zinc-200 dark:border-zinc-700 text-gray-900 dark:text-gray-100 focus:ring-1 focus:ring-neutral-500 focus:border-neutral-500 transition-all duration-200 text-xs"
           />
           <PromptInputToolbar className="border-t-0 pt-1.5 pb-0 px-0">
             <PromptInputTools className="gap-1.5">
