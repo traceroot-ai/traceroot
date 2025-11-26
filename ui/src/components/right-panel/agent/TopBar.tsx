@@ -6,7 +6,7 @@ import React, {
   forwardRef,
 } from "react";
 import { GoHistory } from "react-icons/go";
-import { Plus, X, Check, Download } from "lucide-react";
+import { Plus, X, Check } from "lucide-react";
 import { ChatMetadata, ChatMetadataHistory } from "@/models/chat";
 import { useAuth } from "@clerk/nextjs";
 import { Spinner } from "@/components/ui/shadcn-io/spinner";
@@ -349,74 +349,6 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
       onChatClose(chatId, tempId);
     };
 
-    const handleDownload = () => {
-      if (messages.length === 0) return;
-
-      // Filter messages to only include user and assistant messages (no github or statistics)
-      const relevantMessages = messages.filter(
-        (msg) => msg.role === "user" || msg.role === "assistant",
-      );
-
-      if (relevantMessages.length === 0) return;
-
-      // Generate markdown content
-      let markdownContent = "";
-
-      relevantMessages.forEach((message) => {
-        if (message.role === "user") {
-          markdownContent += "**User**\n\n" + message.content + "\n\n";
-        } else if (message.role === "assistant") {
-          markdownContent += "**TraceRoot**\n\n" + message.content;
-
-          // Add references if they exist
-          if (message.references && message.references.length > 0) {
-            markdownContent += "\n\n**References:**\n\n";
-            message.references.forEach((ref, index) => {
-              markdownContent += `[${ref.number || index + 1}] `;
-
-              if (ref.span_id) {
-                markdownContent += `Span ID: ${ref.span_id}`;
-              }
-
-              if (ref.span_function_name) {
-                markdownContent += ref.span_id
-                  ? `, Function: ${ref.span_function_name}`
-                  : `Function: ${ref.span_function_name}`;
-              }
-
-              if (ref.line_number) {
-                markdownContent += `, Line: ${ref.line_number}`;
-              }
-
-              if (ref.log_message) {
-                markdownContent += `\n   Log: ${ref.log_message}`;
-              }
-
-              markdownContent += "\n";
-            });
-          }
-
-          markdownContent += "\n\n";
-        }
-      });
-
-      // Generate filename using the chat title or default
-      const title =
-        chatTitle || chatMetadata?.chat_title || displayedTitle || "chat";
-      const filename = `${title.replace(/[^a-zA-Z0-9\s-_]/g, "").replace(/\s+/g, "_")}.md`;
-
-      // Create and download the file
-      const blob = new Blob([markdownContent], { type: "text/markdown" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    };
-
     return (
       <div className="bg-white dark:bg-black px-2 py-2 relative border-b border-neutral-300 dark:border-neutral-700 flex-shrink-0">
         <div className="flex items-center gap-2">
@@ -464,15 +396,6 @@ const TopBar = forwardRef<TopBarRef, TopBarProps>(
             )}
           </div>
           <div className="absolute top-1/2 -translate-y-1/2 right-2 flex items-center gap-1.5 bg-white dark:bg-black z-10">
-            <button
-              onClick={handleDownload}
-              title="Download chat as markdown"
-              disabled={messages.length === 0}
-              className="h-7 w-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Download className="w-3.5 h-3.5" />
-            </button>
-
             <button
               onClick={onNewChat}
               title="Start new chat"
