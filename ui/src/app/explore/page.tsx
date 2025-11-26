@@ -73,7 +73,7 @@ export default function Explore() {
   const [loading, setLoading] = useState(true);
   const [hasTraceIdInUrl, setHasTraceIdInUrl] = useState(false);
 
-  // Agent panel state - persisted to localStorage
+  // Agent panel state - persisted to localStorage, defaults to closed
   const [agentOpen, setAgentOpen] = usePersistentState("agentPanelOpen", false);
 
   const handleAgentToggle = useCallback(() => {
