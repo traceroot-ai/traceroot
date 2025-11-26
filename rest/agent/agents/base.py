@@ -6,10 +6,10 @@ class AgentTool:
     """Represents a tool that an agent can use.
 
     Attributes:
-        name: The name of the tool
-        function: The callable function that implements the tool
-        parameters: Dictionary describing the parameters the tool accepts
-        description: Description of what the tool does
+        name (str): The name of the tool
+        function (Callable): The callable function that implements the tool
+        parameters (dict[str, Any] | None): Dictionary describing the parameters the tool accepts
+        description (str | None): Description of what the tool does
     """
 
     def __init__(
@@ -18,12 +18,12 @@ class AgentTool:
         function: Callable,
         parameters: dict[str,
                          Any] | None = None,
-        description: str = ""
+        description: str | None = None
     ):
         self.name = name
         self.function = function
         self.parameters = parameters or {}
-        self.description = description
+        self.description = description or ""
 
     def __repr__(self) -> str:
         return f"AgentTool(name='{self.name}', description='{self.description}')"

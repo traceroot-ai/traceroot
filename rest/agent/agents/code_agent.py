@@ -53,7 +53,7 @@ class CodeAgent(BaseAgent):
         self.chat_client = AsyncOpenAI(api_key=api_key)
         self.system_prompt = AGENT_SYSTEM_PROMPT
         self.name = "CodeAgent"
-        self.model = ChatModel.GPT_4O  # Default model for code agent
+        self.model = ChatModel.O4_MINI  # Default model for code agent
 
     async def _generate_summary_without_tools(
         self,
