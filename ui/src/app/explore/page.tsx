@@ -16,6 +16,40 @@ import AgentPanel from "@/components/agent-panel/AgentPanel";
 import { Span, Trace as TraceType } from "@/models/trace";
 import { initializeProviders } from "@/utils/provider";
 
+// Custom hook for persistent state with localStorage
+function usePersistentState<T>(
+  key: string,
+  defaultValue: T,
+): [T, (value: T | ((prev: T) => T)) => void] {
+  const [state, setState] = useState<T>(() => {
+    if (typeof window === "undefined") return defaultValue;
+    try {
+      const saved = localStorage.getItem(key);
+      return saved !== null ? JSON.parse(saved) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  });
+
+  const setPersistentState = useCallback(
+    (value: T | ((prev: T) => T)) => {
+      setState((prev) => {
+        const newValue =
+          typeof value === "function" ? (value as (prev: T) => T)(prev) : value;
+        try {
+          localStorage.setItem(key, JSON.stringify(newValue));
+        } catch {
+          // Ignore localStorage errors
+        }
+        return newValue;
+      });
+    },
+    [key],
+  );
+
+  return [state, setPersistentState];
+}
+
 export default function Explore() {
   const [selectedTraceIds, setSelectedTraceIds] = useState<string[]>([]);
   const [selectedSpanIds, setSelectedSpanIds] = useState<string[]>([]);
@@ -38,6 +72,13 @@ export default function Explore() {
   const [searchCriteria, setSearchCriteria] = useState<SearchCriterion[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasTraceIdInUrl, setHasTraceIdInUrl] = useState(false);
+
+  // Agent panel state - persisted to localStorage
+  const [agentOpen, setAgentOpen] = usePersistentState("agentPanelOpen", false);
+
+  const handleAgentToggle = useCallback(() => {
+    setAgentOpen((prev) => !prev);
+  }, [setAgentOpen]);
 
   // Initialize providers
   useEffect(() => {
@@ -181,32 +222,38 @@ export default function Explore() {
 
   // TODO (xinwei): Add ProtectedRoute
   return (
-    <AgentPanel
-      traceId={selectedTraceIds.length === 1 ? selectedTraceIds[0] : undefined}
-      traceIds={selectedTraceIds}
-      spanIds={selectedSpanIds}
-      queryStartTime={timeRange?.start}
-      queryEndTime={timeRange?.end}
-      onSpanSelect={(spanId) => handleSpanSelect([spanId])}
-    >
-      <div className="h-screen flex flex-col">
-        <ExploreHeader
-          onSearch={handleSearch}
-          onClearSearch={handleClearSearch}
-          onLogSearchValueChange={handleLogSearchValueChange}
-          onMetadataSearchTermsChange={handleMetadataSearchTermsChange}
-          searchDisabled={loading || hasTraceIdInUrl}
-          selectedTimeRange={selectedTimeRange}
-          onTimeRangeSelect={handleTimeRangeSelect}
-          onCustomTimeRangeSelect={handleCustomTimeRangeSelect}
-          currentTimezone={timezone}
-          timeDisabled={loading || hasTraceIdInUrl}
-          onRefresh={handleRefresh}
-          refreshDisabled={loading || hasTraceIdInUrl}
-          viewType={viewType}
-          onViewTypeChange={setViewType}
-        />
-        <div className="flex-1 overflow-hidden">
+    <div className="h-screen flex flex-col">
+      <ExploreHeader
+        onSearch={handleSearch}
+        onClearSearch={handleClearSearch}
+        onLogSearchValueChange={handleLogSearchValueChange}
+        onMetadataSearchTermsChange={handleMetadataSearchTermsChange}
+        searchDisabled={loading || hasTraceIdInUrl}
+        selectedTimeRange={selectedTimeRange}
+        onTimeRangeSelect={handleTimeRangeSelect}
+        onCustomTimeRangeSelect={handleCustomTimeRangeSelect}
+        currentTimezone={timezone}
+        timeDisabled={loading || hasTraceIdInUrl}
+        onRefresh={handleRefresh}
+        refreshDisabled={loading || hasTraceIdInUrl}
+        viewType={viewType}
+        onViewTypeChange={setViewType}
+        agentOpen={agentOpen}
+        onAgentToggle={handleAgentToggle}
+      />
+      <div className="flex-1 overflow-hidden">
+        <AgentPanel
+          traceId={
+            selectedTraceIds.length === 1 ? selectedTraceIds[0] : undefined
+          }
+          traceIds={selectedTraceIds}
+          spanIds={selectedSpanIds}
+          queryStartTime={timeRange?.start}
+          queryEndTime={timeRange?.end}
+          onSpanSelect={(spanId) => handleSpanSelect([spanId])}
+          isOpen={agentOpen}
+          onToggle={handleAgentToggle}
+        >
           <ResizablePanel
             leftPanel={
               <Trace
@@ -243,8 +290,8 @@ export default function Explore() {
             maxLeftWidth={60}
             defaultLeftWidth={46}
           />
-        </div>
+        </AgentPanel>
       </div>
-    </AgentPanel>
+    </div>
   );
 }
