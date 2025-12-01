@@ -59,7 +59,7 @@ dependencies = [
     "slowapi==0.1.9",
     "aiocache==0.12.3",
     "PyGithub==2.6.1",
-    "pydantic==2.11.7",
+    "pydantic>=2.11.7",
     "python-dotenv==1.1.1",
     "pydantic-settings==2.10.1",
     "dotenv==0.9.9",
