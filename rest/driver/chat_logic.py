@@ -45,7 +45,7 @@ from rest.config import (
 from rest.dao.sqlite_dao import TraceRootSQLiteClient
 from rest.service.provider import ObservabilityProvider
 from rest.tools.github import GitHubClient
-from rest.typing import (
+from rest.rest_types import (
     ActionStatus,
     ActionType,
     ChatMode,

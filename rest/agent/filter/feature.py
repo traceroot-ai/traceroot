@@ -2,7 +2,7 @@ from openai import AsyncOpenAI
 
 from rest.agent.output.feature import LogFeatureSelectorOutput, SpanFeatureSelectorOutput
 from rest.agent.typing import LogFeature, SpanFeature
-from rest.typing import ChatModel
+from rest.rest_types import ChatModel
 
 LOG_FEATURE_SELECTOR_PROMPT = (
     "You are a helpful assistant that can select related "

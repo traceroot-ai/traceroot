@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from rest.agent.prompts import ROUTER_SYSTEM_PROMPT
 from rest.agent.utils.openai_tools import get_openai_tool_schema
-from rest.typing import ChatMode
+from rest.rest_types import ChatMode
 from rest.utils.token_tracking import track_tokens_for_user
 
 

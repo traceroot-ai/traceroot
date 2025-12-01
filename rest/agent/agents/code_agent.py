@@ -34,7 +34,7 @@ from rest.agent.utils.openai_tools import get_openai_tool_schema
 from rest.config import ChatbotResponse
 from rest.constants import MAX_PREV_RECORD
 from rest.tools.github import GitHubClient
-from rest.typing import ActionStatus, ActionType, ChatModel, MessageType, Provider
+from rest.rest_types import ActionStatus, ActionType, ChatModel, MessageType, Provider
 from rest.utils.token_tracking import track_tokens_for_user
 
 

@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from rest.config import ListTraceResponse, Trace
-from rest.typing import Operation
+from rest.rest_types import Operation
 
 
 @dataclass
