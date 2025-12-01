@@ -1,6 +1,6 @@
 from openai import AsyncOpenAI
 
-from rest.typing import ChatModel
+from rest.rest_types import ChatModel
 from rest.utils.token_tracking import track_tokens_for_user
 
 TITLE_PROMPT = (

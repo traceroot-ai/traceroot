@@ -1,7 +1,7 @@
 from openai import AsyncOpenAI
 
 from rest.config import ChatbotResponse
-from rest.typing import ChatModel
+from rest.rest_types import ChatModel
 from rest.utils.token_tracking import track_tokens_for_user
 
 SYSTEM_PROMPT = (
