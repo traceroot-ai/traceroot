@@ -33,8 +33,8 @@ from rest.agent.typing import ISSUE_TYPE, LogFeature
 from rest.agent.utils.openai_tools import get_openai_tool_schema
 from rest.config import ChatbotResponse
 from rest.constants import MAX_PREV_RECORD
-from rest.tools.github import GitHubClient
 from rest.rest_types import ActionStatus, ActionType, ChatModel, MessageType, Provider
+from rest.tools.github import GitHubClient
 from rest.utils.token_tracking import track_tokens_for_user
 
 

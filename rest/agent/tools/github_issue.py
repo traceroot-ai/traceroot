@@ -1,8 +1,8 @@
 from typing import Any
 
 from rest.agent.tools.tool import Tool
-from rest.tools.github import GitHubClient
 from rest.rest_types import ActionType
+from rest.tools.github import GitHubClient
 
 
 class CreateGitIssue(Tool):

@@ -1,8 +1,8 @@
 from typing import Any
 
+from rest.rest_types import ObservabilityProviderType
 from rest.service.log.log_client import LogClient
 from rest.service.trace.trace_client import TraceClient
-from rest.rest_types import ObservabilityProviderType
 
 try:
     from rest.service.log.ee.aws_log_client import AWSLogClient
