@@ -3,7 +3,7 @@ from datetime import datetime
 import numpy as np
 
 from rest.config.trace import Span, Trace
-from rest.typing import Percentile
+from rest.rest_types import Percentile
 
 
 def sort_spans_recursively(spans: list[Span]) -> None:
