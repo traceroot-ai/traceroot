@@ -46,6 +46,7 @@ class SingleRCAAgent(BaseAgent):
             self.system_prompt += LOCAL_MODE_APPENDIX
 
         self.name = "SingleRCAAgent"
+        self.model = ChatModel.GPT_4O  # Default model for RCA agent
 
     async def chat(
         self,
