@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-from rest.typing import Reference
+from rest.rest_types import Reference
 
 
 class ChatOutput(BaseModel):

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field, field_serializer
 
-from rest.typing import (
+from rest.rest_types import (
     ActionStatus,
     ActionType,
     ChatMode,

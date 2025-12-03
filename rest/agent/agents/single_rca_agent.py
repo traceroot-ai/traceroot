@@ -23,7 +23,7 @@ from rest.agent.summarizer.chunk import chunk_summarize
 from rest.agent.typing import LogFeature
 from rest.config import ChatbotResponse
 from rest.dao.sqlite_dao import TraceRootSQLiteClient
-from rest.typing import ActionStatus, ActionType, ChatModel, MessageType, Reference
+from rest.rest_types import ActionStatus, ActionType, ChatModel, MessageType, Reference
 from rest.utils.token_tracking import track_tokens_for_user
 
 

@@ -43,9 +43,7 @@ from rest.config import (
     TraceLogs,
 )
 from rest.dao.sqlite_dao import TraceRootSQLiteClient
-from rest.service.provider import ObservabilityProvider
-from rest.tools.github import GitHubClient
-from rest.typing import (
+from rest.rest_types import (
     ActionStatus,
     ActionType,
     ChatMode,
@@ -55,6 +53,8 @@ from rest.typing import (
     Reference,
     ResourceType,
 )
+from rest.service.provider import ObservabilityProvider
+from rest.tools.github import GitHubClient
 from rest.utils.github import parse_github_url
 from rest.utils.provider import get_observe_provider
 from rest.utils.trace import collect_spans_latency_recursively

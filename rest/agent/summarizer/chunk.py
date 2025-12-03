@@ -3,7 +3,7 @@ import json
 from openai import AsyncOpenAI
 
 from rest.agent.output.chat_output import ChatOutput
-from rest.typing import ChatModel, Reference
+from rest.rest_types import ChatModel, Reference
 from rest.utils.token_tracking import track_tokens_for_user
 
 SYSTEM_PROMPT = (

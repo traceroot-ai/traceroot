@@ -5,7 +5,7 @@ from openai import AsyncOpenAI
 from rest.agent.context.tree import LogNode, SpanNode
 from rest.agent.output.structure import LogNodeSelectorOutput
 from rest.agent.typing import FeatureOps, LogFeature
-from rest.typing import NO_TEMPERATURE_MODEL, ChatModel
+from rest.rest_types import NO_TEMPERATURE_MODEL, ChatModel
 
 LOG_NODE_SELECTOR_PROMPT = (
     "You are a helpful assistant that can select related "
