@@ -14,7 +14,7 @@ from rest.agent.context.chat_context import build_chat_history_messages
 from rest.agent.prompts import GENERAL_AGENT_SYSTEM_PROMPT
 from rest.config import ChatbotResponse
 from rest.dao.sqlite_dao import TraceRootSQLiteClient
-from rest.typing import ActionStatus, ActionType, ChatModel, MessageType
+from rest.rest_types import ActionStatus, ActionType, ChatModel, MessageType
 from rest.utils.token_tracking import track_tokens_for_user
 
 

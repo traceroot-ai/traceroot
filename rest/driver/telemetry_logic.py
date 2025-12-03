@@ -23,8 +23,8 @@ from rest.config import (
     TraceLogs,
 )
 from rest.dao.sqlite_dao import TraceRootSQLiteClient
+from rest.rest_types import Operation
 from rest.service.provider import ObservabilityProvider
-from rest.typing import Operation
 from rest.utils.pagination import PaginationHelper
 from rest.utils.provider import get_observe_provider
 from rest.utils.trace_cache import TraceCacheHelper
