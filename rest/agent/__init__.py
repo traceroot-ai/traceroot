@@ -2,6 +2,14 @@ from .agents.code_agent import CodeAgent
 from .agents.general_agent import GeneralAgent
 from .agents.single_rca_agent import SingleRCAAgent
 from .router import ChatRouter
+from .workflow import (
+    AgentMetadata,
+    AgentRegistry,
+    AgentType,
+    AgentWorkflow,
+    WorkflowContext,
+    WorkflowResult,
+)
 
 # Backward compatibility alias
 Chat = SingleRCAAgent
@@ -12,4 +20,11 @@ __all__ = [
     "GeneralAgent",
     "ChatRouter",
     "Chat",  # For backward compatibility
+    # Workflow system
+    "AgentWorkflow",
+    "AgentRegistry",
+    "AgentType",
+    "AgentMetadata",
+    "WorkflowContext",
+    "WorkflowResult",
 ]
