@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
 import { TraceLog } from "@/models/log";
 import { createBackendAuthHeaders } from "@/lib/server-auth-headers";
 
@@ -90,32 +88,6 @@ async function fetchLogsFromRestAPI(
   return null;
 }
 
-async function fetchLogsFromFiles(traceId: string): Promise<TraceLog | null> {
-  // Read all log files and find the one containing the requested trace ID
-  const logDir: string = path.join(process.cwd(), "data/log");
-
-  if (!fs.existsSync(logDir)) {
-    return null;
-  }
-
-  const files: string[] = fs
-    .readdirSync(logDir)
-    .filter((file: string): boolean => file.endsWith(".json"))
-    .sort();
-
-  for (const file of files) {
-    const filePath: string = path.join(logDir, file);
-    const fileContent: string = fs.readFileSync(filePath, "utf-8");
-    const logData: TraceLog = JSON.parse(fileContent);
-
-    if (logData[traceId]) {
-      return { [traceId]: logData[traceId] };
-    }
-  }
-
-  return null;
-}
-
 export async function GET(
   request: Request,
 ): Promise<NextResponse<LogResponse>> {
@@ -150,23 +122,16 @@ export async function GET(
 
     let logData: TraceLog | null = null;
 
-    // Check if REST_API_ENDPOINT is configured
-    if (process.env.REST_API_ENDPOINT) {
-      // Use REST API
-      logData = await fetchLogsFromRestAPI(
-        traceId,
-        startTime,
-        endTime,
-        logGroupName,
-        traceProvider,
-        traceRegion,
-        logProvider,
-        logRegion,
-      );
-    } else {
-      // Use file-based approach
-      logData = await fetchLogsFromFiles(traceId);
-    }
+    logData = await fetchLogsFromRestAPI(
+      traceId,
+      startTime,
+      endTime,
+      logGroupName,
+      traceProvider,
+      traceRegion,
+      logProvider,
+      logRegion,
+    );
 
     return NextResponse.json({
       success: true,
