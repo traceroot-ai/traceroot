@@ -14,8 +14,6 @@
 [![npm version][npm-image]][npm-url]
 [![Java][maven-image]][maven-url]
 [![TraceRoot.AI Website](./misc/images/custom-website-badge.svg)][company-website-url]
-[![X][zecheng-x-image]][zecheng-x-url]
-[![X][xinwei-x-image]][xinwei-x-url]
 [![Y Combinator][y-combinator-image]][y-combinator-url]
 
 </div>
@@ -110,7 +108,6 @@ If you find our exploratory TraceRoot useful in your research, please consider c
 ```bibtex
 @article{traceroot_2025,
   title={TraceRoot Is All You Need for Fixing Production Bugs},
-  author={Zecheng Zhang and Xinwei He},
   year = {2025},
   publisher = {GitHub},
   url = {https://github.com/traceroot-ai/traceroot}
@@ -146,9 +143,5 @@ Thanks to all our contributors for helping make TraceRoot better!
 [pypi-url]: https://pypi.python.org/pypi/traceroot
 [testing-image]: https://github.com/traceroot-ai/traceroot/actions/workflows/test.yml/badge.svg
 [testing-url]: https://github.com/traceroot-ai/traceroot/actions/workflows/test.yml
-[xinwei-x-image]: https://img.shields.io/twitter/follow/xinwei_97?style=social
-[xinwei-x-url]: https://x.com/xinwei_97
 [y-combinator-image]: https://img.shields.io/badge/Combinator-S25-orange?logo=ycombinator&labelColor=white
 [y-combinator-url]: https://www.ycombinator.com/companies/traceroot-ai
-[zecheng-x-image]: https://img.shields.io/twitter/follow/zechengzh?style=social
-[zecheng-x-url]: https://x.com/zechengzh
