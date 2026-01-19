@@ -269,3 +269,9 @@ docker run -d --name jaeger \
   -p 4318:4318 \
   cr.jaegertracing.io/jaegertracing/jaeger:2.8.0
 ```
+
+## License
+
+TraceRoot is Apache-2.0 licensed. See [LICENSE](LICENSE) for more details.
+
+When contributing to the TraceRoot codebase, you need to agree to the [Contributor License Agreement](https://cla-assistant.io/traceroot-ai/traceroot). You only need to do this once.
