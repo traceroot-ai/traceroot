@@ -15,6 +15,20 @@ class TraceRootSQLiteClient:
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
 
+    async def _ensure_column(
+        self,
+        db: aiosqlite.Connection,
+        table_name: str,
+        column_name: str,
+        column_def: str,
+    ) -> None:
+        cursor = await db.execute(f"PRAGMA table_info({table_name})")
+        existing_columns = {row[1] for row in await cursor.fetchall()}
+        if column_name not in existing_columns:
+            await db.execute(
+                f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}"
+            )
+
     async def _init_db(self):
         """Initialize the database tables if they don't exist"""
         async with aiosqlite.connect(self.db_path) as db:
@@ -38,9 +52,11 @@ class TraceRootSQLiteClient:
                     chunk_id INTEGER,
                     action_type TEXT,
                     status TEXT,
+                    user_confirmation BOOLEAN,
                     user_message TEXT,
                     context TEXT,
                     reference TEXT,
+                    pending_action_data TEXT,
                     is_streaming BOOLEAN,
                     stream_update BOOLEAN
                 )
@@ -55,7 +71,8 @@ class TraceRootSQLiteClient:
                     chat_id TEXT NOT NULL UNIQUE,
                     timestamp TEXT NOT NULL,
                     chat_title TEXT NOT NULL,
-                    trace_id TEXT NOT NULL
+                    trace_id TEXT NOT NULL,
+                    user_id TEXT
                 )
             """
             )
@@ -89,6 +106,37 @@ class TraceRootSQLiteClient:
             """
             )
 
+            # TraceRoot token table
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS traceroot_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    token TEXT NOT NULL UNIQUE,
+                    user_sub TEXT,
+                    user_email TEXT,
+                    credentials TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """
+            )
+
+            # Chat routing records table
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chat_routing_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    user_message TEXT NOT NULL,
+                    agent_type TEXT NOT NULL,
+                    reasoning TEXT,
+                    chat_mode TEXT NOT NULL,
+                    trace_id TEXT,
+                    user_sub TEXT
+                )
+            """
+            )
+
             # Create indexes for better performance
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_chat_records_chat_id "
@@ -113,6 +161,38 @@ class TraceRootSQLiteClient:
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_reasoning_records_chunk_id "
                 "ON reasoning_records(chat_id, chunk_id)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_traceroot_tokens_token "
+                "ON traceroot_tokens(token)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chat_routing_chat_id "
+                "ON chat_routing_records(chat_id)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chat_routing_trace_id "
+                "ON chat_routing_records(trace_id)"
+            )
+
+            # Ensure backward-compatible columns exist
+            await self._ensure_column(
+                db,
+                "chat_records",
+                "user_confirmation",
+                "BOOLEAN",
+            )
+            await self._ensure_column(
+                db,
+                "chat_records",
+                "pending_action_data",
+                "TEXT",
+            )
+            await self._ensure_column(
+                db,
+                "chat_metadata",
+                "user_id",
+                "TEXT",
             )
 
             await db.commit()
@@ -148,6 +228,15 @@ class TraceRootSQLiteClient:
                     item["span_ids"] = json.loads(item["span_ids"])
                 if item["reference"]:
                     item["reference"] = json.loads(item["reference"])
+                if item.get("pending_action_data"):
+                    try:
+                        item["pending_action_data"] = json.loads(
+                            item["pending_action_data"]
+                        )
+                    except json.JSONDecodeError:
+                        pass
+                if item.get("user_confirmation") is not None:
+                    item["user_confirmation"] = bool(item["user_confirmation"])
                 items.append(item)
 
             return items
@@ -190,16 +279,22 @@ class TraceRootSQLiteClient:
             if isinstance(reference, (list, dict)):
                 reference = json.dumps(reference)
 
+            # Handle pending_action_data field as JSON
+            pending_action_data = message.get("pending_action_data")
+            if isinstance(pending_action_data, (list, dict)):
+                pending_action_data = json.dumps(pending_action_data)
+
             await db.execute(
                 (
                     "INSERT INTO chat_records (\n"
                     "    chat_id, timestamp, role, content, "
                     "user_content, trace_id, span_ids,\n"
                     "    start_time, end_time, model, mode, message_type,\n"
-                    "    chunk_id, action_type, status, user_message,\n"
-                    "    context, reference, is_streaming, stream_update\n"
+                    "    chunk_id, action_type, status, user_confirmation,\n"
+                    "    user_message, context, reference, pending_action_data,\n"
+                    "    is_streaming, stream_update\n"
                     ") VALUES (\n"
-                    "    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?\n"
+                    "    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?\n"
                     ")"
                 ),
                 (
@@ -220,9 +315,11 @@ class TraceRootSQLiteClient:
                     message.get("chunk_id"),
                     message.get("action_type"),
                     message.get("status"),
+                    message.get("user_confirmation"),
                     message.get("user_message"),
                     message.get("context"),
                     reference,
+                    pending_action_data,
                     message.get("is_streaming"),
                     message.get("stream_update")
                 )
@@ -248,7 +345,39 @@ class TraceRootSQLiteClient:
             action_type: Optional new action type
             user_confirmation: Optional user confirmation decision (True/False/None)
         """
-        # TODO: Implement SQLite version
+        await self._init_db()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            # Normalize timestamp to stored format if needed
+            if isinstance(timestamp, datetime):
+                timestamp = timestamp.isoformat()
+
+            fields = ["status = ?"]
+            values: list[Any] = [status]
+
+            if content is not None:
+                fields.append("content = ?")
+                values.append(content)
+
+            if action_type is not None:
+                fields.append("action_type = ?")
+                values.append(action_type)
+
+            if user_confirmation is not None:
+                fields.append("user_confirmation = ?")
+                values.append(bool(user_confirmation))
+
+            values.extend([chat_id, timestamp])
+
+            await db.execute(
+                f"""
+                UPDATE chat_records
+                SET {", ".join(fields)}
+                WHERE chat_id = ? AND timestamp = ?
+                """,
+                tuple(values),
+            )
+            await db.commit()
 
     async def insert_chat_metadata(self, metadata: dict[str, Any]):
         """
@@ -273,8 +402,8 @@ class TraceRootSQLiteClient:
             await db.execute(
                 """
                 INSERT OR REPLACE INTO chat_metadata (
-                    chat_id, timestamp, chat_title, trace_id
-                ) VALUES (?, ?, ?, ?)
+                    chat_id, timestamp, chat_title, trace_id, user_id
+                ) VALUES (?, ?, ?, ?, ?)
             """,
                 (
                     metadata["chat_id"],
@@ -282,7 +411,8 @@ class TraceRootSQLiteClient:
                     metadata.get("chat_title",
                                  ""),
                     metadata.get("trace_id",
-                                 "")
+                                 ""),
+                    metadata.get("user_id")
                 )
             )
             await db.commit()
@@ -430,7 +560,45 @@ class TraceRootSQLiteClient:
             token (str): The traceroot token
             user_credentials (dict[str, Any]): The user's AWS credentials
         """
-        return
+        await self._init_db()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            user_sub = user_credentials.get("user_sub")
+            user_email = user_credentials.get("user_email")
+            created_at = datetime.now().astimezone(timezone.utc).isoformat()
+
+            if delete_existing:
+                if user_sub:
+                    await db.execute(
+                        "DELETE FROM traceroot_tokens WHERE user_sub = ?",
+                        (user_sub,),
+                    )
+                elif user_email:
+                    await db.execute(
+                        "DELETE FROM traceroot_tokens WHERE user_email = ?",
+                        (user_email,),
+                    )
+                else:
+                    await db.execute(
+                        "DELETE FROM traceroot_tokens WHERE token = ?",
+                        (token,),
+                    )
+
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO traceroot_tokens (
+                    token, user_sub, user_email, credentials, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    token,
+                    user_sub,
+                    user_email,
+                    json.dumps(user_credentials),
+                    created_at,
+                ),
+            )
+            await db.commit()
 
     async def get_integration_token(
         self,
@@ -472,7 +640,23 @@ class TraceRootSQLiteClient:
             dict[str, Any] | None: The full
                 credentials if found, None otherwise
         """
-        return
+        await self._init_db()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                (
+                    "SELECT credentials FROM traceroot_tokens "
+                    "WHERE token = ?"
+                ),
+                (token,),
+            )
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            try:
+                return json.loads(row[0])
+            except json.JSONDecodeError:
+                return None
 
     async def insert_chat_routing_record(self, routing_data: dict[str, Any]):
         """Insert a chat routing decision record (SQLite stub).
@@ -480,4 +664,36 @@ class TraceRootSQLiteClient:
         Args:
             routing_data: Dictionary containing routing information
         """
-        # TODO: Implement SQLite storage for routing decisions
+        await self._init_db()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            timestamp = routing_data.get(
+                "timestamp",
+                datetime.now().astimezone(timezone.utc).isoformat()
+            )
+            if isinstance(timestamp, datetime):
+                timestamp = timestamp.isoformat()
+
+            await db.execute(
+                """
+                INSERT INTO chat_routing_records (
+                    chat_id, timestamp, user_message, agent_type,
+                    reasoning, chat_mode, trace_id, user_sub
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    routing_data.get("chat_id",
+                                     ""),
+                    timestamp,
+                    routing_data.get("user_message",
+                                     ""),
+                    routing_data.get("agent_type",
+                                     ""),
+                    routing_data.get("reasoning"),
+                    routing_data.get("chat_mode",
+                                     ""),
+                    routing_data.get("trace_id"),
+                    routing_data.get("user_sub"),
+                ),
+            )
+            await db.commit()
