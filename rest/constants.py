@@ -1,1 +1,0 @@
-MAX_PREV_RECORD = 30
