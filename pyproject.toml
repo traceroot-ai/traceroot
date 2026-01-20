@@ -67,7 +67,7 @@ dependencies = [
     "stripe==12.3.0",
     "docstring_parser==0.17.0",
     "autumn-py==2.2.2",
-    "aiohttp==3.12.15",
+    "aiohttp==3.13.3",
     "tencentcloud-sdk-python==3.0.1470",
     "opentelemetry-proto==1.34.1",
 ]
@@ -115,7 +115,7 @@ all = [
     "ruff==0.12.4",
     "mypy==1.17.0",
     "pre-commit==4.2.0",
-    "aiohttp==3.12.15",
+    "aiohttp==3.13.3",
     "tencentcloud-sdk-python==3.0.1470",
 ]
 
