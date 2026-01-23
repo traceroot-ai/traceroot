@@ -16,8 +16,20 @@ logger = logging.getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
-# Get tracer for creating spans
-_tracer = trace.get_tracer("traceroot-sdk", "0.1.0")
+
+def _ensure_initialized() -> None:
+    """Ensure traceroot client is initialized (for auto-init from env vars).
+
+    This enables lazy initialization - the @observe decorator works
+    without explicit traceroot.initialize() if env vars are set.
+
+    Note: This doesn't block tracing if client is disabled. The decorator
+    always creates spans using whatever TracerProvider is configured.
+    """
+    # Import here to avoid circular import
+    from traceroot import get_client
+
+    get_client()  # auto-initializes if needed
 
 
 def observe(
@@ -76,7 +88,9 @@ def observe(
 
             @functools.wraps(func)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-                with _tracer.start_as_current_span(span_name) as span:
+                _ensure_initialized()
+                tracer = trace.get_tracer("traceroot-sdk", "0.1.0")
+                with tracer.start_as_current_span(span_name) as span:
                     _set_span_attributes(
                         span, validated_type, metadata, tags,
                         args, kwargs, func, capture_input
@@ -98,7 +112,9 @@ def observe(
 
             @functools.wraps(func)
             def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
-                with _tracer.start_as_current_span(span_name) as span:
+                _ensure_initialized()
+                tracer = trace.get_tracer("traceroot-sdk", "0.1.0")
+                with tracer.start_as_current_span(span_name) as span:
                     _set_span_attributes(
                         span, validated_type, metadata, tags,
                         args, kwargs, func, capture_input
@@ -171,4 +187,9 @@ def _capture_args(args: tuple, kwargs: dict, func: Callable) -> dict[str, Any]:
     sig = inspect.signature(func)
     bound = sig.bind(*args, **kwargs)
     bound.apply_defaults()
-    return {k: serialize_value(v) for k, v in bound.arguments.items()}
+    # Filter out 'self' and 'cls' to avoid capturing instance/class references
+    return {
+        k: serialize_value(v)
+        for k, v in bound.arguments.items()
+        if k not in ('self', 'cls')
+    }
