@@ -350,3 +350,28 @@ def test_using_attributes_propagates_to_children(memory_exporter):
 
     # Parent does not have session_id (created before using_attributes)
     assert spans["parent"].attributes.get("session.id") is None
+
+
+def test_auto_initialization_without_explicit_initialize(memory_exporter):
+    """Test @observe works without explicit traceroot.initialize() call.
+
+    This verifies lazy initialization - the decorator triggers get_client()
+    which auto-initializes the TracerootClient from environment variables.
+    """
+    reset_traceroot()
+
+    # Don't call traceroot.initialize() - just use @observe directly
+    @observe(name="auto-init-test")
+    def my_function():
+        return "it works"
+
+    result = my_function()
+
+    assert result == "it works"
+
+    # Verify client was auto-initialized
+    assert traceroot.get_client() is not None
+
+    spans = memory_exporter.get_finished_spans()
+    assert len(spans) == 1
+    assert spans[0].name == "auto-init-test"
