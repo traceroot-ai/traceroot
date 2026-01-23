@@ -77,7 +77,16 @@ def initialize(
 
 
 def get_client() -> TracerootClient | None:
-    """Get the global Traceroot client (internal use)."""
+    """Get the global Traceroot client, auto-initializing if needed.
+
+    If no client exists and TRACEROOT_API_KEY is set, automatically
+    initializes a client with default settings from environment variables.
+    This enables the @observe decorator to work without explicit initialize().
+    """
+    global _client
+    if _client is None:
+        # Auto-initialize from env vars (TracerootClient reads them)
+        _client = TracerootClient()
     return _client
 
 
