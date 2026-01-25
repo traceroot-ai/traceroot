@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -8,7 +9,6 @@ import {
   getMembers,
   deleteProject,
   removeMember,
-  getUser,
   type Role,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -44,7 +44,8 @@ export default function OrganizationDetailPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const orgId = params.orgId as string;
-  const user = getUser();
+  const { data: session, status } = useSession();
+  const user = session?.user;
 
   useEffect(() => {
     if (!user) {

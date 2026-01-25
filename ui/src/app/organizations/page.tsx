@@ -2,9 +2,9 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
-import { getOrganizations, getUser } from "@/lib/api";
-import { Button } from "@/components/ui/button";
+import { getOrganizations} from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreateOrgDialog } from "@/components/CreateOrgDialog";
 import { Building2, ChevronRight, Users } from "lucide-react";
@@ -19,7 +19,8 @@ const roleColors: Record<string, string> = {
 
 export default function OrganizationsPage() {
   const router = useRouter();
-  const user = getUser();
+  const { data: session, status } = useSession();
+  const user = session?.user;
 
   useEffect(() => {
     if (!user) {
@@ -30,7 +31,7 @@ export default function OrganizationsPage() {
   const { data: organizations, isLoading, error } = useQuery({
     queryKey: ["organizations"],
     queryFn: getOrganizations,
-    enabled: !!user,
+    enabled: status === "authenticated",
   });
 
   if (!user) {
