@@ -50,6 +50,7 @@ class UserModel(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     email: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
+    email_verified: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     name: Mapped[str | None] = mapped_column(String, nullable=True)
     password: Mapped[str | None] = mapped_column(String, nullable=True)  # hashed
     image: Mapped[str | None] = mapped_column(String, nullable=True)
