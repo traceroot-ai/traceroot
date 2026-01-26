@@ -1,10 +1,11 @@
-"use client";                                                                                                                                                                                                                              
-                                                                                                                                                                                                                                             
-import Link from "next/link";                                                                                                                                                                                                              
-import { usePathname } from "next/navigation";                                                                                                                                                                                             
-import { signOut, useSession } from "next-auth/react";                                                                                                                                                                                     
-import { Button } from "@/components/ui/button";                                                                                                                                                                                           
-import { Building2, LogOut, FolderKanban } from "lucide-react";                                                                                                                                                                            
+"use client";
+
+import Link from "next/link";
+import Image from "next/image";
+import { usePathname } from "next/navigation";
+import { signOut, useSession } from "next-auth/react";
+import { Button } from "@/components/ui/button";
+import { Building2, LogOut } from "lucide-react";                                                                                                                                                                            
 import { cn } from "@/lib/utils";                                                                                                                                                                                                          
                                                                                                                                                                                                                                            
 const navItems = [                                                                                                                                                                                                                         
@@ -24,9 +25,14 @@ export function Sidebar() {
     <div className="flex h-screen w-64 flex-col border-r bg-gray-50">                                                                                                                                                                      
       {/* Logo */}                                                                                                                                                                                                                         
       <div className="flex h-14 items-center border-b px-4">                                                                                                                                                                               
-        <Link href="/" className="flex items-center gap-2 font-semibold">                                                                                                                                                                  
-          <FolderKanban className="h-6 w-6" />                                                                                                                                                                                             
-          <span>Traceroot</span>                                                                                                                                                                                                           
+        <Link href="/" className="flex items-center gap-2 font-semibold">
+          <Image
+            src="/images/traceroot_logo.png"
+            alt="Traceroot Logo"
+            width={120}
+            height={32}
+            className="h-8 w-auto"
+          />
         </Link>                                                                                                                                                                                                                            
       </div>                                                                                                                                                                                                                               
                                                                                                                                                                                                                                            
@@ -51,7 +57,7 @@ export function Sidebar() {
                                                                                                                                                                                                                                            
       {/* User section */}                                                                                                                                                                                                                 
       <div className="border-t p-4">                                                                                                                                                                                                       
-        <div className="mb-2 text-sm text-muted-foreground truncate">                                                                                                                                                                      
+        <div className="mb-2 w-full text-center text-sm text-muted-foreground truncate">                                                                                                                                                                      
           {session?.user?.email}                                                                                                                                                                                                           
         </div>                                                                                                                                                                                                                             
         <Button                                                                                                                                                                                                                            
