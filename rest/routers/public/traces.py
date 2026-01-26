@@ -118,39 +118,29 @@ def decode_otlp_id(b64_value: str) -> str:
 def decode_span_ids(trace_data: dict[str, Any]) -> dict[str, Any]:
     """Decode all trace_id, span_id, and parent_span_id fields from base64 to hex.
 
-    Recursively traverses the OTLP trace data structure and converts
-    all ID fields from base64 to hex for easier debugging and readability.
+    Traverses the OTLP trace data structure and converts all ID fields
+    from base64 to hex for easier debugging and readability.
 
     Args:
         trace_data: OTLP trace data dict from MessageToDict
 
     Returns:
         Modified trace data with hex-encoded IDs
+
+    Raises:
+        ValueError: If any ID field cannot be decoded (ensures consistent format)
     """
-    # Process resource_spans -> scope_spans -> spans
     for resource_span in trace_data.get("resource_spans", []):
         for scope_span in resource_span.get("scope_spans", []):
             for span in scope_span.get("spans", []):
-                # Decode trace_id
                 if "trace_id" in span and span["trace_id"]:
-                    try:
-                        span["trace_id"] = decode_otlp_id(span["trace_id"])
-                    except Exception as e:
-                        logger.warning(f"Failed to decode trace_id: {e}")
+                    span["trace_id"] = decode_otlp_id(span["trace_id"])
 
-                # Decode span_id
                 if "span_id" in span and span["span_id"]:
-                    try:
-                        span["span_id"] = decode_otlp_id(span["span_id"])
-                    except Exception as e:
-                        logger.warning(f"Failed to decode span_id: {e}")
+                    span["span_id"] = decode_otlp_id(span["span_id"])
 
-                # Decode parent_span_id
                 if "parent_span_id" in span and span["parent_span_id"]:
-                    try:
-                        span["parent_span_id"] = decode_otlp_id(span["parent_span_id"])
-                    except Exception as e:
-                        logger.warning(f"Failed to decode parent_span_id: {e}")
+                    span["parent_span_id"] = decode_otlp_id(span["parent_span_id"])
 
     return trace_data
 
