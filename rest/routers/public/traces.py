@@ -1,19 +1,15 @@
 """Public traces endpoint for OTEL ingestion.
 
-This endpoint receives OTLP trace data from SDKs and stores
-OTEL JSON to S3/MinIO for later processing.
-
-The endpoint accepts both protobuf and JSON formats:
-- application/x-protobuf: Decoded and converted to JSON before storage
-- application/json: Stored as-is
+This endpoint receives OTLP trace data (protobuf format) from SDKs,
+decodes it to JSON, and stores to S3/MinIO for later processing.
 
 Authentication is via API key in the Authorization header:
     Authorization: Bearer <api_key>
 """
 
+import base64
 import gzip
 import hashlib
-import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -104,23 +100,74 @@ async def authenticate_api_key(
 ProjectId = Annotated[str, Depends(authenticate_api_key)]
 
 
-def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
-    """Decode OTLP protobuf to a Python dict.
+def decode_otlp_id(b64_value: str) -> str:
+    """Convert base64-encoded OTLP ID to hex string.
 
-    Uses protobuf's MessageToDict for conversion, which produces
-    a JSON-compatible dict with proper field naming.
+    OTLP protobuf encodes trace_id (16 bytes) and span_id (8 bytes) as
+    base64 in JSON format. This converts them to readable hex strings.
+
+    Args:
+        b64_value: Base64-encoded ID string
+
+    Returns:
+        Hex string representation (e.g., "46021631567b17f7b8659ccf274f6ecb")
+    """
+    return base64.b64decode(b64_value).hex()
+
+
+def decode_span_ids(trace_data: dict[str, Any]) -> dict[str, Any]:
+    """Decode all trace_id, span_id, and parent_span_id fields from base64 to hex.
+
+    Recursively traverses the OTLP trace data structure and converts
+    all ID fields from base64 to hex for easier debugging and readability.
+
+    Args:
+        trace_data: OTLP trace data dict from MessageToDict
+
+    Returns:
+        Modified trace data with hex-encoded IDs
+    """
+    # Process resource_spans -> scope_spans -> spans
+    for resource_span in trace_data.get("resource_spans", []):
+        for scope_span in resource_span.get("scope_spans", []):
+            for span in scope_span.get("spans", []):
+                # Decode trace_id
+                if "trace_id" in span and span["trace_id"]:
+                    try:
+                        span["trace_id"] = decode_otlp_id(span["trace_id"])
+                    except Exception as e:
+                        logger.warning(f"Failed to decode trace_id: {e}")
+
+                # Decode span_id
+                if "span_id" in span and span["span_id"]:
+                    try:
+                        span["span_id"] = decode_otlp_id(span["span_id"])
+                    except Exception as e:
+                        logger.warning(f"Failed to decode span_id: {e}")
+
+                # Decode parent_span_id
+                if "parent_span_id" in span and span["parent_span_id"]:
+                    try:
+                        span["parent_span_id"] = decode_otlp_id(span["parent_span_id"])
+                    except Exception as e:
+                        logger.warning(f"Failed to decode parent_span_id: {e}")
+
+    return trace_data
+
+
+def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
+    """Decode OTLP protobuf to a Python dict with hex-encoded IDs.
 
     Args:
         data: Raw protobuf bytes
 
     Returns:
-        Dict representation of the OTLP trace data
+        Dict representation of the OTLP trace data with hex-encoded IDs
     """
     request = ExportTraceServiceRequest()
     request.ParseFromString(data)
-    # MessageToDict converts protobuf to dict with camelCase field names
-    # and proper handling of bytes (base64), enums (string names), etc.
-    return MessageToDict(request, preserving_proto_field_name=True)
+    trace_data = MessageToDict(request, preserving_proto_field_name=True)
+    return decode_span_ids(trace_data)
 
 
 class IngestResponse(BaseModel):
@@ -135,31 +182,35 @@ async def ingest_traces(
     request: Request,
     project_id: ProjectId,
 ):
-    """Ingest OTLP trace data.
-
-    Accepts OTLP data in either protobuf or JSON format (optionally gzip compressed).
-    Protobuf is converted to JSON before storage, so S3 always contains JSON.
+    """Ingest OTLP trace data (protobuf format only).
 
     S3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json
 
     Headers:
         Authorization: Bearer <api_key>
         Content-Encoding: gzip (optional)
-        Content-Type: application/x-protobuf or application/json
+        Content-Type: application/x-protobuf
 
     Body:
-        OTLP trace data (protobuf or JSON with resourceSpans array)
+        OTLP trace data in protobuf format (ExportTraceServiceRequest)
     """
-    # 1. Read body
-    body = await request.body()
+    # 1. Validate content type (protobuf only)
+    content_type = request.headers.get("content-type", "")
+    if "application/x-protobuf" not in content_type and "application/protobuf" not in content_type:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Unsupported content type: {content_type}. Expected application/x-protobuf",
+        )
 
+    # 2. Read body
+    body = await request.body()
     if not body:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Empty request body",
         )
 
-    # 2. Decompress if gzip
+    # 3. Decompress if gzip
     content_encoding = request.headers.get("content-encoding", "")
     if "gzip" in content_encoding.lower():
         try:
@@ -171,41 +222,17 @@ async def ingest_traces(
                 detail=f"Failed to decompress gzip: {e}",
             )
 
-    # 3. Convert to JSON dict based on content type
-    content_type = request.headers.get("content-type", "")
+    # 4. Decode protobuf
     try:
-        if "application/x-protobuf" in content_type or "application/protobuf" in content_type:
-            # Protobuf format - decode and convert to dict
-            trace_data = decode_otlp_protobuf(body)
-            logger.debug("Decoded OTLP protobuf to JSON")
-        elif "application/json" in content_type:
-            # JSON format - parse directly
-            trace_data = json.loads(body)
-            logger.debug("Parsed OTLP JSON")
-        else:
-            # Try protobuf first (OTLPSpanExporter default), fall back to JSON
-            try:
-                trace_data = decode_otlp_protobuf(body)
-                logger.debug("Decoded OTLP protobuf to JSON (auto-detected)")
-            except Exception:
-                try:
-                    trace_data = json.loads(body)
-                    logger.debug("Parsed OTLP JSON (auto-detected)")
-                except Exception as e:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Failed to parse body as protobuf or JSON: {e}",
-                    )
-    except HTTPException:
-        raise
+        trace_data = decode_otlp_protobuf(body)
     except Exception as e:
-        logger.warning(f"Failed to parse OTLP data: {e}")
+        logger.warning(f"Failed to parse OTLP protobuf: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to parse OTLP data: {e}",
+            detail=f"Failed to parse OTLP protobuf: {e}",
         )
 
-    # 4. Generate S3 key (time-partitioned)
+    # 5. Generate S3 key (time-partitioned)
     now = datetime.now(timezone.utc)
     file_id = str(uuid.uuid4())
     s3_key = (
@@ -214,7 +241,7 @@ async def ingest_traces(
         f"{file_id}.json"
     )
 
-    # 5. Upload JSON to S3
+    # 6. Upload JSON to S3
     try:
         s3_service = get_s3_service()
         s3_service.ensure_bucket_exists()
@@ -227,5 +254,5 @@ async def ingest_traces(
             detail=f"Storage error: {e}",
         )
 
-    # 6. Return success
+    # 7. Return success
     return IngestResponse(status="ok", file_key=s3_key)
