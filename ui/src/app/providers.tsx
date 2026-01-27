@@ -9,7 +9,7 @@ interface ProvidersProps {
 }
 
 export function Providers({ children }: ProvidersProps) {
-  // 用 useState + lazy init，确保 HMR 下只创建一次 QueryClient
+  //useState + lazy init, ensure only one QueryClient is created under HMR
   const [queryClient] = useState(
     () =>
       new QueryClient({
