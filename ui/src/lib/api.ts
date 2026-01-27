@@ -1,52 +1,53 @@
 /**
  * API client for Traceroot backend.
  */
+import { getSession } from "next-auth/react";    
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
-// For MVP: Simple header-based auth
-// In production, this should come from session/auth provider
-function getAuthHeaders(): Record<string, string> {
-  // These would come from your auth provider (NextAuth, etc.)
-  const userId = typeof window !== "undefined" ? localStorage.getItem("userId") : null;
-  const userEmail = typeof window !== "undefined" ? localStorage.getItem("userEmail") : null;
-  const userName = typeof window !== "undefined" ? localStorage.getItem("userName") : null;
+// Get auth headers from NextAuth session                                                                                                                                                                                              
+async function getAuthHeaders(): Promise<Record<string, string>> {                                                                                                                                                                     
+    const session = await getSession();                                                                                                                                                                                                  
+                                                                                                                                                                                                                                         
+    const headers: Record<string, string> = {                                                                                                                                                                                            
+      "Content-Type": "application/json",                                                                                                                                                                                                
+    };                                                                                                                                                                                                                                   
+                                                                                                                                                                                                                                         
+    if (session?.user) {                                                                                                                                                                                                                 
+      headers["x-user-id"] = session.user.id;                                                                                                                                                                                            
+      if (session.user.email) headers["x-user-email"] = session.user.email;                                                                                                                                                              
+      if (session.user.name) headers["x-user-name"] = session.user.name;                                                                                                                                                                 
+    }                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                         
+    return headers;                                                                                                                                                                                                                      
+}                                                                
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-
-  if (userId) headers["x-user-id"] = userId;
-  if (userEmail) headers["x-user-email"] = userEmail;
-  if (userName) headers["x-user-name"] = userName;
-
-  return headers;
-}
-
-async function fetchApi<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers: {
-      ...getAuthHeaders(),
-      ...options.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: "Unknown error" }));
-    throw new Error(error.detail || `API error: ${response.status}`);
-  }
-
-  // Handle 204 No Content
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return response.json();
-}
+async function fetchApi<T>(                                                                                                                                                                                                            
+  endpoint: string,                                                                                                                                                                                                                    
+  options: RequestInit = {}                                                                                                                                                                                                            
+): Promise<T> {                                                                                                                                                                                                                        
+  const headers = await getAuthHeaders();                                                                                                                                                                                              
+                                                                                                                                                                                                                                       
+  const response = await fetch(`${API_BASE}${endpoint}`, {                                                                                                                                                                             
+    ...options,                                                                                                                                                                                                                        
+    headers: {                                                                                                                                                                                                                         
+      ...headers,                                                                                                                                                                                                                      
+      ...options.headers,                                                                                                                                                                                                              
+    },                                                                                                                                                                                                                                 
+  });                                                                                                                                                                                                                                  
+                                                                                                                                                                                                                                       
+  if (!response.ok) {                                                                                                                                                                                                                  
+    const error = await response.json().catch(() => ({ detail: "Unknown error" }));                                                                                                                                                    
+    throw new Error(error.detail || `API error: ${response.status}`);                                                                                                                                                                  
+  }                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                       
+  // Handle 204 No Content                                                                                                                                                                                                             
+  if (response.status === 204) {                                                                                                                                                                                                       
+    return undefined as T;                                                                                                                                                                                                             
+  }                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                                       
+  return response.json();                                                                                                                                                                                                              
+} 
 
 // Types
 export type Role = "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
@@ -274,32 +275,4 @@ export async function getTraces(
   const endpoint = `/projects/${projectId}/traces${query ? `?${query}` : ""}`;
 
   return fetchApi<TraceListResponse>(endpoint);
-}
-
-// Auth helpers for MVP
-export function setUser(id: string, email: string, name?: string) {
-  if (typeof window !== "undefined") {
-    localStorage.setItem("userId", id);
-    localStorage.setItem("userEmail", email);
-    if (name) localStorage.setItem("userName", name);
-  }
-}
-
-export function clearUser() {
-  if (typeof window !== "undefined") {
-    localStorage.removeItem("userId");
-    localStorage.removeItem("userEmail");
-    localStorage.removeItem("userName");
-  }
-}
-
-export function getUser(): { id: string; email: string; name?: string } | null {
-  if (typeof window === "undefined") return null;
-
-  const id = localStorage.getItem("userId");
-  const email = localStorage.getItem("userEmail");
-  const name = localStorage.getItem("userName");
-
-  if (!id || !email) return null;
-  return { id, email, name: name || undefined };
 }

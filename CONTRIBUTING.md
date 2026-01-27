@@ -209,6 +209,22 @@ refactor: simplify database queries
 
 ## Database Development
 
+### Database Schema Strategy
+
+We use a **dual-ORM architecture** with clear ownership:
+
+| Component | ORM | Role |
+|-----------|-----|------|
+| Backend (Python) | SQLAlchemy | **Source of truth** for schema, handles all migrations |
+| Frontend (Next.js) | Prisma | **Read-only**, manually managed, used for NextAuth |
+
+**Important Rules:**
+
+- **SQLAlchemy owns all database migrations** via Alembic
+- **Prisma is read-only** - never run `prisma db push` or `prisma migrate`
+- When schema changes, update SQLAlchemy models first, then manually sync Prisma schema
+- After modifying Prisma schema, run `cd ui && npx prisma generate` to regenerate the Prisma client
+
 ### Migrations
 
 PostgreSQL migrations are managed with Alembic:

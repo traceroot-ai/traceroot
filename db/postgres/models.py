@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -50,6 +50,7 @@ class UserModel(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     email: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
+    email_verified: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     name: Mapped[str | None] = mapped_column(String, nullable=True)
     password: Mapped[str | None] = mapped_column(String, nullable=True)  # hashed
     image: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -68,6 +69,7 @@ class UserModel(Base):
     invitations_sent: Mapped[list["MembershipInvitationModel"]] = relationship(
         back_populates="invited_by_user"
     )
+    accounts: Mapped[list["AccountModel"]] = relationship(back_populates="user")  
 
 
 class OrganizationModel(Base):
@@ -205,4 +207,35 @@ class MembershipInvitationModel(Base):
     __table_args__ = (
         UniqueConstraint("email", "org_id", name="uq_invitation_email_org"),
         Index("ix_invitation_org_id", "org_id"),
+    )
+  
+  
+class AccountModel(Base):                                                                                                                                                                                                                  
+    """OAuth account for NextAuth integration."""                                                                                                                                                                                          
+                                                                                                                                                                                                                                             
+    __tablename__ = "accounts"                                                                                                                                                                                                             
+                                                                                                                                                                                                                                             
+    id: Mapped[str] = mapped_column(String, primary_key=True)                                                                                                                                                                              
+    user_id: Mapped[str] = mapped_column(                                                                                                                                                                                                  
+        String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False                                                                                                                                                                 
+    )                                                                                                                                                                                                                                      
+    type: Mapped[str] = mapped_column(String, nullable=False)                                                                                                                                                                              
+    provider: Mapped[str] = mapped_column(String, nullable=False)                                                                                                                                                                          
+    provider_account_id: Mapped[str] = mapped_column(String, nullable=False)                                                                                                                                                               
+    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)                                                                                                                                                                 
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)                                                                                                                                                                  
+    expires_at: Mapped[int | None] = mapped_column(Integer, nullable=True)                                                                                                                                                                 
+    token_type: Mapped[str | None] = mapped_column(String, nullable=True)                                                                                                                                                                  
+    scope: Mapped[str | None] = mapped_column(String, nullable=True)                                                                                                                                                                       
+    id_token: Mapped[str | None] = mapped_column(Text, nullable=True)                                                                                                                                                                      
+    session_state: Mapped[str | None] = mapped_column(String, nullable=True)                                                                                                                                                               
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    user: Mapped["UserModel"] = relationship(back_populates="accounts")
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_account_id", name="uq_provider_account"),
     )
