@@ -33,11 +33,8 @@ from db.postgres.project import (
     check_project_name_exists,
     create_project,
     get_active_project_by_id,
-    get_project_by_id,
     has_active_projects,
-    list_all_projects,
     list_projects_by_org,
-    restore_project,
     soft_delete_project,
     update_project,
 )
@@ -97,13 +94,10 @@ __all__ = [
     # Project functions
     "Project",
     "create_project",
-    "get_project_by_id",
     "get_active_project_by_id",
     "list_projects_by_org",
-    "list_all_projects",
     "update_project",
     "soft_delete_project",
-    "restore_project",
     "has_active_projects",
     "check_project_name_exists",
     # API Key functions

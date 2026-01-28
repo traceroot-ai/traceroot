@@ -1,6 +1,6 @@
 """Project database operations."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cuid2 import cuid_wrapper
 from pydantic import BaseModel, Field
@@ -55,15 +55,6 @@ async def create_project(
     return _to_project(project)
 
 
-async def get_project_by_id(session: AsyncSession, project_id: str) -> Project | None:
-    """Get project by ID (including soft-deleted)."""
-    result = await session.execute(
-        select(ProjectModel).where(ProjectModel.id == project_id)
-    )
-    project = result.scalar_one_or_none()
-    return _to_project(project) if project else None
-
-
 async def get_active_project_by_id(
     session: AsyncSession, project_id: str
 ) -> Project | None:
@@ -94,20 +85,6 @@ async def list_projects_by_org(
     return [_to_project(p) for p in projects]
 
 
-async def list_all_projects(
-    session: AsyncSession, include_deleted: bool = False
-) -> list[Project]:
-    """List all projects."""
-    query = select(ProjectModel)
-    if not include_deleted:
-        query = query.where(ProjectModel.deleted_at.is_(None))
-    query = query.order_by(ProjectModel.created_at.desc())
-
-    result = await session.execute(query)
-    projects = result.scalars().all()
-    return [_to_project(p) for p in projects]
-
-
 async def update_project(
     session: AsyncSession,
     project_id: str,
@@ -129,7 +106,7 @@ async def update_project(
         project.name = name
     if retention_days is not None:
         project.retention_days = retention_days
-    project.updated_at = datetime.utcnow()
+    project.updated_at = datetime.now(timezone.utc)
 
     await session.flush()
     return _to_project(project)
@@ -147,28 +124,10 @@ async def soft_delete_project(session: AsyncSession, project_id: str) -> bool:
     if not project:
         return False
 
-    project.deleted_at = datetime.utcnow()
-    project.updated_at = datetime.utcnow()
+    project.deleted_at = datetime.now(timezone.utc)
+    project.updated_at = datetime.now(timezone.utc)
     await session.flush()
     return True
-
-
-async def restore_project(session: AsyncSession, project_id: str) -> Project | None:
-    """Restore a soft-deleted project."""
-    result = await session.execute(
-        select(ProjectModel).where(
-            ProjectModel.id == project_id,
-            ProjectModel.deleted_at.isnot(None),
-        )
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        return None
-
-    project.deleted_at = None
-    project.updated_at = datetime.utcnow()
-    await session.flush()
-    return _to_project(project)
 
 
 async def has_active_projects(session: AsyncSession, org_id: str) -> bool:

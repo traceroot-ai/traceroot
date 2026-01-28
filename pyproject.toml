@@ -20,6 +20,12 @@ dependencies = [
     # OpenTelemetry
     "protobuf>=4.0",
     "opentelemetry-proto>=1.20.0",
+    # Task Queue
+    "celery[redis]>=5.3",
+    "redis>=5.0",
+    # Utils
+    "python-dotenv>=1.0",
+    "httpx>=0.28.1",
 ]
 
 [project.optional-dependencies]

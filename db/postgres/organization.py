@@ -1,6 +1,6 @@
 """Organization database operations."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cuid2 import cuid_wrapper
 from sqlalchemy import select
@@ -81,7 +81,7 @@ async def update_organization(
         return None
 
     org.name = name
-    org.updated_at = datetime.utcnow()
+    org.updated_at = datetime.now(timezone.utc)
     await session.flush()
     return _to_organization(org)
 
