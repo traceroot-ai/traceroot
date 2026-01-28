@@ -1,6 +1,6 @@
 """Organization membership database operations."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cuid2 import cuid_wrapper
 from sqlalchemy import select
@@ -125,7 +125,7 @@ async def update_member_role(
         return None
 
     membership.role = role.value
-    membership.updated_at = datetime.utcnow()
+    membership.updated_at = datetime.now(timezone.utc)
     await session.flush()
     return _to_membership(membership)
 

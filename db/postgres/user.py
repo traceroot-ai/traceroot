@@ -1,6 +1,6 @@
 """User database operations."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cuid2 import cuid_wrapper
 from sqlalchemy import select
@@ -83,7 +83,7 @@ async def upsert_user(
         # Update existing user
         if name:
             user.name = name
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
     else:
         # Create new user
         user = UserModel(
@@ -114,7 +114,7 @@ async def update_user(
         user.name = name
     if image is not None:
         user.image = image
-    user.updated_at = datetime.utcnow()
+    user.updated_at = datetime.now(timezone.utc)
 
     await session.flush()
     return _to_user(user)
