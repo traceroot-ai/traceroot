@@ -84,25 +84,6 @@ class S3Service:
             else:
                 raise
 
-    def upload_otel_batch(self, s3_key: str, body: bytes) -> None:
-        """Upload raw OTLP batch to S3.
-
-        Stores the raw OTLP JSON exactly as received from the SDK,
-        without any parsing or transformation.
-
-        Args:
-            s3_key: Full S3 key path (e.g., events/otel/proj_xxx/2026/01/22/08/uuid.json)
-            body: Raw OTLP JSON bytes
-        """
-        client = self._get_client()
-        client.put_object(
-            Bucket=self._bucket_name,
-            Key=s3_key,
-            Body=body,
-            ContentType="application/json",
-        )
-        logger.debug(f"Uploaded OTEL batch to s3://{self._bucket_name}/{s3_key}")
-
     def upload_json(self, s3_key: str, data: dict | list) -> None:
         """Upload JSON data to S3.
 
@@ -123,6 +104,25 @@ class S3Service:
             ContentType="application/json",
         )
         logger.debug(f"Uploaded JSON to s3://{self._bucket_name}/{s3_key}")
+
+    def download_json(self, s3_key: str) -> dict | list:
+        """Download and parse JSON data from S3.
+
+        Args:
+            s3_key: Full S3 key path
+
+        Returns:
+            Parsed JSON data (dict or list)
+
+        Raises:
+            ClientError: If the file doesn't exist or download fails
+        """
+        import json
+
+        client = self._get_client()
+        response = client.get_object(Bucket=self._bucket_name, Key=s3_key)
+        body = response["Body"].read()
+        return json.loads(body.decode("utf-8"))
 
 
 # Global singleton instance

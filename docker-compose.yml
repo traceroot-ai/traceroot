@@ -20,6 +20,7 @@ services:
       - 127.0.0.1:5432:5432
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./db/postgres/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 3s
@@ -77,6 +78,20 @@ services:
       exit 0;
       "
 
+  redis:
+    image: docker.io/redis:7-alpine
+    restart: always
+    command: redis-server --appendonly yes
+    ports:
+      - 127.0.0.1:6379:6379
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
 volumes:
   postgres_data:
     driver: local
@@ -85,4 +100,6 @@ volumes:
   clickhouse_logs:
     driver: local
   minio_data:
+    driver: local
+  redis_data:
     driver: local
