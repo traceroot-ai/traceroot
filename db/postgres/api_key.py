@@ -2,7 +2,7 @@
 
 import hashlib
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cuid2 import cuid_wrapper
 from pydantic import BaseModel
@@ -149,5 +149,5 @@ async def update_api_key_last_used(
     )
     key = result.scalar_one_or_none()
     if key:
-        key.last_used_at = datetime.utcnow()
+        key.last_used_at = datetime.now(timezone.utc)
         await session.flush()

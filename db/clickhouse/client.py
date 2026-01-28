@@ -1,7 +1,7 @@
 """ClickHouse client using clickhouse-connect."""
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import clickhouse_connect
@@ -32,7 +32,7 @@ class ClickHouseClient:
         if not traces:
             return
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         rows = []
         for t in traces:
             rows.append([
@@ -65,7 +65,7 @@ class ClickHouseClient:
         if not spans:
             return
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         rows = []
         for s in spans:
             rows.append([
