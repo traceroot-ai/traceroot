@@ -29,20 +29,6 @@ class Role(str, Enum):
     VIEWER = "VIEWER"
 
 
-# Role hierarchy for permission checks
-ROLE_LEVELS = {
-    Role.OWNER: 4,
-    Role.ADMIN: 3,
-    Role.MEMBER: 2,
-    Role.VIEWER: 1,
-}
-
-
-def role_level(role: Role) -> int:
-    """Get numeric level for role comparison."""
-    return ROLE_LEVELS.get(role, 0)
-
-
 class UserModel(Base):
     """User account model."""
 

@@ -1,11 +1,11 @@
 """Public traces endpoint for OTEL ingestion.
 
-This endpoint receives OTLP trace data from SDKs and stores
-OTEL JSON to S3/MinIO for later processing.
+This endpoint receives OTLP trace data from SDKs and:
+1. Stores OTEL JSON to S3/MinIO (durable buffer)
+2. Enqueues a Celery task with S3 reference for async processing
 
-The endpoint accepts both protobuf and JSON formats:
-- application/x-protobuf: Decoded and converted to JSON before storage
-- application/json: Stored as-is
+The endpoint accepts OTLP protobuf format only:
+- application/x-protobuf: Decoded and converted to camelCase JSON before storage
 
 Authentication is via API key in the Authorization header:
     Authorization: Bearer <api_key>
@@ -13,7 +13,6 @@ Authentication is via API key in the Authorization header:
 
 import gzip
 import hashlib
-import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -30,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.postgres.api_key import get_api_key_by_hash, update_api_key_last_used
 from db.postgres.engine import get_session as get_postgres_session
 from rest.services.s3 import get_s3_service
+from worker.tasks import process_s3_traces
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +119,8 @@ def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
     request = ExportTraceServiceRequest()
     request.ParseFromString(data)
     # MessageToDict converts protobuf to dict with camelCase field names
-    # and proper handling of bytes (base64), enums (string names), etc.
-    return MessageToDict(request, preserving_proto_field_name=True)
+    # (standard OTLP JSON format) and proper handling of bytes (base64), enums, etc.
+    return MessageToDict(request)
 
 
 class IngestResponse(BaseModel):
@@ -137,18 +137,18 @@ async def ingest_traces(
 ):
     """Ingest OTLP trace data.
 
-    Accepts OTLP data in either protobuf or JSON format (optionally gzip compressed).
-    Protobuf is converted to JSON before storage, so S3 always contains JSON.
+    Accepts OTLP protobuf format only (optionally gzip compressed).
+    Protobuf is converted to camelCase JSON before storage in S3.
 
     S3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json
 
     Headers:
         Authorization: Bearer <api_key>
         Content-Encoding: gzip (optional)
-        Content-Type: application/x-protobuf or application/json
+        Content-Type: application/x-protobuf
 
     Body:
-        OTLP trace data (protobuf or JSON with resourceSpans array)
+        OTLP trace data in protobuf format
     """
     # 1. Read body
     body = await request.body()
@@ -171,38 +171,15 @@ async def ingest_traces(
                 detail=f"Failed to decompress gzip: {e}",
             )
 
-    # 3. Convert to JSON dict based on content type
-    content_type = request.headers.get("content-type", "")
+    # 3. Decode protobuf to camelCase JSON (OTLP standard format)
     try:
-        if "application/x-protobuf" in content_type or "application/protobuf" in content_type:
-            # Protobuf format - decode and convert to dict
-            trace_data = decode_otlp_protobuf(body)
-            logger.debug("Decoded OTLP protobuf to JSON")
-        elif "application/json" in content_type:
-            # JSON format - parse directly
-            trace_data = json.loads(body)
-            logger.debug("Parsed OTLP JSON")
-        else:
-            # Try protobuf first (OTLPSpanExporter default), fall back to JSON
-            try:
-                trace_data = decode_otlp_protobuf(body)
-                logger.debug("Decoded OTLP protobuf to JSON (auto-detected)")
-            except Exception:
-                try:
-                    trace_data = json.loads(body)
-                    logger.debug("Parsed OTLP JSON (auto-detected)")
-                except Exception as e:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Failed to parse body as protobuf or JSON: {e}",
-                    )
-    except HTTPException:
-        raise
+        trace_data = decode_otlp_protobuf(body)
+        logger.debug("Decoded OTLP protobuf to JSON")
     except Exception as e:
-        logger.warning(f"Failed to parse OTLP data: {e}")
+        logger.warning(f"Failed to parse OTLP protobuf: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to parse OTLP data: {e}",
+            detail=f"Failed to parse OTLP protobuf: {e}",
         )
 
     # 4. Generate S3 key (time-partitioned)
@@ -227,5 +204,13 @@ async def ingest_traces(
             detail=f"Storage error: {e}",
         )
 
-    # 6. Return success
+    # 6. Enqueue Celery task for async processing (S3 reference only, not full payload)
+    try:
+        process_s3_traces.delay(s3_key=s3_key, project_id=project_id)
+        logger.info(f"Enqueued Celery task for {s3_key}")
+    except Exception as e:
+        # Log but don't fail the request - S3 has the data, can retry later
+        logger.error(f"Failed to enqueue Celery task for {s3_key}: {e}")
+
+    # 7. Return success (async processing happens in background)
     return IngestResponse(status="ok", file_key=s3_key)
