@@ -16,7 +16,8 @@ from db.postgres import close_db, init_db
 from rest.routers.api_keys import router as api_keys_router
 from rest.routers.organizations import router as organizations_router
 from rest.routers.projects import router as projects_router
-from rest.routers.public.traces import router as traces_router
+from rest.routers.public.traces import router as public_traces_router
+from rest.routers.traces import router as traces_router
 
 
 @asynccontextmanager
@@ -50,9 +51,10 @@ app.add_middleware(
 app.include_router(organizations_router, prefix="/api/v1")
 app.include_router(projects_router, prefix="/api/v1")
 app.include_router(api_keys_router, prefix="/api/v1")
+app.include_router(traces_router, prefix="/api/v1")
 
 # Public API for SDK ingestion (API key auth, not user auth)
-app.include_router(traces_router, prefix="/api/v1")
+app.include_router(public_traces_router, prefix="/api/v1")
 
 
 @app.get("/health")
