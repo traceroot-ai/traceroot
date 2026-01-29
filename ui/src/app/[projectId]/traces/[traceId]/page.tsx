@@ -7,13 +7,14 @@ import { getTrace, type Span, type TraceDetail } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { formatDuration, formatDate } from '@/lib/utils'
 import { ArrowLeft, Clock, Cpu, DollarSign } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
 const NESTING_INDENT = 20
 
-function SpanKindBadge({ kind }: { kind: string }) {
+function NodeTypeBadge({ type }: { type: string }) {
   const styles: Record<string, string> = {
+    trace: 'bg-blue-600 text-white',
     llm: 'bg-neutral-800 text-white',
     span: 'bg-neutral-500 text-white',
     agent: 'bg-neutral-700 text-white',
@@ -22,12 +23,15 @@ function SpanKindBadge({ kind }: { kind: string }) {
   return (
     <span className={cn(
       'inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide',
-      styles[kind.toLowerCase()] || 'bg-neutral-500 text-white'
+      styles[type.toLowerCase()] || 'bg-neutral-500 text-white'
     )}>
-      {kind}
+      {type}
     </span>
   )
 }
+
+// Selection can be either trace or span
+type Selection = { type: 'trace' } | { type: 'span'; span: Span }
 
 function getSpanDuration(span: Span): number | null {
   if (!span.span_start_time || !span.span_end_time) return null
@@ -117,21 +121,48 @@ function TreeEdge({ level, isTerminal, parentLevels }: { level: number; isTermin
   )
 }
 
-function SpanTreeView({
-  spans,
-  selectedId,
-  onSelectSpan,
+function TraceTreeView({
+  trace,
+  selection,
+  onSelect,
 }: {
-  spans: Span[]
-  selectedId: string | null
-  onSelectSpan: (span: Span) => void
+  trace: TraceDetail
+  selection: Selection
+  onSelect: (selection: Selection) => void
 }) {
-  const rows = createSpanTree(spans)
+  const spanRows = createSpanTree(trace.spans)
+  const isTraceSelected = selection.type === 'trace'
+  const traceDuration = getTraceDuration(trace)
 
   return (
     <div className="text-sm">
-      {rows.map(({ span, level, isTerminal, parentLevels }) => {
-        const isSelected = selectedId === span.span_id
+      {/* Trace node at top */}
+      <div
+        className={cn(
+          'flex items-center cursor-pointer transition-all duration-200',
+          isTraceSelected
+            ? 'bg-neutral-100 border-l-2 border-l-blue-600'
+            : 'hover:bg-neutral-50 border-l-2 border-l-transparent'
+        )}
+        onClick={() => onSelect({ type: 'trace' })}
+      >
+        <div className="flex-1 flex items-center gap-2 py-2 px-3 min-w-0">
+          <NodeTypeBadge type="trace" />
+          <span className={cn(
+            'flex-1 truncate',
+            isTraceSelected ? 'font-semibold text-neutral-900' : 'font-medium text-neutral-700'
+          )}>{trace.name}</span>
+          <span className="text-xs text-neutral-400 whitespace-nowrap">
+            {formatDuration(traceDuration)}
+          </span>
+        </div>
+      </div>
+
+      {/* Span rows with +1 level offset */}
+      {spanRows.map(({ span, level, isTerminal, parentLevels }) => {
+        const isSelected = selection.type === 'span' && selection.span.span_id === span.span_id
+        const adjustedLevel = level + 1
+        const adjustedParentLevels = parentLevels.map(l => l + 1)
 
         return (
           <div
@@ -142,17 +173,14 @@ function SpanTreeView({
                 ? 'bg-neutral-100 border-l-2 border-l-neutral-800'
                 : 'hover:bg-neutral-50 border-l-2 border-l-transparent'
             )}
-            onClick={() => onSelectSpan(span)}
+            onClick={() => onSelect({ type: 'span', span })}
           >
             {/* L-shaped tree connectors */}
-            <TreeEdge level={level} isTerminal={isTerminal} parentLevels={parentLevels} />
+            <TreeEdge level={adjustedLevel} isTerminal={isTerminal} parentLevels={adjustedParentLevels} />
 
             {/* Span content */}
-            <div className={cn(
-              'flex-1 flex items-center gap-2 py-2 pr-3 min-w-0',
-              level === 0 && 'pl-3'
-            )}>
-              <SpanKindBadge kind={span.span_kind} />
+            <div className="flex-1 flex items-center gap-2 py-2 pr-3 min-w-0">
+              <NodeTypeBadge type={span.span_kind} />
               <span className={cn(
                 'flex-1 truncate',
                 isSelected ? 'font-semibold text-neutral-900' : 'font-medium text-neutral-700'
@@ -164,6 +192,69 @@ function SpanTreeView({
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function TraceDetailPanel({ trace }: { trace: TraceDetail }) {
+  const durationMs = getTraceDuration(trace)
+
+  return (
+    <div className="space-y-5">
+      {/* Metadata badges row */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex items-center gap-1.5 rounded bg-neutral-100 px-2.5 py-1 text-sm">
+          <Clock className="h-3.5 w-3.5 text-neutral-500" />
+          <span className="text-neutral-500">Latency:</span>
+          <span className="font-medium text-neutral-900">{formatDuration(durationMs)}</span>
+        </div>
+        {trace.environment && (
+          <div className="inline-flex items-center gap-1.5 rounded bg-neutral-100 px-2.5 py-1 text-sm">
+            <span className="text-neutral-500">Env:</span>
+            <span className="font-medium text-neutral-900">{trace.environment}</span>
+          </div>
+        )}
+        {trace.user_id && (
+          <div className="inline-flex items-center gap-1.5 rounded bg-neutral-100 px-2.5 py-1 text-sm">
+            <span className="text-neutral-500">User:</span>
+            <span className="font-medium text-neutral-900">{trace.user_id}</span>
+          </div>
+        )}
+        {trace.session_id && (
+          <div className="inline-flex items-center gap-1.5 rounded bg-neutral-100 px-2.5 py-1 text-sm">
+            <span className="text-neutral-500">Session:</span>
+            <span className="font-medium text-neutral-900">{trace.session_id}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Input section */}
+      {trace.input && (
+        <div>
+          <h4 className="text-xs font-semibold mb-2 text-neutral-500 uppercase tracking-wider">
+            Input
+          </h4>
+          <div className="rounded border border-neutral-200 bg-neutral-50 p-4">
+            <pre className="text-sm whitespace-pre-wrap break-words text-neutral-800">
+              {trace.input}
+            </pre>
+          </div>
+        </div>
+      )}
+
+      {/* Output section */}
+      {trace.output && (
+        <div>
+          <h4 className="text-xs font-semibold mb-2 text-neutral-500 uppercase tracking-wider">
+            Output
+          </h4>
+          <div className="rounded border border-neutral-200 bg-neutral-50 p-4">
+            <pre className="text-sm whitespace-pre-wrap break-words text-neutral-800">
+              {trace.output}
+            </pre>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -248,21 +339,12 @@ export default function TraceDetailPage() {
   const params = useParams()
   const projectId = params.projectId as string
   const traceId = params.traceId as string
-  const [selectedSpan, setSelectedSpan] = useState<Span | null>(null)
+  const [selection, setSelection] = useState<Selection>({ type: 'trace' })
 
   const { data: trace, isLoading, error } = useQuery({
     queryKey: ['trace', projectId, traceId],
     queryFn: () => getTrace(projectId, traceId, ''),
   })
-
-  // Auto-select first span when trace loads
-  useEffect(() => {
-    if (trace?.spans?.length && !selectedSpan) {
-      // Find root span (first span without parent)
-      const rootSpan = trace.spans.find((s) => !s.parent_span_id) || trace.spans[0]
-      setSelectedSpan(rootSpan)
-    }
-  }, [trace, selectedSpan])
 
   if (isLoading) {
     return (
@@ -317,40 +399,40 @@ export default function TraceDetailPage() {
 
       {/* Content */}
       <div className="flex gap-4 items-start">
-        {/* Span tree */}
+        {/* Trace/Span tree */}
         <div className="w-[340px] flex-shrink-0 rounded-lg border border-neutral-200 bg-white">
           <div className="border-b border-neutral-200 px-4 py-3">
-            <h3 className="font-semibold text-neutral-900">Spans ({trace.spans.length})</h3>
+            <h3 className="font-semibold text-neutral-900">Trace & Spans ({trace.spans.length})</h3>
           </div>
           <div className="max-h-[calc(100vh-240px)] overflow-y-auto">
-            <SpanTreeView
-              spans={trace.spans}
-              selectedId={selectedSpan?.span_id || null}
-              onSelectSpan={setSelectedSpan}
+            <TraceTreeView
+              trace={trace}
+              selection={selection}
+              onSelect={setSelection}
             />
           </div>
         </div>
 
-        {/* Span detail */}
+        {/* Detail panel */}
         <div className="flex-1 min-w-0 rounded-lg border border-neutral-200 bg-white">
           <div className="border-b border-neutral-200 px-4 py-3 flex items-center gap-3">
-            {selectedSpan && (
+            {selection.type === 'trace' ? (
               <>
-                <SpanKindBadge kind={selectedSpan.span_kind} />
-                <h3 className="font-semibold text-neutral-900 truncate">{selectedSpan.name}</h3>
+                <NodeTypeBadge type="trace" />
+                <h3 className="font-semibold text-neutral-900 truncate">{trace.name}</h3>
               </>
-            )}
-            {!selectedSpan && (
-              <h3 className="font-semibold text-neutral-900">Details</h3>
+            ) : (
+              <>
+                <NodeTypeBadge type={selection.span.span_kind} />
+                <h3 className="font-semibold text-neutral-900 truncate">{selection.span.name}</h3>
+              </>
             )}
           </div>
           <div className="p-4 overflow-y-auto max-h-[calc(100vh-240px)]">
-            {selectedSpan ? (
-              <SpanDetailPanel span={selectedSpan} />
+            {selection.type === 'trace' ? (
+              <TraceDetailPanel trace={trace} />
             ) : (
-              <p className="text-neutral-500 text-sm">
-                Select a span to view details
-              </p>
+              <SpanDetailPanel span={selection.span} />
             )}
           </div>
         </div>

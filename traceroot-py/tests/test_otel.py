@@ -189,6 +189,76 @@ def test_output_capture(memory_exporter):
     assert "42" in output_value
 
 
+def test_output_not_wrapped_in_result_key(memory_exporter):
+    """Test output is serialized directly without extra 'result' wrapper.
+
+    This verifies the fix for the issue where output was being wrapped in
+    {"result": ...} which added unnecessary nesting in the UI.
+    """
+    import json
+
+    @observe(name="return-dict")
+    def return_dict():
+        return {"status": "success", "count": 10}
+
+    return_dict()
+
+    spans = memory_exporter.get_finished_spans()
+    span = spans[0]
+
+    output_value = get_span_attribute(span, SpanAttributes.SPAN_OUTPUT)
+    assert output_value is not None
+
+    # Parse the JSON output
+    parsed = json.loads(output_value)
+
+    # Output should be the dict directly, NOT wrapped in {"result": {...}}
+    assert "result" not in parsed, "Output should not have a 'result' wrapper"
+    assert parsed == {"status": "success", "count": 10}
+
+
+def test_output_string_not_wrapped(memory_exporter):
+    """Test string output is not wrapped in result key."""
+    import json
+
+    @observe(name="return-string")
+    def return_string():
+        return "hello world"
+
+    return_string()
+
+    spans = memory_exporter.get_finished_spans()
+    span = spans[0]
+
+    output_value = get_span_attribute(span, SpanAttributes.SPAN_OUTPUT)
+    assert output_value is not None
+
+    # String should be serialized directly
+    assert output_value == '"hello world"' or output_value == "hello world"
+
+
+def test_output_list_not_wrapped(memory_exporter):
+    """Test list output is not wrapped in result key."""
+    import json
+
+    @observe(name="return-list")
+    def return_list():
+        return [1, 2, 3]
+
+    return_list()
+
+    spans = memory_exporter.get_finished_spans()
+    span = spans[0]
+
+    output_value = get_span_attribute(span, SpanAttributes.SPAN_OUTPUT)
+    assert output_value is not None
+
+    # Parse and verify it's a list directly, not wrapped
+    parsed = json.loads(output_value)
+    assert isinstance(parsed, list)
+    assert parsed == [1, 2, 3]
+
+
 def test_capture_disabled(memory_exporter):
     """Test capture_input=False and capture_output=False."""
 
