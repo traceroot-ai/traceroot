@@ -110,32 +110,32 @@ export default function OrganizationDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-4xl p-6">
+      <div className="mx-auto max-w-5xl px-6 py-4">
         {/* Header */}
-        <div className="mb-8">
+        <div className="mb-6">
           <Link
             href="/organizations"
-            className="mb-4 inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+            className="mb-3 inline-flex items-center text-xs text-muted-foreground hover:text-foreground"
           >
-            <ArrowLeft className="mr-1 h-4 w-4" />
+            <ArrowLeft className="mr-1 h-3 w-3" />
             Back to Organizations
           </Link>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-100">
-                <Building2 className="h-6 w-6 text-gray-600" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-gray-100">
+                <Building2 className="h-5 w-5 text-gray-600" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold">{org.name}</h1>
+                <h1 className="text-xl font-semibold">{org.name}</h1>
                 <div className="flex items-center gap-2">
                   <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                    className={`rounded px-2 py-0.5 text-xs font-medium ${
                       roleColors[org.role] || roleColors.VIEWER
                     }`}
                   >
                     {org.role}
                   </span>
-                  <span className="text-sm text-muted-foreground">
+                  <span className="text-xs text-muted-foreground">
                     Created {new Date(org.created_at).toLocaleDateString()}
                   </span>
                 </div>
@@ -146,31 +146,31 @@ export default function OrganizationDetailPage() {
         </div>
 
         {/* Projects Section */}
-        <section className="mb-8">
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold">
-            <FolderOpen className="h-5 w-5" />
+        <section className="mb-6">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <FolderOpen className="h-4 w-4" />
             Projects ({org.projects.length})
           </h2>
           {org.projects.length === 0 ? (
             <Card>
-              <CardContent className="flex flex-col items-center justify-center py-12">
-                <FolderOpen className="mb-4 h-12 w-12 text-muted-foreground" />
-                <h3 className="mb-2 text-lg font-medium">No projects yet</h3>
-                <p className="mb-4 text-muted-foreground">
+              <CardContent className="flex flex-col items-center justify-center py-10">
+                <FolderOpen className="mb-3 h-10 w-10 text-muted-foreground" />
+                <h3 className="mb-1 text-base font-medium">No projects yet</h3>
+                <p className="mb-3 text-sm text-muted-foreground">
                   Create your first project to start tracking traces.
                 </p>
                 <CreateProjectDialog orgId={orgId} />
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2">
               {org.projects.map((project) => (
                 <Card key={project.id} className="relative">
-                  <CardHeader>
+                  <CardHeader className="p-4 pb-3">
                     <div className="flex items-start justify-between">
                       <div>
-                        <CardTitle className="text-base">{project.name}</CardTitle>
-                        <CardDescription>
+                        <CardTitle className="text-sm font-medium">{project.name}</CardTitle>
+                        <CardDescription className="text-xs">
                           Created {new Date(project.created_at).toLocaleDateString()}
                         </CardDescription>
                       </div>
@@ -178,7 +178,7 @@ export default function OrganizationDetailPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
                           onClick={() => {
                             if (confirm(`Delete project "${project.name}"?`)) {
                               deleteProjectMutation.mutate(project.id);
@@ -186,14 +186,14 @@ export default function OrganizationDetailPage() {
                           }}
                           disabled={deleteProjectMutation.isPending}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       )}
                     </div>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="p-4 pt-0">
                     <Link href={`/${project.id}/traces`}>
-                      <Button variant="outline" size="sm" className="w-full">
+                      <Button variant="outline" size="sm" className="w-full h-8 text-xs">
                         View Traces
                       </Button>
                     </Link>
@@ -207,33 +207,33 @@ export default function OrganizationDetailPage() {
         {/* Members Section */}
         {canManageMembers(org.role) && (
           <section>
-            <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold">
-              <Users className="h-5 w-5" />
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+              <Users className="h-4 w-4" />
               Members {members && `(${members.length})`}
             </h2>
             {membersLoading ? (
-              <p className="text-muted-foreground">Loading members...</p>
+              <p className="text-sm text-muted-foreground">Loading members...</p>
             ) : members && members.length > 0 ? (
               <Card>
                 <CardContent className="divide-y p-0">
                   {members.map((member) => (
                     <div
                       key={member.id}
-                      className="flex items-center justify-between p-4"
+                      className="flex items-center justify-between px-4 py-3"
                     >
                       <div>
-                        <p className="font-medium">
+                        <p className="text-sm font-medium">
                           {member.name || member.email || "Unknown"}
                         </p>
                         {member.name && (
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-xs text-muted-foreground">
                             {member.email}
                           </p>
                         )}
                       </div>
                       <div className="flex items-center gap-2">
                         <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                          className={`rounded px-2 py-0.5 text-xs font-medium ${
                             roleColors[member.role] || roleColors.VIEWER
                           }`}
                         >
@@ -243,7 +243,7 @@ export default function OrganizationDetailPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
                             onClick={() => {
                               if (
                                 confirm(
@@ -255,7 +255,7 @@ export default function OrganizationDetailPage() {
                             }}
                             disabled={removeMemberMutation.isPending}
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         )}
                       </div>
@@ -265,8 +265,8 @@ export default function OrganizationDetailPage() {
               </Card>
             ) : (
               <Card>
-                <CardContent className="py-8 text-center">
-                  <p className="text-muted-foreground">No members found</p>
+                <CardContent className="py-6 text-center">
+                  <p className="text-sm text-muted-foreground">No members found</p>
                 </CardContent>
               </Card>
             )}

@@ -56,11 +56,11 @@ export default function OrganizationsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-4xl p-6">
-        <div className="mb-8 flex items-center justify-between">
+      <div className="mx-auto max-w-5xl px-6 py-4">
+        <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Organizations</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-xl font-semibold">Organizations</h1>
+            <p className="text-sm text-muted-foreground">
               Manage your organizations and projects
             </p>
           </div>
@@ -69,41 +69,41 @@ export default function OrganizationsPage() {
 
         {organizations && organizations.length === 0 ? (
           <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Building2 className="mb-4 h-12 w-12 text-muted-foreground" />
-              <h3 className="mb-2 text-lg font-medium">No organizations yet</h3>
-              <p className="mb-4 text-muted-foreground">
+            <CardContent className="flex flex-col items-center justify-center py-10">
+              <Building2 className="mb-3 h-10 w-10 text-muted-foreground" />
+              <h3 className="mb-1 text-base font-medium">No organizations yet</h3>
+              <p className="mb-3 text-sm text-muted-foreground">
                 Create your first organization to get started.
               </p>
               <CreateOrgDialog />
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-2">
             {organizations?.map((org) => (
               <Link key={org.id} href={`/organizations/${org.id}`}>
-                <Card className="cursor-pointer transition-shadow hover:shadow-md">
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <Card className="cursor-pointer transition-all hover:bg-gray-50 hover:border-gray-300">
+                  <CardHeader className="flex flex-row items-center justify-between p-4">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
-                        <Building2 className="h-5 w-5 text-gray-600" />
+                      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-gray-100">
+                        <Building2 className="h-4 w-4 text-gray-600" />
                       </div>
                       <div>
-                        <CardTitle className="text-lg">{org.name}</CardTitle>
-                        <CardDescription>
+                        <CardTitle className="text-sm font-medium">{org.name}</CardTitle>
+                        <CardDescription className="text-xs">
                           Created {new Date(org.created_at).toLocaleDateString()}
                         </CardDescription>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       <span
-                        className={`rounded-full px-2 py-1 text-xs font-medium ${
+                        className={`rounded px-2 py-0.5 text-xs font-medium ${
                           roleColors[org.role] || roleColors.VIEWER
                         }`}
                       >
                         {org.role}
                       </span>
-                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
                     </div>
                   </CardHeader>
                 </Card>
