@@ -33,7 +33,10 @@ async def list_traces(
         return result
     except Exception as e:
         logger.exception(f"Error listing traces: {e}")
-        raise
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list traces",
+        )
 
 
 @router.get("/{trace_id}", response_model=TraceDetailResponse)
