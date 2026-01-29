@@ -1,22 +1,24 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
-import { getOrganizations } from "@/lib/api";
+import { getOrganizations, getOrganization } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { CreateOrgDialog } from "@/components/CreateOrgDialog";
 import { useLayout } from "@/components/layout/app-layout";
-import { LayoutGrid, Rocket, BookOpen, ArrowRight } from "lucide-react";
+import { Plus, FolderKanban, ChevronRight, Building2 } from "lucide-react";
 import Link from "next/link";
+import { cn } from "@/lib/utils";
+import { CreateOrgDialog } from "@/components/CreateOrgDialog";
+import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 
 export default function OrganizationsPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
   const user = session?.user;
   const { setHeaderContent } = useLayout();
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -27,114 +29,163 @@ export default function OrganizationsPage() {
   // Set header content
   useEffect(() => {
     setHeaderContent(
-      <span className="text-sm font-medium">Organizations</span>
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-muted-foreground">/</span>
+        <span className="font-medium">Organizations</span>
+      </div>
     );
     return () => setHeaderContent(null);
   }, [setHeaderContent]);
 
-  const { data: organizations, isLoading, error } = useQuery({
+  // Get all organizations
+  const { data: organizations, isLoading: orgsLoading } = useQuery({
     queryKey: ["organizations"],
     queryFn: getOrganizations,
     enabled: status === "authenticated",
   });
 
+  // Get details (with projects) for each org
+  const { data: orgsWithProjects, isLoading: projectsLoading } = useQuery({
+    queryKey: ["organizations-with-projects", organizations?.map(o => o.id)],
+    queryFn: async () => {
+      if (!organizations) return [];
+      const results = await Promise.all(
+        organizations.map(org => getOrganization(org.id))
+      );
+      return results;
+    },
+    enabled: !!organizations && organizations.length > 0,
+  });
+
+  // Auto-select first org
+  useEffect(() => {
+    if (orgsWithProjects && orgsWithProjects.length > 0 && !selectedOrgId) {
+      setSelectedOrgId(orgsWithProjects[0].id);
+    }
+  }, [orgsWithProjects, selectedOrgId]);
+
   if (!user) {
     return null;
   }
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Loading organizations...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-destructive">
-          Error loading organizations: {error.message}
-        </p>
-      </div>
-    );
-  }
-
-  const hasOrganizations = organizations && organizations.length > 0;
+  const isLoading = orgsLoading || projectsLoading;
+  const selectedOrg = orgsWithProjects?.find(org => org.id === selectedOrgId);
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-5xl px-6 py-8">
-        {/* Page Header */}
-        <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-xl font-semibold tracking-tight">Organizations</h1>
-          {hasOrganizations && <CreateOrgDialog />}
+    <div className="h-full bg-background">
+      {/* Loading State */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-12">
+          <p className="text-muted-foreground">Loading organizations...</p>
         </div>
+      )}
 
-        {/* Empty State - Get Started Card */}
-        {!hasOrganizations && (
-          <Card className="border-dashed">
-            <CardContent className="p-6">
-              <div className="flex items-start gap-5">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                  <Rocket className="h-5 w-5 text-primary" />
-                </div>
-                <div className="flex-1">
-                  <h2 className="font-medium">Get Started</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Create an organization to start tracking your AI agents.
-                  </p>
-                  <div className="mt-4 flex flex-wrap items-center gap-3">
-                    <CreateOrgDialog />
-                    <Link
-                      href="https://docs.traceroot.ai"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <Button variant="outline" size="sm">
-                        <BookOpen className="mr-2 h-4 w-4" />
-                        Docs
-                      </Button>
-                    </Link>
-                  </div>
-                </div>
+      {/* Empty State */}
+      {!isLoading && (!orgsWithProjects || orgsWithProjects.length === 0) && (
+        <div className="flex items-center justify-center py-16">
+          <Card className="border-dashed max-w-md">
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted mb-4">
+                <Building2 className="h-6 w-6 text-muted-foreground" />
               </div>
+              <h3 className="font-medium mb-1">No organizations yet</h3>
+              <p className="text-sm text-muted-foreground mb-4 text-center">
+                Create your first organization to get started
+              </p>
+              <CreateOrgDialog />
             </CardContent>
           </Card>
-        )}
+        </div>
+      )}
 
-        {/* Organizations List */}
-        {hasOrganizations && (
-          <div className="space-y-3">
-            {organizations.map((org) => (
-              <Card
-                key={org.id}
-                className="group transition-colors hover:bg-accent/50"
-              >
-                <CardContent className="flex items-center justify-between p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
-                      <LayoutGrid className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <h3 className="font-medium">{org.name}</h3>
-                      <p className="text-xs text-muted-foreground">
-                        {org.role.toLowerCase()}
-                      </p>
-                    </div>
+      {/* Two-panel layout */}
+      {!isLoading && orgsWithProjects && orgsWithProjects.length > 0 && (
+        <div className="flex h-full">
+          {/* Left Panel - Org List */}
+          <div className="w-64 border-r p-4 flex flex-col">
+            <div className="space-y-1 flex-1">
+              {orgsWithProjects.map((org) => (
+                <button
+                  key={org.id}
+                  onClick={() => setSelectedOrgId(org.id)}
+                  className={cn(
+                    "w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
+                    selectedOrgId === org.id
+                      ? "bg-muted"
+                      : "hover:bg-muted/50"
+                  )}
+                >
+                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-background border text-sm font-medium">
+                    {org.name.charAt(0).toUpperCase()}
                   </div>
-                  <Link href={`/organizations/${org.id}`}>
-                    <Button variant="outline" size="sm">
-                      Go to organization
-                      <ArrowRight className="ml-2 h-3 w-3" />
-                    </Button>
-                  </Link>
-                </CardContent>
-              </Card>
-            ))}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate text-sm">{org.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {org.projects.length} project{org.projects.length !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                </button>
+              ))}
+
+              {/* Add Organization Card */}
+              <CreateOrgDialog
+                trigger={
+                  <div className="w-full flex items-center justify-center rounded-lg border border-dashed px-3 py-4 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors cursor-pointer">
+                    <Plus className="h-5 w-5" />
+                  </div>
+                }
+              />
+            </div>
           </div>
-        )}
-      </div>
+
+          {/* Right Panel - Projects */}
+          {selectedOrg && (
+            <div className="flex-1 p-6 overflow-auto">
+              {/* Projects Grid */}
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {selectedOrg.projects.map((project) => (
+                  <Link
+                    key={project.id}
+                    href={`/${project.id}/traces`}
+                    className="group"
+                  >
+                    <Card className="transition-all hover:shadow-md hover:border-foreground/20">
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+                            <FolderKanban className="h-5 w-5 text-muted-foreground" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-medium truncate">
+                              {project.name}
+                            </h3>
+                            <p className="text-xs text-muted-foreground">
+                              Created {new Date(project.created_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-foreground transition-colors" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                ))}
+
+                {/* Add Project Card */}
+                <CreateProjectDialog
+                  orgId={selectedOrg.id}
+                  trigger={
+                    <Card className="border-dashed h-full transition-all hover:border-foreground/30 hover:bg-muted/50 cursor-pointer">
+                      <CardContent className="p-4 h-full flex items-center justify-center min-h-[76px]">
+                        <Plus className="h-6 w-6 text-muted-foreground hover:text-foreground transition-colors" />
+                      </CardContent>
+                    </Card>
+                  }
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -13,9 +13,9 @@ import {
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 import { useLayout } from "@/components/layout/app-layout";
-import { Settings, Trash2, Users, ChevronRight } from "lucide-react";
+import { CreateProjectDialog } from "@/components/CreateProjectDialog";
+import { Settings, Trash2, Users, ChevronRight, Plus } from "lucide-react";
 import Link from "next/link";
 
 const roleColors: Record<string, string> = {

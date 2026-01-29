@@ -25,10 +25,10 @@ export default function ProjectLayout({
       <div className="border-b">
         <div className="flex h-14 items-center gap-6 px-6">
           <Link
-            href="/projects"
+            href="/organizations"
             className="text-sm text-muted-foreground hover:text-foreground"
           >
-            Projects
+            Organizations
           </Link>
           <span className="text-muted-foreground">/</span>
           <span className="font-medium">{projectId.substring(0, 8)}...</span>
