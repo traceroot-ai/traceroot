@@ -228,16 +228,15 @@ export async function deleteApiKey(projectId: string, keyId: string): Promise<vo
 // =============================================================================
 
 export interface TraceListItem {
-  id: string;
+  trace_id: string;
   project_id: string;
   name: string;
-  status: "ok" | "error";
-  duration_ms: number;
-  total_tokens: number | null;
-  span_count: number;
+  trace_start_time: string;
   user_id: string | null;
   session_id: string | null;
-  timestamp: string;
+  span_count: number;
+  duration_ms: number | null;
+  status: "ok" | "error";
 }
 
 export interface TraceListResponse {

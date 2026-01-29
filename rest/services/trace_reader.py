@@ -30,6 +30,8 @@ class TraceReaderService:
         where_clause = " AND ".join(conditions)
 
         # Query traces with span aggregates
+        # Use LIMIT 1 BY to deduplicate ReplacingMergeTree rows
+        # ORDER BY ch_update_time DESC ensures we get the latest version
         query = f"""
             SELECT
                 t.trace_id,
@@ -45,6 +47,7 @@ class TraceReaderService:
                     NULL
                 ) as duration_ms,
                 if(countIf(s.status = 'ERROR') > 0, 'error', 'ok') as status
+<<<<<<< HEAD
             FROM traces FINAL t
             LEFT JOIN spans FINAL s ON t.trace_id = s.trace_id AND t.project_id = s.project_id
             WHERE {where_clause}
@@ -57,6 +60,7 @@ class TraceReaderService:
         rows = result.result_rows
 
         # Get total count
+        name_filter = "AND name ILIKE {name:String}" if name else ""
         count_query = f"""
             SELECT count(DISTINCT t.trace_id)
             FROM traces FINAL t
