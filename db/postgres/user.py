@@ -83,7 +83,7 @@ async def upsert_user(
         # Update existing user
         if name:
             user.name = name
-        user.updated_at = datetime.now(timezone.utc)
+        user.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     else:
         # Create new user
         user = UserModel(
@@ -114,7 +114,7 @@ async def update_user(
         user.name = name
     if image is not None:
         user.image = image
-    user.updated_at = datetime.now(timezone.utc)
+    user.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     await session.flush()
     return _to_user(user)

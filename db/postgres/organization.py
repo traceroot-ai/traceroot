@@ -81,7 +81,7 @@ async def update_organization(
         return None
 
     org.name = name
-    org.updated_at = datetime.now(timezone.utc)
+    org.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await session.flush()
     return _to_organization(org)
 
