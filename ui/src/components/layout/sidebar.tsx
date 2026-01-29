@@ -12,13 +12,12 @@ import {
 } from "@/components/ui/popover";
 import {
   LayoutGrid,
-  LogOut,
   LifeBuoy,
+  ChevronRight,
+  Github,
   Sun,
   Moon,
   Monitor,
-  ChevronRight,
-  Github,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -123,11 +122,12 @@ export function Sidebar() {
           <PopoverContent
             side="right"
             align="end"
-            className="w-56 p-2"
+            className="w-48 p-0"
             sideOffset={8}
+            alignOffset={0}
           >
             {/* User info */}
-            <div className="flex items-center gap-2 px-2 py-2">
+            <div className="flex items-center gap-2 px-3 py-2.5">
               <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted text-sm font-medium">
                 {initials}
               </div>
@@ -139,63 +139,64 @@ export function Sidebar() {
               </div>
             </div>
 
-            <div className="my-2 h-px bg-border" />
+            <div className="h-px bg-border" />
 
             {/* Theme selector with submenu */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <button className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors">
-                  <span>Theme</span>
-                  <div className="flex items-center gap-1">
-                    {theme === "light" && <Sun className="h-4 w-4" />}
-                    {theme === "dark" && <Moon className="h-4 w-4" />}
-                    {(theme === "system" || !theme) && (
-                      <Monitor className="h-4 w-4" />
-                    )}
+            <div className="p-1">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button className="flex w-full items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors">
+                    <span>Theme</span>
                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                side="right"
-                align="start"
-                className="w-32 p-1"
-                sideOffset={4}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  side="right"
+                  align="start"
+                  className="w-28 p-1"
+                  sideOffset={4}
+                >
+                  <button
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
+                      theme === "light" ? "bg-accent" : "hover:bg-accent"
+                    )}
+                    onClick={() => setTheme("light")}
+                  >
+                    <span>Light</span>
+                    <Sun className="h-4 w-4" />
+                  </button>
+                  <button
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
+                      theme === "dark" ? "bg-accent" : "hover:bg-accent"
+                    )}
+                    onClick={() => setTheme("dark")}
+                  >
+                    <span>Dark</span>
+                    <Moon className="h-4 w-4" />
+                  </button>
+                  <button
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
+                      theme === "system" || !theme ? "bg-accent" : "hover:bg-accent"
+                    )}
+                    onClick={() => setTheme("system")}
+                  >
+                    <span>System</span>
+                    <Monitor className="h-4 w-4" />
+                  </button>
+                </PopoverContent>
+              </Popover>
+
+              {/* Sign out */}
+              <button
+                className="flex w-full items-center justify-center rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
+                onClick={() => signOut({ callbackUrl: "/auth/sign-in" })}
               >
-                <button
-                  className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
-                  onClick={() => setTheme("light")}
-                >
-                  <span>Light</span>
-                  <Sun className="h-4 w-4" />
-                </button>
-                <button
-                  className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
-                  onClick={() => setTheme("dark")}
-                >
-                  <span>Dark</span>
-                  <Moon className="h-4 w-4" />
-                </button>
-                <button
-                  className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
-                  onClick={() => setTheme("system")}
-                >
-                  <span>System</span>
-                  <Monitor className="h-4 w-4" />
-                </button>
-              </PopoverContent>
-            </Popover>
-
-            <div className="my-2 h-px bg-border" />
-
-            {/* Sign out */}
-            <button
-              className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
-              onClick={() => signOut({ callbackUrl: "/auth/sign-in" })}
-            >
-              <span>Log Out</span>
-              <LogOut className="h-4 w-4" />
-            </button>
+                Log Out
+              </button>
+            </div>
           </PopoverContent>
         </Popover>
       </div>
