@@ -53,7 +53,7 @@ class TraceReaderService:
             LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
         """
 
-        result = self._client._client.query(query, parameters=params)
+        result = self._client.query(query, parameters=params)
         rows = result.result_rows
 
         # Get total count
@@ -62,7 +62,7 @@ class TraceReaderService:
             FROM traces t
             WHERE {where_clause}
         """
-        count_result = self._client._client.query(count_query, parameters=params)
+        count_result = self._client.query(count_query, parameters=params)
         total = count_result.result_rows[0][0] if count_result.result_rows else 0
 
         # Convert rows to dicts
@@ -97,7 +97,7 @@ class TraceReaderService:
             ORDER BY ch_update_time DESC
             LIMIT 1
         """
-        trace_result = self._client._client.query(
+        trace_result = self._client.query(
             trace_query,
             parameters={"project_id": project_id, "trace_id": trace_id},
         )
@@ -129,7 +129,7 @@ class TraceReaderService:
             WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
             ORDER BY span_start_time ASC
         """
-        spans_result = self._client._client.query(
+        spans_result = self._client.query(
             spans_query,
             parameters={"project_id": project_id, "trace_id": trace_id},
         )
