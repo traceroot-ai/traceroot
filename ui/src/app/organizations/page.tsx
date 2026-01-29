@@ -11,10 +11,10 @@ import { Building2, ChevronRight, Users } from "lucide-react";
 import Link from "next/link";
 
 const roleColors: Record<string, string> = {
-  OWNER: "bg-purple-100 text-purple-800",
-  ADMIN: "bg-blue-100 text-blue-800",
-  MEMBER: "bg-green-100 text-green-800",
-  VIEWER: "bg-gray-100 text-gray-800",
+  OWNER: "bg-gray-900 text-white",
+  ADMIN: "bg-gray-700 text-white",
+  MEMBER: "bg-gray-200 text-gray-800",
+  VIEWER: "bg-gray-100 text-gray-600",
 };
 
 export default function OrganizationsPage() {
@@ -85,8 +85,8 @@ export default function OrganizationsPage() {
                 <Card className="cursor-pointer transition-shadow hover:shadow-md">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                        <Building2 className="h-5 w-5 text-primary" />
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
+                        <Building2 className="h-5 w-5 text-gray-600" />
                       </div>
                       <div>
                         <CardTitle className="text-lg">{org.name}</CardTitle>

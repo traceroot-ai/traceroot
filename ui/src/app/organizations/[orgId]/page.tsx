@@ -25,10 +25,10 @@ import {
 import Link from "next/link";
 
 const roleColors: Record<string, string> = {
-  OWNER: "bg-purple-100 text-purple-800",
-  ADMIN: "bg-blue-100 text-blue-800",
-  MEMBER: "bg-green-100 text-green-800",
-  VIEWER: "bg-gray-100 text-gray-800",
+  OWNER: "bg-gray-900 text-white",
+  ADMIN: "bg-gray-700 text-white",
+  MEMBER: "bg-gray-200 text-gray-800",
+  VIEWER: "bg-gray-100 text-gray-600",
 };
 
 function canManageMembers(role: Role): boolean {
@@ -122,8 +122,8 @@ export default function OrganizationDetailPage() {
           </Link>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-                <Building2 className="h-6 w-6 text-primary" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gray-100">
+                <Building2 className="h-6 w-6 text-gray-600" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold">{org.name}</h1>
