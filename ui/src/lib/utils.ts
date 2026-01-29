@@ -81,3 +81,20 @@ export function formatRelativeTime(date: string | Date | null | undefined): stri
   // For older dates, show the actual date
   return then.toLocaleDateString();
 }
+
+/**
+ * Format date to a readable string.
+ * e.g., "Jan 28, 2026 at 3:45 PM"
+ */
+export function formatDate(date: string | Date | null | undefined): string {
+  if (!date) return "-";
+
+  const d = typeof date === "string" ? new Date(date) : date;
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
