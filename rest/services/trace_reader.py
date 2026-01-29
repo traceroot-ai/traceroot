@@ -30,6 +30,7 @@ class TraceReaderService:
         where_clause = " AND ".join(conditions)
 
         # Query traces with span aggregates
+        # Use FINAL to deduplicate ReplacingMergeTree rows
         query = f"""
             SELECT
                 t.trace_id,
