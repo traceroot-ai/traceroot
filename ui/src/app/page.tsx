@@ -24,7 +24,11 @@ export default function Home() {
 
   useEffect(() => {
     if (organizations !== undefined) {
-      router.push("/organizations");
+      if (organizations.length > 0) {
+        router.push("/organizations");
+      } else {
+        router.push("/onboarding");
+      }
     }
   }, [organizations, router]);
 

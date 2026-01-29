@@ -14,7 +14,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLayout } from "@/components/layout/app-layout";
-import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 import { Settings, Trash2, Users, ChevronRight, Plus } from "lucide-react";
 import Link from "next/link";
 
@@ -139,7 +138,12 @@ export default function OrganizationDetailPage() {
             <Button variant="ghost" size="icon" className="h-8 w-8">
               <Users className="h-4 w-4" />
             </Button>
-            <CreateProjectDialog orgId={orgId} />
+            <Link href={`/onboarding?orgId=${orgId}&orgName=${encodeURIComponent(org.name)}`}>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                New Project
+              </Button>
+            </Link>
           </div>
         </div>
 
@@ -150,7 +154,12 @@ export default function OrganizationDetailPage() {
               <p className="mb-4 text-sm text-muted-foreground">
                 No projects yet. Create your first project to get started.
               </p>
-              <CreateProjectDialog orgId={orgId} />
+              <Link href={`/onboarding?orgId=${orgId}&orgName=${encodeURIComponent(org.name)}`}>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Project
+                </Button>
+              </Link>
             </CardContent>
           </Card>
         ) : (

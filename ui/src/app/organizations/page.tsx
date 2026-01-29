@@ -10,8 +10,6 @@ import { useLayout } from "@/components/layout/app-layout";
 import { Plus, FolderKanban, ChevronRight, Building2 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { CreateOrgDialog } from "@/components/CreateOrgDialog";
-import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 
 export default function OrganizationsPage() {
   const router = useRouter();
@@ -92,7 +90,12 @@ export default function OrganizationsPage() {
               <p className="text-sm text-muted-foreground mb-4 text-center">
                 Create your first organization to get started
               </p>
-              <CreateOrgDialog />
+              <Link href="/onboarding">
+                <div className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create Organization
+                </div>
+              </Link>
             </CardContent>
           </Card>
         </div>
@@ -128,13 +131,11 @@ export default function OrganizationsPage() {
               ))}
 
               {/* Add Organization Card */}
-              <CreateOrgDialog
-                trigger={
-                  <div className="w-full flex items-center justify-center rounded-lg border border-dashed px-3 py-4 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors cursor-pointer">
-                    <Plus className="h-5 w-5" />
-                  </div>
-                }
-              />
+              <Link href="/onboarding" className="block">
+                <div className="w-full flex items-center justify-center rounded-lg border border-dashed px-3 py-4 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors cursor-pointer">
+                  <Plus className="h-5 w-5" />
+                </div>
+              </Link>
             </div>
           </div>
 
@@ -171,16 +172,16 @@ export default function OrganizationsPage() {
                 ))}
 
                 {/* Add Project Card */}
-                <CreateProjectDialog
-                  orgId={selectedOrg.id}
-                  trigger={
-                    <Card className="border-dashed h-full transition-all hover:border-foreground/30 hover:bg-muted/50 cursor-pointer">
-                      <CardContent className="p-4 h-full flex items-center justify-center min-h-[76px]">
-                        <Plus className="h-6 w-6 text-muted-foreground hover:text-foreground transition-colors" />
-                      </CardContent>
-                    </Card>
-                  }
-                />
+                <Link
+                  href={`/onboarding?orgId=${selectedOrg.id}&orgName=${encodeURIComponent(selectedOrg.name)}`}
+                  className="group"
+                >
+                  <Card className="border-dashed h-full transition-all hover:border-foreground/30 hover:bg-muted/50 cursor-pointer">
+                    <CardContent className="p-4 h-full flex items-center justify-center min-h-[76px]">
+                      <Plus className="h-6 w-6 text-muted-foreground group-hover:text-foreground transition-colors" />
+                    </CardContent>
+                  </Card>
+                </Link>
               </div>
             </div>
           )}
