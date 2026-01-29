@@ -239,6 +239,36 @@ export interface TraceListItem {
   status: "ok" | "error";
 }
 
+export interface Span {
+  span_id: string;
+  trace_id: string;
+  parent_span_id: string | null;
+  name: string;
+  span_kind: string;
+  span_start_time: string;
+  span_end_time: string | null;
+  status: string;
+  status_message: string | null;
+  model_name: string | null;
+  cost: number | null;
+  input: string | null;
+  output: string | null;
+}
+
+export interface TraceDetail {
+  trace_id: string;
+  project_id: string;
+  name: string;
+  trace_start_time: string;
+  user_id: string | null;
+  session_id: string | null;
+  environment: string;
+  release: string | null;
+  input: string | null;
+  output: string | null;
+  spans: Span[];
+}
+
 export interface TraceListResponse {
   data: TraceListItem[];
   meta: {
@@ -274,4 +304,12 @@ export async function getTraces(
   const endpoint = `/projects/${projectId}/traces${query ? `?${query}` : ""}`;
 
   return fetchApi<TraceListResponse>(endpoint);
+}
+
+export async function getTrace(
+  projectId: string,
+  traceId: string,
+  _apiKey: string // Reserved for future auth
+): Promise<TraceDetail> {
+  return fetchApi<TraceDetail>(`/projects/${projectId}/traces/${traceId}`);
 }
