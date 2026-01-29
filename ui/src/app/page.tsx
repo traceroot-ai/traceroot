@@ -7,9 +7,8 @@ import { useQuery } from "@tanstack/react-query";
 import { getOrganizations } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CreateOrgDialog } from "@/components/CreateOrgDialog";
 import { useLayout } from "@/components/layout/app-layout";
-import { Rocket, BookOpen } from "lucide-react";
+import { Rocket, BookOpen, Plus } from "lucide-react";
 import Link from "next/link";
 
 export default function Home() {
@@ -24,7 +23,7 @@ export default function Home() {
   });
 
   useEffect(() => {
-    if (organizations && organizations.length > 0) {
+    if (organizations !== undefined) {
       router.push("/organizations");
     }
   }, [organizations, router]);
@@ -32,7 +31,7 @@ export default function Home() {
   // Set header content
   useEffect(() => {
     setHeaderContent(
-      <span className="text-sm font-medium">Organizations</span>
+      <span className="text-sm font-medium">Home</span>
     );
     return () => setHeaderContent(null);
   }, [setHeaderContent]);
@@ -57,7 +56,7 @@ export default function Home() {
   if (orgsLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Loading organizations...</p>
+        <p className="text-muted-foreground">Loading...</p>
       </div>
     );
   }
@@ -68,7 +67,7 @@ export default function Home() {
         {/* Page Header */}
         <div className="mb-8">
           <h1 className="text-xl font-semibold tracking-tight">
-            Organizations
+            Welcome to TraceRoot
           </h1>
         </div>
 
@@ -85,7 +84,12 @@ export default function Home() {
                   Create an organization to start tracking your AI agents.
                 </p>
                 <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <CreateOrgDialog />
+                  <Link href="/organizations">
+                    <Button>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Get Started
+                    </Button>
+                  </Link>
                   <Link
                     href="https://docs.traceroot.ai"
                     target="_blank"
@@ -104,4 +108,4 @@ export default function Home() {
       </div>
     </div>
   );
-}                                                         
+}
