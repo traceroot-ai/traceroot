@@ -125,7 +125,7 @@ async def update_member_role(
         return None
 
     membership.role = role.value
-    membership.updated_at = datetime.now(timezone.utc)
+    membership.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await session.flush()
     return _to_membership(membership)
 

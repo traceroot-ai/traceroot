@@ -106,7 +106,7 @@ async def update_project(
         project.name = name
     if retention_days is not None:
         project.retention_days = retention_days
-    project.updated_at = datetime.now(timezone.utc)
+    project.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     await session.flush()
     return _to_project(project)
@@ -124,8 +124,8 @@ async def soft_delete_project(session: AsyncSession, project_id: str) -> bool:
     if not project:
         return False
 
-    project.deleted_at = datetime.now(timezone.utc)
-    project.updated_at = datetime.now(timezone.utc)
+    project.deleted_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    project.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await session.flush()
     return True
 
