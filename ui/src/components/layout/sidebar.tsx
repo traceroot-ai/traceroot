@@ -5,7 +5,6 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { useTheme } from "next-themes";
-import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -18,7 +17,7 @@ import {
   Sun,
   Moon,
   Monitor,
-  ChevronUp,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -57,15 +56,16 @@ export function Sidebar() {
   return (
     <div className="flex h-screen w-48 flex-col border-r bg-background">
       {/* Header with logo */}
-      <div className="flex h-12 items-center border-b px-3">
-        <Link href="/" className="flex items-center gap-2 font-semibold">
+      <div className="flex h-14 items-center border-b px-3">
+        <Link href="/" className="flex items-center gap-2">
           <Image
-            src="/images/traceroot_logo.png"
+            src="/images/traceroot_icon.png"
             alt="Traceroot Logo"
-            width={100}
-            height={28}
-            className="h-5 w-auto"
+            width={32}
+            height={32}
+            className="h-8 w-8 rounded-lg"
           />
+          <span className="font-semibold">TraceRoot</span>
         </Link>
       </div>
 
@@ -106,12 +106,12 @@ export function Sidebar() {
               <span className="flex-1 text-left text-sm font-medium truncate">
                 {displayName}
               </span>
-              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
             </button>
           </PopoverTrigger>
           <PopoverContent
-            side="top"
-            align="start"
+            side="right"
+            align="end"
             className="w-56 p-2"
             sideOffset={8}
           >
@@ -130,46 +130,60 @@ export function Sidebar() {
 
             <div className="my-2 h-px bg-border" />
 
-            {/* Theme selector */}
-            <div className="flex items-center justify-between px-2 py-1.5">
-              <span className="text-sm">Theme</span>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant={theme === "light" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-7 w-7"
+            {/* Theme selector with submenu */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors">
+                  <span>Theme</span>
+                  <div className="flex items-center gap-1">
+                    {theme === "light" && <Sun className="h-4 w-4" />}
+                    {theme === "dark" && <Moon className="h-4 w-4" />}
+                    {(theme === "system" || !theme) && (
+                      <Monitor className="h-4 w-4" />
+                    )}
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="right"
+                align="start"
+                className="w-32 p-1"
+                sideOffset={4}
+              >
+                <button
+                  className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
                   onClick={() => setTheme("light")}
                 >
+                  <span>Light</span>
                   <Sun className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant={theme === "dark" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-7 w-7"
+                </button>
+                <button
+                  className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
                   onClick={() => setTheme("dark")}
                 >
+                  <span>Dark</span>
                   <Moon className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant={theme === "system" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-7 w-7"
+                </button>
+                <button
+                  className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
                   onClick={() => setTheme("system")}
                 >
+                  <span>System</span>
                   <Monitor className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
+                </button>
+              </PopoverContent>
+            </Popover>
 
             <div className="my-2 h-px bg-border" />
 
             {/* Sign out */}
             <button
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+              className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
               onClick={() => signOut({ callbackUrl: "/auth/sign-in" })}
             >
+              <span>Log Out</span>
               <LogOut className="h-4 w-4" />
-              Sign out
             </button>
           </PopoverContent>
         </Popover>
