@@ -47,7 +47,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         {!sidebarCollapsed && <Sidebar />}
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Top header bar */}
-          <header className="flex h-12 items-center gap-2 border-b bg-background px-3">
+          <header className="flex h-14 items-center gap-2 border-b bg-background px-3">
             <Button
               variant="ghost"
               size="icon"

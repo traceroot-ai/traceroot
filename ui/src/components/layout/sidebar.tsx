@@ -54,23 +54,23 @@ export function Sidebar() {
   const displayName = user?.name || user?.email?.split("@")[0] || "User";
 
   return (
-    <div className="flex h-screen w-48 flex-col border-r bg-background">
+    <div className="flex h-screen w-52 flex-col border-r bg-background">
       {/* Header with logo */}
       <div className="flex h-14 items-center border-b px-3">
         <Link href="/" className="flex items-center gap-2">
           <Image
             src="/images/traceroot_icon.png"
             alt="Traceroot Logo"
-            width={32}
-            height={32}
-            className="h-8 w-8 rounded-lg"
+            width={28}
+            height={28}
+            className="h-7 w-7 rounded-md"
           />
           <span className="font-semibold">TraceRoot</span>
         </Link>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-0.5 p-2">
+      <nav className="flex-1 space-y-0.5 px-2 pt-2">
         {navItems.map((item) => (
           <Link
             key={item.href}
@@ -78,8 +78,8 @@ export function Sidebar() {
             className={cn(
               "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors",
               pathname === item.href || pathname.startsWith(item.href + "/")
-                ? "bg-accent text-accent-foreground font-medium"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                ? "bg-muted text-foreground font-medium"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
           >
             <item.icon className="h-4 w-4" />
