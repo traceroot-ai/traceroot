@@ -149,5 +149,5 @@ async def update_api_key_last_used(
     )
     key = result.scalar_one_or_none()
     if key:
-        key.last_used_at = datetime.now(timezone.utc)
+        key.last_used_at = datetime.now(timezone.utc).replace(tzinfo=None)
         await session.flush()
