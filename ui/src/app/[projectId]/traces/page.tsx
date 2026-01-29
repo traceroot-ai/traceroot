@@ -4,11 +4,11 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { getTraces, getApiKeys, type TraceListItem } from '@/lib/api'
+import { getTraces, type TraceListItem } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { formatDuration, formatTokens, formatRelativeTime } from '@/lib/utils'
+import { formatDuration, formatRelativeTime } from '@/lib/utils'
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
 
 export default function TracesPage() {
@@ -17,17 +17,6 @@ export default function TracesPage() {
   const [page, setPage] = useState(0)
   const [search, setSearch] = useState('')
 
-  // First get API keys to use for authentication
-  const { data: keysData } = useQuery({
-    queryKey: ['api-keys', projectId],
-    queryFn: () => getApiKeys(projectId),
-  })
-
-  const apiKey = keysData?.data?.[0]?.key_prefix
-    ? `${keysData.data[0].key_prefix}...` // Display key prefix
-    : null
-
-  // For MVP, we'll show a message if no API key
   const { data, isLoading, error } = useQuery({
     queryKey: ['traces', projectId, page, search],
     queryFn: () =>
@@ -36,7 +25,6 @@ export default function TracesPage() {
         limit: 50,
         name: search || undefined,
       }),
-    enabled: true, // For MVP, try without auth first
   })
 
   const traces = data?.data || []
@@ -95,9 +83,6 @@ export default function TracesPage() {
                     Duration
                   </th>
                   <th className="px-4 py-3 text-left text-sm font-medium">
-                    Tokens
-                  </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">
                     Spans
                   </th>
                   <th className="px-4 py-3 text-left text-sm font-medium">
@@ -108,12 +93,12 @@ export default function TracesPage() {
               <tbody>
                 {traces.map((trace: TraceListItem) => (
                   <tr
-                    key={trace.id}
+                    key={trace.trace_id}
                     className="border-b last:border-0 hover:bg-muted/50"
                   >
                     <td className="px-4 py-3">
                       <Link
-                        href={`/${projectId}/traces/${trace.id}`}
+                        href={`/${projectId}/traces/${trace.trace_id}`}
                         className="font-medium text-primary hover:underline"
                       >
                         {trace.name}
@@ -134,12 +119,9 @@ export default function TracesPage() {
                     <td className="px-4 py-3 text-sm">
                       {formatDuration(trace.duration_ms)}
                     </td>
-                    <td className="px-4 py-3 text-sm">
-                      {formatTokens(trace.total_tokens)}
-                    </td>
                     <td className="px-4 py-3 text-sm">{trace.span_count}</td>
                     <td className="px-4 py-3 text-sm text-muted-foreground">
-                      {formatRelativeTime(trace.timestamp)}
+                      {formatRelativeTime(trace.trace_start_time)}
                     </td>
                   </tr>
                 ))}
