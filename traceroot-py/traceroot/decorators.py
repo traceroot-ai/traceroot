@@ -176,7 +176,7 @@ def _set_span_attributes(
 def _set_output(span: trace.Span, result: Any) -> None:
     """Set output attribute on span."""
     try:
-        output_data = {"result": serialize_value(result)}
+        output_data = serialize_value(result)
         set_span_attribute(span, SpanAttributes.SPAN_OUTPUT, output_data)
     except Exception as e:
         logger.debug(f"Failed to capture output: {e}")
