@@ -80,7 +80,7 @@ export default function SignUpPage() {
       if (signInResult?.error) {
         router.push("/auth/sign-in");
       } else {
-        router.push("/organizations");
+        router.push("/onboarding");
         router.refresh();
       }
     } catch {
@@ -92,7 +92,7 @@ export default function SignUpPage() {
 
   function handleGoogleSignUp() {
     setIsGoogleLoading(true);
-    signIn("google", { callbackUrl: "/organizations" });
+    signIn("google", { callbackUrl: "/onboarding" });
   }
 
   return (
