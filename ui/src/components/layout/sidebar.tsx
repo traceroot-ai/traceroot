@@ -18,6 +18,7 @@ import {
   Moon,
   Monitor,
   ChevronRight,
+  Github,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -90,6 +91,16 @@ export function Sidebar() {
 
       {/* Bottom section */}
       <div className="border-t p-2 space-y-1">
+        {/* Star on GitHub */}
+        <a
+          href="https://github.com/traceroot-ai/traceroot"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+        >
+          <Github className="h-4 w-4" />
+          <span className="flex-1">Star on GitHub</span>
+        </a>
         {/* Support button */}
         <button className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors">
           <LifeBuoy className="h-4 w-4" />
