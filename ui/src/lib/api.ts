@@ -125,6 +125,10 @@ export async function deleteOrganization(orgId: string): Promise<void> {
 }
 
 // Project APIs
+export async function getProject(projectId: string): Promise<Project> {
+  return fetchApi<Project>(`/projects/${projectId}`);
+}
+
 export async function getProjects(orgId: string): Promise<Project[]> {
   const response = await fetchApi<ProjectListResponse>(`/organizations/${orgId}/projects`);
   return response.data;
