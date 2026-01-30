@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'next/navigation'
 import { getTraces, getTrace, type TraceListItem, type TraceDetail, type Span } from '@/lib/api'
+import { useLayout } from '@/components/layout/app-layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -471,19 +472,21 @@ function TraceDetailPanel({
 export default function TracesPage() {
   const params = useParams()
   const projectId = params.projectId as string
+  const { sidebarCollapsed } = useLayout()
   const [activeTab, setActiveTab] = useState('traces')
   const [page, setPage] = useState(0)
+  const [limit, setLimit] = useState(50)
   const [search, setSearch] = useState('')
   const [timeRange, setTimeRange] = useState(timeRangeOptions[2])
   const [timeRangeOpen, setTimeRangeOpen] = useState(false)
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null)
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['traces', projectId, page, search, timeRange.value],
+    queryKey: ['traces', projectId, page, limit, search, timeRange.value],
     queryFn: () =>
       getTraces(projectId, '', {
         page,
-        limit: 50,
+        limit,
         name: search || undefined,
       }),
     enabled: activeTab === 'traces',
@@ -678,10 +681,17 @@ export default function TracesPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[12px] text-gray-500">Items per page</span>
-                    <select className="border border-gray-200 rounded px-2 py-1 text-[12px] bg-white h-7">
-                      <option>50</option>
-                      <option>100</option>
-                      <option>200</option>
+                    <select
+                      className="border border-gray-200 rounded px-2 py-1 text-[12px] bg-white h-7"
+                      value={limit}
+                      onChange={(e) => {
+                        setLimit(Number(e.target.value))
+                        setPage(0)
+                      }}
+                    >
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                      <option value={200}>200</option>
                     </select>
                   </div>
                 </div>
@@ -704,7 +714,8 @@ export default function TracesPage() {
       {/* Slide-in detail panel - positioned below the top header */}
       <div
         className={cn(
-          "fixed top-14 bottom-0 right-0 left-[208px] bg-white transition-transform duration-300 ease-in-out z-50 shadow-lg",
+          "fixed top-14 bottom-0 right-0 bg-white transition-all duration-300 ease-in-out z-50 shadow-lg",
+          sidebarCollapsed ? "left-14" : "left-52",
           selectedTraceId ? "translate-x-0" : "translate-x-full"
         )}
       >
