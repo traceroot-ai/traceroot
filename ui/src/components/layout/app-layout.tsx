@@ -44,7 +44,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       }}
     >
       <div className="flex h-screen">
-        {!sidebarCollapsed && <Sidebar />}
+        <Sidebar collapsed={sidebarCollapsed} />
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Top header bar */}
           <header className="flex h-14 items-center gap-2 border-b bg-background px-3">
