@@ -18,7 +18,7 @@ import {
   Sun,
   Moon,
   Monitor,
-  Route,
+  Workflow,
   Settings,
 } from "lucide-react";
 import {
@@ -163,13 +163,13 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
-                  <Route className="h-4 w-4 shrink-0" />
-                  {!collapsed && "Traces"}
+                  <Workflow className="h-4 w-4 shrink-0" />
+                  {!collapsed && "Tracing"}
                 </Link>
               </TooltipTrigger>
               {collapsed && (
                 <TooltipContent side="right" sideOffset={16}>
-                  Traces
+                  Tracing
                 </TooltipContent>
               )}
             </Tooltip>
