@@ -30,7 +30,6 @@ export default function ProjectLayout({
           >
             Organizations
           </Link>
-          <span className="text-muted-foreground">/</span>
           <span className="font-medium">{projectId.substring(0, 8)}...</span>
         </div>
         <nav className="flex gap-4 px-6">
