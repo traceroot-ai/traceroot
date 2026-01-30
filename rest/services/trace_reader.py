@@ -46,8 +46,8 @@ class TraceReaderService:
                     NULL
                 ) as duration_ms,
                 if(countIf(s.status = 'ERROR') > 0, 'error', 'ok') as status
-            FROM traces FINAL t
-            LEFT JOIN spans FINAL s ON t.trace_id = s.trace_id AND t.project_id = s.project_id
+            FROM traces AS t FINAL
+            LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
             WHERE {where_clause}
             GROUP BY t.trace_id, t.project_id, t.name, t.trace_start_time, t.user_id, t.session_id
             ORDER BY t.trace_start_time DESC
@@ -60,7 +60,7 @@ class TraceReaderService:
         # Get total count
         count_query = f"""
             SELECT count(DISTINCT t.trace_id)
-            FROM traces FINAL t
+            FROM traces AS t FINAL
             WHERE {where_clause}
         """
         count_result = self._client.query(count_query, parameters=params)
