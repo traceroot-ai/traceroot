@@ -14,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLayout } from "@/components/layout/app-layout";
-import { Settings, Trash2, Users, ChevronRight, Plus } from "lucide-react";
+import { Settings, Trash2, Users, Plus } from "lucide-react";
 import Link from "next/link";
 
 const roleColors: Record<string, string> = {
@@ -88,7 +88,6 @@ export default function OrganizationDetailPage() {
           >
             Organizations
           </Link>
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
           <span className="font-medium">{org.name}</span>
         </div>
       );

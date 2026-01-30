@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useForm } from "react-hook-form";
@@ -10,6 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
+import { useLayout } from "@/components/layout/app-layout";
 import { createOrganization, createProject, createApiKey } from "@/lib/api";
 import { LayoutGrid, Layers, Check } from "lucide-react";
 
@@ -48,8 +49,17 @@ export default function OnboardingPage() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const { data: session, status } = useSession();
+  const { setHeaderContent } = useLayout();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Set header content
+  useEffect(() => {
+    setHeaderContent(
+      <span className="text-sm font-medium">Organizations</span>
+    );
+    return () => setHeaderContent(null);
+  }, [setHeaderContent]);
 
   // Determine mode from query params
   const existingOrgId = searchParams.get("orgId");
