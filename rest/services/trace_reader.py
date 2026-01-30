@@ -45,11 +45,13 @@ class TraceReaderService:
                     dateDiff('millisecond', min(s.span_start_time), max(s.span_end_time)),
                     NULL
                 ) as duration_ms,
-                if(countIf(s.status = 'ERROR') > 0, 'error', 'ok') as status
+                if(countIf(s.status = 'ERROR') > 0, 'error', 'ok') as status,
+                t.input,
+                t.output
             FROM traces AS t FINAL
             LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
             WHERE {where_clause}
-            GROUP BY t.trace_id, t.project_id, t.name, t.trace_start_time, t.user_id, t.session_id
+            GROUP BY t.trace_id, t.project_id, t.name, t.trace_start_time, t.user_id, t.session_id, t.input, t.output
             ORDER BY t.trace_start_time DESC
             LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
         """
@@ -79,6 +81,8 @@ class TraceReaderService:
                 "span_count": row[6] or 0,
                 "duration_ms": float(row[7]) if row[7] is not None else None,
                 "status": row[8],
+                "input": row[9],
+                "output": row[10],
             })
 
         return {

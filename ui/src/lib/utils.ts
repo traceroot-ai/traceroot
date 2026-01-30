@@ -84,17 +84,17 @@ export function formatRelativeTime(date: string | Date | null | undefined): stri
 
 /**
  * Format date to a readable string.
- * e.g., "Jan 28, 2026 at 3:45 PM"
+ * e.g., "2026-01-29 23:39:51"
  */
 export function formatDate(date: string | Date | null | undefined): string {
   if (!date) return "-";
 
   const d = typeof date === "string" ? new Date(date) : date;
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  const seconds = String(d.getSeconds()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }

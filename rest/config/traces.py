@@ -35,6 +35,8 @@ class TraceListItem(BaseModel):
     span_count: int
     duration_ms: float | None
     status: str  # "ok" or "error"
+    input: str | None
+    output: str | None
 
 
 class PaginationMeta(BaseModel):
