@@ -241,6 +241,8 @@ export interface TraceListItem {
   span_count: number;
   duration_ms: number | null;
   status: "ok" | "error";
+  input: string | null;
+  output: string | null;
 }
 
 export interface Span {
