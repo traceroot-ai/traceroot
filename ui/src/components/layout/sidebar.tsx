@@ -18,6 +18,8 @@ import {
   Sun,
   Moon,
   Monitor,
+  Route,
+  Settings,
 } from "lucide-react";
 import {
   Tooltip,
@@ -72,9 +74,27 @@ function Logo() {
   );
 }
 
-const navItems = [
-  { href: "/organizations", label: "Organizations", icon: LayoutGrid },
-];
+// Check if we're in a project context by looking at the path structure
+function getProjectContext(pathname: string): { isProject: boolean; projectId: string | null } {
+  // Known non-project routes
+  const nonProjectRoutes = ['/organizations', '/auth', '/onboarding', '/'];
+
+  // Check if path starts with any known non-project route
+  for (const route of nonProjectRoutes) {
+    if (pathname === route || (route !== '/' && pathname.startsWith(route + '/'))) {
+      return { isProject: false, projectId: null };
+    }
+  }
+
+  // If we get here, assume it's a project route like /[projectId]/traces
+  // Extract the projectId from the path (first segment after /)
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments.length > 0) {
+    return { isProject: true, projectId: segments[0] };
+  }
+
+  return { isProject: false, projectId: null };
+}
 
 function getInitials(name?: string | null, email?: string | null): string {
   if (name) {
@@ -108,6 +128,9 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
   const initials = getInitials(user?.name, user?.email);
   const displayName = user?.name || user?.email?.split("@")[0] || "User";
 
+  // Get project context
+  const { isProject, projectId } = getProjectContext(pathname);
+
   return (
     <TooltipProvider delayDuration={0}>
       <div
@@ -125,35 +148,86 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 space-y-0.5 px-2 pt-2">
-          {navItems.map((item) => (
-            <Tooltip key={item.href}>
+        <nav className="flex-1 px-2 pt-2 space-y-0.5">
+          {isProject && projectId ? (
+            // Project context navigation
+            <Tooltip>
               <TooltipTrigger asChild>
                 <Link
-                  href={item.href}
+                  href={`/${projectId}/traces`}
                   className={cn(
                     "flex items-center gap-2 rounded-md py-1.5 text-sm transition-colors",
                     collapsed ? "justify-center px-2" : "px-2.5",
-                    pathname === item.href || pathname.startsWith(item.href + "/")
+                    pathname.includes("/traces")
                       ? "bg-muted text-foreground font-medium"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
-                  <item.icon className="h-4 w-4 shrink-0" />
-                  {!collapsed && item.label}
+                  <Route className="h-4 w-4 shrink-0" />
+                  {!collapsed && "Traces"}
                 </Link>
               </TooltipTrigger>
               {collapsed && (
                 <TooltipContent side="right" sideOffset={16}>
-                  {item.label}
+                  Traces
                 </TooltipContent>
               )}
             </Tooltip>
-          ))}
+          ) : (
+            // Default navigation (Organizations)
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  href="/organizations"
+                  className={cn(
+                    "flex items-center gap-2 rounded-md py-1.5 text-sm transition-colors",
+                    collapsed ? "justify-center px-2" : "px-2.5",
+                    pathname === "/organizations" || pathname.startsWith("/organizations/")
+                      ? "bg-muted text-foreground font-medium"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  <LayoutGrid className="h-4 w-4 shrink-0" />
+                  {!collapsed && "Organizations"}
+                </Link>
+              </TooltipTrigger>
+              {collapsed && (
+                <TooltipContent side="right" sideOffset={16}>
+                  Organizations
+                </TooltipContent>
+              )}
+            </Tooltip>
+          )}
         </nav>
 
         {/* Bottom section */}
-        <div className="border-t p-2 space-y-1">
+        <div className="p-2 space-y-1">
+          {/* Settings - only show when in project context */}
+          {isProject && projectId && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  href={`/${projectId}/settings`}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-md py-1.5 text-sm transition-colors",
+                    collapsed ? "justify-center px-2" : "px-2.5",
+                    pathname.includes("/settings")
+                      ? "bg-muted text-foreground font-medium"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  )}
+                >
+                  <Settings className="h-4 w-4 shrink-0" />
+                  {!collapsed && "Settings"}
+                </Link>
+              </TooltipTrigger>
+              {collapsed && (
+                <TooltipContent side="right" sideOffset={16}>
+                  Settings
+                </TooltipContent>
+              )}
+            </Tooltip>
+          )}
+
           {/* Star on GitHub */}
           <Tooltip>
             <TooltipTrigger asChild>
