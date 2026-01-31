@@ -660,25 +660,6 @@ export default function TracesPage() {
 
                 {/* Pagination */}
                 <div className="border-t border-gray-200 px-4 py-2.5 flex items-center justify-end gap-6 bg-white">
-                  <div className="flex items-center gap-3">
-                    <span className="text-[12px] text-gray-500">
-                      Page {meta.page + 1} of {Math.max(1, totalPages)}
-                    </span>
-                    <div className="flex items-center gap-0.5">
-                      <Button variant="outline" size="sm" onClick={() => setPage(0)} disabled={page === 0} className="h-7 w-7 p-0 border-gray-200">
-                        <ChevronLeft className="h-3.5 w-3.5" /><ChevronLeft className="h-3.5 w-3.5 -ml-2" />
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="h-7 w-7 p-0 border-gray-200">
-                        <ChevronLeft className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages - 1} className="h-7 w-7 p-0 border-gray-200">
-                        <ChevronRight className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} className="h-7 w-7 p-0 border-gray-200">
-                        <ChevronRight className="h-3.5 w-3.5" /><ChevronRight className="h-3.5 w-3.5 -ml-2" />
-                      </Button>
-                    </div>
-                  </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[12px] text-gray-500">Items per page</span>
                     <select
@@ -693,6 +674,37 @@ export default function TracesPage() {
                       <option value={100}>100</option>
                       <option value={200}>200</option>
                     </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px] text-gray-500">Page</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={Math.max(1, totalPages)}
+                      value={meta.page + 1}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10)
+                        if (!isNaN(val) && val >= 1 && val <= totalPages) {
+                          setPage(val - 1)
+                        }
+                      }}
+                      className="border border-gray-200 rounded px-2 py-1 text-[12px] bg-white h-7 w-12 text-center"
+                    />
+                    <span className="text-[12px] text-gray-500">of {Math.max(1, totalPages)}</span>
+                  </div>
+                  <div className="flex items-center gap-0.5">
+                    <Button variant="outline" size="sm" onClick={() => setPage(0)} disabled={page === 0} className="h-7 w-7 p-0 border-gray-200">
+                      <ChevronLeft className="h-3.5 w-3.5" /><ChevronLeft className="h-3.5 w-3.5 -ml-2" />
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="h-7 w-7 p-0 border-gray-200">
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages - 1} className="h-7 w-7 p-0 border-gray-200">
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} className="h-7 w-7 p-0 border-gray-200">
+                      <ChevronRight className="h-3.5 w-3.5" /><ChevronRight className="h-3.5 w-3.5 -ml-2" />
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -715,7 +727,7 @@ export default function TracesPage() {
       <div
         className={cn(
           "fixed top-14 bottom-0 right-0 bg-white transition-all duration-300 ease-in-out z-50 shadow-lg",
-          sidebarCollapsed ? "left-14" : "left-52",
+          sidebarCollapsed ? "left-14" : "left-40",
           selectedTraceId ? "translate-x-0" : "translate-x-full"
         )}
       >
