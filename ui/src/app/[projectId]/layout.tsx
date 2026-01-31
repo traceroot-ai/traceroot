@@ -31,16 +31,23 @@ export default function ProjectLayout({
     enabled: !!project?.org_id,
   })
 
-  // Set header content with breadcrumb: Org Name > Project Name
+  // Set header content with breadcrumb: Organizations > Org Name > Project Name
   useEffect(() => {
     if (project) {
       setHeaderContent(
-        <div className="flex items-center gap-1.5 text-sm">
+        <div className="flex items-center gap-1.5 text-[13px]">
           <Link
             href="/organizations"
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="hover:underline"
           >
-            {org?.name || 'Organization'}
+            Organizations
+          </Link>
+          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+          <Link
+            href={`/organizations/${project.org_id}/projects`}
+            className="hover:underline"
+          >
+            {org?.name || '...'}
           </Link>
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="font-medium">{project.name}</span>

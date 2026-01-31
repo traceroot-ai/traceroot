@@ -56,7 +56,7 @@ export default function OnboardingPage() {
   // Set header content
   useEffect(() => {
     setHeaderContent(
-      <span className="text-sm font-medium">Organizations</span>
+      <span className="text-[13px] font-medium">Organizations</span>
     );
     return () => setHeaderContent(null);
   }, [setHeaderContent]);
@@ -136,8 +136,8 @@ export default function OnboardingPage() {
 
   if (status === "loading") {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Loading...</p>
+      <div className="flex h-full items-center justify-center">
+        <p className="text-[13px] text-muted-foreground">Loading...</p>
       </div>
     );
   }
@@ -145,66 +145,66 @@ export default function OnboardingPage() {
   if (status === "unauthenticated") {
     router.push("/auth/sign-in");
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Redirecting to sign in...</p>
+      <div className="flex h-full items-center justify-center">
+        <p className="text-[13px] text-muted-foreground">Redirecting to sign in...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-xl px-6 py-12">
+    <div className="h-full bg-background overflow-auto">
+      <div className="mx-auto max-w-md px-4 py-8">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight">Setup</h1>
-          <p className="mt-1 text-muted-foreground">
+        <div className="mb-6">
+          <h1 className="text-lg font-semibold">Setup</h1>
+          <p className="text-[13px] text-muted-foreground">
             Set up your organization and first project
           </p>
         </div>
 
         {/* Error message */}
         {error && (
-          <div className="mb-6 border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
+          <div className="mb-4 border border-red-200 bg-red-50 p-3 text-[12px] text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
             {error}
           </div>
         )}
 
         {/* Tree Form */}
-        <Card className="rounded-sm">
-          <CardContent className="p-6">
+        <Card>
+          <CardContent className="p-4">
             <div className="space-y-0">
               {/* Organization Section */}
-              <div className="flex items-start gap-4">
+              <div className="flex items-start gap-3">
                 <div className="flex flex-col items-center">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center bg-primary/10">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center bg-primary/10 rounded">
                     {isProjectOnlyMode ? (
-                      <Check className="h-5 w-5 text-primary" />
+                      <Check className="h-4 w-4 text-primary" />
                     ) : (
-                      <LayoutGrid className="h-5 w-5 text-primary" />
+                      <LayoutGrid className="h-4 w-4 text-primary" />
                     )}
                   </div>
                   {/* Vertical connector line */}
-                  <div className="w-px h-14 bg-border my-2" />
+                  <div className="w-px h-12 bg-border my-1.5" />
                 </div>
-                <div className="flex-1 pt-1 pb-2">
-                  <label className="text-sm font-medium">Organization</label>
-                  <p className="text-xs text-muted-foreground mb-2">
+                <div className="flex-1 pt-0.5 pb-2">
+                  <label className="text-[13px] font-medium">Organization</label>
+                  <p className="text-[11px] text-muted-foreground mb-2">
                     Your team's home for billing and members
                   </p>
                   {isProjectOnlyMode ? (
-                    <div className="flex items-center gap-2 border bg-muted/50 px-3 py-2 max-w-sm">
-                      <span className="text-sm">{existingOrgName || "Selected organization"}</span>
-                      <Check className="h-4 w-4 text-green-600 ml-auto" />
+                    <div className="flex items-center gap-2 border bg-muted/50 px-2.5 py-1.5 max-w-xs text-[13px]">
+                      <span>{existingOrgName || "Selected organization"}</span>
+                      <Check className="h-3.5 w-3.5 text-green-600 ml-auto" />
                     </div>
                   ) : (
                     <Input
                       placeholder="Acme Inc"
                       {...register("workspaceName")}
-                      className="max-w-sm"
+                      className="max-w-xs h-8 text-[13px]"
                     />
                   )}
                   {errors.workspaceName && (
-                    <p className="mt-1 text-xs text-red-500">
+                    <p className="mt-1 text-[11px] text-red-500">
                       {errors.workspaceName.message}
                     </p>
                   )}
@@ -212,37 +212,37 @@ export default function OnboardingPage() {
               </div>
 
               {/* Project Section */}
-              <div className="flex items-start gap-4">
+              <div className="flex items-start gap-3">
                 <div className="flex flex-col items-center">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center bg-muted">
-                    <Layers className="h-5 w-5 text-muted-foreground" />
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center bg-muted rounded">
+                    <Layers className="h-4 w-4 text-muted-foreground" />
                   </div>
                 </div>
-                <div className="flex-1 pt-1 pb-2">
-                  <label className="text-sm font-medium">Project</label>
-                  <p className="text-xs text-muted-foreground mb-2">
+                <div className="flex-1 pt-0.5 pb-2">
+                  <label className="text-[13px] font-medium">Project</label>
+                  <p className="text-[11px] text-muted-foreground mb-2">
                     Where your traces and experiments live
                   </p>
                   <Input
                     placeholder="my-llm-project"
                     {...register("projectName")}
-                    className="max-w-sm"
+                    className="max-w-xs h-8 text-[13px]"
                   />
                   {errors.projectName && (
-                    <p className="mt-1 text-xs text-red-500">
+                    <p className="mt-1 text-[11px] text-red-500">
                       {errors.projectName.message}
                     </p>
                   )}
                 </div>
-                </div>
               </div>
+            </div>
 
             {/* Actions */}
-            <div className="mt-8 flex items-center justify-center gap-3">
-              <Button onClick={handleSubmit} disabled={isLoading}>
+            <div className="mt-6 flex items-center justify-center gap-2">
+              <Button size="sm" className="h-7 text-[12px] px-4" onClick={handleSubmit} disabled={isLoading}>
                 {isLoading ? "Creating..." : "Create"}
               </Button>
-              <Button variant="outline" onClick={() => router.push("/organizations")}>
+              <Button variant="outline" size="sm" className="h-7 text-[12px] px-4" onClick={() => router.push("/organizations")}>
                 Cancel
               </Button>
             </div>
