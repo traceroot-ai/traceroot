@@ -31,7 +31,6 @@ import {
   Trash2,
   SlidersHorizontal,
   Users,
-  ChevronLeft,
 } from "lucide-react";
 import Link from "next/link";
 
