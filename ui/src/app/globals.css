@@ -55,3 +55,13 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Slide-in animation for panels */
+@keyframes slideInFromRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.animate-slide-in-right {
+  animation: slideInFromRight 0.3s ease-out;
+}

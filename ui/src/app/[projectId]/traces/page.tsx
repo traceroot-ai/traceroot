@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'next/navigation'
 import { getTraces, getTrace, type TraceListItem, type TraceDetail, type Span } from '@/lib/api'
-import { useLayout } from '@/components/layout/app-layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -25,6 +24,10 @@ import {
   X,
   Clock,
   Copy,
+  Sparkle,
+  ArrowRight,
+  Bot,
+  Wrench,
 } from 'lucide-react'
 
 // Tab definitions
@@ -66,27 +69,52 @@ function formatPreview(text: string | null): string {
 // Trace Detail Panel Components
 // ============================================================================
 
-const NESTING_INDENT = 24
+// Layout constants for tree alignment
+const NESTING_INDENT = 22  // Space per nesting level
+const ROW_HEIGHT = 28      // Height of each row (compact)
+const ICON_BOX_SIZE = 18   // Size of icon box
+const LEFT_PADDING = 8     // Left padding before first icon
 
-function NodeTypeBadge({ type, size = 'sm' }: { type: string; size?: 'sm' | 'md' }) {
-  const baseStyles = 'inline-flex items-center justify-center font-semibold uppercase tracking-wider rounded'
-  const sizeStyles = size === 'md'
-    ? 'px-2.5 py-1 text-[10px]'
-    : 'px-2 py-0.5 text-[9px]'
+// Icon mapping for node types
+function getNodeIcon(type: string) {
+  const normalizedType = type.toLowerCase()
+  switch (normalizedType) {
+    case 'trace':
+      return Workflow
+    case 'llm':
+      return Sparkle
+    case 'agent':
+      return Bot
+    case 'tool':
+      return Wrench
+    case 'span':
+    default:
+      return ArrowRight
+  }
+}
 
-  // Clean black/white palette
-  const isTrace = type.toLowerCase() === 'trace'
+function NodeTypeIcon({ type, size = 'sm', selected = false, inTree = false }: { type: string; size?: 'sm' | 'md'; selected?: boolean; inTree?: boolean }) {
+  const Icon = getNodeIcon(type)
+  const iconSizeClass = size === 'md' ? 'h-4 w-4' : 'h-3 w-3'
 
+  // In tree view, show icon with white background box
+  if (inTree) {
+    return (
+      <div
+        className="flex items-center justify-center rounded border bg-background flex-shrink-0"
+        style={{ width: ICON_BOX_SIZE, height: ICON_BOX_SIZE }}
+      >
+        <Icon className="h-3 w-3 text-muted-foreground" />
+      </div>
+    )
+  }
+
+  // In detail panel, just show the icon
   return (
-    <span className={cn(
-      baseStyles,
-      sizeStyles,
-      isTrace
-        ? 'bg-gray-900 text-white'
-        : 'bg-white text-gray-600 border border-gray-200'
-    )}>
-      {type}
-    </span>
+    <Icon className={cn(
+      iconSizeClass,
+      selected ? 'text-current' : 'text-muted-foreground'
+    )} />
   )
 }
 
@@ -133,49 +161,60 @@ function createSpanTree(spans: Span[]): SpanRow[] {
 }
 
 function TreeConnector({ level, isTerminal, parentLevels }: { level: number; isTerminal: boolean; parentLevels: number[] }) {
-  if (level === 0) return <div className="w-4 flex-shrink-0" />
+  // Lines should connect to the center of parent icon boxes
+  const iconCenterOffset = ICON_BOX_SIZE / 2
+  // Total width needed before the icon
+  const width = LEFT_PADDING + level * NESTING_INDENT
+  // Gap between icon edge and row edge (icon is centered vertically)
+  const iconVerticalGap = (ROW_HEIGHT - ICON_BOX_SIZE) / 2
+
+  if (level === 0) return <div style={{ width: LEFT_PADDING }} className="flex-shrink-0" />
 
   return (
-    <div className="flex flex-shrink-0 items-center" style={{ width: 16 + level * NESTING_INDENT }}>
-      {/* Initial padding */}
-      <div className="w-4 flex-shrink-0" />
-
+    <div className="relative flex-shrink-0 overflow-visible" style={{ width, height: ROW_HEIGHT }}>
       {Array.from({ length: level }).map((_, i) => {
         const showContinuingLine = parentLevels.includes(i)
         const isCurrentLevel = i === level - 1
+        // Line X position: center of the icon at this level
+        const lineX = LEFT_PADDING + i * NESTING_INDENT + iconCenterOffset
 
         return (
-          <div
-            key={i}
-            className="relative flex-shrink-0"
-            style={{ width: NESTING_INDENT, height: 40 }}
-          >
-            {/* Continuing vertical line for non-terminal ancestors */}
+          <div key={i}>
+            {/* Continuing vertical line for non-terminal ancestors - extends up to touch parent icon */}
             {showContinuingLine && (
               <div
-                className="absolute w-px bg-gray-300"
-                style={{ left: NESTING_INDENT / 2, top: 0, bottom: 0 }}
+                className="absolute bg-muted-foreground/50"
+                style={{
+                  left: lineX,
+                  top: -iconVerticalGap, // extend up to parent icon bottom
+                  height: ROW_HEIGHT + iconVerticalGap, // full row + extension
+                  width: 1
+                }}
               />
             )}
             {/* Current level connector - L-shape */}
             {isCurrentLevel && (
               <>
-                {/* Vertical part of L */}
+                {/* Vertical part - from parent icon bottom to row center */}
                 <div
-                  className="absolute w-px bg-gray-300"
+                  className="absolute bg-muted-foreground/50"
                   style={{
-                    left: NESTING_INDENT / 2,
-                    top: 0,
-                    height: isTerminal ? 20 : 40
+                    left: lineX,
+                    top: -iconVerticalGap, // start at parent icon bottom
+                    height: isTerminal
+                      ? (ROW_HEIGHT / 2 + iconVerticalGap) // to current row center
+                      : ROW_HEIGHT, // to row bottom (child's line starts there)
+                    width: 1
                   }}
                 />
-                {/* Horizontal part of L */}
+                {/* Horizontal part - extend to touch the icon box border */}
                 <div
-                  className="absolute h-px bg-gray-300"
+                  className="absolute bg-muted-foreground/50"
                   style={{
-                    left: NESTING_INDENT / 2,
-                    top: 20,
-                    width: NESTING_INDENT / 2
+                    left: lineX,
+                    top: Math.floor(ROW_HEIGHT / 2),
+                    width: width - lineX + 1,
+                    height: 1
                   }}
                 />
               </>
@@ -183,8 +222,6 @@ function TreeConnector({ level, isTerminal, parentLevels }: { level: number; isT
           </div>
         )
       })}
-      {/* Gap after connector - more horizontal space */}
-      <div className="w-4 flex-shrink-0" />
     </div>
   )
 }
@@ -198,78 +235,194 @@ function TraceTreeView({
   selection: Selection
   onSelect: (selection: Selection) => void
 }) {
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
+
+  // Build children map to know which spans have children
+  const childrenByParent = new Map<string | null, Span[]>()
+  trace.spans.forEach((span) => {
+    const pid = span.parent_span_id
+    if (!childrenByParent.has(pid)) childrenByParent.set(pid, [])
+    childrenByParent.get(pid)!.push(span)
+  })
+
+  const hasChildren = (spanId: string | null) => {
+    const children = childrenByParent.get(spanId) || []
+    return children.length > 0
+  }
+
+  const toggleCollapse = (spanId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setCollapsedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(spanId)) {
+        next.delete(spanId)
+      } else {
+        next.add(spanId)
+      }
+      return next
+    })
+  }
+
+  // Check if a span should be visible (not hidden by collapsed ancestor)
+  const isVisible = (span: Span): boolean => {
+    let currentId = span.parent_span_id
+    while (currentId) {
+      if (collapsedIds.has(currentId)) return false
+      const parent = trace.spans.find(s => s.span_id === currentId)
+      currentId = parent?.parent_span_id || null
+    }
+    return true
+  }
+
   const spanRows = createSpanTree(trace.spans)
   const isTraceSelected = selection.type === 'trace'
   const traceDuration = getTraceDuration(trace)
+  const traceHasChildren = hasChildren(null)
+  const traceIsCollapsed = collapsedIds.has('trace')
 
   return (
-    <div className="py-3 px-2">
+    <div>
       {/* Trace row */}
       <div
         className={cn(
-          'flex items-center cursor-pointer transition-all h-10 px-3 rounded-lg',
+          'flex items-center cursor-pointer transition-colors rounded-sm',
           isTraceSelected
-            ? 'bg-gray-900 text-white'
-            : 'hover:bg-gray-50'
+            ? 'bg-muted'
+            : 'hover:bg-muted/50'
         )}
+        style={{ height: ROW_HEIGHT, paddingLeft: LEFT_PADDING }}
         onClick={() => onSelect({ type: 'trace' })}
       >
-        <div className="w-4 flex-shrink-0" />
-        <div className="flex-1 flex items-center gap-3 min-w-0">
-          <span className="px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider bg-white text-gray-900 rounded">
-            Trace
-          </span>
-          <span className={cn(
-            'flex-1 truncate text-[13px] font-medium',
-            isTraceSelected ? 'text-white' : 'text-gray-800'
-          )}>{trace.name}</span>
-          <span className={cn(
-            'text-[11px] font-mono whitespace-nowrap',
-            isTraceSelected ? 'text-gray-300' : 'text-gray-400'
-          )}>
+        <div className="flex items-center gap-1.5 min-w-0 pr-2 flex-1">
+          <NodeTypeIcon type="trace" inTree />
+          <span className="truncate text-xs">{trace.name}</span>
+          <span className="text-[10px] text-muted-foreground font-mono whitespace-nowrap">
             {formatDuration(traceDuration)}
           </span>
+          <div className="flex-1" />
+          {traceHasChildren && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setCollapsedIds(prev => {
+                  const next = new Set(prev)
+                  if (next.has('trace')) {
+                    next.delete('trace')
+                  } else {
+                    next.add('trace')
+                  }
+                  return next
+                })
+              }}
+              className="p-0.5 hover:bg-muted rounded transition-colors flex-shrink-0"
+            >
+              {traceIsCollapsed ? (
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+              )}
+            </button>
+          )}
         </div>
       </div>
 
       {/* Span rows */}
-      {spanRows.map(({ span, level, isTerminal, parentLevels }) => {
+      {!traceIsCollapsed && spanRows.map(({ span, level, isTerminal, parentLevels }) => {
+        // Skip if hidden by collapsed ancestor
+        if (!isVisible(span)) return null
+
         const isSelected = selection.type === 'span' && selection.span.span_id === span.span_id
         const adjustedLevel = level + 1
         const adjustedParentLevels = parentLevels.map(l => l + 1)
+        const spanHasChildren = hasChildren(span.span_id)
+        const isCollapsed = collapsedIds.has(span.span_id)
 
         return (
           <div
             key={span.span_id}
             className={cn(
-              'flex items-center cursor-pointer transition-all h-10 pr-3 rounded-r-lg',
+              'flex items-center cursor-pointer transition-colors pr-2 rounded-r-sm',
               isSelected
-                ? 'bg-gray-100'
-                : 'hover:bg-gray-50'
+                ? 'bg-muted'
+                : 'hover:bg-muted/50'
             )}
+            style={{ height: ROW_HEIGHT }}
             onClick={() => onSelect({ type: 'span', span })}
           >
             <TreeConnector level={adjustedLevel} isTerminal={isTerminal} parentLevels={adjustedParentLevels} />
-            <div className="flex-1 flex items-center gap-3 min-w-0">
-              <span className={cn(
-                'px-2 py-0.5 text-[9px] font-medium uppercase tracking-wider rounded border',
-                isSelected
-                  ? 'bg-gray-800 text-white border-gray-800'
-                  : 'bg-white text-gray-500 border-gray-200'
-              )}>
-                {span.span_kind}
-              </span>
-              <span className={cn(
-                'flex-1 truncate text-[13px]',
-                isSelected ? 'text-gray-900 font-medium' : 'text-gray-600'
-              )}>{span.name}</span>
-              <span className="text-[11px] text-gray-400 font-mono whitespace-nowrap">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              <NodeTypeIcon type={span.span_kind} inTree />
+              <span className="truncate text-xs">{span.name}</span>
+              <span className="text-[10px] text-muted-foreground font-mono whitespace-nowrap">
                 {formatDuration(getSpanDuration(span))}
               </span>
+              <div className="flex-1" />
+              {spanHasChildren && (
+                <button
+                  onClick={(e) => toggleCollapse(span.span_id, e)}
+                  className="p-0.5 hover:bg-muted rounded transition-colors flex-shrink-0"
+                >
+                  {isCollapsed ? (
+                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
+                </button>
+              )}
             </div>
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// Collapsible section component
+function CollapsibleSection({
+  title,
+  children,
+  defaultOpen = true,
+  onCopy,
+}: {
+  title: string
+  children: React.ReactNode
+  defaultOpen?: boolean
+  onCopy?: () => void
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen)
+
+  return (
+    <div className="border rounded-md overflow-hidden">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center justify-between w-full px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          {isOpen ? (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          )}
+          <span className="text-sm font-medium">{title}</span>
+        </div>
+        {onCopy && (
+          <div
+            onClick={(e) => {
+              e.stopPropagation()
+              onCopy()
+            }}
+            className="text-muted-foreground hover:text-foreground transition-colors p-1"
+            title="Copy"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </div>
+        )}
+      </button>
+      {isOpen && (
+        <div className="p-3 bg-muted/20">
+          {children}
+        </div>
+      )}
     </div>
   )
 }
@@ -290,85 +443,69 @@ function DetailRightPanel({ trace, selection }: { trace: TraceDetail; selection:
   return (
     <div className="h-full overflow-y-auto">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-200 sticky top-0 bg-white z-10">
-        <div className="flex items-center gap-2 mb-2">
-          <NodeTypeBadge type={type} size="md" />
-          <h3 className="text-[15px] font-semibold text-gray-900">{name}</h3>
+      <div className="px-4 py-3 border-b sticky top-0 bg-background z-10">
+        <div className="flex items-center gap-2 mb-1">
+          <NodeTypeIcon type={type} size="md" selected />
+          <h3 className="text-sm font-medium">{name}</h3>
           <button
             onClick={() => copyToClipboard(isTrace ? trace.trace_id : selection.span.span_id)}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-muted-foreground hover:text-foreground transition-colors"
             title="Copy ID"
           >
             <Copy className="h-3.5 w-3.5" />
           </button>
         </div>
-        <div className="text-[12px] text-gray-500 mb-3">
+        <div className="text-xs text-muted-foreground mb-3">
           {formatDate(timestamp)}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[12px]">
-            <Clock className="h-3 w-3 text-gray-400" />
-            <span className="text-gray-500">Latency:</span>
-            <span className="font-medium text-gray-900">{formatDuration(duration)}</span>
+          <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+            <Clock className="h-3 w-3 text-muted-foreground" />
+            <span className="text-muted-foreground">Latency:</span>
+            <span className="font-medium">{formatDuration(duration)}</span>
           </div>
           {isTrace && trace.environment && (
-            <div className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[12px]">
-              <span className="text-gray-500">Env:</span>
-              <span className="font-medium text-gray-900">{trace.environment}</span>
+            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+              <span className="text-muted-foreground">Env:</span>
+              <span className="font-medium">{trace.environment}</span>
             </div>
           )}
           {!isTrace && selection.span.model_name && (
-            <div className="inline-flex items-center rounded-md bg-gray-900 px-2.5 py-1 text-[12px] text-white">
+            <div className="inline-flex items-center rounded-md bg-primary text-primary-foreground px-2.5 py-1 text-xs">
               {selection.span.model_name}
             </div>
           )}
           {!isTrace && selection.span.cost !== null && selection.span.cost > 0 && (
-            <div className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[12px]">
-              <span className="font-medium text-gray-900">${selection.span.cost.toFixed(4)}</span>
+            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+              <span className="font-medium">${selection.span.cost.toFixed(4)}</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Content - scrolls as one unit */}
-      <div className="p-4 space-y-5">
+      {/* Content */}
+      <div className="p-4 space-y-3">
         {/* Input */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="text-[13px] font-semibold text-gray-900">Input</h4>
-            <button
-              onClick={() => input && copyToClipboard(input)}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-              title="Copy"
-            >
-              <Copy className="h-3.5 w-3.5" />
-            </button>
-          </div>
-          <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
-            <pre className="text-[12px] whitespace-pre-wrap break-words text-gray-800 font-mono">
-              {input || '-'}
-            </pre>
-          </div>
-        </div>
+        <CollapsibleSection
+          title="Input"
+          defaultOpen={true}
+          onCopy={input ? () => copyToClipboard(input) : undefined}
+        >
+          <pre className="text-xs whitespace-pre-wrap break-words font-mono">
+            {input || '-'}
+          </pre>
+        </CollapsibleSection>
 
         {/* Output */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="text-[13px] font-semibold text-gray-900">Output</h4>
-            <button
-              onClick={() => output && copyToClipboard(output)}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-              title="Copy"
-            >
-              <Copy className="h-3.5 w-3.5" />
-            </button>
-          </div>
-          <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
-            <pre className="text-[12px] whitespace-pre-wrap break-words text-gray-800 font-mono">
-              {output || '-'}
-            </pre>
-          </div>
-        </div>
+        <CollapsibleSection
+          title="Output"
+          defaultOpen={true}
+          onCopy={output ? () => copyToClipboard(output) : undefined}
+        >
+          <pre className="text-xs whitespace-pre-wrap break-words font-mono">
+            {output || '-'}
+          </pre>
+        </CollapsibleSection>
       </div>
     </div>
   )
@@ -399,18 +536,14 @@ function TraceDetailPanel({
     queryFn: () => getTrace(projectId, traceId, ''),
   })
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
-  }
-
   return (
-    <div className="h-full flex flex-col bg-white">
-      {/* Top header bar - with workflow icon + "Trace" + ID */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200 bg-gray-50">
-        <div className="flex items-center gap-3 min-w-0">
-          <Workflow className="h-4 w-4 text-gray-600" />
-          <span className="text-[13px] font-medium text-gray-700">Trace</span>
-          <span className="text-[12px] text-gray-400 font-mono">
+    <div className="h-full flex flex-col bg-background">
+      {/* Top header bar */}
+      <div className="flex items-center justify-between px-4 h-10 border-b bg-muted/30">
+        <div className="flex items-center gap-2 min-w-0">
+          <Workflow className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium">Trace</span>
+          <span className="text-xs text-muted-foreground font-mono truncate">
             {traceId}
           </span>
         </div>
@@ -418,45 +551,30 @@ function TraceDetailPanel({
           variant="ghost"
           size="sm"
           onClick={onClose}
-          className="h-7 w-7 p-0 text-gray-400 hover:text-gray-600"
+          className="h-7 w-7 p-0"
         >
           <X className="h-4 w-4" />
         </Button>
       </div>
 
-      {/* Subheader - trace name with badge */}
-      {trace && (
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 bg-white">
-          <NodeTypeBadge type="trace" size="md" />
-          <h2 className="text-[15px] font-semibold text-gray-900">{trace.name}</h2>
-          <button
-            onClick={() => copyToClipboard(traceId)}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-            title="Copy Trace ID"
-          >
-            <Copy className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-
       {/* Content */}
       {isLoading ? (
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-[13px] text-gray-500">Loading trace...</p>
+          <p className="text-sm text-muted-foreground">Loading trace...</p>
         </div>
       ) : error || !trace ? (
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-[13px] text-red-600">Error loading trace</p>
+          <p className="text-sm text-destructive">Error loading trace</p>
         </div>
       ) : (
         <div className="flex-1 flex overflow-hidden">
           {/* Left: Tree view */}
-          <div className="w-[340px] flex-shrink-0 border-r border-gray-200 overflow-y-auto bg-white">
+          <div className="w-[320px] flex-shrink-0 border-r overflow-y-auto">
             <TraceTreeView trace={trace} selection={selection} onSelect={setSelection} />
           </div>
 
           {/* Right: Detail panel */}
-          <div className="flex-1 overflow-hidden bg-white">
+          <div className="flex-1 overflow-hidden">
             <DetailRightPanel trace={trace} selection={selection} />
           </div>
         </div>
@@ -472,7 +590,6 @@ function TraceDetailPanel({
 export default function TracesPage() {
   const params = useParams()
   const projectId = params.projectId as string
-  const { sidebarCollapsed } = useLayout()
   const [activeTab, setActiveTab] = useState('traces')
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
@@ -499,13 +616,10 @@ export default function TracesPage() {
   return (
     <div className="flex h-full relative text-[13px]">
       {/* Main content */}
-      <div className={cn(
-        "flex-1 flex flex-col transition-opacity duration-200",
-        selectedTraceId ? "opacity-0 pointer-events-none" : "opacity-100"
-      )}>
+      <div className="flex-1 flex flex-col">
         {/* Tab navigation */}
-        <div className="border-b bg-white px-6">
-          <div className="flex gap-6">
+        <div className="border-b bg-white">
+          <div className="flex">
             {tabs.map((tab) => {
               const Icon = tab.icon
               const isActive = activeTab === tab.id
@@ -514,10 +628,10 @@ export default function TracesPage() {
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
-                    'flex items-center gap-2 py-2.5 text-[13px] font-medium border-b-2 transition-colors',
+                    'flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium border-b-2 transition-colors',
                     isActive
-                      ? 'border-gray-900 text-gray-900'
-                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                      ? 'border-gray-900 bg-muted'
+                      : 'border-transparent hover:bg-muted/50'
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -529,7 +643,7 @@ export default function TracesPage() {
         </div>
 
         {/* Filters bar */}
-        <div className="border-b bg-white px-6 py-2.5">
+        <div className="border-b bg-white px-3 py-1.5">
           <div className="flex items-center gap-3">
             <div className="relative flex-1 max-w-md">
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
@@ -723,22 +837,16 @@ export default function TracesPage() {
         </div>
       </div>
 
-      {/* Slide-in detail panel - positioned below the top header */}
-      <div
-        className={cn(
-          "fixed top-14 bottom-0 right-0 bg-white transition-all duration-300 ease-in-out z-50 shadow-lg",
-          sidebarCollapsed ? "left-14" : "left-40",
-          selectedTraceId ? "translate-x-0" : "translate-x-full"
-        )}
-      >
-        {selectedTraceId && (
+      {/* Detail panel - overlays header, takes 70% width, slides in from right */}
+      {selectedTraceId && (
+        <div className="fixed top-0 bottom-0 right-0 w-[70%] bg-white z-50 shadow-xl border-l animate-slide-in-right">
           <TraceDetailPanel
             projectId={projectId}
             traceId={selectedTraceId}
             onClose={() => setSelectedTraceId(null)}
           />
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
