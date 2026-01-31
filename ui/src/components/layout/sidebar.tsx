@@ -136,7 +136,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
       <div
         className={cn(
           "flex h-screen flex-col border-r bg-background transition-all duration-200",
-          collapsed ? "w-14" : "w-52"
+          collapsed ? "w-14" : "w-40"
         )}
       >
         {/* Header with logo */}
@@ -148,7 +148,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-2 pt-2 space-y-0.5">
+        <nav className="flex-1">
           {isProject && projectId ? (
             // Project context navigation
             <Tooltip>
@@ -156,11 +156,11 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 <Link
                   href={`/${projectId}/traces`}
                   className={cn(
-                    "flex items-center gap-2 rounded-md py-1.5 text-sm transition-colors",
-                    collapsed ? "justify-center px-2" : "px-2.5",
+                    "flex items-center gap-2 py-2 text-sm transition-colors",
+                    collapsed ? "justify-center px-2" : "px-3",
                     pathname.includes("/traces")
-                      ? "bg-muted text-foreground font-medium"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      ? "bg-muted font-medium"
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                   )}
                 >
                   <Workflow className="h-4 w-4 shrink-0" />
@@ -180,11 +180,11 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 <Link
                   href="/organizations"
                   className={cn(
-                    "flex items-center gap-2 rounded-md py-1.5 text-sm transition-colors",
-                    collapsed ? "justify-center px-2" : "px-2.5",
+                    "flex items-center gap-2 py-2 text-sm transition-colors",
+                    collapsed ? "justify-center px-2" : "px-3",
                     pathname === "/organizations" || pathname.startsWith("/organizations/")
-                      ? "bg-muted text-foreground font-medium"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      ? "bg-muted font-medium"
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                   )}
                 >
                   <LayoutGrid className="h-4 w-4 shrink-0" />
@@ -201,7 +201,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
         </nav>
 
         {/* Bottom section */}
-        <div className="p-2 space-y-1">
+        <div>
           {/* Settings - only show when in project context */}
           {isProject && projectId && (
             <Tooltip>
@@ -209,11 +209,11 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 <Link
                   href={`/${projectId}/settings`}
                   className={cn(
-                    "flex w-full items-center gap-2 rounded-md py-1.5 text-sm transition-colors",
-                    collapsed ? "justify-center px-2" : "px-2.5",
+                    "flex w-full items-center gap-2 py-2 text-sm transition-colors",
+                    collapsed ? "justify-center px-2" : "px-3",
                     pathname.includes("/settings")
-                      ? "bg-muted text-foreground font-medium"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                      ? "bg-muted font-medium"
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                   )}
                 >
                   <Settings className="h-4 w-4 shrink-0" />
@@ -236,8 +236,8 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 target="_blank"
                 rel="noopener noreferrer"
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-md py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors",
-                  collapsed ? "justify-center px-2" : "px-2.5"
+                  "flex w-full items-center gap-2 py-2 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors",
+                  collapsed ? "justify-center px-2" : "px-3"
                 )}
               >
                 <Github className="h-4 w-4 shrink-0" />
@@ -256,8 +256,8 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
             <TooltipTrigger asChild>
               <button
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-md py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors",
-                  collapsed ? "justify-center px-2" : "px-2.5"
+                  "flex w-full items-center gap-2 py-2 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors",
+                  collapsed ? "justify-center px-2" : "px-3"
                 )}
               >
                 <LifeBuoy className="h-4 w-4 shrink-0" />
@@ -276,8 +276,8 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
             <PopoverTrigger asChild>
               <button
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-md py-2 hover:bg-accent transition-colors",
-                  collapsed ? "justify-center px-2" : "px-2.5"
+                  "flex w-full items-center gap-2 py-2 hover:bg-muted/50 transition-colors",
+                  collapsed ? "justify-center px-2" : "px-3"
                 )}
               >
                 <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-xs font-medium shrink-0">

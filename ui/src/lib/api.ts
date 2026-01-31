@@ -141,6 +141,16 @@ export async function createProject(orgId: string, name: string): Promise<Projec
   });
 }
 
+export async function updateProject(
+  projectId: string,
+  name: string
+): Promise<Project> {
+  return fetchApi<Project>(`/projects/${projectId}`, {
+    method: "PUT",
+    body: JSON.stringify({ name }),
+  });
+}
+
 export async function deleteProject(orgId: string, projectId: string): Promise<void> {
   return fetchApi<void>(`/organizations/${orgId}/projects/${projectId}`, {
     method: "DELETE",
@@ -219,6 +229,17 @@ export async function createApiKey(
     body: JSON.stringify({ name: name || null }),
   });
   return { data: response };
+}
+
+export async function updateApiKey(
+  projectId: string,
+  keyId: string,
+  name: string | null
+): Promise<ApiKey> {
+  return fetchApi<ApiKey>(`/projects/${projectId}/api-keys/${keyId}`, {
+    method: "PUT",
+    body: JSON.stringify({ name }),
+  });
 }
 
 export async function deleteApiKey(projectId: string, keyId: string): Promise<void> {
