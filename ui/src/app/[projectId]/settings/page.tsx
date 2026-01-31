@@ -81,13 +81,13 @@ export default function SettingsPage() {
                 <button
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
-                    'flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors',
+                    'flex w-full items-center gap-2 px-3 py-2 text-[13px] transition-colors',
                     activeTab === tab.id
-                      ? 'bg-muted font-medium'
-                      : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                      ? 'bg-muted'
+                      : 'hover:bg-muted/50'
                   )}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-3.5 w-3.5" />
                   {tab.label}
                 </button>
               </li>
