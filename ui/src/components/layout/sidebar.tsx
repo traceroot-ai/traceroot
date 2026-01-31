@@ -156,14 +156,14 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 <Link
                   href={`/${projectId}/traces`}
                   className={cn(
-                    "flex items-center gap-2 py-2 text-sm transition-colors",
+                    "flex items-center gap-2 py-2 text-[13px] transition-colors",
                     collapsed ? "justify-center px-2" : "px-3",
                     pathname.includes("/traces")
-                      ? "bg-muted font-medium"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                      ? "bg-muted"
+                      : "hover:bg-muted/50"
                   )}
                 >
-                  <Workflow className="h-4 w-4 shrink-0" />
+                  <Workflow className="h-3.5 w-3.5 shrink-0" />
                   {!collapsed && "Tracing"}
                 </Link>
               </TooltipTrigger>
@@ -180,14 +180,14 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 <Link
                   href="/organizations"
                   className={cn(
-                    "flex items-center gap-2 py-2 text-sm transition-colors",
+                    "flex items-center gap-2 py-2 text-[13px] transition-colors",
                     collapsed ? "justify-center px-2" : "px-3",
                     pathname === "/organizations" || pathname.startsWith("/organizations/")
-                      ? "bg-muted font-medium"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                      ? "bg-muted"
+                      : "hover:bg-muted/50"
                   )}
                 >
-                  <LayoutGrid className="h-4 w-4 shrink-0" />
+                  <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
                   {!collapsed && "Organizations"}
                 </Link>
               </TooltipTrigger>
@@ -209,14 +209,14 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 <Link
                   href={`/${projectId}/settings`}
                   className={cn(
-                    "flex w-full items-center gap-2 py-2 text-sm transition-colors",
+                    "flex w-full items-center gap-2 py-2 text-[13px] transition-colors",
                     collapsed ? "justify-center px-2" : "px-3",
                     pathname.includes("/settings")
-                      ? "bg-muted font-medium"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                      ? "bg-muted"
+                      : "hover:bg-muted/50"
                   )}
                 >
-                  <Settings className="h-4 w-4 shrink-0" />
+                  <Settings className="h-3.5 w-3.5 shrink-0" />
                   {!collapsed && "Settings"}
                 </Link>
               </TooltipTrigger>
@@ -236,11 +236,11 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 target="_blank"
                 rel="noopener noreferrer"
                 className={cn(
-                  "flex w-full items-center gap-2 py-2 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors",
+                  "flex w-full items-center gap-2 py-2 text-[13px] hover:bg-muted/50 transition-colors",
                   collapsed ? "justify-center px-2" : "px-3"
                 )}
               >
-                <Github className="h-4 w-4 shrink-0" />
+                <Github className="h-3.5 w-3.5 shrink-0" />
                 {!collapsed && <span className="flex-1">Star on GitHub</span>}
               </a>
             </TooltipTrigger>
@@ -256,11 +256,11 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
             <TooltipTrigger asChild>
               <button
                 className={cn(
-                  "flex w-full items-center gap-2 py-2 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors",
+                  "flex w-full items-center gap-2 py-2 text-[13px] hover:bg-muted/50 transition-colors",
                   collapsed ? "justify-center px-2" : "px-3"
                 )}
               >
-                <LifeBuoy className="h-4 w-4 shrink-0" />
+                <LifeBuoy className="h-3.5 w-3.5 shrink-0" />
                 {!collapsed && "Support"}
               </button>
             </TooltipTrigger>
@@ -297,7 +297,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
               side="right"
               align="end"
               className="w-48 p-0"
-              sideOffset={8}
+              sideOffset={0}
               alignOffset={0}
             >
               {/* User info */}

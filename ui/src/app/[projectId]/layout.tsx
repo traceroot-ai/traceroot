@@ -51,8 +51,8 @@ export default function ProjectLayout({
   }, [project, org, setHeaderContent])
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-auto">{children}</div>
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex-1 overflow-hidden">{children}</div>
     </div>
   )
 }
