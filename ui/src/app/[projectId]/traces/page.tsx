@@ -28,7 +28,6 @@ import {
   ArrowRight,
   Bot,
   Wrench,
-  ChevronUp,
 } from 'lucide-react'
 
 // Tab definitions
@@ -840,18 +839,7 @@ export default function TracesPage() {
 
       {/* Detail panel - overlays header, takes 70% width, slides in from right */}
       {selectedTraceId && (
-        <div
-          className="fixed top-0 bottom-0 right-0 w-[70%] bg-white z-50 shadow-xl border-l"
-          style={{
-            animation: 'slideInFromRight 0.3s ease-out'
-          }}
-        >
-          <style>{`
-            @keyframes slideInFromRight {
-              from { transform: translateX(100%); }
-              to { transform: translateX(0); }
-            }
-          `}</style>
+        <div className="fixed top-0 bottom-0 right-0 w-[70%] bg-white z-50 shadow-xl border-l animate-slide-in-right">
           <TraceDetailPanel
             projectId={projectId}
             traceId={selectedTraceId}
