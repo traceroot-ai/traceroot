@@ -102,24 +102,24 @@ export default function OrganizationsPage() {
       {!isLoading && orgsWithProjects && orgsWithProjects.length > 0 && (
         <div className="flex h-full">
           {/* Left Panel - Org List */}
-          <div className="w-64 border-r p-4 flex flex-col">
-            <div className="space-y-1 flex-1">
+          <div className="w-48 border-r flex flex-col">
+            <div className="flex-1">
               {orgsWithProjects.map((org) => (
                 <button
                   key={org.id}
                   onClick={() => setSelectedOrgId(org.id)}
                   className={cn(
-                    "w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
+                    "w-full flex items-center gap-2 px-3 py-2 text-left transition-colors",
                     selectedOrgId === org.id
-                      ? "bg-muted"
-                      : "hover:bg-muted/50"
+                      ? "bg-muted font-medium"
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                   )}
                 >
-                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-background border text-sm font-medium">
+                  <div className="flex h-7 w-7 items-center justify-center bg-muted text-xs font-medium shrink-0">
                     {org.name.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate text-sm">{org.name}</p>
+                    <p className="truncate text-sm">{org.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {org.projects.length} project{org.projects.length !== 1 ? "s" : ""}
                     </p>
@@ -127,9 +127,9 @@ export default function OrganizationsPage() {
                 </button>
               ))}
 
-              {/* Add Organization Card */}
+              {/* Add Organization */}
               <Link href="/onboarding" className="block">
-                <div className="w-full flex items-center justify-center rounded-lg border border-dashed px-3 py-4 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors cursor-pointer">
+                <div className="w-full flex items-center justify-center px-3 py-4 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors cursor-pointer">
                   <Plus className="h-5 w-5" />
                 </div>
               </Link>
@@ -147,10 +147,10 @@ export default function OrganizationsPage() {
                     href={`/${project.id}/traces`}
                     className="group"
                   >
-                    <Card className="transition-all hover:shadow-md hover:border-foreground/20">
+                    <Card className="rounded-sm transition-all hover:shadow-md hover:border-foreground/20">
                       <CardContent className="p-4">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+                          <div className="flex h-10 w-10 items-center justify-center bg-muted">
                             <FolderKanban className="h-5 w-5 text-muted-foreground" />
                           </div>
                           <div className="flex-1 min-w-0">
@@ -173,7 +173,7 @@ export default function OrganizationsPage() {
                   href={`/onboarding?orgId=${selectedOrg.id}&orgName=${encodeURIComponent(selectedOrg.name)}`}
                   className="group"
                 >
-                  <Card className="border-dashed h-full transition-all hover:border-foreground/30 hover:bg-muted/50 cursor-pointer">
+                  <Card className="rounded-sm border-dashed h-full transition-all hover:border-foreground/30 hover:bg-muted/50 cursor-pointer">
                     <CardContent className="p-4 h-full flex items-center justify-center min-h-[76px]">
                       <Plus className="h-6 w-6 text-muted-foreground group-hover:text-foreground transition-colors" />
                     </CardContent>

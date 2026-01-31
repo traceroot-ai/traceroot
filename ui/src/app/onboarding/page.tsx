@@ -164,19 +164,19 @@ export default function OnboardingPage() {
 
         {/* Error message */}
         {error && (
-          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
+          <div className="mb-6 border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
             {error}
           </div>
         )}
 
         {/* Tree Form */}
-        <Card>
+        <Card className="rounded-sm">
           <CardContent className="p-6">
             <div className="space-y-0">
               {/* Organization Section */}
               <div className="flex items-start gap-4">
                 <div className="flex flex-col items-center">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center bg-primary/10">
                     {isProjectOnlyMode ? (
                       <Check className="h-5 w-5 text-primary" />
                     ) : (
@@ -192,7 +192,7 @@ export default function OnboardingPage() {
                     Your team's home for billing and members
                   </p>
                   {isProjectOnlyMode ? (
-                    <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2 max-w-sm">
+                    <div className="flex items-center gap-2 border bg-muted/50 px-3 py-2 max-w-sm">
                       <span className="text-sm">{existingOrgName || "Selected organization"}</span>
                       <Check className="h-4 w-4 text-green-600 ml-auto" />
                     </div>
@@ -214,7 +214,7 @@ export default function OnboardingPage() {
               {/* Project Section */}
               <div className="flex items-start gap-4">
                 <div className="flex flex-col items-center">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center bg-muted">
                     <Layers className="h-5 w-5 text-muted-foreground" />
                   </div>
                 </div>
