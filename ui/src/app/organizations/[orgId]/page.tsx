@@ -4,15 +4,15 @@ import { useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  getOrganization,
-  getMembers,
-  deleteProject,
-  removeMember,
-  type Role,
-} from "@/lib/api";
+import { getOrganization, deleteProject, type Role } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 import {
   ArrowLeft,
@@ -23,6 +23,7 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
+import { Settings } from "lucide-react";
 
 const roleColors: Record<string, string> = {
   OWNER: "bg-purple-100 text-purple-800",
@@ -30,10 +31,6 @@ const roleColors: Record<string, string> = {
   MEMBER: "bg-green-100 text-green-800",
   VIEWER: "bg-gray-100 text-gray-800",
 };
-
-function canManageMembers(role: Role): boolean {
-  return role === "OWNER" || role === "ADMIN";
-}
 
 function canDeleteProject(role: Role): boolean {
   return role === "OWNER" || role === "ADMIN";
@@ -48,21 +45,20 @@ export default function OrganizationDetailPage() {
   const user = session?.user;
 
   useEffect(() => {
-    if (!user) {
+    // Only redirect after session is loaded, not while loading
+    if (status === "unauthenticated") {
       router.push("/");
     }
-  }, [user, router]);
+  }, [status, router]);
 
-  const { data: org, isLoading: orgLoading, error: orgError } = useQuery({
+  const {
+    data: org,
+    isLoading: orgLoading,
+    error: orgError,
+  } = useQuery({
     queryKey: ["organization", orgId],
     queryFn: () => getOrganization(orgId),
     enabled: !!user && !!orgId,
-  });
-
-  const { data: members, isLoading: membersLoading } = useQuery({
-    queryKey: ["members", orgId],
-    queryFn: () => getMembers(orgId),
-    enabled: !!user && !!orgId && !!org && canManageMembers(org.role),
   });
 
   const deleteProjectMutation = useMutation({
@@ -72,14 +68,15 @@ export default function OrganizationDetailPage() {
     },
   });
 
-  const removeMemberMutation = useMutation({
-    mutationFn: (userId: string) => removeMember(orgId, userId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["members", orgId] });
-    },
-  });
+  if (status === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
 
-  if (!user) {
+  if (status === "unauthenticated") {
     return null;
   }
 
@@ -169,26 +166,21 @@ export default function OrganizationDetailPage() {
                   <CardHeader>
                     <div className="flex items-start justify-between">
                       <div>
-                        <CardTitle className="text-base">{project.name}</CardTitle>
+                        <CardTitle className="text-base">
+                          {project.name}
+                        </CardTitle>
                         <CardDescription>
-                          Created {new Date(project.created_at).toLocaleDateString()}
+                          Created{" "}
+                          {new Date(project.created_at).toLocaleDateString()}
                         </CardDescription>
                       </div>
-                      {canDeleteProject(org.role) && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          onClick={() => {
-                            if (confirm(`Delete project "${project.name}"?`)) {
-                              deleteProjectMutation.mutate(project.id);
-                            }
-                          }}
-                          disabled={deleteProjectMutation.isPending}
-                        >
-                          <Trash2 className="h-4 w-4" />
+                      <Link
+                        href={`/organizations/${orgId}/projects/${project.id}/settings`}
+                      >
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <Settings className="h-4 w-4" />
                         </Button>
-                      )}
+                      </Link>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -203,75 +195,6 @@ export default function OrganizationDetailPage() {
             </div>
           )}
         </section>
-
-        {/* Members Section */}
-        {canManageMembers(org.role) && (
-          <section>
-            <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold">
-              <Users className="h-5 w-5" />
-              Members {members && `(${members.length})`}
-            </h2>
-            {membersLoading ? (
-              <p className="text-muted-foreground">Loading members...</p>
-            ) : members && members.length > 0 ? (
-              <Card>
-                <CardContent className="divide-y p-0">
-                  {members.map((member) => (
-                    <div
-                      key={member.id}
-                      className="flex items-center justify-between p-4"
-                    >
-                      <div>
-                        <p className="font-medium">
-                          {member.name || member.email || "Unknown"}
-                        </p>
-                        {member.name && (
-                          <p className="text-sm text-muted-foreground">
-                            {member.email}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                            roleColors[member.role] || roleColors.VIEWER
-                          }`}
-                        >
-                          {member.role}
-                        </span>
-                        {member.user_id !== user?.id && member.role !== "OWNER" && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                            onClick={() => {
-                              if (
-                                confirm(
-                                  `Remove ${member.name || member.email} from the organization?`
-                                )
-                              ) {
-                                removeMemberMutation.mutate(member.user_id);
-                              }
-                            }}
-                            disabled={removeMemberMutation.isPending}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            ) : (
-              <Card>
-                <CardContent className="py-8 text-center">
-                  <p className="text-muted-foreground">No members found</p>
-                </CardContent>
-              </Card>
-            )}
-          </section>
-        )}
       </div>
     </div>
   );

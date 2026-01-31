@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from cuid2 import cuid_wrapper
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.postgres.models import ApiKeyModel
@@ -127,6 +127,14 @@ async def delete_api_key(session: AsyncSession, key_id: str) -> bool:
     await session.delete(key)
     await session.flush()
     return True
+
+async def delete_api_keys_by_project(session: AsyncSession, project_id: str) -> int:                                                                                                                                                   
+    """Delete all API keys for a project. Returns count of deleted keys."""                                                                                                                                                            
+    result = await session.execute(                                                                                                                                                                                                    
+        delete(ApiKeyModel).where(ApiKeyModel.project_id == project_id)                                                                                                                                                                
+    )                                                                                                                                                                                                                                  
+    await session.commit()                                                                                                                                                                                                             
+    return result.rowcount  
 
 
 async def get_api_key_by_hash(

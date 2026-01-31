@@ -5,6 +5,7 @@ import GoogleProvider from "next-auth/providers/google";
 import { prisma } from "@/lib/prisma";
 import { compare } from "bcryptjs";
 import { Adapter } from "next-auth/adapters";
+import { randomUUID } from "crypto";
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as Adapter,
@@ -78,7 +79,7 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;
-        session.user.admin = token.admin as boolean; 
+        session.user.admin = token.admin as boolean;
       }
       return session;
     },
