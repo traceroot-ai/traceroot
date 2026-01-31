@@ -11,12 +11,7 @@ import {
   getProject,
   updateProject,
   deleteProject,
-  getMembers,
-  addMember,
-  removeMember,
   type ApiKey,
-  type Member,
-  type Role,
 } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,7 +32,6 @@ import {
   Check,
   Key,
   SlidersHorizontal,
-  Users,
   Info,
 } from 'lucide-react'
 
@@ -45,7 +39,6 @@ import {
 const settingsTabs = [
   { id: 'general', label: 'General', icon: SlidersHorizontal },
   { id: 'api-keys', label: 'API Keys', icon: Key },
-  { id: 'members', label: 'Members', icon: Users },
 ] as const
 
 type TabId = (typeof settingsTabs)[number]['id']
@@ -97,11 +90,10 @@ export default function SettingsPage() {
       </nav>
 
       {/* Main content area */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-4">
         <div>
           {activeTab === 'general' && <GeneralTab projectId={projectId} />}
           {activeTab === 'api-keys' && <ApiKeysTab projectId={projectId} />}
-          {activeTab === 'members' && <MembersTab projectId={projectId} />}
         </div>
       </div>
     </div>
@@ -161,23 +153,23 @@ function GeneralTab({ projectId }: { projectId: string }) {
   }
 
   if (isLoading) {
-    return <div className="text-sm text-muted-foreground">Loading project...</div>
+    return <div className="text-[13px] text-muted-foreground">Loading project...</div>
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div>
-        <h2 className="text-xl font-semibold">General</h2>
-        <p className="text-sm text-muted-foreground">
+        <h2 className="text-lg font-semibold">General</h2>
+        <p className="text-[13px] text-muted-foreground">
           Manage your project settings and preferences
         </p>
       </div>
 
       {/* Rename Project Section */}
       <div className="border p-4">
-        <h3 className="text-sm font-medium">Rename project</h3>
-        <p className="text-sm text-muted-foreground mt-1">
+        <h3 className="text-[13px] font-medium">Rename project</h3>
+        <p className="text-[12px] text-muted-foreground mt-1">
           Update the name of your project. Changes will take effect immediately.
         </p>
         <div className="flex gap-2 mt-3">
@@ -185,10 +177,11 @@ function GeneralTab({ projectId }: { projectId: string }) {
             value={projectName}
             onChange={(e) => setProjectName(e.target.value)}
             placeholder="Project name"
-            className="max-w-xs h-8 text-sm"
+            className="max-w-xs h-7 text-[13px]"
           />
           <Button
             size="sm"
+            className="h-7 text-[12px]"
             onClick={handleSave}
             disabled={updateMutation.isPending || projectName === project?.name || !projectName.trim()}
           >
@@ -199,17 +192,17 @@ function GeneralTab({ projectId }: { projectId: string }) {
 
       {/* Delete Project Section */}
       <div className="border p-4">
-        <h3 className="text-sm font-medium">Delete project</h3>
-        <p className="text-sm text-muted-foreground mt-1">
+        <h3 className="text-[13px] font-medium">Delete project</h3>
+        <p className="text-[12px] text-muted-foreground mt-1">
           Permanently delete this project and all of its data. This action cannot be undone.
         </p>
         <Button
           variant="outline"
           size="sm"
           onClick={() => setShowDeleteDialog(true)}
-          className="mt-3 border-destructive text-destructive hover:bg-destructive/10"
+          className="mt-3 h-7 text-[12px] border-destructive text-destructive hover:bg-destructive/10"
         >
-          <Trash2 className="mr-2 h-3.5 w-3.5" />
+          <Trash2 className="mr-1.5 h-3 w-3" />
           Delete project
         </Button>
       </div>
@@ -329,11 +322,11 @@ function ApiKeysTab({ projectId }: { projectId: string }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <h2 className="text-xl font-semibold">Project API Keys</h2>
+          <h2 className="text-lg font-semibold">Project API Keys</h2>
           <Info className="h-3.5 w-3.5 text-muted-foreground" />
         </div>
-        <Button variant="outline" size="sm" onClick={() => setShowCreateDialog(true)}>
-          <Plus className="mr-1.5 h-3.5 w-3.5" />
+        <Button variant="outline" size="sm" className="h-7 text-[12px]" onClick={() => setShowCreateDialog(true)}>
+          <Plus className="mr-1 h-3 w-3" />
           Create new API key
         </Button>
       </div>
@@ -446,26 +439,26 @@ function ApiKeysTab({ projectId }: { projectId: string }) {
       {/* Keys table */}
       <div className="border">
         {isLoading ? (
-          <div className="px-4 py-4 text-sm text-muted-foreground">Loading API keys...</div>
+          <div className="px-3 py-3 text-[13px] text-muted-foreground">Loading API keys...</div>
         ) : apiKeys.length === 0 ? (
-          <div className="px-4 py-4 text-sm text-muted-foreground">
+          <div className="px-3 py-3 text-[13px] text-muted-foreground">
             No API keys yet. Create one to start using the SDK.
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full text-[13px]">
             <thead>
               <tr className="border-b text-left bg-muted/30">
-                <th className="px-4 py-3 font-medium text-muted-foreground">Name</th>
-                <th className="px-4 py-3 font-medium text-muted-foreground">Key</th>
-                <th className="px-4 py-3 font-medium text-muted-foreground">Created</th>
-                <th className="px-4 py-3 font-medium text-muted-foreground">Last Used</th>
-                <th className="px-4 py-3 font-medium text-muted-foreground w-10"></th>
+                <th className="px-3 py-2 font-medium text-[12px] text-muted-foreground">Name</th>
+                <th className="px-3 py-2 font-medium text-[12px] text-muted-foreground">Key</th>
+                <th className="px-3 py-2 font-medium text-[12px] text-muted-foreground">Created</th>
+                <th className="px-3 py-2 font-medium text-[12px] text-muted-foreground">Last Used</th>
+                <th className="px-3 py-2 font-medium text-[12px] text-muted-foreground w-10"></th>
               </tr>
             </thead>
             <tbody>
               {apiKeys.map((key: ApiKey) => (
                 <tr key={key.id} className="border-b last:border-b-0 hover:bg-muted/20">
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-2">
                     <button
                       onClick={() => setEditingKey({ id: key.id, name: key.name || '' })}
                       className="hover:underline text-left cursor-pointer"
@@ -473,24 +466,24 @@ function ApiKeysTab({ projectId }: { projectId: string }) {
                       {key.name || <span className="text-muted-foreground">-</span>}
                     </button>
                   </td>
-                  <td className="px-4 py-3">
-                    <code className="font-mono text-xs bg-muted px-1.5 py-0.5">{formatKeyPrefix(key.key_prefix)}</code>
+                  <td className="px-3 py-2">
+                    <code className="font-mono text-[11px] bg-muted px-1.5 py-0.5">{formatKeyPrefix(key.key_prefix)}</code>
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">
+                  <td className="px-3 py-2 text-muted-foreground">
                     {formatRelativeTime(key.created_at)}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">
+                  <td className="px-3 py-2 text-muted-foreground">
                     {key.last_used_at ? formatRelativeTime(key.last_used_at) : 'Never'}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-3 py-2">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 w-7 p-0"
+                      className="h-6 w-6 p-0"
                       onClick={() => deleteMutation.mutate(key.id)}
                       disabled={deleteMutation.isPending}
                     >
-                      <Trash2 className="h-4 w-4 text-destructive" />
+                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
                     </Button>
                   </td>
                 </tr>
@@ -503,160 +496,3 @@ function ApiKeysTab({ projectId }: { projectId: string }) {
   )
 }
 
-// =============================================================================
-// Members Tab
-// =============================================================================
-
-function MembersTab({ projectId }: { projectId: string }) {
-  const queryClient = useQueryClient()
-
-  const [showAddMember, setShowAddMember] = useState(false)
-  const [newMemberEmail, setNewMemberEmail] = useState('')
-  const [newMemberRole, setNewMemberRole] = useState<Role>('MEMBER')
-
-  // First get the project to get org_id
-  const { data: project } = useQuery({
-    queryKey: ['project', projectId],
-    queryFn: () => getProject(projectId),
-  })
-
-  const orgId = project?.org_id
-
-  const { data: members = [], isLoading } = useQuery({
-    queryKey: ['members', orgId],
-    queryFn: () => getMembers(orgId!),
-    enabled: !!orgId,
-  })
-
-  const addMemberMutation = useMutation({
-    mutationFn: ({ email, role }: { email: string; role: Role }) =>
-      addMember(orgId!, email, role),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['members', orgId] })
-      setShowAddMember(false)
-      setNewMemberEmail('')
-      setNewMemberRole('MEMBER')
-    },
-  })
-
-  const removeMemberMutation = useMutation({
-    mutationFn: (userId: string) => removeMember(orgId!, userId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['members', orgId] })
-    },
-  })
-
-  const handleAddMember = () => {
-    if (newMemberEmail.trim()) {
-      addMemberMutation.mutate({ email: newMemberEmail.trim(), role: newMemberRole })
-    }
-  }
-
-  const roleOptions: Role[] = ['OWNER', 'ADMIN', 'MEMBER', 'VIEWER']
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Project Members</h2>
-        <Button variant="outline" size="sm" onClick={() => setShowAddMember(true)}>
-          <Plus className="mr-1.5 h-3.5 w-3.5" />
-          Add new member
-        </Button>
-      </div>
-
-      {/* Add Member Dialog */}
-      <Dialog open={showAddMember} onOpenChange={setShowAddMember}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add New Member</DialogTitle>
-            <DialogDescription>
-              Invite a new member to this organization.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div>
-              <label className="text-sm font-medium mb-2 block">Email</label>
-              <Input
-                placeholder="member@example.com"
-                value={newMemberEmail}
-                onChange={(e) => setNewMemberEmail(e.target.value)}
-                type="email"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-2 block">Role</label>
-              <select
-                value={newMemberRole}
-                onChange={(e) => setNewMemberRole(e.target.value as Role)}
-                className="flex h-9 w-full border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                {roleOptions.map((role) => (
-                  <option key={role} value={role}>
-                    {role.charAt(0) + role.slice(1).toLowerCase()}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddMember(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleAddMember}
-              disabled={!newMemberEmail.trim() || addMemberMutation.isPending}
-            >
-              {addMemberMutation.isPending ? 'Adding...' : 'Add Member'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Members Table */}
-      <div className="border">
-        {isLoading ? (
-          <div className="px-4 py-4 text-sm text-muted-foreground">Loading members...</div>
-        ) : members.length === 0 ? (
-          <div className="px-4 py-4 text-sm text-muted-foreground">No members found.</div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left bg-muted/30">
-                <th className="px-4 py-3 font-medium text-muted-foreground">Name</th>
-                <th className="px-4 py-3 font-medium text-muted-foreground">Email</th>
-                <th className="px-4 py-3 font-medium text-muted-foreground">Role</th>
-                <th className="px-4 py-3 font-medium text-muted-foreground w-10"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((member: Member) => (
-                <tr key={member.id} className="border-b last:border-b-0 hover:bg-muted/20">
-                  <td className="px-4 py-3">
-                    {member.name || <span className="text-muted-foreground">-</span>}
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">{member.email || '-'}</td>
-                  <td className="px-4 py-3">
-                    {member.role.charAt(0) + member.role.slice(1).toLowerCase()}
-                  </td>
-                  <td className="px-4 py-3">
-                    {member.role !== 'OWNER' && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0"
-                        onClick={() => removeMemberMutation.mutate(member.user_id)}
-                        disabled={removeMemberMutation.isPending}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  )
-}
