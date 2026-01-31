@@ -28,7 +28,7 @@ export const config = {
     // - auth/* (sign-in, sign-up pages)                                                                                                                                                                                               
     // - _next (Next.js internals)                                                                                                                                                                                                     
     // - static files                                                                                                                                                                                                                  
-    "/((?!api/auth|auth/|_next/static|_next/image|favicon.ico).*)",                                                                                                                                                                    
+    "/((?!api/auth|api/internal|auth/|_next/static|_next/image|favicon.ico).*)",                                                                                                                                                                    
   ],                                                                                                                                                                                                                                   
 };                                                                                                                                                                                                                                     
                                                            

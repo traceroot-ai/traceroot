@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getOrganization, type Project } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLayout } from "@/components/layout/app-layout";
-import { FolderKanban, Settings } from "lucide-react";
+import { FolderKanban, Settings, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 
@@ -64,14 +64,14 @@ export default function ProjectsPage() {
   // Set header content
   useEffect(() => {
     setHeaderContent(
-      <div className="flex items-center gap-2 text-[13px]">
+      <div className="flex items-center gap-1.5 text-[13px]">
         <Link
           href="/organizations"
           className="hover:underline"
         >
           Organizations
         </Link>
-        <span className="text-muted-foreground">/</span>
+        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
         <span className="font-medium">{org?.name || "..."}</span>
       </div>
     );

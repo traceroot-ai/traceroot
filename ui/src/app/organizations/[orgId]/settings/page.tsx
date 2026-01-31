@@ -33,6 +33,7 @@ import {
   Users,
   CreditCard,
   ArrowRight,
+  ChevronRight,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -65,22 +66,22 @@ export default function OrgSettingsPage() {
   // Set header content
   useEffect(() => {
     setHeaderContent(
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 text-[13px]">
         <Link
           href="/organizations"
-          className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+          className="hover:underline"
         >
           Organizations
         </Link>
-        <span className="text-muted-foreground">/</span>
+        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
         <Link
           href={`/organizations/${orgId}/projects`}
-          className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+          className="hover:underline"
         >
           {org?.name || "..."}
         </Link>
-        <span className="text-muted-foreground">/</span>
-        <span className="text-sm font-medium">Settings</span>
+        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="font-medium">Settings</span>
       </div>
     );
     return () => setHeaderContent(null);

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from cuid2 import cuid_wrapper
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.postgres.models import ApiKeyModel
@@ -128,6 +128,14 @@ async def delete_api_key(session: AsyncSession, key_id: str) -> bool:
     await session.flush()
     return True
 
+async def delete_api_keys_by_project(session: AsyncSession, project_id: str) -> int:                                                                                                                                                   
+    """Delete all API keys for a project. Returns count of deleted keys."""                                                                                                                                                            
+    result = await session.execute(                                                                                                                                                                                                    
+        delete(ApiKeyModel).where(ApiKeyModel.project_id == project_id)                                                                                                                                                                
+    )                                                                                                                                                                                                                                  
+    await session.commit()                                                                                                                                                                                                             
+    return result.rowcount  
+
 
 async def get_api_key_by_hash(
     session: AsyncSession, key_hash: str
@@ -138,6 +146,24 @@ async def get_api_key_by_hash(
     )
     key = result.scalar_one_or_none()
     return _to_api_key(key) if key else None
+
+
+async def update_api_key(
+    session: AsyncSession,
+    key_id: str,
+    name: str | None = None,
+) -> ApiKey | None:
+    """Update an API key's name."""
+    result = await session.execute(
+        select(ApiKeyModel).where(ApiKeyModel.id == key_id)
+    )
+    key = result.scalar_one_or_none()
+    if not key:
+        return None
+
+    key.name = name
+    await session.flush()
+    return _to_api_key(key)
 
 
 async def update_api_key_last_used(

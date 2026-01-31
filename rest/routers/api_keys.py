@@ -2,14 +2,15 @@
 
 from fastapi import APIRouter, HTTPException, status
 
-from db.postgres import get_active_project_by_id
 from db.postgres.api_key import (
     create_api_key,
     delete_api_key,
     get_api_key_by_id,
     list_api_keys_by_project,
+    delete_api_keys_by_project,
+    update_api_key,
 )
-from rest.routers.deps import DbSession, ProjectAccess
+from rest.routers.deps import DbSession
 from rest.config.api_keys import (
     ApiKeyCreate,
     ApiKeyCreatedResponse,
@@ -24,7 +25,6 @@ router = APIRouter(prefix="/projects/{project_id}/api-keys", tags=["API Keys"])
 async def create_api_key_endpoint(
     project_id: str,
     data: ApiKeyCreate,
-    access: ProjectAccess,
     session: DbSession,
 ):
     """
@@ -32,14 +32,6 @@ async def create_api_key_endpoint(
 
     The full key is only returned once at creation. Store it securely.
     """
-    # Verify project exists
-    project = await get_active_project_by_id(session, project_id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
-        )
-
     api_key = await create_api_key(
         session,
         project_id=project_id,
@@ -63,17 +55,9 @@ async def create_api_key_endpoint(
 @router.get("", response_model=ApiKeyListResponse)
 async def list_api_keys_endpoint(
     project_id: str,
-    access: ProjectAccess,
     session: DbSession,
 ):
     """List all API keys for a project."""
-    # Verify project exists
-    project = await get_active_project_by_id(session, project_id)
-    if not project:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found",
-        )
 
     keys = await list_api_keys_by_project(session, project_id)
 
@@ -93,11 +77,40 @@ async def list_api_keys_endpoint(
     )
 
 
+@router.put("/{key_id}", response_model=ApiKeyResponse)
+async def update_api_key_endpoint(
+    project_id: str,
+    key_id: str,
+    data: ApiKeyCreate,
+    session: DbSession,
+):
+    """Update an API key's name."""
+    # Verify the key exists and belongs to this project
+    api_key = await get_api_key_by_id(session, key_id)
+    if not api_key or api_key.project_id != project_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="API key not found",
+        )
+
+    updated_key = await update_api_key(session, key_id, name=data.name)
+    await session.commit()
+
+    return ApiKeyResponse(
+        id=updated_key.id,
+        project_id=updated_key.project_id,
+        key_prefix=updated_key.key_prefix,
+        name=updated_key.name,
+        expires_at=updated_key.expires_at,
+        last_used_at=updated_key.last_used_at,
+        created_at=updated_key.created_at,
+    )
+
+
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_api_key_endpoint(
     project_id: str,
     key_id: str,
-    access: ProjectAccess,
     session: DbSession,
 ):
     """Revoke an API key."""
@@ -111,3 +124,13 @@ async def delete_api_key_endpoint(
 
     await delete_api_key(session, key_id)
     await session.commit()
+
+
+@router.delete("")                                                                                                                                                                                               
+async def delete_all_project_api_keys(                                                                                                                                                                                                 
+    project_id: str,                                                                                                                                                                                                                   
+    db: DbSession,                                                                                                                                                                                                                     
+):                                                                                                                                                                                                                                     
+    """Delete all API keys for a project."""                                                                                                                                                                                           
+    count = await delete_api_keys_by_project(db, project_id)                                                                                                                                                                           
+    return {"success": True, "deleted_count": count}

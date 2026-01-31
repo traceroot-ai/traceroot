@@ -211,31 +211,60 @@ refactor: simplify database queries
 
 ### Database Schema Strategy
 
-We use a **dual-ORM architecture** with clear ownership:
+We use a **dual-ORM architecture** where each ORM owns specific tables:
 
-| Component | ORM | Role |
+| Component | ORM | Owns |
 |-----------|-----|------|
-| Backend (Python) | SQLAlchemy | **Source of truth** for schema, handles all migrations |
-| Frontend (Next.js) | Prisma | **Read-only**, manually managed, used for NextAuth |
+| Backend (Python) | SQLAlchemy | `api_keys`, traces (ClickHouse) |
+| Frontend (Next.js) | Prisma | `users`, `accounts`, `organizations`, `projects`, `memberships` |
 
-**Important Rules:**
+**Key Points:**
 
-- **SQLAlchemy owns all database migrations** via Alembic
-- **Prisma is read-only** - never run `prisma db push` or `prisma migrate`
-- When schema changes, update SQLAlchemy models first, then manually sync Prisma schema
-- After modifying Prisma schema, run `cd ui && npx prisma generate` to regenerate the Prisma client
+- Each ORM manages migrations for its own tables only
+- Tables not defined in an ORM's schema are left untouched
+- Python backend uses `Base.metadata.create_all()` which only creates tables, never drops
+- Prisma uses a custom migration script that filters out DROP statements for unknown tables
 
-### Migrations
+### Prisma Migrations (Frontend)
 
-PostgreSQL migrations are managed with Alembic:
+When modifying Prisma schema (`ui/prisma/schema.prisma`):
 
 ```bash
-# Create a new migration
-cd db/migrations/postgres
-alembic revision --autogenerate -m "description"
+# 1. Edit schema.prisma
 
-# Apply migrations
-alembic upgrade head
+# 2. Run migration script (generates SQL, removes unsafe DROPs, applies)
+cd ui && sh scripts/prisma-migrate.sh
+
+# 3. Review the generated SQL and confirm
+```
+
+The script:
+- Uses `prisma migrate diff` to generate SQL
+- Automatically removes `DROP TABLE` for tables not in schema.prisma
+- Executes with `prisma db execute` (no migration history tracking)
+
+### Generating Prisma Client
+
+After any schema change, regenerate the TypeScript client:
+
+```bash
+cd ui && npx prisma generate
+```
+
+This updates `node_modules/.prisma/client` with new types. **No database changes** - just regenerates TypeScript types.
+
+### SQLAlchemy Migrations (Backend)
+
+Python backend uses `init_db()` which calls `Base.metadata.create_all()`:
+- Creates tables defined in `db/postgres/models.py` if they don't exist
+- Does NOT modify or drop existing tables
+- Safe to run alongside Prisma-managed tables
+
+For manual SQL migrations, add files to `db/postgres/migrations/`:
+
+```bash
+# Example: db/postgres/migrations/002_add_column.sql
+ALTER TABLE api_keys ADD COLUMN expires_at TIMESTAMP;
 ```
 
 ### Resetting Databases

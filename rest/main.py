@@ -14,8 +14,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from db.postgres import close_db, init_db
 from rest.routers.api_keys import router as api_keys_router
-from rest.routers.organizations import router as organizations_router
-from rest.routers.projects import router as projects_router
 from rest.routers.public.traces import router as public_traces_router
 from rest.routers.traces import router as traces_router
 
@@ -48,8 +46,6 @@ app.add_middleware(
 )
 
 # Include API routers
-app.include_router(organizations_router, prefix="/api/v1")
-app.include_router(projects_router, prefix="/api/v1")
 app.include_router(api_keys_router, prefix="/api/v1")
 app.include_router(traces_router, prefix="/api/v1")
 
