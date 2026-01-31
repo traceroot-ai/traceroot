@@ -58,7 +58,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </Button>
             {headerContent}
           </header>
-          <main className="flex-1 overflow-auto">{children}</main>
+          <main className="flex-1 overflow-hidden">{children}</main>
         </div>
       </div>
     </LayoutContext.Provider>
