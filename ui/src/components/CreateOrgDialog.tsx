@@ -45,8 +45,8 @@ export function CreateOrgDialog({ trigger }: CreateOrgDialogProps) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         {trigger || (
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
+          <Button variant="outline" size="sm" className="h-7 text-[12px] gap-1">
+            <Plus className="h-3 w-3" />
             New Organization
           </Button>
         )}
