@@ -20,7 +20,7 @@ services:
       - 127.0.0.1:5432:5432
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./db/postgres/migrations:/docker-entrypoint-initdb.d:ro
+      # Schema managed by Prisma migrations (cd ui && npx prisma migrate dev)
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 3s

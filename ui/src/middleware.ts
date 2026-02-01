@@ -22,13 +22,14 @@ export default withAuth(
 export const config = {                                                                                   
     
                                                                                                                                  
-  matcher: [                                                                                                                                                                                                                           
-    // Protect all routes except:                                                                                                                                                                                                      
-    // - api/auth (NextAuth routes)                                                                                                                                                                                                    
-    // - auth/* (sign-in, sign-up pages)                                                                                                                                                                                               
-    // - _next (Next.js internals)                                                                                                                                                                                                     
-    // - static files                                                                                                                                                                                                                  
-    "/((?!api/auth|auth/|_next/static|_next/image|favicon.ico).*)",                                                                                                                                                                    
+  matcher: [
+    // Protect all routes except:
+    // - api/auth (NextAuth routes)
+    // - api/internal (internal API for Python backend, uses X-Internal-Secret)
+    // - auth/* (sign-in, sign-up pages)
+    // - _next (Next.js internals)
+    // - static files
+    "/((?!api/auth|api/internal|auth/|_next/static|_next/image|favicon.ico).*)",                                                                                                                                                                    
   ],                                                                                                                                                                                                                                   
 };                                                                                                                                                                                                                                     
                                                            
