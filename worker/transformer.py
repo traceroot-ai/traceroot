@@ -281,8 +281,10 @@ def transform_otel_to_clickhouse(
 
                 spans.append(span_record)
 
-                # Track trace (create/update)
-                if trace_id not in traces:
+                # Only create trace record when we find a root span (no parent)
+                # This prevents batches without root spans from creating trace
+                # records with incorrect names that would overwrite the correct one
+                if not parent_span_id:
                     # Get user/session from attributes
                     user_id = (
                         span_attrs.get("traceroot.trace.user_id")
@@ -298,16 +300,11 @@ def transform_otel_to_clickhouse(
                         "trace_id": trace_id,
                         "project_id": project_id,
                         "trace_start_time": start_time,
-                        "name": span_name,  # Will be updated if we find root span
+                        "name": span_name,
                         "user_id": user_id,
                         "session_id": session_id,
                         "environment": environment,
                     }
-
-                # Update trace with root span info (span without parent)
-                if not parent_span_id and trace_id in traces:
-                    traces[trace_id]["name"] = span_name
-                    traces[trace_id]["trace_start_time"] = start_time
 
                     # Root span input/output becomes trace input/output
                     if span_input is not None:
