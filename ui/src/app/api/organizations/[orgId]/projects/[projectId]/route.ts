@@ -4,10 +4,29 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { deleteAllApiKeys } from "@/lib/api";
 
-async function getMembership(userId: string, orgId: string) {
-  return prisma.organizationMembership.findUnique({
+async function getEffectiveProjectRole(
+  userId: string,
+  orgId: string,
+  projectId: string,
+): Promise<string | null> {
+  const orgMembership = await prisma.organizationMembership.findUnique({
     where: { org_id_user_id: { org_id: orgId, user_id: userId } },
   });
+
+  if (!orgMembership) return null;
+
+  // Check for project-specific role override
+  const projectMembership = await prisma.projectMembership.findUnique({
+    where: {
+      project_id_org_membership_id: {
+        project_id: projectId,
+        org_membership_id: orgMembership.id,
+      },
+    },
+  });
+
+  // Return project role if exists, otherwise org role
+  return projectMembership?.role || orgMembership.role;
 }
 
 // PATCH /api/organizations/[orgId]/projects/[projectId]
@@ -21,8 +40,12 @@ export async function PATCH(
   }
 
   const { orgId, projectId } = await params;
-  const membership = await getMembership(session.user.id, orgId);
-  if (!membership || !["OWNER", "ADMIN"].includes(membership.role)) {
+  const effectiveRole = await getEffectiveProjectRole(
+    session.user.id,
+    orgId,
+    projectId,
+  );
+  if (!effectiveRole || !["OWNER", "ADMIN"].includes(effectiveRole)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -46,8 +69,12 @@ export async function DELETE(
   }
 
   const { orgId, projectId } = await params;
-  const membership = await getMembership(session.user.id, orgId);
-  if (!membership || !["OWNER", "ADMIN"].includes(membership.role)) {
+  const effectiveRole = await getEffectiveProjectRole(
+    session.user.id,
+    orgId,
+    projectId,
+  );
+  if (!effectiveRole || !["OWNER", "ADMIN"].includes(effectiveRole)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   try {
