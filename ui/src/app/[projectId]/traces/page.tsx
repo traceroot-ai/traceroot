@@ -28,6 +28,8 @@ import {
   ArrowRight,
   Bot,
   Wrench,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react'
 
 // Tab definitions
@@ -377,33 +379,135 @@ function TraceTreeView({
   )
 }
 
+// JSON Value Renderer - flat display with colored syntax
+function JsonValue({ value, depth = 0 }: { value: unknown; depth?: number }) {
+  if (value === null) {
+    return <span className="text-orange-600">null</span>
+  }
+
+  if (typeof value === 'boolean') {
+    return <span className="text-purple-600">{value ? 'true' : 'false'}</span>
+  }
+
+  if (typeof value === 'number') {
+    return <span className="text-blue-600">{value}</span>
+  }
+
+  if (typeof value === 'string') {
+    return (
+      <span className="text-green-700 whitespace-pre-wrap break-words">
+        &quot;{value}&quot;
+      </span>
+    )
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return <span className="text-muted-foreground">[]</span>
+    }
+
+    return (
+      <span>
+        <span className="text-muted-foreground">[</span>
+        <div className="ml-3">
+          {value.map((item, index) => (
+            <div key={index}>
+              <JsonValue value={item} depth={depth + 1} />
+              {index < value.length - 1 && <span className="text-muted-foreground">,</span>}
+            </div>
+          ))}
+        </div>
+        <span className="text-muted-foreground">]</span>
+      </span>
+    )
+  }
+
+  if (typeof value === 'object') {
+    const keys = Object.keys(value as object)
+    if (keys.length === 0) {
+      return <span className="text-muted-foreground">{'{}'}</span>
+    }
+
+    return (
+      <span>
+        <span className="text-muted-foreground">{'{'}</span>
+        <div className="ml-3">
+          {keys.map((key, index) => (
+            <div key={key}>
+              <span className="text-blue-600">{key}</span>
+              <span className="text-muted-foreground">: </span>
+              <JsonValue value={(value as Record<string, unknown>)[key]} depth={depth + 1} />
+              {index < keys.length - 1 && <span className="text-muted-foreground">,</span>}
+            </div>
+          ))}
+        </div>
+        <span className="text-muted-foreground">{'}'}</span>
+      </span>
+    )
+  }
+
+  return <span>{String(value)}</span>
+}
+
+// Smart content renderer - tries to parse JSON, otherwise shows as text
+function SmartContentRenderer({ content }: { content: string | null }) {
+  if (!content) {
+    return <span className="text-muted-foreground text-[11px]">-</span>
+  }
+
+  // Try to parse as JSON
+  try {
+    const parsed = JSON.parse(content)
+    if (typeof parsed === 'object' && parsed !== null) {
+      return (
+        <div className="text-[11px] font-mono leading-relaxed">
+          <JsonValue value={parsed} />
+        </div>
+      )
+    }
+    // If it's a primitive after parsing, just show it
+    return (
+      <pre className="text-[11px] whitespace-pre-wrap break-words font-mono leading-relaxed">
+        {content}
+      </pre>
+    )
+  } catch {
+    // Not valid JSON, show as plain text
+    return (
+      <pre className="text-[11px] whitespace-pre-wrap break-words font-mono leading-relaxed">
+        {content}
+      </pre>
+    )
+  }
+}
+
 // Collapsible section component
 function CollapsibleSection({
   title,
-  children,
+  content,
   defaultOpen = true,
   onCopy,
 }: {
   title: string
-  children: React.ReactNode
+  content: string | null
   defaultOpen?: boolean
   onCopy?: () => void
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
 
   return (
-    <div className="border rounded-md overflow-hidden">
+    <div className="border border-gray-200 rounded-md overflow-hidden">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center justify-between w-full px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors"
+        className="flex items-center justify-between w-full px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100 transition-colors border-b border-gray-200"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {isOpen ? (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            <ChevronDown className="h-3.5 w-3.5 text-gray-500" />
           ) : (
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            <ChevronRight className="h-3.5 w-3.5 text-gray-500" />
           )}
-          <span className="text-sm font-medium">{title}</span>
+          <span className="text-xs font-medium text-gray-700">{title}</span>
         </div>
         {onCopy && (
           <div
@@ -411,16 +515,16 @@ function CollapsibleSection({
               e.stopPropagation()
               onCopy()
             }}
-            className="text-muted-foreground hover:text-foreground transition-colors p-1"
+            className="text-gray-400 hover:text-gray-600 transition-colors p-0.5"
             title="Copy"
           >
-            <Copy className="h-3.5 w-3.5" />
+            <Copy className="h-3 w-3" />
           </div>
         )}
       </button>
       {isOpen && (
-        <div className="p-3 bg-muted/20">
-          {children}
+        <div className="px-2.5 py-2 bg-white">
+          <SmartContentRenderer content={content} />
         </div>
       )}
     </div>
@@ -488,24 +592,18 @@ function DetailRightPanel({ trace, selection }: { trace: TraceDetail; selection:
         {/* Input */}
         <CollapsibleSection
           title="Input"
+          content={input}
           defaultOpen={true}
           onCopy={input ? () => copyToClipboard(input) : undefined}
-        >
-          <pre className="text-xs whitespace-pre-wrap break-words font-mono">
-            {input || '-'}
-          </pre>
-        </CollapsibleSection>
+        />
 
         {/* Output */}
         <CollapsibleSection
           title="Output"
+          content={output}
           defaultOpen={true}
           onCopy={output ? () => copyToClipboard(output) : undefined}
-        >
-          <pre className="text-xs whitespace-pre-wrap break-words font-mono">
-            {output || '-'}
-          </pre>
-        </CollapsibleSection>
+        />
       </div>
     </div>
   )
@@ -524,10 +622,16 @@ function TraceDetailPanel({
   projectId,
   traceId,
   onClose,
+  onNavigate,
+  canNavigateUp,
+  canNavigateDown,
 }: {
   projectId: string
   traceId: string
   onClose: () => void
+  onNavigate: (direction: 'up' | 'down') => void
+  canNavigateUp: boolean
+  canNavigateDown: boolean
 }) {
   const [selection, setSelection] = useState<Selection>({ type: 'trace' })
 
@@ -547,14 +651,38 @@ function TraceDetailPanel({
             {traceId}
           </span>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onClose}
-          className="h-7 w-7 p-0"
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          {/* Navigation buttons */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onNavigate('up')}
+            disabled={!canNavigateUp}
+            className="h-7 w-7 p-0"
+            title="Previous trace"
+          >
+            <ArrowUp className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onNavigate('down')}
+            disabled={!canNavigateDown}
+            className="h-7 w-7 p-0"
+            title="Next trace"
+          >
+            <ArrowDown className="h-4 w-4" />
+          </Button>
+          <div className="w-2" /> {/* Spacer */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            className="h-7 w-7 p-0"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Content */}
@@ -844,6 +972,16 @@ export default function TracesPage() {
             projectId={projectId}
             traceId={selectedTraceId}
             onClose={() => setSelectedTraceId(null)}
+            onNavigate={(direction) => {
+              const currentIndex = traces.findIndex((t: TraceListItem) => t.trace_id === selectedTraceId)
+              if (direction === 'up' && currentIndex > 0) {
+                setSelectedTraceId(traces[currentIndex - 1].trace_id)
+              } else if (direction === 'down' && currentIndex < traces.length - 1) {
+                setSelectedTraceId(traces[currentIndex + 1].trace_id)
+              }
+            }}
+            canNavigateUp={traces.findIndex((t: TraceListItem) => t.trace_id === selectedTraceId) > 0}
+            canNavigateDown={traces.findIndex((t: TraceListItem) => t.trace_id === selectedTraceId) < traces.length - 1}
           />
         </div>
       )}
