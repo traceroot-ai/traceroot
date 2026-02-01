@@ -1,7 +1,11 @@
-"""FastAPI REST API server for Traceroot."""
+"""FastAPI REST API server for Traceroot.
+
+This server handles:
+- OTEL trace ingestion (public API with API key auth)
+- Trace reading from ClickHouse
+"""
 
 import os
-from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 
@@ -12,29 +16,14 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from db.postgres import close_db, init_db
-from rest.routers.api_keys import router as api_keys_router
-from rest.routers.organizations import router as organizations_router
-from rest.routers.projects import router as projects_router
 from rest.routers.public.traces import router as public_traces_router
 from rest.routers.traces import router as traces_router
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan events."""
-    # Startup
-    await init_db()
-    yield
-    # Shutdown
-    await close_db()
 
 
 app = FastAPI(
     title="Traceroot API",
     description="Observability platform for LLM applications",
     version="0.1.0",
-    lifespan=lifespan,
 )
 
 # CORS configuration
@@ -47,13 +36,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API routers
-app.include_router(organizations_router, prefix="/api/v1")
-app.include_router(projects_router, prefix="/api/v1")
-app.include_router(api_keys_router, prefix="/api/v1")
+# Trace reading from ClickHouse (user auth via headers from Next.js)
 app.include_router(traces_router, prefix="/api/v1")
 
-# Public API for SDK ingestion (API key auth, not user auth)
+# Public API for SDK ingestion (API key auth)
 app.include_router(public_traces_router, prefix="/api/v1")
 
 

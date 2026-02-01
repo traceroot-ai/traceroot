@@ -18,11 +18,11 @@ Traceroot is an observability platform for LLM applications to fix production bu
 
 | Component | Stack |
 |-----------|-------|
-| Frontend | Next.js 15, React 19, TailwindCSS, TanStack Query |
-| REST API | FastAPI, Pydantic, SQLAlchemy |
+| Frontend | Next.js 15, React 19, TailwindCSS, TanStack Query, Prisma |
+| REST API | FastAPI (trace ingestion), Next.js API Routes (CRUD) |
 | Worker | Python, S3 polling |
 | SDK | Python, OpenTelemetry |
-| Databases | PostgreSQL, ClickHouse |
+| Databases | PostgreSQL (via Prisma), ClickHouse |
 | Storage | MinIO (S3-compatible) |
 
 ## Development Setup
@@ -59,11 +59,33 @@ Traceroot is an observability platform for LLM applications to fix production bu
 
    ```bash
    cp .env.example .env
+   cp ui/.env.example ui/.env
+   # Edit both files and set INTERNAL_API_SECRET to the same value
    ```
 
-4. **Install dependencies and start services**
+4. **Install dependencies**
 
-   See [Monorepo Quickstart](#monorepo-quickstart) below.
+   ```bash
+   # Python dependencies (from project root)
+   uv sync
+
+   # Frontend dependencies
+   cd ui && pnpm install
+   ```
+
+5. **Run database migrations**
+
+   ```bash
+   # PostgreSQL schema (via Prisma)
+   cd ui && npx prisma migrate dev
+
+   # ClickHouse schema (via goose - requires goose CLI)
+   cd db/clickhouse && ./migrate.sh up
+   ```
+
+6. **Start services**
+
+   See [Running Services](#running-services) below.
 
 ---
 
@@ -140,27 +162,51 @@ cd ui && pnpm test
 
 ---
 
-### Package Dependencies
+### Architecture Overview
 
 ```
-                    ┌─────────────┐
-                    │   common    │
-                    └──────┬──────┘
-                           │
-              ┌────────────┴────────────┐
-              │                         │
-              ▼                         ▼
-        ┌──────────┐              ┌────────────┐
-        │    db    │              │traceroot-py│
-        └────┬─────┘              │  (SDK)     │
-             │                    └────────────┘
-    ┌────────┴────────┐
-    │                 │
-    ▼                 ▼
-┌────────────┐  ┌────────────┐
-│    rest    │  │   worker   │
-└────────────┘  └────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                      Next.js UI (ui/)                            │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  API Routes (Prisma → PostgreSQL)                         │  │
+│  │  • /api/organizations/**     (org CRUD)                   │  │
+│  │  • /api/projects/**/api-keys (API key management)         │  │
+│  │  • /api/internal/**          (for Python backend)         │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+                              ▲
+                              │ Internal HTTP API
+                              │
+┌─────────────────────────────┴───────────────────────────────────┐
+│                    Python Backend (rest/)                        │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  • /api/v1/public/traces   (OTEL ingestion → S3 → Celery) │  │
+│  │  • /api/v1/projects/*/traces (trace reading ← ClickHouse) │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Worker (worker/)                              │
+│  • Processes traces from S3 → ClickHouse                        │
+└─────────────────────────────────────────────────────────────────┘
+
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│ traceroot-py │  │    common    │  │      db      │
+│    (SDK)     │  │  (shared)    │  │ (clickhouse) │
+└──────────────┘  └──────────────┘  └──────────────┘
 ```
+
+### Internal API
+
+The Python backend communicates with Next.js via internal HTTP API:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/internal/validate-api-key` | Validate API key for trace ingestion |
+| `POST /api/internal/validate-project-access` | Validate user access for trace reading |
+
+These endpoints require the `X-Internal-Secret` header matching `INTERNAL_API_SECRET` env var.
 
 ---
 
@@ -211,38 +257,62 @@ refactor: simplify database queries
 
 ### Database Schema Strategy
 
-We use a **dual-ORM architecture** with clear ownership:
+We use **Prisma** (TypeScript) as the single source of truth for PostgreSQL schema:
 
-| Component | ORM | Role |
-|-----------|-----|------|
-| Backend (Python) | SQLAlchemy | **Source of truth** for schema, handles all migrations |
-| Frontend (Next.js) | Prisma | **Read-only**, manually managed, used for NextAuth |
+| Component | Technology | Role |
+|-----------|------------|------|
+| Frontend (Next.js) | Prisma | **Source of truth** for schema and migrations |
+| Backend (Python) | httpx | Calls Next.js internal API for database access |
 
-**Important Rules:**
+**Important:**
 
-- **SQLAlchemy owns all database migrations** via Alembic
-- **Prisma is read-only** - never run `prisma db push` or `prisma migrate`
-- When schema changes, update SQLAlchemy models first, then manually sync Prisma schema
-- After modifying Prisma schema, run `cd ui && npx prisma generate` to regenerate the Prisma client
+- **Prisma owns all PostgreSQL schema and migrations**
+- Python backend accesses PostgreSQL via internal HTTP API to Next.js
+- ClickHouse schema is managed separately via `db/clickhouse/migrations/`
 
 ### Migrations
 
-PostgreSQL migrations are managed with Alembic:
+**PostgreSQL** - Managed by Prisma:
 
 ```bash
-# Create a new migration
-cd db/migrations/postgres
-alembic revision --autogenerate -m "description"
+cd ui
 
-# Apply migrations
-alembic upgrade head
+# Generate Prisma client after schema changes
+npx prisma generate
+
+# Create and apply a migration (development)
+npx prisma migrate dev --name "description"
+
+# Apply migrations in production
+npx prisma migrate deploy
 ```
+
+**ClickHouse** - Managed by goose:
+
+```bash
+cd db/clickhouse
+
+# Apply all pending migrations
+./migrate.sh up
+
+# Check migration status
+./migrate.sh status
+
+# Create a new migration
+./migrate.sh create add_new_column
+```
+
+> **Note**: Prisma only supports PostgreSQL. ClickHouse migrations use [goose](https://github.com/pressly/goose) with SQL files in `db/clickhouse/migrations/`.
 
 ### Resetting Databases
 
 ```bash
 # Reset all data (keeps containers)
 docker-compose down -v && docker-compose up -d
+
+# Re-run migrations after reset
+cd ui && npx prisma migrate dev      # PostgreSQL
+cd db/clickhouse && ./migrate.sh up   # ClickHouse
 ```
 
 ### Inspecting Databases
@@ -293,10 +363,12 @@ See `.env.example` for all configuration options:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgresql+asyncpg://...` | PostgreSQL connection |
+| `DATABASE_URL` | `postgresql://...` | PostgreSQL connection (Prisma format) |
 | `CLICKHOUSE_HOST` | `localhost` | ClickHouse host |
 | `S3_ENDPOINT_URL` | `http://localhost:9000` | MinIO/S3 endpoint |
 | `PORT` | `8000` | REST API port |
+| `TRACEROOT_UI_URL` | `http://localhost:3000` | Next.js URL for internal API |
+| `INTERNAL_API_SECRET` | - | Shared secret for internal API auth |
 
 ---
 

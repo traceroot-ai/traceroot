@@ -4,14 +4,14 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams, useRouter } from 'next/navigation'
 import {
-  getApiKeys,
-  createApiKey,
-  updateApiKey,
-  deleteApiKey,
+  getAccessKeys,
+  createAccessKey,
+  updateAccessKey,
+  deleteAccessKey,
   getProject,
   updateProject,
   deleteProject,
-  type ApiKey,
+  type AccessKey,
 } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -43,17 +43,17 @@ const settingsTabs = [
 
 type TabId = (typeof settingsTabs)[number]['id']
 
-// Helper to format key prefix: show first 4 and last 4 chars after "tr-"
-function formatKeyPrefix(keyPrefix: string): string {
-  // keyPrefix is like "tr-d0a3ee9" - we want "tr-d0a3...ee9"
-  if (keyPrefix.startsWith('tr-')) {
-    const rest = keyPrefix.slice(3) // remove "tr-"
-    if (rest.length > 4) {
+// Helper to format key hint for display: "tr-d0a3...ee92"
+function formatKeyHint(keyHint: string): string {
+  // keyHint is like "tr-d0a3ee92" - we want "tr-d0a3...ee92"
+  if (keyHint.startsWith('tr-')) {
+    const rest = keyHint.slice(3) // remove "tr-"
+    if (rest.length > 8) {
       return `tr-${rest.slice(0, 4)}...${rest.slice(-4)}`
     }
-    return keyPrefix
+    return keyHint
   }
-  return keyPrefix
+  return keyHint
 }
 
 export default function SettingsPage() {
@@ -93,7 +93,7 @@ export default function SettingsPage() {
       <div className="flex-1 overflow-auto p-4">
         <div>
           {activeTab === 'general' && <GeneralTab projectId={projectId} />}
-          {activeTab === 'api-keys' && <ApiKeysTab projectId={projectId} />}
+          {activeTab === 'api-keys' && <AccessKeysTab projectId={projectId} />}
         </div>
       </div>
     </div>
@@ -124,7 +124,10 @@ function GeneralTab({ projectId }: { projectId: string }) {
   }, [project])
 
   const updateMutation = useMutation({
-    mutationFn: (name: string) => updateProject(projectId, name),
+    mutationFn: (name: string) => {
+      if (!project) throw new Error('Project not found')
+      return updateProject(project.workspace_id, projectId, { name })
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] })
     },
@@ -133,10 +136,15 @@ function GeneralTab({ projectId }: { projectId: string }) {
   const deleteMutation = useMutation({
     mutationFn: () => {
       if (!project) throw new Error('Project not found')
-      return deleteProject(project.org_id, projectId)
+      return deleteProject(project.workspace_id, projectId)
     },
     onSuccess: () => {
-      router.push('/organizations')
+      // Invalidate all related queries before navigating
+      const workspaceId = project?.workspace_id
+      queryClient.invalidateQueries({ queryKey: ['workspaces'] })
+      queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ['projects', workspaceId] })
+      router.push(`/workspaces/${workspaceId}/projects`)
     },
   })
 
@@ -246,28 +254,28 @@ function GeneralTab({ projectId }: { projectId: string }) {
 }
 
 // =============================================================================
-// API Keys Tab
+// Access Keys Tab
 // =============================================================================
 
-function ApiKeysTab({ projectId }: { projectId: string }) {
+function AccessKeysTab({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient()
 
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newKeyName, setNewKeyName] = useState('')
-  const [newKeyData, setNewKeyData] = useState<{ key: string; keyPrefix: string } | null>(null)
+  const [newKeyData, setNewKeyData] = useState<{ key: string; keyHint: string } | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const [editingKey, setEditingKey] = useState<{ id: string; name: string } | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['api-keys', projectId],
-    queryFn: () => getApiKeys(projectId),
+    queryKey: ['access-keys', projectId],
+    queryFn: () => getAccessKeys(projectId),
   })
 
   const createMutation = useMutation({
-    mutationFn: (name: string) => createApiKey(projectId, name || undefined),
+    mutationFn: (name: string) => createAccessKey(projectId, name || undefined),
     onSuccess: (response) => {
-      queryClient.invalidateQueries({ queryKey: ['api-keys', projectId] })
-      setNewKeyData({ key: response.data.key, keyPrefix: response.data.key_prefix })
+      queryClient.invalidateQueries({ queryKey: ['access-keys', projectId] })
+      setNewKeyData({ key: response.data.key, keyHint: response.data.key_hint })
       setNewKeyName('')
       setShowCreateDialog(false)
     },
@@ -275,17 +283,17 @@ function ApiKeysTab({ projectId }: { projectId: string }) {
 
   const updateMutation = useMutation({
     mutationFn: ({ keyId, name }: { keyId: string; name: string | null }) =>
-      updateApiKey(projectId, keyId, name),
+      updateAccessKey(projectId, keyId, name),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['api-keys', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['access-keys', projectId] })
       setEditingKey(null)
     },
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (keyId: string) => deleteApiKey(projectId, keyId),
+    mutationFn: (keyId: string) => deleteAccessKey(projectId, keyId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['api-keys', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['access-keys', projectId] })
     },
   })
 
@@ -309,13 +317,13 @@ function ApiKeysTab({ projectId }: { projectId: string }) {
     }
   }
 
-  const apiKeys = data?.data || []
+  const accessKeys = data?.access_keys || []
 
   // Generate the .env block content
   const envBlockContent = newKeyData
     ? `TRACEROOT_API_KEY = "${newKeyData.key}"`
-    : apiKeys.length > 0
-    ? `TRACEROOT_API_KEY = "${formatKeyPrefix(apiKeys[0].key_prefix)}"`
+    : accessKeys.length > 0
+    ? `TRACEROOT_API_KEY = "${formatKeyHint(accessKeys[0].key_hint)}"`
     : `TRACEROOT_API_KEY = "tr-..."`
 
   return (
@@ -440,7 +448,7 @@ function ApiKeysTab({ projectId }: { projectId: string }) {
       <div className="border">
         {isLoading ? (
           <div className="px-3 py-3 text-[13px] text-muted-foreground">Loading API keys...</div>
-        ) : apiKeys.length === 0 ? (
+        ) : accessKeys.length === 0 ? (
           <div className="px-3 py-3 text-[13px] text-muted-foreground">
             No API keys yet. Create one to start using the SDK.
           </div>
@@ -456,7 +464,7 @@ function ApiKeysTab({ projectId }: { projectId: string }) {
               </tr>
             </thead>
             <tbody>
-              {apiKeys.map((key: ApiKey) => (
+              {accessKeys.map((key: AccessKey) => (
                 <tr key={key.id} className="border-b last:border-b-0 hover:bg-muted/20">
                   <td className="px-3 py-2">
                     <button
@@ -467,13 +475,13 @@ function ApiKeysTab({ projectId }: { projectId: string }) {
                     </button>
                   </td>
                   <td className="px-3 py-2">
-                    <code className="font-mono text-[11px] bg-muted px-1.5 py-0.5">{formatKeyPrefix(key.key_prefix)}</code>
+                    <code className="font-mono text-[11px] bg-muted px-1.5 py-0.5">{formatKeyHint(key.key_hint)}</code>
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
-                    {formatRelativeTime(key.created_at)}
+                    {formatRelativeTime(key.create_time)}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
-                    {key.last_used_at ? formatRelativeTime(key.last_used_at) : 'Never'}
+                    {key.last_use_time ? formatRelativeTime(key.last_use_time) : 'Never'}
                   </td>
                   <td className="px-3 py-2">
                     <Button
@@ -495,4 +503,3 @@ function ApiKeysTab({ projectId }: { projectId: string }) {
     </div>
   )
 }
-

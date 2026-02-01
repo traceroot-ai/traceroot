@@ -77,7 +77,7 @@ function Logo() {
 // Check if we're in a project context by looking at the path structure
 function getProjectContext(pathname: string): { isProject: boolean; projectId: string | null } {
   // Known non-project routes
-  const nonProjectRoutes = ['/organizations', '/auth', '/onboarding', '/'];
+  const nonProjectRoutes = ['/workspaces', '/auth', '/onboarding', '/'];
 
   // Check if path starts with any known non-project route
   for (const route of nonProjectRoutes) {
@@ -174,26 +174,26 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
               )}
             </Tooltip>
           ) : (
-            // Default navigation (Organizations)
+            // Default navigation (Workspaces)
             <Tooltip>
               <TooltipTrigger asChild>
                 <Link
-                  href="/organizations"
+                  href="/workspaces"
                   className={cn(
                     "flex items-center gap-2 py-2 text-[13px] transition-colors",
                     collapsed ? "justify-center px-2" : "px-3",
-                    pathname === "/organizations" || pathname.startsWith("/organizations/")
+                    pathname === "/workspaces" || pathname.startsWith("/workspaces/")
                       ? "bg-muted"
                       : "hover:bg-muted/50"
                   )}
                 >
                   <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
-                  {!collapsed && "Organizations"}
+                  {!collapsed && "Workspaces"}
                 </Link>
               </TooltipTrigger>
               {collapsed && (
                 <TooltipContent side="right" sideOffset={16}>
-                  Organizations
+                  Workspaces
                 </TooltipContent>
               )}
             </Tooltip>
