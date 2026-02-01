@@ -89,7 +89,7 @@ export default function OrgSettingsPage() {
   return (
     <div className="flex h-full">
       {/* Left sidebar navigation */}
-      <nav className="w-36 border-r">
+      <nav className="w-40 border-r">
         <ul>
           {settingsTabs.map((tab) => {
             const Icon = tab.icon;

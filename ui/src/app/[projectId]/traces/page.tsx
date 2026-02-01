@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'next/navigation'
 import { getTraces, getTrace, type TraceListItem, type TraceDetail, type Span } from '@/lib/api'
@@ -564,6 +564,10 @@ function DetailRightPanel({ trace, selection }: { trace: TraceDetail; selection:
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+            <span className="text-muted-foreground">Span Kind:</span>
+            <span className="font-medium">{type.toLowerCase()}</span>
+          </div>
+          <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
             <Clock className="h-3 w-3 text-muted-foreground" />
             <span className="text-muted-foreground">Latency:</span>
             <span className="font-medium">{formatDuration(duration)}</span>
@@ -639,6 +643,11 @@ function TraceDetailPanel({
     queryKey: ['trace', projectId, traceId],
     queryFn: () => getTrace(projectId, traceId, ''),
   })
+
+  // Reset selection when navigating to a different trace
+  useEffect(() => {
+    setSelection({ type: 'trace' })
+  }, [traceId])
 
   return (
     <div className="h-full flex flex-col bg-background">
@@ -842,22 +851,22 @@ export default function TracesPage() {
                   <table className="w-full">
                     <thead className="sticky top-0 bg-white">
                       <tr className="border-b border-gray-200 bg-gray-50/50">
-                        <th className="px-3 py-2 text-left text-[12px] font-medium text-gray-500 border-r border-gray-100 w-[140px]">
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-gray-500 border-r border-gray-100 w-[140px]">
                           Timestamp
                         </th>
-                        <th className="px-3 py-2 text-left text-[12px] font-medium text-gray-500 border-r border-gray-100">
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-gray-500 border-r border-gray-100">
                           Name
                         </th>
-                        <th className="px-3 py-2 text-left text-[12px] font-medium text-gray-500 border-r border-gray-100">
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-gray-500 border-r border-gray-100">
                           Trace ID
                         </th>
-                        <th className="px-3 py-2 text-left text-[12px] font-medium text-gray-500 border-r border-gray-100">
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-gray-500 border-r border-gray-100">
                           Input
                         </th>
-                        <th className="px-3 py-2 text-left text-[12px] font-medium text-gray-500 border-r border-gray-100">
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-gray-500 border-r border-gray-100">
                           Output
                         </th>
-                        <th className="px-3 py-2 text-left text-[12px] font-medium text-gray-500">
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-gray-500">
                           Latency
                         </th>
                       </tr>
@@ -872,26 +881,26 @@ export default function TracesPage() {
                             selectedTraceId === trace.trace_id ? "bg-gray-100" : "hover:bg-gray-50"
                           )}
                         >
-                          <td className="px-3 py-2 text-[12px] text-gray-500 whitespace-nowrap border-r border-gray-100">
+                          <td className="px-3 py-1.5 text-[12px] text-gray-500 whitespace-nowrap border-r border-gray-100">
                             {formatDate(trace.trace_start_time)}
                           </td>
-                          <td className="px-3 py-2 text-[12px] text-gray-900 border-r border-gray-100">
+                          <td className="px-3 py-1.5 text-[12px] text-gray-900 border-r border-gray-100">
                             {trace.name}
                           </td>
-                          <td className="px-3 py-2 text-[11px] font-mono text-gray-400 border-r border-gray-100">
+                          <td className="px-3 py-1.5 text-[11px] font-mono text-gray-400 border-r border-gray-100">
                             {trace.trace_id.substring(0, 8)}...
                           </td>
-                          <td className="px-3 py-2 max-w-[180px] border-r border-gray-100">
+                          <td className="px-3 py-1.5 max-w-[180px] border-r border-gray-100">
                             <span className="text-gray-600 text-[11px] font-mono truncate block">
                               {formatPreview(trace.input)}
                             </span>
                           </td>
-                          <td className="px-3 py-2 max-w-[180px] border-r border-gray-100">
+                          <td className="px-3 py-1.5 max-w-[180px] border-r border-gray-100">
                             <span className="text-gray-600 text-[11px] font-mono truncate block">
                               {formatPreview(trace.output)}
                             </span>
                           </td>
-                          <td className="px-3 py-2 text-[12px] text-gray-900 whitespace-nowrap">
+                          <td className="px-3 py-1.5 text-[12px] text-gray-900 whitespace-nowrap">
                             {formatDuration(trace.duration_ms)}
                           </td>
                         </tr>
