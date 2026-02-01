@@ -23,21 +23,20 @@
     @@map("membership_invitations")                                                                                                                                                                                                          
   }                                                                                                                                                                                                                                          
                                                                                                                                                                                                                                              
-  model OrganizationMembership {                                                                                                                                                                                                             
-    id            String        @id @db.VarChar                                                                                                                                                                                              
-    org_id        String        @db.VarChar                                                                                                                                                                                                  
-    user_id       String        @db.VarChar                                                                                                                                                                                                  
-    role          String        @db.VarChar                                                                                                                                                                                                  
-    created_at    DateTime      @default(now()) @db.Timestamp(6)                                                                                                                                                                             
-    updated_at    DateTime      @default(now()) @db.Timestamp(6)                                                                                                                                                                             
-    organization  Organization  @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)                                                                                                                         
-    user          User          @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction) 
-    projectMemberships  ProjectMembership[]                                                                                                                        
-                                                                                                                                                                                                                                             
-    @@unique([org_id, user_id], map: "uq_org_user")                                                                                                                                                                                          
-    @@index([org_id], map: "ix_membership_org_id")                                                                                                                                                                                           
-    @@index([user_id], map: "ix_membership_user_id")                                                                                                                                                                                         
-    @@map("organization_memberships")                                                                                                                                                                                                        
+  model OrganizationMembership {
+    id            String        @id @db.VarChar
+    org_id        String        @db.VarChar
+    user_id       String        @db.VarChar
+    role          String        @db.VarChar
+    created_at    DateTime      @default(now()) @db.Timestamp(6)
+    updated_at    DateTime      @default(now()) @db.Timestamp(6)
+    organization  Organization  @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+    user          User          @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+    @@unique([org_id, user_id], map: "uq_org_user")
+    @@index([org_id], map: "ix_membership_org_id")
+    @@index([user_id], map: "ix_membership_user_id")
+    @@map("organization_memberships")
   }                                                                                                                                                                                                                                          
                                                                                                                                                                                                                                              
   model Organization {                                                                                                                                                                                                                       
@@ -52,38 +51,20 @@
     @@map("organizations")                                                                                                                                                                                                                   
   }                                                                                                                                                                                                                                          
                                                                                                                                                                                                                                              
-  model Project {                                                                                                                                                                                                                            
-    id             String        @id @db.VarChar                                                                                                                                                                                             
-    org_id         String        @db.VarChar                                                                                                                                                                                                 
-    name           String        @db.VarChar                                                                                                                                                                                                 
-    retention_days Int?                                                                                                                                                                                                                      
-    deleted_at     DateTime?     @db.Timestamp(6)                                                                                                                                                                                            
-    created_at     DateTime      @default(now()) @db.Timestamp(6)                                                                                                                                                                            
-    updated_at     DateTime      @default(now()) @db.Timestamp(6)                                                                                                                                                                            
-    projectMemberships  ProjectMembership[]  // Add this line                                                                                                                                                                                                                   
-    organization   Organization  @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)                                                                                                                        
-                                                                                                                                                                                                                                             
-    @@index([org_id], map: "ix_project_org_id")                                                                                                                                                                                              
-    @@map("projects")                                                                                                                                                                                                                        
+  model Project {
+    id             String        @id @db.VarChar
+    org_id         String        @db.VarChar
+    name           String        @db.VarChar
+    retention_days Int?
+    deleted_at     DateTime?     @db.Timestamp(6)
+    created_at     DateTime      @default(now()) @db.Timestamp(6)
+    updated_at     DateTime      @default(now()) @db.Timestamp(6)
+    organization   Organization  @relation(fields: [org_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+    @@index([org_id], map: "ix_project_org_id")
+    @@map("projects")
   }
 
-  model ProjectMembership {                                                                                                                                                                                                                  
-    id                     String                  @id @default(cuid()) @db.VarChar                                                                                                                                                          
-    project_id             String                  @db.VarChar                                                                                                                                                                               
-    org_membership_id      String                  @db.VarChar                                                                                                                                                                               
-    role                   String                  @db.VarChar                                                                                                                                                                               
-    created_at             DateTime                @default(now()) @db.Timestamp(6)                                                                                                                                                          
-    updated_at             DateTime                @default(now()) @db.Timestamp(6)                                                                                                                                                          
-                                                                                                                                                                                                                                             
-    project                Project                 @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)                                                                                                  
-    organizationMembership OrganizationMembership  @relation(fields: [org_membership_id], references: [id], onDelete: Cascade, onUpdate: NoAction)                                                                                           
-                                                                                                                                                                                                                                             
-    @@unique([project_id, org_membership_id], map: "uq_project_org_membership")                                                                                                                                                              
-    @@index([project_id], map: "ix_project_membership_project_id")                                                                                                                                                                           
-    @@index([org_membership_id], map: "ix_project_membership_org_membership_id")                                                                                                                                                             
-    @@map("project_memberships")                                                                                                                                                                                                             
-  }                                                                                                                                                                                                                                              
-                                                                                                                                                                                                                                             
   model User {                                                                                                                                                                                                                               
     id                       String                     @id @default(cuid()) @db.VarChar                                                                                                                                                     
     email                    String?                    @unique @db.VarChar     

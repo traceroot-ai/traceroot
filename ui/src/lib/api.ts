@@ -132,18 +132,6 @@ export interface Invitation {
   created_at: string;
 }
 
-export interface ProjectMember {
-  id: string;
-  user_id: string;
-  email: string | null;
-  name: string | null;
-  image: string | null;
-  org_role: Role;
-  project_role: Role | null; // null = inherits org role
-  project_membership_id: string | null;
-  created_at: string;
-}
-
 export interface OrganizationListResponse {
   data: Organization[];
 }
@@ -307,30 +295,6 @@ export async function deleteInvitation(
     `/organizations/${orgId}/invitations/${invitationId}`,
     {
       method: "DELETE",
-    },
-  );
-}
-
-// Project Member APIs
-export async function getProjectMembers(
-  projectId: string,
-): Promise<ProjectMember[]> {
-  const response = await fetchNextApi<{ data: ProjectMember[] }>(
-    `/projects/${projectId}/members`,
-  );
-  return response.data;
-}
-
-export async function updateProjectMemberRole(
-  projectId: string,
-  orgMembershipId: string,
-  role: Role | null,
-): Promise<void> {
-  return fetchNextApi<void>(
-    `/projects/${projectId}/members/${orgMembershipId}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({ role }),
     },
   );
 }
