@@ -19,8 +19,6 @@ interface SendInviteEmailParams {
  * - TRACEROOT_SMTP_URL: SMTP connection string (e.g., smtp://user:pass@host:port)
  * - TRACEROOT_SMTP_MAIL_FROM: Sender email address
  * - NEXTAUTH_URL: Base URL for the app
- *
- * For Resend: smtp://resend:YOUR_API_KEY@smtp.resend.com:587
  */
 export async function sendInviteEmail(params: SendInviteEmailParams): Promise<void> {
   const { to, inviterName, inviterEmail, workspaceName, inviteId, role } = params;
