@@ -4,7 +4,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { SlidersHorizontal, Users, CreditCard } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { WorkspaceBreadcrumb } from '@/components/layout/breadcrumb'
+import { WorkspaceBreadcrumb } from '@/features/workspaces/components'
 import { BillingTab } from '@/features/settings/workspace'
 
 const settingsTabs = [
