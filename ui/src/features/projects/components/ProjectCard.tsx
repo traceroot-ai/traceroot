@@ -18,7 +18,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
   return (
     <Card
       className="cursor-pointer transition-all hover:shadow-md hover:border-foreground/20"
-      onClick={() => router.push(`/${project.id}/traces`)}
+      onClick={() => router.push(`/projects/${project.id}/traces`)}
     >
       <CardContent className="p-4">
         <div className="flex items-start justify-between mb-3">
@@ -26,7 +26,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              router.push(`/${project.id}/settings`);
+              router.push(`/projects/${project.id}/settings`);
             }}
             className="p-1 hover:bg-muted rounded transition-colors"
           >

@@ -6,6 +6,7 @@ import { Search, ChevronLeft, ChevronRight, ChevronDown, Workflow, Users, Layers
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { ProjectBreadcrumb } from '@/components/layout/breadcrumb'
 import { formatDuration, formatDate, cn } from '@/lib/utils'
 import type { TraceListItem } from '@/types/api'
 import { useTraces } from '@/features/traces/hooks'
@@ -50,6 +51,8 @@ export default function TracesPage() {
 
   return (
     <div className="flex h-full relative text-[13px]">
+      <ProjectBreadcrumb projectId={projectId} />
+
       {/* Main content */}
       <div className="flex-1 flex flex-col">
         {/* Tab navigation */}
