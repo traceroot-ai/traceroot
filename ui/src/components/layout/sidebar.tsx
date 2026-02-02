@@ -76,21 +76,10 @@ function Logo() {
 
 // Check if we're in a project context by looking at the path structure
 function getProjectContext(pathname: string): { isProject: boolean; projectId: string | null } {
-  // Known non-project routes
-  const nonProjectRoutes = ['/workspaces', '/auth', '/onboarding', '/'];
-
-  // Check if path starts with any known non-project route
-  for (const route of nonProjectRoutes) {
-    if (pathname === route || (route !== '/' && pathname.startsWith(route + '/'))) {
-      return { isProject: false, projectId: null };
-    }
-  }
-
-  // If we get here, assume it's a project route like /[projectId]/traces
-  // Extract the projectId from the path (first segment after /)
-  const segments = pathname.split('/').filter(Boolean);
-  if (segments.length > 0) {
-    return { isProject: true, projectId: segments[0] };
+  // Check if path starts with /projects/[projectId]
+  const projectMatch = pathname.match(/^\/projects\/([^/]+)/);
+  if (projectMatch) {
+    return { isProject: true, projectId: projectMatch[1] };
   }
 
   return { isProject: false, projectId: null };
@@ -154,7 +143,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Link
-                  href={`/${projectId}/traces`}
+                  href={`/projects/${projectId}/traces`}
                   className={cn(
                     "flex items-center gap-2 py-2 text-[13px] transition-colors",
                     collapsed ? "justify-center px-2" : "px-3",
@@ -207,7 +196,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Link
-                  href={`/${projectId}/settings`}
+                  href={`/projects/${projectId}/settings`}
                   className={cn(
                     "flex w-full items-center gap-2 py-2 text-[13px] transition-colors",
                     collapsed ? "justify-center px-2" : "px-3",

@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Clock, Cpu, DollarSign } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ProjectBreadcrumb } from '@/features/projects/components'
 import { formatDuration, formatDate, cn } from '@/lib/utils'
 import type { Span, TraceDetail } from '@/types/api'
 import { useTrace } from '@/features/traces/hooks'
@@ -273,9 +274,11 @@ export default function TraceDetailPage() {
 
   return (
     <div className="p-6 bg-white min-h-screen">
+      <ProjectBreadcrumb projectId={projectId} current={trace.name} />
+
       {/* Header */}
       <div className="mb-4">
-        <Link href={`/${projectId}/traces`}>
+        <Link href={`/projects/${projectId}/traces`}>
           <Button variant="ghost" size="sm" className="mb-2 -ml-2 text-neutral-600 hover:text-neutral-900">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to traces
