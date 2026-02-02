@@ -1,0 +1,307 @@
+'use client';
+
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Button } from '@/components/ui/button';
+import { AddButton } from '@/components/ui/add-button';
+import { DeleteIconButton } from '@/components/ui/delete-button';
+import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  getWorkspace,
+  getMembers,
+  updateMemberRole,
+  removeMember,
+  getInvites,
+  createInvite,
+  cancelInvite,
+  type Member,
+  type Invite,
+  type Role,
+} from '@/lib/api';
+
+interface MembersTabProps {
+  workspaceId: string;
+}
+
+export function MembersTab({ workspaceId }: MembersTabProps) {
+  const queryClient = useQueryClient();
+
+  const [showInviteMember, setShowInviteMember] = useState(false);
+  const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [newMemberRole, setNewMemberRole] = useState<Role>('MEMBER');
+  const [editingMember, setEditingMember] = useState<{ userId: string; role: Role } | null>(null);
+
+  const { data: workspace } = useQuery({
+    queryKey: ['workspace', workspaceId],
+    queryFn: () => getWorkspace(workspaceId),
+  });
+
+  const { data: members = [], isLoading: membersLoading } = useQuery({
+    queryKey: ['members', workspaceId],
+    queryFn: () => getMembers(workspaceId),
+  });
+
+  const { data: invites = [], isLoading: invitesLoading } = useQuery({
+    queryKey: ['invites', workspaceId],
+    queryFn: () => getInvites(workspaceId),
+  });
+
+  const inviteMutation = useMutation({
+    mutationFn: ({ email, role }: { email: string; role: Role }) =>
+      createInvite(workspaceId, email, role),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invites', workspaceId] });
+      setShowInviteMember(false);
+      setNewMemberEmail('');
+      setNewMemberRole('MEMBER');
+    },
+  });
+
+  const cancelInviteMutation = useMutation({
+    mutationFn: (inviteId: string) => cancelInvite(workspaceId, inviteId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invites', workspaceId] });
+    },
+  });
+
+  const updateRoleMutation = useMutation({
+    mutationFn: ({ userId, role }: { userId: string; role: Role }) =>
+      updateMemberRole(workspaceId, userId, role),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['members', workspaceId] });
+      setEditingMember(null);
+    },
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: (userId: string) => removeMember(workspaceId, userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['members', workspaceId] });
+    },
+  });
+
+  const handleInviteMember = () => {
+    if (newMemberEmail.trim()) {
+      inviteMutation.mutate({ email: newMemberEmail.trim(), role: newMemberRole });
+    }
+  };
+
+  const handleUpdateRole = () => {
+    if (editingMember) {
+      updateRoleMutation.mutate(editingMember);
+    }
+  };
+
+  const roleOptions: Role[] = ['ADMIN', 'MEMBER', 'VIEWER'];
+  const canManageMembers = workspace?.role === 'ADMIN';
+
+  return (
+    <div className="space-y-6 max-w-3xl">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">Members</h2>
+          <p className="text-sm text-muted-foreground">
+            Manage workspace members and invitations
+          </p>
+        </div>
+        {canManageMembers && (
+          <AddButton onClick={() => setShowInviteMember(true)}>
+            Invite member
+          </AddButton>
+        )}
+      </div>
+
+      <Dialog open={showInviteMember} onOpenChange={setShowInviteMember}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Invite New Member</DialogTitle>
+            <DialogDescription>
+              Send an invitation to a new member. They will receive an email to join this workspace.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Email</label>
+              <Input
+                placeholder="member@example.com"
+                value={newMemberEmail}
+                onChange={(e) => setNewMemberEmail(e.target.value)}
+                type="email"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Role</label>
+              <select
+                value={newMemberRole}
+                onChange={(e) => setNewMemberRole(e.target.value as Role)}
+                className="flex h-9 w-full border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {roleOptions.map((role) => (
+                  <option key={role} value={role}>
+                    {role.charAt(0) + role.slice(1).toLowerCase()}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {inviteMutation.isError && (
+              <p className="text-sm text-destructive">
+                {inviteMutation.error.message}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowInviteMember(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleInviteMember}
+              disabled={!newMemberEmail.trim() || inviteMutation.isPending}
+            >
+              {inviteMutation.isPending ? 'Sending...' : 'Send Invitation'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editingMember} onOpenChange={(open) => !open && setEditingMember(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Role</DialogTitle>
+            <DialogDescription>
+              Update the member&apos;s role in this workspace.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <label className="text-sm font-medium mb-2 block">Role</label>
+            <select
+              value={editingMember?.role || 'MEMBER'}
+              onChange={(e) =>
+                setEditingMember(
+                  editingMember ? { ...editingMember, role: e.target.value as Role } : null
+                )
+              }
+              className="flex h-9 w-full border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              {roleOptions.map((role) => (
+                <option key={role} value={role}>
+                  {role.charAt(0) + role.slice(1).toLowerCase()}
+                </option>
+              ))}
+            </select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingMember(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdateRole} disabled={updateRoleMutation.isPending}>
+              {updateRoleMutation.isPending ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {!invitesLoading && invites.length > 0 && (
+        <div className="border">
+          <div className="px-4 py-3 bg-muted/30 border-b">
+            <h3 className="text-sm font-medium">Pending Invitations</h3>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left bg-muted/10">
+                <th className="px-4 py-2 font-medium text-muted-foreground">Email</th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">Role</th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">Invited By</th>
+                {canManageMembers && (
+                  <th className="px-4 py-2 font-medium text-muted-foreground w-20"></th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {invites.map((invite: Invite) => (
+                <tr key={invite.id} className="border-b last:border-b-0 hover:bg-muted/20">
+                  <td className="px-4 py-2">{invite.email}</td>
+                  <td className="px-4 py-2">
+                    {invite.role.charAt(0) + invite.role.slice(1).toLowerCase()}
+                  </td>
+                  <td className="px-4 py-2 text-muted-foreground">
+                    {invite.invited_by?.name || invite.invited_by?.email || '-'}
+                  </td>
+                  {canManageMembers && (
+                    <td className="px-4 py-2">
+                      <DeleteIconButton
+                        onClick={() => cancelInviteMutation.mutate(invite.id)}
+                        disabled={cancelInviteMutation.isPending}
+                      />
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="border">
+        <div className="px-4 py-3 bg-muted/30 border-b">
+          <h3 className="text-sm font-medium">Members</h3>
+        </div>
+        {membersLoading ? (
+          <div className="px-4 py-4 text-sm text-muted-foreground">Loading members...</div>
+        ) : members.length === 0 ? (
+          <div className="px-4 py-4 text-sm text-muted-foreground">No members found.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left bg-muted/10">
+                <th className="px-4 py-2 font-medium text-muted-foreground">Name</th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">Email</th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">Role</th>
+                {canManageMembers && (
+                  <th className="px-4 py-2 font-medium text-muted-foreground w-20"></th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {members.map((member: Member) => (
+                <tr key={member.id} className="border-b last:border-b-0 hover:bg-muted/20">
+                  <td className="px-4 py-2">
+                    {member.name || <span className="text-muted-foreground">-</span>}
+                  </td>
+                  <td className="px-4 py-2 text-muted-foreground">{member.email || '-'}</td>
+                  <td className="px-4 py-2">
+                    {canManageMembers ? (
+                      <button
+                        onClick={() => setEditingMember({ userId: member.user_id, role: member.role })}
+                        className="hover:underline cursor-pointer"
+                      >
+                        {member.role.charAt(0) + member.role.slice(1).toLowerCase()}
+                      </button>
+                    ) : (
+                      <span>{member.role.charAt(0) + member.role.slice(1).toLowerCase()}</span>
+                    )}
+                  </td>
+                  {canManageMembers && (
+                    <td className="px-4 py-2">
+                      <DeleteIconButton
+                        onClick={() => removeMemberMutation.mutate(member.user_id)}
+                        disabled={removeMemberMutation.isPending}
+                      />
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}

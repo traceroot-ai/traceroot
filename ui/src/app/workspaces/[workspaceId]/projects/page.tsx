@@ -3,42 +3,11 @@
 import { useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { useQuery } from "@tanstack/react-query";
-import { getWorkspace, type Project } from "@/lib/api";
-import { Card, CardContent } from "@/components/ui/card";
-import { useLayout } from "@/components/layout/app-layout";
-import { FolderKanban, Settings } from "lucide-react";
 import Link from "next/link";
-import { CreateProjectDialog } from "@/components/CreateProjectDialog";
-
-function ProjectCard({ project }: { project: Project }) {
-  const router = useRouter();
-
-  return (
-    <Card
-      className="cursor-pointer transition-all hover:shadow-md hover:border-foreground/20"
-      onClick={() => router.push(`/${project.id}/traces`)}
-    >
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between mb-3">
-          <h3 className="font-medium text-[13px]">{project.name}</h3>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              router.push(`/${project.id}/settings`);
-            }}
-            className="p-1 hover:bg-muted rounded transition-colors"
-          >
-            <Settings className="h-3.5 w-3.5 text-muted-foreground" />
-          </button>
-        </div>
-        <div className="text-[11px] text-muted-foreground">
-          Created {new Date(project.create_time).toLocaleDateString()}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+import { FolderKanban, ChevronRight } from "lucide-react";
+import { useLayout } from "@/components/layout/app-layout";
+import { CreateProjectDialog, ProjectCard } from "@/features/projects/components";
+import { useWorkspace } from "@/features/workspaces/hooks";
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -55,23 +24,19 @@ export default function ProjectsPage() {
   }, [user, router]);
 
   // Get workspace with projects
-  const { data: workspace, isLoading } = useQuery({
-    queryKey: ["workspace", workspaceId],
-    queryFn: () => getWorkspace(workspaceId),
-    enabled: status === "authenticated" && !!workspaceId,
-  });
+  const { data: workspace, isLoading } = useWorkspace(workspaceId, status === "authenticated");
 
   // Set header content
   useEffect(() => {
     setHeaderContent(
-      <div className="flex items-center gap-2 text-[13px]">
+      <div className="flex items-center gap-1.5 text-[13px]">
         <Link
           href="/workspaces"
           className="hover:underline"
         >
           Workspaces
         </Link>
-        <span className="text-muted-foreground">/</span>
+        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
         <span className="font-medium">{workspace?.name || "..."}</span>
       </div>
     );

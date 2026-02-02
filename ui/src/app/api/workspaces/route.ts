@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
         id: membershipId,
         workspaceId,
         userId: user.id,
-        role: "OWNER",
+        role: "ADMIN",
       },
     });
 
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
     {
       id: workspace.id,
       name: workspace.name,
-      role: "OWNER",
+      role: "ADMIN",
       member_count: 1,
       project_count: 0,
       projects: [],
