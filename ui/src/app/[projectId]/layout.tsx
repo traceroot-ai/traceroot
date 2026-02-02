@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronRight } from 'lucide-react'
 import { useLayout } from '@/components/layout/app-layout'
-import { getProject, getOrganization } from '@/lib/api'
+import { getProject, getWorkspace } from '@/lib/api'
 
 export default function ProjectLayout({
   children,
@@ -24,30 +24,30 @@ export default function ProjectLayout({
     enabled: !!projectId,
   })
 
-  // Fetch organization details once we have the project
-  const { data: org } = useQuery({
-    queryKey: ['organization', project?.org_id],
-    queryFn: () => getOrganization(project!.org_id),
-    enabled: !!project?.org_id,
+  // Fetch workspace details once we have the project
+  const { data: workspace } = useQuery({
+    queryKey: ['workspace', project?.workspace_id],
+    queryFn: () => getWorkspace(project!.workspace_id),
+    enabled: !!project?.workspace_id,
   })
 
-  // Set header content with breadcrumb: Organizations > Org Name > Project Name
+  // Set header content with breadcrumb: Workspaces > Workspace Name > Project Name
   useEffect(() => {
     if (project) {
       setHeaderContent(
         <div className="flex items-center gap-1.5 text-[13px]">
           <Link
-            href="/organizations"
+            href="/workspaces"
             className="hover:underline"
           >
-            Organizations
+            Workspaces
           </Link>
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
           <Link
-            href={`/organizations/${project.org_id}/projects`}
+            href={`/workspaces/${project.workspace_id}/projects`}
             className="hover:underline"
           >
-            {org?.name || '...'}
+            {workspace?.name || '...'}
           </Link>
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="font-medium">{project.name}</span>
@@ -55,7 +55,7 @@ export default function ProjectLayout({
       )
     }
     return () => setHeaderContent(null)
-  }, [project, org, setHeaderContent])
+  }, [project, workspace, setHeaderContent])
 
   return (
     <div className="flex h-full flex-col overflow-hidden">

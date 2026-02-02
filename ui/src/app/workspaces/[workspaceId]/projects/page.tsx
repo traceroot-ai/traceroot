@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
-import { getOrganization, type Project } from "@/lib/api";
+import { getWorkspace, type Project } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLayout } from "@/components/layout/app-layout";
 import { FolderKanban, Settings } from "lucide-react";
@@ -33,7 +33,7 @@ function ProjectCard({ project }: { project: Project }) {
           </button>
         </div>
         <div className="text-[11px] text-muted-foreground">
-          Created {new Date(project.created_at).toLocaleDateString()}
+          Created {new Date(project.create_time).toLocaleDateString()}
         </div>
       </CardContent>
     </Card>
@@ -43,7 +43,7 @@ function ProjectCard({ project }: { project: Project }) {
 export default function ProjectsPage() {
   const router = useRouter();
   const params = useParams();
-  const orgId = params.orgId as string;
+  const workspaceId = params.workspaceId as string;
   const { data: session, status } = useSession();
   const user = session?.user;
   const { setHeaderContent } = useLayout();
@@ -54,11 +54,11 @@ export default function ProjectsPage() {
     }
   }, [user, router]);
 
-  // Get organization with projects
-  const { data: org, isLoading } = useQuery({
-    queryKey: ["organization", orgId],
-    queryFn: () => getOrganization(orgId),
-    enabled: status === "authenticated" && !!orgId,
+  // Get workspace with projects
+  const { data: workspace, isLoading } = useQuery({
+    queryKey: ["workspace", workspaceId],
+    queryFn: () => getWorkspace(workspaceId),
+    enabled: status === "authenticated" && !!workspaceId,
   });
 
   // Set header content
@@ -66,23 +66,23 @@ export default function ProjectsPage() {
     setHeaderContent(
       <div className="flex items-center gap-2 text-[13px]">
         <Link
-          href="/organizations"
+          href="/workspaces"
           className="hover:underline"
         >
-          Organizations
+          Workspaces
         </Link>
         <span className="text-muted-foreground">/</span>
-        <span className="font-medium">{org?.name || "..."}</span>
+        <span className="font-medium">{workspace?.name || "..."}</span>
       </div>
     );
     return () => setHeaderContent(null);
-  }, [setHeaderContent, org]);
+  }, [setHeaderContent, workspace]);
 
   if (!user) {
     return null;
   }
 
-  const projects = org?.projects || [];
+  const projects = workspace?.projects || [];
 
   return (
     <div className="h-full bg-background overflow-auto">
@@ -91,9 +91,9 @@ export default function ProjectsPage() {
         <div className="flex items-start justify-between mb-4">
           <div>
             <h1 className="text-lg font-semibold">Projects</h1>
-            <p className="text-[13px] text-muted-foreground">View and manage projects in this organization</p>
+            <p className="text-[13px] text-muted-foreground">View and manage projects in this workspace</p>
           </div>
-          <CreateProjectDialog orgId={orgId} />
+          <CreateProjectDialog workspaceId={workspaceId} />
         </div>
 
         {/* Loading State */}
