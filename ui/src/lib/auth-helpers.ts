@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 // Role hierarchy (higher index = more permissions)
-const ROLE_HIERARCHY = ["VIEWER", "MEMBER", "ADMIN", "OWNER"] as const;
+const ROLE_HIERARCHY = ["VIEWER", "MEMBER", "ADMIN"] as const;
 export type Role = (typeof ROLE_HIERARCHY)[number];
 
 export interface AuthenticatedUser {
