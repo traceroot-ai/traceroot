@@ -13,7 +13,6 @@ import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -96,51 +95,51 @@ export default function SignUpPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
+    <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Create your account</CardTitle>
-          <CardDescription>Get started with Traceroot</CardDescription>
+          <CardTitle className="text-lg font-semibold">Create your account</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-5">
           {error && (
-            <div className="rounded-md bg-red-50 p-3 text-sm text-red-500">
+            <div className="border border-red-200 bg-red-50 p-3 text-[12px] text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
               {error}
             </div>
           )}
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
-              <label className="mb-1 block text-sm font-medium">Name</label>
-              <Input placeholder="John Doe" {...register("name")} />
+              <label className="mb-1 block text-[13px] font-medium">Name</label>
+              <Input placeholder="John Doe" className="h-8 text-[13px]" {...register("name")} />
               {errors.name && (
-                <p className="mt-1 text-sm text-red-500">
+                <p className="mt-1 text-[11px] text-red-500">
                   {errors.name.message}
                 </p>
               )}
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium">Email</label>
+              <label className="mb-1 block text-[13px] font-medium">Email</label>
               <Input
                 type="email"
                 placeholder="you@example.com"
+                className="h-8 text-[13px]"
                 {...register("email")}
               />
               {errors.email && (
-                <p className="mt-1 text-sm text-red-500">
+                <p className="mt-1 text-[11px] text-red-500">
                   {errors.email.message}
                 </p>
               )}
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium">Password</label>
+              <label className="mb-1 block text-[13px] font-medium">Password</label>
               <div className="relative">
                 <Input
                   type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
-                  className="pr-10"
+                  className="h-8 pr-10 text-[13px]"
                   {...register("password")}
                 />
                 <button
@@ -148,25 +147,25 @@ export default function SignUpPage() {
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
               {errors.password && (
-                <p className="mt-1 text-sm text-red-500">
+                <p className="mt-1 text-[11px] text-red-500">
                   {errors.password.message}
                 </p>
               )}
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium">
+              <label className="mb-1 block text-[13px] font-medium">
                 Confirm Password
               </label>
               <div className="relative">
                 <Input
                   type={showConfirmPassword ? "text" : "password"}
                   placeholder="••••••••"
-                  className="pr-10"
+                  className="h-8 pr-10 text-[13px]"
                   {...register("confirmPassword")}
                 />
                 <button
@@ -175,20 +174,20 @@ export default function SignUpPage() {
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
                   {showConfirmPassword ? (
-                    <EyeOff size={18} />
+                    <EyeOff size={16} />
                   ) : (
-                    <Eye size={18} />
+                    <Eye size={16} />
                   )}
                 </button>
               </div>
               {errors.confirmPassword && (
-                <p className="mt-1 text-sm text-red-500">
+                <p className="mt-1 text-[11px] text-red-500">
                   {errors.confirmPassword.message}
                 </p>
               )}
             </div>
 
-            <Button type="submit" className="w-full" disabled={isLoading}>
+            <Button type="submit" size="sm" className="w-full h-8 text-[13px]" disabled={isLoading}>
               {isLoading ? "Creating account..." : "Sign up"}
             </Button>
           </form>
@@ -197,8 +196,8 @@ export default function SignUpPage() {
             <div className="absolute inset-0 flex items-center">
               <span className="w-full border-t" />
             </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">
+            <div className="relative flex justify-center text-[11px] uppercase">
+              <span className="bg-card px-2 text-muted-foreground">
                 Or continue with
               </span>
             </div>
@@ -206,14 +205,15 @@ export default function SignUpPage() {
 
           <Button
             variant="outline"
-            className="w-full"
+            size="sm"
+            className="w-full h-8 text-[13px]"
             onClick={handleGoogleSignUp}
             disabled={isGoogleLoading}
           >
             {isGoogleLoading ? "Redirecting..." : "Google"}
           </Button>
 
-          <p className="text-center text-sm text-muted-foreground">
+          <p className="text-center text-[12px] text-muted-foreground">
             Already have an account?{" "}
             <Link
               href="/auth/sign-in"

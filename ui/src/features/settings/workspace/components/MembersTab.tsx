@@ -15,6 +15,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   getWorkspace,
   getMembers,
   updateMemberRole,
@@ -139,17 +146,18 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
             </div>
             <div>
               <label className="text-sm font-medium mb-2 block">Role</label>
-              <select
-                value={newMemberRole}
-                onChange={(e) => setNewMemberRole(e.target.value as Role)}
-                className="flex h-9 w-full border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                {roleOptions.map((role) => (
-                  <option key={role} value={role}>
-                    {role.charAt(0) + role.slice(1).toLowerCase()}
-                  </option>
-                ))}
-              </select>
+              <Select value={newMemberRole} onValueChange={(value) => setNewMemberRole(value as Role)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {roleOptions.map((role) => (
+                    <SelectItem key={role} value={role}>
+                      {role.charAt(0) + role.slice(1).toLowerCase()}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             {inviteMutation.isError && (
               <p className="text-sm text-destructive">
@@ -157,10 +165,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
               </p>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowInviteMember(false)}>
-              Cancel
-            </Button>
+          <DialogFooter className="sm:justify-center">
             <Button
               onClick={handleInviteMember}
               disabled={!newMemberEmail.trim() || inviteMutation.isPending}
@@ -181,26 +186,27 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
           </DialogHeader>
           <div className="py-4">
             <label className="text-sm font-medium mb-2 block">Role</label>
-            <select
+            <Select
               value={editingMember?.role || 'MEMBER'}
-              onChange={(e) =>
+              onValueChange={(value) =>
                 setEditingMember(
-                  editingMember ? { ...editingMember, role: e.target.value as Role } : null
+                  editingMember ? { ...editingMember, role: value as Role } : null
                 )
               }
-              className="flex h-9 w-full border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
-              {roleOptions.map((role) => (
-                <option key={role} value={role}>
-                  {role.charAt(0) + role.slice(1).toLowerCase()}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {roleOptions.map((role) => (
+                  <SelectItem key={role} value={role}>
+                    {role.charAt(0) + role.slice(1).toLowerCase()}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingMember(null)}>
-              Cancel
-            </Button>
+          <DialogFooter className="sm:justify-center">
             <Button onClick={handleUpdateRole} disabled={updateRoleMutation.isPending}>
               {updateRoleMutation.isPending ? 'Saving...' : 'Save'}
             </Button>
