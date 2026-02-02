@@ -3,9 +3,8 @@
 import { useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import Link from "next/link";
-import { FolderKanban, ChevronRight } from "lucide-react";
-import { useLayout } from "@/components/layout/app-layout";
+import { FolderKanban } from "lucide-react";
+import { WorkspaceBreadcrumb } from "@/components/layout/breadcrumb";
 import { CreateProjectDialog, ProjectCard } from "@/features/projects/components";
 import { useWorkspace } from "@/features/workspaces/hooks";
 
@@ -15,7 +14,6 @@ export default function ProjectsPage() {
   const workspaceId = params.workspaceId as string;
   const { data: session, status } = useSession();
   const user = session?.user;
-  const { setHeaderContent } = useLayout();
 
   useEffect(() => {
     if (!user) {
@@ -26,23 +24,6 @@ export default function ProjectsPage() {
   // Get workspace with projects
   const { data: workspace, isLoading } = useWorkspace(workspaceId, status === "authenticated");
 
-  // Set header content
-  useEffect(() => {
-    setHeaderContent(
-      <div className="flex items-center gap-1.5 text-[13px]">
-        <Link
-          href="/workspaces"
-          className="hover:underline"
-        >
-          Workspaces
-        </Link>
-        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="font-medium">{workspace?.name || "..."}</span>
-      </div>
-    );
-    return () => setHeaderContent(null);
-  }, [setHeaderContent, workspace]);
-
   if (!user) {
     return null;
   }
@@ -51,6 +32,8 @@ export default function ProjectsPage() {
 
   return (
     <div className="h-full bg-background overflow-auto">
+      <WorkspaceBreadcrumb workspaceId={workspaceId} />
+
       <div className="p-4">
         {/* Section header with title and button */}
         <div className="flex items-start justify-between mb-4">
