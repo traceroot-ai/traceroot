@@ -92,6 +92,7 @@ model User {
   email         String?           @unique @db.VarChar
   emailVerified DateTime?         @map("email_verified")
   name          String?           @db.VarChar
+  image         String?           @db.VarChar
   password      String?           @db.VarChar
   createTime    DateTime          @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime    DateTime          @default(now()) @map("update_time") @db.Timestamp(6)

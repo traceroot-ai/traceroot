@@ -9,7 +9,7 @@ import {
 } from "@/lib/auth-helpers";
 
 const updateRoleSchema = z.object({
-  role: z.enum(["VIEWER", "MEMBER", "ADMIN", "OWNER"]),
+  role: z.enum(["VIEWER", "MEMBER", "ADMIN"]),
 });
 
 type RouteParams = { params: Promise<{ workspaceId: string; userId: string }> };
@@ -54,29 +54,22 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     return errorResponse("Member not found", 404);
   }
 
-  // Only OWNER can change to/from OWNER role
-  if (newRole === "OWNER" || targetMembership.role === "OWNER") {
-    if (callerMembership.role !== "OWNER") {
-      return errorResponse("Only owners can change owner roles", 403);
-    }
-  }
-
-  // Cannot demote yourself from OWNER if you're the last owner
+  // Cannot demote yourself from ADMIN if you're the last admin
   if (
     user.id === targetUserId &&
-    targetMembership.role === "OWNER" &&
-    newRole !== "OWNER"
+    targetMembership.role === "ADMIN" &&
+    newRole !== "ADMIN"
   ) {
-    const ownerCount = await prisma.workspaceMember.count({
+    const adminCount = await prisma.workspaceMember.count({
       where: {
         workspaceId,
-        role: "OWNER",
+        role: "ADMIN",
       },
     });
 
-    if (ownerCount <= 1) {
+    if (adminCount <= 1) {
       return errorResponse(
-        "Cannot demote the last owner. Transfer ownership first.",
+        "Cannot demote the last admin. Promote another member first.",
         400
       );
     }
@@ -131,23 +124,18 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     return errorResponse("Member not found", 404);
   }
 
-  // Only OWNER can remove other owners
-  if (targetMembership.role === "OWNER" && callerMembership.role !== "OWNER") {
-    return errorResponse("Only owners can remove other owners", 403);
-  }
-
-  // Cannot remove yourself if you're the last owner
-  if (user.id === targetUserId && targetMembership.role === "OWNER") {
-    const ownerCount = await prisma.workspaceMember.count({
+  // Cannot remove yourself if you're the last admin
+  if (user.id === targetUserId && targetMembership.role === "ADMIN") {
+    const adminCount = await prisma.workspaceMember.count({
       where: {
         workspaceId,
-        role: "OWNER",
+        role: "ADMIN",
       },
     });
 
-    if (ownerCount <= 1) {
+    if (adminCount <= 1) {
       return errorResponse(
-        "Cannot leave as the last owner. Transfer ownership first.",
+        "Cannot leave as the last admin. Promote another member first.",
         400
       );
     }

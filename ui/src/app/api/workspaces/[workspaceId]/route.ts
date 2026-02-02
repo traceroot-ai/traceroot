@@ -102,7 +102,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   });
 }
 
-// DELETE /api/workspaces/[workspaceId] - Delete workspace (OWNER only)
+// DELETE /api/workspaces/[workspaceId] - Delete workspace (ADMIN only)
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
 
@@ -110,7 +110,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
-  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, "OWNER");
+  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, "ADMIN");
   if (membershipResult.error) return membershipResult.error;
 
   // Delete workspace (cascades to projects, memberships, invites, access keys)
