@@ -4,7 +4,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { SlidersHorizontal, Key } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { ProjectBreadcrumb } from '@/components/layout/breadcrumb'
+import { ProjectBreadcrumb } from '@/features/projects/components'
 import { GeneralTab } from '@/features/settings/project'
 
 const settingsTabs = [

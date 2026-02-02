@@ -3,3 +3,4 @@
  */
 export { ProjectCard } from './ProjectCard';
 export { CreateProjectDialog } from './CreateProjectDialog';
+export { ProjectBreadcrumb } from './ProjectBreadcrumb';

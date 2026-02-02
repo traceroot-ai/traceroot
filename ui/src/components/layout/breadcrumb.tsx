@@ -1,11 +1,7 @@
 'use client'
 
-import { useEffect } from 'react'
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
-import { useLayout } from './app-layout'
-import { useProject } from '@/features/projects/hooks'
-import { useWorkspace } from '@/features/workspaces/hooks'
 
 export interface BreadcrumbItem {
   label: string
@@ -17,7 +13,16 @@ interface BreadcrumbProps {
 }
 
 /**
- * Generic breadcrumb renderer
+ * Generic breadcrumb renderer - a pure UI primitive.
+ *
+ * Usage:
+ * ```tsx
+ * <Breadcrumb items={[
+ *   { label: 'Home', href: '/' },
+ *   { label: 'Projects', href: '/projects' },
+ *   { label: 'Current Page' }  // no href = not a link
+ * ]} />
+ * ```
  */
 export function Breadcrumb({ items }: BreadcrumbProps) {
   return (
@@ -38,90 +43,4 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
       ))}
     </div>
   )
-}
-
-interface ProjectBreadcrumbProps {
-  projectId: string
-  /** Final breadcrumb text (e.g., "Settings", trace name). If provided, project becomes a link. */
-  current?: string
-}
-
-/**
- * Breadcrumb component for project context pages.
- * Automatically fetches project and workspace data and sets the header.
- *
- * Usage:
- * ```tsx
- * <ProjectBreadcrumb projectId={projectId} />
- * <ProjectBreadcrumb projectId={projectId} current="Settings" />
- * <ProjectBreadcrumb projectId={projectId} current={trace?.name} />
- * ```
- */
-export function ProjectBreadcrumb({ projectId, current }: ProjectBreadcrumbProps) {
-  const { setHeaderContent } = useLayout()
-  const { data: project } = useProject(projectId)
-  const { data: workspace } = useWorkspace(project?.workspace_id || '', !!project?.workspace_id)
-
-  useEffect(() => {
-    const breadcrumbItems: BreadcrumbItem[] = [
-      { label: 'Workspaces', href: '/workspaces' },
-      {
-        label: workspace?.name || '...',
-        href: `/workspaces/${project?.workspace_id}/projects`
-      },
-      {
-        label: project?.name || '...',
-        href: current ? `/projects/${projectId}/traces` : undefined
-      },
-    ]
-
-    if (current) {
-      breadcrumbItems.push({ label: current })
-    }
-
-    setHeaderContent(<Breadcrumb items={breadcrumbItems} />)
-    return () => setHeaderContent(null)
-  }, [setHeaderContent, project, workspace, projectId, current])
-
-  return null
-}
-
-interface WorkspaceBreadcrumbProps {
-  workspaceId: string
-  /** Final breadcrumb text (e.g., "Settings"). If provided, workspace becomes a link. */
-  current?: string
-}
-
-/**
- * Breadcrumb component for workspace context pages.
- * Automatically fetches workspace data and sets the header.
- *
- * Usage:
- * ```tsx
- * <WorkspaceBreadcrumb workspaceId={workspaceId} />
- * <WorkspaceBreadcrumb workspaceId={workspaceId} current="Settings" />
- * ```
- */
-export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrumbProps) {
-  const { setHeaderContent } = useLayout()
-  const { data: workspace } = useWorkspace(workspaceId)
-
-  useEffect(() => {
-    const breadcrumbItems: BreadcrumbItem[] = [
-      { label: 'Workspaces', href: '/workspaces' },
-      {
-        label: workspace?.name || '...',
-        href: current ? `/workspaces/${workspaceId}/projects` : undefined
-      },
-    ]
-
-    if (current) {
-      breadcrumbItems.push({ label: current })
-    }
-
-    setHeaderContent(<Breadcrumb items={breadcrumbItems} />)
-    return () => setHeaderContent(null)
-  }, [setHeaderContent, workspace, workspaceId, current])
-
-  return null
 }

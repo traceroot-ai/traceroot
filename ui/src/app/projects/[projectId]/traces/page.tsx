@@ -6,7 +6,7 @@ import { Search, ChevronLeft, ChevronRight, ChevronDown, Workflow, Users, Layers
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { ProjectBreadcrumb } from '@/components/layout/breadcrumb'
+import { ProjectBreadcrumb } from '@/features/projects/components'
 import { formatDuration, formatDate, cn } from '@/lib/utils'
 import type { TraceListItem } from '@/types/api'
 import { useTraces } from '@/features/traces/hooks'

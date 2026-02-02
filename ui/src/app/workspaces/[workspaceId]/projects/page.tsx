@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { FolderKanban } from "lucide-react";
-import { WorkspaceBreadcrumb } from "@/components/layout/breadcrumb";
+import { WorkspaceBreadcrumb } from "@/features/workspaces/components";
 import { CreateProjectDialog, ProjectCard } from "@/features/projects/components";
 import { useWorkspace } from "@/features/workspaces/hooks";
 
