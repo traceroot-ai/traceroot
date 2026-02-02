@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createOrganization } from "@/lib/api";
+import { createWorkspace } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -16,19 +16,19 @@ import {
 } from "@/components/ui/dialog";
 import { Plus } from "lucide-react";
 
-interface CreateOrgDialogProps {
+interface CreateWorkspaceDialogProps {
   trigger?: React.ReactNode;
 }
 
-export function CreateOrgDialog({ trigger }: CreateOrgDialogProps) {
+export function CreateWorkspaceDialog({ trigger }: CreateWorkspaceDialogProps) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const queryClient = useQueryClient();
 
   const createMutation = useMutation({
-    mutationFn: (name: string) => createOrganization(name),
+    mutationFn: (name: string) => createWorkspace(name),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["organizations"] });
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       setOpen(false);
       setName("");
     },
@@ -47,21 +47,21 @@ export function CreateOrgDialog({ trigger }: CreateOrgDialogProps) {
         {trigger || (
           <Button variant="outline" size="sm" className="h-7 text-[12px] gap-1">
             <Plus className="h-3 w-3" />
-            New Organization
+            New Workspace
           </Button>
         )}
       </DialogTrigger>
       <DialogContent>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>Create Organization</DialogTitle>
+            <DialogTitle>Create Workspace</DialogTitle>
             <DialogDescription>
-              Create a new organization to manage your projects and team members.
+              Create a new workspace to manage your projects and team members.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <Input
-              placeholder="Organization name"
+              placeholder="Workspace name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={createMutation.isPending}

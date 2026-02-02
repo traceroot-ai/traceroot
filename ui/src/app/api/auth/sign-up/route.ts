@@ -50,7 +50,6 @@ export async function POST(request: NextRequest) {
         name,
         email: normalizedEmail,
         password: hashedPassword,
-        admin: false,
       },
     });
 

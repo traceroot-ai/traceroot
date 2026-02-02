@@ -14,20 +14,19 @@ Authentication is via API key in the Authorization header:
 import gzip
 import hashlib
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from google.protobuf.json_format import MessageToDict
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
 )
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.postgres.api_key import get_api_key_by_hash, update_api_key_last_used
-from db.postgres.engine import get_session as get_postgres_session
 from rest.services.s3 import get_s3_service
 from worker.tasks import process_s3_traces
 
@@ -35,25 +34,23 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/public/traces", tags=["Traces (Public)"])
 
-
-async def get_db_session():
-    """Get a database session."""
-    async with get_postgres_session() as session:
-        yield session
+# Configuration for internal API (Python → Next.js)
+TRACEROOT_UI_URL = os.getenv("TRACEROOT_UI_URL", "http://localhost:3000")
+INTERNAL_API_SECRET = os.getenv("INTERNAL_API_SECRET", "")
 
 
 async def authenticate_api_key(
     authorization: Annotated[str | None, Header()] = None,
-    session: AsyncSession = Depends(get_db_session),
 ) -> str:
     """Authenticate the request using API key and return the project_id.
 
     The API key should be in the Authorization header as:
         Authorization: Bearer <api_key>
 
+    Validates the API key by calling the Next.js internal API.
+
     Args:
         authorization: Authorization header value.
-        session: Database session.
 
     Returns:
         The project_id associated with the API key.
@@ -77,28 +74,47 @@ async def authenticate_api_key(
 
     api_key = parts[1]
 
-    # Hash the key and look it up
+    # Hash the key
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
-    api_key_record = await get_api_key_by_hash(session, key_hash)
 
-    if not api_key_record:
+    # Validate via Next.js internal API
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{TRACEROOT_UI_URL}/api/internal/validate-api-key",
+                json={"keyHash": key_hash},
+                headers={"X-Internal-Secret": INTERNAL_API_SECRET},
+            )
+    except httpx.RequestError as e:
+        logger.error(f"Failed to validate API key: {e}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable",
         )
 
-    # Check expiration
-    if api_key_record.expires_at and api_key_record.expires_at < datetime.now(timezone.utc):
+    if response.status_code == 401:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="API key has expired",
+            detail="Authentication failed",
         )
 
-    # Update last_used_at
-    await update_api_key_last_used(session, api_key_record.id)
-    await session.commit()
+    if response.status_code != 200:
+        logger.error(f"Unexpected response from auth service: {response.status_code}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
 
-    return api_key_record.project_id
+    data = response.json()
+
+    if not data.get("valid"):
+        error_message = data.get("error", "Invalid API key")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=error_message,
+        )
+
+    return data["projectId"]
 
 
 ProjectId = Annotated[str, Depends(authenticate_api_key)]

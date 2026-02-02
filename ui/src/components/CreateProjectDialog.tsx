@@ -17,21 +17,21 @@ import {
 import { Plus } from "lucide-react";
 
 interface CreateProjectDialogProps {
-  orgId: string;
+  workspaceId: string;
   trigger?: React.ReactNode;
 }
 
-export function CreateProjectDialog({ orgId, trigger }: CreateProjectDialogProps) {
+export function CreateProjectDialog({ workspaceId, trigger }: CreateProjectDialogProps) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const queryClient = useQueryClient();
 
   const createMutation = useMutation({
-    mutationFn: (name: string) => createProject(orgId, name),
+    mutationFn: (name: string) => createProject(workspaceId, name),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["organization", orgId] });
-      queryClient.invalidateQueries({ queryKey: ["organizations"] });
-      queryClient.invalidateQueries({ queryKey: ["projects", orgId] });
+      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({ queryKey: ["projects", workspaceId] });
       setOpen(false);
       setName("");
     },
