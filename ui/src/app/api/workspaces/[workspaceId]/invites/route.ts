@@ -7,6 +7,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { sendInviteEmail } from "@/lib/email";
 
 const createInviteSchema = z.object({
   email: z.string().email("Invalid email"),
@@ -127,8 +128,25 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       invitedBy: {
         select: { id: true, email: true, name: true },
       },
+      workspace: {
+        select: { name: true },
+      },
     },
   });
+
+  // Send invitation email (don't fail request if email fails)
+  try {
+    await sendInviteEmail({
+      to: normalizedEmail,
+      inviterName: user.name || user.email || "A team member",
+      inviterEmail: user.email || "",
+      workspaceName: invite.workspace.name,
+      inviteId: invite.id,
+      role,
+    });
+  } catch (error) {
+    console.error("[Invite] Failed to send invitation email:", error);
+  }
 
   return NextResponse.json(
     {
