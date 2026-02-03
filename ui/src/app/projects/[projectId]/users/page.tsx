@@ -3,8 +3,9 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { Workflow, Users, Layers, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Workflow, Users, Layers, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ProjectBreadcrumb } from '@/features/projects/components'
 import { useUsers } from '@/features/traces/hooks'
 import { formatDate, cn } from '@/lib/utils'
@@ -22,6 +23,7 @@ export default function UsersPage() {
   const projectId = params.projectId as string
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
+  const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false)
 
   const { data, isLoading, error } = useUsers(projectId, { page, limit })
 
@@ -128,18 +130,32 @@ export default function UsersPage() {
               <div className="border-t border-gray-200 px-4 py-2.5 flex items-center justify-end gap-6 bg-white">
                 <div className="flex items-center gap-2">
                   <span className="text-[12px] text-gray-500">Items per page</span>
-                  <select
-                    className="border border-gray-200 rounded px-2 py-1 text-[12px] bg-white h-7"
-                    value={limit}
-                    onChange={(e) => {
-                      setLimit(Number(e.target.value))
-                      setPage(0)
-                    }}
-                  >
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                    <option value={200}>200</option>
-                  </select>
+                  <Popover open={itemsPerPageOpen} onOpenChange={setItemsPerPageOpen}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-7 min-w-[60px] justify-between text-[12px] border-gray-200 px-2">
+                        <span>{limit}</span>
+                        <ChevronDown className="h-3 w-3 text-gray-400 ml-1" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent side="top" align="start" className="w-[80px] p-1">
+                      {[50, 100, 200].map((value) => (
+                        <button
+                          key={value}
+                          className={cn(
+                            'w-full rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors',
+                            limit === value ? 'bg-gray-100' : 'hover:bg-gray-50'
+                          )}
+                          onClick={() => {
+                            setLimit(value)
+                            setPage(0)
+                            setItemsPerPageOpen(false)
+                          }}
+                        >
+                          {value}
+                        </button>
+                      ))}
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[12px] text-gray-500">Page</span>
@@ -154,7 +170,7 @@ export default function UsersPage() {
                         setPage(val - 1)
                       }
                     }}
-                    className="border border-gray-200 rounded px-2 py-1 text-[12px] bg-white h-7 w-12 text-center"
+                    className="border border-gray-200 rounded px-2 py-1 text-[12px] bg-white h-7 w-12 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                   <span className="text-[12px] text-gray-500">of {Math.max(1, totalPages)}</span>
                 </div>
