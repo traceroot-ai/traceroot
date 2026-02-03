@@ -23,7 +23,7 @@ export default function SessionsPage() {
       {/* Main content */}
       <div className="flex-1 flex flex-col">
         {/* Tab navigation */}
-        <div className="border-b bg-white">
+        <div className="border-b border-border bg-background">
           <div className="flex">
             {tabs.map((tab) => {
               const Icon = tab.icon
@@ -35,8 +35,8 @@ export default function SessionsPage() {
                   className={cn(
                     'flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium border-b-2 transition-colors',
                     isActive
-                      ? 'border-gray-900 bg-muted'
-                      : 'border-transparent hover:bg-muted/50'
+                      ? 'border-foreground bg-muted text-foreground'
+                      : 'border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -48,10 +48,10 @@ export default function SessionsPage() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto bg-white">
+        <div className="flex-1 overflow-auto bg-background">
           <div className="flex h-64 items-center justify-center flex-col gap-3">
-            <Layers className="h-10 w-10 text-gray-400" />
-            <p className="text-gray-500 text-[13px]">Sessions view coming soon</p>
+            <Layers className="h-10 w-10 text-muted-foreground" />
+            <p className="text-muted-foreground text-[13px]">Sessions view coming soon</p>
           </div>
         </div>
       </div>
