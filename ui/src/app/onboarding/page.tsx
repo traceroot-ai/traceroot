@@ -121,7 +121,7 @@ export default function OnboardingPage() {
 
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
 
-      router.push(`/${project.id}/traces`);
+      router.push(`/projects/${project.id}/traces`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setIsLoading(false);

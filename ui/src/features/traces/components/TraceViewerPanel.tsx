@@ -104,7 +104,7 @@ export function TraceViewerPanel({
 
           {/* Right: Detail panel */}
           <div className="flex-1 overflow-hidden">
-            <SpanInfoPanel trace={trace} selection={selection} />
+            <SpanInfoPanel projectId={projectId} trace={trace} selection={selection} onClose={onClose} />
           </div>
         </div>
       )}

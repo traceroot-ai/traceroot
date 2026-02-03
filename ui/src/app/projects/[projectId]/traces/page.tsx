@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { useParams } from 'next/navigation'
-import { Search, ChevronLeft, ChevronRight, ChevronDown, Workflow, Users, Layers } from 'lucide-react'
+import Link from 'next/link'
+import { useParams, useSearchParams, useRouter } from 'next/navigation'
+import { Search, ChevronLeft, ChevronRight, ChevronDown, Workflow, Users, Layers, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -15,9 +16,9 @@ import { formatContentPreview } from '@/features/traces/utils'
 
 // Tab definitions
 const tabs = [
-  { id: 'traces', label: 'Traces', icon: Workflow },
-  { id: 'sessions', label: 'Sessions', icon: Layers },
-  { id: 'users', label: 'Users', icon: Users },
+  { id: 'traces', label: 'Traces', icon: Workflow, href: 'traces' },
+  { id: 'sessions', label: 'Sessions', icon: Layers, href: 'sessions' },
+  { id: 'users', label: 'Users', icon: Users, href: 'users' },
 ]
 
 const timeRangeOptions = [
@@ -30,19 +31,23 @@ const timeRangeOptions = [
 
 export default function TracesPage() {
   const params = useParams()
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const projectId = params.projectId as string
-  const [activeTab, setActiveTab] = useState('traces')
+  const userId = searchParams.get('user_id')
   const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
   const [search, setSearch] = useState('')
   const [timeRange, setTimeRange] = useState(timeRangeOptions[2])
   const [timeRangeOpen, setTimeRangeOpen] = useState(false)
+  const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false)
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null)
 
   const { data, isLoading, error } = useTraces(projectId, {
     page,
     limit,
     name: search || undefined,
+    user_id: userId || undefined,
   })
 
   const traces = data?.data || []
@@ -60,11 +65,11 @@ export default function TracesPage() {
           <div className="flex">
             {tabs.map((tab) => {
               const Icon = tab.icon
-              const isActive = activeTab === tab.id
+              const isActive = tab.id === 'traces'
               return (
-                <button
+                <Link
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  href={`/projects/${projectId}/${tab.href}`}
                   className={cn(
                     'flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium border-b-2 transition-colors',
                     isActive
@@ -74,7 +79,7 @@ export default function TracesPage() {
                 >
                   <Icon className="h-3.5 w-3.5" />
                   {tab.label}
-                </button>
+                </Link>
               )
             })}
           </div>
@@ -95,6 +100,20 @@ export default function TracesPage() {
                 className="pl-8 h-8 text-[13px] border-gray-200"
               />
             </div>
+            {userId && (
+              <div className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-muted/40 pl-2.5 pr-1.5 py-1">
+                <Users className="h-3 w-3 text-muted-foreground" />
+                <span className="text-[12px] text-muted-foreground">User:</span>
+                <span className="text-[12px] font-medium text-gray-900">{userId}</span>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/projects/${projectId}/traces`)}
+                  className="ml-1 rounded hover:bg-muted p-0.5 transition-colors"
+                >
+                  <X className="h-3 w-3 text-muted-foreground" />
+                </button>
+              </div>
+            )}
             <div className="flex-1" />
             <Popover open={timeRangeOpen} onOpenChange={setTimeRangeOpen}>
               <PopoverTrigger asChild>
@@ -127,26 +146,25 @@ export default function TracesPage() {
 
         {/* Content */}
         <div className="flex-1 overflow-auto bg-white">
-          {activeTab === 'traces' ? (
-            isLoading ? (
-              <div className="flex h-64 items-center justify-center">
-                <p className="text-gray-500 text-[13px]">Loading traces...</p>
-              </div>
-            ) : error ? (
-              <div className="flex h-64 items-center justify-center flex-col gap-3">
-                <p className="text-red-600 text-[13px]">Error loading traces</p>
-                <p className="text-[12px] text-gray-500">
-                  Make sure the API server is running and you have API keys configured.
-                </p>
-              </div>
-            ) : traces.length === 0 ? (
-              <div className="flex h-64 items-center justify-center flex-col gap-3">
-                <p className="text-gray-500 text-[13px]">No traces found</p>
-                <p className="text-[12px] text-gray-500">
-                  Start sending traces using the SDK to see them here.
-                </p>
-              </div>
-            ) : (
+          {isLoading ? (
+            <div className="flex h-64 items-center justify-center">
+              <p className="text-gray-500 text-[13px]">Loading traces...</p>
+            </div>
+          ) : error ? (
+            <div className="flex h-64 items-center justify-center flex-col gap-3">
+              <p className="text-red-600 text-[13px]">Error loading traces</p>
+              <p className="text-[12px] text-gray-500">
+                Make sure the API server is running and you have API keys configured.
+              </p>
+            </div>
+          ) : traces.length === 0 ? (
+            <div className="flex h-64 items-center justify-center flex-col gap-3">
+              <p className="text-gray-500 text-[13px]">No traces found</p>
+              <p className="text-[12px] text-gray-500">
+                Start sending traces using the SDK to see them here.
+              </p>
+            </div>
+          ) : (
               <div className="flex flex-col h-full">
                 <div className="flex-1 overflow-auto">
                   <table className="w-full">
@@ -214,18 +232,32 @@ export default function TracesPage() {
                 <div className="border-t border-gray-200 px-4 py-2.5 flex items-center justify-end gap-6 bg-white">
                   <div className="flex items-center gap-2">
                     <span className="text-[12px] text-gray-500">Items per page</span>
-                    <select
-                      className="border border-gray-200 rounded px-2 py-1 text-[12px] bg-white h-7"
-                      value={limit}
-                      onChange={(e) => {
-                        setLimit(Number(e.target.value))
-                        setPage(0)
-                      }}
-                    >
-                      <option value={50}>50</option>
-                      <option value={100}>100</option>
-                      <option value={200}>200</option>
-                    </select>
+                    <Popover open={itemsPerPageOpen} onOpenChange={setItemsPerPageOpen}>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-7 min-w-[60px] justify-between text-[12px] border-gray-200 px-2">
+                          <span>{limit}</span>
+                          <ChevronDown className="h-3 w-3 text-gray-400 ml-1" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent side="top" align="start" className="w-[80px] p-1">
+                        {[50, 100, 200].map((value) => (
+                          <button
+                            key={value}
+                            className={cn(
+                              'w-full rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors',
+                              limit === value ? 'bg-gray-100' : 'hover:bg-gray-50'
+                            )}
+                            onClick={() => {
+                              setLimit(value)
+                              setPage(0)
+                              setItemsPerPageOpen(false)
+                            }}
+                          >
+{value}
+                          </button>
+                        ))}
+                      </PopoverContent>
+                    </Popover>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[12px] text-gray-500">Page</span>
@@ -240,7 +272,7 @@ export default function TracesPage() {
                           setPage(val - 1)
                         }
                       }}
-                      className="border border-gray-200 rounded px-2 py-1 text-[12px] bg-white h-7 w-12 text-center"
+                      className="border border-gray-200 rounded px-2 py-1 text-[12px] bg-white h-7 w-12 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                     <span className="text-[12px] text-gray-500">of {Math.max(1, totalPages)}</span>
                   </div>
@@ -259,17 +291,6 @@ export default function TracesPage() {
                     </Button>
                   </div>
                 </div>
-              </div>
-            )
-          ) : activeTab === 'sessions' ? (
-            <div className="flex h-64 items-center justify-center flex-col gap-3">
-              <Layers className="h-10 w-10 text-gray-400" />
-              <p className="text-gray-500 text-[13px]">Sessions view coming soon</p>
-            </div>
-          ) : (
-            <div className="flex h-64 items-center justify-center flex-col gap-3">
-              <Users className="h-10 w-10 text-gray-400" />
-              <p className="text-gray-500 text-[13px]">Users view coming soon</p>
             </div>
           )}
         </div>

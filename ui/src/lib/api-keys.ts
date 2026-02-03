@@ -10,13 +10,15 @@ export function generateApiKey(): string {
 }
 
 /**
- * Extract the prefix from an API key for display.
- * Shows first 4 and last 4 chars of the UUID part: "tr-d0a3...7e3"
+ * Extract a hint from an API key for display.
+ * Format: "tr-xxxx-yyyy" where xxxx is first 4 chars of UUID and yyyy is last 4 chars.
+ * Example: "tr-d0a3ee92-659e-4f63-ae11-8ca6f57657e3" -> "tr-d0a3-57e3"
  */
 export function getKeyPrefix(apiKey: string): string {
   // apiKey is like "tr-d0a3ee92-659e-4f63-ae11-8ca6f57657e3"
-  // We want to store enough to identify it: "tr-d0a3ee92"
-  return apiKey.substring(0, 14);
+  const prefix = apiKey.substring(0, 7); // "tr-d0a3"
+  const suffix = apiKey.substring(apiKey.length - 4); // "57e3"
+  return `${prefix}-${suffix}`;
 }
 
 /**

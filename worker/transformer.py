@@ -168,6 +168,23 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
     return "SPAN"
 
 
+def _extract_user_id(attrs: dict[str, Any]) -> str | None:
+    """Extract user_id from span attributes, checking multiple keys."""
+    return (
+        attrs.get("traceroot.trace.user_id")
+        or attrs.get("user.id")
+        or attrs.get("session.user_id")
+    )
+
+
+def _extract_session_id(attrs: dict[str, Any]) -> str | None:
+    """Extract session_id from span attributes, checking multiple keys."""
+    return (
+        attrs.get("traceroot.trace.session_id")
+        or attrs.get("session.id")
+    )
+
+
 def transform_otel_to_clickhouse(
     otel_data: dict,
     project_id: str,
@@ -183,6 +200,10 @@ def transform_otel_to_clickhouse(
     """
     traces: dict[str, dict] = {}  # trace_id -> trace record
     spans: list[dict] = []
+
+    # Track user_id/session_id per trace, collected from ANY span
+    # Priority: root span values > first child span values
+    trace_attrs: dict[str, dict[str, str | None]] = {}  # trace_id -> {"user_id": ..., "session_id": ...}
 
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
@@ -281,28 +302,34 @@ def transform_otel_to_clickhouse(
 
                 spans.append(span_record)
 
+                # Collect user_id/session_id from ANY span (not just root)
+                # Priority: root span values overwrite, child span values only set if empty
+                span_user_id = _extract_user_id(span_attrs)
+                span_session_id = _extract_session_id(span_attrs)
+
+                if trace_id not in trace_attrs:
+                    trace_attrs[trace_id] = {"user_id": None, "session_id": None}
+
+                if not parent_span_id:
+                    # Root span: always use its values if present (overwrites child values)
+                    trace_attrs[trace_id]["user_id"] = span_user_id or trace_attrs[trace_id]["user_id"]
+                    trace_attrs[trace_id]["session_id"] = span_session_id or trace_attrs[trace_id]["session_id"]
+                else:
+                    # Child span: only set if not already set (first child wins)
+                    trace_attrs[trace_id]["user_id"] = trace_attrs[trace_id]["user_id"] or span_user_id
+                    trace_attrs[trace_id]["session_id"] = trace_attrs[trace_id]["session_id"] or span_session_id
+
                 # Only create trace record when we find a root span (no parent)
                 # This prevents batches without root spans from creating trace
                 # records with incorrect names that would overwrite the correct one
                 if not parent_span_id:
-                    # Get user/session from attributes
-                    user_id = (
-                        span_attrs.get("traceroot.trace.user_id")
-                        or span_attrs.get("user.id")
-                        or span_attrs.get("session.user_id")
-                    )
-                    session_id = (
-                        span_attrs.get("traceroot.trace.session_id")
-                        or span_attrs.get("session.id")
-                    )
-
                     traces[trace_id] = {
                         "trace_id": trace_id,
                         "project_id": project_id,
                         "trace_start_time": start_time,
                         "name": span_name,
-                        "user_id": user_id,
-                        "session_id": session_id,
+                        "user_id": trace_attrs[trace_id]["user_id"],
+                        "session_id": trace_attrs[trace_id]["session_id"],
                         "environment": environment,
                     }
 
@@ -319,5 +346,14 @@ def transform_otel_to_clickhouse(
                             if not isinstance(span_output, str)
                             else span_output
                         )
+
+    # Update trace records with user_id/session_id collected from child spans
+    # (in case child spans with these attrs came after the root span was processed)
+    for trace_id, attrs in trace_attrs.items():
+        if trace_id in traces:
+            if attrs["user_id"] and not traces[trace_id].get("user_id"):
+                traces[trace_id]["user_id"] = attrs["user_id"]
+            if attrs["session_id"] and not traces[trace_id].get("session_id"):
+                traces[trace_id]["session_id"] = attrs["session_id"]
 
     return list(traces.values()), spans
