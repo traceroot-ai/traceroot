@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
 import {
   Popover,
   PopoverContent,
@@ -27,52 +26,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
-
-function Logo() {
-  const { theme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const isDark = mounted && theme === "dark";
-
-  return (
-    <div
-      className={cn(
-        "rounded-md p-1.5",
-        isDark ? "bg-white" : "bg-black"
-      )}
-    >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        className={cn(
-          "h-5 w-5",
-          isDark ? "text-black" : "text-white"
-        )}
-        viewBox="0 0 23 23"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <circle cx="11.5" cy="3.5" r="2.5" />
-        <circle cx="5.5" cy="11.5" r="2.5" />
-        <circle cx="17.5" cy="11.5" r="2.5" />
-        <line x1="11.5" y1="6" x2="11.5" y2="8" />
-        <line x1="11.5" y1="8" x2="7.5" y2="10" />
-        <line x1="11.5" y1="8" x2="15.5" y2="10" />
-        <line x1="5.5" y1="14" x2="5.5" y2="17" />
-        <line x1="17.5" y1="14" x2="17.5" y2="17" />
-        <circle cx="5.5" cy="19.5" r="2.5" />
-        <circle cx="17.5" cy="19.5" r="2.5" />
-      </svg>
-    </div>
-  );
-}
 
 // Check if we're in a project context by looking at the path structure
 function getProjectContext(pathname: string): { isProject: boolean; projectId: string | null } {
