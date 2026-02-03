@@ -1,6 +1,7 @@
 'use client';
 
-import { Clock } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Clock, Users, Layers, ChevronRight } from 'lucide-react';
 import { CopyButton } from '@/components/ui/copy-button';
 import { formatDuration, formatDate } from '@/lib/utils';
 import type { TraceDetail } from '@/types/api';
@@ -11,14 +12,17 @@ import { ContentRenderer } from './ContentRenderer';
 import { ExpandableSection } from '@/components/ui/expandable-section';
 
 interface SpanInfoPanelProps {
+  projectId: string;
   trace: TraceDetail;
   selection: TraceSelection;
+  onClose?: () => void;
 }
 
 /**
  * Right panel showing detailed information about selected trace or span
  */
-export function SpanInfoPanel({ trace, selection }: SpanInfoPanelProps) {
+export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfoPanelProps) {
+  const router = useRouter();
   const isTrace = selection.type === 'trace';
   const name = isTrace ? trace.name : selection.span.name;
   const kind = isTrace ? 'trace' : selection.span.span_kind;
@@ -47,6 +51,7 @@ export function SpanInfoPanel({ trace, selection }: SpanInfoPanelProps) {
         <div className="text-xs text-muted-foreground mb-3">
           {formatDate(timestamp)}
         </div>
+        {/* Static metadata badges */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
             <span className="text-muted-foreground">Span Kind:</span>
@@ -74,6 +79,39 @@ export function SpanInfoPanel({ trace, selection }: SpanInfoPanelProps) {
             </div>
           )}
         </div>
+
+        {/* Clickable User/Session links */}
+        {isTrace && (trace.user_id || trace.session_id) && (
+          <div className="flex flex-wrap items-center gap-2 mt-2">
+            {trace.user_id && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose?.();
+                  router.push(`/projects/${projectId}/traces?user_id=${encodeURIComponent(trace.user_id!)}`);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 pl-2.5 pr-1.5 py-1 text-xs hover:bg-muted transition-colors cursor-pointer"
+              >
+                <Users className="h-3 w-3 text-muted-foreground" />
+                <span className="text-muted-foreground">User:</span>
+                <span className="font-medium">{trace.user_id}</span>
+                <ChevronRight className="h-3 w-3 text-muted-foreground" />
+              </button>
+            )}
+            {trace.session_id && (
+              <button
+                type="button"
+                onClick={() => {/* TODO: handle session_id click */}}
+                className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 pl-2.5 pr-1.5 py-1 text-xs hover:bg-muted transition-colors cursor-pointer"
+              >
+                <Layers className="h-3 w-3 text-muted-foreground" />
+                <span className="text-muted-foreground">Session:</span>
+                <span className="font-medium">{trace.session_id}</span>
+                <ChevronRight className="h-3 w-3 text-muted-foreground" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Content */}
