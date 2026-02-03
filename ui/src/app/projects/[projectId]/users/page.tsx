@@ -110,10 +110,7 @@ export default function UsersPage() {
                         className="border-b border-gray-100 last:border-0 cursor-pointer hover:bg-gray-50 transition-colors"
                       >
                         <td className="px-3 py-2 text-[12px] text-gray-900 border-r border-gray-100">
-                          <div className="flex items-center gap-2">
-                            <Users className="h-3.5 w-3.5 text-gray-400" />
-                            {user.user_id}
-                          </div>
+                          {user.user_id}
                         </td>
                         <td className="px-3 py-2 text-[12px] text-gray-600 border-r border-gray-100">
                           {user.trace_count}
