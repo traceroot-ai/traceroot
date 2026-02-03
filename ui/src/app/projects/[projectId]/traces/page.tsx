@@ -61,7 +61,7 @@ export default function TracesPage() {
       {/* Main content */}
       <div className="flex-1 flex flex-col">
         {/* Tab navigation */}
-        <div className="border-b bg-white">
+        <div className="border-b border-border bg-background">
           <div className="flex">
             {tabs.map((tab) => {
               const Icon = tab.icon
@@ -73,8 +73,8 @@ export default function TracesPage() {
                   className={cn(
                     'flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium border-b-2 transition-colors',
                     isActive
-                      ? 'border-gray-900 bg-muted'
-                      : 'border-transparent hover:bg-muted/50'
+                      ? 'border-foreground bg-muted text-foreground'
+                      : 'border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -86,10 +86,10 @@ export default function TracesPage() {
         </div>
 
         {/* Filters bar */}
-        <div className="border-b bg-white px-3 py-1.5">
+        <div className="border-b border-border bg-background px-3 py-1.5">
           <div className="flex items-center gap-3">
             <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Search..."
                 value={search}
@@ -97,14 +97,14 @@ export default function TracesPage() {
                   setSearch(e.target.value)
                   setPage(0)
                 }}
-                className="pl-8 h-8 text-[13px] border-gray-200"
+                className="pl-8 h-8 text-[13px]"
               />
             </div>
             {userId && (
-              <div className="flex items-center gap-1.5 rounded-md border border-gray-200 bg-muted/40 pl-2.5 pr-1.5 py-1">
+              <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 pl-2.5 pr-1.5 py-1">
                 <Users className="h-3 w-3 text-muted-foreground" />
                 <span className="text-[12px] text-muted-foreground">User:</span>
-                <span className="text-[12px] font-medium text-gray-900">{userId}</span>
+                <span className="text-[12px] font-medium text-foreground">{userId}</span>
                 <button
                   type="button"
                   onClick={() => router.push(`/projects/${projectId}/traces`)}
@@ -117,9 +117,9 @@ export default function TracesPage() {
             <div className="flex-1" />
             <Popover open={timeRangeOpen} onOpenChange={setTimeRangeOpen}>
               <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 min-w-[140px] justify-between text-[13px] border-gray-200">
+                <Button variant="outline" size="sm" className="h-8 min-w-[140px] justify-between text-[13px]">
                   <span>{timeRange.label}</span>
-                  <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-[160px] p-1">
@@ -128,7 +128,7 @@ export default function TracesPage() {
                     key={option.value}
                     className={cn(
                       'w-full rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors',
-                      timeRange.value === option.value ? 'bg-gray-100' : 'hover:bg-gray-50'
+                      timeRange.value === option.value ? 'bg-muted' : 'hover:bg-muted/50'
                     )}
                     onClick={() => {
                       setTimeRange(option)
@@ -145,22 +145,22 @@ export default function TracesPage() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto bg-white">
+        <div className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
-              <p className="text-gray-500 text-[13px]">Loading traces...</p>
+              <p className="text-muted-foreground text-[13px]">Loading traces...</p>
             </div>
           ) : error ? (
             <div className="flex h-64 items-center justify-center flex-col gap-3">
-              <p className="text-red-600 text-[13px]">Error loading traces</p>
-              <p className="text-[12px] text-gray-500">
+              <p className="text-destructive text-[13px]">Error loading traces</p>
+              <p className="text-[12px] text-muted-foreground">
                 Make sure the API server is running and you have API keys configured.
               </p>
             </div>
           ) : traces.length === 0 ? (
             <div className="flex h-64 items-center justify-center flex-col gap-3">
-              <p className="text-gray-500 text-[13px]">No traces found</p>
-              <p className="text-[12px] text-gray-500">
+              <p className="text-muted-foreground text-[13px]">No traces found</p>
+              <p className="text-[12px] text-muted-foreground">
                 Start sending traces using the SDK to see them here.
               </p>
             </div>
@@ -168,24 +168,24 @@ export default function TracesPage() {
               <div className="flex flex-col h-full">
                 <div className="flex-1 overflow-auto">
                   <table className="w-full">
-                    <thead className="sticky top-0 bg-white">
-                      <tr className="border-b border-gray-200 bg-gray-50/50">
-                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-gray-500 border-r border-gray-100 w-[140px]">
+                    <thead className="sticky top-0 bg-background">
+                      <tr className="border-b border-border bg-muted/50">
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground border-r border-border/50 w-[140px]">
                           Timestamp
                         </th>
-                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-gray-500 border-r border-gray-100">
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground border-r border-border/50">
                           Name
                         </th>
-                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-gray-500 border-r border-gray-100">
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground border-r border-border/50">
                           Trace ID
                         </th>
-                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-gray-500 border-r border-gray-100">
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground border-r border-border/50">
                           Input
                         </th>
-                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-gray-500 border-r border-gray-100">
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground border-r border-border/50">
                           Output
                         </th>
-                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-gray-500">
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                           Latency
                         </th>
                       </tr>
@@ -196,30 +196,30 @@ export default function TracesPage() {
                           key={trace.trace_id}
                           onClick={() => setSelectedTraceId(trace.trace_id)}
                           className={cn(
-                            "border-b border-gray-100 last:border-0 cursor-pointer transition-colors",
-                            selectedTraceId === trace.trace_id ? "bg-gray-100" : "hover:bg-gray-50"
+                            "border-b border-border/50 last:border-0 cursor-pointer transition-colors",
+                            selectedTraceId === trace.trace_id ? "bg-muted" : "hover:bg-muted/50"
                           )}
                         >
-                          <td className="px-3 py-1.5 text-[12px] text-gray-500 whitespace-nowrap border-r border-gray-100">
+                          <td className="px-3 py-1.5 text-[12px] text-muted-foreground whitespace-nowrap border-r border-border/50">
                             {formatDate(trace.trace_start_time)}
                           </td>
-                          <td className="px-3 py-1.5 text-[12px] text-gray-900 border-r border-gray-100">
+                          <td className="px-3 py-1.5 text-[12px] text-foreground border-r border-border/50">
                             {trace.name}
                           </td>
-                          <td className="px-3 py-1.5 text-[11px] font-mono text-gray-400 border-r border-gray-100">
+                          <td className="px-3 py-1.5 text-[11px] font-mono text-muted-foreground border-r border-border/50">
                             {trace.trace_id.substring(0, 8)}...
                           </td>
-                          <td className="px-3 py-1.5 max-w-[180px] border-r border-gray-100">
-                            <span className="text-gray-600 text-[11px] font-mono truncate block">
+                          <td className="px-3 py-1.5 max-w-[180px] border-r border-border/50">
+                            <span className="text-muted-foreground text-[11px] font-mono truncate block">
                               {formatContentPreview(trace.input)}
                             </span>
                           </td>
-                          <td className="px-3 py-1.5 max-w-[180px] border-r border-gray-100">
-                            <span className="text-gray-600 text-[11px] font-mono truncate block">
+                          <td className="px-3 py-1.5 max-w-[180px] border-r border-border/50">
+                            <span className="text-muted-foreground text-[11px] font-mono truncate block">
                               {formatContentPreview(trace.output)}
                             </span>
                           </td>
-                          <td className="px-3 py-1.5 text-[12px] text-gray-900 whitespace-nowrap">
+                          <td className="px-3 py-1.5 text-[12px] text-foreground whitespace-nowrap">
                             {formatDuration(trace.duration_ms)}
                           </td>
                         </tr>
@@ -229,14 +229,14 @@ export default function TracesPage() {
                 </div>
 
                 {/* Pagination */}
-                <div className="border-t border-gray-200 px-4 py-2.5 flex items-center justify-end gap-6 bg-white">
+                <div className="border-t border-border px-4 py-2.5 flex items-center justify-end gap-6 bg-background">
                   <div className="flex items-center gap-2">
-                    <span className="text-[12px] text-gray-500">Items per page</span>
+                    <span className="text-[12px] text-muted-foreground">Items per page</span>
                     <Popover open={itemsPerPageOpen} onOpenChange={setItemsPerPageOpen}>
                       <PopoverTrigger asChild>
-                        <Button variant="outline" size="sm" className="h-7 min-w-[60px] justify-between text-[12px] border-gray-200 px-2">
+                        <Button variant="outline" size="sm" className="h-7 min-w-[60px] justify-between text-[12px] px-2">
                           <span>{limit}</span>
-                          <ChevronDown className="h-3 w-3 text-gray-400 ml-1" />
+                          <ChevronDown className="h-3 w-3 text-muted-foreground ml-1" />
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent side="top" align="start" className="w-[80px] p-1">
@@ -245,7 +245,7 @@ export default function TracesPage() {
                             key={value}
                             className={cn(
                               'w-full rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors',
-                              limit === value ? 'bg-gray-100' : 'hover:bg-gray-50'
+                              limit === value ? 'bg-muted' : 'hover:bg-muted/50'
                             )}
                             onClick={() => {
                               setLimit(value)
@@ -260,7 +260,7 @@ export default function TracesPage() {
                     </Popover>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[12px] text-gray-500">Page</span>
+                    <span className="text-[12px] text-muted-foreground">Page</span>
                     <input
                       type="number"
                       min={1}
@@ -272,21 +272,21 @@ export default function TracesPage() {
                           setPage(val - 1)
                         }
                       }}
-                      className="border border-gray-200 rounded px-2 py-1 text-[12px] bg-white h-7 w-12 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      className="border border-border rounded px-2 py-1 text-[12px] bg-background h-7 w-12 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
-                    <span className="text-[12px] text-gray-500">of {Math.max(1, totalPages)}</span>
+                    <span className="text-[12px] text-muted-foreground">of {Math.max(1, totalPages)}</span>
                   </div>
                   <div className="flex items-center gap-0.5">
-                    <Button variant="outline" size="sm" onClick={() => setPage(0)} disabled={page === 0} className="h-7 w-7 p-0 border-gray-200">
+                    <Button variant="outline" size="sm" onClick={() => setPage(0)} disabled={page === 0} className="h-7 w-7 p-0">
                       <ChevronLeft className="h-3.5 w-3.5" /><ChevronLeft className="h-3.5 w-3.5 -ml-2" />
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="h-7 w-7 p-0 border-gray-200">
+                    <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="h-7 w-7 p-0">
                       <ChevronLeft className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages - 1} className="h-7 w-7 p-0 border-gray-200">
+                    <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages - 1} className="h-7 w-7 p-0">
                       <ChevronRight className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} className="h-7 w-7 p-0 border-gray-200">
+                    <Button variant="outline" size="sm" onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} className="h-7 w-7 p-0">
                       <ChevronRight className="h-3.5 w-3.5" /><ChevronRight className="h-3.5 w-3.5 -ml-2" />
                     </Button>
                   </div>
@@ -298,7 +298,7 @@ export default function TracesPage() {
 
       {/* Detail panel - overlays header, takes 70% width, slides in from right */}
       {selectedTraceId && (
-        <div className="fixed top-0 bottom-0 right-0 w-[70%] bg-white z-50 shadow-xl border-l animate-slide-in-right">
+        <div className="fixed top-0 bottom-0 right-0 w-[70%] bg-background z-50 shadow-xl border-l border-border animate-slide-in-right">
           <TraceViewerPanel
             projectId={projectId}
             traceId={selectedTraceId}
