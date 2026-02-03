@@ -44,7 +44,7 @@ export function TraceViewerPanel({
   return (
     <div className="h-full flex flex-col bg-background">
       {/* Top header bar */}
-      <div className="flex items-center justify-between px-4 h-10 border-b bg-muted/30">
+      <div className="flex items-center justify-between px-4 h-10 border-b border-border bg-muted/30">
         <div className="flex items-center gap-2 min-w-0">
           <Workflow className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">Trace</span>
@@ -98,12 +98,12 @@ export function TraceViewerPanel({
       ) : (
         <div className="flex-1 flex overflow-hidden">
           {/* Left: Tree view */}
-          <div className="w-[320px] flex-shrink-0 border-r overflow-y-auto">
+          <div className="w-[320px] flex-shrink-0 border-r border-border bg-muted/30 overflow-y-auto">
             <SpanTreeView trace={trace} selection={selection} onSelect={setSelection} />
           </div>
 
           {/* Right: Detail panel */}
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden bg-background">
             <SpanInfoPanel projectId={projectId} trace={trace} selection={selection} onClose={onClose} />
           </div>
         </div>

@@ -38,7 +38,7 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
   return (
     <div className="h-full overflow-y-auto">
       {/* Header */}
-      <div className="px-4 py-3 border-b sticky top-0 bg-background z-10">
+      <div className="px-4 py-3 border-b border-border sticky top-0 bg-background z-10">
         <div className="flex items-center gap-2 mb-1">
           <SpanKindIcon kind={kind} size="md" selected />
           <h3 className="text-sm font-medium">{name}</h3>
