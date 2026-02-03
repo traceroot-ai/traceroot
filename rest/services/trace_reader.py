@@ -15,6 +15,7 @@ class TraceReaderService:
         page: int = 0,
         limit: int = 50,
         name: str | None = None,
+        user_id: str | None = None,
     ) -> dict:
         """List traces with aggregated metrics from spans."""
         offset = page * limit
@@ -26,6 +27,10 @@ class TraceReaderService:
         if name:
             conditions.append("t.name ILIKE {name:String}")
             params["name"] = f"%{name}%"
+
+        if user_id:
+            conditions.append("t.user_id = {user_id:String}")
+            params["user_id"] = user_id
 
         where_clause = " AND ".join(conditions)
 
@@ -158,6 +163,53 @@ class TraceReaderService:
 
         trace["spans"] = spans
         return trace
+
+    def list_users(self, project_id: str, page: int = 0, limit: int = 50) -> dict:
+        """List unique users with trace counts."""
+        offset = page * limit
+
+        query = """
+            SELECT
+                user_id,
+                count(DISTINCT trace_id) as trace_count,
+                max(trace_start_time) as last_trace_time
+            FROM traces FINAL
+            WHERE project_id = {project_id:String}
+                AND user_id IS NOT NULL
+                AND user_id != ''
+            GROUP BY user_id
+            ORDER BY last_trace_time DESC
+            LIMIT {limit:UInt32} OFFSET {offset:UInt32}
+        """
+
+        result = self._client.query(
+            query,
+            parameters={"project_id": project_id, "limit": limit, "offset": offset},
+        )
+
+        # Get total count
+        count_query = """
+            SELECT count(DISTINCT user_id)
+            FROM traces FINAL
+            WHERE project_id = {project_id:String}
+                AND user_id IS NOT NULL
+                AND user_id != ''
+        """
+        count_result = self._client.query(count_query, parameters={"project_id": project_id})
+        total = count_result.result_rows[0][0] if count_result.result_rows else 0
+
+        data = []
+        for row in result.result_rows:
+            data.append({
+                "user_id": row[0],
+                "trace_count": row[1],
+                "last_trace_time": row[2],
+            })
+
+        return {
+            "data": data,
+            "meta": {"page": page, "limit": limit, "total": total},
+        }
 
 
 # Singleton instance

@@ -20,6 +20,7 @@ async def list_traces(
     page: int = Query(0, ge=0, description="Page number (0-indexed)"),
     limit: int = Query(50, ge=1, le=100, description="Items per page"),
     name: str | None = Query(None, description="Filter by trace name (partial match)"),
+    user_id: str | None = Query(None, description="Filter by user ID"),
 ):
     """List traces for a project with pagination."""
     try:
@@ -29,6 +30,7 @@ async def list_traces(
             page=page,
             limit=limit,
             name=name,
+            user_id=user_id,
         )
         return result
     except Exception as e:
