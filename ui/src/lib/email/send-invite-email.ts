@@ -3,6 +3,15 @@
  */
 import nodemailer from 'nodemailer';
 
+/**
+ * Escape HTML special characters to prevent XSS
+ */
+function escapeHtml(str: string): string {
+  return str.replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!
+  );
+}
+
 interface SendInviteEmailParams {
   to: string;
   inviterName: string;
@@ -68,6 +77,12 @@ interface EmailContentParams {
 function buildHtmlEmail(params: EmailContentParams): string {
   const { inviterName, inviterEmail, workspaceName, acceptLink, roleName } = params;
 
+  // Escape user-provided data to prevent XSS
+  const safeInviterName = escapeHtml(inviterName);
+  const safeInviterEmail = escapeHtml(inviterEmail);
+  const safeWorkspaceName = escapeHtml(workspaceName);
+  const safeRoleName = escapeHtml(roleName);
+
   return `
 <!DOCTYPE html>
 <html>
@@ -88,7 +103,7 @@ function buildHtmlEmail(params: EmailContentParams): string {
       <tr>
         <td style="padding: 0 40px 24px 40px; text-align: center;">
           <h1 style="font-size: 24px; font-weight: 600; margin: 0; color: #000; letter-spacing: -0.5px;">
-            Join ${workspaceName} on TraceRoot
+            Join ${safeWorkspaceName} on TraceRoot
           </h1>
         </td>
       </tr>
@@ -97,7 +112,7 @@ function buildHtmlEmail(params: EmailContentParams): string {
       <tr>
         <td style="padding: 0 40px 32px 40px;">
           <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6; text-align: center;">
-            <strong>${inviterName}</strong> (${inviterEmail}) has invited you to join the <strong>${workspaceName}</strong> workspace as a <strong>${roleName}</strong>.
+            <strong>${safeInviterName}</strong> (${safeInviterEmail}) has invited you to join the <strong>${safeWorkspaceName}</strong> workspace as a <strong>${safeRoleName}</strong>.
           </p>
         </td>
       </tr>
