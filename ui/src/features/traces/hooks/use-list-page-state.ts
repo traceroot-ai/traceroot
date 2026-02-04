@@ -2,6 +2,7 @@
  * Composed hook for list page state with URL-synced date filter.
  * Combines pagination, URL-based date filtering, and search with coordinated page resets.
  *
+ * URL params: date_filter, start, end (pagination is local state for simplicity)
  * Use this for pages that need shared date filter state (traces, users, sessions).
  */
 import { useMemo } from 'react';
@@ -46,7 +47,7 @@ interface UseListPageStateReturn {
 }
 
 export function useListPageState(defaultLimit = 50): UseListPageStateReturn {
-  // Pagination hook
+  // Pagination hook (local state - simpler and more reliable)
   const pagination = usePagination(defaultLimit);
 
   // URL-synced date filter hook - resets page on change

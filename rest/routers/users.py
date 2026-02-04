@@ -19,7 +19,7 @@ async def list_users(
     project_id: str,
     _access: ProjectAccess,  # Validates user has access to project
     page: int = Query(0, ge=0, description="Page number (0-indexed)"),
-    limit: int = Query(50, ge=1, le=100, description="Items per page"),
+    limit: int = Query(50, ge=1, le=200, description="Items per page"),
     search_query: str | None = Query(None, description="Search by user_id"),
     start_after: datetime | None = Query(None, description="Filter traces after this time"),
     end_before: datetime | None = Query(None, description="Filter traces before this time"),
