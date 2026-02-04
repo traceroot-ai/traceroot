@@ -1,6 +1,8 @@
 /**
  * Hook for managing pagination state synchronized with URL parameters.
  * This allows pagination state to persist across page refresh and be shareable.
+ *
+ * URL params: page_index (0-indexed), page_limit (items per page)
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
@@ -22,8 +24,8 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
   const pathname = usePathname();
 
   // Read initial state from URL
-  const urlPage = searchParams.get('page');
-  const urlLimit = searchParams.get('limit');
+  const urlPage = searchParams.get('page_index');
+  const urlLimit = searchParams.get('page_limit');
 
   const initialPage = urlPage ? parseInt(urlPage, 10) : DEFAULT_PAGE;
   const initialLimit = urlLimit ? parseInt(urlLimit, 10) : defaultLimit;
@@ -42,8 +44,8 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
       return;
     }
 
-    const urlPageStr = searchParams.get('page');
-    const urlLimitStr = searchParams.get('limit');
+    const urlPageStr = searchParams.get('page_index');
+    const urlLimitStr = searchParams.get('page_limit');
 
     // Parse URL values, defaulting to 0 and defaultLimit if not present
     const newPage = urlPageStr ? parseInt(urlPageStr, 10) : DEFAULT_PAGE;
@@ -64,15 +66,15 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
 
     // Only add to URL if not default values (keeps URL cleaner)
     if (newPage !== DEFAULT_PAGE) {
-      params.set('page', String(newPage));
+      params.set('page_index', String(newPage));
     } else {
-      params.delete('page');
+      params.delete('page_index');
     }
 
     if (newLimit !== DEFAULT_LIMIT) {
-      params.set('limit', String(newLimit));
+      params.set('page_limit', String(newLimit));
     } else {
-      params.delete('limit');
+      params.delete('page_limit');
     }
 
     // Mark as programmatic update to skip re-sync in useEffect
