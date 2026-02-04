@@ -3,16 +3,18 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
-import { Search, ChevronLeft, ChevronRight, ChevronDown, Workflow, Users, Layers, X } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, ChevronDown, Workflow, Users, Layers, X, Calendar } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { DateRangePicker } from '@/components/ui/date-time-picker'
 import { ProjectBreadcrumb } from '@/features/projects/components'
 import { formatDuration, formatDate, cn } from '@/lib/utils'
 import type { TraceListItem } from '@/types/api'
-import { useTraces } from '@/features/traces/hooks'
+import { useTraces, useTraceListState } from '@/features/traces/hooks'
 import { TraceViewerPanel } from '@/features/traces/components'
 import { formatContentPreview } from '@/features/traces/utils'
+import { DATE_FILTER_OPTIONS, formatDateRange } from '@/lib/date-filter'
 
 // Tab definitions
 const tabs = [
@@ -21,38 +23,58 @@ const tabs = [
   { id: 'users', label: 'Users', icon: Users, href: 'users' },
 ]
 
-const timeRangeOptions = [
-  { label: 'Past 24 hours', value: '1d' },
-  { label: 'Past 7 days', value: '7d' },
-  { label: 'Past 30 days', value: '30d' },
-  { label: 'Past 90 days', value: '90d' },
-  { label: 'All time', value: 'all' },
-]
-
 export default function TracesPage() {
   const params = useParams()
   const searchParams = useSearchParams()
   const router = useRouter()
   const projectId = params.projectId as string
   const userId = searchParams.get('user_id')
-  const [page, setPage] = useState(0)
-  const [limit, setLimit] = useState(50)
-  const [search, setSearch] = useState('')
-  const [timeRange, setTimeRange] = useState(timeRangeOptions[2])
-  const [timeRangeOpen, setTimeRangeOpen] = useState(false)
+
+  // Use modular state management hook
+  const {
+    state,
+    updateDateFilter,
+    updateCustomRange,
+    updateKeyword,
+    updateLimit,
+    goToPage,
+    queryOptions,
+  } = useTraceListState()
+
+  // UI state for popovers
+  const [dateFilterOpen, setDateFilterOpen] = useState(false)
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false)
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null)
+  const [showCustomPicker, setShowCustomPicker] = useState(false)
 
+  // Fetch traces with combined query options + user filter from URL
   const { data, isLoading, error } = useTraces(projectId, {
-    page,
-    limit,
-    name: search || undefined,
+    ...queryOptions,
     user_id: userId || undefined,
   })
 
   const traces = data?.data || []
   const meta = data?.meta || { page: 0, limit: 50, total: 0 }
   const totalPages = Math.ceil(meta.total / meta.limit)
+
+  // Get display label for the date filter button
+  const getDateFilterLabel = () => {
+    if (state.dateFilter.isCustom && state.customStartDate && state.customEndDate) {
+      return formatDateRange(state.customStartDate, state.customEndDate)
+    }
+    return state.dateFilter.label
+  }
+
+  // Handle custom date apply
+  const handleCustomDateApply = (startDate: Date | null, endDate: Date | null) => {
+    if (startDate && endDate) {
+      const customOption = DATE_FILTER_OPTIONS.find(o => o.isCustom)!
+      updateDateFilter(customOption)
+      updateCustomRange(startDate, endDate)
+    }
+    setDateFilterOpen(false)
+    setShowCustomPicker(false)
+  }
 
   return (
     <div className="flex h-full relative text-[13px]">
@@ -91,12 +113,9 @@ export default function TracesPage() {
             <div className="relative flex-1 max-w-md">
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search..."
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value)
-                  setPage(0)
-                }}
+                placeholder="Search traces..."
+                value={state.keyword}
+                onChange={(e) => updateKeyword(e.target.value)}
                 className="pl-8 h-8 text-[13px]"
               />
             </div>
@@ -115,30 +134,49 @@ export default function TracesPage() {
               </div>
             )}
             <div className="flex-1" />
-            <Popover open={timeRangeOpen} onOpenChange={setTimeRangeOpen}>
+            <Popover open={dateFilterOpen} onOpenChange={(open) => {
+              setDateFilterOpen(open)
+              if (!open) setShowCustomPicker(false)
+            }}>
               <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 min-w-[140px] justify-between text-[13px]">
-                  <span>{timeRange.label}</span>
+                <Button variant="outline" size="sm" className="h-8 min-w-[140px] justify-between text-[13px] font-normal gap-2">
+                  <span>{getDateFilterLabel()}</span>
                   <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-[160px] p-1">
-                {timeRangeOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    className={cn(
-                      'w-full rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors',
-                      timeRange.value === option.value ? 'bg-muted' : 'hover:bg-muted/50'
-                    )}
-                    onClick={() => {
-                      setTimeRange(option)
-                      setTimeRangeOpen(false)
-                      setPage(0)
-                    }}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+              <PopoverContent align="end" className={cn("p-0", showCustomPicker ? "w-auto" : "w-auto min-w-[130px]")}>
+                {!showCustomPicker ? (
+                  <div className="py-1">
+                    {DATE_FILTER_OPTIONS.map((option) => (
+                      <button
+                        key={option.id}
+                        className={cn(
+                          'w-full px-2.5 py-1 text-left text-[13px] transition-colors flex items-center gap-1.5',
+                          state.dateFilter.id === option.id && !option.isCustom
+                            ? 'bg-muted/70'
+                            : 'hover:bg-muted/50'
+                        )}
+                        onClick={() => {
+                          if (option.isCustom) {
+                            setShowCustomPicker(true)
+                          } else {
+                            updateDateFilter(option)
+                            setDateFilterOpen(false)
+                          }
+                        }}
+                      >
+                        {option.isCustom && <Calendar className="h-3 w-3 text-muted-foreground" />}
+                        <span>{option.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <DateRangePicker
+                    startDate={state.customStartDate}
+                    endDate={state.customEndDate}
+                    onApply={handleCustomDateApply}
+                  />
+                )}
               </PopoverContent>
             </Popover>
           </div>
@@ -235,7 +273,7 @@ export default function TracesPage() {
                     <Popover open={itemsPerPageOpen} onOpenChange={setItemsPerPageOpen}>
                       <PopoverTrigger asChild>
                         <Button variant="outline" size="sm" className="h-7 min-w-[60px] justify-between text-[12px] px-2">
-                          <span>{limit}</span>
+                          <span>{state.limit}</span>
                           <ChevronDown className="h-3 w-3 text-muted-foreground ml-1" />
                         </Button>
                       </PopoverTrigger>
@@ -245,11 +283,10 @@ export default function TracesPage() {
                             key={value}
                             className={cn(
                               'w-full rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors',
-                              limit === value ? 'bg-muted' : 'hover:bg-muted/50'
+                              state.limit === value ? 'bg-muted' : 'hover:bg-muted/50'
                             )}
                             onClick={() => {
-                              setLimit(value)
-                              setPage(0)
+                              updateLimit(value)
                               setItemsPerPageOpen(false)
                             }}
                           >
@@ -265,11 +302,11 @@ export default function TracesPage() {
                       type="number"
                       min={1}
                       max={Math.max(1, totalPages)}
-                      value={meta.page + 1}
+                      value={state.page + 1}
                       onChange={(e) => {
                         const val = parseInt(e.target.value, 10)
                         if (!isNaN(val) && val >= 1 && val <= totalPages) {
-                          setPage(val - 1)
+                          goToPage(val - 1)
                         }
                       }}
                       className="border border-border rounded px-2 py-1 text-[12px] bg-background h-7 w-12 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -277,16 +314,16 @@ export default function TracesPage() {
                     <span className="text-[12px] text-muted-foreground">of {Math.max(1, totalPages)}</span>
                   </div>
                   <div className="flex items-center gap-0.5">
-                    <Button variant="outline" size="sm" onClick={() => setPage(0)} disabled={page === 0} className="h-7 w-7 p-0">
+                    <Button variant="outline" size="sm" onClick={() => goToPage(0)} disabled={state.page === 0} className="h-7 w-7 p-0">
                       <ChevronLeft className="h-3.5 w-3.5" /><ChevronLeft className="h-3.5 w-3.5 -ml-2" />
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="h-7 w-7 p-0">
+                    <Button variant="outline" size="sm" onClick={() => goToPage(Math.max(0, state.page - 1))} disabled={state.page === 0} className="h-7 w-7 p-0">
                       <ChevronLeft className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages - 1} className="h-7 w-7 p-0">
+                    <Button variant="outline" size="sm" onClick={() => goToPage(state.page + 1)} disabled={state.page >= totalPages - 1} className="h-7 w-7 p-0">
                       <ChevronRight className="h-3.5 w-3.5" />
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} className="h-7 w-7 p-0">
+                    <Button variant="outline" size="sm" onClick={() => goToPage(totalPages - 1)} disabled={state.page >= totalPages - 1} className="h-7 w-7 p-0">
                       <ChevronRight className="h-3.5 w-3.5" /><ChevronRight className="h-3.5 w-3.5 -ml-2" />
                     </Button>
                   </div>
