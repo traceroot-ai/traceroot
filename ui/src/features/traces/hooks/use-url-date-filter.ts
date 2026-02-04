@@ -2,7 +2,7 @@
  * Hook for managing date filter state synchronized with URL parameters.
  * This allows date filter state to persist across page navigation.
  */
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import {
   DEFAULT_DATE_FILTER,
@@ -43,6 +43,10 @@ export function useUrlDateFilter(onFilterChange?: () => void): UseUrlDateFilterR
   const [customStartDate, setCustomStartDateState] = useState<Date | null>(initialCustomStart);
   const [customEndDate, setCustomEndDateState] = useState<Date | null>(initialCustomEnd);
   const [filterVersion, setFilterVersion] = useState(0);
+
+  // Use ref for callback to avoid dependency issues
+  const onFilterChangeRef = useRef(onFilterChange);
+  onFilterChangeRef.current = onFilterChange;
 
   // Sync state from URL when it changes (e.g., navigating from another page)
   useEffect(() => {
@@ -101,8 +105,8 @@ export function useUrlDateFilter(onFilterChange?: () => void): UseUrlDateFilterR
       updateUrl(option.id, null, null);
     }
 
-    onFilterChange?.();
-  }, [onFilterChange, updateUrl]);
+    onFilterChangeRef.current?.();
+  }, [updateUrl]);
 
   const setCustomRange = useCallback((start: Date, end: Date) => {
     setCustomStartDateState(start);
@@ -112,8 +116,8 @@ export function useUrlDateFilter(onFilterChange?: () => void): UseUrlDateFilterR
     setDateFilterState(customOption);
     updateUrl('custom', start, end);
 
-    onFilterChange?.();
-  }, [onFilterChange, updateUrl]);
+    onFilterChangeRef.current?.();
+  }, [updateUrl]);
 
   // Calculate timestamps
   const timestamps = useMemo(() => {

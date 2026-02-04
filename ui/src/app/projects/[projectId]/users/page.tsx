@@ -52,8 +52,8 @@ export default function UsersPage() {
   const meta = data?.meta || { page: 0, limit: 50, total: 0 }
   const totalPages = Math.ceil(meta.total / meta.limit)
 
-  // Build URL with preserved date filter params
-  const buildUrlWithDateFilter = (path: string, extraParams?: Record<string, string>) => {
+  // Build URL with preserved filter and pagination params
+  const buildUrlWithFilters = (path: string, extraParams?: Record<string, string>) => {
     const params = new URLSearchParams()
 
     // Add extra params (like user_id)
@@ -62,6 +62,13 @@ export default function UsersPage() {
         params.set(key, value)
       }
     }
+
+    // Preserve pagination params
+    const pageIndex = searchParams.get('page_index')
+    const pageLimit = searchParams.get('page_limit')
+
+    if (pageIndex) params.set('page_index', pageIndex)
+    if (pageLimit) params.set('page_limit', pageLimit)
 
     // Preserve date filter params
     const dateFilter = searchParams.get('date_filter')
@@ -77,7 +84,7 @@ export default function UsersPage() {
   }
 
   const handleUserClick = (userId: string) => {
-    router.push(buildUrlWithDateFilter(`/projects/${projectId}/traces`, { user_id: userId }))
+    router.push(buildUrlWithFilters(`/projects/${projectId}/traces`, { user_id: userId }))
   }
 
   return (
@@ -95,7 +102,7 @@ export default function UsersPage() {
               return (
                 <Link
                   key={tab.id}
-                  href={buildUrlWithDateFilter(`/projects/${projectId}/${tab.href}`)}
+                  href={buildUrlWithFilters(`/projects/${projectId}/${tab.href}`)}
                   className={cn(
                     'flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium border-b-2 transition-colors',
                     isActive
