@@ -53,7 +53,7 @@ export default function TracesPage() {
   const meta = data?.meta || { page: 0, limit: 50, total: 0 }
   const totalPages = Math.ceil(meta.total / meta.limit)
 
-  // Build URL with preserved date filter params
+  // Build URL with preserved filter and pagination params
   const buildUrlWithFilters = (path: string, extraParams?: Record<string, string>) => {
     const params = new URLSearchParams()
 
@@ -63,6 +63,13 @@ export default function TracesPage() {
         params.set(key, value)
       }
     }
+
+    // Preserve pagination params
+    const pageIndex = searchParams.get('page_index')
+    const pageLimit = searchParams.get('page_limit')
+
+    if (pageIndex) params.set('page_index', pageIndex)
+    if (pageLimit) params.set('page_limit', pageLimit)
 
     // Preserve date filter params
     const dateFilter = searchParams.get('date_filter')
