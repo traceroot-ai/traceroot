@@ -71,7 +71,7 @@ export function useUrlDateFilter(onFilterChange?: () => void): UseUrlDateFilterR
         setCustomEndDateState(parsed);
       }
     }
-  }, [searchParams]);
+  }, [searchParams, dateFilter, customStartDate, customEndDate]);
 
   // Update URL when state changes
   const updateUrl = useCallback((filterId: string, start: Date | null, end: Date | null) => {
