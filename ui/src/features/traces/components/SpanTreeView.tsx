@@ -1,12 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronRight, ChevronDown } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { formatDuration } from '@/lib/utils';
+import { ChevronRight, ChevronDown, CircleStop, CircleDollarSign } from 'lucide-react';
+import { cn, formatDuration, formatTokens } from '@/lib/utils';
 import type { TraceDetail, Span } from '@/types/api';
 import type { TraceSelection } from '../types';
-import { buildSpanTree, buildChildrenMap, getSpanDuration, getTraceDuration, TREE_LAYOUT } from '../utils';
+import { buildSpanTree, buildChildrenMap, getSpanDuration, getTraceDuration, getTraceTotalCost, getTraceTokenUsage, TREE_LAYOUT } from '../utils';
 import { SpanKindIcon } from './SpanKindIcon';
 import { SpanTreeConnector } from './SpanTreeConnector';
 
@@ -56,6 +55,8 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
   const spanRows = buildSpanTree(trace.spans);
   const isTraceSelected = selection.type === 'trace';
   const traceDuration = getTraceDuration(trace);
+  const traceTotalCost = getTraceTotalCost(trace);
+  const traceTokenUsage = getTraceTokenUsage(trace);
   const traceHasChildren = hasChildren(null);
   const traceIsCollapsed = collapsedIds.has('trace');
 
@@ -78,6 +79,18 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
           <span className="text-[10px] text-muted-foreground font-mono whitespace-nowrap">
             {formatDuration(traceDuration)}
           </span>
+          {traceTokenUsage && (
+            <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground font-mono whitespace-nowrap">
+              <CircleStop className="h-2.5 w-2.5" />
+              {formatTokens(traceTokenUsage.totalTokens)}
+            </span>
+          )}
+          {traceTotalCost && (
+            <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground font-mono whitespace-nowrap">
+              <CircleDollarSign className="h-2.5 w-2.5" />
+              {traceTotalCost.toFixed(4)}
+            </span>
+          )}
           <div className="flex-1" />
           {traceHasChildren && (
             <button
@@ -135,6 +148,18 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
               <span className="text-[10px] text-muted-foreground font-mono whitespace-nowrap">
                 {formatDuration(getSpanDuration(span))}
               </span>
+              {span.span_kind === 'LLM' && span.total_tokens != null && (
+                <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground font-mono whitespace-nowrap">
+                  <CircleStop className="h-2.5 w-2.5" />
+                  {formatTokens(span.total_tokens)}
+                </span>
+              )}
+              {span.span_kind === 'LLM' && span.cost != null && span.cost > 0 && (
+                <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground font-mono whitespace-nowrap">
+                  <CircleDollarSign className="h-2.5 w-2.5" />
+                  {span.cost.toFixed(4)}
+                </span>
+              )}
               <div className="flex-1" />
               {spanHasChildren && (
                 <button

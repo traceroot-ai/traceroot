@@ -102,3 +102,29 @@ export function formatContentPreview(text: string | null): string {
     return truncateText(text, 80);
   }
 }
+
+/**
+ * Calculate total cost from all spans in a trace
+ */
+export function getTraceTotalCost(trace: TraceDetail): number | null {
+  const costs = trace.spans.filter((s) => s.cost !== null && s.cost > 0).map((s) => s.cost!);
+  if (costs.length === 0) return null;
+  return costs.reduce((sum, cost) => sum + cost, 0);
+}
+
+/**
+ * Calculate total token usage from all spans in a trace
+ */
+export function getTraceTokenUsage(trace: TraceDetail): {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+} | null {
+  const spansWithTokens = trace.spans.filter((s) => s.total_tokens !== null);
+  if (spansWithTokens.length === 0) return null;
+  return {
+    inputTokens: spansWithTokens.reduce((sum, s) => sum + (s.input_tokens ?? 0), 0),
+    outputTokens: spansWithTokens.reduce((sum, s) => sum + (s.output_tokens ?? 0), 0),
+    totalTokens: spansWithTokens.reduce((sum, s) => sum + (s.total_tokens ?? 0), 0),
+  };
+}

@@ -19,6 +19,9 @@ class SpanResponse(BaseModel):
     status_message: str | None
     model_name: str | None
     cost: float | None
+    input_tokens: int | None
+    output_tokens: int | None
+    total_tokens: int | None
     input: str | None
     output: str | None
 
