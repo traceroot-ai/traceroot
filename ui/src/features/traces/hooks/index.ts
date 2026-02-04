@@ -6,12 +6,30 @@ import { getTraces, getTrace } from '@/lib/api';
 import { getUsers, type UserQueryOptions } from '@/lib/api/users';
 import type { TraceQueryOptions } from '@/types/api';
 
+// Individual state hooks (for fine-grained control)
+export { usePagination } from './use-pagination';
+export { useDateFilter } from './use-date-filter';
+export { useKeywordSearch } from './use-keyword-search';
+
+// Composed state hook (combines all above with coordinated page resets)
+export { useTraceListState } from './use-trace-list-state';
+
 /**
  * Hook for fetching paginated traces list
  */
 export function useTraces(projectId: string, options: TraceQueryOptions = {}) {
   return useQuery({
-    queryKey: ['traces', projectId, options.page, options.limit, options.name, options.status, options.user_id, options.session_id],
+    queryKey: [
+      'traces',
+      projectId,
+      options.page,
+      options.limit,
+      options.search_query,
+      options.start_after,
+      options.end_before,
+      options.user_id,
+      options.session_id,
+    ],
     queryFn: () => getTraces(projectId, '', options),
   });
 }

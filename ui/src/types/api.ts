@@ -131,6 +131,11 @@ export interface TraceQueryOptions {
   status?: "ok" | "error";
   user_id?: string;
   session_id?: string;
+  // Date range filtering
+  start_after?: string;  // ISO timestamp - filter traces after this time
+  end_before?: string;   // ISO timestamp - filter traces before this time
+  // Multi-field keyword search (searches trace_id, name, session_id, user_id)
+  search_query?: string;
 }
 
 // Legacy aliases for backward compatibility
