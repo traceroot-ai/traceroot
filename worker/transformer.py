@@ -292,6 +292,23 @@ def transform_otel_to_clickhouse(
                     if model_name:
                         span_record["model_name"] = model_name
 
+                        # Calculate tokens and cost from model + input/output
+                        from worker.features.tokens import calculate_cost
+
+                        usage = calculate_cost(
+                            model=model_name,
+                            input_text=span_record.get("input"),
+                            output_text=span_record.get("output"),
+                        )
+                        if usage["input_tokens"] is not None:
+                            span_record["input_tokens"] = usage["input_tokens"]
+                        if usage["output_tokens"] is not None:
+                            span_record["output_tokens"] = usage["output_tokens"]
+                        if usage["total_tokens"] is not None:
+                            span_record["total_tokens"] = usage["total_tokens"]
+                        if usage["cost"] is not None:
+                            span_record["cost"] = usage["cost"]
+
                 # Check span status for errors
                 status = otel_span.get("status", {})
                 status_code = status.get("code", 0)

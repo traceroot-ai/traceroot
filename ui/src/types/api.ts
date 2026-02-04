@@ -97,6 +97,9 @@ export interface Span {
   status_message: string | null;
   model_name: string | null;
   cost: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
   input: string | null;
   output: string | null;
 }
