@@ -146,6 +146,29 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
 
         {/* Bottom section */}
         <div>
+          {/* Star on GitHub */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a
+                href="https://github.com/traceroot-ai/traceroot"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  "flex w-full items-center gap-2 py-2 text-[13px] hover:bg-muted/50 transition-colors",
+                  collapsed ? "justify-center px-2" : "px-3"
+                )}
+              >
+                <Github className="h-3.5 w-3.5 shrink-0" />
+                {!collapsed && <span className="flex-1">Star on GitHub</span>}
+              </a>
+            </TooltipTrigger>
+            {collapsed && (
+              <TooltipContent side="right" sideOffset={16}>
+                Star on GitHub
+              </TooltipContent>
+            )}
+          </Tooltip>
+
           {/* Settings - only show when in project context */}
           {isProject && projectId && (
             <Tooltip>
@@ -172,41 +195,22 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
             </Tooltip>
           )}
 
-          {/* Star on GitHub */}
+          {/* Support link */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <a
-                href="https://github.com/traceroot-ai/traceroot"
-                target="_blank"
-                rel="noopener noreferrer"
+              <Link
+                href="/support"
                 className={cn(
-                  "flex w-full items-center gap-2 py-2 text-[13px] hover:bg-muted/50 transition-colors",
-                  collapsed ? "justify-center px-2" : "px-3"
-                )}
-              >
-                <Github className="h-3.5 w-3.5 shrink-0" />
-                {!collapsed && <span className="flex-1">Star on GitHub</span>}
-              </a>
-            </TooltipTrigger>
-            {collapsed && (
-              <TooltipContent side="right" sideOffset={16}>
-                Star on GitHub
-              </TooltipContent>
-            )}
-          </Tooltip>
-
-          {/* Support button */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className={cn(
-                  "flex w-full items-center gap-2 py-2 text-[13px] hover:bg-muted/50 transition-colors",
-                  collapsed ? "justify-center px-2" : "px-3"
+                  "flex w-full items-center gap-2 py-2 text-[13px] transition-colors",
+                  collapsed ? "justify-center px-2" : "px-3",
+                  pathname === "/support"
+                    ? "bg-muted"
+                    : "hover:bg-muted/50"
                 )}
               >
                 <LifeBuoy className="h-3.5 w-3.5 shrink-0" />
                 {!collapsed && "Support"}
-              </button>
+              </Link>
             </TooltipTrigger>
             {collapsed && (
               <TooltipContent side="right" sideOffset={16}>

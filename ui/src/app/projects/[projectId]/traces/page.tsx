@@ -17,8 +17,8 @@ import { formatContentPreview } from '@/features/traces/utils'
 // Tab definitions
 const tabs = [
   { id: 'traces', label: 'Traces', icon: Workflow, href: 'traces' },
-  { id: 'sessions', label: 'Sessions', icon: Layers, href: 'sessions' },
   { id: 'users', label: 'Users', icon: Users, href: 'users' },
+  { id: 'sessions', label: 'Sessions', icon: Layers, href: 'sessions' },
 ]
 
 export default function TracesPage() {
