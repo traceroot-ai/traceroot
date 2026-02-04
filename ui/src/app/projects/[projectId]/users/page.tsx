@@ -1,15 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import Link from 'next/link'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Workflow, Users, Layers, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { SearchFilterBar } from '@/components/search-filter-bar'
 import { ProjectBreadcrumb } from '@/features/projects/components'
-import { useUsers } from '@/features/traces/hooks'
+import { useUsers, useListPageState } from '@/features/traces/hooks'
 import { formatDate, cn } from '@/lib/utils'
 import type { UserListItem } from '@/lib/api/users'
+import type { UserQueryOptions } from '@/lib/api/users'
 
 const tabs = [
   { id: 'traces', label: 'Traces', icon: Workflow, href: 'traces' },
@@ -20,19 +22,62 @@ const tabs = [
 export default function UsersPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const projectId = params.projectId as string
-  const [page, setPage] = useState(0)
-  const [limit, setLimit] = useState(50)
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false)
 
-  const { data, isLoading, error } = useUsers(projectId, { page, limit })
+  // Use URL-synced state management (shares date filter with other pages)
+  const {
+    state,
+    updateDateFilter,
+    updateCustomRange,
+    updateKeyword,
+    updateLimit,
+    goToPage,
+    queryOptions,
+  } = useListPageState()
+
+  // Build user query options from shared state
+  const userQueryOptions = useMemo<UserQueryOptions>(() => ({
+    page: queryOptions.page,
+    limit: queryOptions.limit,
+    search_query: queryOptions.search_query,
+    start_after: queryOptions.start_after,
+    end_before: queryOptions.end_before,
+  }), [queryOptions])
+
+  const { data, isLoading, error } = useUsers(projectId, userQueryOptions)
 
   const users = data?.data || []
   const meta = data?.meta || { page: 0, limit: 50, total: 0 }
   const totalPages = Math.ceil(meta.total / meta.limit)
 
+  // Build URL with preserved date filter params
+  const buildUrlWithDateFilter = (path: string, extraParams?: Record<string, string>) => {
+    const params = new URLSearchParams()
+
+    // Add extra params (like user_id)
+    if (extraParams) {
+      for (const [key, value] of Object.entries(extraParams)) {
+        params.set(key, value)
+      }
+    }
+
+    // Preserve date filter params
+    const dateFilter = searchParams.get('date_filter')
+    const start = searchParams.get('start')
+    const end = searchParams.get('end')
+
+    if (dateFilter) params.set('date_filter', dateFilter)
+    if (start) params.set('start', start)
+    if (end) params.set('end', end)
+
+    const queryString = params.toString()
+    return queryString ? `${path}?${queryString}` : path
+  }
+
   const handleUserClick = (userId: string) => {
-    router.push(`/projects/${projectId}/traces?user_id=${encodeURIComponent(userId)}`)
+    router.push(buildUrlWithDateFilter(`/projects/${projectId}/traces`, { user_id: userId }))
   }
 
   return (
@@ -50,7 +95,7 @@ export default function UsersPage() {
               return (
                 <Link
                   key={tab.id}
-                  href={`/projects/${projectId}/${tab.href}`}
+                  href={buildUrlWithDateFilter(`/projects/${projectId}/${tab.href}`)}
                   className={cn(
                     'flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium border-b-2 transition-colors',
                     isActive
@@ -65,6 +110,18 @@ export default function UsersPage() {
             })}
           </div>
         </div>
+
+        {/* Filters bar */}
+        <SearchFilterBar
+          searchValue={state.keyword}
+          onSearchChange={updateKeyword}
+          searchPlaceholder="Search..."
+          dateFilter={state.dateFilter}
+          customStartDate={state.customStartDate}
+          customEndDate={state.customEndDate}
+          onDateFilterChange={updateDateFilter}
+          onCustomRangeChange={updateCustomRange}
+        />
 
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background">
@@ -133,7 +190,7 @@ export default function UsersPage() {
                   <Popover open={itemsPerPageOpen} onOpenChange={setItemsPerPageOpen}>
                     <PopoverTrigger asChild>
                       <Button variant="outline" size="sm" className="h-7 min-w-[60px] justify-between text-[12px] px-2">
-                        <span>{limit}</span>
+                        <span>{state.limit}</span>
                         <ChevronDown className="h-3 w-3 text-muted-foreground ml-1" />
                       </Button>
                     </PopoverTrigger>
@@ -143,11 +200,10 @@ export default function UsersPage() {
                           key={value}
                           className={cn(
                             'w-full rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors',
-                            limit === value ? 'bg-muted' : 'hover:bg-muted/50'
+                            state.limit === value ? 'bg-muted' : 'hover:bg-muted/50'
                           )}
                           onClick={() => {
-                            setLimit(value)
-                            setPage(0)
+                            updateLimit(value)
                             setItemsPerPageOpen(false)
                           }}
                         >
@@ -163,11 +219,11 @@ export default function UsersPage() {
                     type="number"
                     min={1}
                     max={Math.max(1, totalPages)}
-                    value={meta.page + 1}
+                    value={state.page + 1}
                     onChange={(e) => {
                       const val = parseInt(e.target.value, 10)
                       if (!isNaN(val) && val >= 1 && val <= totalPages) {
-                        setPage(val - 1)
+                        goToPage(val - 1)
                       }
                     }}
                     className="border border-border rounded px-2 py-1 text-[12px] bg-background h-7 w-12 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -175,16 +231,16 @@ export default function UsersPage() {
                   <span className="text-[12px] text-muted-foreground">of {Math.max(1, totalPages)}</span>
                 </div>
                 <div className="flex items-center gap-0.5">
-                  <Button variant="outline" size="sm" onClick={() => setPage(0)} disabled={page === 0} className="h-7 w-7 p-0">
+                  <Button variant="outline" size="sm" onClick={() => goToPage(0)} disabled={state.page === 0} className="h-7 w-7 p-0">
                     <ChevronLeft className="h-3.5 w-3.5" /><ChevronLeft className="h-3.5 w-3.5 -ml-2" />
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0} className="h-7 w-7 p-0">
+                  <Button variant="outline" size="sm" onClick={() => goToPage(Math.max(0, state.page - 1))} disabled={state.page === 0} className="h-7 w-7 p-0">
                     <ChevronLeft className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages - 1} className="h-7 w-7 p-0">
+                  <Button variant="outline" size="sm" onClick={() => goToPage(state.page + 1)} disabled={state.page >= totalPages - 1} className="h-7 w-7 p-0">
                     <ChevronRight className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} className="h-7 w-7 p-0">
+                  <Button variant="outline" size="sm" onClick={() => goToPage(totalPages - 1)} disabled={state.page >= totalPages - 1} className="h-7 w-7 p-0">
                     <ChevronRight className="h-3.5 w-3.5" /><ChevronRight className="h-3.5 w-3.5 -ml-2" />
                   </Button>
                 </div>
