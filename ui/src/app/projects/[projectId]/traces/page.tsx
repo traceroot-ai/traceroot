@@ -53,8 +53,8 @@ export default function TracesPage() {
   const meta = data?.meta || { page: 0, limit: 50, total: 0 }
   const totalPages = Math.ceil(meta.total / meta.limit)
 
-  // Build URL with preserved date filter params
-  const buildUrlWithDateFilter = (path: string, extraParams?: Record<string, string>) => {
+  // Build URL with preserved filter and pagination params
+  const buildUrlWithFilters = (path: string, extraParams?: Record<string, string>) => {
     const params = new URLSearchParams()
 
     // Add extra params
@@ -63,6 +63,13 @@ export default function TracesPage() {
         params.set(key, value)
       }
     }
+
+    // Preserve pagination params
+    const pageIndex = searchParams.get('page_index')
+    const pageLimit = searchParams.get('page_limit')
+
+    if (pageIndex) params.set('page_index', pageIndex)
+    if (pageLimit) params.set('page_limit', pageLimit)
 
     // Preserve date filter params
     const dateFilter = searchParams.get('date_filter')
@@ -92,7 +99,7 @@ export default function TracesPage() {
               return (
                 <Link
                   key={tab.id}
-                  href={buildUrlWithDateFilter(`/projects/${projectId}/${tab.href}`)}
+                  href={buildUrlWithFilters(`/projects/${projectId}/${tab.href}`)}
                   className={cn(
                     'flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium border-b-2 transition-colors',
                     isActive
@@ -126,7 +133,7 @@ export default function TracesPage() {
               <span className="text-[12px] font-medium text-foreground">{userId}</span>
               <button
                 type="button"
-                onClick={() => router.push(buildUrlWithDateFilter(`/projects/${projectId}/traces`))}
+                onClick={() => router.push(buildUrlWithFilters(`/projects/${projectId}/traces`))}
                 className="ml-1 rounded hover:bg-muted p-0.5 transition-colors"
               >
                 <X className="h-3 w-3 text-muted-foreground" />

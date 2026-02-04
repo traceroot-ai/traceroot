@@ -11,6 +11,7 @@ export { usePagination } from './use-pagination';
 export { useDateFilter } from './use-date-filter';
 export { useKeywordSearch } from './use-keyword-search';
 export { useUrlDateFilter } from './use-url-date-filter';
+export { useUrlPagination } from './use-url-pagination';
 
 // Composed state hooks
 export { useTraceListState } from './use-trace-list-state';
