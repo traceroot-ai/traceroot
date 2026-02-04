@@ -53,7 +53,7 @@ export default function UsersPage() {
   const totalPages = Math.ceil(meta.total / meta.limit)
 
   // Build URL with preserved date filter params
-  const buildUrlWithDateFilter = (path: string, extraParams?: Record<string, string>) => {
+  const buildUrlWithFilters = (path: string, extraParams?: Record<string, string>) => {
     const params = new URLSearchParams()
 
     // Add extra params (like user_id)
@@ -77,7 +77,7 @@ export default function UsersPage() {
   }
 
   const handleUserClick = (userId: string) => {
-    router.push(buildUrlWithDateFilter(`/projects/${projectId}/traces`, { user_id: userId }))
+    router.push(buildUrlWithFilters(`/projects/${projectId}/traces`, { user_id: userId }))
   }
 
   return (
@@ -95,7 +95,7 @@ export default function UsersPage() {
               return (
                 <Link
                   key={tab.id}
-                  href={buildUrlWithDateFilter(`/projects/${projectId}/${tab.href}`)}
+                  href={buildUrlWithFilters(`/projects/${projectId}/${tab.href}`)}
                   className={cn(
                     'flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium border-b-2 transition-colors',
                     isActive
