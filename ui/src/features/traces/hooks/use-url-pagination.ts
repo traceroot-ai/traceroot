@@ -94,11 +94,14 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
   }, [updateUrl]);
 
   const resetPage = useCallback(() => {
-    if (page !== DEFAULT_PAGE) {
-      setPageState(DEFAULT_PAGE);
-      updateUrl(DEFAULT_PAGE, limit);
-    }
-  }, [page, limit, updateUrl]);
+    setPageState((currentPage) => {
+      if (currentPage !== DEFAULT_PAGE) {
+        updateUrl(DEFAULT_PAGE, limit);
+        return DEFAULT_PAGE;
+      }
+      return currentPage;
+    });
+  }, [limit, updateUrl]);
 
   return {
     page,
