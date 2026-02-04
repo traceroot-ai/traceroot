@@ -165,7 +165,8 @@ class TraceReaderService:
             SELECT
                 span_id, trace_id, parent_span_id, name, span_kind,
                 span_start_time, span_end_time, status, status_message,
-                model_name, cost, input, output
+                model_name, cost, input_tokens, output_tokens, total_tokens,
+                input, output
             FROM spans FINAL
             WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
             ORDER BY span_start_time ASC
@@ -189,8 +190,11 @@ class TraceReaderService:
                 "status_message": row[8],
                 "model_name": row[9],
                 "cost": float(row[10]) if row[10] is not None else None,
-                "input": row[11],
-                "output": row[12],
+                "input_tokens": int(row[11]) if row[11] is not None else None,
+                "output_tokens": int(row[12]) if row[12] is not None else None,
+                "total_tokens": int(row[13]) if row[13] is not None else None,
+                "input": row[14],
+                "output": row[15],
             })
 
         trace["spans"] = spans

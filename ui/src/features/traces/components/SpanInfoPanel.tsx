@@ -1,12 +1,12 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { Clock, Users, Layers, ChevronRight } from 'lucide-react';
+import { Clock, Users, Layers, ChevronRight, CircleStop, CircleDollarSign } from 'lucide-react';
 import { CopyButton } from '@/components/ui/copy-button';
-import { formatDuration, formatDate } from '@/lib/utils';
+import { formatDuration, formatDate, formatTokens } from '@/lib/utils';
 import type { TraceDetail } from '@/types/api';
 import type { TraceSelection } from '../types';
-import { getSpanDuration, getTraceDuration } from '../utils';
+import { getSpanDuration, getTraceDuration, getTraceTotalCost, getTraceTokenUsage } from '../utils';
 import { SpanKindIcon } from './SpanKindIcon';
 import { ContentRenderer } from './ContentRenderer';
 import { ExpandableSection } from '@/components/ui/expandable-section';
@@ -30,6 +30,10 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
   const timestamp = isTrace ? trace.trace_start_time : selection.span.span_start_time;
   const input = isTrace ? trace.input : selection.span.input;
   const output = isTrace ? trace.output : selection.span.output;
+
+  // Trace-level aggregates
+  const traceTotalCost = isTrace ? getTraceTotalCost(trace) : null;
+  const traceTokenUsage = isTrace ? getTraceTokenUsage(trace) : null;
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -68,14 +72,39 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
               <span className="font-medium">{trace.environment}</span>
             </div>
           )}
+          {isTrace && traceTokenUsage && (
+            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+              <CircleStop className="h-3 w-3 text-muted-foreground" />
+              <span className="font-medium">{formatTokens(traceTokenUsage.totalTokens)}</span>
+              <span className="text-muted-foreground">
+                ({formatTokens(traceTokenUsage.inputTokens)} in / {formatTokens(traceTokenUsage.outputTokens)} out)
+              </span>
+            </div>
+          )}
+          {isTrace && traceTotalCost && (
+            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+              <CircleDollarSign className="h-3 w-3 text-muted-foreground" />
+              <span className="font-medium">{traceTotalCost.toFixed(6)}</span>
+            </div>
+          )}
           {!isTrace && selection.span.model_name && (
             <div className="inline-flex items-center rounded-md bg-primary text-primary-foreground px-2.5 py-1 text-xs">
               {selection.span.model_name}
             </div>
           )}
-          {!isTrace && selection.span.cost !== null && selection.span.cost > 0 && (
+          {!isTrace && selection.span.total_tokens != null && (
             <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-              <span className="font-medium">${selection.span.cost.toFixed(4)}</span>
+              <CircleStop className="h-3 w-3 text-muted-foreground" />
+              <span className="font-medium">{formatTokens(selection.span.total_tokens)}</span>
+              <span className="text-muted-foreground">
+                ({formatTokens(selection.span.input_tokens)} in / {formatTokens(selection.span.output_tokens)} out)
+              </span>
+            </div>
+          )}
+          {!isTrace && selection.span.cost != null && selection.span.cost > 0 && (
+            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+              <CircleDollarSign className="h-3 w-3 text-muted-foreground" />
+              <span className="font-medium">{selection.span.cost.toFixed(6)}</span>
             </div>
           )}
         </div>
