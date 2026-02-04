@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import { Workflow, Users, Layers } from 'lucide-react'
 import { ProjectBreadcrumb } from '@/features/projects/components'
 import { cn } from '@/lib/utils'
@@ -14,7 +14,32 @@ const tabs = [
 
 export default function SessionsPage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const projectId = params.projectId as string
+
+  // Build URL with preserved filter and pagination params
+  const buildUrlWithFilters = (path: string) => {
+    const urlParams = new URLSearchParams()
+
+    // Preserve pagination params
+    const pageIndex = searchParams.get('page_index')
+    const pageLimit = searchParams.get('page_limit')
+
+    if (pageIndex) urlParams.set('page_index', pageIndex)
+    if (pageLimit) urlParams.set('page_limit', pageLimit)
+
+    // Preserve date filter params
+    const dateFilter = searchParams.get('date_filter')
+    const start = searchParams.get('start')
+    const end = searchParams.get('end')
+
+    if (dateFilter) urlParams.set('date_filter', dateFilter)
+    if (start) urlParams.set('start', start)
+    if (end) urlParams.set('end', end)
+
+    const queryString = urlParams.toString()
+    return queryString ? `${path}?${queryString}` : path
+  }
 
   return (
     <div className="flex h-full relative text-[13px]">
@@ -31,7 +56,7 @@ export default function SessionsPage() {
               return (
                 <Link
                   key={tab.id}
-                  href={`/projects/${projectId}/${tab.href}`}
+                  href={buildUrlWithFilters(`/projects/${projectId}/${tab.href}`)}
                   className={cn(
                     'flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium border-b-2 transition-colors',
                     isActive
