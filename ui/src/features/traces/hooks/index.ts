@@ -10,9 +10,12 @@ import type { TraceQueryOptions } from '@/types/api';
 export { usePagination } from './use-pagination';
 export { useDateFilter } from './use-date-filter';
 export { useKeywordSearch } from './use-keyword-search';
+export { useUrlDateFilter } from './use-url-date-filter';
 
-// Composed state hook (combines all above with coordinated page resets)
+// Composed state hooks
 export { useTraceListState } from './use-trace-list-state';
+// URL-synced version for shared date filter across pages
+export { useListPageState } from './use-list-page-state';
 
 /**
  * Hook for fetching paginated traces list
@@ -50,7 +53,15 @@ export function useTrace(projectId: string, traceId: string, enabled: boolean = 
  */
 export function useUsers(projectId: string, options: UserQueryOptions = {}) {
   return useQuery({
-    queryKey: ['users', projectId, options.page, options.limit],
+    queryKey: [
+      'users',
+      projectId,
+      options.page,
+      options.limit,
+      options.search_query,
+      options.start_after,
+      options.end_before,
+    ],
     queryFn: () => getUsers(projectId, options),
   });
 }
