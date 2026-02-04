@@ -44,6 +44,20 @@ export function formatTokens(count: number | null | undefined): string {
 }
 
 /**
+ * Parse a date string as UTC.
+ * Backend sends timestamps without timezone marker, but they are UTC.
+ */
+function parseAsUTC(date: string | Date): Date {
+  if (date instanceof Date) return date;
+
+  // If the string doesn't have timezone info, treat it as UTC
+  if (!date.endsWith("Z") && !date.includes("+") && !/\d{2}:\d{2}$/.test(date.slice(-6))) {
+    return new Date(date + "Z");
+  }
+  return new Date(date);
+}
+
+/**
  * Format date to relative time string.
  * e.g., "2 minutes ago", "3 hours ago", "yesterday"
  */
@@ -51,7 +65,7 @@ export function formatRelativeTime(date: string | Date | null | undefined): stri
   if (!date) return "-";
 
   const now = new Date();
-  const then = typeof date === "string" ? new Date(date) : date;
+  const then = parseAsUTC(date);
   const diffMs = now.getTime() - then.getTime();
   const diffSeconds = Math.floor(diffMs / 1000);
   const diffMinutes = Math.floor(diffSeconds / 60);
@@ -83,13 +97,13 @@ export function formatRelativeTime(date: string | Date | null | undefined): stri
 }
 
 /**
- * Format date to a readable string.
- * e.g., "2026-01-29 23:39:51"
+ * Format date to a readable string in local timezone.
+ * e.g., "2026-01-29 15:39:51" (displayed in user's local time)
  */
 export function formatDate(date: string | Date | null | undefined): string {
   if (!date) return "-";
 
-  const d = typeof date === "string" ? new Date(date) : date;
+  const d = parseAsUTC(date);
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");

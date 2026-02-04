@@ -16,6 +16,9 @@ export async function getTraces(
   if (options.status) params.set("status", options.status);
   if (options.user_id) params.set("user_id", options.user_id);
   if (options.session_id) params.set("session_id", options.session_id);
+  if (options.start_after) params.set("start_after", options.start_after);
+  if (options.end_before) params.set("end_before", options.end_before);
+  if (options.search_query) params.set("search_query", options.search_query);
 
   const query = params.toString();
   const endpoint = `/projects/${projectId}/traces${query ? `?${query}` : ""}`;

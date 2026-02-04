@@ -1,6 +1,7 @@
 """Trace query endpoints (user-authenticated, not public API)."""
 
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, status
 
@@ -20,9 +21,12 @@ async def list_traces(
     page: int = Query(0, ge=0, description="Page number (0-indexed)"),
     limit: int = Query(50, ge=1, le=100, description="Items per page"),
     name: str | None = Query(None, description="Filter by trace name (partial match)"),
-    user_id: str | None = Query(None, description="Filter by user ID"),
+    user_id: str | None = Query(None, description="Filter by user ID (exact match)"),
+    start_after: datetime | None = Query(None, description="Filter traces after this timestamp"),
+    end_before: datetime | None = Query(None, description="Filter traces before this timestamp"),
+    search_query: str | None = Query(None, description="Search trace_id, name, session_id, user_id"),
 ):
-    """List traces for a project with pagination."""
+    """List traces for a project with pagination and filtering."""
     try:
         service = get_trace_reader_service()
         result = service.list_traces(
@@ -31,6 +35,9 @@ async def list_traces(
             limit=limit,
             name=name,
             user_id=user_id,
+            start_after=start_after,
+            end_before=end_before,
+            search_query=search_query,
         )
         return result
     except Exception as e:
