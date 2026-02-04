@@ -1,6 +1,16 @@
 """Service for reading traces from ClickHouse."""
 
+from datetime import datetime, timezone
+
 from db.clickhouse import get_clickhouse_client
+
+
+def _to_utc_naive(dt: datetime) -> datetime:
+    """Convert datetime to UTC naive datetime for ClickHouse comparison."""
+    if dt.tzinfo is not None:
+        # Convert to UTC then remove timezone info
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 class TraceReaderService:
@@ -16,6 +26,9 @@ class TraceReaderService:
         limit: int = 50,
         name: str | None = None,
         user_id: str | None = None,
+        start_after: datetime | None = None,
+        end_before: datetime | None = None,
+        search_query: str | None = None,
     ) -> dict:
         """List traces with aggregated metrics from spans."""
         offset = page * limit
@@ -31,6 +44,25 @@ class TraceReaderService:
         if user_id:
             conditions.append("t.user_id = {user_id:String}")
             params["user_id"] = user_id
+
+        # Date range filtering (convert to UTC naive datetime for ClickHouse)
+        if start_after:
+            conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
+            params["start_after"] = _to_utc_naive(start_after)
+
+        if end_before:
+            conditions.append("t.trace_start_time <= {end_before:DateTime64(3)}")
+            params["end_before"] = _to_utc_naive(end_before)
+
+        # Multi-field keyword search (trace_id, name, session_id, user_id)
+        if search_query:
+            conditions.append(
+                "(t.trace_id ILIKE {search_kw:String} "
+                "OR t.name ILIKE {search_kw:String} "
+                "OR t.session_id ILIKE {search_kw:String} "
+                "OR t.user_id ILIKE {search_kw:String})"
+            )
+            params["search_kw"] = f"%{search_query}%"
 
         where_clause = " AND ".join(conditions)
 
