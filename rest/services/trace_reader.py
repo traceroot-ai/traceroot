@@ -196,38 +196,63 @@ class TraceReaderService:
         trace["spans"] = spans
         return trace
 
-    def list_users(self, project_id: str, page: int = 0, limit: int = 50) -> dict:
+    def list_users(
+        self,
+        project_id: str,
+        page: int = 0,
+        limit: int = 50,
+        search_query: str | None = None,
+        start_after: datetime | None = None,
+        end_before: datetime | None = None,
+    ) -> dict:
         """List unique users with trace counts."""
         offset = page * limit
 
-        query = """
+        # Build WHERE conditions
+        conditions = [
+            "project_id = {project_id:String}",
+            "user_id IS NOT NULL",
+            "user_id != ''",
+        ]
+        params: dict = {"project_id": project_id, "limit": limit, "offset": offset}
+
+        # Search by user_id
+        if search_query:
+            conditions.append("user_id ILIKE {search_kw:String}")
+            params["search_kw"] = f"%{search_query}%"
+
+        # Date range filtering
+        if start_after:
+            conditions.append("trace_start_time >= {start_after:DateTime64(3)}")
+            params["start_after"] = _to_utc_naive(start_after)
+
+        if end_before:
+            conditions.append("trace_start_time <= {end_before:DateTime64(3)}")
+            params["end_before"] = _to_utc_naive(end_before)
+
+        where_clause = " AND ".join(conditions)
+
+        query = f"""
             SELECT
                 user_id,
                 count(DISTINCT trace_id) as trace_count,
                 max(trace_start_time) as last_trace_time
             FROM traces FINAL
-            WHERE project_id = {project_id:String}
-                AND user_id IS NOT NULL
-                AND user_id != ''
+            WHERE {where_clause}
             GROUP BY user_id
             ORDER BY last_trace_time DESC
-            LIMIT {limit:UInt32} OFFSET {offset:UInt32}
+            LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
         """
 
-        result = self._client.query(
-            query,
-            parameters={"project_id": project_id, "limit": limit, "offset": offset},
-        )
+        result = self._client.query(query, parameters=params)
 
         # Get total count
-        count_query = """
+        count_query = f"""
             SELECT count(DISTINCT user_id)
             FROM traces FINAL
-            WHERE project_id = {project_id:String}
-                AND user_id IS NOT NULL
-                AND user_id != ''
+            WHERE {where_clause}
         """
-        count_result = self._client.query(count_query, parameters={"project_id": project_id})
+        count_result = self._client.query(count_query, parameters=params)
         total = count_result.result_rows[0][0] if count_result.result_rows else 0
 
         data = []

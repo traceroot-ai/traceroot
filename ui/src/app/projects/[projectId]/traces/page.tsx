@@ -3,18 +3,16 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
-import { Search, ChevronLeft, ChevronRight, ChevronDown, Workflow, Users, Layers, X, Calendar } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronDown, Workflow, Users, Layers, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { DateRangePicker } from '@/components/ui/date-time-picker'
+import { SearchFilterBar } from '@/components/search-filter-bar'
 import { ProjectBreadcrumb } from '@/features/projects/components'
 import { formatDuration, formatDate, cn } from '@/lib/utils'
 import type { TraceListItem } from '@/types/api'
-import { useTraces, useTraceListState } from '@/features/traces/hooks'
+import { useTraces, useListPageState } from '@/features/traces/hooks'
 import { TraceViewerPanel } from '@/features/traces/components'
 import { formatContentPreview } from '@/features/traces/utils'
-import { DATE_FILTER_OPTIONS, formatDateRange } from '@/lib/date-filter'
 
 // Tab definitions
 const tabs = [
@@ -30,7 +28,7 @@ export default function TracesPage() {
   const projectId = params.projectId as string
   const userId = searchParams.get('user_id')
 
-  // Use modular state management hook
+  // Use URL-synced state management hook (shares date filter with other pages)
   const {
     state,
     updateDateFilter,
@@ -39,13 +37,11 @@ export default function TracesPage() {
     updateLimit,
     goToPage,
     queryOptions,
-  } = useTraceListState()
+  } = useListPageState()
 
   // UI state for popovers
-  const [dateFilterOpen, setDateFilterOpen] = useState(false)
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false)
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null)
-  const [showCustomPicker, setShowCustomPicker] = useState(false)
 
   // Fetch traces with combined query options + user filter from URL
   const { data, isLoading, error } = useTraces(projectId, {
@@ -57,23 +53,28 @@ export default function TracesPage() {
   const meta = data?.meta || { page: 0, limit: 50, total: 0 }
   const totalPages = Math.ceil(meta.total / meta.limit)
 
-  // Get display label for the date filter button
-  const getDateFilterLabel = () => {
-    if (state.dateFilter.isCustom && state.customStartDate && state.customEndDate) {
-      return formatDateRange(state.customStartDate, state.customEndDate)
-    }
-    return state.dateFilter.label
-  }
+  // Build URL with preserved date filter params
+  const buildUrlWithDateFilter = (path: string, extraParams?: Record<string, string>) => {
+    const params = new URLSearchParams()
 
-  // Handle custom date apply
-  const handleCustomDateApply = (startDate: Date | null, endDate: Date | null) => {
-    if (startDate && endDate) {
-      const customOption = DATE_FILTER_OPTIONS.find(o => o.isCustom)!
-      updateDateFilter(customOption)
-      updateCustomRange(startDate, endDate)
+    // Add extra params
+    if (extraParams) {
+      for (const [key, value] of Object.entries(extraParams)) {
+        params.set(key, value)
+      }
     }
-    setDateFilterOpen(false)
-    setShowCustomPicker(false)
+
+    // Preserve date filter params
+    const dateFilter = searchParams.get('date_filter')
+    const start = searchParams.get('start')
+    const end = searchParams.get('end')
+
+    if (dateFilter) params.set('date_filter', dateFilter)
+    if (start) params.set('start', start)
+    if (end) params.set('end', end)
+
+    const queryString = params.toString()
+    return queryString ? `${path}?${queryString}` : path
   }
 
   return (
@@ -91,7 +92,7 @@ export default function TracesPage() {
               return (
                 <Link
                   key={tab.id}
-                  href={`/projects/${projectId}/${tab.href}`}
+                  href={buildUrlWithDateFilter(`/projects/${projectId}/${tab.href}`)}
                   className={cn(
                     'flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium border-b-2 transition-colors',
                     isActive
@@ -108,79 +109,31 @@ export default function TracesPage() {
         </div>
 
         {/* Filters bar */}
-        <div className="border-b border-border bg-background px-3 py-1.5">
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search traces..."
-                value={state.keyword}
-                onChange={(e) => updateKeyword(e.target.value)}
-                className="pl-8 h-8 text-[13px]"
-              />
+        <SearchFilterBar
+          searchValue={state.keyword}
+          onSearchChange={updateKeyword}
+          searchPlaceholder="Search..."
+          dateFilter={state.dateFilter}
+          customStartDate={state.customStartDate}
+          customEndDate={state.customEndDate}
+          onDateFilterChange={updateDateFilter}
+          onCustomRangeChange={updateCustomRange}
+        >
+          {userId && (
+            <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 pl-2.5 pr-1.5 py-1">
+              <Users className="h-3 w-3 text-muted-foreground" />
+              <span className="text-[12px] text-muted-foreground">User:</span>
+              <span className="text-[12px] font-medium text-foreground">{userId}</span>
+              <button
+                type="button"
+                onClick={() => router.push(buildUrlWithDateFilter(`/projects/${projectId}/traces`))}
+                className="ml-1 rounded hover:bg-muted p-0.5 transition-colors"
+              >
+                <X className="h-3 w-3 text-muted-foreground" />
+              </button>
             </div>
-            {userId && (
-              <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 pl-2.5 pr-1.5 py-1">
-                <Users className="h-3 w-3 text-muted-foreground" />
-                <span className="text-[12px] text-muted-foreground">User:</span>
-                <span className="text-[12px] font-medium text-foreground">{userId}</span>
-                <button
-                  type="button"
-                  onClick={() => router.push(`/projects/${projectId}/traces`)}
-                  className="ml-1 rounded hover:bg-muted p-0.5 transition-colors"
-                >
-                  <X className="h-3 w-3 text-muted-foreground" />
-                </button>
-              </div>
-            )}
-            <div className="flex-1" />
-            <Popover open={dateFilterOpen} onOpenChange={(open) => {
-              setDateFilterOpen(open)
-              if (!open) setShowCustomPicker(false)
-            }}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 min-w-[140px] justify-between text-[13px] font-normal gap-2">
-                  <span>{getDateFilterLabel()}</span>
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className={cn("p-0", showCustomPicker ? "w-auto" : "w-auto min-w-[130px]")}>
-                {!showCustomPicker ? (
-                  <div className="py-1">
-                    {DATE_FILTER_OPTIONS.map((option) => (
-                      <button
-                        key={option.id}
-                        className={cn(
-                          'w-full px-2.5 py-1 text-left text-[13px] transition-colors flex items-center gap-1.5',
-                          state.dateFilter.id === option.id && !option.isCustom
-                            ? 'bg-muted/70'
-                            : 'hover:bg-muted/50'
-                        )}
-                        onClick={() => {
-                          if (option.isCustom) {
-                            setShowCustomPicker(true)
-                          } else {
-                            updateDateFilter(option)
-                            setDateFilterOpen(false)
-                          }
-                        }}
-                      >
-                        {option.isCustom && <Calendar className="h-3 w-3 text-muted-foreground" />}
-                        <span>{option.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <DateRangePicker
-                    startDate={state.customStartDate}
-                    endDate={state.customEndDate}
-                    onApply={handleCustomDateApply}
-                  />
-                )}
-              </PopoverContent>
-            </Popover>
-          </div>
-        </div>
+          )}
+        </SearchFilterBar>
 
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background">
