@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@traceroot/core";
 import {
   requireAuth,
   requireProjectAccess,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@traceroot/core";
 import { hash } from "bcryptjs";
 import { z } from "zod";
 
