@@ -27,6 +27,7 @@ export default function TracesPage() {
   const router = useRouter()
   const projectId = params.projectId as string
   const userId = searchParams.get('user_id')
+  const sessionId = searchParams.get('session_id')
 
   // Use URL-synced state management hook (shares date filter with other pages)
   const {
@@ -43,10 +44,11 @@ export default function TracesPage() {
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false)
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null)
 
-  // Fetch traces with combined query options + user filter from URL
+  // Fetch traces with combined query options + user/session filter from URL
   const { data, isLoading, error } = useTraces(projectId, {
     ...queryOptions,
     user_id: userId || undefined,
+    session_id: sessionId || undefined,
   })
 
   const traces = data?.data || []
@@ -79,6 +81,12 @@ export default function TracesPage() {
     if (dateFilter) params.set('date_filter', dateFilter)
     if (start) params.set('start', start)
     if (end) params.set('end', end)
+
+    // Preserve metadata filters
+    const uId = searchParams.get('user_id')
+    const sId = searchParams.get('session_id')
+    if (uId && !params.has('user_id')) params.set('user_id', uId)
+    if (sId && !params.has('session_id')) params.set('session_id', sId)
 
     const queryString = params.toString()
     return queryString ? `${path}?${queryString}` : path
@@ -133,7 +141,29 @@ export default function TracesPage() {
               <span className="text-[12px] font-medium text-foreground">{userId}</span>
               <button
                 type="button"
-                onClick={() => router.push(buildUrlWithFilters(`/projects/${projectId}/traces`))}
+                onClick={() => {
+                  const p = new URLSearchParams(searchParams.toString())
+                  p.delete('user_id')
+                  router.push(`/projects/${projectId}/traces?${p.toString()}`)
+                }}
+                className="ml-1 rounded hover:bg-muted p-0.5 transition-colors"
+              >
+                <X className="h-3 w-3 text-muted-foreground" />
+              </button>
+            </div>
+          )}
+          {sessionId && (
+            <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 pl-2.5 pr-1.5 py-1">
+              <Layers className="h-3 w-3 text-muted-foreground" />
+              <span className="text-[12px] text-muted-foreground">Session:</span>
+              <span className="text-[12px] font-medium text-foreground">{sessionId}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const p = new URLSearchParams(searchParams.toString())
+                  p.delete('session_id')
+                  router.push(`/projects/${projectId}/traces?${p.toString()}`)
+                }}
                 className="ml-1 rounded hover:bg-muted p-0.5 transition-colors"
               >
                 <X className="h-3 w-3 text-muted-foreground" />
@@ -177,6 +207,12 @@ export default function TracesPage() {
                         <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground border-r border-border/50">
                           Trace ID
                         </th>
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground border-r border-border/50 w-[120px]">
+                          User ID
+                        </th>
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground border-r border-border/50 w-[120px]">
+                          Session ID
+                        </th>
                         <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground border-r border-border/50">
                           Input
                         </th>
@@ -206,6 +242,40 @@ export default function TracesPage() {
                           </td>
                           <td className="px-3 py-1.5 text-[11px] font-mono text-muted-foreground border-r border-border/50">
                             {trace.trace_id.substring(0, 8)}...
+                          </td>
+                          <td className="px-3 py-1.5 text-[11px] font-mono text-muted-foreground border-r border-border/50">
+                            {trace.user_id ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const p = new URLSearchParams(searchParams.toString())
+                                  p.set('user_id', trace.user_id!)
+                                  router.push(`/projects/${projectId}/traces?${p.toString()}`)
+                                }}
+                                className="hover:text-foreground hover:underline underline-offset-2 transition-colors text-left"
+                              >
+                                {trace.user_id.substring(0, 8)}...
+                              </button>
+                            ) : (
+                              <span className="text-muted-foreground/40">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-1.5 text-[11px] font-mono text-muted-foreground border-r border-border/50">
+                            {trace.session_id ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const p = new URLSearchParams(searchParams.toString())
+                                  p.set('session_id', trace.session_id!)
+                                  router.push(`/projects/${projectId}/traces?${p.toString()}`)
+                                }}
+                                className="hover:text-foreground hover:underline underline-offset-2 transition-colors text-left"
+                              >
+                                {trace.session_id.substring(0, 8)}...
+                              </button>
+                            ) : (
+                              <span className="text-muted-foreground/40">—</span>
+                            )}
                           </td>
                           <td className="px-3 py-1.5 max-w-[180px] border-r border-border/50">
                             <span className="text-muted-foreground text-[11px] font-mono truncate block">

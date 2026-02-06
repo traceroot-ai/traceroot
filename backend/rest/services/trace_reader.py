@@ -26,6 +26,7 @@ class TraceReaderService:
         limit: int = 50,
         name: str | None = None,
         user_id: str | None = None,
+        session_id: str | None = None,
         start_after: datetime | None = None,
         end_before: datetime | None = None,
         search_query: str | None = None,
@@ -44,6 +45,10 @@ class TraceReaderService:
         if user_id:
             conditions.append("t.user_id = {user_id:String}")
             params["user_id"] = user_id
+
+        if session_id:
+            conditions.append("t.session_id = {session_id:String}")
+            params["session_id"] = session_id
 
         # Date range filtering (convert to UTC naive datetime for ClickHouse)
         if start_after:

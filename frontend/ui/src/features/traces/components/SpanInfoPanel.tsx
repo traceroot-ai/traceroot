@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Clock, Users, Layers, ChevronRight, CircleStop, CircleDollarSign } from 'lucide-react';
 import { CopyButton } from '@/components/ui/copy-button';
 import { formatDuration, formatDate, formatTokens } from '@/lib/utils';
@@ -23,6 +23,7 @@ interface SpanInfoPanelProps {
  */
 export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfoPanelProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const isTrace = selection.type === 'trace';
   const name = isTrace ? trace.name : selection.span.name;
   const kind = isTrace ? 'trace' : selection.span.span_kind;
@@ -117,7 +118,9 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
                 type="button"
                 onClick={() => {
                   onClose?.();
-                  router.push(`/projects/${projectId}/traces?user_id=${encodeURIComponent(trace.user_id!)}`);
+                  const p = new URLSearchParams(searchParams.toString());
+                  p.set('user_id', trace.user_id!);
+                  router.push(`/projects/${projectId}/traces?${p.toString()}`);
                 }}
                 className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 pl-2.5 pr-1.5 py-1 text-xs hover:bg-muted transition-colors cursor-pointer"
               >
@@ -130,7 +133,12 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
             {trace.session_id && (
               <button
                 type="button"
-                onClick={() => {/* TODO: handle session_id click */}}
+                onClick={() => {
+                  onClose?.();
+                  const p = new URLSearchParams(searchParams.toString());
+                  p.set('session_id', trace.session_id!);
+                  router.push(`/projects/${projectId}/traces?${p.toString()}`);
+                }}
                 className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 pl-2.5 pr-1.5 py-1 text-xs hover:bg-muted transition-colors cursor-pointer"
               >
                 <Layers className="h-3 w-3 text-muted-foreground" />
