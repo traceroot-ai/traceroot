@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@traceroot/core": "workspace:*",
+    "@prisma/client": "^5.22.0",
     "@auth/prisma-adapter": "^2.11.1",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-dialog": "^1.1.0",
