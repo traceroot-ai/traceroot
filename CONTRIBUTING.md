@@ -12,8 +12,10 @@ Traceroot is an observability platform for LLM applications to fix production bu
   - `frontend/packages/core/` - Shared package with Prisma schema, client, and types (`@traceroot/core`)
   - `frontend/ui/` - Next.js application
   - `frontend/worker/` - TypeScript background worker
-- **Backend**: Python services (`rest/`, `worker/`)
-- **Shared Code**: Common modules (`common/`, `db/`)
+- **Backend**: Python services (`backend/`)
+  - `backend/rest/` - FastAPI REST API
+  - `backend/worker/` - Celery background worker
+  - `backend/db/` - ClickHouse client and migrations
 - **SDK**: Python SDK for instrumentation (`traceroot-py/`)
 
 
@@ -86,7 +88,7 @@ Traceroot is an observability platform for LLM applications to fix production bu
    cd frontend/packages/core && npx prisma migrate dev
 
    # ClickHouse schema (via goose - requires goose CLI)
-   cd db/clickhouse && ./migrate.sh up
+   cd backend/db/clickhouse && ./migrate.sh up
    ```
 
 6. **Start services**
@@ -123,10 +125,10 @@ You can run each service independently for development:
 
 ```bash
 # Terminal 1: REST API (from project root)
-uv run python rest/main.py
+uv run python backend/rest/main.py
 
 # Terminal 2: Python Worker (from project root)
-uv run python worker/main.py
+uv run celery -A worker.celery_app worker --loglevel=info
 
 # Terminal 3: Frontend UI
 cd frontend/ui && pnpm dev
@@ -206,7 +208,7 @@ cd frontend/ui && pnpm test
                               │ Internal HTTP API
                               │
 ┌─────────────────────────────┴───────────────────────────────────┐
-│                    Python Backend (rest/)                        │
+│                    Python Backend (backend/rest/)                        │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │  • /api/v1/public/traces   (OTEL ingestion → S3 → Celery) │  │
 │  │  • /api/v1/projects/*/traces (trace reading ← ClickHouse) │  │
@@ -215,14 +217,14 @@ cd frontend/ui && pnpm test
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Python Worker (worker/)                       │
+│                    Python Worker (backend/worker/)               │
 │  • Processes traces from S3 → ClickHouse                        │
 └─────────────────────────────────────────────────────────────────┘
 
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│ traceroot-py │  │    common    │  │      db      │
-│    (SDK)     │  │  (shared)    │  │ (clickhouse) │
-└──────────────┘  └──────────────┘  └──────────────┘
+┌──────────────┐  ┌──────────────────────┐
+│ traceroot-py │  │   backend/db/        │
+│    (SDK)     │  │   (clickhouse)       │
+└──────────────┘  └──────────────────────┘
 ```
 
 ### Internal API
@@ -296,7 +298,7 @@ We use **Prisma** (TypeScript) as the single source of truth for PostgreSQL sche
 
 - **Prisma owns all PostgreSQL schema and migrations**
 - Python backend accesses PostgreSQL via internal HTTP API to Next.js
-- ClickHouse schema is managed separately via `db/clickhouse/migrations/`
+- ClickHouse schema is managed separately via `backend/db/clickhouse/migrations/`
 
 ### Migrations
 
@@ -320,7 +322,7 @@ npx prisma migrate deploy
 **ClickHouse** - Managed by goose:
 
 ```bash
-cd db/clickhouse
+cd backend/db/clickhouse
 
 # Apply all pending migrations
 ./migrate.sh up
@@ -332,7 +334,7 @@ cd db/clickhouse
 ./migrate.sh create add_new_column
 ```
 
-> **Note**: Prisma only supports PostgreSQL. ClickHouse migrations use [goose](https://github.com/pressly/goose) with SQL files in `db/clickhouse/migrations/`.
+> **Note**: Prisma only supports PostgreSQL. ClickHouse migrations use [goose](https://github.com/pressly/goose) with SQL files in `backend/db/clickhouse/migrations/`.
 
 ### Resetting Databases
 
@@ -342,7 +344,7 @@ docker-compose down -v && docker-compose up -d
 
 # Re-run migrations after reset
 cd frontend/packages/core && npx prisma migrate dev   # PostgreSQL
-cd db/clickhouse && ./migrate.sh up                   # ClickHouse
+cd backend/db/clickhouse && ./migrate.sh up             # ClickHouse
 ```
 
 ### Inspecting Databases
