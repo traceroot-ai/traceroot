@@ -8,7 +8,10 @@ Traceroot is an observability platform for LLM applications to fix production bu
 
 > **Note:** We're currently pivoting to AgentOps functionality. Development is happening on the `pivot/agentops` branch. Check with maintainers for the latest on feature priorities.
 
-- **Frontend**: Next.js application (`ui/`)
+- **Frontend**: TypeScript monorepo (`frontend/`)
+  - `frontend/packages/core/` - Shared package with Prisma schema, client, and types (`@traceroot/core`)
+  - `frontend/ui/` - Next.js application
+  - `frontend/worker/` - TypeScript background worker
 - **Backend**: Python services (`rest/`, `worker/`)
 - **Shared Code**: Common modules (`common/`, `db/`)
 - **SDK**: Python SDK for instrumentation (`traceroot-py/`)
@@ -59,8 +62,10 @@ Traceroot is an observability platform for LLM applications to fix production bu
 
    ```bash
    cp .env.example .env
-   cp ui/.env.example ui/.env
-   # Edit both files and set INTERNAL_API_SECRET to the same value
+   cp frontend/packages/core/.env.example frontend/packages/core/.env
+   cp frontend/ui/.env.example frontend/ui/.env
+   # Edit .env and frontend/ui/.env, set INTERNAL_API_SECRET to the same value
+   # Edit frontend/packages/core/.env with your DATABASE_URL
    ```
 
 4. **Install dependencies**
@@ -69,15 +74,16 @@ Traceroot is an observability platform for LLM applications to fix production bu
    # Python dependencies (from project root)
    uv sync
 
-   # Frontend dependencies
-   cd ui && pnpm install
+   # Frontend dependencies (installs all packages in the workspace)
+   cd frontend && pnpm install
    ```
 
 5. **Run database migrations**
 
    ```bash
-   # PostgreSQL schema (via Prisma)
-   cd ui && npx prisma migrate dev
+   # Generate Prisma client and apply PostgreSQL migrations
+   cd frontend/packages/core && pnpm db:generate
+   cd frontend/packages/core && npx prisma migrate dev
 
    # ClickHouse schema (via goose - requires goose CLI)
    cd db/clickhouse && ./migrate.sh up
@@ -92,7 +98,10 @@ Traceroot is an observability platform for LLM applications to fix production bu
 ## Monorepo Quickstart
 
 This project uses a hybrid monorepo setup:
-- **pnpm** for the frontend (`ui/`)
+- **pnpm workspace** for the frontend (`frontend/`) containing:
+  - `packages/core` - Shared TypeScript package (`@traceroot/core`) with Prisma
+  - `ui` - Next.js application
+  - `worker` - TypeScript background worker
 - **uv** for Python packages (backend services + SDK)
 
 ### Installing Dependencies
@@ -101,8 +110,11 @@ This project uses a hybrid monorepo setup:
 # Python dependencies (from project root)
 uv sync
 
-# Frontend dependencies
-cd ui && pnpm install
+# Frontend dependencies (from frontend folder - installs all workspace packages)
+cd frontend && pnpm install
+
+# Build the shared core package (required before running ui or worker)
+cd frontend/packages/core && pnpm build
 ```
 
 ### Running Services
@@ -113,12 +125,14 @@ You can run each service independently for development:
 # Terminal 1: REST API (from project root)
 uv run python rest/main.py
 
-# Terminal 2: Worker (from project root)
+# Terminal 2: Python Worker (from project root)
 uv run python worker/main.py
 
-# Terminal 3: Frontend
-cd ui
-pnpm dev
+# Terminal 3: Frontend UI
+cd frontend/ui && pnpm dev
+
+# Terminal 4: TypeScript Worker (optional)
+cd frontend/worker && pnpm dev
 ```
 
 ### SDK Development
@@ -143,7 +157,7 @@ uv run pytest
 cd traceroot-py && uv run pytest
 
 # Frontend tests
-cd ui && pnpm test
+cd frontend/ui && pnpm test
 ```
 
 ### Useful Commands
@@ -154,8 +168,13 @@ cd ui && pnpm test
 | `uv run pytest` | Run Python tests |
 | `uv run ruff check .` | Lint Python code |
 | `uv run ruff format .` | Format Python code |
-| `pnpm --filter traceroot-ui dev` | Start frontend dev server |
-| `pnpm --filter traceroot-ui build` | Build frontend |
+| `cd frontend && pnpm install` | Install all frontend workspace dependencies |
+| `cd frontend/packages/core && pnpm build` | Build shared core package |
+| `cd frontend/packages/core && pnpm db:generate` | Generate Prisma client |
+| `cd frontend/packages/core && pnpm db:migrate` | Run Prisma migrations (dev) |
+| `cd frontend/ui && pnpm dev` | Start frontend dev server |
+| `cd frontend/ui && pnpm build` | Build frontend |
+| `cd frontend/worker && pnpm dev` | Start TypeScript worker (dev) |
 | `docker-compose up -d` | Start infrastructure |
 | `docker-compose down` | Stop infrastructure |
 | `docker-compose down -v` | Stop and remove volumes (reset data) |
@@ -166,12 +185,21 @@ cd ui && pnpm test
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      Next.js UI (ui/)                            │
+│                   Frontend (frontend/)                           │
 │  ┌───────────────────────────────────────────────────────────┐  │
-│  │  API Routes (Prisma → PostgreSQL)                         │  │
+│  │  @traceroot/core (packages/core/)                         │  │
+│  │  • Prisma schema & client (PostgreSQL)                    │  │
+│  │  • Shared TypeScript types                                │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  Next.js UI (ui/)                                         │  │
 │  │  • /api/organizations/**     (org CRUD)                   │  │
 │  │  • /api/projects/**/api-keys (API key management)         │  │
 │  │  • /api/internal/**          (for Python backend)         │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  TypeScript Worker (worker/)                              │  │
+│  │  • Background jobs using @traceroot/core                  │  │
 │  └───────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
                               ▲
@@ -187,7 +215,7 @@ cd ui && pnpm test
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Worker (worker/)                              │
+│                    Python Worker (worker/)                       │
 │  • Processes traces from S3 → ClickHouse                        │
 └─────────────────────────────────────────────────────────────────┘
 
@@ -230,7 +258,7 @@ uv run ruff format .
 uv run ruff check . --fix
 
 # Lint frontend
-cd ui && pnpm lint
+cd frontend/ui && pnpm lint
 ```
 
 ### Commit Messages
@@ -272,16 +300,18 @@ We use **Prisma** (TypeScript) as the single source of truth for PostgreSQL sche
 
 ### Migrations
 
-**PostgreSQL** - Managed by Prisma:
+**PostgreSQL** - Managed by Prisma (in `frontend/packages/core/`):
 
 ```bash
-cd ui
+cd frontend/packages/core
 
 # Generate Prisma client after schema changes
-npx prisma generate
+pnpm db:generate
+# or: npx prisma generate
 
 # Create and apply a migration (development)
-npx prisma migrate dev --name "description"
+pnpm db:migrate
+# or: npx prisma migrate dev --name "description"
 
 # Apply migrations in production
 npx prisma migrate deploy
@@ -311,8 +341,8 @@ cd db/clickhouse
 docker-compose down -v && docker-compose up -d
 
 # Re-run migrations after reset
-cd ui && npx prisma migrate dev      # PostgreSQL
-cd db/clickhouse && ./migrate.sh up   # ClickHouse
+cd frontend/packages/core && npx prisma migrate dev   # PostgreSQL
+cd db/clickhouse && ./migrate.sh up                   # ClickHouse
 ```
 
 ### Inspecting Databases
@@ -359,7 +389,12 @@ Access the MinIO web console at [http://localhost:9001](http://localhost:9001)
 
 ## Environment Variables
 
-See `.env.example` for all configuration options:
+Environment files are needed in multiple locations:
+- `.env` - Python backend configuration (root)
+- `frontend/packages/core/.env` - Database URL for Prisma
+- `frontend/ui/.env` - Next.js application settings
+
+See `.env.example` and respective `.env.example` files for all configuration options:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -402,9 +437,10 @@ uv sync
 
 **pnpm install fails**
 ```bash
-# Clear cache and retry
+# Clear cache and retry (from frontend folder)
+cd frontend
 pnpm store prune
-rm -rf node_modules
+rm -rf node_modules packages/core/node_modules ui/node_modules worker/node_modules
 pnpm install
 ```
 
