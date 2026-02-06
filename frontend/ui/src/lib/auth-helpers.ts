@@ -1,11 +1,8 @@
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@traceroot/core";
-
-// Role hierarchy (higher index = more permissions)
-const ROLE_HIERARCHY = ["VIEWER", "MEMBER", "ADMIN"] as const;
-export type Role = (typeof ROLE_HIERARCHY)[number];
+import { prisma, type Role, hasMinRole } from "@traceroot/core";
+export type { Role } from "@traceroot/core";
 
 export interface AuthenticatedUser {
   id: string;
@@ -76,15 +73,6 @@ export async function getWorkspaceMembership(
     userId: membership.userId,
     role: membership.role as Role,
   };
-}
-
-/**
- * Check if a role meets the minimum required role.
- */
-export function hasMinRole(userRole: Role, minRole: Role): boolean {
-  const userIndex = ROLE_HIERARCHY.indexOf(userRole);
-  const minIndex = ROLE_HIERARCHY.indexOf(minRole);
-  return userIndex >= minIndex;
 }
 
 /**
