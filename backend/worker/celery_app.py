@@ -7,6 +7,7 @@ Runs ClickHouse migrations on worker startup.
 import logging
 import os
 import subprocess
+from pathlib import Path
 
 from celery import Celery
 from celery.signals import worker_ready
@@ -62,7 +63,7 @@ def on_worker_ready(**kwargs):
     logger.info("Running ClickHouse migrations on worker startup...")
     try:
         result = subprocess.run(
-            ["./db/clickhouse/migrate.sh", "up"],
+            [str(Path(__file__).resolve().parent.parent / "db" / "clickhouse" / "migrate.sh"), "up"],
             capture_output=True,
             text=True,
             env={
