@@ -52,6 +52,18 @@ async def async_process(data):
     return await some_async_call(data)
 ```
 
+## Session Management
+
+Group related traces into sessions to track multi-step agent workflows:
+
+```python
+from traceroot import using_attributes
+
+with using_attributes(session_id="conv-123", user_id="user-456"):
+    # All traces in this block get session_id and user_id
+    response = run_agent_workflow(query)
+```
+
 ## Configuration
 
 ```env
