@@ -51,7 +51,7 @@ export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
     const children = childrenByParent.get(span.span_id) || [];
     children.forEach((child, idx) => {
       const childIsTerminal = idx === children.length - 1;
-      const nextParentLevels = isTerminal ? parentLevels : [...parentLevels, level];
+      const nextParentLevels = childIsTerminal ? parentLevels : [...parentLevels, level];
       traverse(child, level + 1, childIsTerminal, nextParentLevels);
     });
   }

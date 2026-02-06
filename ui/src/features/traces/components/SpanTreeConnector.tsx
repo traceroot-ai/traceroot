@@ -33,14 +33,14 @@ export function SpanTreeConnector({ level, isTerminal, parentLevels }: SpanTreeC
 
         return (
           <div key={i}>
-            {/* Continuing vertical line for non-terminal ancestors - extends up to touch parent icon */}
-            {showContinuingLine && (
+            {/* Continuing vertical line for non-terminal ancestors - covers exactly one row */}
+            {showContinuingLine && !isCurrentLevel && (
               <div
-                className="absolute bg-muted-foreground/50"
+                className="absolute bg-border"
                 style={{
                   left: lineX,
-                  top: -iconVerticalGap, // extend up to parent icon bottom
-                  height: ROW_HEIGHT + iconVerticalGap, // full row + extension
+                  top: 0,
+                  height: ROW_HEIGHT,
                   width: 1
                 }}
               />
@@ -48,21 +48,21 @@ export function SpanTreeConnector({ level, isTerminal, parentLevels }: SpanTreeC
             {/* Current level connector - L-shape */}
             {isCurrentLevel && (
               <>
-                {/* Vertical part - from parent icon bottom to row center */}
+                {/* Vertical part - extends above to parent icon, down to row bottom if non-terminal */}
                 <div
-                  className="absolute bg-muted-foreground/50"
+                  className="absolute bg-border"
                   style={{
                     left: lineX,
-                    top: -iconVerticalGap, // start at parent icon bottom
+                    top: -iconVerticalGap,
                     height: isTerminal
                       ? (ROW_HEIGHT / 2 + iconVerticalGap) // to current row center
-                      : ROW_HEIGHT, // to row bottom (child's line starts there)
+                      : (ROW_HEIGHT + iconVerticalGap), // to row bottom
                     width: 1
                   }}
                 />
                 {/* Horizontal part - extend to touch the icon box border */}
                 <div
-                  className="absolute bg-muted-foreground/50"
+                  className="absolute bg-border"
                   style={{
                     left: lineX,
                     top: Math.floor(ROW_HEIGHT / 2),
