@@ -148,6 +148,11 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
               <span className="text-[10px] text-muted-foreground font-mono whitespace-nowrap">
                 {formatDuration(getSpanDuration(span))}
               </span>
+              {span.status === 'ERROR' && (
+                <span className="rounded px-1 py-0.5 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400 whitespace-nowrap">
+                  ERROR
+                </span>
+              )}
               {span.span_kind === 'LLM' && span.total_tokens != null && (
                 <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground font-mono whitespace-nowrap">
                   <CircleStop className="h-2.5 w-2.5" />

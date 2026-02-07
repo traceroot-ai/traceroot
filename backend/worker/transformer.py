@@ -270,8 +270,15 @@ def transform_otel_to_clickhouse(
                 }
 
                 # Extract input/output if present
-                span_input = span_attrs.get("traceroot.span.input")
-                span_output = span_attrs.get("traceroot.span.output")
+                # Priority: traceroot SDK attrs > OpenInference attrs
+                span_input = (
+                    span_attrs.get("traceroot.span.input")
+                    or span_attrs.get("input.value")
+                )
+                span_output = (
+                    span_attrs.get("traceroot.span.output")
+                    or span_attrs.get("output.value")
+                )
 
                 if span_input is not None:
                     span_record["input"] = (
@@ -282,17 +289,60 @@ def transform_otel_to_clickhouse(
                         json.dumps(span_output) if not isinstance(span_output, str) else span_output
                     )
 
-                # LLM-specific fields
-                if span_kind == "LLM":
-                    model_name = (
-                        span_attrs.get("traceroot.llm.model")
-                        or span_attrs.get("gen_ai.request.model")
-                        or span_attrs.get("llm.model_name")
-                    )
-                    if model_name:
-                        span_record["model_name"] = model_name
+                # Model & token fields — extract whenever a model name is present,
+                # not just for LLM spans. Auto-instrumentors (OpenInference, GenAI)
+                # set model/token attrs on AGENT and CHAIN spans too.
+                model_name = (
+                    span_attrs.get("traceroot.llm.model")
+                    or span_attrs.get("gen_ai.request.model")
+                    or span_attrs.get("llm.model_name")
+                )
+                if model_name:
+                    span_record["model_name"] = model_name
 
-                        # Calculate tokens and cost from model + input/output
+                    # Try API-provided token counts first (from instrumentors)
+                    # OpenInference: llm.token_count.*
+                    # GenAI semconv: gen_ai.usage.*
+                    api_input_tokens = (
+                        span_attrs.get("llm.token_count.prompt")
+                        or span_attrs.get("gen_ai.usage.input_tokens")
+                        or span_attrs.get("gen_ai.usage.prompt_tokens")
+                    )
+                    api_output_tokens = (
+                        span_attrs.get("llm.token_count.completion")
+                        or span_attrs.get("gen_ai.usage.output_tokens")
+                        or span_attrs.get("gen_ai.usage.completion_tokens")
+                    )
+                    api_total_tokens = (
+                        span_attrs.get("llm.token_count.total")
+                        or span_attrs.get("gen_ai.usage.total_tokens")
+                    )
+
+                    if api_input_tokens is not None or api_output_tokens is not None:
+                        # Use API-provided counts (accurate)
+                        input_tokens = int(api_input_tokens) if api_input_tokens is not None else 0
+                        output_tokens = int(api_output_tokens) if api_output_tokens is not None else 0
+                        total_tokens = (
+                            int(api_total_tokens)
+                            if api_total_tokens is not None
+                            else input_tokens + output_tokens
+                        )
+                        span_record["input_tokens"] = input_tokens
+                        span_record["output_tokens"] = output_tokens
+                        span_record["total_tokens"] = total_tokens
+
+                        # Calculate cost from actual token counts
+                        from worker.features.tokens.pricing import get_model_price
+
+                        prices = get_model_price(model_name)
+                        if prices:
+                            from decimal import Decimal
+
+                            input_cost = Decimal(input_tokens) * Decimal(str(prices["input"])) / Decimal("1000000")
+                            output_cost = Decimal(output_tokens) * Decimal(str(prices["output"])) / Decimal("1000000")
+                            span_record["cost"] = float(input_cost + output_cost)
+                    else:
+                        # Fall back to text-based estimation
                         from worker.features.tokens import calculate_cost
 
                         usage = calculate_cost(
