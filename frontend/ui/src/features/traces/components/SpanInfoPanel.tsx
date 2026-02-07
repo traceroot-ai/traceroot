@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { Clock, Users, Layers, ChevronRight, CircleStop, CircleDollarSign } from 'lucide-react';
+import { Clock, Users, Layers, ChevronRight, CircleStop, CircleDollarSign, AlertCircle } from 'lucide-react';
 import { CopyButton } from '@/components/ui/copy-button';
 import { formatDuration, formatDate, formatTokens } from '@/lib/utils';
 import type { TraceDetail } from '@/types/api';
@@ -35,6 +35,10 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
   const traceTotalCost = isTrace ? getTraceTotalCost(trace) : null;
   const traceTokenUsage = isTrace ? getTraceTokenUsage(trace) : null;
 
+  // Error status
+  const hasError = isTrace ? false : selection.span.status === 'ERROR';
+  const statusMessage = !isTrace ? selection.span.status_message : null;
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
   };
@@ -66,6 +70,12 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
             <span className="text-muted-foreground">Latency:</span>
             <span className="font-medium">{formatDuration(duration)}</span>
           </div>
+          {hasError && (
+            <div className="inline-flex items-center gap-1.5 rounded-md bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400 px-2.5 py-1 text-xs font-medium">
+              <AlertCircle className="h-3 w-3" />
+              ERROR
+            </div>
+          )}
           {isTrace && trace.environment && (
             <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
               <span className="text-muted-foreground">Env:</span>
@@ -145,6 +155,19 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
 
       {/* Content */}
       <div className="p-4 space-y-3">
+        {/* Error message */}
+        {statusMessage && (
+          <div className="rounded-md border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/50 p-3">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-400 mb-1">
+              <AlertCircle className="h-3 w-3" />
+              Error
+            </div>
+            <p className="text-xs text-red-600 dark:text-red-400 font-mono whitespace-pre-wrap break-all">
+              {statusMessage}
+            </p>
+          </div>
+        )}
+
         {/* Input */}
         <ExpandableSection
           title="Input"

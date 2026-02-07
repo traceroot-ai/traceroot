@@ -113,6 +113,13 @@ export function getTraceTotalCost(trace: TraceDetail): number | null {
 }
 
 /**
+ * Check if a trace has any errored spans
+ */
+export function getTraceHasError(trace: TraceDetail): boolean {
+  return trace.spans.some((s) => s.status === 'ERROR');
+}
+
+/**
  * Calculate total token usage from all spans in a trace
  */
 export function getTraceTokenUsage(trace: TraceDetail): {
