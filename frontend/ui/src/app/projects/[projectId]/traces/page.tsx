@@ -177,6 +177,12 @@ export default function TracesPage() {
                         <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground border-r border-border/50">
                           Trace ID
                         </th>
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground border-r border-border/50 w-[60px]">
+                          Status
+                        </th>
+                        <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground border-r border-border/50 w-[60px]">
+                          Spans
+                        </th>
                         <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground border-r border-border/50">
                           Input
                         </th>
@@ -206,6 +212,20 @@ export default function TracesPage() {
                           </td>
                           <td className="px-3 py-1.5 text-[11px] font-mono text-muted-foreground border-r border-border/50">
                             {trace.trace_id.substring(0, 8)}...
+                          </td>
+                          <td className="px-3 py-1.5 border-r border-border/50">
+                            {trace.status === 'error' ? (
+                              <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400">
+                                ERROR
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-muted-foreground">
+                                OK
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-1.5 text-[12px] text-muted-foreground text-center border-r border-border/50">
+                            {trace.span_count}
                           </td>
                           <td className="px-3 py-1.5 max-w-[180px] border-r border-border/50">
                             <span className="text-muted-foreground text-[11px] font-mono truncate block">
