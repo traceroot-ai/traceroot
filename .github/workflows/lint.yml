@@ -24,7 +24,7 @@ jobs:
         with:
           args: format --check
 
-  frontend:
+  typescript:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
