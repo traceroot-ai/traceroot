@@ -194,8 +194,9 @@ def make_driver():
             schema.Service(
                 title="Celery Worker",
                 command=(
-                    "uv run celery -A worker.celery_app worker "
-                    "--loglevel=info"
+                    "uv run watchfiles --filter python "
+                    "'celery -A worker.celery_app worker --loglevel=info' "
+                    "backend/worker"
                 ),
                 web_urls=[],
             ),

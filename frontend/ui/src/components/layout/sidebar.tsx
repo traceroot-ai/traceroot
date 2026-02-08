@@ -150,7 +150,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
           <Tooltip>
             <TooltipTrigger asChild>
               <a
-                href="https://github.com/traceroot-ai/traceroot"
+                href={process.env.NEXT_PUBLIC_GITHUB_REPO_URL || "https://github.com/traceroot-ai/traceroot"}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={cn(
