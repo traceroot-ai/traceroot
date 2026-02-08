@@ -59,6 +59,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       create_time: p.createTime,
     })),
     create_time: workspace.createTime,
+    // Billing fields
+    plan: workspace.plan,
+    stripeCustomerId: workspace.stripeCustomerId,
+    stripeSubscriptionId: workspace.stripeSubscriptionId,
+    subscriptionStatus: workspace.subscriptionStatus,
   });
 }
 

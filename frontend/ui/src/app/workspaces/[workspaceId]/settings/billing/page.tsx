@@ -6,6 +6,9 @@ import { SlidersHorizontal, Users, CreditCard } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { WorkspaceBreadcrumb } from '@/features/workspaces/components'
 import { BillingTab } from '@/features/settings/workspace'
+import { useQuery } from '@tanstack/react-query'
+import { getWorkspace } from '@/lib/api'
+import type { PlanType } from '@traceroot/core'
 
 const settingsTabs = [
   { id: 'general', label: 'General', icon: SlidersHorizontal, href: 'general' },
@@ -16,6 +19,11 @@ const settingsTabs = [
 export default function WorkspaceSettingsBillingPage() {
   const params = useParams()
   const workspaceId = params.workspaceId as string
+
+  const { data: workspace, isLoading } = useQuery({
+    queryKey: ['workspace', workspaceId],
+    queryFn: () => getWorkspace(workspaceId),
+  })
 
   return (
     <div className="flex h-full">
@@ -46,7 +54,15 @@ export default function WorkspaceSettingsBillingPage() {
       </nav>
 
       <div className="flex-1 overflow-auto p-6">
-        <BillingTab workspaceId={workspaceId} />
+        {isLoading ? (
+          <div className="text-sm text-muted-foreground">Loading...</div>
+        ) : (
+          <BillingTab
+            workspaceId={workspaceId}
+            currentPlan={(workspace?.plan as PlanType) || 'free'}
+            hasSubscription={!!workspace?.stripeSubscriptionId}
+          />
+        )}
       </div>
     </div>
   )
