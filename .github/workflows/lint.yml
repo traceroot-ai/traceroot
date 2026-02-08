@@ -5,9 +5,8 @@ permissions:
 
 on:
   push:
-    branches: [main]
+    branches: [main, pivot/agentops]
   pull_request:
-    branches: [main]
 
 jobs:
   python:
