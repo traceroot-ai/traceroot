@@ -57,6 +57,14 @@ That's it. `make dev` handles everything:
 4. Runs database migrations
 5. Launches all services in a tmux session
 
+Want backend services to auto-reload when you edit Python files?
+
+```bash
+make dev-autoreload
+```
+
+This is the same as `make dev` but the REST API and Celery worker automatically restart on file changes (the frontend always hot-reloads via Next.js).
+
 If something breaks beyond repair:
 
 ```bash
@@ -130,6 +138,7 @@ cd frontend/ui && pnpm test
 | Command | Description |
 |---------|-------------|
 | `make dev` | Start full devserver (everything) |
+| `make dev-autoreload` | Same as `dev`, but backend auto-reloads on file changes |
 | `make dev-reset` | Nuclear reset and restart |
 | `uv run pytest` | Run Python tests |
 | `uv run ruff check .` | Lint Python code |

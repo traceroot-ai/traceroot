@@ -58,6 +58,4 @@ if __name__ == "__main__":
         "rest.main:app",
         host=host,
         port=port,
-        reload=True,
-        reload_dirs=["backend"],
     )
