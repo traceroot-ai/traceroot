@@ -30,74 +30,68 @@ Traceroot is an observability platform for LLM applications to fix production bu
 | Databases | PostgreSQL (via Prisma), ClickHouse |
 | Storage | MinIO (S3-compatible) |
 
-## Development Setup
+## Quick Start
 
-### Requirements
+### Prerequisites
 
-- **Python**: 3.11+
-- **Node.js**: 20+ (for frontend)
-- **uv**: Python package manager ([install](https://docs.astral.sh/uv/getting-started/installation/))
-- **pnpm**: Node.js package manager ([install](https://pnpm.io/installation))
-- **Docker**: For infrastructure only
+Install these first (the devserver will check and tell you if any are missing):
 
-### Quick Start
+- [Docker](https://docs.docker.com/get-docker/) — for PostgreSQL, ClickHouse, MinIO, Redis
+- [uv](https://docs.astral.sh/uv/) — Python package manager
+- [pnpm](https://pnpm.io/) — Node.js package manager
+- [goose](https://github.com/pressly/goose) — ClickHouse migrations (`brew install goose`)
+- [tmux](https://github.com/tmux/tmux) — terminal multiplexer (`brew install tmux`)
 
-1. **Clone the repository**
+### Start Developing
 
-   ```bash
-   git clone https://github.com/traceroot-ai/traceroot.git
-   cd traceroot
-   ```
+```bash
+git clone https://github.com/traceroot-ai/traceroot.git
+cd traceroot
+make dev
+```
 
-2. **Start infrastructure** (databases only)
+That's it. `make dev` handles everything:
+1. Creates `.env` from `.env.example` (if missing)
+2. Starts Docker infrastructure (PostgreSQL, ClickHouse, MinIO, Redis)
+3. Installs Python and Node.js dependencies
+4. Runs database migrations
+5. Launches all services in a tmux session
 
-   ```bash
-   docker-compose up -d
-   ```
+If something breaks beyond repair:
 
-   This starts:
-   - PostgreSQL (port 5432)
-   - ClickHouse (port 8123)
-   - MinIO S3 (port 9000, console 9001)
+```bash
+make dev-reset    # Nukes everything and starts fresh
+```
 
-3. **Set up environment**
+### Tmux Navigation
 
-   ```bash
-   cp .env.example .env
-   cp frontend/packages/core/.env.example frontend/packages/core/.env
-   cp frontend/ui/.env.example frontend/ui/.env
-   # Edit .env and frontend/ui/.env, set INTERNAL_API_SECRET to the same value
-   # Edit frontend/packages/core/.env with your DATABASE_URL
-   ```
+Once inside the devserver tmux session:
 
-4. **Install dependencies**
+| Key | Action |
+|-----|--------|
+| `Shift+Right` | Next window |
+| `Shift+Left` | Previous window |
+| `Ctrl+Q` | Kill session (stop all services) |
+| Mouse click | Click window name in status bar |
+| Scroll | Mouse scroll for log history (20k lines) |
 
-   ```bash
-   # Python dependencies (from project root)
-   uv sync
+### Window Layout
 
-   # Frontend dependencies (installs all packages in the workspace)
-   cd frontend && pnpm install
-   ```
+| Window | Service | URL |
+|--------|---------|-----|
+| 1 | Instructions | Keybindings and URLs |
+| 2 | REST API | http://localhost:8000/docs |
+| 3 | Celery Worker | (background) |
+| 4 | Frontend | http://localhost:3000 |
+| 5 | Infra Logs | PG, ClickHouse, Redis, MinIO logs |
 
-5. **Run database migrations**
+### Environment
 
-   ```bash
-   # Generate Prisma client and apply PostgreSQL migrations
-   cd frontend/packages/core && pnpm db:generate
-   cd frontend/packages/core && npx prisma migrate dev
-
-   # ClickHouse schema (via goose - requires goose CLI)
-   cd backend/db/clickhouse && ./migrate.sh up
-   ```
-
-6. **Start services**
-
-   See [Running Services](#running-services) below.
+All services read from a **single `.env` file** at the project root. No other `.env` files are needed. See `.env.example` for all available options.
 
 ---
 
-## Monorepo Quickstart
+## Monorepo Structure
 
 This project uses a hybrid monorepo setup:
 - **pnpm workspace** for the frontend (`frontend/`) containing:
@@ -105,37 +99,6 @@ This project uses a hybrid monorepo setup:
   - `ui` - Next.js application
   - `worker` - TypeScript background worker
 - **uv** for Python packages (backend services + SDK)
-
-### Installing Dependencies
-
-```bash
-# Python dependencies (from project root)
-uv sync
-
-# Frontend dependencies (from frontend folder - installs all workspace packages)
-cd frontend && pnpm install
-
-# Build the shared core package (required before running ui or worker)
-cd frontend/packages/core && pnpm build
-```
-
-### Running Services
-
-You can run each service independently for development:
-
-```bash
-# Terminal 1: REST API (from project root)
-uv run python backend/rest/main.py
-
-# Terminal 2: Python Worker (from project root)
-uv run celery -A worker.celery_app worker --loglevel=info
-
-# Terminal 3: Frontend UI
-cd frontend/ui && pnpm dev
-
-# Terminal 4: TypeScript Worker (optional)
-cd frontend/worker && pnpm dev
-```
 
 ### SDK Development
 
@@ -166,20 +129,16 @@ cd frontend/ui && pnpm test
 
 | Command | Description |
 |---------|-------------|
-| `uv sync` | Install all Python dependencies |
+| `make dev` | Start full devserver (everything) |
+| `make dev-reset` | Nuclear reset and restart |
 | `uv run pytest` | Run Python tests |
 | `uv run ruff check .` | Lint Python code |
 | `uv run ruff format .` | Format Python code |
-| `cd frontend && pnpm install` | Install all frontend workspace dependencies |
-| `cd frontend/packages/core && pnpm build` | Build shared core package |
-| `cd frontend/packages/core && pnpm db:generate` | Generate Prisma client |
+| `cd frontend/ui && pnpm lint` | Lint frontend |
+| `cd frontend/packages/core && pnpm db:generate` | Regenerate Prisma client |
 | `cd frontend/packages/core && pnpm db:migrate` | Run Prisma migrations (dev) |
-| `cd frontend/ui && pnpm dev` | Start frontend dev server |
-| `cd frontend/ui && pnpm build` | Build frontend |
-| `cd frontend/worker && pnpm dev` | Start TypeScript worker (dev) |
-| `docker-compose up -d` | Start infrastructure |
-| `docker-compose down` | Stop infrastructure |
-| `docker-compose down -v` | Stop and remove volumes (reset data) |
+| `docker compose ps` | Check infrastructure status |
+| `docker compose logs -f clickhouse` | Tail specific service logs |
 
 ---
 
@@ -338,13 +297,21 @@ cd backend/db/clickhouse
 
 ### Resetting Databases
 
+The easiest way to reset everything (databases, dependencies, containers):
+
+```bash
+make dev-reset
+```
+
+Or manually:
+
 ```bash
 # Reset all data (keeps containers)
-docker-compose down -v && docker-compose up -d
+docker compose down -v && docker compose up -d
 
 # Re-run migrations after reset
-cd frontend/packages/core && npx prisma migrate dev   # PostgreSQL
-cd backend/db/clickhouse && ./migrate.sh up             # ClickHouse
+cd frontend/packages/core && pnpm db:migrate   # PostgreSQL
+cd backend/db/clickhouse && ./migrate.sh up     # ClickHouse
 ```
 
 ### Inspecting Databases
@@ -391,21 +358,21 @@ Access the MinIO web console at [http://localhost:9001](http://localhost:9001)
 
 ## Environment Variables
 
-Environment files are needed in multiple locations:
-- `.env` - Python backend configuration (root)
-- `frontend/packages/core/.env` - Database URL for Prisma
-- `frontend/ui/.env` - Next.js application settings
+All services read from a **single `.env` file** at the project root. Both Python (`python-dotenv`) and Node.js (`dotenv-cli`) load from this same file. No other `.env` files are needed.
 
-See `.env.example` and respective `.env.example` files for all configuration options:
+See `.env.example` for all configuration options:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | `postgresql://...` | PostgreSQL connection (Prisma format) |
 | `CLICKHOUSE_HOST` | `localhost` | ClickHouse host |
-| `S3_ENDPOINT_URL` | `http://localhost:9000` | MinIO/S3 endpoint |
+| `S3_ENDPOINT_URL` | `http://localhost:9090` | MinIO/S3 endpoint |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection |
 | `PORT` | `8000` | REST API port |
 | `TRACEROOT_UI_URL` | `http://localhost:3000` | Next.js URL for internal API |
-| `INTERNAL_API_SECRET` | - | Shared secret for internal API auth |
+| `INTERNAL_API_SECRET` | `dev-internal-secret` | Shared secret for internal API auth |
+| `NEXTAUTH_URL` | `http://localhost:3000` | NextAuth callback URL |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000/api/v1` | Frontend API endpoint |
 
 ---
 
