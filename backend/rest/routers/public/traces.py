@@ -16,7 +16,7 @@ import hashlib
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 import httpx
@@ -90,7 +90,7 @@ async def authenticate_api_key(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service unavailable",
-        )
+        ) from e
 
     if response.status_code == 401:
         raise HTTPException(
@@ -185,7 +185,7 @@ async def ingest_traces(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Failed to decompress gzip: {e}",
-            )
+            ) from e
 
     # 3. Decode protobuf to camelCase JSON (OTLP standard format)
     try:
@@ -196,10 +196,10 @@ async def ingest_traces(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to parse OTLP protobuf: {e}",
-        )
+        ) from e
 
     # 4. Generate S3 key (time-partitioned)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     file_id = str(uuid.uuid4())
     s3_key = (
         f"events/otel/{project_id}/"
@@ -218,7 +218,7 @@ async def ingest_traces(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Storage error: {e}",
-        )
+        ) from e
 
     # 6. Enqueue Celery task for async processing (S3 reference only, not full payload)
     try:

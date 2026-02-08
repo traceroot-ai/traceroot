@@ -24,13 +24,13 @@ Session Management:
         response = client.chat.completions.create(...)
 """
 
-from traceroot.client import TracerootClient
-from traceroot.context import get_current_trace_id, get_current_span_id
-from traceroot.decorators import observe
-from traceroot.update import update_current_span, update_current_trace
-
 # Re-export using_attributes from OpenInference for convenience
 from openinference.instrumentation import using_attributes
+
+from traceroot.client import TracerootClient
+from traceroot.context import get_current_span_id, get_current_trace_id
+from traceroot.decorators import observe
+from traceroot.update import update_current_span, update_current_trace
 
 __version__ = "0.1.0"
 

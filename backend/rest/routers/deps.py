@@ -50,7 +50,7 @@ async def get_project_access(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Authentication service unavailable: {e}",
-        )
+        ) from e
 
     if response.status_code == 401:
         raise HTTPException(
@@ -68,7 +68,9 @@ async def get_project_access(
 
     if not data.get("hasAccess"):
         error = data.get("error", "No access to this project")
-        status_code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_403_FORBIDDEN
+        status_code = (
+            status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_403_FORBIDDEN
+        )
         raise HTTPException(status_code=status_code, detail=error)
 
     return ProjectAccessInfo(

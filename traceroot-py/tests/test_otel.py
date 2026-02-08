@@ -14,9 +14,9 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 import traceroot
+from tests.utils import reset_traceroot
 from traceroot import observe
 from traceroot.constants import SpanAttributes
-from tests.utils import reset_traceroot
 
 # Global exporter and provider for all tests (OTel doesn't allow provider override)
 _test_exporter = InMemorySpanExporter()
@@ -219,7 +219,6 @@ def test_output_not_wrapped_in_result_key(memory_exporter):
 
 def test_output_string_not_wrapped(memory_exporter):
     """Test string output is not wrapped in result key."""
-    import json
 
     @observe(name="return-string")
     def return_string():
@@ -352,7 +351,9 @@ async def test_async_span_hierarchy(memory_exporter):
     assert len(spans) == 2
 
     spans_by_name = get_spans_by_name(memory_exporter)
-    assert spans_by_name["async-child"].parent.span_id == spans_by_name["async-parent"].context.span_id
+    assert (
+        spans_by_name["async-child"].parent.span_id == spans_by_name["async-parent"].context.span_id
+    )
 
 
 def test_all_spans_share_trace_id(memory_exporter):
