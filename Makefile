@@ -2,12 +2,16 @@
 # Traceroot Development
 # =============================================================================
 
-.PHONY: dev dev-reset
+.PHONY: dev dev-autoreload dev-reset
 
 ## Start developing. Handles everything: deps, infra, migrations, tmux launch.
 ## Idempotent — safe to run repeatedly. Reattaches if already running.
 dev:
 	uv run python tmux_tools/launcher.py
+
+## Same as dev, but with auto-reload for backend services (REST API + Celery).
+dev-autoreload:
+	uv run python tmux_tools/launcher.py --autoreload
 
 ## Nuclear reset: kill tmux, destroy all containers/volumes/deps, then restart.
 dev-reset:

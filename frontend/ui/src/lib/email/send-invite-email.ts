@@ -95,7 +95,7 @@ function buildHtmlEmail(params: EmailContentParams): string {
       <!-- Logo section -->
       <tr>
         <td style="padding: 40px 40px 32px 40px; text-align: center;">
-          <img src="https://raw.githubusercontent.com/traceroot-ai/traceroot/pivot/agentops/ui/public/images/icon.png" alt="TraceRoot" width="72" height="72" style="display: block; margin: 0 auto; border-radius: 14px;" />
+          <img src="${process.env.NEXT_PUBLIC_LOGO_URL || 'https://raw.githubusercontent.com/traceroot-ai/traceroot/pivot/agentops/frontend/ui/public/images/icon-v2.png'}" alt="TraceRoot" width="72" height="72" style="display: block; margin: 0 auto; border-radius: 14px;" />
         </td>
       </tr>
 

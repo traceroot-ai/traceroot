@@ -10,7 +10,7 @@ const supportChannels = [
     title: 'Documentation',
     description: 'Tutorials and guides to get started.',
     icon: BookOpen,
-    href: 'https://docs.traceroot.ai',
+    href: process.env.NEXT_PUBLIC_DOCS_URL || 'https://docs.traceroot.ai',
     external: true,
   },
   {
@@ -18,7 +18,7 @@ const supportChannels = [
     title: 'GitHub Issues',
     description: 'Report bugs or request new features.',
     icon: Github,
-    href: 'https://github.com/traceroot-ai/traceroot/issues',
+    href: process.env.NEXT_PUBLIC_GITHUB_ISSUES_URL || 'https://github.com/traceroot-ai/traceroot/issues',
     external: true,
   },
   {
@@ -26,7 +26,7 @@ const supportChannels = [
     title: 'Discord',
     description: 'Chat with the community and team.',
     icon: MessageCircle,
-    href: 'https://discord.com/invite/tPyffEZvvJ',
+    href: process.env.NEXT_PUBLIC_DISCORD_INVITE_URL || 'https://discord.com/invite/tPyffEZvvJ',
     external: true,
   },
 ]
