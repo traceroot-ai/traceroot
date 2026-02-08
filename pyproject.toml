@@ -23,6 +23,7 @@ dependencies = [
     "redis>=5.0",
     # Utils
     "python-dotenv>=1.0",
+    "watchfiles>=0.21",
     "httpx>=0.28.1",
     # Tokenization
     "tiktoken>=0.5.0",
