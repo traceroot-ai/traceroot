@@ -4,9 +4,11 @@ Launches all services in a tmux session with named windows.
 Handles all setup automatically: deps, infra, migrations.
 
 Usage:
-    python tmux_tools/launcher.py
+    python tmux_tools/launcher.py                # normal mode
+    python tmux_tools/launcher.py --autoreload   # auto-reload backend on file changes
 """
 
+import argparse
 import os
 import shutil
 import subprocess
@@ -171,8 +173,26 @@ def infra_services():
     ]
 
 
-def make_driver():
+def make_driver(autoreload=False):
     """Full stack: Frontend + REST API + Celery Worker + Infra logs."""
+
+    if autoreload:
+        rest_command = (
+            "uv run uvicorn rest.main:app "
+            "--host 0.0.0.0 --port 8000 --reload --reload-dir backend"
+        )
+        celery_command = (
+            "uv run watchfiles --filter python "
+            "'celery -A worker.celery_app worker --loglevel=info' "
+            "backend/worker"
+        )
+    else:
+        rest_command = "uv run python backend/rest/main.py"
+        celery_command = (
+            "uv run celery -A worker.celery_app worker "
+            "--loglevel=info"
+        )
+
     return schema.Driver(
         name="traceroot",
         on_start=run_setup,
@@ -186,17 +206,14 @@ def make_driver():
             ),
             schema.Service(
                 title="Rest API",
-                command="uv run python backend/rest/main.py",
+                command=rest_command,
                 web_urls=[
                     ("REST API docs", f"http://localhost:{REST_PORT}/docs"),
                 ],
             ),
             schema.Service(
                 title="Celery Worker",
-                command=(
-                    "uv run celery -A worker.celery_app worker "
-                    "--loglevel=info"
-                ),
+                command=celery_command,
                 web_urls=[],
             ),
         ] + infra_services(),
@@ -208,5 +225,11 @@ def make_driver():
 
 
 if __name__ == "__main__":
-    driver = make_driver()
+    parser = argparse.ArgumentParser(description="Launch Traceroot dev environment")
+    parser.add_argument(
+        "--autoreload", action="store_true",
+        help="Enable auto-reload for backend services on file changes",
+    )
+    args = parser.parse_args()
+    driver = make_driver(autoreload=args.autoreload)
     driver.run()

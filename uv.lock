@@ -1690,6 +1690,7 @@ dependencies = [
     { name = "redis" },
     { name = "tiktoken" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "watchfiles" },
 ]
 
 [package.optional-dependencies]
@@ -1720,6 +1721,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "tiktoken", specifier = ">=0.5.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27" },
+    { name = "watchfiles", specifier = ">=0.21" },
 ]
 provides-extras = ["dev"]
 
