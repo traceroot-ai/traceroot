@@ -7,17 +7,16 @@ circular references and class-level attributes.
 
 import enum
 import json
-import math
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 import pytest
 
 from traceroot.utils import serialize_value
 
-
 # ---- Primitives ----
+
 
 class TestPrimitives:
     def test_none(self):
@@ -65,6 +64,7 @@ class TestPrimitives:
 
 # ---- Collections ----
 
+
 class TestCollections:
     def test_list(self):
         assert serialize_value([1, "two", 3.0]) == [1, "two", 3.0]
@@ -99,13 +99,14 @@ class TestCollections:
 
 # ---- Standard library types ----
 
+
 class TestStdlibTypes:
     def test_datetime(self):
         dt = datetime(2026, 2, 5, 12, 30, 0)
         assert serialize_value(dt) == "2026-02-05T12:30:00"
 
     def test_datetime_with_tz(self):
-        dt = datetime(2026, 2, 5, 12, 0, 0, tzinfo=timezone.utc)
+        dt = datetime(2026, 2, 5, 12, 0, 0, tzinfo=UTC)
         result = serialize_value(dt)
         assert "2026-02-05" in result
         assert "+00:00" in result or "UTC" in result
@@ -144,6 +145,7 @@ class TestStdlibTypes:
 
 
 # ---- Custom objects ----
+
 
 class TestCustomObjects:
     def test_object_with_dict(self):
@@ -215,6 +217,7 @@ class TestCustomObjects:
 
 # ---- MockMessage (the actual bug scenario) ----
 
+
 class TestMockMessage:
     """Tests that replicate the exact pattern from the streaming example."""
 
@@ -222,25 +225,34 @@ class TestMockMessage:
         class MockToolCall:
             def __init__(self, data):
                 self.id = data["id"]
-                self.function = type("Function", (), {
-                    "name": data["function"]["name"],
-                    "arguments": data["function"]["arguments"],
-                })()
+                self.function = type(
+                    "Function",
+                    (),
+                    {
+                        "name": data["function"]["name"],
+                        "arguments": data["function"]["arguments"],
+                    },
+                )()
 
         class MockMessage:
             def __init__(self, content, tool_calls):
                 self.content = content
                 self.tool_calls = (
-                    [MockToolCall(tc) for tc in tool_calls.values()]
-                    if tool_calls else None
+                    [MockToolCall(tc) for tc in tool_calls.values()] if tool_calls else None
                 )
 
         return MockMessage(content, tool_calls)
 
     def test_tool_call_response(self):
         tool_calls = {
-            0: {"id": "call_abc", "function": {"name": "get_weather", "arguments": '{"city":"SF"}'}},
-            1: {"id": "call_def", "function": {"name": "get_weather", "arguments": '{"city":"Tokyo"}'}},
+            0: {
+                "id": "call_abc",
+                "function": {"name": "get_weather", "arguments": '{"city":"SF"}'},
+            },
+            1: {
+                "id": "call_def",
+                "function": {"name": "get_weather", "arguments": '{"city":"Tokyo"}'},
+            },
         }
         msg = self._make_mock_message("", tool_calls)
         result = serialize_value(msg)
@@ -275,6 +287,7 @@ class TestMockMessage:
 
 # ---- Dataclasses ----
 
+
 class TestDataclasses:
     def test_simple_dataclass(self):
         @dataclass
@@ -301,6 +314,7 @@ class TestDataclasses:
 
 # ---- Pydantic models ----
 
+
 class TestPydantic:
     def test_pydantic_model(self):
         try:
@@ -317,6 +331,7 @@ class TestPydantic:
 
 
 # ---- Mixed / edge cases ----
+
 
 class TestEdgeCases:
     def test_deeply_nested(self):

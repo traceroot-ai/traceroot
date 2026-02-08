@@ -2,11 +2,11 @@
 
 import os
 import re
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from shlex import quote
 from subprocess import CompletedProcess
-from typing import Callable, List, Optional, Tuple
 
 from tmux_tools import tmux
 
@@ -22,16 +22,17 @@ class Prerequisite:
     name: str
     command: str
     instructions: str
-    expected_output: Optional[str] = None
+    expected_output: str | None = None
 
     def _check_cmd_output(self, cmd_output: CompletedProcess) -> bool:
-        return (cmd_output.returncode == 0 and
-                (not self.expected_output
-                 or re.search(self.expected_output, cmd_output.stdout))
-                is not None)
+        return (
+            cmd_output.returncode == 0
+            and (not self.expected_output or re.search(self.expected_output, cmd_output.stdout))
+            is not None
+        )
 
     def check(self) -> CheckResult:
-        message: List[str] = []
+        message: list[str] = []
         try:
             bash_cmd = f"bash -c {quote(self.command)}"
             cmd_output = tmux._shell(bash_cmd)
@@ -44,20 +45,21 @@ class Prerequisite:
             name = tmux._parse_cmd_name(self.command)
             message.append(
                 f"Could not find program `{name}` on the system path "
-                f"when running command: {self.command}")
+                f"when running command: {self.command}"
+            )
 
         message.append(self.instructions)
 
-        return CheckResult(False, '\n'.join(message))
+        return CheckResult(False, "\n".join(message))
 
 
 @dataclass
 class WelcomeScreen:
-    web_urls: List[Tuple[str, str]]
+    web_urls: list[tuple[str, str]]
     additional_instructions: str
 
     def render_text(self) -> str:
-        parts: List[str] = []
+        parts: list[str] = []
         logo = r"""
          _                                    _
         | |_ _ __ __ _  ___ ___ _ __ ___   ___ | |_
@@ -79,36 +81,34 @@ Welcome to the Traceroot development environment.
 """)
 
         if self.web_urls:
-            url_parts: List[str] = [
-                "Services running:\n"
-            ]
+            url_parts: list[str] = ["Services running:\n"]
             max_len = max(len(name) for name, _ in self.web_urls)
             for name, url in self.web_urls:
                 space = " " * (max(max_len - len(name), 0))
                 url_parts.append(f"    {name}:{space} \033[4m{url}\033[0m")
-            parts.append('\n'.join(url_parts) + '\n')
+            parts.append("\n".join(url_parts) + "\n")
 
         if self.additional_instructions:
             parts.append(self.additional_instructions)
 
-        return ''.join(parts)
+        return "".join(parts)
 
 
 @dataclass
 class Service:
     title: str
     command: str
-    web_urls: List[Tuple[str, str]] = field(default_factory=list)
+    web_urls: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass
 class Driver:
     name: str
-    services: List[Service]
+    services: list[Service]
     additional_instructions: str = ""
-    prerequisites: List[Prerequisite] = field(default_factory=list)
-    on_exit: Optional[str] = None
-    on_start: Optional[Callable[[], None]] = None
+    prerequisites: list[Prerequisite] = field(default_factory=list)
+    on_exit: str | None = None
+    on_start: Callable[[], None] | None = None
 
     def run(self, detached: bool = False) -> None:
         sess_config = self.build_session_config()
@@ -138,7 +138,7 @@ class Driver:
             sess.attach()
 
     def build_session_config(self) -> tmux.SessionConfig:
-        config_file = os.path.join(os.path.dirname(__file__), 'default.conf')
+        config_file = os.path.join(os.path.dirname(__file__), "default.conf")
         return tmux.SessionConfig(
             session_name=self.name,
             server_name="development",
@@ -150,14 +150,13 @@ class Driver:
         welcome_text = self.build_welcome().render_text()
         welcome = tmux.Window(
             name="Instructions",
-            command=f'echo {quote(welcome_text)}',
+            command=f"echo {quote(welcome_text)}",
         )
 
         # Service windows
-        windows: List[tmux.Window] = []
+        windows: list[tmux.Window] = []
         for svc in self.services:
-            windows.append(
-                tmux.Window(name=svc.title, command=svc.command))
+            windows.append(tmux.Window(name=svc.title, command=svc.command))
 
         return tmux.SessionLayout(
             welcome=welcome,
@@ -166,7 +165,7 @@ class Driver:
         )
 
     def build_welcome(self) -> WelcomeScreen:
-        web_urls: List[Tuple[str, str]] = []
+        web_urls: list[tuple[str, str]] = []
         for svc in self.services:
             web_urls.extend(svc.web_urls)
 

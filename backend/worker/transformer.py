@@ -34,7 +34,7 @@ OTEL JSON structure (camelCase - standard OTLP format):
 import base64
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -80,7 +80,7 @@ def nanos_to_datetime(nanos: int | str | None) -> datetime | None:
         nanos = int(nanos)
     # Convert nanos to seconds (float to preserve precision)
     seconds = nanos / 1_000_000_000
-    return datetime.fromtimestamp(seconds, tz=timezone.utc).replace(tzinfo=None)
+    return datetime.fromtimestamp(seconds, tz=UTC).replace(tzinfo=None)
 
 
 def extract_attribute_value(attr_value: dict) -> Any:
@@ -162,7 +162,11 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         return "SPAN"
 
     # Default based on presence of LLM-related attributes
-    if attrs.get("gen_ai.system") or attrs.get("llm.model_name") or attrs.get("traceroot.llm.model"):
+    if (
+        attrs.get("gen_ai.system")
+        or attrs.get("llm.model_name")
+        or attrs.get("traceroot.llm.model")
+    ):
         return "LLM"
 
     return "SPAN"
@@ -171,18 +175,13 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
 def _extract_user_id(attrs: dict[str, Any]) -> str | None:
     """Extract user_id from span attributes, checking multiple keys."""
     return (
-        attrs.get("traceroot.trace.user_id")
-        or attrs.get("user.id")
-        or attrs.get("session.user_id")
+        attrs.get("traceroot.trace.user_id") or attrs.get("user.id") or attrs.get("session.user_id")
     )
 
 
 def _extract_session_id(attrs: dict[str, Any]) -> str | None:
     """Extract session_id from span attributes, checking multiple keys."""
-    return (
-        attrs.get("traceroot.trace.session_id")
-        or attrs.get("session.id")
-    )
+    return attrs.get("traceroot.trace.session_id") or attrs.get("session.id")
 
 
 def transform_otel_to_clickhouse(
@@ -203,7 +202,9 @@ def transform_otel_to_clickhouse(
 
     # Track user_id/session_id per trace, collected from ANY span
     # Priority: root span values > first child span values
-    trace_attrs: dict[str, dict[str, str | None]] = {}  # trace_id -> {"user_id": ..., "session_id": ...}
+    trace_attrs: dict[
+        str, dict[str, str | None]
+    ] = {}  # trace_id -> {"user_id": ..., "session_id": ...}
 
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
@@ -271,13 +272,9 @@ def transform_otel_to_clickhouse(
 
                 # Extract input/output if present
                 # Priority: traceroot SDK attrs > OpenInference attrs
-                span_input = (
-                    span_attrs.get("traceroot.span.input")
-                    or span_attrs.get("input.value")
-                )
-                span_output = (
-                    span_attrs.get("traceroot.span.output")
-                    or span_attrs.get("output.value")
+                span_input = span_attrs.get("traceroot.span.input") or span_attrs.get("input.value")
+                span_output = span_attrs.get("traceroot.span.output") or span_attrs.get(
+                    "output.value"
                 )
 
                 if span_input is not None:
@@ -313,15 +310,16 @@ def transform_otel_to_clickhouse(
                         or span_attrs.get("gen_ai.usage.output_tokens")
                         or span_attrs.get("gen_ai.usage.completion_tokens")
                     )
-                    api_total_tokens = (
-                        span_attrs.get("llm.token_count.total")
-                        or span_attrs.get("gen_ai.usage.total_tokens")
+                    api_total_tokens = span_attrs.get("llm.token_count.total") or span_attrs.get(
+                        "gen_ai.usage.total_tokens"
                     )
 
                     if api_input_tokens is not None or api_output_tokens is not None:
                         # Use API-provided counts (accurate)
                         input_tokens = int(api_input_tokens) if api_input_tokens is not None else 0
-                        output_tokens = int(api_output_tokens) if api_output_tokens is not None else 0
+                        output_tokens = (
+                            int(api_output_tokens) if api_output_tokens is not None else 0
+                        )
                         total_tokens = (
                             int(api_total_tokens)
                             if api_total_tokens is not None
@@ -338,8 +336,16 @@ def transform_otel_to_clickhouse(
                         if prices:
                             from decimal import Decimal
 
-                            input_cost = Decimal(input_tokens) * Decimal(str(prices["input"])) / Decimal("1000000")
-                            output_cost = Decimal(output_tokens) * Decimal(str(prices["output"])) / Decimal("1000000")
+                            input_cost = (
+                                Decimal(input_tokens)
+                                * Decimal(str(prices["input"]))
+                                / Decimal("1000000")
+                            )
+                            output_cost = (
+                                Decimal(output_tokens)
+                                * Decimal(str(prices["output"]))
+                                / Decimal("1000000")
+                            )
                             span_record["cost"] = float(input_cost + output_cost)
                     else:
                         # Fall back to text-based estimation
@@ -379,12 +385,20 @@ def transform_otel_to_clickhouse(
 
                 if not parent_span_id:
                     # Root span: always use its values if present (overwrites child values)
-                    trace_attrs[trace_id]["user_id"] = span_user_id or trace_attrs[trace_id]["user_id"]
-                    trace_attrs[trace_id]["session_id"] = span_session_id or trace_attrs[trace_id]["session_id"]
+                    trace_attrs[trace_id]["user_id"] = (
+                        span_user_id or trace_attrs[trace_id]["user_id"]
+                    )
+                    trace_attrs[trace_id]["session_id"] = (
+                        span_session_id or trace_attrs[trace_id]["session_id"]
+                    )
                 else:
                     # Child span: only set if not already set (first child wins)
-                    trace_attrs[trace_id]["user_id"] = trace_attrs[trace_id]["user_id"] or span_user_id
-                    trace_attrs[trace_id]["session_id"] = trace_attrs[trace_id]["session_id"] or span_session_id
+                    trace_attrs[trace_id]["user_id"] = (
+                        trace_attrs[trace_id]["user_id"] or span_user_id
+                    )
+                    trace_attrs[trace_id]["session_id"] = (
+                        trace_attrs[trace_id]["session_id"] or span_session_id
+                    )
 
                 # Only create trace record when we find a root span (no parent)
                 # This prevents batches without root spans from creating trace

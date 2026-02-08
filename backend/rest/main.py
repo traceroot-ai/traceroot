@@ -20,7 +20,6 @@ from rest.routers.public.traces import router as public_traces_router
 from rest.routers.traces import router as traces_router
 from rest.routers.users import router as users_router
 
-
 app = FastAPI(
     title="Traceroot API",
     description="Observability platform for LLM applications",
