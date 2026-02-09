@@ -27,6 +27,7 @@ export default [
       "dist/",
       ".next/",
       "packages/core/src/generated/",
+      "**/*.config.js",
     ],
   },
 ];
