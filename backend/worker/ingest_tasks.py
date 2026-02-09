@@ -35,7 +35,7 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
     # Import here to avoid circular imports and ensure fresh connections
     from db.clickhouse.client import get_clickhouse_client
     from rest.services.s3 import get_s3_service
-    from worker.transformer import transform_otel_to_clickhouse
+    from worker.otel_transform import transform_otel_to_clickhouse
 
     logger.info(f"Processing S3 traces: {s3_key} for project {project_id}")
 

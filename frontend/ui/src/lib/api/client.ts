@@ -2,9 +2,10 @@
  * Base API client utilities for Traceroot
  */
 import { getSession } from "next-auth/react";
+import { clientEnv } from "@/env.client";
 
 // Python backend URL for trace APIs only
-const TRACE_API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const TRACE_API_BASE = clientEnv.NEXT_PUBLIC_API_URL;
 
 /**
  * Fetch from Next.js API routes (no auth headers needed, uses cookies)

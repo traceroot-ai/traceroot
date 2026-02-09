@@ -14,7 +14,6 @@ Authentication is via API key in the Authorization header:
 import gzip
 import hashlib
 import logging
-import os
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -28,15 +27,12 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 from pydantic import BaseModel
 
 from rest.services.s3 import get_s3_service
-from worker.tasks import process_s3_traces
+from shared.config import settings
+from worker.ingest_tasks import process_s3_traces
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/public/traces", tags=["Traces (Public)"])
-
-# Configuration for internal API (Python → Next.js)
-TRACEROOT_UI_URL = os.getenv("TRACEROOT_UI_URL", "http://localhost:3000")
-INTERNAL_API_SECRET = os.getenv("INTERNAL_API_SECRET", "")
 
 
 async def authenticate_api_key(
@@ -81,9 +77,9 @@ async def authenticate_api_key(
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
-                f"{TRACEROOT_UI_URL}/api/internal/validate-api-key",
+                f"{settings.traceroot_ui_url}/api/internal/validate-api-key",
                 json={"keyHash": key_hash},
-                headers={"X-Internal-Secret": INTERNAL_API_SECRET},
+                headers={"X-Internal-Secret": settings.internal_api_secret},
             )
     except httpx.RequestError as e:
         logger.error(f"Failed to validate API key: {e}")
