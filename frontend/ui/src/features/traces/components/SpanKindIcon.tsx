@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { Workflow, Sparkle, Bot, Wrench, ArrowRight } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { TREE_LAYOUT } from '../utils';
+import { Workflow, Sparkle, Bot, Wrench, ArrowRight } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { TREE_LAYOUT } from "../utils";
 
 /**
  * Get the icon component for a span kind
@@ -10,15 +10,15 @@ import { TREE_LAYOUT } from '../utils';
 export function getSpanKindIcon(kind: string) {
   const normalizedKind = kind.toLowerCase();
   switch (normalizedKind) {
-    case 'trace':
+    case "trace":
       return Workflow;
-    case 'llm':
+    case "llm":
       return Sparkle;
-    case 'agent':
+    case "agent":
       return Bot;
-    case 'tool':
+    case "tool":
       return Wrench;
-    case 'span':
+    case "span":
     default:
       return ArrowRight;
   }
@@ -26,7 +26,7 @@ export function getSpanKindIcon(kind: string) {
 
 interface SpanKindIconProps {
   kind: string;
-  size?: 'sm' | 'md';
+  size?: "sm" | "md";
   selected?: boolean;
   inTree?: boolean;
 }
@@ -34,15 +34,20 @@ interface SpanKindIconProps {
 /**
  * Icon component for displaying span kinds (trace, llm, agent, tool, etc.)
  */
-export function SpanKindIcon({ kind, size = 'sm', selected = false, inTree = false }: SpanKindIconProps) {
+export function SpanKindIcon({
+  kind,
+  size = "sm",
+  selected = false,
+  inTree = false,
+}: SpanKindIconProps) {
   const Icon = getSpanKindIcon(kind);
-  const iconSizeClass = size === 'md' ? 'h-4 w-4' : 'h-3 w-3';
+  const iconSizeClass = size === "md" ? "h-4 w-4" : "h-3 w-3";
 
   // In tree view, show icon with white background box
   if (inTree) {
     return (
       <div
-        className="flex items-center justify-center rounded border bg-background flex-shrink-0"
+        className="flex flex-shrink-0 items-center justify-center rounded border bg-background"
         style={{ width: TREE_LAYOUT.ICON_BOX_SIZE, height: TREE_LAYOUT.ICON_BOX_SIZE }}
       >
         <Icon className="h-3 w-3 text-muted-foreground" />
@@ -52,9 +57,6 @@ export function SpanKindIcon({ kind, size = 'sm', selected = false, inTree = fal
 
   // In detail panel, just show the icon
   return (
-    <Icon className={cn(
-      iconSizeClass,
-      selected ? 'text-current' : 'text-muted-foreground'
-    )} />
+    <Icon className={cn(iconSizeClass, selected ? "text-current" : "text-muted-foreground")} />
   );
 }

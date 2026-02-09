@@ -1,15 +1,15 @@
-'use client'
+"use client";
 
-import Link from 'next/link'
-import { ChevronRight } from 'lucide-react'
+import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 
 export interface BreadcrumbItem {
-  label: string
-  href?: string
+  label: string;
+  href?: string;
 }
 
 interface BreadcrumbProps {
-  items: BreadcrumbItem[]
+  items: BreadcrumbItem[];
 }
 
 /**
@@ -29,9 +29,7 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
     <div className="flex items-center gap-1.5 text-[13px]">
       {items.map((item, index) => (
         <span key={index} className="flex items-center gap-1.5">
-          {index > 0 && (
-            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-          )}
+          {index > 0 && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
           {item.href ? (
             <Link href={item.href} className="hover:underline">
               {item.label}
@@ -42,5 +40,5 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
         </span>
       ))}
     </div>
-  )
+  );
 }

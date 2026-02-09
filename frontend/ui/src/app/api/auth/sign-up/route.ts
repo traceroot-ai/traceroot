@@ -15,10 +15,7 @@ export async function POST(request: NextRequest) {
 
     const result = signUpSchema.safeParse(body);
     if (!result.success) {
-      return NextResponse.json(
-        { error: result.error.issues[0].message },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: result.error.issues[0].message }, { status: 400 });
     }
 
     const { name, email, password } = result.data;
@@ -53,15 +50,9 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json(
-      { message: "User created successfully" },
-      { status: 201 },
-    );
+    return NextResponse.json({ message: "User created successfully" }, { status: 201 });
   } catch (error) {
     console.error("Sign-up error:", error);
-    return NextResponse.json(
-      { error: "An unexpected error occurred" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "An unexpected error occurred" }, { status: 500 });
   }
 }

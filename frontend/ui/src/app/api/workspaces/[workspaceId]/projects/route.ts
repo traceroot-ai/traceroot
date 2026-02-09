@@ -111,6 +111,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       access_key_count: 0,
       create_time: project.createTime,
     },
-    { status: 201 }
+    { status: 201 },
   );
 }

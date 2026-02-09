@@ -14,17 +14,17 @@ export interface DateFilterOption {
  * Available date filter presets for trace listing.
  */
 export const DATE_FILTER_OPTIONS: DateFilterOption[] = [
-  { id: '30m', label: 'Last 30 minutes', durationMinutes: 30 },
-  { id: '1h', label: 'Last 1 hour', durationMinutes: 60 },
-  { id: '3h', label: 'Last 3 hours', durationMinutes: 180 },
-  { id: '6h', label: 'Last 6 hours', durationMinutes: 360 },
-  { id: '1d', label: 'Last 24 hours', durationMinutes: 1440 },
-  { id: '7d', label: 'Last 7 days', durationMinutes: 10080 },
-  { id: '30d', label: 'Last 30 days', durationMinutes: 43200 },
-  { id: 'custom', label: 'Custom', durationMinutes: null, isCustom: true },
+  { id: "30m", label: "Last 30 minutes", durationMinutes: 30 },
+  { id: "1h", label: "Last 1 hour", durationMinutes: 60 },
+  { id: "3h", label: "Last 3 hours", durationMinutes: 180 },
+  { id: "6h", label: "Last 6 hours", durationMinutes: 360 },
+  { id: "1d", label: "Last 24 hours", durationMinutes: 1440 },
+  { id: "7d", label: "Last 7 days", durationMinutes: 10080 },
+  { id: "30d", label: "Last 30 days", durationMinutes: 43200 },
+  { id: "custom", label: "Custom", durationMinutes: null, isCustom: true },
 ];
 
-export const DEFAULT_DATE_FILTER = DATE_FILTER_OPTIONS.find(o => o.id === '1d')!;
+export const DEFAULT_DATE_FILTER = DATE_FILTER_OPTIONS.find((o) => o.id === "1d")!;
 
 /**
  * Convert a date filter option to timestamp bounds.
@@ -32,13 +32,13 @@ export const DEFAULT_DATE_FILTER = DATE_FILTER_OPTIONS.find(o => o.id === '1d')!
 export function toTimestampBounds(
   optionId: string,
   customStartDate?: Date,
-  customEndDate?: Date
+  customEndDate?: Date,
 ): {
   startAfter?: string;
   endBefore?: string;
 } {
   // Handle custom date range
-  if (optionId === 'custom') {
+  if (optionId === "custom") {
     return {
       startAfter: customStartDate?.toISOString(),
       endBefore: customEndDate?.toISOString(),
@@ -71,10 +71,10 @@ export function findDateFilterOption(optionId: string): DateFilterOption {
  */
 export function formatFilterDate(date: Date): string {
   const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
   return `${year}/${month}/${day} ${hours}:${minutes}`;
 }
 
@@ -83,11 +83,24 @@ export function formatFilterDate(date: Date): string {
  * Format: "Feb 03, 14:55" (omit year if current year)
  */
 function formatSingleDateUTC(date: Date, includeYear: boolean): string {
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
   const month = months[date.getUTCMonth()];
-  const day = String(date.getUTCDate()).padStart(2, '0');
-  const hours = String(date.getUTCHours()).padStart(2, '0');
-  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
 
   if (includeYear) {
     const year = date.getUTCFullYear();
@@ -103,7 +116,8 @@ function formatSingleDateUTC(date: Date, includeYear: boolean): string {
  */
 export function formatDateRange(start: Date, end: Date): string {
   const currentYear = new Date().getUTCFullYear();
-  const includeYear = start.getUTCFullYear() !== currentYear || end.getUTCFullYear() !== currentYear;
+  const includeYear =
+    start.getUTCFullYear() !== currentYear || end.getUTCFullYear() !== currentYear;
 
   return `${formatSingleDateUTC(start, includeYear)} - ${formatSingleDateUTC(end, includeYear)}`;
 }

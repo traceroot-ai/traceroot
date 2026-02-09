@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@traceroot/core";
-import {
-  requireAuth,
-  requireWorkspaceMembership,
-  errorResponse,
-} from "@/lib/auth-helpers";
+import { requireAuth, requireWorkspaceMembership, errorResponse } from "@/lib/auth-helpers";
 
 type RouteParams = { params: Promise<{ workspaceId: string; inviteId: string }> };
 

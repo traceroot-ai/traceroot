@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import { useRouter } from 'next/navigation';
-import { Settings } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import type { Project } from '@/types/api';
+import { useRouter } from "next/navigation";
+import { Settings } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import type { Project } from "@/types/api";
 
 interface ProjectCardProps {
   project: Project;
@@ -17,18 +17,18 @@ export function ProjectCard({ project }: ProjectCardProps) {
 
   return (
     <Card
-      className="cursor-pointer transition-all hover:shadow-md hover:border-foreground/20"
+      className="cursor-pointer transition-all hover:border-foreground/20 hover:shadow-md"
       onClick={() => router.push(`/projects/${project.id}/traces`)}
     >
       <CardContent className="p-4">
-        <div className="flex items-start justify-between mb-3">
-          <h3 className="font-medium text-[13px]">{project.name}</h3>
+        <div className="mb-3 flex items-start justify-between">
+          <h3 className="text-[13px] font-medium">{project.name}</h3>
           <button
             onClick={(e) => {
               e.stopPropagation();
               router.push(`/projects/${project.id}/settings`);
             }}
-            className="p-1 hover:bg-muted rounded transition-colors"
+            className="rounded p-1 transition-colors hover:bg-muted"
           >
             <Settings className="h-3.5 w-3.5 text-muted-foreground" />
           </button>

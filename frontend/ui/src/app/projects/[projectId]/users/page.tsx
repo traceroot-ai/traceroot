@@ -1,30 +1,30 @@
-'use client'
+"use client";
 
-import { useState, useMemo } from 'react'
-import Link from 'next/link'
-import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import { Workflow, Users, Layers, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { SearchFilterBar } from '@/components/search-filter-bar'
-import { ProjectBreadcrumb } from '@/features/projects/components'
-import { useUsers, useListPageState } from '@/features/traces/hooks'
-import { formatDate, cn } from '@/lib/utils'
-import type { UserListItem } from '@/lib/api/users'
-import type { UserQueryOptions } from '@/lib/api/users'
+import { useState, useMemo } from "react";
+import Link from "next/link";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Workflow, Users, Layers, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { SearchFilterBar } from "@/components/search-filter-bar";
+import { ProjectBreadcrumb } from "@/features/projects/components";
+import { useUsers, useListPageState } from "@/features/traces/hooks";
+import { formatDate, cn } from "@/lib/utils";
+import type { UserListItem } from "@/lib/api/users";
+import type { UserQueryOptions } from "@/lib/api/users";
 
 const tabs = [
-  { id: 'traces', label: 'Traces', icon: Workflow, href: 'traces' },
-  { id: 'users', label: 'Users', icon: Users, href: 'users' },
-  { id: 'sessions', label: 'Sessions', icon: Layers, href: 'sessions' },
-]
+  { id: "traces", label: "Traces", icon: Workflow, href: "traces" },
+  { id: "users", label: "Users", icon: Users, href: "users" },
+  { id: "sessions", label: "Sessions", icon: Layers, href: "sessions" },
+];
 
 export default function UsersPage() {
-  const params = useParams()
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const projectId = params.projectId as string
-  const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false)
+  const params = useParams();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const projectId = params.projectId as string;
+  const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
 
   // Use URL-synced state management (shares date filter with other pages)
   const {
@@ -35,85 +35,88 @@ export default function UsersPage() {
     updateLimit,
     goToPage,
     queryOptions,
-  } = useListPageState()
+  } = useListPageState();
 
   // Build user query options from shared state
-  const userQueryOptions = useMemo<UserQueryOptions>(() => ({
-    page: queryOptions.page,
-    limit: queryOptions.limit,
-    search_query: queryOptions.search_query,
-    start_after: queryOptions.start_after,
-    end_before: queryOptions.end_before,
-  }), [queryOptions])
+  const userQueryOptions = useMemo<UserQueryOptions>(
+    () => ({
+      page: queryOptions.page,
+      limit: queryOptions.limit,
+      search_query: queryOptions.search_query,
+      start_after: queryOptions.start_after,
+      end_before: queryOptions.end_before,
+    }),
+    [queryOptions],
+  );
 
-  const { data, isLoading, error } = useUsers(projectId, userQueryOptions)
+  const { data, isLoading, error } = useUsers(projectId, userQueryOptions);
 
-  const users = data?.data || []
-  const meta = data?.meta || { page: 0, limit: 50, total: 0 }
-  const totalPages = Math.ceil(meta.total / meta.limit)
+  const users = data?.data || [];
+  const meta = data?.meta || { page: 0, limit: 50, total: 0 };
+  const totalPages = Math.ceil(meta.total / meta.limit);
 
   // Build URL with preserved filter and pagination params
   const buildUrlWithFilters = (path: string, extraParams?: Record<string, string>) => {
-    const params = new URLSearchParams()
+    const params = new URLSearchParams();
 
     // Add extra params (like user_id)
     if (extraParams) {
       for (const [key, value] of Object.entries(extraParams)) {
-        params.set(key, value)
+        params.set(key, value);
       }
     }
 
     // Preserve pagination params
-    const pageIndex = searchParams.get('page_index')
-    const pageLimit = searchParams.get('page_limit')
+    const pageIndex = searchParams.get("page_index");
+    const pageLimit = searchParams.get("page_limit");
 
-    if (pageIndex) params.set('page_index', pageIndex)
-    if (pageLimit) params.set('page_limit', pageLimit)
+    if (pageIndex) params.set("page_index", pageIndex);
+    if (pageLimit) params.set("page_limit", pageLimit);
 
     // Preserve date filter params
-    const dateFilter = searchParams.get('date_filter')
-    const start = searchParams.get('start')
-    const end = searchParams.get('end')
+    const dateFilter = searchParams.get("date_filter");
+    const start = searchParams.get("start");
+    const end = searchParams.get("end");
 
-    if (dateFilter) params.set('date_filter', dateFilter)
-    if (start) params.set('start', start)
-    if (end) params.set('end', end)
+    if (dateFilter) params.set("date_filter", dateFilter);
+    if (start) params.set("start", start);
+    if (end) params.set("end", end);
 
-    const queryString = params.toString()
-    return queryString ? `${path}?${queryString}` : path
-  }
+    const queryString = params.toString();
+    return queryString ? `${path}?${queryString}` : path;
+  };
 
   const handleUserClick = (userId: string) => {
-    router.push(buildUrlWithFilters(`/projects/${projectId}/traces`, { user_id: userId }))
-  }
+    router.push(buildUrlWithFilters(`/projects/${projectId}/traces`, { user_id: userId }));
+  };
 
   return (
-    <div className="flex h-full relative text-[13px]">
+    <div className="relative flex h-full text-[13px]">
       <ProjectBreadcrumb projectId={projectId} />
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex flex-1 flex-col">
         {/* Tab navigation */}
         <div className="border-b border-border bg-background">
           <div className="flex">
             {tabs.map((tab) => {
-              const Icon = tab.icon
-              const isActive = tab.id === 'users'
+              const Icon = tab.icon;
+              const isActive = tab.id === "users";
               return (
                 <Link
                   key={tab.id}
                   href={buildUrlWithFilters(`/projects/${projectId}/${tab.href}`)}
                   className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium border-b-2 transition-colors',
+                    "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
                     isActive
-                      ? 'border-foreground bg-muted text-foreground'
-                      : 'border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                      ? "border-foreground bg-muted text-foreground"
+                      : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
                   {tab.label}
                 </Link>
-              )
+              );
             })}
           </div>
         </div>
@@ -134,36 +137,36 @@ export default function UsersPage() {
         <div className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
-              <p className="text-muted-foreground text-[13px]">Loading users...</p>
+              <p className="text-[13px] text-muted-foreground">Loading users...</p>
             </div>
           ) : error ? (
-            <div className="flex h-64 items-center justify-center flex-col gap-3">
-              <p className="text-destructive text-[13px]">Error loading users</p>
+            <div className="flex h-64 flex-col items-center justify-center gap-3">
+              <p className="text-[13px] text-destructive">Error loading users</p>
               <p className="text-[12px] text-muted-foreground">
                 Make sure the API server is running.
               </p>
             </div>
           ) : users.length === 0 ? (
-            <div className="flex h-64 items-center justify-center flex-col gap-3">
+            <div className="flex h-64 flex-col items-center justify-center gap-3">
               <Users className="h-10 w-10 text-muted-foreground" />
-              <p className="text-muted-foreground text-[13px]">No users found</p>
+              <p className="text-[13px] text-muted-foreground">No users found</p>
               <p className="text-[12px] text-muted-foreground">
                 Users will appear here when traces include user_id.
               </p>
             </div>
           ) : (
-            <div className="flex flex-col h-full">
+            <div className="flex h-full flex-col">
               <div className="flex-1 overflow-auto">
                 <table className="w-full">
                   <thead className="sticky top-0 bg-background">
                     <tr className="border-b border-border bg-muted/50">
-                      <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground border-r border-border/50">
+                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         User ID
                       </th>
-                      <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground border-r border-border/50 w-[120px]">
+                      <th className="w-[120px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Traces
                       </th>
-                      <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground w-[160px]">
+                      <th className="w-[160px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Last Activity
                       </th>
                     </tr>
@@ -173,12 +176,12 @@ export default function UsersPage() {
                       <tr
                         key={user.user_id}
                         onClick={() => handleUserClick(user.user_id)}
-                        className="border-b border-border/50 last:border-0 cursor-pointer hover:bg-muted/50 transition-colors"
+                        className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
                       >
-                        <td className="px-3 py-2 text-[12px] text-foreground border-r border-border/50">
+                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-foreground">
                           {user.user_id}
                         </td>
-                        <td className="px-3 py-2 text-[12px] text-muted-foreground border-r border-border/50">
+                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
                           {user.trace_count}
                         </td>
                         <td className="px-3 py-2 text-[12px] text-muted-foreground">
@@ -191,14 +194,18 @@ export default function UsersPage() {
               </div>
 
               {/* Pagination */}
-              <div className="border-t border-border px-4 py-2.5 flex items-center justify-end gap-6 bg-background">
+              <div className="flex items-center justify-end gap-6 border-t border-border bg-background px-4 py-2.5">
                 <div className="flex items-center gap-2">
                   <span className="text-[12px] text-muted-foreground">Items per page</span>
                   <Popover open={itemsPerPageOpen} onOpenChange={setItemsPerPageOpen}>
                     <PopoverTrigger asChild>
-                      <Button variant="outline" size="sm" className="h-7 min-w-[60px] justify-between text-[12px] px-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 min-w-[60px] justify-between px-2 text-[12px]"
+                      >
                         <span>{state.limit}</span>
-                        <ChevronDown className="h-3 w-3 text-muted-foreground ml-1" />
+                        <ChevronDown className="ml-1 h-3 w-3 text-muted-foreground" />
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent side="top" align="start" className="w-[80px] p-1">
@@ -206,12 +213,12 @@ export default function UsersPage() {
                         <button
                           key={value}
                           className={cn(
-                            'w-full rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors',
-                            state.limit === value ? 'bg-muted' : 'hover:bg-muted/50'
+                            "w-full rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors",
+                            state.limit === value ? "bg-muted" : "hover:bg-muted/50",
                           )}
                           onClick={() => {
-                            updateLimit(value)
-                            setItemsPerPageOpen(false)
+                            updateLimit(value);
+                            setItemsPerPageOpen(false);
                           }}
                         >
                           {value}
@@ -228,27 +235,55 @@ export default function UsersPage() {
                     max={Math.max(1, totalPages)}
                     value={state.page + 1}
                     onChange={(e) => {
-                      const val = parseInt(e.target.value, 10)
+                      const val = parseInt(e.target.value, 10);
                       if (!isNaN(val) && val >= 1 && val <= totalPages) {
-                        goToPage(val - 1)
+                        goToPage(val - 1);
                       }
                     }}
-                    className="border border-border rounded px-2 py-1 text-[12px] bg-background h-7 w-12 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="h-7 w-12 rounded border border-border bg-background px-2 py-1 text-center text-[12px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                   />
-                  <span className="text-[12px] text-muted-foreground">of {Math.max(1, totalPages)}</span>
+                  <span className="text-[12px] text-muted-foreground">
+                    of {Math.max(1, totalPages)}
+                  </span>
                 </div>
                 <div className="flex items-center gap-0.5">
-                  <Button variant="outline" size="sm" onClick={() => goToPage(0)} disabled={state.page === 0} className="h-7 w-7 p-0">
-                    <ChevronLeft className="h-3.5 w-3.5" /><ChevronLeft className="h-3.5 w-3.5 -ml-2" />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(0)}
+                    disabled={state.page === 0}
+                    className="h-7 w-7 p-0"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    <ChevronLeft className="-ml-2 h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => goToPage(Math.max(0, state.page - 1))} disabled={state.page === 0} className="h-7 w-7 p-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(Math.max(0, state.page - 1))}
+                    disabled={state.page === 0}
+                    className="h-7 w-7 p-0"
+                  >
                     <ChevronLeft className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => goToPage(state.page + 1)} disabled={state.page >= totalPages - 1} className="h-7 w-7 p-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(state.page + 1)}
+                    disabled={state.page >= totalPages - 1}
+                    className="h-7 w-7 p-0"
+                  >
                     <ChevronRight className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => goToPage(totalPages - 1)} disabled={state.page >= totalPages - 1} className="h-7 w-7 p-0">
-                    <ChevronRight className="h-3.5 w-3.5" /><ChevronRight className="h-3.5 w-3.5 -ml-2" />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(totalPages - 1)}
+                    disabled={state.page >= totalPages - 1}
+                    className="h-7 w-7 p-0"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                    <ChevronRight className="-ml-2 h-3.5 w-3.5" />
                   </Button>
                 </div>
               </div>
@@ -257,5 +292,5 @@ export default function UsersPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

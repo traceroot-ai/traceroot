@@ -1,14 +1,15 @@
 /**
  * Email service for sending workspace invitations
  */
-import nodemailer from 'nodemailer';
+import nodemailer from "nodemailer";
 
 /**
  * Escape HTML special characters to prevent XSS
  */
 function escapeHtml(str: string): string {
-  return str.replace(/[&<>"']/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!
+  return str.replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
   );
 }
 
@@ -34,10 +35,12 @@ export async function sendInviteEmail(params: SendInviteEmailParams): Promise<vo
 
   const smtpUrl = process.env.TRACEROOT_SMTP_URL;
   const mailFrom = process.env.TRACEROOT_SMTP_MAIL_FROM;
-  const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
 
   if (!smtpUrl || !mailFrom) {
-    console.warn('[Email] SMTP not configured. Set TRACEROOT_SMTP_URL and TRACEROOT_SMTP_MAIL_FROM to enable invite emails.');
+    console.warn(
+      "[Email] SMTP not configured. Set TRACEROOT_SMTP_URL and TRACEROOT_SMTP_MAIL_FROM to enable invite emails.",
+    );
     return;
   }
 
@@ -46,7 +49,7 @@ export async function sendInviteEmail(params: SendInviteEmailParams): Promise<vo
   const transporter = nodemailer.createTransport({
     host: url.hostname,
     port: parseInt(url.port) || 587,
-    secure: url.port === '465', // true for 465, false for other ports (uses STARTTLS)
+    secure: url.port === "465", // true for 465, false for other ports (uses STARTTLS)
     auth: {
       user: decodeURIComponent(url.username),
       pass: decodeURIComponent(url.password),
@@ -95,7 +98,7 @@ function buildHtmlEmail(params: EmailContentParams): string {
       <!-- Logo section -->
       <tr>
         <td style="padding: 40px 40px 32px 40px; text-align: center;">
-          <img src="${process.env.NEXT_PUBLIC_LOGO_URL || 'https://raw.githubusercontent.com/traceroot-ai/traceroot/pivot/agentops/frontend/ui/public/images/icon-v2.png'}" alt="TraceRoot" width="72" height="72" style="display: block; margin: 0 auto; border-radius: 14px;" />
+          <img src="${process.env.NEXT_PUBLIC_LOGO_URL || "https://raw.githubusercontent.com/traceroot-ai/traceroot/pivot/agentops/frontend/ui/public/images/icon-v2.png"}" alt="TraceRoot" width="72" height="72" style="display: block; margin: 0 auto; border-radius: 14px;" />
         </td>
       </tr>
 
