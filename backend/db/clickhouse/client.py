@@ -1,11 +1,12 @@
 """ClickHouse client using clickhouse-connect."""
 
-import os
 from datetime import UTC, datetime
 from typing import Any
 
 import clickhouse_connect
 from clickhouse_connect.driver.client import Client
+
+from shared.config import settings
 
 
 class ClickHouseClient:
@@ -15,15 +16,15 @@ class ClickHouseClient:
         self._client = client
 
     @classmethod
-    def from_env(cls) -> "ClickHouseClient":
-        """Create client from environment variables."""
-        port = os.getenv("CLICKHOUSE_HTTP_PORT") or os.getenv("CLICKHOUSE_PORT", "8123")
+    def from_settings(cls) -> "ClickHouseClient":
+        """Create client from centralized settings."""
+        ch = settings.clickhouse
         client = clickhouse_connect.get_client(
-            host=os.getenv("CLICKHOUSE_HOST", "localhost"),
-            port=int(port),
-            username=os.getenv("CLICKHOUSE_USER", "clickhouse"),
-            password=os.getenv("CLICKHOUSE_PASSWORD", "clickhouse"),
-            database=os.getenv("CLICKHOUSE_DATABASE", "default"),
+            host=ch.host,
+            port=ch.port,
+            username=ch.user,
+            password=ch.password,
+            database=ch.database,
         )
         return cls(client)
 
@@ -148,5 +149,5 @@ def get_clickhouse_client() -> ClickHouseClient:
     """Get or create the singleton ClickHouse client."""
     global _client
     if _client is None:
-        _client = ClickHouseClient.from_env()
+        _client = ClickHouseClient.from_settings()
     return _client

@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { Github, BookOpen, MessageCircle } from "lucide-react";
 import { useLayout } from "@/components/layout/app-layout";
+import { clientEnv } from "@/env.client";
 
 const supportChannels = [
   {
@@ -10,7 +11,7 @@ const supportChannels = [
     title: "Documentation",
     description: "Tutorials and guides to get started.",
     icon: BookOpen,
-    href: process.env.NEXT_PUBLIC_DOCS_URL || "https://docs.traceroot.ai",
+    href: clientEnv.NEXT_PUBLIC_DOCS_URL,
     external: true,
   },
   {
@@ -18,9 +19,7 @@ const supportChannels = [
     title: "GitHub Issues",
     description: "Report bugs or request new features.",
     icon: Github,
-    href:
-      process.env.NEXT_PUBLIC_GITHUB_ISSUES_URL ||
-      "https://github.com/traceroot-ai/traceroot/issues",
+    href: clientEnv.NEXT_PUBLIC_GITHUB_ISSUES_URL,
     external: true,
   },
   {
@@ -28,7 +27,7 @@ const supportChannels = [
     title: "Discord",
     description: "Chat with the community and team.",
     icon: MessageCircle,
-    href: process.env.NEXT_PUBLIC_DISCORD_INVITE_URL || "https://discord.com/invite/tPyffEZvvJ",
+    href: clientEnv.NEXT_PUBLIC_DISCORD_INVITE_URL,
     external: true,
   },
 ];

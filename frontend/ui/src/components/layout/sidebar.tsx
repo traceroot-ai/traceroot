@@ -19,6 +19,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
+import { clientEnv } from "@/env.client";
 
 // Check if we're in a project context by looking at the path structure
 function getProjectContext(pathname: string): { isProject: boolean; projectId: string | null } {
@@ -144,10 +145,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
           <Tooltip>
             <TooltipTrigger asChild>
               <a
-                href={
-                  process.env.NEXT_PUBLIC_GITHUB_REPO_URL ||
-                  "https://github.com/traceroot-ai/traceroot"
-                }
+                href={clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={cn(
