@@ -10,7 +10,8 @@ from openinference.instrumentation import get_attributes_from_context
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
-from traceroot.constants import SpanAttributes, StepType
+from traceroot.constants import StepType
+from traceroot.span_attributes import SpanAttributes
 from traceroot.utils import serialize_value, set_span_attribute
 
 logger = logging.getLogger(__name__)

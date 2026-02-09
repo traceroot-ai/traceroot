@@ -6,8 +6,6 @@ tracer identification, and type definitions.
 
 from typing import Literal
 
-# Re-export SpanAttributes for backwards compatibility
-
 # =============================================================================
 # SDK Identification
 # =============================================================================

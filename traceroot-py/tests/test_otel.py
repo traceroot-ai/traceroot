@@ -16,7 +16,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 import traceroot
 from tests.utils import reset_traceroot
 from traceroot import observe
-from traceroot.constants import SpanAttributes
+from traceroot.span_attributes import SpanAttributes
 
 # Global exporter and provider for all tests (OTel doesn't allow provider override)
 _test_exporter = InMemorySpanExporter()
