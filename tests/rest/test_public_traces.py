@@ -49,7 +49,7 @@ class TestIngestTraces:
         mock_task.delay.assert_called_once()
 
     def test_gzip_compressed(self, client, monkeypatch):
-        test_client, mock_s3, mock_task = client
+        test_client, _mock_s3, _mock_task = client
 
         raw_bytes = b"fake-protobuf-bytes"
         mock_decode = MagicMock(return_value={"resourceSpans": []})
@@ -98,7 +98,7 @@ class TestIngestTraces:
 
     def test_celery_failure_still_returns_200(self, client):
         """Celery enqueue failure is logged but response is still 200 (S3 has the data)."""
-        test_client, mock_s3, mock_task = client
+        test_client, _mock_s3, mock_task = client
         mock_task.delay.side_effect = Exception("Redis down")
         response = test_client.post("/api/v1/public/traces", content=b"fake-protobuf")
         assert response.status_code == 200
@@ -114,7 +114,7 @@ class TestIngestTraces:
         assert len(parts) == 8  # events/otel/proj/yyyy/mm/dd/hh/uuid.json
 
     def test_celery_task_receives_correct_args(self, client):
-        test_client, mock_s3, mock_task = client
+        test_client, _mock_s3, mock_task = client
         test_client.post("/api/v1/public/traces", content=b"fake-protobuf")
         kw = mock_task.delay.call_args.kwargs
         assert kw["project_id"] == "test-project"
