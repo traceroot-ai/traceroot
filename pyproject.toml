@@ -30,11 +30,12 @@ dependencies = [
     "tiktoken>=0.5.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
     "pytest-cov>=4.0",
+    "coverage>=7.0",
     "respx>=0.20",
     "ruff>=0.15.0",
     "mypy>=1.0",
