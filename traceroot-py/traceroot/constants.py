@@ -6,9 +6,6 @@ tracer identification, and type definitions.
 
 from typing import Literal
 
-# Re-export SpanAttributes for backwards compatibility
-from traceroot.span_attributes import SpanAttributes
-
 # =============================================================================
 # SDK Identification
 # =============================================================================
@@ -50,4 +47,3 @@ DEFAULT_SERVICE_NAME = "unknown_service"
 
 StepType = Literal["span", "agent", "tool", "llm"]
 """Valid step types for the @observe decorator."""
-

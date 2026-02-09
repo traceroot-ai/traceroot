@@ -5,5 +5,5 @@
  * - '@/features/settings/project' for project settings
  * - '@/features/settings/workspace' for workspace settings
  */
-export * as projectSettings from './project';
-export * as workspaceSettings from './workspace';
+export * as projectSettings from "./project";
+export * as workspaceSettings from "./workspace";

@@ -1,7 +1,7 @@
 """ClickHouse client using clickhouse-connect."""
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import clickhouse_connect
@@ -32,31 +32,42 @@ class ClickHouseClient:
         if not traces:
             return
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         rows = []
         for t in traces:
-            rows.append([
-                t["trace_id"],
-                t["project_id"],
-                t["trace_start_time"],
-                t["name"],
-                t.get("user_id"),
-                t.get("session_id"),
-                t.get("environment", "default"),
-                t.get("release"),
-                t.get("input"),
-                t.get("output"),
-                now,  # ch_create_time
-                now,  # ch_update_time
-            ])
+            rows.append(
+                [
+                    t["trace_id"],
+                    t["project_id"],
+                    t["trace_start_time"],
+                    t["name"],
+                    t.get("user_id"),
+                    t.get("session_id"),
+                    t.get("environment", "default"),
+                    t.get("release"),
+                    t.get("input"),
+                    t.get("output"),
+                    now,  # ch_create_time
+                    now,  # ch_update_time
+                ]
+            )
 
         self._client.insert(
             "traces",
             rows,
             column_names=[
-                "trace_id", "project_id", "trace_start_time", "name", "user_id", "session_id",
-                "environment", "release", "input", "output",
-                "ch_create_time", "ch_update_time",
+                "trace_id",
+                "project_id",
+                "trace_start_time",
+                "name",
+                "user_id",
+                "session_id",
+                "environment",
+                "release",
+                "input",
+                "output",
+                "ch_create_time",
+                "ch_update_time",
             ],
         )
 
@@ -65,43 +76,58 @@ class ClickHouseClient:
         if not spans:
             return
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         rows = []
         for s in spans:
-            rows.append([
-                s["span_id"],
-                s["trace_id"],
-                s.get("parent_span_id"),
-                s["project_id"],
-                s["span_start_time"],
-                s.get("span_end_time"),
-                s["name"],
-                s["span_kind"],
-                s.get("status", "OK"),
-                s.get("status_message"),
-                s.get("model_name"),
-                s.get("cost"),
-                s.get("input_tokens"),
-                s.get("output_tokens"),
-                s.get("total_tokens"),
-                s.get("input"),
-                s.get("output"),
-                s.get("environment", "default"),
-                now,  # ch_create_time
-                now,  # ch_update_time
-            ])
+            rows.append(
+                [
+                    s["span_id"],
+                    s["trace_id"],
+                    s.get("parent_span_id"),
+                    s["project_id"],
+                    s["span_start_time"],
+                    s.get("span_end_time"),
+                    s["name"],
+                    s["span_kind"],
+                    s.get("status", "OK"),
+                    s.get("status_message"),
+                    s.get("model_name"),
+                    s.get("cost"),
+                    s.get("input_tokens"),
+                    s.get("output_tokens"),
+                    s.get("total_tokens"),
+                    s.get("input"),
+                    s.get("output"),
+                    s.get("environment", "default"),
+                    now,  # ch_create_time
+                    now,  # ch_update_time
+                ]
+            )
 
         self._client.insert(
             "spans",
             rows,
             column_names=[
-                "span_id", "trace_id", "parent_span_id", "project_id",
-                "span_start_time", "span_end_time",
-                "name", "span_kind", "status", "status_message",
-                "model_name", "cost",
-                "input_tokens", "output_tokens", "total_tokens",
-                "input", "output",
-                "environment", "ch_create_time", "ch_update_time",
+                "span_id",
+                "trace_id",
+                "parent_span_id",
+                "project_id",
+                "span_start_time",
+                "span_end_time",
+                "name",
+                "span_kind",
+                "status",
+                "status_message",
+                "model_name",
+                "cost",
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "input",
+                "output",
+                "environment",
+                "ch_create_time",
+                "ch_update_time",
             ],
         )
 

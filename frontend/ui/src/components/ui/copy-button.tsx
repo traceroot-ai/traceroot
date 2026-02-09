@@ -1,11 +1,11 @@
-'use client';
+"use client";
 
 import * as React from "react";
 import { Copy, Check } from "lucide-react";
 import { Button, type ButtonProps } from "./button";
 import { cn } from "@/lib/utils";
 
-export interface CopyButtonProps extends Omit<ButtonProps, 'onClick'> {
+export interface CopyButtonProps extends Omit<ButtonProps, "onClick"> {
   value: string;
   onCopy?: () => void;
   iconClassName?: string;
@@ -41,7 +41,7 @@ const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
         )}
       </Button>
     );
-  }
+  },
 );
 CopyButton.displayName = "CopyButton";
 

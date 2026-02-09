@@ -97,6 +97,6 @@ export async function POST(request: NextRequest) {
       projects: [],
       create_time: workspace.createTime,
     },
-    { status: 201 }
+    { status: 201 },
   );
 }

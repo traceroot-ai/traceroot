@@ -47,9 +47,7 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
 
         # 2. Transform to ClickHouse format
         traces, spans = transform_otel_to_clickhouse(otel_data, project_id)
-        logger.info(
-            f"Transformed {len(traces)} traces and {len(spans)} spans from {s3_key}"
-        )
+        logger.info(f"Transformed {len(traces)} traces and {len(spans)} spans from {s3_key}")
 
         # 3. Insert into ClickHouse
         if traces or spans:

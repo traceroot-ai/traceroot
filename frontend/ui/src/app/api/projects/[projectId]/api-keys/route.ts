@@ -105,6 +105,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       expire_time: savedKey.expireTime,
       create_time: savedKey.createTime,
     },
-    { status: 201 }
+    { status: 201 },
   );
 }

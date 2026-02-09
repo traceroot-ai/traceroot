@@ -2,12 +2,8 @@
  * Hook for managing date filter state.
  * Single responsibility: date range selection with page reset callback.
  */
-import { useState, useCallback, useMemo } from 'react';
-import {
-  DEFAULT_DATE_FILTER,
-  toTimestampBounds,
-  type DateFilterOption,
-} from '@/lib/date-filter';
+import { useState, useCallback, useMemo } from "react";
+import { DEFAULT_DATE_FILTER, toTimestampBounds, type DateFilterOption } from "@/lib/date-filter";
 
 interface UseDateFilterReturn {
   dateFilter: DateFilterOption;
@@ -30,32 +26,48 @@ export function useDateFilter(onFilterChange?: () => void): UseDateFilterReturn 
   // Version counter to force timestamp recalculation when filter changes
   const [filterVersion, setFilterVersion] = useState(0);
 
-  const setDateFilter = useCallback((option: DateFilterOption) => {
-    setDateFilterState(option);
-    setFilterVersion(v => v + 1); // Force timestamp recalculation
-    onFilterChange?.();
-  }, [onFilterChange]);
+  const setDateFilter = useCallback(
+    (option: DateFilterOption) => {
+      setDateFilterState(option);
+      setFilterVersion((v) => v + 1); // Force timestamp recalculation
+      onFilterChange?.();
+    },
+    [onFilterChange],
+  );
 
-  const setCustomStartDate = useCallback((date: Date) => {
-    setCustomStartDateState(date);
-    onFilterChange?.();
-  }, [onFilterChange]);
+  const setCustomStartDate = useCallback(
+    (date: Date) => {
+      setCustomStartDateState(date);
+      onFilterChange?.();
+    },
+    [onFilterChange],
+  );
 
-  const setCustomEndDate = useCallback((date: Date) => {
-    setCustomEndDateState(date);
-    onFilterChange?.();
-  }, [onFilterChange]);
+  const setCustomEndDate = useCallback(
+    (date: Date) => {
+      setCustomEndDateState(date);
+      onFilterChange?.();
+    },
+    [onFilterChange],
+  );
 
-  const setCustomRange = useCallback((start: Date, end: Date) => {
-    setCustomStartDateState(start);
-    setCustomEndDateState(end);
-    onFilterChange?.();
-  }, [onFilterChange]);
+  const setCustomRange = useCallback(
+    (start: Date, end: Date) => {
+      setCustomStartDateState(start);
+      setCustomEndDateState(end);
+      onFilterChange?.();
+    },
+    [onFilterChange],
+  );
 
   // Calculate timestamps - include version counter to force recalculation on filter change
   const timestamps = useMemo(() => {
     // toTimestampBounds calculates "now" internally for preset filters
-    return toTimestampBounds(dateFilter.id, customStartDate ?? undefined, customEndDate ?? undefined);
+    return toTimestampBounds(
+      dateFilter.id,
+      customStartDate ?? undefined,
+      customEndDate ?? undefined,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateFilter.id, customStartDate, customEndDate, filterVersion]);
 

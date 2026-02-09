@@ -63,7 +63,10 @@ def on_worker_ready(**kwargs):
     logger.info("Running ClickHouse migrations on worker startup...")
     try:
         result = subprocess.run(
-            [str(Path(__file__).resolve().parent.parent / "db" / "clickhouse" / "migrate.sh"), "up"],
+            [
+                str(Path(__file__).resolve().parent.parent / "db" / "clickhouse" / "migrate.sh"),
+                "up",
+            ],
             capture_output=True,
             text=True,
             env={

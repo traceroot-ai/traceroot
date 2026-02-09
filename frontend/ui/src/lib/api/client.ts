@@ -9,10 +9,7 @@ const TRACE_API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000
 /**
  * Fetch from Next.js API routes (no auth headers needed, uses cookies)
  */
-export async function fetchNextApi<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<T> {
+export async function fetchNextApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${endpoint}`, {
     ...options,
     headers: {
@@ -36,10 +33,7 @@ export async function fetchNextApi<T>(
 /**
  * Fetch from Python backend (for traces - needs user headers)
  */
-export async function fetchTraceApi<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<T> {
+export async function fetchTraceApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const session = await getSession();
 
   const headers: Record<string, string> = {

@@ -1,21 +1,21 @@
-'use client'
+"use client";
 
-import { useParams } from 'next/navigation'
-import Link from 'next/link'
-import { SlidersHorizontal, Users, CreditCard } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { WorkspaceBreadcrumb } from '@/features/workspaces/components'
-import { BillingTab } from '@/features/settings/workspace'
+import { useParams } from "next/navigation";
+import Link from "next/link";
+import { SlidersHorizontal, Users, CreditCard } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { WorkspaceBreadcrumb } from "@/features/workspaces/components";
+import { BillingTab } from "@/features/settings/workspace";
 
 const settingsTabs = [
-  { id: 'general', label: 'General', icon: SlidersHorizontal, href: 'general' },
-  { id: 'members', label: 'Members', icon: Users, href: 'members' },
-  { id: 'billing', label: 'Billing', icon: CreditCard, href: 'billing' },
-] as const
+  { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
+  { id: "members", label: "Members", icon: Users, href: "members" },
+  { id: "billing", label: "Billing", icon: CreditCard, href: "billing" },
+] as const;
 
 export default function WorkspaceSettingsBillingPage() {
-  const params = useParams()
-  const workspaceId = params.workspaceId as string
+  const params = useParams();
+  const workspaceId = params.workspaceId as string;
 
   return (
     <div className="flex h-full">
@@ -24,23 +24,21 @@ export default function WorkspaceSettingsBillingPage() {
       <nav className="w-40 border-r">
         <ul>
           {settingsTabs.map((tab) => {
-            const Icon = tab.icon
+            const Icon = tab.icon;
             return (
               <li key={tab.id}>
                 <Link
                   href={`/workspaces/${workspaceId}/settings/${tab.href}`}
                   className={cn(
-                    'flex w-full items-center gap-2 px-3 py-2 text-[13px] transition-colors',
-                    tab.id === 'billing'
-                      ? 'bg-muted'
-                      : 'hover:bg-muted/50'
+                    "flex w-full items-center gap-2 px-3 py-2 text-[13px] transition-colors",
+                    tab.id === "billing" ? "bg-muted" : "hover:bg-muted/50",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
                   {tab.label}
                 </Link>
               </li>
-            )
+            );
           })}
         </ul>
       </nav>
@@ -49,5 +47,5 @@ export default function WorkspaceSettingsBillingPage() {
         <BillingTab workspaceId={workspaceId} />
       </div>
     </div>
-  )
+  );
 }

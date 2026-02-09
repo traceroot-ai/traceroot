@@ -46,11 +46,7 @@ export function CreateProjectDialog({ workspaceId, trigger }: CreateProjectDialo
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {trigger || (
-          <AddButton>New Project</AddButton>
-        )}
-      </DialogTrigger>
+      <DialogTrigger asChild>{trigger || <AddButton>New Project</AddButton>}</DialogTrigger>
       <DialogContent>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
@@ -67,9 +63,7 @@ export function CreateProjectDialog({ workspaceId, trigger }: CreateProjectDialo
               disabled={createMutation.isPending}
             />
             {createMutation.isError && (
-              <p className="mt-2 text-sm text-destructive">
-                {createMutation.error.message}
-              </p>
+              <p className="mt-2 text-sm text-destructive">{createMutation.error.message}</p>
             )}
           </div>
           <DialogFooter>

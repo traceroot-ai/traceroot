@@ -2,7 +2,7 @@
  * Project feature types
  * Re-export shared types and define feature-specific types
  */
-export type { Project } from '@/types/api';
+export type { Project } from "@/types/api";
 
 /**
  * Props for ProjectCard component

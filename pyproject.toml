@@ -66,8 +66,18 @@ select = [
     "RUF",  # ruff-specific rules
 ]
 ignore = [
-    "E501",   # line-too-long (formatter handles this)
+    "E501",    # line-too-long (formatter handles this)
+    "B008",    # function-call-in-default-argument (FastAPI Query/Depends pattern)
+    "B905",    # zip-without-explicit-strict
+    "RUF005",  # collection-literal-concatenation (list + list is fine)
+    "RUF022",  # unsorted-all (__all__ grouped by category)
+    "SIM108",  # if-else-block-instead-of-if-exp (readability preference)
+    "SIM105",  # suppressible-exception
+    "SIM116",  # if-else-block-instead-of-dict-lookup
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/rest/main.py" = ["E402"]  # load_dotenv() must run before imports
 
 [tool.ruff.lint.isort]
 known-first-party = ["db", "rest", "worker", "traceroot"]

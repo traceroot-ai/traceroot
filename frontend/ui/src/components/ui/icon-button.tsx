@@ -19,7 +19,7 @@ const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
         {icon}
       </Button>
     );
-  }
+  },
 );
 IconButton.displayName = "IconButton";
 

@@ -14,4 +14,4 @@ export type {
 } from "@prisma/client";
 
 // Shared types
-export * from "./types/index.js";                                    
+export * from "./types/index.js";

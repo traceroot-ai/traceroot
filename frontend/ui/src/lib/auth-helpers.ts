@@ -53,7 +53,7 @@ export async function requireAuth(): Promise<
  */
 export async function getWorkspaceMembership(
   userId: string,
-  workspaceId: string
+  workspaceId: string,
 ): Promise<WorkspaceMembership | null> {
   const membership = await prisma.workspaceMember.findUnique({
     where: {
@@ -82,7 +82,7 @@ export async function getWorkspaceMembership(
 export async function requireWorkspaceMembership(
   userId: string,
   workspaceId: string,
-  minRole?: Role
+  minRole?: Role,
 ): Promise<
   { membership: WorkspaceMembership; error?: never } | { membership?: never; error: NextResponse }
 > {
@@ -90,19 +90,13 @@ export async function requireWorkspaceMembership(
 
   if (!membership) {
     return {
-      error: NextResponse.json(
-        { error: "Not a member of this workspace" },
-        { status: 403 }
-      ),
+      error: NextResponse.json({ error: "Not a member of this workspace" }, { status: 403 }),
     };
   }
 
   if (minRole && !hasMinRole(membership.role, minRole)) {
     return {
-      error: NextResponse.json(
-        { error: `Requires ${minRole} role or higher` },
-        { status: 403 }
-      ),
+      error: NextResponse.json({ error: `Requires ${minRole} role or higher` }, { status: 403 }),
     };
   }
 
@@ -116,9 +110,13 @@ export async function requireWorkspaceMembership(
 export async function requireProjectAccess(
   userId: string,
   projectId: string,
-  minRole?: Role
+  minRole?: Role,
 ): Promise<
-  | { project: { id: string; workspaceId: string; name: string }; membership: WorkspaceMembership; error?: never }
+  | {
+      project: { id: string; workspaceId: string; name: string };
+      membership: WorkspaceMembership;
+      error?: never;
+    }
   | { project?: never; membership?: never; error: NextResponse }
 > {
   const project = await prisma.project.findUnique({

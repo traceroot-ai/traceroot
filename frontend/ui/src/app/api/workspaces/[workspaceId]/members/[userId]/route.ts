@@ -55,11 +55,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   }
 
   // Cannot demote yourself from ADMIN if you're the last admin
-  if (
-    user.id === targetUserId &&
-    targetMembership.role === "ADMIN" &&
-    newRole !== "ADMIN"
-  ) {
+  if (user.id === targetUserId && targetMembership.role === "ADMIN" && newRole !== "ADMIN") {
     const adminCount = await prisma.workspaceMember.count({
       where: {
         workspaceId,
@@ -68,10 +64,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     });
 
     if (adminCount <= 1) {
-      return errorResponse(
-        "Cannot demote the last admin. Promote another member first.",
-        400
-      );
+      return errorResponse("Cannot demote the last admin. Promote another member first.", 400);
     }
   }
 
@@ -134,10 +127,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     });
 
     if (adminCount <= 1) {
-      return errorResponse(
-        "Cannot leave as the last admin. Promote another member first.",
-        400
-      );
+      return errorResponse("Cannot leave as the last admin. Promote another member first.", 400);
     }
   }
 
