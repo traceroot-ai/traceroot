@@ -2,6 +2,7 @@
  * Email service for sending workspace invitations
  */
 import nodemailer from "nodemailer";
+import { env } from "@/env";
 
 /**
  * Escape HTML special characters to prevent XSS
@@ -33,9 +34,9 @@ interface SendInviteEmailParams {
 export async function sendInviteEmail(params: SendInviteEmailParams): Promise<void> {
   const { to, inviterName, inviterEmail, workspaceName, inviteId, role } = params;
 
-  const smtpUrl = process.env.TRACEROOT_SMTP_URL;
-  const mailFrom = process.env.TRACEROOT_SMTP_MAIL_FROM;
-  const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const smtpUrl = env.TRACEROOT_SMTP_URL;
+  const mailFrom = env.TRACEROOT_SMTP_MAIL_FROM;
+  const baseUrl = env.NEXTAUTH_URL;
 
   if (!smtpUrl || !mailFrom) {
     console.warn(
@@ -98,7 +99,7 @@ function buildHtmlEmail(params: EmailContentParams): string {
       <!-- Logo section -->
       <tr>
         <td style="padding: 40px 40px 32px 40px; text-align: center;">
-          <img src="${process.env.NEXT_PUBLIC_LOGO_URL || "https://raw.githubusercontent.com/traceroot-ai/traceroot/pivot/agentops/frontend/ui/public/images/icon-v2.png"}" alt="TraceRoot" width="72" height="72" style="display: block; margin: 0 auto; border-radius: 14px;" />
+          <img src="${env.NEXT_PUBLIC_LOGO_URL || "https://raw.githubusercontent.com/traceroot-ai/traceroot/pivot/agentops/frontend/ui/public/images/icon-v2.png"}" alt="TraceRoot" width="72" height="72" style="display: block; margin: 0 auto; border-radius: 14px;" />
         </td>
       </tr>
 

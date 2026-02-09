@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { prisma, type Role, hasMinRole } from "@traceroot/core";
+import { env } from "@/env";
 export type { Role } from "@traceroot/core";
 
 export interface AuthenticatedUser {
@@ -143,14 +144,7 @@ export async function requireProjectAccess(
  */
 export function verifyInternalSecret(request: Request): boolean {
   const secret = request.headers.get("X-Internal-Secret");
-  const expectedSecret = process.env.INTERNAL_API_SECRET;
-
-  if (!expectedSecret) {
-    console.error("INTERNAL_API_SECRET not configured");
-    return false;
-  }
-
-  return secret === expectedSecret;
+  return secret === env.INTERNAL_API_SECRET;
 }
 
 /**
