@@ -9,7 +9,11 @@ export async function getInvites(workspaceId: string): Promise<Invite[]> {
   return response.invites;
 }
 
-export async function createInvite(workspaceId: string, email: string, role: Role): Promise<Invite> {
+export async function createInvite(
+  workspaceId: string,
+  email: string,
+  role: Role,
+): Promise<Invite> {
   return fetchNextApi<Invite>(`/workspaces/${workspaceId}/invites`, {
     method: "POST",
     body: JSON.stringify({ email, role }),
@@ -22,8 +26,13 @@ export async function cancelInvite(workspaceId: string, inviteId: string): Promi
   });
 }
 
-export async function acceptInvite(inviteId: string): Promise<{ workspace: { id: string; name: string }; role: Role }> {
-  return fetchNextApi<{ workspace: { id: string; name: string }; role: Role }>(`/invites/${inviteId}/accept`, {
-    method: "POST",
-  });
+export async function acceptInvite(
+  inviteId: string,
+): Promise<{ workspace: { id: string; name: string }; role: Role }> {
+  return fetchNextApi<{ workspace: { id: string; name: string }; role: Role }>(
+    `/invites/${inviteId}/accept`,
+    {
+      method: "POST",
+    },
+  );
 }

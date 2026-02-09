@@ -21,7 +21,7 @@ const AddButton = React.forwardRef<HTMLButtonElement, AddButtonProps>(
         {children}
       </Button>
     );
-  }
+  },
 );
 AddButton.displayName = "AddButton";
 

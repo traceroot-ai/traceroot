@@ -28,7 +28,7 @@ export interface UserQueryOptions {
 
 export async function getUsers(
   projectId: string,
-  options: UserQueryOptions = {}
+  options: UserQueryOptions = {},
 ): Promise<UserListResponse> {
   const params = new URLSearchParams();
   if (options.page !== undefined) params.set("page", String(options.page));

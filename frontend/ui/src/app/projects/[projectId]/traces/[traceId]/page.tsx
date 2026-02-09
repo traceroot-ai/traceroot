@@ -1,43 +1,56 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { useParams } from 'next/navigation'
-import Link from 'next/link'
-import { ArrowLeft, Clock, Cpu, DollarSign } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { ProjectBreadcrumb } from '@/features/projects/components'
-import { formatDuration, formatDate, cn } from '@/lib/utils'
-import type { Span, TraceDetail } from '@/types/api'
-import { useTrace } from '@/features/traces/hooks'
-import { SpanKindBadge } from '@/features/traces/components'
-import { buildSpanTree, getSpanDuration, getTraceDuration, TREE_LAYOUT } from '@/features/traces/utils'
-import type { TraceSelection } from '@/features/traces/types'
+import { useState } from "react";
+import { useParams } from "next/navigation";
+import Link from "next/link";
+import { ArrowLeft, Clock, Cpu, DollarSign } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ProjectBreadcrumb } from "@/features/projects/components";
+import { formatDuration, formatDate, cn } from "@/lib/utils";
+import type { Span, TraceDetail } from "@/types/api";
+import { useTrace } from "@/features/traces/hooks";
+import { SpanKindBadge } from "@/features/traces/components";
+import {
+  buildSpanTree,
+  getSpanDuration,
+  getTraceDuration,
+  TREE_LAYOUT,
+} from "@/features/traces/utils";
+import type { TraceSelection } from "@/features/traces/types";
 
-const NESTING_INDENT = 20
+const NESTING_INDENT = 20;
 
 // L-shaped connector component
-function TreeEdge({ level, isTerminal, parentLevels }: { level: number; isTerminal: boolean; parentLevels: number[] }) {
-  if (level === 0) return null
+function TreeEdge({
+  level,
+  isTerminal,
+  parentLevels,
+}: {
+  level: number;
+  isTerminal: boolean;
+  parentLevels: number[];
+}) {
+  if (level === 0) return null;
 
   return (
     <div className="flex h-9" style={{ width: level * NESTING_INDENT }}>
       {Array.from({ length: level }).map((_, i) => {
-        const showContinuingLine = parentLevels.includes(i)
-        const isCurrentLevel = i === level - 1
+        const showContinuingLine = parentLevels.includes(i);
+        const isCurrentLevel = i === level - 1;
 
         return (
           <div key={i} className="relative" style={{ width: NESTING_INDENT }}>
             {showContinuingLine && (
               <div
-                className="absolute top-0 bottom-0 w-px bg-border"
+                className="absolute bottom-0 top-0 w-px bg-border"
                 style={{ left: NESTING_INDENT / 2 }}
               />
             )}
             {isCurrentLevel && (
               <div
                 className={cn(
-                  'absolute border-l border-b border-border',
-                  isTerminal ? 'top-0 h-[18px]' : 'top-0 bottom-0'
+                  "absolute border-b border-l border-border",
+                  isTerminal ? "top-0 h-[18px]" : "bottom-0 top-0",
                 )}
                 style={{
                   left: NESTING_INDENT / 2,
@@ -46,10 +59,10 @@ function TreeEdge({ level, isTerminal, parentLevels }: { level: number; isTermin
               />
             )}
           </div>
-        )
+        );
       })}
     </div>
-  )
+  );
 }
 
 function FullPageTreeView({
@@ -57,33 +70,37 @@ function FullPageTreeView({
   selection,
   onSelect,
 }: {
-  trace: TraceDetail
-  selection: TraceSelection
-  onSelect: (selection: TraceSelection) => void
+  trace: TraceDetail;
+  selection: TraceSelection;
+  onSelect: (selection: TraceSelection) => void;
 }) {
-  const spanRows = buildSpanTree(trace.spans)
-  const isTraceSelected = selection.type === 'trace'
-  const traceDuration = getTraceDuration(trace)
+  const spanRows = buildSpanTree(trace.spans);
+  const isTraceSelected = selection.type === "trace";
+  const traceDuration = getTraceDuration(trace);
 
   return (
     <div className="text-sm">
       {/* Trace node at top */}
       <div
         className={cn(
-          'flex items-center cursor-pointer transition-all duration-200',
+          "flex cursor-pointer items-center transition-all duration-200",
           isTraceSelected
-            ? 'bg-muted border-l-2 border-l-primary'
-            : 'hover:bg-muted/50 border-l-2 border-l-transparent'
+            ? "border-l-2 border-l-primary bg-muted"
+            : "border-l-2 border-l-transparent hover:bg-muted/50",
         )}
-        onClick={() => onSelect({ type: 'trace' })}
+        onClick={() => onSelect({ type: "trace" })}
       >
-        <div className="flex-1 flex items-center gap-2 py-2 px-3 min-w-0">
+        <div className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2">
           <SpanKindBadge kind="trace" />
-          <span className={cn(
-            'flex-1 truncate',
-            isTraceSelected ? 'font-semibold text-foreground' : 'font-medium text-foreground/80'
-          )}>{trace.name}</span>
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
+          <span
+            className={cn(
+              "flex-1 truncate",
+              isTraceSelected ? "font-semibold text-foreground" : "font-medium text-foreground/80",
+            )}
+          >
+            {trace.name}
+          </span>
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
             {formatDuration(traceDuration)}
           </span>
         </div>
@@ -91,41 +108,49 @@ function FullPageTreeView({
 
       {/* Span rows */}
       {spanRows.map(({ span, level, isTerminal, parentLevels }) => {
-        const isSelected = selection.type === 'span' && selection.span.span_id === span.span_id
-        const adjustedLevel = level + 1
-        const adjustedParentLevels = parentLevels.map(l => l + 1)
+        const isSelected = selection.type === "span" && selection.span.span_id === span.span_id;
+        const adjustedLevel = level + 1;
+        const adjustedParentLevels = parentLevels.map((l) => l + 1);
 
         return (
           <div
             key={span.span_id}
             className={cn(
-              'flex items-center cursor-pointer transition-all duration-200',
+              "flex cursor-pointer items-center transition-all duration-200",
               isSelected
-                ? 'bg-muted border-l-2 border-l-foreground'
-                : 'hover:bg-muted/50 border-l-2 border-l-transparent'
+                ? "border-l-2 border-l-foreground bg-muted"
+                : "border-l-2 border-l-transparent hover:bg-muted/50",
             )}
-            onClick={() => onSelect({ type: 'span', span })}
+            onClick={() => onSelect({ type: "span", span })}
           >
-            <TreeEdge level={adjustedLevel} isTerminal={isTerminal} parentLevels={adjustedParentLevels} />
-            <div className="flex-1 flex items-center gap-2 py-2 pr-3 min-w-0">
+            <TreeEdge
+              level={adjustedLevel}
+              isTerminal={isTerminal}
+              parentLevels={adjustedParentLevels}
+            />
+            <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pr-3">
               <SpanKindBadge kind={span.span_kind} />
-              <span className={cn(
-                'flex-1 truncate',
-                isSelected ? 'font-semibold text-foreground' : 'font-medium text-foreground/80'
-              )}>{span.name}</span>
-              <span className="text-xs text-muted-foreground whitespace-nowrap">
+              <span
+                className={cn(
+                  "flex-1 truncate",
+                  isSelected ? "font-semibold text-foreground" : "font-medium text-foreground/80",
+                )}
+              >
+                {span.name}
+              </span>
+              <span className="whitespace-nowrap text-xs text-muted-foreground">
                 {formatDuration(getSpanDuration(span))}
               </span>
             </div>
           </div>
-        )
+        );
       })}
     </div>
-  )
+  );
 }
 
 function TraceInfoPanel({ trace }: { trace: TraceDetail }) {
-  const durationMs = getTraceDuration(trace)
+  const durationMs = getTraceDuration(trace);
 
   return (
     <div className="space-y-5">
@@ -157,11 +182,11 @@ function TraceInfoPanel({ trace }: { trace: TraceDetail }) {
 
       {trace.input && (
         <div>
-          <h4 className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wider">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Input
           </h4>
           <div className="rounded border border-border bg-muted/50 p-4">
-            <pre className="text-sm whitespace-pre-wrap break-words text-foreground">
+            <pre className="whitespace-pre-wrap break-words text-sm text-foreground">
               {trace.input}
             </pre>
           </div>
@@ -170,22 +195,22 @@ function TraceInfoPanel({ trace }: { trace: TraceDetail }) {
 
       {trace.output && (
         <div>
-          <h4 className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wider">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Output
           </h4>
           <div className="rounded border border-border bg-muted/50 p-4">
-            <pre className="text-sm whitespace-pre-wrap break-words text-foreground">
+            <pre className="whitespace-pre-wrap break-words text-sm text-foreground">
               {trace.output}
             </pre>
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }
 
 function SpanInfoPanel({ span }: { span: Span }) {
-  const durationMs = getSpanDuration(span)
+  const durationMs = getSpanDuration(span);
 
   return (
     <div className="space-y-5">
@@ -207,23 +232,25 @@ function SpanInfoPanel({ span }: { span: Span }) {
             <span className="font-medium text-foreground">${span.cost.toFixed(4)}</span>
           </div>
         )}
-        <div className={cn(
-          'ml-auto inline-flex items-center rounded px-2 py-0.5 text-xs font-medium uppercase',
-          span.status === 'ERROR'
-            ? 'bg-destructive/10 text-destructive'
-            : 'bg-green-500/10 text-green-600 dark:text-green-400'
-        )}>
+        <div
+          className={cn(
+            "ml-auto inline-flex items-center rounded px-2 py-0.5 text-xs font-medium uppercase",
+            span.status === "ERROR"
+              ? "bg-destructive/10 text-destructive"
+              : "bg-green-500/10 text-green-600 dark:text-green-400",
+          )}
+        >
           {span.status}
         </div>
       </div>
 
       {span.input && (
         <div>
-          <h4 className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wider">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Input
           </h4>
           <div className="rounded border border-border bg-muted/50 p-4">
-            <pre className="text-sm whitespace-pre-wrap break-words text-foreground">
+            <pre className="whitespace-pre-wrap break-words text-sm text-foreground">
               {span.input}
             </pre>
           </div>
@@ -232,34 +259,34 @@ function SpanInfoPanel({ span }: { span: Span }) {
 
       {span.output && (
         <div>
-          <h4 className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wider">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Output
           </h4>
           <div className="rounded border border-border bg-muted/50 p-4">
-            <pre className="text-sm whitespace-pre-wrap break-words text-foreground">
+            <pre className="whitespace-pre-wrap break-words text-sm text-foreground">
               {span.output}
             </pre>
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }
 
 export default function TraceDetailPage() {
-  const params = useParams()
-  const projectId = params.projectId as string
-  const traceId = params.traceId as string
-  const [selection, setSelection] = useState<TraceSelection>({ type: 'trace' })
+  const params = useParams();
+  const projectId = params.projectId as string;
+  const traceId = params.traceId as string;
+  const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
 
-  const { data: trace, isLoading, error } = useTrace(projectId, traceId)
+  const { data: trace, isLoading, error } = useTrace(projectId, traceId);
 
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
         <p className="text-muted-foreground">Loading trace...</p>
       </div>
-    )
+    );
   }
 
   if (error || !trace) {
@@ -267,19 +294,23 @@ export default function TraceDetailPage() {
       <div className="flex h-64 items-center justify-center">
         <p className="text-destructive">Error loading trace</p>
       </div>
-    )
+    );
   }
 
-  const durationMs = getTraceDuration(trace)
+  const durationMs = getTraceDuration(trace);
 
   return (
-    <div className="p-6 bg-background min-h-screen">
+    <div className="min-h-screen bg-background p-6">
       <ProjectBreadcrumb projectId={projectId} current={trace.name} />
 
       {/* Header */}
       <div className="mb-4">
         <Link href={`/projects/${projectId}/traces`}>
-          <Button variant="ghost" size="sm" className="mb-2 -ml-2 text-muted-foreground hover:text-foreground">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-ml-2 mb-2 text-muted-foreground hover:text-foreground"
+          >
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to traces
           </Button>
@@ -308,38 +339,34 @@ export default function TraceDetailPage() {
       </div>
 
       {/* Content */}
-      <div className="flex gap-4 items-start">
+      <div className="flex items-start gap-4">
         {/* Trace/Span tree */}
         <div className="w-[340px] flex-shrink-0 rounded-lg border border-border bg-background">
           <div className="border-b border-border px-4 py-3">
             <h3 className="font-semibold text-foreground">Trace & Spans ({trace.spans.length})</h3>
           </div>
           <div className="max-h-[calc(100vh-240px)] overflow-y-auto">
-            <FullPageTreeView
-              trace={trace}
-              selection={selection}
-              onSelect={setSelection}
-            />
+            <FullPageTreeView trace={trace} selection={selection} onSelect={setSelection} />
           </div>
         </div>
 
         {/* Detail panel */}
-        <div className="flex-1 min-w-0 rounded-lg border border-border bg-background">
-          <div className="border-b border-border px-4 py-3 flex items-center gap-3">
-            {selection.type === 'trace' ? (
+        <div className="min-w-0 flex-1 rounded-lg border border-border bg-background">
+          <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+            {selection.type === "trace" ? (
               <>
                 <SpanKindBadge kind="trace" />
-                <h3 className="font-semibold text-foreground truncate">{trace.name}</h3>
+                <h3 className="truncate font-semibold text-foreground">{trace.name}</h3>
               </>
             ) : (
               <>
                 <SpanKindBadge kind={selection.span.span_kind} />
-                <h3 className="font-semibold text-foreground truncate">{selection.span.name}</h3>
+                <h3 className="truncate font-semibold text-foreground">{selection.span.name}</h3>
               </>
             )}
           </div>
-          <div className="p-4 overflow-y-auto max-h-[calc(100vh-240px)]">
-            {selection.type === 'trace' ? (
+          <div className="max-h-[calc(100vh-240px)] overflow-y-auto p-4">
+            {selection.type === "trace" ? (
               <TraceInfoPanel trace={trace} />
             ) : (
               <SpanInfoPanel span={selection.span} />
@@ -348,5 +375,5 @@ export default function TraceDetailPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

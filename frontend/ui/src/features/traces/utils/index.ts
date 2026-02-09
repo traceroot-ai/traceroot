@@ -6,10 +6,10 @@ import type { SpanTreeRow } from "../types";
 
 // Layout constants for tree alignment
 export const TREE_LAYOUT = {
-  NESTING_INDENT: 22,  // Space per nesting level
-  ROW_HEIGHT: 28,      // Height of each row (compact)
-  ICON_BOX_SIZE: 18,   // Size of icon box
-  LEFT_PADDING: 8,     // Left padding before first icon
+  NESTING_INDENT: 22, // Space per nesting level
+  ROW_HEIGHT: 28, // Height of each row (compact)
+  ICON_BOX_SIZE: 18, // Size of icon box
+  LEFT_PADDING: 8, // Left padding before first icon
 } as const;
 
 /**
@@ -81,21 +81,21 @@ export function buildChildrenMap(spans: Span[]): Map<string | null, Span[]> {
  * Truncate text with ellipsis
  */
 export function truncateText(text: string | null, maxLength: number = 50): string {
-  if (!text) return '-';
+  if (!text) return "-";
   if (text.length <= maxLength) return text;
-  return text.substring(0, maxLength) + '...';
+  return text.substring(0, maxLength) + "...";
 }
 
 /**
  * Format content preview, attempting JSON parsing
  */
 export function formatContentPreview(text: string | null): string {
-  if (!text) return '-';
+  if (!text) return "-";
   try {
     const parsed = JSON.parse(text);
-    if (typeof parsed === 'object') {
+    if (typeof parsed === "object") {
       const preview = JSON.stringify(parsed).substring(0, 80);
-      return preview.length < JSON.stringify(parsed).length ? preview + '...' : preview;
+      return preview.length < JSON.stringify(parsed).length ? preview + "..." : preview;
     }
     return truncateText(String(parsed), 80);
   } catch {
@@ -116,7 +116,7 @@ export function getTraceTotalCost(trace: TraceDetail): number | null {
  * Check if a trace has any errored spans
  */
 export function getTraceHasError(trace: TraceDetail): boolean {
-  return trace.spans.some((s) => s.status === 'ERROR');
+  return trace.spans.some((s) => s.status === "ERROR");
 }
 
 /**

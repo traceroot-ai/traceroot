@@ -18,14 +18,10 @@ export default [
         },
       ],
       "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-empty-object-type": "off",
     },
   },
   {
-    ignores: [
-      "node_modules/",
-      "dist/",
-      ".next/",
-      "packages/core/src/generated/",
-    ],
+    ignores: ["node_modules/", "dist/", ".next/", "packages/core/src/generated/", "**/*.config.js"],
   },
 ];

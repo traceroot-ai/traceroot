@@ -3,13 +3,15 @@
 import functools
 import inspect
 import logging
-from typing import Any, Callable, TypeVar, get_args
+from collections.abc import Callable
+from typing import Any, TypeVar, get_args
 
 from openinference.instrumentation import get_attributes_from_context
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
-from traceroot.constants import SpanAttributes, StepType
+from traceroot.constants import StepType
+from traceroot.span_attributes import SpanAttributes
 from traceroot.utils import serialize_value, set_span_attribute
 
 logger = logging.getLogger(__name__)
@@ -92,8 +94,7 @@ def observe(
                 tracer = trace.get_tracer("traceroot-sdk", "0.1.0")
                 with tracer.start_as_current_span(span_name) as span:
                     _set_span_attributes(
-                        span, validated_type, metadata, tags,
-                        args, kwargs, func, capture_input
+                        span, validated_type, metadata, tags, args, kwargs, func, capture_input
                     )
 
                     try:
@@ -116,8 +117,7 @@ def observe(
                 tracer = trace.get_tracer("traceroot-sdk", "0.1.0")
                 with tracer.start_as_current_span(span_name) as span:
                     _set_span_attributes(
-                        span, validated_type, metadata, tags,
-                        args, kwargs, func, capture_input
+                        span, validated_type, metadata, tags, args, kwargs, func, capture_input
                     )
 
                     try:
@@ -188,8 +188,4 @@ def _capture_args(args: tuple, kwargs: dict, func: Callable) -> dict[str, Any]:
     bound = sig.bind(*args, **kwargs)
     bound.apply_defaults()
     # Filter out 'self' and 'cls' to avoid capturing instance/class references
-    return {
-        k: serialize_value(v)
-        for k, v in bound.arguments.items()
-        if k not in ('self', 'cls')
-    }
+    return {k: serialize_value(v) for k, v in bound.arguments.items() if k not in ("self", "cls")}

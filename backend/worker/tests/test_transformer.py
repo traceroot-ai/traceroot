@@ -20,10 +20,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from worker.transformer import transform_otel_to_clickhouse
 
-
 # =============================================================================
 # Helpers to build OTEL JSON payloads
 # =============================================================================
+
 
 def _encode_id(hex_id: str) -> str:
     """Encode a hex ID string to base64, matching OTLP wire format."""
@@ -84,15 +84,18 @@ def _make_span(
 # Tests: Traceroot SDK attributes (baseline)
 # =============================================================================
 
+
 class TestTracerootAttributes:
     """Verify spans with traceroot.* attributes are processed correctly."""
 
     def test_traceroot_input_output(self):
         """traceroot.span.input and traceroot.span.output are extracted."""
-        span = _make_span(attributes=[
-            _make_attr("traceroot.span.input", '{"prompt": "hello"}'),
-            _make_attr("traceroot.span.output", '{"response": "world"}'),
-        ])
+        span = _make_span(
+            attributes=[
+                _make_attr("traceroot.span.input", '{"prompt": "hello"}'),
+                _make_attr("traceroot.span.output", '{"response": "world"}'),
+            ]
+        )
         _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
 
         assert len(spans) == 1
@@ -101,12 +104,14 @@ class TestTracerootAttributes:
 
     def test_traceroot_llm_model(self):
         """traceroot.llm.model sets model_name on LLM spans."""
-        span = _make_span(attributes=[
-            _make_attr("traceroot.span.type", "llm"),
-            _make_attr("traceroot.llm.model", "gpt-4o-mini"),
-            _make_attr("traceroot.span.input", "test input"),
-            _make_attr("traceroot.span.output", "test output"),
-        ])
+        span = _make_span(
+            attributes=[
+                _make_attr("traceroot.span.type", "llm"),
+                _make_attr("traceroot.llm.model", "gpt-4o-mini"),
+                _make_attr("traceroot.span.input", "test input"),
+                _make_attr("traceroot.span.output", "test output"),
+            ]
+        )
         _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
 
         assert spans[0]["model_name"] == "gpt-4o-mini"
@@ -114,7 +119,12 @@ class TestTracerootAttributes:
 
     def test_traceroot_span_type_detection(self):
         """traceroot.span.type correctly sets span_kind."""
-        for span_type, expected_kind in [("llm", "LLM"), ("agent", "AGENT"), ("tool", "TOOL"), ("span", "SPAN")]:
+        for span_type, expected_kind in [
+            ("llm", "LLM"),
+            ("agent", "AGENT"),
+            ("tool", "TOOL"),
+            ("span", "SPAN"),
+        ]:
             span = _make_span(attributes=[_make_attr("traceroot.span.type", span_type)])
             _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
             assert spans[0]["span_kind"] == expected_kind, f"type={span_type}"
@@ -123,6 +133,7 @@ class TestTracerootAttributes:
 # =============================================================================
 # Tests: OpenInference attributes (from OpenAIAgentsInstrumentor etc.)
 # =============================================================================
+
 
 class TestOpenInferenceAttributes:
     """Verify spans with OpenInference attributes are processed correctly.
@@ -133,10 +144,12 @@ class TestOpenInferenceAttributes:
 
     def test_input_value_output_value(self):
         """input.value and output.value are extracted as span input/output."""
-        span = _make_span(attributes=[
-            _make_attr("input.value", '{"role": "user", "content": "What is AI?"}'),
-            _make_attr("output.value", '{"role": "assistant", "content": "AI is..."}'),
-        ])
+        span = _make_span(
+            attributes=[
+                _make_attr("input.value", '{"role": "user", "content": "What is AI?"}'),
+                _make_attr("output.value", '{"role": "assistant", "content": "AI is..."}'),
+            ]
+        )
         _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
 
         assert spans[0]["input"] == '{"role": "user", "content": "What is AI?"}'
@@ -144,12 +157,14 @@ class TestOpenInferenceAttributes:
 
     def test_traceroot_attrs_take_priority_over_openinference(self):
         """traceroot.span.input takes priority over input.value."""
-        span = _make_span(attributes=[
-            _make_attr("traceroot.span.input", "traceroot input"),
-            _make_attr("input.value", "openinference input"),
-            _make_attr("traceroot.span.output", "traceroot output"),
-            _make_attr("output.value", "openinference output"),
-        ])
+        span = _make_span(
+            attributes=[
+                _make_attr("traceroot.span.input", "traceroot input"),
+                _make_attr("input.value", "openinference input"),
+                _make_attr("traceroot.span.output", "traceroot output"),
+                _make_attr("output.value", "openinference output"),
+            ]
+        )
         _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
 
         assert spans[0]["input"] == "traceroot input"
@@ -157,22 +172,29 @@ class TestOpenInferenceAttributes:
 
     def test_openinference_span_kind(self):
         """openinference.span.kind maps to correct span_kind."""
-        for oi_kind, expected in [("LLM", "LLM"), ("AGENT", "AGENT"), ("TOOL", "TOOL"), ("CHAIN", "SPAN")]:
+        for oi_kind, expected in [
+            ("LLM", "LLM"),
+            ("AGENT", "AGENT"),
+            ("TOOL", "TOOL"),
+            ("CHAIN", "SPAN"),
+        ]:
             span = _make_span(attributes=[_make_attr("openinference.span.kind", oi_kind)])
             _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
             assert spans[0]["span_kind"] == expected, f"openinference.span.kind={oi_kind}"
 
     def test_llm_token_count_attributes(self):
         """llm.token_count.* attributes provide accurate token usage."""
-        span = _make_span(attributes=[
-            _make_attr("openinference.span.kind", "LLM"),
-            _make_attr("llm.model_name", "gpt-4o-mini"),
-            _make_attr("llm.token_count.prompt", 150),
-            _make_attr("llm.token_count.completion", 200),
-            _make_attr("llm.token_count.total", 350),
-            _make_attr("input.value", "some input"),
-            _make_attr("output.value", "some output"),
-        ])
+        span = _make_span(
+            attributes=[
+                _make_attr("openinference.span.kind", "LLM"),
+                _make_attr("llm.model_name", "gpt-4o-mini"),
+                _make_attr("llm.token_count.prompt", 150),
+                _make_attr("llm.token_count.completion", 200),
+                _make_attr("llm.token_count.total", 350),
+                _make_attr("input.value", "some input"),
+                _make_attr("output.value", "some output"),
+            ]
+        )
         _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
 
         assert spans[0]["input_tokens"] == 150
@@ -181,15 +203,17 @@ class TestOpenInferenceAttributes:
 
     def test_token_counts_preferred_over_text_estimation(self):
         """API token counts should be used instead of tiktoken estimation."""
-        span = _make_span(attributes=[
-            _make_attr("openinference.span.kind", "LLM"),
-            _make_attr("llm.model_name", "gpt-4o-mini"),
-            _make_attr("llm.token_count.prompt", 42),
-            _make_attr("llm.token_count.completion", 73),
-            # input.value text would yield different token count if estimated
-            _make_attr("input.value", "a " * 500),
-            _make_attr("output.value", "b " * 500),
-        ])
+        span = _make_span(
+            attributes=[
+                _make_attr("openinference.span.kind", "LLM"),
+                _make_attr("llm.model_name", "gpt-4o-mini"),
+                _make_attr("llm.token_count.prompt", 42),
+                _make_attr("llm.token_count.completion", 73),
+                # input.value text would yield different token count if estimated
+                _make_attr("input.value", "a " * 500),
+                _make_attr("output.value", "b " * 500),
+            ]
+        )
         _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
 
         # Should use API counts (42, 73), NOT text estimation
@@ -199,12 +223,14 @@ class TestOpenInferenceAttributes:
 
     def test_cost_calculated_from_api_token_counts(self):
         """Cost should be calculated from API-provided token counts."""
-        span = _make_span(attributes=[
-            _make_attr("openinference.span.kind", "LLM"),
-            _make_attr("llm.model_name", "gpt-4o-mini"),
-            _make_attr("llm.token_count.prompt", 1000000),  # 1M input tokens
-            _make_attr("llm.token_count.completion", 1000000),  # 1M output tokens
-        ])
+        span = _make_span(
+            attributes=[
+                _make_attr("openinference.span.kind", "LLM"),
+                _make_attr("llm.model_name", "gpt-4o-mini"),
+                _make_attr("llm.token_count.prompt", 1000000),  # 1M input tokens
+                _make_attr("llm.token_count.completion", 1000000),  # 1M output tokens
+            ]
+        )
         _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
 
         # gpt-4o-mini: $0.15/1M input, $0.60/1M output
@@ -212,11 +238,13 @@ class TestOpenInferenceAttributes:
 
     def test_llm_model_name_fallback(self):
         """llm.model_name is used when traceroot.llm.model is not set."""
-        span = _make_span(attributes=[
-            _make_attr("openinference.span.kind", "LLM"),
-            _make_attr("llm.model_name", "gpt-4o"),
-            _make_attr("input.value", "hello"),
-        ])
+        span = _make_span(
+            attributes=[
+                _make_attr("openinference.span.kind", "LLM"),
+                _make_attr("llm.model_name", "gpt-4o"),
+                _make_attr("input.value", "hello"),
+            ]
+        )
         _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
 
         assert spans[0]["model_name"] == "gpt-4o"
@@ -255,12 +283,14 @@ class TestOpenInferenceAttributes:
 
     def test_chain_span_with_model_and_tokens(self):
         """CHAIN/SPAN kind spans with model attrs should also extract tokens."""
-        span = _make_span(attributes=[
-            _make_attr("openinference.span.kind", "CHAIN"),
-            _make_attr("llm.model_name", "gpt-4o"),
-            _make_attr("llm.token_count.prompt", 50),
-            _make_attr("llm.token_count.completion", 60),
-        ])
+        span = _make_span(
+            attributes=[
+                _make_attr("openinference.span.kind", "CHAIN"),
+                _make_attr("llm.model_name", "gpt-4o"),
+                _make_attr("llm.token_count.prompt", 50),
+                _make_attr("llm.token_count.completion", 60),
+            ]
+        )
         _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
 
         assert spans[0]["span_kind"] == "SPAN"
@@ -278,8 +308,14 @@ class TestOpenInferenceAttributes:
                 _make_attr("llm.token_count.prompt", 85),
                 _make_attr("llm.token_count.completion", 120),
                 _make_attr("llm.token_count.total", 205),
-                _make_attr("input.value", json.dumps([{"role": "user", "content": "Give your perspective on AI"}])),
-                _make_attr("output.value", json.dumps({"role": "assistant", "content": "AI is transformative..."})),
+                _make_attr(
+                    "input.value",
+                    json.dumps([{"role": "user", "content": "Give your perspective on AI"}]),
+                ),
+                _make_attr(
+                    "output.value",
+                    json.dumps({"role": "assistant", "content": "AI is transformative..."}),
+                ),
             ],
         )
         _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
@@ -300,28 +336,33 @@ class TestOpenInferenceAttributes:
 # Tests: GenAI semantic convention attributes
 # =============================================================================
 
+
 class TestGenAIAttributes:
     """Verify spans with gen_ai.* attributes work correctly."""
 
     def test_gen_ai_request_model(self):
         """gen_ai.request.model is used as model_name fallback."""
-        span = _make_span(attributes=[
-            _make_attr("openinference.span.kind", "LLM"),
-            _make_attr("gen_ai.request.model", "gpt-4o"),
-            _make_attr("input.value", "test"),
-        ])
+        span = _make_span(
+            attributes=[
+                _make_attr("openinference.span.kind", "LLM"),
+                _make_attr("gen_ai.request.model", "gpt-4o"),
+                _make_attr("input.value", "test"),
+            ]
+        )
         _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
 
         assert spans[0]["model_name"] == "gpt-4o"
 
     def test_gen_ai_usage_token_counts(self):
         """gen_ai.usage.* attributes provide token counts."""
-        span = _make_span(attributes=[
-            _make_attr("openinference.span.kind", "LLM"),
-            _make_attr("llm.model_name", "gpt-4o-mini"),
-            _make_attr("gen_ai.usage.input_tokens", 100),
-            _make_attr("gen_ai.usage.output_tokens", 50),
-        ])
+        span = _make_span(
+            attributes=[
+                _make_attr("openinference.span.kind", "LLM"),
+                _make_attr("llm.model_name", "gpt-4o-mini"),
+                _make_attr("gen_ai.usage.input_tokens", 100),
+                _make_attr("gen_ai.usage.output_tokens", 50),
+            ]
+        )
         _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
 
         assert spans[0]["input_tokens"] == 100
@@ -330,13 +371,15 @@ class TestGenAIAttributes:
 
     def test_gen_ai_usage_prompt_completion_tokens(self):
         """gen_ai.usage.prompt_tokens / completion_tokens also work."""
-        span = _make_span(attributes=[
-            _make_attr("openinference.span.kind", "LLM"),
-            _make_attr("llm.model_name", "gpt-4o-mini"),
-            _make_attr("gen_ai.usage.prompt_tokens", 200),
-            _make_attr("gen_ai.usage.completion_tokens", 300),
-            _make_attr("gen_ai.usage.total_tokens", 500),
-        ])
+        span = _make_span(
+            attributes=[
+                _make_attr("openinference.span.kind", "LLM"),
+                _make_attr("llm.model_name", "gpt-4o-mini"),
+                _make_attr("gen_ai.usage.prompt_tokens", 200),
+                _make_attr("gen_ai.usage.completion_tokens", 300),
+                _make_attr("gen_ai.usage.total_tokens", 500),
+            ]
+        )
         _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
 
         assert spans[0]["input_tokens"] == 200
@@ -348,17 +391,20 @@ class TestGenAIAttributes:
 # Tests: Fallback to text estimation when no API token counts
 # =============================================================================
 
+
 class TestTextEstimationFallback:
     """Verify text-based token estimation works when API counts aren't available."""
 
     def test_falls_back_to_text_estimation(self):
         """Without API token counts, tokens are estimated from input/output text."""
-        span = _make_span(attributes=[
-            _make_attr("traceroot.span.type", "llm"),
-            _make_attr("traceroot.llm.model", "gpt-4o-mini"),
-            _make_attr("traceroot.span.input", "Hello, how are you?"),
-            _make_attr("traceroot.span.output", "I am doing well, thank you!"),
-        ])
+        span = _make_span(
+            attributes=[
+                _make_attr("traceroot.span.type", "llm"),
+                _make_attr("traceroot.llm.model", "gpt-4o-mini"),
+                _make_attr("traceroot.span.input", "Hello, how are you?"),
+                _make_attr("traceroot.span.output", "I am doing well, thank you!"),
+            ]
+        )
         _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
 
         # Should have non-zero tokens from text estimation
@@ -367,10 +413,12 @@ class TestTextEstimationFallback:
 
     def test_no_input_output_yields_zero_tokens_on_fallback(self):
         """With no input/output and no API counts, tokens should be zero."""
-        span = _make_span(attributes=[
-            _make_attr("traceroot.span.type", "llm"),
-            _make_attr("traceroot.llm.model", "gpt-4o-mini"),
-        ])
+        span = _make_span(
+            attributes=[
+                _make_attr("traceroot.span.type", "llm"),
+                _make_attr("traceroot.llm.model", "gpt-4o-mini"),
+            ]
+        )
         _, spans = transform_otel_to_clickhouse(_make_otel_payload([span]), "proj-1")
 
         assert spans[0]["input_tokens"] == 0
@@ -380,6 +428,7 @@ class TestTextEstimationFallback:
 # =============================================================================
 # Tests: Trace-level input/output from root span
 # =============================================================================
+
 
 class TestTraceInputOutput:
     """Verify trace-level records get input/output from root span."""

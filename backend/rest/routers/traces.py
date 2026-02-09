@@ -24,7 +24,9 @@ async def list_traces(
     user_id: str | None = Query(None, description="Filter by user ID (exact match)"),
     start_after: datetime | None = Query(None, description="Filter traces after this timestamp"),
     end_before: datetime | None = Query(None, description="Filter traces before this timestamp"),
-    search_query: str | None = Query(None, description="Search trace_id, name, session_id, user_id"),
+    search_query: str | None = Query(
+        None, description="Search trace_id, name, session_id, user_id"
+    ),
 ):
     """List traces for a project with pagination and filtering."""
     try:
@@ -45,7 +47,7 @@ async def list_traces(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to list traces",
-        )
+        ) from e
 
 
 @router.get("/{trace_id}", response_model=TraceDetailResponse)

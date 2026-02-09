@@ -4,7 +4,7 @@
 import type { Span } from "@/types/api";
 
 // Selection state for trace/span detail views
-export type TraceSelection = { type: 'trace' } | { type: 'span'; span: Span };
+export type TraceSelection = { type: "trace" } | { type: "span"; span: Span };
 
 // Linearized span row for tree rendering
 export interface SpanTreeRow {

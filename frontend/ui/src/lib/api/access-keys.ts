@@ -10,7 +10,7 @@ export async function getAccessKeys(projectId: string): Promise<{ access_keys: A
 
 export async function createAccessKey(
   projectId: string,
-  name?: string
+  name?: string,
 ): Promise<{ data: AccessKeyCreatedResponse }> {
   const response = await fetchNextApi<AccessKeyCreatedResponse>(`/projects/${projectId}/api-keys`, {
     method: "POST",
@@ -22,7 +22,7 @@ export async function createAccessKey(
 export async function updateAccessKey(
   projectId: string,
   keyId: string,
-  name: string | null
+  name: string | null,
 ): Promise<AccessKey> {
   return fetchNextApi<AccessKey>(`/projects/${projectId}/api-keys/${keyId}`, {
     method: "PATCH",

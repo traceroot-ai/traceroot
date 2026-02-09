@@ -2,7 +2,7 @@
  * Hook for managing keyword search state with debouncing.
  * Provides immediate input feedback while debouncing API queries.
  */
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from "react";
 
 const DEBOUNCE_DELAY_MS = 300;
 
@@ -13,8 +13,8 @@ interface UseKeywordSearchReturn {
 }
 
 export function useKeywordSearch(onSearchChange?: () => void): UseKeywordSearchReturn {
-  const [keyword, setKeywordState] = useState('');
-  const [debouncedKeyword, setDebouncedKeyword] = useState('');
+  const [keyword, setKeywordState] = useState("");
+  const [debouncedKeyword, setDebouncedKeyword] = useState("");
   const isFirstRender = useRef(true);
   const onSearchChangeRef = useRef(onSearchChange);
 
