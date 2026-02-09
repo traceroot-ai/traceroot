@@ -4,7 +4,7 @@ import functools
 import inspect
 import logging
 from collections.abc import Callable
-from typing import Any, TypeVar, get_args
+from typing import Any, TypeVar
 
 from openinference.instrumentation import get_attributes_from_context
 from opentelemetry import trace
@@ -36,7 +36,7 @@ def _ensure_initialized() -> None:
 
 def observe(
     name: str | None = None,
-    type: SpanKind = "span",
+    type: SpanKind = SpanKind.SPAN,
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
     capture_input: bool = True,
@@ -72,16 +72,15 @@ def observe(
         def call_openai(messages: list) -> str:
             return response
     """
-    # Validate type parameter
-    validated_kind = type
-    valid_kinds = get_args(SpanKind)
-    if type not in valid_kinds:
+    # Validate type parameter — accept raw strings too
+    try:
+        validated_kind = SpanKind(type)
+    except ValueError:
+        valid = ", ".join(m.value for m in SpanKind)
         logger.warning(
-            f"Invalid span kind '{type}'. "
-            f"Valid kinds are: {', '.join(sorted(valid_kinds))}. "
-            "Defaulting to 'span'."
+            f"Invalid span kind '{type}'. Valid kinds are: {valid}. Defaulting to 'span'."
         )
-        validated_kind = "span"
+        validated_kind = SpanKind.SPAN
 
     def decorator(func: F) -> F:
         span_name = name or func.__name__
@@ -137,7 +136,7 @@ def observe(
 
 def _set_span_attributes(
     span: trace.Span,
-    span_kind: str,
+    span_kind: SpanKind,
     metadata: dict[str, Any] | None,
     tags: list[str] | None,
     args: tuple,

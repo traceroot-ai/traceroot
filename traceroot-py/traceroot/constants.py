@@ -4,7 +4,7 @@ This module defines constants used throughout the SDK including default values,
 tracer identification, and type definitions.
 """
 
-from typing import Literal
+import enum
 
 # =============================================================================
 # SDK Identification
@@ -45,10 +45,18 @@ DEFAULT_SERVICE_NAME = "unknown_service"
 # Span Kinds
 # =============================================================================
 
-SpanKind = Literal["span", "agent", "tool", "llm"]
-"""Valid span kinds for the @observe decorator.
 
-These lowercase values are sent as the ``traceroot.span.type`` OTEL attribute.
-The backend transformer (``backend/worker/transformer.py``) uppercases them and
-maps to ``backend/shared/enums.SpanKind`` (LLM, AGENT, TOOL, SPAN).
-"""
+class SpanKind(str, enum.Enum):
+    """Valid span kinds for the @observe decorator.
+
+    Inherits from ``str`` so members work as plain strings everywhere
+    (comparisons, f-strings, OTel attributes) while giving dot-access syntax.
+
+    These lowercase values are sent as the ``traceroot.span.type`` OTEL attribute.
+    The backend transformer uppercases them and maps to the ClickHouse enum.
+    """
+
+    SPAN = "span"
+    AGENT = "agent"
+    TOOL = "tool"
+    LLM = "llm"
