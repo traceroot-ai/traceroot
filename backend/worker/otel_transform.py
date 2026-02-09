@@ -332,7 +332,7 @@ def transform_otel_to_clickhouse(
                         span_record["total_tokens"] = total_tokens
 
                         # Calculate cost from actual token counts
-                        from worker.features.tokens.pricing import get_model_price
+                        from worker.tokens.pricing import get_model_price
 
                         prices = get_model_price(model_name)
                         if prices:
@@ -351,7 +351,7 @@ def transform_otel_to_clickhouse(
                             span_record["cost"] = float(input_cost + output_cost)
                     else:
                         # Fall back to text-based estimation
-                        from worker.features.tokens import calculate_cost
+                        from worker.tokens import calculate_cost
 
                         usage = calculate_cost(
                             model=model_name,

@@ -7,6 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     # Core
     "pydantic>=2.0",
+    "pydantic-settings>=2.0",
     "cuid2>=2.0.0",
     # Database (PostgreSQL access moved to Prisma in ui/)
     "clickhouse-connect>=0.7",
@@ -78,9 +79,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "backend/rest/main.py" = ["E402"]  # load_dotenv() must run before imports
+"backend/worker/celery_app.py" = ["E402"]  # load_dotenv() must run before imports
 
 [tool.ruff.lint.isort]
-known-first-party = ["db", "rest", "worker", "traceroot"]
+known-first-party = ["db", "rest", "shared", "worker", "traceroot"]
 
 [tool.ruff.format]
 quote-style = "double"

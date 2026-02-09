@@ -1,15 +1,12 @@
 """FastAPI dependencies for authentication (via Next.js internal API)."""
 
-import os
 from typing import Annotated
 
 import httpx
 from fastapi import Depends, Header, HTTPException, status
-from shared.enums import MemberRole
 
-# Configuration for internal API (Python → Next.js)
-TRACEROOT_UI_URL = os.getenv("TRACEROOT_UI_URL", "http://localhost:3000")
-INTERNAL_API_SECRET = os.getenv("INTERNAL_API_SECRET", "")
+from shared.config import settings
+from shared.enums import MemberRole
 
 
 class ProjectAccessInfo:
@@ -43,9 +40,9 @@ async def get_project_access(
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
-                f"{TRACEROOT_UI_URL}/api/internal/validate-project-access",
+                f"{settings.traceroot_ui_url}/api/internal/validate-project-access",
                 json={"userId": x_user_id, "projectId": project_id},
-                headers={"X-Internal-Secret": INTERNAL_API_SECRET},
+                headers={"X-Internal-Secret": settings.internal_api_secret},
             )
     except httpx.RequestError as e:
         raise HTTPException(
