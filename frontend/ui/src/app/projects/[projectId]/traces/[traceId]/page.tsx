@@ -7,6 +7,7 @@ import { ArrowLeft, Clock, Cpu, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { formatDuration, formatDate, cn } from "@/lib/utils";
+import { SpanStatus } from "@traceroot/core";
 import type { Span, TraceDetail } from "@/types/api";
 import { useTrace } from "@/features/traces/hooks";
 import { SpanKindBadge } from "@/features/traces/components";
@@ -235,7 +236,7 @@ function SpanInfoPanel({ span }: { span: Span }) {
         <div
           className={cn(
             "ml-auto inline-flex items-center rounded px-2 py-0.5 text-xs font-medium uppercase",
-            span.status === "ERROR"
+            span.status === SpanStatus.ERROR
               ? "bg-destructive/10 text-destructive"
               : "bg-green-500/10 text-green-600 dark:text-green-400",
           )}

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { formatDuration, formatDate, formatTokens } from "@/lib/utils";
+import { SpanStatus } from "@traceroot/core";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
 import { getSpanDuration, getTraceDuration, getTraceTotalCost, getTraceTokenUsage } from "../utils";
@@ -44,7 +45,7 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
   const traceTokenUsage = isTrace ? getTraceTokenUsage(trace) : null;
 
   // Error status
-  const hasError = isTrace ? false : selection.span.status === "ERROR";
+  const hasError = isTrace ? false : selection.span.status === SpanStatus.ERROR;
   const statusMessage = !isTrace ? selection.span.status_message : null;
 
   const copyToClipboard = (text: string) => {

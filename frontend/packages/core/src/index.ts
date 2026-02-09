@@ -13,5 +13,9 @@ export type {
   Account,
 } from "@prisma/client";
 
+// Constants & Zod schemas
+export * from "./constants.js";
+export * from "./schemas.js";
+
 // Shared types
 export * from "./types/index.js";

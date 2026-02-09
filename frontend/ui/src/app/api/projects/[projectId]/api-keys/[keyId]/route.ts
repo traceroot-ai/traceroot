@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import {
   requireAuth,
   requireProjectAccess,
@@ -22,7 +22,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
-  const accessResult = await requireProjectAccess(user.id, projectId, "MEMBER");
+  const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
 
   // Check access key exists and belongs to this project
@@ -76,7 +76,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
-  const accessResult = await requireProjectAccess(user.id, projectId, "ADMIN");
+  const accessResult = await requireProjectAccess(user.id, projectId, Role.ADMIN);
   if (accessResult.error) return accessResult.error;
 
   // Check access key exists and belongs to this project

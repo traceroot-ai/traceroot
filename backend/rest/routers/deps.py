@@ -5,6 +5,7 @@ from typing import Annotated
 
 import httpx
 from fastapi import Depends, Header, HTTPException, status
+from shared.enums import MemberRole
 
 # Configuration for internal API (Python → Next.js)
 TRACEROOT_UI_URL = os.getenv("TRACEROOT_UI_URL", "http://localhost:3000")
@@ -76,7 +77,7 @@ async def get_project_access(
     return ProjectAccessInfo(
         project_id=project_id,
         user_id=x_user_id,
-        role=data.get("role", "VIEWER"),
+        role=data.get("role", MemberRole.VIEWER),
     )
 
 
