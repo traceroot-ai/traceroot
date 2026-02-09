@@ -218,17 +218,17 @@ These endpoints require the `X-Internal-Secret` header matching `INTERNAL_API_SE
 
 ### Code Style
 
-- **Python**: We use `ruff` for linting and formatting
-- **TypeScript**: We use ESLint and Prettier
-- Follow existing patterns in the codebase
+We use [pre-commit](https://pre-commit.com/) to automatically lint and format code on every commit. Set it up once after cloning:
 
 ```bash
-# Format and lint Python
-uv run ruff format .
-uv run ruff check . --fix
+pre-commit install
+```
 
-# Lint frontend
-cd frontend/ui && pnpm lint
+After that, every `git commit` automatically:
+- **Python**: Runs `ruff` (lint + format)
+- **TypeScript/CSS/JSON**: Runs `eslint --fix` + `prettier --write` via `lint-staged`
+
+You never need to run linters manually. If a hook can't auto-fix something, the commit is blocked and you'll see the error.
 ```
 
 ### Commit Messages
