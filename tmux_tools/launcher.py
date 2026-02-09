@@ -23,6 +23,7 @@ FRONTEND_PORT = 3000
 # Setup steps — these RUN the setup, not just check it
 # ---------------------------------------------------------------------------
 
+
 def ensure_env_file():
     """Copy .env.example to .env if it doesn't exist."""
     if not os.path.exists(".env"):
@@ -37,7 +38,8 @@ def ensure_infra():
     """Start docker containers if not already running."""
     result = subprocess.run(
         ["docker", "compose", "ps", "--status", "running", "-q"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if not result.stdout.strip():
         print("Starting infrastructure (PostgreSQL, ClickHouse, MinIO, Redis)...")
@@ -45,8 +47,7 @@ def ensure_infra():
         print("Waiting for containers to be healthy...")
         # Wait for the main services (not minio-init which is a one-shot container)
         subprocess.run(
-            ["docker", "compose", "up", "-d", "--wait",
-             "postgres", "clickhouse", "minio", "redis"],
+            ["docker", "compose", "up", "-d", "--wait", "postgres", "clickhouse", "minio", "redis"],
             check=True,
         )
     else:
@@ -68,7 +69,9 @@ def ensure_frontend_deps():
         print("Frontend dependencies already installed.")
     print("Generating Prisma client...")
     subprocess.run(
-        ["pnpm", "db:generate"], cwd="frontend/packages/core", check=True,
+        ["pnpm", "db:generate"],
+        cwd="frontend/packages/core",
+        check=True,
     )
 
 
@@ -76,11 +79,15 @@ def ensure_migrations():
     """Run pending migrations for both Postgres and ClickHouse."""
     print("Running PostgreSQL migrations (Prisma)...")
     subprocess.run(
-        ["pnpm", "db:migrate"], cwd="frontend/packages/core", check=True,
+        ["pnpm", "db:migrate"],
+        cwd="frontend/packages/core",
+        check=True,
     )
     print("Running ClickHouse migrations (goose)...")
     subprocess.run(
-        ["./migrate.sh", "up"], cwd="backend/db/clickhouse", check=True,
+        ["./migrate.sh", "up"],
+        cwd="backend/db/clickhouse",
+        check=True,
     )
 
 
@@ -97,6 +104,7 @@ def run_setup():
 # ---------------------------------------------------------------------------
 # Prerequisite checks — validate tools we can't auto-fix
 # ---------------------------------------------------------------------------
+
 
 def tool_prerequisites():
     """Check that required CLI tools are installed (we can't install these)."""
@@ -145,6 +153,7 @@ def port_available(port):
 # Development environment configuration
 # ---------------------------------------------------------------------------
 
+
 def infra_services():
     """Individual services for each infrastructure component."""
     return [
@@ -178,8 +187,7 @@ def make_driver(autoreload=False):
 
     if autoreload:
         rest_command = (
-            "uv run uvicorn rest.main:app "
-            "--host 0.0.0.0 --port 8000 --reload --reload-dir backend"
+            "uv run uvicorn rest.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir backend"
         )
         celery_command = (
             "uv run watchfiles --filter python "
@@ -188,10 +196,7 @@ def make_driver(autoreload=False):
         )
     else:
         rest_command = "uv run python backend/rest/main.py"
-        celery_command = (
-            "uv run celery -A worker.celery_app worker "
-            "--loglevel=info"
-        )
+        celery_command = "uv run celery -A worker.celery_app worker --loglevel=info"
 
     return schema.Driver(
         name="traceroot",
@@ -216,10 +221,10 @@ def make_driver(autoreload=False):
                 command=celery_command,
                 web_urls=[],
             ),
-        ] + infra_services(),
+        ]
+        + infra_services(),
         prerequisites=(
-            tool_prerequisites()
-            + [port_available(REST_PORT), port_available(FRONTEND_PORT)]
+            tool_prerequisites() + [port_available(REST_PORT), port_available(FRONTEND_PORT)]
         ),
     )
 
@@ -227,7 +232,8 @@ def make_driver(autoreload=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Launch Traceroot dev environment")
     parser.add_argument(
-        "--autoreload", action="store_true",
+        "--autoreload",
+        action="store_true",
         help="Enable auto-reload for backend services on file changes",
     )
     args = parser.parse_args()
