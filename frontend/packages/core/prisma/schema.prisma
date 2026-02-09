@@ -7,6 +7,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum MemberRole {
+  VIEWER
+  MEMBER
+  ADMIN
+}
+
 // Access Keys - API authentication for SDK/trace ingestion
 model AccessKey {
   id          String    @id @db.VarChar
@@ -25,10 +31,10 @@ model AccessKey {
 
 // Invites - Pending workspace invitations
 model Invite {
-  id              String    @id @db.VarChar
-  email           String    @db.VarChar
-  workspaceId     String    @map("workspace_id") @db.VarChar
-  role            String    @db.VarChar
+  id              String     @id @db.VarChar
+  email           String     @db.VarChar
+  workspaceId     String     @map("workspace_id") @db.VarChar
+  role            MemberRole
   invitedByUserId String?   @map("invited_by_user_id") @db.VarChar
   createTime      DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime      DateTime  @default(now()) @map("update_time") @db.Timestamp(6)
@@ -42,10 +48,10 @@ model Invite {
 
 // Workspace Members - User membership in workspaces
 model WorkspaceMember {
-  id          String    @id @db.VarChar
-  workspaceId String    @map("workspace_id") @db.VarChar
-  userId      String    @map("user_id") @db.VarChar
-  role        String    @db.VarChar
+  id          String     @id @db.VarChar
+  workspaceId String     @map("workspace_id") @db.VarChar
+  userId      String     @map("user_id") @db.VarChar
+  role        MemberRole
   createTime  DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime  DateTime  @default(now()) @map("update_time") @db.Timestamp(6)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)

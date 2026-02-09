@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@traceroot/core";
+import { prisma, Role, RoleSchema } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -9,7 +9,7 @@ import {
 } from "@/lib/auth-helpers";
 
 const updateRoleSchema = z.object({
-  role: z.enum(["VIEWER", "MEMBER", "ADMIN"]),
+  role: RoleSchema,
 });
 
 type RouteParams = { params: Promise<{ workspaceId: string; userId: string }> };
@@ -22,7 +22,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
-  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, "ADMIN");
+  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, Role.ADMIN);
   if (membershipResult.error) return membershipResult.error;
   const { membership: callerMembership } = membershipResult;
 
@@ -55,11 +55,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
   }
 
   // Cannot demote yourself from ADMIN if you're the last admin
-  if (user.id === targetUserId && targetMembership.role === "ADMIN" && newRole !== "ADMIN") {
+  if (user.id === targetUserId && targetMembership.role === Role.ADMIN && newRole !== Role.ADMIN) {
     const adminCount = await prisma.workspaceMember.count({
       where: {
         workspaceId,
-        role: "ADMIN",
+        role: Role.ADMIN,
       },
     });
 
@@ -99,7 +99,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
-  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, "ADMIN");
+  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, Role.ADMIN);
   if (membershipResult.error) return membershipResult.error;
   const { membership: callerMembership } = membershipResult;
 
@@ -118,11 +118,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   }
 
   // Cannot remove yourself if you're the last admin
-  if (user.id === targetUserId && targetMembership.role === "ADMIN") {
+  if (user.id === targetUserId && targetMembership.role === Role.ADMIN) {
     const adminCount = await prisma.workspaceMember.count({
       where: {
         workspaceId,
-        role: "ADMIN",
+        role: Role.ADMIN,
       },
     });
 

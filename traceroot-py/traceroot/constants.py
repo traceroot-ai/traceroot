@@ -42,8 +42,13 @@ DEFAULT_SERVICE_NAME = "unknown_service"
 """Default service name when not specified."""
 
 # =============================================================================
-# Step Types
+# Span Kinds
 # =============================================================================
 
-StepType = Literal["span", "agent", "tool", "llm"]
-"""Valid step types for the @observe decorator."""
+SpanKind = Literal["span", "agent", "tool", "llm"]
+"""Valid span kinds for the @observe decorator.
+
+These lowercase values are sent as the ``traceroot.span.type`` OTEL attribute.
+The backend transformer (``backend/worker/transformer.py``) uppercases them and
+maps to ``backend/shared/enums.SpanKind`` (LLM, AGENT, TOOL, SPAN).
+"""

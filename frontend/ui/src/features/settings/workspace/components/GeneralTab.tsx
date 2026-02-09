@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Role } from "@traceroot/core";
 import { updateWorkspace, deleteWorkspace } from "@/lib/api";
 import { useWorkspace } from "../hooks";
 
@@ -69,7 +70,7 @@ export function GeneralTab({ workspaceId }: GeneralTabProps) {
     return <div className="text-sm text-muted-foreground">Loading workspace...</div>;
   }
 
-  const isAdmin = workspace?.role === "ADMIN";
+  const isAdmin = workspace?.role === Role.ADMIN;
 
   return (
     <div className="max-w-2xl space-y-6">

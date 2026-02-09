@@ -1,13 +1,15 @@
-// Role Types
-export const ROLES = ["VIEWER", "MEMBER", "ADMIN"] as const;
-export type Role = (typeof ROLES)[number];
+import { Role } from "../constants.js";
+
+export type { Role };
+
+const ROLE_ORDER = [Role.VIEWER, Role.MEMBER, Role.ADMIN] as const;
 
 /**
  * Check if a role meets the minimum required role.
  */
 export function hasMinRole(userRole: Role, minRole: Role): boolean {
-  const userIndex = ROLES.indexOf(userRole);
-  const minIndex = ROLES.indexOf(minRole);
+  const userIndex = ROLE_ORDER.indexOf(userRole);
+  const minIndex = ROLE_ORDER.indexOf(minRole);
   return userIndex >= minIndex;
 }
 
