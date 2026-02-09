@@ -71,7 +71,7 @@ export async function getWorkspaceMembership(
   return {
     workspaceId: membership.workspaceId,
     userId: membership.userId,
-    role: membership.role as Role,
+    role: membership.role,
   };
 }
 

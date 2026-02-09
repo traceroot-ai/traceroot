@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronRight, ChevronDown, CircleStop, CircleDollarSign } from "lucide-react";
 import { cn, formatDuration, formatTokens } from "@/lib/utils";
+import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { TraceDetail, Span } from "@/types/api";
 import type { TraceSelection } from "../types";
 import {
@@ -157,18 +158,18 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
                 <span className="whitespace-nowrap font-mono text-[10px] text-muted-foreground">
                   {formatDuration(getSpanDuration(span))}
                 </span>
-                {span.status === "ERROR" && (
+                {span.status === SpanStatus.ERROR && (
                   <span className="whitespace-nowrap rounded bg-red-100 px-1 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
                     ERROR
                   </span>
                 )}
-                {span.span_kind === "LLM" && span.total_tokens != null && (
+                {span.span_kind === SpanKind.LLM && span.total_tokens != null && (
                   <span className="inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
                     <CircleStop className="h-2.5 w-2.5" />
                     {formatTokens(span.total_tokens)}
                   </span>
                 )}
-                {span.span_kind === "LLM" && span.cost != null && span.cost > 0 && (
+                {span.span_kind === SpanKind.LLM && span.cost != null && span.cost > 0 && (
                   <span className="inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
                     <CircleDollarSign className="h-2.5 w-2.5" />
                     {span.cost.toFixed(4)}

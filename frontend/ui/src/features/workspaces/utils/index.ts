@@ -1,7 +1,7 @@
 /**
  * Workspace feature utilities
  */
-import type { Role } from "@/types/api";
+import { Role } from "@traceroot/core";
 
 /**
  * Format workspace creation date for display
@@ -30,5 +30,5 @@ export function getRoleLabel(role: Role): string {
  * Check if role has admin privileges
  */
 export function isAdminRole(role: Role): boolean {
-  return role === "ADMIN";
+  return role === Role.ADMIN;
 }

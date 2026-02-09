@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Role } from "@traceroot/core";
 import {
   getWorkspace,
   getMembers,
@@ -31,7 +32,6 @@ import {
   cancelInvite,
   type Member,
   type Invite,
-  type Role,
 } from "@/lib/api";
 
 interface MembersTabProps {
@@ -43,7 +43,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
 
   const [showInviteMember, setShowInviteMember] = useState(false);
   const [newMemberEmail, setNewMemberEmail] = useState("");
-  const [newMemberRole, setNewMemberRole] = useState<Role>("MEMBER");
+  const [newMemberRole, setNewMemberRole] = useState<Role>(Role.MEMBER);
   const [editingMember, setEditingMember] = useState<{ userId: string; role: Role } | null>(null);
 
   const { data: workspace } = useQuery({
@@ -68,7 +68,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
       queryClient.invalidateQueries({ queryKey: ["invites", workspaceId] });
       setShowInviteMember(false);
       setNewMemberEmail("");
-      setNewMemberRole("MEMBER");
+      setNewMemberRole(Role.MEMBER);
     },
   });
 
@@ -107,8 +107,8 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
     }
   };
 
-  const roleOptions: Role[] = ["ADMIN", "MEMBER", "VIEWER"];
-  const canManageMembers = workspace?.role === "ADMIN";
+  const roleOptions: Role[] = [Role.ADMIN, Role.MEMBER, Role.VIEWER];
+  const canManageMembers = workspace?.role === Role.ADMIN;
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -182,7 +182,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
           <div className="py-4">
             <label className="mb-2 block text-sm font-medium">Role</label>
             <Select
-              value={editingMember?.role || "MEMBER"}
+              value={editingMember?.role || Role.MEMBER}
               onValueChange={(value) =>
                 setEditingMember(editingMember ? { ...editingMember, role: value as Role } : null)
               }

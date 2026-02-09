@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import { requireAuth, errorResponse, successResponse } from "@/lib/auth-helpers";
 
 const createWorkspaceSchema = z.object({
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
         id: membershipId,
         workspaceId,
         userId: user.id,
-        role: "ADMIN",
+        role: Role.ADMIN,
       },
     });
 
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
     {
       id: workspace.id,
       name: workspace.name,
-      role: "ADMIN",
+      role: Role.ADMIN,
       member_count: 1,
       project_count: 0,
       projects: [],

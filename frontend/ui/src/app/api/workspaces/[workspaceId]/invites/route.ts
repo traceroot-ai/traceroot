@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@traceroot/core";
+import { prisma, Role, RoleSchema } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -11,7 +11,7 @@ import { sendInviteEmail } from "@/lib/email";
 
 const createInviteSchema = z.object({
   email: z.string().email("Invalid email"),
-  role: z.enum(["VIEWER", "MEMBER", "ADMIN"]),
+  role: RoleSchema,
 });
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
-  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, "ADMIN");
+  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, Role.ADMIN);
   if (membershipResult.error) return membershipResult.error;
 
   const invites = await prisma.invite.findMany({
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
-  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, "ADMIN");
+  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, Role.ADMIN);
   if (membershipResult.error) return membershipResult.error;
 
   let body: unknown;
