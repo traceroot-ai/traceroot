@@ -64,9 +64,7 @@ class TracerootSpanProcessor(BatchSpanProcessor):
         if flush_interval is None:
             env_flush_interval = os.environ.get(TRACEROOT_FLUSH_INTERVAL)
             flush_interval = (
-                float(env_flush_interval)
-                if env_flush_interval
-                else DEFAULT_FLUSH_INTERVAL
+                float(env_flush_interval) if env_flush_interval else DEFAULT_FLUSH_INTERVAL
             )
 
         # Build endpoint URL

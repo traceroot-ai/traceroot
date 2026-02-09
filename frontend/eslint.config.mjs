@@ -18,6 +18,7 @@ export default [
         },
       ],
       "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-empty-object-type": "off",
     },
   },
   {
