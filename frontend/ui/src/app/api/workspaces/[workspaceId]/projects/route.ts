@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
-  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, "MEMBER");
+  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, Role.MEMBER);
   if (membershipResult.error) return membershipResult.error;
 
   let body: unknown;

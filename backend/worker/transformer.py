@@ -37,6 +37,8 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from shared.enums import SpanKind, SpanStatus
+
 logger = logging.getLogger(__name__)
 
 
@@ -147,19 +149,19 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
     """
     # Check explicit type attribute (handle None values)
     explicit_type = (attrs.get("traceroot.span.type") or "").upper()
-    if explicit_type in ("LLM", "SPAN", "AGENT", "TOOL"):
+    if explicit_type in (SpanKind.LLM, SpanKind.SPAN, SpanKind.AGENT, SpanKind.TOOL):
         return explicit_type
 
     # Check OpenInference semantic conventions (handle None values)
     openinference_type = (attrs.get("openinference.span.kind") or "").upper()
-    if openinference_type == "LLM":
-        return "LLM"
-    elif openinference_type == "AGENT":
-        return "AGENT"
-    elif openinference_type == "TOOL":
-        return "TOOL"
+    if openinference_type == SpanKind.LLM:
+        return SpanKind.LLM
+    elif openinference_type == SpanKind.AGENT:
+        return SpanKind.AGENT
+    elif openinference_type == SpanKind.TOOL:
+        return SpanKind.TOOL
     elif openinference_type == "CHAIN":
-        return "SPAN"
+        return SpanKind.SPAN
 
     # Default based on presence of LLM-related attributes
     if (
@@ -167,9 +169,9 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         or attrs.get("llm.model_name")
         or attrs.get("traceroot.llm.model")
     ):
-        return "LLM"
+        return SpanKind.LLM
 
-    return "SPAN"
+    return SpanKind.SPAN
 
 
 def _extract_user_id(attrs: dict[str, Any]) -> str | None:
@@ -266,7 +268,7 @@ def transform_otel_to_clickhouse(
                     "span_end_time": end_time,
                     "name": span_name,
                     "span_kind": span_kind,
-                    "status": "OK",
+                    "status": SpanStatus.OK,
                     "environment": environment,
                 }
 
@@ -370,7 +372,7 @@ def transform_otel_to_clickhouse(
                 status_code = status.get("code", 0)
                 # Handle both int (0, 1, 2) and string ("STATUS_CODE_ERROR") formats
                 if status_code == 2 or status_code == "STATUS_CODE_ERROR":
-                    span_record["status"] = "ERROR"
+                    span_record["status"] = SpanStatus.ERROR
                     span_record["status_message"] = status.get("message")
 
                 spans.append(span_record)

@@ -4,7 +4,7 @@ This module defines constants used throughout the SDK including default values,
 tracer identification, and type definitions.
 """
 
-from typing import Literal
+import enum
 
 # =============================================================================
 # SDK Identification
@@ -42,8 +42,21 @@ DEFAULT_SERVICE_NAME = "unknown_service"
 """Default service name when not specified."""
 
 # =============================================================================
-# Step Types
+# Span Kinds
 # =============================================================================
 
-StepType = Literal["span", "agent", "tool", "llm"]
-"""Valid step types for the @observe decorator."""
+
+class SpanKind(enum.StrEnum):
+    """Valid span kinds for the @observe decorator.
+
+    Members work as plain strings everywhere (comparisons, f-strings, OTel
+    attributes) while giving dot-access syntax like ``SpanKind.AGENT``.
+
+    These lowercase values are sent as the ``traceroot.span.type`` OTEL attribute.
+    The backend transformer uppercases them and maps to the ClickHouse enum.
+    """
+
+    SPAN = "span"
+    AGENT = "agent"
+    TOOL = "tool"
+    LLM = "llm"

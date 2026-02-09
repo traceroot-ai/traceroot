@@ -4,13 +4,13 @@ import functools
 import inspect
 import logging
 from collections.abc import Callable
-from typing import Any, TypeVar, get_args
+from typing import Any, TypeVar
 
 from openinference.instrumentation import get_attributes_from_context
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
-from traceroot.constants import StepType
+from traceroot.constants import SpanKind
 from traceroot.span_attributes import SpanAttributes
 from traceroot.utils import serialize_value, set_span_attribute
 
@@ -36,7 +36,7 @@ def _ensure_initialized() -> None:
 
 def observe(
     name: str | None = None,
-    type: StepType = "span",
+    type: SpanKind = SpanKind.SPAN,
     metadata: dict[str, Any] | None = None,
     tags: list[str] | None = None,
     capture_input: bool = True,
@@ -46,7 +46,7 @@ def observe(
 
     Args:
         name: Span name. Defaults to function name.
-        type: Observation type. Valid values: 'llm', 'span', 'agent', 'tool'.
+        type: Span kind. Valid values: 'llm', 'span', 'agent', 'tool'.
             - 'llm': For LLM/generation calls
             - 'span': General span (default)
             - 'agent': For agent operations
@@ -72,16 +72,15 @@ def observe(
         def call_openai(messages: list) -> str:
             return response
     """
-    # Validate type parameter
-    validated_type = type
-    valid_types = get_args(StepType)
-    if type not in valid_types:
+    # Validate type parameter — accept raw strings too
+    try:
+        validated_kind = SpanKind(type)
+    except ValueError:
+        valid = ", ".join(m.value for m in SpanKind)
         logger.warning(
-            f"Invalid step type '{type}'. "
-            f"Valid types are: {', '.join(sorted(valid_types))}. "
-            "Defaulting to 'span'."
+            f"Invalid span kind '{type}'. Valid kinds are: {valid}. Defaulting to 'span'."
         )
-        validated_type = "span"
+        validated_kind = SpanKind.SPAN
 
     def decorator(func: F) -> F:
         span_name = name or func.__name__
@@ -94,7 +93,7 @@ def observe(
                 tracer = trace.get_tracer("traceroot-sdk", "0.1.0")
                 with tracer.start_as_current_span(span_name) as span:
                     _set_span_attributes(
-                        span, validated_type, metadata, tags, args, kwargs, func, capture_input
+                        span, validated_kind, metadata, tags, args, kwargs, func, capture_input
                     )
 
                     try:
@@ -117,7 +116,7 @@ def observe(
                 tracer = trace.get_tracer("traceroot-sdk", "0.1.0")
                 with tracer.start_as_current_span(span_name) as span:
                     _set_span_attributes(
-                        span, validated_type, metadata, tags, args, kwargs, func, capture_input
+                        span, validated_kind, metadata, tags, args, kwargs, func, capture_input
                     )
 
                     try:
@@ -137,7 +136,7 @@ def observe(
 
 def _set_span_attributes(
     span: trace.Span,
-    span_type: str,
+    span_kind: SpanKind,
     metadata: dict[str, Any] | None,
     tags: list[str] | None,
     args: tuple,
@@ -146,8 +145,8 @@ def _set_span_attributes(
     capture_input: bool,
 ) -> None:
     """Set attributes on an OpenTelemetry span."""
-    # Set span type
-    span.set_attribute(SpanAttributes.SPAN_TYPE, span_type)
+    # Set span kind
+    span.set_attribute(SpanAttributes.SPAN_TYPE, span_kind)
 
     # Set attributes from OpenInference context (session_id, user_id, etc.)
     try:

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import { requireAuth, requireWorkspaceMembership, errorResponse } from "@/lib/auth-helpers";
 
 type RouteParams = { params: Promise<{ workspaceId: string; inviteId: string }> };
@@ -12,7 +12,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
-  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, "ADMIN");
+  const membershipResult = await requireWorkspaceMembership(user.id, workspaceId, Role.ADMIN);
   if (membershipResult.error) return membershipResult.error;
 
   // Check invite exists and belongs to this workspace

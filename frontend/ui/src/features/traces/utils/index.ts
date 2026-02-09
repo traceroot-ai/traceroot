@@ -1,6 +1,7 @@
 /**
  * Trace feature utilities
  */
+import { SpanStatus } from "@traceroot/core";
 import type { Span, TraceDetail } from "@/types/api";
 import type { SpanTreeRow } from "../types";
 
@@ -116,7 +117,7 @@ export function getTraceTotalCost(trace: TraceDetail): number | null {
  * Check if a trace has any errored spans
  */
 export function getTraceHasError(trace: TraceDetail): boolean {
-  return trace.spans.some((s) => s.status === "ERROR");
+  return trace.spans.some((s) => s.status === SpanStatus.ERROR);
 }
 
 /**
