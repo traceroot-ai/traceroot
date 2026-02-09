@@ -1,38 +1,100 @@
-name: Test
+name: Tests
 
-"on":
-  pull_request:
-    branches: [main]
+on:
   push:
     branches: [main]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 
 permissions:
   contents: read
+
 jobs:
-  test:
+  # ---------------------------------------------------------------------------
+  # Lint
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint
     runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+  # ---------------------------------------------------------------------------
+  # Backend unit tests  (tests/)
+  # ---------------------------------------------------------------------------
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-24.04
+    needs: [lint]
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Create and activate virtual environment
-        run: |
-          python3.11 -m venv venv
-          source venv/bin/activate
-          echo "VIRTUAL_ENV=$VIRTUAL_ENV" >> $GITHUB_ENV
-          echo "$VIRTUAL_ENV/bin" >> $GITHUB_PATH
+      - name: Install dependencies
+        run: uv sync --dev
 
-      - name: Upgrade pip and install dependencies
+      - name: Run backend tests with coverage
+        timeout-minutes: 15
         run: |
-          pip install --upgrade pip
-          pip install -e ".[all]"
+          uv run coverage run -m pytest tests/ --durations=10
+          uv run coverage xml -o coverage-backend.xml
+          uv run coverage report
 
-      - name: Run tests
-        run: |
-          pytest test
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-backend
+          path: coverage-backend.xml
+
+  # ---------------------------------------------------------------------------
+  # Coverage summary
+  # ---------------------------------------------------------------------------
+  coverage:
+    name: Coverage Report
+    runs-on: ubuntu-24.04
+    needs: [backend-tests]
+    if: always()
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-backend
+
+      - name: Summarize coverage
+        uses: irongut/CodeCoverageSummary@v1.3.0
+        with:
+          filename: coverage-backend.xml
+          badge: true
+          format: markdown
+          output: both
+          hide_complexity: true
+
+      - name: Print coverage summary
+        run: cat code-coverage-results.md >> "$GITHUB_STEP_SUMMARY"
