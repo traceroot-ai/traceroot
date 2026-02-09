@@ -13,27 +13,21 @@ const validateAccessSchema = z.object({
 export async function POST(request: NextRequest) {
   // Verify internal secret
   if (!verifyInternalSecret(request)) {
-    return NextResponse.json(
-      { hasAccess: false, error: "Unauthorized" },
-      { status: 401 }
-    );
+    return NextResponse.json({ hasAccess: false, error: "Unauthorized" }, { status: 401 });
   }
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json(
-      { hasAccess: false, error: "Invalid JSON" },
-      { status: 400 }
-    );
+    return NextResponse.json({ hasAccess: false, error: "Invalid JSON" }, { status: 400 });
   }
 
   const result = validateAccessSchema.safeParse(body);
   if (!result.success) {
     return NextResponse.json(
       { hasAccess: false, error: result.error.issues[0].message },
-      { status: 400 }
+      { status: 400 },
     );
   }
 

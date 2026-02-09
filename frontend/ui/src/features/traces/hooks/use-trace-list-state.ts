@@ -7,11 +7,11 @@
  * - useDateFilter
  * - useKeywordSearch
  */
-import { useMemo } from 'react';
-import { usePagination } from './use-pagination';
-import { useDateFilter } from './use-date-filter';
-import { useKeywordSearch } from './use-keyword-search';
-import type { TraceQueryOptions } from '@/types/api';
+import { useMemo } from "react";
+import { usePagination } from "./use-pagination";
+import { useDateFilter } from "./use-date-filter";
+import { useKeywordSearch } from "./use-keyword-search";
+import type { TraceQueryOptions } from "@/types/api";
 
 interface UseTraceListStateReturn {
   // Pagination
@@ -20,21 +20,21 @@ interface UseTraceListStateReturn {
   goToPage: (page: number) => void;
   updateLimit: (limit: number) => void;
   // Date filter
-  dateFilter: ReturnType<typeof useDateFilter>['dateFilter'];
+  dateFilter: ReturnType<typeof useDateFilter>["dateFilter"];
   customStartDate: Date | null;
   customEndDate: Date | null;
-  updateDateFilter: ReturnType<typeof useDateFilter>['setDateFilter'];
-  updateCustomStartDate: ReturnType<typeof useDateFilter>['setCustomStartDate'];
-  updateCustomEndDate: ReturnType<typeof useDateFilter>['setCustomEndDate'];
-  updateCustomRange: ReturnType<typeof useDateFilter>['setCustomRange'];
+  updateDateFilter: ReturnType<typeof useDateFilter>["setDateFilter"];
+  updateCustomStartDate: ReturnType<typeof useDateFilter>["setCustomStartDate"];
+  updateCustomEndDate: ReturnType<typeof useDateFilter>["setCustomEndDate"];
+  updateCustomRange: ReturnType<typeof useDateFilter>["setCustomRange"];
   // Search
   keyword: string;
-  updateKeyword: ReturnType<typeof useKeywordSearch>['setKeyword'];
+  updateKeyword: ReturnType<typeof useKeywordSearch>["setKeyword"];
   // Combined state for convenience
   state: {
     page: number;
     limit: number;
-    dateFilter: ReturnType<typeof useDateFilter>['dateFilter'];
+    dateFilter: ReturnType<typeof useDateFilter>["dateFilter"];
     customStartDate: Date | null;
     customEndDate: Date | null;
     keyword: string;
@@ -48,19 +48,31 @@ export function useTraceListState(defaultLimit = 50): UseTraceListStateReturn {
   const pagination = usePagination(defaultLimit);
 
   // Date filter hook - resets page on change
-  const { dateFilter, customStartDate, customEndDate, setDateFilter, setCustomStartDate, setCustomEndDate, setCustomRange, timestamps } = useDateFilter(pagination.resetPage);
+  const {
+    dateFilter,
+    customStartDate,
+    customEndDate,
+    setDateFilter,
+    setCustomStartDate,
+    setCustomEndDate,
+    setCustomRange,
+    timestamps,
+  } = useDateFilter(pagination.resetPage);
 
   // Search hook - resets page on change
   const { keyword, setKeyword, searchQuery } = useKeywordSearch(pagination.resetPage);
 
   // Build query options for API call
-  const queryOptions = useMemo<TraceQueryOptions>(() => ({
-    page: pagination.page,
-    limit: pagination.limit,
-    search_query: searchQuery,
-    start_after: timestamps.startAfter,
-    end_before: timestamps.endBefore,
-  }), [pagination.page, pagination.limit, searchQuery, timestamps.startAfter, timestamps.endBefore]);
+  const queryOptions = useMemo<TraceQueryOptions>(
+    () => ({
+      page: pagination.page,
+      limit: pagination.limit,
+      search_query: searchQuery,
+      start_after: timestamps.startAfter,
+      end_before: timestamps.endBefore,
+    }),
+    [pagination.page, pagination.limit, searchQuery, timestamps.startAfter, timestamps.endBefore],
+  );
 
   return {
     // Pagination

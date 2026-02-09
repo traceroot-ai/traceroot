@@ -1,49 +1,49 @@
-'use client'
+"use client";
 
-import { useEffect } from 'react'
-import { Github, BookOpen, MessageCircle } from 'lucide-react'
-import { useLayout } from '@/components/layout/app-layout'
+import { useEffect } from "react";
+import { Github, BookOpen, MessageCircle } from "lucide-react";
+import { useLayout } from "@/components/layout/app-layout";
 
 const supportChannels = [
   {
-    id: 'documentation',
-    title: 'Documentation',
-    description: 'Tutorials and guides to get started.',
+    id: "documentation",
+    title: "Documentation",
+    description: "Tutorials and guides to get started.",
     icon: BookOpen,
-    href: process.env.NEXT_PUBLIC_DOCS_URL || 'https://docs.traceroot.ai',
+    href: process.env.NEXT_PUBLIC_DOCS_URL || "https://docs.traceroot.ai",
     external: true,
   },
   {
-    id: 'github-issues',
-    title: 'GitHub Issues',
-    description: 'Report bugs or request new features.',
+    id: "github-issues",
+    title: "GitHub Issues",
+    description: "Report bugs or request new features.",
     icon: Github,
-    href: process.env.NEXT_PUBLIC_GITHUB_ISSUES_URL || 'https://github.com/traceroot-ai/traceroot/issues',
+    href:
+      process.env.NEXT_PUBLIC_GITHUB_ISSUES_URL ||
+      "https://github.com/traceroot-ai/traceroot/issues",
     external: true,
   },
   {
-    id: 'discord',
-    title: 'Discord',
-    description: 'Chat with the community and team.',
+    id: "discord",
+    title: "Discord",
+    description: "Chat with the community and team.",
     icon: MessageCircle,
-    href: process.env.NEXT_PUBLIC_DISCORD_INVITE_URL || 'https://discord.com/invite/tPyffEZvvJ',
+    href: process.env.NEXT_PUBLIC_DISCORD_INVITE_URL || "https://discord.com/invite/tPyffEZvvJ",
     external: true,
   },
-]
+];
 
 export default function SupportPage() {
-  const { setHeaderContent } = useLayout()
+  const { setHeaderContent } = useLayout();
 
   // Set header breadcrumb
   useEffect(() => {
-    setHeaderContent(
-      <span className="text-[13px] font-medium">Support</span>
-    )
-    return () => setHeaderContent(null)
-  }, [setHeaderContent])
+    setHeaderContent(<span className="text-[13px] font-medium">Support</span>);
+    return () => setHeaderContent(null);
+  }, [setHeaderContent]);
 
   return (
-    <div className="h-full bg-background overflow-auto">
+    <div className="h-full overflow-auto bg-background">
       <div className="p-4">
         {/* Section header */}
         <div className="mb-4">
@@ -54,27 +54,25 @@ export default function SupportPage() {
         {/* Support channels grid */}
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           {supportChannels.map((channel) => {
-            const Icon = channel.icon
+            const Icon = channel.icon;
             return (
               <a
                 key={channel.id}
                 href={channel.href}
-                target={channel.external ? '_blank' : undefined}
-                rel={channel.external ? 'noopener noreferrer' : undefined}
-                className="flex items-start gap-3 rounded-lg border border-border p-4 hover:bg-muted/50 transition-colors"
+                target={channel.external ? "_blank" : undefined}
+                rel={channel.external ? "noopener noreferrer" : undefined}
+                className="flex items-start gap-3 rounded-lg border border-border p-4 transition-colors hover:bg-muted/50"
               >
-                <Icon className="h-4 w-4 mt-0.5 shrink-0" />
+                <Icon className="mt-0.5 h-4 w-4 shrink-0" />
                 <div>
-                  <h3 className="font-medium text-[13px]">{channel.title}</h3>
-                  <p className="text-muted-foreground text-[12px] mt-0.5">
-                    {channel.description}
-                  </p>
+                  <h3 className="text-[13px] font-medium">{channel.title}</h3>
+                  <p className="mt-0.5 text-[12px] text-muted-foreground">{channel.description}</p>
                 </div>
               </a>
-            )
+            );
           })}
         </div>
       </div>
     </div>
-  )
+  );
 }

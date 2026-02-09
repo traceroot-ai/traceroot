@@ -162,6 +162,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         : null,
       create_time: invite.createTime,
     },
-    { status: 201 }
+    { status: 201 },
   );
 }

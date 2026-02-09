@@ -55,9 +55,7 @@ export default function OnboardingPage() {
 
   // Set header content
   useEffect(() => {
-    setHeaderContent(
-      <span className="text-[13px] font-medium">Workspaces</span>
-    );
+    setHeaderContent(<span className="text-[13px] font-medium">Workspaces</span>);
     return () => setHeaderContent(null);
   }, [setHeaderContent]);
 
@@ -146,7 +144,7 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="h-full bg-background overflow-auto">
+    <div className="h-full overflow-auto bg-background">
       <div className="mx-auto max-w-md px-4 py-8">
         {/* Header */}
         <div className="mb-6">
@@ -170,7 +168,7 @@ export default function OnboardingPage() {
               {/* Workspace Section */}
               <div className="flex items-start gap-3">
                 <div className="flex flex-col items-center">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center bg-primary/10 rounded">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-primary/10">
                     {isProjectOnlyMode ? (
                       <Check className="h-4 w-4 text-primary" />
                     ) : (
@@ -178,29 +176,27 @@ export default function OnboardingPage() {
                     )}
                   </div>
                   {/* Vertical connector line */}
-                  <div className="w-px h-12 bg-border my-1.5" />
+                  <div className="my-1.5 h-12 w-px bg-border" />
                 </div>
-                <div className="flex-1 pt-0.5 pb-2">
+                <div className="flex-1 pb-2 pt-0.5">
                   <label className="text-[13px] font-medium">Workspace</label>
-                  <p className="text-[11px] text-muted-foreground mb-2">
+                  <p className="mb-2 text-[11px] text-muted-foreground">
                     Your team's home for billing and members
                   </p>
                   {isProjectOnlyMode ? (
-                    <div className="flex items-center gap-2 border bg-muted/50 px-2.5 py-1.5 max-w-xs text-[13px]">
+                    <div className="flex max-w-xs items-center gap-2 border bg-muted/50 px-2.5 py-1.5 text-[13px]">
                       <span>{existingWorkspaceName || "Selected workspace"}</span>
-                      <Check className="h-3.5 w-3.5 text-green-600 ml-auto" />
+                      <Check className="ml-auto h-3.5 w-3.5 text-green-600" />
                     </div>
                   ) : (
                     <Input
                       placeholder="Acme Inc"
                       {...register("workspaceName")}
-                      className="max-w-xs h-8 text-[13px]"
+                      className="h-8 max-w-xs text-[13px]"
                     />
                   )}
                   {errors.workspaceName && (
-                    <p className="mt-1 text-[11px] text-red-500">
-                      {errors.workspaceName.message}
-                    </p>
+                    <p className="mt-1 text-[11px] text-red-500">{errors.workspaceName.message}</p>
                   )}
                 </div>
               </div>
@@ -208,24 +204,22 @@ export default function OnboardingPage() {
               {/* Project Section */}
               <div className="flex items-start gap-3">
                 <div className="flex flex-col items-center">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center bg-muted rounded">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted">
                     <Layers className="h-4 w-4 text-muted-foreground" />
                   </div>
                 </div>
-                <div className="flex-1 pt-0.5 pb-2">
+                <div className="flex-1 pb-2 pt-0.5">
                   <label className="text-[13px] font-medium">Project</label>
-                  <p className="text-[11px] text-muted-foreground mb-2">
+                  <p className="mb-2 text-[11px] text-muted-foreground">
                     Where your traces and experiments live
                   </p>
                   <Input
                     placeholder="my-llm-project"
                     {...register("projectName")}
-                    className="max-w-xs h-8 text-[13px]"
+                    className="h-8 max-w-xs text-[13px]"
                   />
                   {errors.projectName && (
-                    <p className="mt-1 text-[11px] text-red-500">
-                      {errors.projectName.message}
-                    </p>
+                    <p className="mt-1 text-[11px] text-red-500">{errors.projectName.message}</p>
                   )}
                 </div>
               </div>
@@ -233,10 +227,20 @@ export default function OnboardingPage() {
 
             {/* Actions */}
             <div className="mt-6 flex items-center justify-center gap-2">
-              <Button size="sm" className="h-7 text-[12px] px-4" onClick={handleSubmit} disabled={isLoading}>
+              <Button
+                size="sm"
+                className="h-7 px-4 text-[12px]"
+                onClick={handleSubmit}
+                disabled={isLoading}
+              >
                 {isLoading ? "Creating..." : "Create"}
               </Button>
-              <Button variant="outline" size="sm" className="h-7 text-[12px] px-4" onClick={() => router.push("/workspaces")}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-4 text-[12px]"
+                onClick={() => router.push("/workspaces")}
+              >
                 Cancel
               </Button>
             </div>

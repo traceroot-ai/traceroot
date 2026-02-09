@@ -9,9 +9,9 @@
  * - '@/features/settings/workspace' for workspace settings
  */
 
-export * from './traces';
-export * from './workspaces';
-export * from './projects';
+export * from "./traces";
+export * from "./workspaces";
+export * from "./projects";
 // Settings module re-exported with namespaces to avoid conflicts
-export * as projectSettings from './settings/project';
-export * as workspaceSettings from './settings/workspace';
+export * as projectSettings from "./settings/project";
+export * as workspaceSettings from "./settings/workspace";

@@ -10,12 +10,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const signInSchema = z.object({
   email: z.string().email("Invalid email"),
@@ -94,9 +89,7 @@ export default function SignInPage() {
                 {...register("email")}
               />
               {errors.email && (
-                <p className="mt-1 text-[11px] text-red-500">
-                  {errors.email.message}
-                </p>
+                <p className="mt-1 text-[11px] text-red-500">{errors.email.message}</p>
               )}
             </div>
 
@@ -118,13 +111,11 @@ export default function SignInPage() {
                 </button>
               </div>
               {errors.password && (
-                <p className="mt-1 text-[11px] text-red-500">
-                  {errors.password.message}
-                </p>
+                <p className="mt-1 text-[11px] text-red-500">{errors.password.message}</p>
               )}
             </div>
 
-            <Button type="submit" size="sm" className="w-full h-8 text-[13px]" disabled={isLoading}>
+            <Button type="submit" size="sm" className="h-8 w-full text-[13px]" disabled={isLoading}>
               {isLoading ? "Signing in..." : "Sign in"}
             </Button>
           </form>
@@ -134,16 +125,14 @@ export default function SignInPage() {
               <span className="w-full border-t" />
             </div>
             <div className="relative flex justify-center text-[11px] uppercase">
-              <span className="bg-card px-2 text-muted-foreground">
-                Or continue with
-              </span>
+              <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
             </div>
           </div>
 
           <Button
             variant="outline"
             size="sm"
-            className="w-full h-8 text-[13px]"
+            className="h-8 w-full text-[13px]"
             onClick={handleGoogleSignIn}
             disabled={isGoogleLoading}
           >
@@ -152,10 +141,7 @@ export default function SignInPage() {
 
           <p className="text-center text-[12px] text-muted-foreground">
             Don&apos;t have an account?{" "}
-            <Link
-              href="/auth/sign-up"
-              className="font-medium text-primary hover:underline"
-            >
+            <Link href="/auth/sign-up" className="font-medium text-primary hover:underline">
               Sign up
             </Link>
           </p>

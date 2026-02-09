@@ -122,6 +122,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       role: membership.role,
       create_time: membership.createTime,
     },
-    { status: 201 }
+    { status: 201 },
   );
 }

@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { TREE_LAYOUT } from '../utils';
+import { TREE_LAYOUT } from "../utils";
 
 interface SpanTreeConnectorProps {
   level: number;
@@ -41,7 +41,7 @@ export function SpanTreeConnector({ level, isTerminal, parentLevels }: SpanTreeC
                   left: lineX,
                   top: 0,
                   height: ROW_HEIGHT,
-                  width: 1
+                  width: 1,
                 }}
               />
             )}
@@ -55,9 +55,9 @@ export function SpanTreeConnector({ level, isTerminal, parentLevels }: SpanTreeC
                     left: lineX,
                     top: -iconVerticalGap,
                     height: isTerminal
-                      ? (ROW_HEIGHT / 2 + iconVerticalGap) // to current row center
-                      : (ROW_HEIGHT + iconVerticalGap), // to row bottom
-                    width: 1
+                      ? ROW_HEIGHT / 2 + iconVerticalGap // to current row center
+                      : ROW_HEIGHT + iconVerticalGap, // to row bottom
+                    width: 1,
                   }}
                 />
                 {/* Horizontal part - extend to touch the icon box border */}
@@ -67,7 +67,7 @@ export function SpanTreeConnector({ level, isTerminal, parentLevels }: SpanTreeC
                     left: lineX,
                     top: Math.floor(ROW_HEIGHT / 2),
                     width: width - lineX + 1,
-                    height: 1
+                    height: 1,
                   }}
                 />
               </>
