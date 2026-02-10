@@ -1,27 +1,25 @@
-import { withAuth } from "next-auth/middleware";                                                                                                                                                                                       
-import { NextResponse } from "next/server";                                                                                                                                                                                            
-                                                                                                                                                                                                                                       
-export default withAuth(                                                                                                                                                                                                               
-  function middleware(req) {                                                                                                                                                                                                           
-    return NextResponse.next();                                                                                                                                                                                                        
-  },                                                                                                                                                                                                                                   
-  {                                                                                                                                                                                                                                    
-    callbacks: {                                                                                                                                                                                                                       
-      authorized: ({ token, req }) => {                                                                                                                                                                                                
-        // Allow auth pages without token                                                                                                                                                                                              
-        if (req.nextUrl.pathname.startsWith("/auth/")) {                                                                                                                                                                               
-          return true;                                                                                                                                                                                                                 
-        }                                                                                                                                                                                                                              
-        // Require token for all other pages                                                                                                                                                                                           
-        return !!token;                                                                                                                                                                                                                
-      },                                                                                                                                                                                                                               
-    },                                                                                                                                                                                                                                 
-  }                                                                                                                                                                                                                                    
-);                                                                                                                                                                                                                                     
-                                                                                                                                                                                                                                       
-export const config = {                                                                                   
-    
-                                                                                                                                 
+import { withAuth } from "next-auth/middleware";
+import { NextResponse } from "next/server";
+
+export default withAuth(
+  function middleware(req) {
+    return NextResponse.next();
+  },
+  {
+    callbacks: {
+      authorized: ({ token, req }) => {
+        // Allow auth pages without token
+        if (req.nextUrl.pathname.startsWith("/auth/")) {
+          return true;
+        }
+        // Require token for all other pages
+        return !!token;
+      },
+    },
+  },
+);
+
+export const config = {
   matcher: [
     // Protect all routes except:
     // - api/auth (NextAuth routes)
@@ -30,7 +28,6 @@ export const config = {
     // - auth/* (sign-in, sign-up pages)
     // - _next (Next.js internals)
     // - static files
-    "/((?!api/auth|api/internal|api/billing/webhook|auth/|_next/static|_next/image|favicon.ico).*)",                                                                                                                                                                    
-  ],                                                                                                                                                                                                                                   
-};                                                                                                                                                                                                                                     
-                                                           
+    "/((?!api/auth|api/internal|api/billing/webhook|auth/|_next/static|_next/image|favicon.ico).*)",
+  ],
+};

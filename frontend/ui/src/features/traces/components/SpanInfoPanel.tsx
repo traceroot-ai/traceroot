@@ -1,15 +1,24 @@
-'use client';
+"use client";
 
-import { useRouter } from 'next/navigation';
-import { Clock, Users, Layers, ChevronRight, CircleStop, CircleDollarSign, AlertCircle } from 'lucide-react';
-import { CopyButton } from '@/components/ui/copy-button';
-import { formatDuration, formatDate, formatTokens } from '@/lib/utils';
-import type { TraceDetail } from '@/types/api';
-import type { TraceSelection } from '../types';
-import { getSpanDuration, getTraceDuration, getTraceTotalCost, getTraceTokenUsage } from '../utils';
-import { SpanKindIcon } from './SpanKindIcon';
-import { ContentRenderer } from './ContentRenderer';
-import { ExpandableSection } from '@/components/ui/expandable-section';
+import { useRouter } from "next/navigation";
+import {
+  Clock,
+  Users,
+  Layers,
+  ChevronRight,
+  CircleStop,
+  CircleDollarSign,
+  AlertCircle,
+} from "lucide-react";
+import { CopyButton } from "@/components/ui/copy-button";
+import { formatDuration, formatDate, formatTokens } from "@/lib/utils";
+import { SpanStatus } from "@traceroot/core";
+import type { TraceDetail } from "@/types/api";
+import type { TraceSelection } from "../types";
+import { getSpanDuration, getTraceDuration, getTraceTotalCost, getTraceTokenUsage } from "../utils";
+import { SpanKindIcon } from "./SpanKindIcon";
+import { ContentRenderer } from "./ContentRenderer";
+import { ExpandableSection } from "@/components/ui/expandable-section";
 
 interface SpanInfoPanelProps {
   projectId: string;
@@ -23,9 +32,9 @@ interface SpanInfoPanelProps {
  */
 export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfoPanelProps) {
   const router = useRouter();
-  const isTrace = selection.type === 'trace';
+  const isTrace = selection.type === "trace";
   const name = isTrace ? trace.name : selection.span.name;
-  const kind = isTrace ? 'trace' : selection.span.span_kind;
+  const kind = isTrace ? "trace" : selection.span.span_kind;
   const duration = isTrace ? getTraceDuration(trace) : getSpanDuration(selection.span);
   const timestamp = isTrace ? trace.trace_start_time : selection.span.span_start_time;
   const input = isTrace ? trace.input : selection.span.input;
@@ -36,7 +45,7 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
   const traceTokenUsage = isTrace ? getTraceTokenUsage(trace) : null;
 
   // Error status
-  const hasError = isTrace ? false : selection.span.status === 'ERROR';
+  const hasError = isTrace ? false : selection.span.status === SpanStatus.ERROR;
   const statusMessage = !isTrace ? selection.span.status_message : null;
 
   const copyToClipboard = (text: string) => {
@@ -46,8 +55,8 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
   return (
     <div className="h-full overflow-y-auto">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-border sticky top-0 bg-background z-10">
-        <div className="flex items-center gap-2 mb-1">
+      <div className="sticky top-0 z-10 border-b border-border bg-background px-4 py-3">
+        <div className="mb-1 flex items-center gap-2">
           <SpanKindIcon kind={kind} size="md" selected />
           <h3 className="text-sm font-medium">{name}</h3>
           <CopyButton
@@ -56,9 +65,7 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
             title="Copy ID"
           />
         </div>
-        <div className="text-xs text-muted-foreground mb-3">
-          {formatDate(timestamp)}
-        </div>
+        <div className="mb-3 text-xs text-muted-foreground">{formatDate(timestamp)}</div>
         {/* Static metadata badges */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
@@ -71,7 +78,7 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
             <span className="font-medium">{formatDuration(duration)}</span>
           </div>
           {hasError && (
-            <div className="inline-flex items-center gap-1.5 rounded-md bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400 px-2.5 py-1 text-xs font-medium">
+            <div className="inline-flex items-center gap-1.5 rounded-md bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
               <AlertCircle className="h-3 w-3" />
               ERROR
             </div>
@@ -87,7 +94,8 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
               <CircleStop className="h-3 w-3 text-muted-foreground" />
               <span className="font-medium">{formatTokens(traceTokenUsage.totalTokens)}</span>
               <span className="text-muted-foreground">
-                ({formatTokens(traceTokenUsage.inputTokens)} in / {formatTokens(traceTokenUsage.outputTokens)} out)
+                ({formatTokens(traceTokenUsage.inputTokens)} in /{" "}
+                {formatTokens(traceTokenUsage.outputTokens)} out)
               </span>
             </div>
           )}
@@ -98,7 +106,7 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
             </div>
           )}
           {!isTrace && selection.span.model_name && (
-            <div className="inline-flex items-center rounded-md bg-primary text-primary-foreground px-2.5 py-1 text-xs">
+            <div className="inline-flex items-center rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground">
               {selection.span.model_name}
             </div>
           )}
@@ -107,7 +115,8 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
               <CircleStop className="h-3 w-3 text-muted-foreground" />
               <span className="font-medium">{formatTokens(selection.span.total_tokens)}</span>
               <span className="text-muted-foreground">
-                ({formatTokens(selection.span.input_tokens)} in / {formatTokens(selection.span.output_tokens)} out)
+                ({formatTokens(selection.span.input_tokens)} in /{" "}
+                {formatTokens(selection.span.output_tokens)} out)
               </span>
             </div>
           )}
@@ -121,15 +130,17 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
 
         {/* Clickable User/Session links */}
         {isTrace && (trace.user_id || trace.session_id) && (
-          <div className="flex flex-wrap items-center gap-2 mt-2">
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             {trace.user_id && (
               <button
                 type="button"
                 onClick={() => {
                   onClose?.();
-                  router.push(`/projects/${projectId}/traces?user_id=${encodeURIComponent(trace.user_id!)}`);
+                  router.push(
+                    `/projects/${projectId}/traces?user_id=${encodeURIComponent(trace.user_id!)}`,
+                  );
                 }}
-                className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 pl-2.5 pr-1.5 py-1 text-xs hover:bg-muted transition-colors cursor-pointer"
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
               >
                 <Users className="h-3 w-3 text-muted-foreground" />
                 <span className="text-muted-foreground">User:</span>
@@ -140,8 +151,10 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
             {trace.session_id && (
               <button
                 type="button"
-                onClick={() => {/* TODO: handle session_id click */}}
-                className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 pl-2.5 pr-1.5 py-1 text-xs hover:bg-muted transition-colors cursor-pointer"
+                onClick={() => {
+                  /* TODO: handle session_id click */
+                }}
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
               >
                 <Layers className="h-3 w-3 text-muted-foreground" />
                 <span className="text-muted-foreground">Session:</span>
@@ -154,15 +167,15 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
       </div>
 
       {/* Content */}
-      <div className="p-4 space-y-3">
+      <div className="space-y-3 p-4">
         {/* Error message */}
         {statusMessage && (
-          <div className="rounded-md border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/50 p-3">
-            <div className="flex items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-400 mb-1">
+          <div className="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
+            <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-400">
               <AlertCircle className="h-3 w-3" />
               Error
             </div>
-            <p className="text-xs text-red-600 dark:text-red-400 font-mono whitespace-pre-wrap break-all">
+            <p className="whitespace-pre-wrap break-all font-mono text-xs text-red-600 dark:text-red-400">
               {statusMessage}
             </p>
           </div>

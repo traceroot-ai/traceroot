@@ -5,7 +5,9 @@ import { fetchNextApi } from "./client";
 import type { Project } from "@/types/api";
 
 export async function getProjects(workspaceId: string): Promise<Project[]> {
-  const response = await fetchNextApi<{ projects: Project[] }>(`/workspaces/${workspaceId}/projects`);
+  const response = await fetchNextApi<{ projects: Project[] }>(
+    `/workspaces/${workspaceId}/projects`,
+  );
   return response.projects;
 }
 
@@ -13,7 +15,11 @@ export async function getProject(projectId: string): Promise<Project & { workspa
   return fetchNextApi<Project & { workspace_id: string }>(`/projects/${projectId}`);
 }
 
-export async function createProject(workspaceId: string, name: string, trace_ttl_days?: number): Promise<Project> {
+export async function createProject(
+  workspaceId: string,
+  name: string,
+  trace_ttl_days?: number,
+): Promise<Project> {
   return fetchNextApi<Project>(`/workspaces/${workspaceId}/projects`, {
     method: "POST",
     body: JSON.stringify({ name, trace_ttl_days }),
@@ -23,7 +29,7 @@ export async function createProject(workspaceId: string, name: string, trace_ttl
 export async function updateProject(
   workspaceId: string,
   projectId: string,
-  data: { name?: string; trace_ttl_days?: number | null }
+  data: { name?: string; trace_ttl_days?: number | null },
 ): Promise<Project> {
   return fetchNextApi<Project>(`/workspaces/${workspaceId}/projects/${projectId}`, {
     method: "PATCH",

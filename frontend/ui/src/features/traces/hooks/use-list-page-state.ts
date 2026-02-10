@@ -5,10 +5,10 @@
  * URL params: page_index, page_limit, date_filter, start, end
  * Use this for pages that need shared filter state (traces, users, sessions).
  */
-import { useMemo } from 'react';
-import { useUrlPagination } from './use-url-pagination';
-import { useUrlDateFilter } from './use-url-date-filter';
-import { useKeywordSearch } from './use-keyword-search';
+import { useMemo } from "react";
+import { useUrlPagination } from "./use-url-pagination";
+import { useUrlDateFilter } from "./use-url-date-filter";
+import { useKeywordSearch } from "./use-keyword-search";
 
 interface QueryOptions {
   page: number;
@@ -25,19 +25,19 @@ interface UseListPageStateReturn {
   goToPage: (page: number) => void;
   updateLimit: (limit: number) => void;
   // Date filter (URL-synced)
-  dateFilter: ReturnType<typeof useUrlDateFilter>['dateFilter'];
+  dateFilter: ReturnType<typeof useUrlDateFilter>["dateFilter"];
   customStartDate: Date | null;
   customEndDate: Date | null;
-  updateDateFilter: ReturnType<typeof useUrlDateFilter>['setDateFilter'];
-  updateCustomRange: ReturnType<typeof useUrlDateFilter>['setCustomRange'];
+  updateDateFilter: ReturnType<typeof useUrlDateFilter>["setDateFilter"];
+  updateCustomRange: ReturnType<typeof useUrlDateFilter>["setCustomRange"];
   // Search
   keyword: string;
-  updateKeyword: ReturnType<typeof useKeywordSearch>['setKeyword'];
+  updateKeyword: ReturnType<typeof useKeywordSearch>["setKeyword"];
   // Combined state for convenience
   state: {
     page: number;
     limit: number;
-    dateFilter: ReturnType<typeof useUrlDateFilter>['dateFilter'];
+    dateFilter: ReturnType<typeof useUrlDateFilter>["dateFilter"];
     customStartDate: Date | null;
     customEndDate: Date | null;
     keyword: string;
@@ -51,26 +51,23 @@ export function useListPageState(defaultLimit = 50): UseListPageStateReturn {
   const pagination = useUrlPagination(defaultLimit);
 
   // URL-synced date filter hook - resets page on change
-  const {
-    dateFilter,
-    customStartDate,
-    customEndDate,
-    setDateFilter,
-    setCustomRange,
-    timestamps,
-  } = useUrlDateFilter(pagination.resetPage);
+  const { dateFilter, customStartDate, customEndDate, setDateFilter, setCustomRange, timestamps } =
+    useUrlDateFilter(pagination.resetPage);
 
   // Search hook - resets page on change
   const { keyword, setKeyword, searchQuery } = useKeywordSearch(pagination.resetPage);
 
   // Build query options for API call
-  const queryOptions = useMemo<QueryOptions>(() => ({
-    page: pagination.page,
-    limit: pagination.limit,
-    search_query: searchQuery,
-    start_after: timestamps.startAfter,
-    end_before: timestamps.endBefore,
-  }), [pagination.page, pagination.limit, searchQuery, timestamps.startAfter, timestamps.endBefore]);
+  const queryOptions = useMemo<QueryOptions>(
+    () => ({
+      page: pagination.page,
+      limit: pagination.limit,
+      search_query: searchQuery,
+      start_after: timestamps.startAfter,
+      end_before: timestamps.endBefore,
+    }),
+    [pagination.page, pagination.limit, searchQuery, timestamps.startAfter, timestamps.endBefore],
+  );
 
   return {
     // Pagination

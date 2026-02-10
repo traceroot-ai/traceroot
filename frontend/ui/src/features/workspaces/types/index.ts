@@ -2,7 +2,7 @@
  * Workspace feature types
  * Re-export shared types and define feature-specific types
  */
-export type { Workspace, WorkspaceWithProjects, Role } from '@/types/api';
+export type { Workspace, WorkspaceWithProjects, Role } from "@/types/api";
 
 /**
  * Props for WorkspaceCard component

@@ -1,15 +1,15 @@
 /**
  * Project feature hooks
  */
-import { useQuery } from '@tanstack/react-query';
-import { getProject, getProjects } from '@/lib/api';
+import { useQuery } from "@tanstack/react-query";
+import { getProject, getProjects } from "@/lib/api";
 
 /**
  * Hook for fetching projects in a workspace
  */
 export function useProjects(workspaceId: string, enabled: boolean = true) {
   return useQuery({
-    queryKey: ['projects', workspaceId],
+    queryKey: ["projects", workspaceId],
     queryFn: () => getProjects(workspaceId),
     enabled: enabled && !!workspaceId,
   });
@@ -20,7 +20,7 @@ export function useProjects(workspaceId: string, enabled: boolean = true) {
  */
 export function useProject(projectId: string, enabled: boolean = true) {
   return useQuery({
-    queryKey: ['project', projectId],
+    queryKey: ["project", projectId],
     queryFn: () => getProject(projectId),
     enabled: enabled && !!projectId,
   });

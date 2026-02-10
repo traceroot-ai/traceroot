@@ -12,15 +12,15 @@
     }
   },
   "scripts": {
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push",
-    "build": "prisma generate && tsc",
+    "db:generate": "dotenv -e ../../../.env -- prisma generate",
+    "db:migrate": "dotenv -e ../../../.env -- prisma migrate dev",
+    "db:push": "dotenv -e ../../../.env -- prisma db push",
+    "build": "dotenv -e ../../../.env -- prisma generate && tsc",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
-    "dotenv": "^16.4.5"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^22.19.9",

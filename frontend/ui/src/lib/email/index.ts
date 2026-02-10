@@ -1,4 +1,4 @@
 /**
  * Email service module
  */
-export { sendInviteEmail } from './send-invite-email';
+export { sendInviteEmail } from "./send-invite-email";

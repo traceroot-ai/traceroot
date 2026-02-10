@@ -1,15 +1,15 @@
 /**
  * Workspace feature hooks
  */
-import { useQuery } from '@tanstack/react-query';
-import { getWorkspaces, getWorkspace } from '@/lib/api';
+import { useQuery } from "@tanstack/react-query";
+import { getWorkspaces, getWorkspace } from "@/lib/api";
 
 /**
  * Hook for fetching all workspaces for the current user
  */
 export function useWorkspaces(enabled: boolean = true) {
   return useQuery({
-    queryKey: ['workspaces'],
+    queryKey: ["workspaces"],
     queryFn: getWorkspaces,
     enabled,
   });
@@ -20,7 +20,7 @@ export function useWorkspaces(enabled: boolean = true) {
  */
 export function useWorkspace(workspaceId: string, enabled: boolean = true) {
   return useQuery({
-    queryKey: ['workspace', workspaceId],
+    queryKey: ["workspace", workspaceId],
     queryFn: () => getWorkspace(workspaceId),
     enabled: enabled && !!workspaceId,
   });

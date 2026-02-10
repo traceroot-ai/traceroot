@@ -2,8 +2,9 @@
  * Shared API types for Traceroot UI
  */
 
-// Role type for workspace members
-export type Role = "ADMIN" | "MEMBER" | "VIEWER";
+import type { Role, SpanKind, SpanStatus, TraceStatus } from "@traceroot/core";
+
+export type { Role };
 
 // Workspace types
 export interface Workspace {
@@ -86,7 +87,7 @@ export interface TraceListItem {
   session_id: string | null;
   span_count: number;
   duration_ms: number | null;
-  status: "ok" | "error";
+  status: TraceStatus;
   input: string | null;
   output: string | null;
 }
@@ -96,10 +97,10 @@ export interface Span {
   trace_id: string;
   parent_span_id: string | null;
   name: string;
-  span_kind: string;
+  span_kind: SpanKind;
   span_start_time: string;
   span_end_time: string | null;
-  status: string;
+  status: SpanStatus;
   status_message: string | null;
   model_name: string | null;
   cost: number | null;
@@ -137,12 +138,12 @@ export interface TraceQueryOptions {
   page?: number;
   limit?: number;
   name?: string;
-  status?: "ok" | "error";
+  status?: TraceStatus;
   user_id?: string;
   session_id?: string;
   // Date range filtering
-  start_after?: string;  // ISO timestamp - filter traces after this time
-  end_before?: string;   // ISO timestamp - filter traces before this time
+  start_after?: string; // ISO timestamp - filter traces after this time
+  end_before?: string; // ISO timestamp - filter traces before this time
   // Multi-field keyword search (searches trace_id, name, session_id, user_id)
   search_query?: string;
 }

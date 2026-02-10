@@ -1,16 +1,16 @@
 /**
  * Workspace feature utilities
  */
-import type { Role } from '@/types/api';
+import { Role } from "@traceroot/core";
 
 /**
  * Format workspace creation date for display
  */
 export function formatWorkspaceDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
+  return new Date(dateString).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
   });
 }
 
@@ -19,9 +19,9 @@ export function formatWorkspaceDate(dateString: string): string {
  */
 export function getRoleLabel(role: Role): string {
   const labels: Record<Role, string> = {
-    ADMIN: 'Admin',
-    MEMBER: 'Member',
-    VIEWER: 'Viewer',
+    ADMIN: "Admin",
+    MEMBER: "Member",
+    VIEWER: "Viewer",
   };
   return labels[role] || role;
 }
@@ -30,5 +30,5 @@ export function getRoleLabel(role: Role): string {
  * Check if role has admin privileges
  */
 export function isAdminRole(role: Role): boolean {
-  return role === 'ADMIN';
+  return role === Role.ADMIN;
 }

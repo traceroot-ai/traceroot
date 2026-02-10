@@ -21,29 +21,13 @@ export {
 } from "./workspaces";
 
 // Project APIs
-export {
-  getProjects,
-  getProject,
-  createProject,
-  updateProject,
-  deleteProject,
-} from "./projects";
+export { getProjects, getProject, createProject, updateProject, deleteProject } from "./projects";
 
 // Member APIs
-export {
-  getMembers,
-  addMember,
-  updateMemberRole,
-  removeMember,
-} from "./members";
+export { getMembers, addMember, updateMemberRole, removeMember } from "./members";
 
 // Invite APIs
-export {
-  getInvites,
-  createInvite,
-  cancelInvite,
-  acceptInvite,
-} from "./invites";
+export { getInvites, createInvite, cancelInvite, acceptInvite } from "./invites";
 
 // Access Key APIs
 export {
@@ -59,10 +43,7 @@ export {
 } from "./access-keys";
 
 // Trace APIs
-export {
-  getTraces,
-  getTrace,
-} from "./traces";
+export { getTraces, getTrace } from "./traces";
 
 // Billing APIs
 export {

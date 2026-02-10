@@ -31,15 +31,17 @@ export default function ProjectsPage() {
   const projects = workspace?.projects || [];
 
   return (
-    <div className="h-full bg-background overflow-auto">
+    <div className="h-full overflow-auto bg-background">
       <WorkspaceBreadcrumb workspaceId={workspaceId} />
 
       <div className="p-4">
         {/* Section header with title and button */}
-        <div className="flex items-start justify-between mb-4">
+        <div className="mb-4 flex items-start justify-between">
           <div>
             <h1 className="text-lg font-semibold">Projects</h1>
-            <p className="text-[13px] text-muted-foreground">View and manage projects in this workspace</p>
+            <p className="text-[13px] text-muted-foreground">
+              View and manage projects in this workspace
+            </p>
           </div>
           <CreateProjectDialog workspaceId={workspaceId} />
         </div>
@@ -47,7 +49,7 @@ export default function ProjectsPage() {
         {/* Loading State */}
         {isLoading && (
           <div className="flex items-center justify-center py-12">
-            <p className="text-muted-foreground text-[13px]">Loading projects...</p>
+            <p className="text-[13px] text-muted-foreground">Loading projects...</p>
           </div>
         )}
 
@@ -55,11 +57,11 @@ export default function ProjectsPage() {
         {!isLoading && projects.length === 0 && (
           <div className="flex items-center justify-center py-16">
             <div className="flex flex-col items-center justify-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted mb-4">
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
                 <FolderKanban className="h-6 w-6 text-muted-foreground" />
               </div>
-              <h3 className="font-medium mb-1 text-[13px]">No projects yet</h3>
-              <p className="text-[12px] text-muted-foreground text-center">
+              <h3 className="mb-1 text-[13px] font-medium">No projects yet</h3>
+              <p className="text-center text-[12px] text-muted-foreground">
                 Create your first project to start tracking traces
               </p>
             </div>
