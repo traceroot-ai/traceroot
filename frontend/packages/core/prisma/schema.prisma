@@ -72,7 +72,15 @@ model Workspace {
   invites    Invite[]
   members    WorkspaceMember[]
   projects   Project[]
+  billingCustomerId      String?   @map("billing_customer_id")
+  billingSubscriptionId  String?   @map("billing_subscription_id")
+  billingPriceId         String?   @map("billing_price_id")
+  billingStatus          String?   @map("billing_status") // active, canceled, past_due, trialing
+  billingPeriodStart     DateTime? @map("billing_period_start")
+  billingPlan            String    @default("free") @map("billing_plan") // free, starter, pro, startups
 
+  @@index([billingCustomerId])
+  @@index([billingSubscriptionId])
   @@map("workspaces")
 }
 
