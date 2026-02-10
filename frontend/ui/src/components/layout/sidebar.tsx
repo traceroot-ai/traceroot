@@ -4,11 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { useTheme } from "next-themes";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   LayoutGrid,
   LifeBuoy,
@@ -20,14 +16,10 @@ import {
   Workflow,
   Settings,
 } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
+import { clientEnv } from "@/env.client";
 
 // Check if we're in a project context by looking at the path structure
 function getProjectContext(pathname: string): { isProject: boolean; projectId: string | null } {
@@ -80,11 +72,16 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
       <div
         className={cn(
           "flex h-screen flex-col border-r bg-background transition-all duration-200",
-          collapsed ? "w-14" : "w-40"
+          collapsed ? "w-14" : "w-40",
         )}
       >
         {/* Header with logo */}
-        <div className={cn("flex h-14 items-center border-b", collapsed ? "justify-center px-2" : "px-3")}>
+        <div
+          className={cn(
+            "flex h-14 items-center border-b",
+            collapsed ? "justify-center px-2" : "px-3",
+          )}
+        >
           <Link href="/" className="flex items-center gap-2">
             <Logo />
             {!collapsed && <span className="font-semibold">TraceRoot</span>}
@@ -102,9 +99,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                   className={cn(
                     "flex items-center gap-2 py-2 text-[13px] transition-colors",
                     collapsed ? "justify-center px-2" : "px-3",
-                    pathname.includes("/traces")
-                      ? "bg-muted"
-                      : "hover:bg-muted/50"
+                    pathname.includes("/traces") ? "bg-muted" : "hover:bg-muted/50",
                   )}
                 >
                   <Workflow className="h-3.5 w-3.5 shrink-0" />
@@ -128,7 +123,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     collapsed ? "justify-center px-2" : "px-3",
                     pathname === "/workspaces" || pathname.startsWith("/workspaces/")
                       ? "bg-muted"
-                      : "hover:bg-muted/50"
+                      : "hover:bg-muted/50",
                   )}
                 >
                   <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
@@ -150,12 +145,12 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
           <Tooltip>
             <TooltipTrigger asChild>
               <a
-                href="https://github.com/traceroot-ai/traceroot"
+                href={clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={cn(
-                  "flex w-full items-center gap-2 py-2 text-[13px] hover:bg-muted/50 transition-colors",
-                  collapsed ? "justify-center px-2" : "px-3"
+                  "flex w-full items-center gap-2 py-2 text-[13px] transition-colors hover:bg-muted/50",
+                  collapsed ? "justify-center px-2" : "px-3",
                 )}
               >
                 <Github className="h-3.5 w-3.5 shrink-0" />
@@ -178,9 +173,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                   className={cn(
                     "flex w-full items-center gap-2 py-2 text-[13px] transition-colors",
                     collapsed ? "justify-center px-2" : "px-3",
-                    pathname.includes("/settings")
-                      ? "bg-muted"
-                      : "hover:bg-muted/50"
+                    pathname.includes("/settings") ? "bg-muted" : "hover:bg-muted/50",
                   )}
                 >
                   <Settings className="h-3.5 w-3.5 shrink-0" />
@@ -203,9 +196,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 className={cn(
                   "flex w-full items-center gap-2 py-2 text-[13px] transition-colors",
                   collapsed ? "justify-center px-2" : "px-3",
-                  pathname === "/support"
-                    ? "bg-muted"
-                    : "hover:bg-muted/50"
+                  pathname === "/support" ? "bg-muted" : "hover:bg-muted/50",
                 )}
               >
                 <LifeBuoy className="h-3.5 w-3.5 shrink-0" />
@@ -224,16 +215,16 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
             <PopoverTrigger asChild>
               <button
                 className={cn(
-                  "flex w-full items-center gap-2 py-2 hover:bg-muted/50 transition-colors",
-                  collapsed ? "justify-center px-2" : "px-3"
+                  "flex w-full items-center gap-2 py-2 transition-colors hover:bg-muted/50",
+                  collapsed ? "justify-center px-2" : "px-3",
                 )}
               >
-                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-xs font-medium shrink-0">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-medium">
                   {initials}
                 </div>
                 {!collapsed && (
                   <>
-                    <span className="flex-1 text-left text-sm font-medium truncate">
+                    <span className="flex-1 truncate text-left text-sm font-medium">
                       {displayName}
                     </span>
                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -253,11 +244,9 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted text-sm font-medium">
                   {initials}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{displayName}</p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {user?.email}
-                  </p>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{displayName}</p>
+                  <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
                 </div>
               </div>
 
@@ -267,21 +256,16 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
               <div className="p-1">
                 <Popover>
                   <PopoverTrigger asChild>
-                    <button className="flex w-full items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors">
+                    <button className="flex w-full items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent">
                       <span>Theme</span>
                       <ChevronRight className="h-4 w-4 text-muted-foreground" />
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent
-                    side="right"
-                    align="start"
-                    className="w-28 p-1"
-                    sideOffset={4}
-                  >
+                  <PopoverContent side="right" align="start" className="w-28 p-1" sideOffset={4}>
                     <button
                       className={cn(
                         "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
-                        theme === "light" ? "bg-accent" : "hover:bg-accent"
+                        theme === "light" ? "bg-accent" : "hover:bg-accent",
                       )}
                       onClick={() => setTheme("light")}
                     >
@@ -291,7 +275,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     <button
                       className={cn(
                         "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
-                        theme === "dark" ? "bg-accent" : "hover:bg-accent"
+                        theme === "dark" ? "bg-accent" : "hover:bg-accent",
                       )}
                       onClick={() => setTheme("dark")}
                     >
@@ -301,7 +285,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     <button
                       className={cn(
                         "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
-                        theme === "system" || !theme ? "bg-accent" : "hover:bg-accent"
+                        theme === "system" || !theme ? "bg-accent" : "hover:bg-accent",
                       )}
                       onClick={() => setTheme("system")}
                     >
@@ -313,7 +297,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
 
                 {/* Sign out */}
                 <button
-                  className="flex w-full items-center justify-center rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors"
+                  className="flex w-full items-center justify-center rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
                   onClick={() => signOut({ callbackUrl: "/auth/sign-in" })}
                 >
                   Log Out

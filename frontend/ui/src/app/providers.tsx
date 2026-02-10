@@ -20,7 +20,7 @@ export function Providers({ children }: ProvidersProps) {
             retry: 1,
           },
         },
-      })
+      }),
   );
 
   return (

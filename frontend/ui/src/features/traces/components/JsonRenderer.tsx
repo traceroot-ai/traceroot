@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 interface JsonRendererProps {
   value: unknown;
@@ -13,17 +13,17 @@ export function JsonRenderer({ value, depth = 0 }: JsonRendererProps) {
     return <span className="text-orange-600 dark:text-orange-400">null</span>;
   }
 
-  if (typeof value === 'boolean') {
-    return <span className="text-purple-600 dark:text-purple-400">{value ? 'true' : 'false'}</span>;
+  if (typeof value === "boolean") {
+    return <span className="text-purple-600 dark:text-purple-400">{value ? "true" : "false"}</span>;
   }
 
-  if (typeof value === 'number') {
+  if (typeof value === "number") {
     return <span className="text-blue-600 dark:text-blue-400">{value}</span>;
   }
 
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     return (
-      <span className="text-green-700 dark:text-green-400 whitespace-pre-wrap break-words">
+      <span className="whitespace-pre-wrap break-words text-green-700 dark:text-green-400">
         &quot;{value}&quot;
       </span>
     );
@@ -50,15 +50,15 @@ export function JsonRenderer({ value, depth = 0 }: JsonRendererProps) {
     );
   }
 
-  if (typeof value === 'object') {
+  if (typeof value === "object") {
     const keys = Object.keys(value as object);
     if (keys.length === 0) {
-      return <span className="text-muted-foreground">{'{}'}</span>;
+      return <span className="text-muted-foreground">{"{}"}</span>;
     }
 
     return (
       <span>
-        <span className="text-muted-foreground">{'{'}</span>
+        <span className="text-muted-foreground">{"{"}</span>
         <div className="ml-3">
           {keys.map((key, index) => (
             <div key={key}>
@@ -69,7 +69,7 @@ export function JsonRenderer({ value, depth = 0 }: JsonRendererProps) {
             </div>
           ))}
         </div>
-        <span className="text-muted-foreground">{'}'}</span>
+        <span className="text-muted-foreground">{"}"}</span>
       </span>
     );
   }

@@ -1,24 +1,24 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { ArrowRight, ExternalLink, AlertCircle, CalendarClock } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { useState, useEffect } from "react";
+import { ArrowRight, ExternalLink, AlertCircle, CalendarClock } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { cn } from '@/lib/utils';
-import { PLANS, type PlanType, isUpgrade } from '@traceroot/core';
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
+import { PLANS, type PlanType, isUpgrade } from "@traceroot/core";
 import {
   createCheckoutSession,
   changePlan,
   getPortalUrl,
   getSubscriptionInfo,
   type SubscriptionInfo,
-} from '@/lib/api';
+} from "@/lib/api";
 
 interface BillingTabProps {
   workspaceId: string;
@@ -28,7 +28,7 @@ interface BillingTabProps {
 
 export function BillingTab({
   workspaceId,
-  currentPlan = 'free',
+  currentPlan = "free",
   hasSubscription = false,
 }: BillingTabProps) {
   const [showPricingDialog, setShowPricingDialog] = useState(false);
@@ -45,7 +45,7 @@ export function BillingTab({
     getSubscriptionInfo(workspaceId)
       .then(setSubscriptionInfo)
       .catch((err) => {
-        console.error('Failed to fetch subscription info:', err);
+        console.error("Failed to fetch subscription info:", err);
       });
   }, [workspaceId, hasSubscription]);
 
@@ -56,7 +56,7 @@ export function BillingTab({
     setError(null);
 
     try {
-      if (!hasSubscription && newPlan !== 'free') {
+      if (!hasSubscription && newPlan !== "free") {
         // No subscription yet, need to go through checkout
         const { url } = await createCheckoutSession(workspaceId, newPlan);
         window.location.href = url;
@@ -70,7 +70,7 @@ export function BillingTab({
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to change plan');
+      setError(err instanceof Error ? err.message : "Failed to change plan");
     } finally {
       setIsLoading(false);
     }
@@ -82,21 +82,21 @@ export function BillingTab({
       const { url } = await getPortalUrl(workspaceId);
       window.location.href = url;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to open billing portal');
+      setError(err instanceof Error ? err.message : "Failed to open billing portal");
     } finally {
       setIsLoading(false);
     }
   }
 
   function getButtonText(planId: PlanType): string {
-    if (planId === currentPlan) return 'Current Plan';
-    if (planId === 'free') return 'Downgrade';
-    if (isUpgrade(currentPlan, planId)) return 'Upgrade';
-    return 'Downgrade';
+    if (planId === currentPlan) return "Current Plan";
+    if (planId === "free") return "Downgrade";
+    if (isUpgrade(currentPlan, planId)) return "Upgrade";
+    return "Downgrade";
   }
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="max-w-2xl space-y-6">
       {/* Header */}
       <div>
         <h2 className="text-xl font-semibold">Billing</h2>
@@ -116,7 +116,7 @@ export function BillingTab({
       <div className="border p-4">
         <h3 className="text-sm font-medium">Current plan</h3>
         <p className="text-sm text-muted-foreground mt-1">
-          You are currently on the{' '}
+          You are currently on the{" "}
           <span className="font-medium text-foreground">{currentPlanConfig.name}</span> plan.
         </p>
 
@@ -129,7 +129,7 @@ export function BillingTab({
                 Subscription ending
               </p>
               <p className="text-amber-700 dark:text-amber-300">
-                Your subscription will be canceled on{' '}
+                Your subscription will be canceled on{" "}
                 {new Date(subscriptionInfo.cancellation.cancelAt).toLocaleDateString()}.
                 You will be downgraded to the Free plan after this date.
               </p>
@@ -146,10 +146,10 @@ export function BillingTab({
                 Plan change scheduled
               </p>
               <p className="text-blue-700 dark:text-blue-300">
-                Your plan will change to{' '}
+                Your plan will change to{" "}
                 <span className="font-medium">
                   {PLANS[subscriptionInfo.scheduledChange.newPlan as PlanType]?.name || subscriptionInfo.scheduledChange.newPlan}
-                </span>{' '}
+                </span>{" "}
                 on {new Date(subscriptionInfo.scheduledChange.switchAt).toLocaleDateString()}.
               </p>
             </div>
@@ -159,8 +159,8 @@ export function BillingTab({
         {/* Billing Period */}
         {subscriptionInfo?.billingPeriod && !subscriptionInfo.cancellation && (
           <p className="text-xs text-muted-foreground mt-2">
-            Current billing period:{' '}
-            {new Date(subscriptionInfo.billingPeriod.start).toLocaleDateString()} -{' '}
+            Current billing period:{" "}
+            {new Date(subscriptionInfo.billingPeriod.start).toLocaleDateString()} -{" "}
             {new Date(subscriptionInfo.billingPeriod.end).toLocaleDateString()}
           </p>
         )}
@@ -189,7 +189,7 @@ export function BillingTab({
       {/* Usage Section */}
       <div className="border p-4">
         <h3 className="text-sm font-medium">Usage</h3>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="mt-1 text-sm text-muted-foreground">
           Your usage statistics for the current billing period.
         </p>
         <div className="mt-3 space-y-2 text-sm">
@@ -209,12 +209,10 @@ export function BillingTab({
         <DialogContent className="max-w-5xl">
           <DialogHeader>
             <DialogTitle>Choose a plan</DialogTitle>
-            <DialogDescription>
-              Select a plan that best fits your needs.
-            </DialogDescription>
+            <DialogDescription>Select a plan that best fits your needs.</DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
               {(Object.entries(PLANS) as [PlanType, (typeof PLANS)[PlanType]][]).map(
                 ([planId, plan]) => {
                   const isCurrentPlan = planId === currentPlan;
@@ -223,8 +221,8 @@ export function BillingTab({
                     <div
                       key={planId}
                       className={cn(
-                        'border flex flex-col',
-                        plan.highlighted && 'border-foreground shadow-md'
+                        "border flex flex-col",
+                        plan.highlighted && "border-foreground shadow-md"
                       )}
                     >
                       {/* Plan header */}
@@ -262,7 +260,7 @@ export function BillingTab({
                       {/* CTA Button */}
                       <div className="px-4 pb-4">
                         <Button
-                          variant={plan.highlighted ? 'default' : 'outline'}
+                          variant={plan.highlighted ? "default" : "outline"}
                           className="w-full justify-between"
                           disabled={isCurrentPlan || isLoading}
                           onClick={() => handlePlanSelect(planId)}

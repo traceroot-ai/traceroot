@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { ChevronDown, ChevronRight, Copy } from 'lucide-react';
+import { useState } from "react";
+import { ChevronDown, ChevronRight, Copy } from "lucide-react";
 
 interface ExpandableSectionProps {
   title: string;
@@ -22,10 +22,10 @@ export function ExpandableSection({
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <div className="border border-border rounded-md overflow-hidden">
+    <div className="overflow-hidden rounded-md border border-border">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center justify-between w-full px-2.5 py-1.5 bg-muted/50 hover:bg-muted transition-colors border-b border-border"
+        className="flex w-full items-center justify-between border-b border-border bg-muted/50 px-2.5 py-1.5 transition-colors hover:bg-muted"
       >
         <div className="flex items-center gap-1.5">
           {isOpen ? (
@@ -41,18 +41,14 @@ export function ExpandableSection({
               e.stopPropagation();
               onCopy();
             }}
-            className="text-muted-foreground hover:text-foreground transition-colors p-0.5"
+            className="p-0.5 text-muted-foreground transition-colors hover:text-foreground"
             title="Copy"
           >
             <Copy className="h-3 w-3" />
           </div>
         )}
       </button>
-      {isOpen && (
-        <div className="px-2.5 py-2 bg-background">
-          {children}
-        </div>
-      )}
+      {isOpen && <div className="bg-background px-2.5 py-2">{children}</div>}
     </div>
   );
 }

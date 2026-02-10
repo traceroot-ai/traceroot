@@ -15,12 +15,13 @@ Later, a worker will process these files and insert into ClickHouse.
 """
 
 import logging
-import os
 from typing import Any
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+
+from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -39,17 +40,18 @@ class S3Service:
         """Initialize S3 service.
 
         Args:
-            endpoint_url: S3/MinIO endpoint URL.
-            access_key_id: AWS access key ID.
-            secret_access_key: AWS secret access key.
-            bucket_name: S3 bucket name.
-            region: AWS region.
+            endpoint_url: S3/MinIO endpoint URL. Defaults to settings.
+            access_key_id: AWS access key ID. Defaults to settings.
+            secret_access_key: AWS secret access key. Defaults to settings.
+            bucket_name: S3 bucket name. Defaults to settings.
+            region: AWS region. Defaults to settings.
         """
-        self._endpoint_url = endpoint_url or os.getenv("S3_ENDPOINT_URL")
-        self._access_key_id = access_key_id or os.getenv("S3_ACCESS_KEY_ID")
-        self._secret_access_key = secret_access_key or os.getenv("S3_SECRET_ACCESS_KEY")
-        self._bucket_name = bucket_name or os.getenv("S3_BUCKET_NAME", "traceroot")
-        self._region = region or os.getenv("S3_REGION", "us-east-1")
+        s3 = settings.s3
+        self._endpoint_url = endpoint_url or s3.endpoint_url
+        self._access_key_id = access_key_id or s3.access_key_id
+        self._secret_access_key = secret_access_key or s3.secret_access_key
+        self._bucket_name = bucket_name or s3.bucket_name
+        self._region = region or s3.region
 
         self._client: Any = None
 

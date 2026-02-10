@@ -7,7 +7,7 @@ import type { TraceDetail, TraceListResponse, TraceQueryOptions } from "@/types/
 export async function getTraces(
   projectId: string,
   _apiKey: string,
-  options: TraceQueryOptions = {}
+  options: TraceQueryOptions = {},
 ): Promise<TraceListResponse> {
   const params = new URLSearchParams();
   if (options.page !== undefined) params.set("page", String(options.page));
@@ -29,7 +29,7 @@ export async function getTraces(
 export async function getTrace(
   projectId: string,
   traceId: string,
-  _apiKey: string
+  _apiKey: string,
 ): Promise<TraceDetail> {
   return fetchTraceApi<TraceDetail>(`/projects/${projectId}/traces/${traceId}`);
 }

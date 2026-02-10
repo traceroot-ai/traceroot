@@ -2,7 +2,7 @@
  * Hook for managing pagination state.
  * Single responsibility: page index and page size management.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback } from "react";
 
 interface UsePaginationReturn {
   page: number;

@@ -18,22 +18,20 @@ logger = logging.getLogger(__name__)
 # Load environment variables from .env file
 load_dotenv()
 
+from shared.config import settings
+
 # Configure logging for worker tasks
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s: %(levelname)s/%(processName)s] %(name)s - %(message)s",
 )
 
-# Redis URL from environment or default
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-REDIS_RESULT_URL = os.getenv("REDIS_RESULT_URL", "redis://localhost:6379/1")
-
 app = Celery("traceroot")
 
 app.conf.update(
     # Broker and backend
-    broker_url=REDIS_URL,
-    result_backend=REDIS_RESULT_URL,
+    broker_url=settings.redis.url,
+    result_backend=settings.redis.result_url,
     # Reliability settings
     task_acks_late=True,  # ACK after task completes (not before)
     task_reject_on_worker_lost=True,  # Requeue if worker dies mid-task
@@ -53,8 +51,8 @@ app.conf.update(
     result_expires=3600,
 )
 
-# Auto-discover tasks from worker.tasks module
-app.autodiscover_tasks(["worker"])
+# Auto-discover tasks from worker.ingest_tasks module
+app.autodiscover_tasks(["worker"], related_name="ingest_tasks")
 
 
 @worker_ready.connect
@@ -62,17 +60,21 @@ def on_worker_ready(**kwargs):
     """Run ClickHouse migrations when worker starts."""
     logger.info("Running ClickHouse migrations on worker startup...")
     try:
+        ch = settings.clickhouse
         result = subprocess.run(
-            [str(Path(__file__).resolve().parent.parent / "db" / "clickhouse" / "migrate.sh"), "up"],
+            [
+                str(Path(__file__).resolve().parent.parent / "db" / "clickhouse" / "migrate.sh"),
+                "up",
+            ],
             capture_output=True,
             text=True,
             env={
                 **os.environ,
-                "CLICKHOUSE_HOST": os.getenv("CLICKHOUSE_HOST", "localhost"),
-                "CLICKHOUSE_PORT": os.getenv("CLICKHOUSE_NATIVE_PORT", "9000"),
-                "CLICKHOUSE_USER": os.getenv("CLICKHOUSE_USER", "clickhouse"),
-                "CLICKHOUSE_PASSWORD": os.getenv("CLICKHOUSE_PASSWORD", "clickhouse"),
-                "CLICKHOUSE_DATABASE": os.getenv("CLICKHOUSE_DATABASE", "default"),
+                "CLICKHOUSE_HOST": ch.host,
+                "CLICKHOUSE_PORT": str(ch.native_port),
+                "CLICKHOUSE_USER": ch.user,
+                "CLICKHOUSE_PASSWORD": ch.password,
+                "CLICKHOUSE_DATABASE": ch.database,
             },
         )
 

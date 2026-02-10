@@ -1,6 +1,6 @@
 """Service for reading traces from ClickHouse."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from db.clickhouse import get_clickhouse_client
 
@@ -9,7 +9,7 @@ def _to_utc_naive(dt: datetime) -> datetime:
     """Convert datetime to UTC naive datetime for ClickHouse comparison."""
     if dt.tzinfo is not None:
         # Convert to UTC then remove timezone info
-        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt.astimezone(UTC).replace(tzinfo=None)
     return dt
 
 
@@ -108,19 +108,21 @@ class TraceReaderService:
         # Convert rows to dicts
         data = []
         for row in rows:
-            data.append({
-                "trace_id": row[0],
-                "project_id": row[1],
-                "name": row[2],
-                "trace_start_time": row[3],
-                "user_id": row[4],
-                "session_id": row[5],
-                "span_count": row[6] or 0,
-                "duration_ms": float(row[7]) if row[7] is not None else None,
-                "status": row[8],
-                "input": row[9],
-                "output": row[10],
-            })
+            data.append(
+                {
+                    "trace_id": row[0],
+                    "project_id": row[1],
+                    "name": row[2],
+                    "trace_start_time": row[3],
+                    "user_id": row[4],
+                    "session_id": row[5],
+                    "span_count": row[6] or 0,
+                    "duration_ms": float(row[7]) if row[7] is not None else None,
+                    "status": row[8],
+                    "input": row[9],
+                    "output": row[10],
+                }
+            )
 
         return {
             "data": data,
@@ -178,24 +180,26 @@ class TraceReaderService:
 
         spans = []
         for row in spans_result.result_rows:
-            spans.append({
-                "span_id": row[0],
-                "trace_id": row[1],
-                "parent_span_id": row[2],
-                "name": row[3],
-                "span_kind": row[4],
-                "span_start_time": row[5],
-                "span_end_time": row[6],
-                "status": row[7],
-                "status_message": row[8],
-                "model_name": row[9],
-                "cost": float(row[10]) if row[10] is not None else None,
-                "input_tokens": int(row[11]) if row[11] is not None else None,
-                "output_tokens": int(row[12]) if row[12] is not None else None,
-                "total_tokens": int(row[13]) if row[13] is not None else None,
-                "input": row[14],
-                "output": row[15],
-            })
+            spans.append(
+                {
+                    "span_id": row[0],
+                    "trace_id": row[1],
+                    "parent_span_id": row[2],
+                    "name": row[3],
+                    "span_kind": row[4],
+                    "span_start_time": row[5],
+                    "span_end_time": row[6],
+                    "status": row[7],
+                    "status_message": row[8],
+                    "model_name": row[9],
+                    "cost": float(row[10]) if row[10] is not None else None,
+                    "input_tokens": int(row[11]) if row[11] is not None else None,
+                    "output_tokens": int(row[12]) if row[12] is not None else None,
+                    "total_tokens": int(row[13]) if row[13] is not None else None,
+                    "input": row[14],
+                    "output": row[15],
+                }
+            )
 
         trace["spans"] = spans
         return trace
@@ -261,11 +265,13 @@ class TraceReaderService:
 
         data = []
         for row in result.result_rows:
-            data.append({
-                "user_id": row[0],
-                "trace_count": row[1],
-                "last_trace_time": row[2],
-            })
+            data.append(
+                {
+                    "user_id": row[0],
+                    "trace_count": row[1],
+                    "last_trace_time": row[2],
+                }
+            )
 
         return {
             "data": data,

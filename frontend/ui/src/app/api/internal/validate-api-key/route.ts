@@ -12,27 +12,21 @@ const validateKeySchema = z.object({
 export async function POST(request: NextRequest) {
   // Verify internal secret
   if (!verifyInternalSecret(request)) {
-    return NextResponse.json(
-      { valid: false, error: "Unauthorized" },
-      { status: 401 }
-    );
+    return NextResponse.json({ valid: false, error: "Unauthorized" }, { status: 401 });
   }
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json(
-      { valid: false, error: "Invalid JSON" },
-      { status: 400 }
-    );
+    return NextResponse.json({ valid: false, error: "Invalid JSON" }, { status: 400 });
   }
 
   const result = validateKeySchema.safeParse(body);
   if (!result.success) {
     return NextResponse.json(
       { valid: false, error: result.error.issues[0].message },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -52,26 +46,17 @@ export async function POST(request: NextRequest) {
   });
 
   if (!accessKey) {
-    return NextResponse.json(
-      { valid: false, error: "Invalid API key" },
-      { status: 200 }
-    );
+    return NextResponse.json({ valid: false, error: "Invalid API key" }, { status: 200 });
   }
 
   // Check if project is deleted
   if (accessKey.project.deleteTime) {
-    return NextResponse.json(
-      { valid: false, error: "Project has been deleted" },
-      { status: 200 }
-    );
+    return NextResponse.json({ valid: false, error: "Project has been deleted" }, { status: 200 });
   }
 
   // Check if key is expired
   if (accessKey.expireTime && accessKey.expireTime < new Date()) {
-    return NextResponse.json(
-      { valid: false, error: "API key has expired" },
-      { status: 200 }
-    );
+    return NextResponse.json({ valid: false, error: "API key has expired" }, { status: 200 });
   }
 
   // Update lastUseTime

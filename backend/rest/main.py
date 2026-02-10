@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from rest.routers.public.traces import router as public_traces_router
 from rest.routers.traces import router as traces_router
 from rest.routers.users import router as users_router
-
+from shared.config import settings
 
 app = FastAPI(
     title="Traceroot API",
@@ -28,10 +28,9 @@ app = FastAPI(
 )
 
 # CORS configuration
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -54,11 +53,8 @@ async def health_check():
 if __name__ == "__main__":
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
-    debug = os.getenv("DEBUG", "false").lower() == "true"
-
     uvicorn.run(
         "rest.main:app",
         host=host,
         port=port,
-        reload=debug,
     )

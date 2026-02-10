@@ -1,14 +1,12 @@
 """FastAPI dependencies for authentication (via Next.js internal API)."""
 
-import os
 from typing import Annotated
 
 import httpx
 from fastapi import Depends, Header, HTTPException, status
 
-# Configuration for internal API (Python → Next.js)
-TRACEROOT_UI_URL = os.getenv("TRACEROOT_UI_URL", "http://localhost:3000")
-INTERNAL_API_SECRET = os.getenv("INTERNAL_API_SECRET", "")
+from shared.config import settings
+from shared.enums import MemberRole
 
 
 class ProjectAccessInfo:
@@ -42,15 +40,15 @@ async def get_project_access(
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
-                f"{TRACEROOT_UI_URL}/api/internal/validate-project-access",
+                f"{settings.traceroot_ui_url}/api/internal/validate-project-access",
                 json={"userId": x_user_id, "projectId": project_id},
-                headers={"X-Internal-Secret": INTERNAL_API_SECRET},
+                headers={"X-Internal-Secret": settings.internal_api_secret},
             )
     except httpx.RequestError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Authentication service unavailable: {e}",
-        )
+        ) from e
 
     if response.status_code == 401:
         raise HTTPException(
@@ -68,13 +66,15 @@ async def get_project_access(
 
     if not data.get("hasAccess"):
         error = data.get("error", "No access to this project")
-        status_code = status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_403_FORBIDDEN
+        status_code = (
+            status.HTTP_404_NOT_FOUND if "not found" in error.lower() else status.HTTP_403_FORBIDDEN
+        )
         raise HTTPException(status_code=status_code, detail=error)
 
     return ProjectAccessInfo(
         project_id=project_id,
         user_id=x_user_id,
-        role=data.get("role", "VIEWER"),
+        role=data.get("role", MemberRole.VIEWER),
     )
 
 

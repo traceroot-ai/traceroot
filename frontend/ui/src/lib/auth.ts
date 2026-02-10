@@ -5,6 +5,7 @@ import GoogleProvider from "next-auth/providers/google";
 import { prisma } from "@traceroot/core";
 import { compare } from "bcryptjs";
 import { Adapter } from "next-auth/adapters";
+import { env } from "@/env";
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as Adapter,
@@ -16,8 +17,8 @@ export const authOptions: NextAuthOptions = {
 
   providers: [
     GoogleProvider({
-      clientId: process.env.AUTH_GOOGLE_CLIENT_ID || "",
-      clientSecret: process.env.AUTH_GOOGLE_CLIENT_SECRET || "",
+      clientId: env.AUTH_GOOGLE_CLIENT_ID,
+      clientSecret: env.AUTH_GOOGLE_CLIENT_SECRET,
       allowDangerousEmailAccountLinking: true,
     }),
 
@@ -41,15 +42,10 @@ export const authOptions: NextAuthOptions = {
         }
 
         if (!user.password) {
-          throw new Error(
-            "Please sign in with Google (the provider linked to your account)",
-          );
+          throw new Error("Please sign in with Google (the provider linked to your account)");
         }
 
-        const isValidPassword = await compare(
-          credentials.password,
-          user.password,
-        );
+        const isValidPassword = await compare(credentials.password, user.password);
 
         if (!isValidPassword) {
           throw new Error("Invalid credentials");
@@ -92,5 +88,5 @@ export const authOptions: NextAuthOptions = {
     error: "/auth/error",
   },
 
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: env.NEXTAUTH_SECRET,
 };

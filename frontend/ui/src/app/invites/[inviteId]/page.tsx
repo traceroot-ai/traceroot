@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
-import { acceptInvite } from '@/lib/api';
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { acceptInvite } from "@/lib/api";
 
 export default function AcceptInvitePage() {
   const params = useParams();
@@ -14,10 +14,10 @@ export default function AcceptInvitePage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (status === 'loading') return;
+    if (status === "loading") return;
 
     // Not logged in → redirect to login with callback
-    if (status === 'unauthenticated') {
+    if (status === "unauthenticated") {
       router.push(`/auth/sign-in?callbackUrl=/invites/${inviteId}`);
       return;
     }
@@ -28,7 +28,7 @@ export default function AcceptInvitePage() {
         const result = await acceptInvite(inviteId);
         router.push(`/workspaces/${result.workspace.id}/projects`);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to accept invite');
+        setError(err instanceof Error ? err.message : "Failed to accept invite");
       }
     };
 
@@ -37,14 +37,11 @@ export default function AcceptInvitePage() {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="max-w-md p-6 border text-center">
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="max-w-md border p-6 text-center">
           <h1 className="text-xl font-semibold">Invitation Error</h1>
-          <p className="text-muted-foreground mt-2">{error}</p>
-          <button
-            onClick={() => router.push('/workspaces')}
-            className="mt-4 text-sm underline"
-          >
+          <p className="mt-2 text-muted-foreground">{error}</p>
+          <button onClick={() => router.push("/workspaces")} className="mt-4 text-sm underline">
             Go to workspaces
           </button>
         </div>
@@ -53,9 +50,9 @@ export default function AcceptInvitePage() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen">
+    <div className="flex min-h-screen items-center justify-center">
       <div className="text-center">
-        <div className="animate-spin h-8 w-8 border-2 border-foreground border-t-transparent rounded-full mx-auto" />
+        <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-foreground border-t-transparent" />
         <p className="mt-4 text-muted-foreground">Accepting invitation...</p>
       </div>
     </div>

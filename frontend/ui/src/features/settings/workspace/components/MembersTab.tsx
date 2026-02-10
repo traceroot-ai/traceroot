@@ -1,11 +1,11 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button } from '@/components/ui/button';
-import { AddButton } from '@/components/ui/add-button';
-import { DeleteIconButton } from '@/components/ui/delete-button';
-import { Input } from '@/components/ui/input';
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { AddButton } from "@/components/ui/add-button";
+import { DeleteIconButton } from "@/components/ui/delete-button";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -13,14 +13,15 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from "@/components/ui/select";
+import { Role } from "@traceroot/core";
 import {
   getWorkspace,
   getMembers,
@@ -31,8 +32,7 @@ import {
   cancelInvite,
   type Member,
   type Invite,
-  type Role,
-} from '@/lib/api';
+} from "@/lib/api";
 
 interface MembersTabProps {
   workspaceId: string;
@@ -42,22 +42,22 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
   const queryClient = useQueryClient();
 
   const [showInviteMember, setShowInviteMember] = useState(false);
-  const [newMemberEmail, setNewMemberEmail] = useState('');
-  const [newMemberRole, setNewMemberRole] = useState<Role>('MEMBER');
+  const [newMemberEmail, setNewMemberEmail] = useState("");
+  const [newMemberRole, setNewMemberRole] = useState<Role>(Role.MEMBER);
   const [editingMember, setEditingMember] = useState<{ userId: string; role: Role } | null>(null);
 
   const { data: workspace } = useQuery({
-    queryKey: ['workspace', workspaceId],
+    queryKey: ["workspace", workspaceId],
     queryFn: () => getWorkspace(workspaceId),
   });
 
   const { data: members = [], isLoading: membersLoading } = useQuery({
-    queryKey: ['members', workspaceId],
+    queryKey: ["members", workspaceId],
     queryFn: () => getMembers(workspaceId),
   });
 
   const { data: invites = [], isLoading: invitesLoading } = useQuery({
-    queryKey: ['invites', workspaceId],
+    queryKey: ["invites", workspaceId],
     queryFn: () => getInvites(workspaceId),
   });
 
@@ -65,17 +65,17 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
     mutationFn: ({ email, role }: { email: string; role: Role }) =>
       createInvite(workspaceId, email, role),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['invites', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["invites", workspaceId] });
       setShowInviteMember(false);
-      setNewMemberEmail('');
-      setNewMemberRole('MEMBER');
+      setNewMemberEmail("");
+      setNewMemberRole(Role.MEMBER);
     },
   });
 
   const cancelInviteMutation = useMutation({
     mutationFn: (inviteId: string) => cancelInvite(workspaceId, inviteId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['invites', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["invites", workspaceId] });
     },
   });
 
@@ -83,7 +83,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
     mutationFn: ({ userId, role }: { userId: string; role: Role }) =>
       updateMemberRole(workspaceId, userId, role),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['members', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["members", workspaceId] });
       setEditingMember(null);
     },
   });
@@ -91,7 +91,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
   const removeMemberMutation = useMutation({
     mutationFn: (userId: string) => removeMember(workspaceId, userId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['members', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["members", workspaceId] });
     },
   });
 
@@ -107,22 +107,18 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
     }
   };
 
-  const roleOptions: Role[] = ['ADMIN', 'MEMBER', 'VIEWER'];
-  const canManageMembers = workspace?.role === 'ADMIN';
+  const roleOptions: Role[] = [Role.ADMIN, Role.MEMBER, Role.VIEWER];
+  const canManageMembers = workspace?.role === Role.ADMIN;
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="max-w-3xl space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold">Members</h2>
-          <p className="text-sm text-muted-foreground">
-            Manage workspace members and invitations
-          </p>
+          <p className="text-sm text-muted-foreground">Manage workspace members and invitations</p>
         </div>
         {canManageMembers && (
-          <AddButton onClick={() => setShowInviteMember(true)}>
-            Invite member
-          </AddButton>
+          <AddButton onClick={() => setShowInviteMember(true)}>Invite member</AddButton>
         )}
       </div>
 
@@ -136,7 +132,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div>
-              <label className="text-sm font-medium mb-2 block">Email</label>
+              <label className="mb-2 block text-sm font-medium">Email</label>
               <Input
                 placeholder="member@example.com"
                 value={newMemberEmail}
@@ -145,8 +141,11 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Role</label>
-              <Select value={newMemberRole} onValueChange={(value) => setNewMemberRole(value as Role)}>
+              <label className="mb-2 block text-sm font-medium">Role</label>
+              <Select
+                value={newMemberRole}
+                onValueChange={(value) => setNewMemberRole(value as Role)}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -160,9 +159,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
               </Select>
             </div>
             {inviteMutation.isError && (
-              <p className="text-sm text-destructive">
-                {inviteMutation.error.message}
-              </p>
+              <p className="text-sm text-destructive">{inviteMutation.error.message}</p>
             )}
           </div>
           <DialogFooter className="sm:justify-center">
@@ -170,7 +167,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
               onClick={handleInviteMember}
               disabled={!newMemberEmail.trim() || inviteMutation.isPending}
             >
-              {inviteMutation.isPending ? 'Sending...' : 'Send Invitation'}
+              {inviteMutation.isPending ? "Sending..." : "Send Invitation"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -180,18 +177,14 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Change Role</DialogTitle>
-            <DialogDescription>
-              Update the member&apos;s role in this workspace.
-            </DialogDescription>
+            <DialogDescription>Update the member&apos;s role in this workspace.</DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <label className="text-sm font-medium mb-2 block">Role</label>
+            <label className="mb-2 block text-sm font-medium">Role</label>
             <Select
-              value={editingMember?.role || 'MEMBER'}
+              value={editingMember?.role || Role.MEMBER}
               onValueChange={(value) =>
-                setEditingMember(
-                  editingMember ? { ...editingMember, role: value as Role } : null
-                )
+                setEditingMember(editingMember ? { ...editingMember, role: value as Role } : null)
               }
             >
               <SelectTrigger>
@@ -208,7 +201,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
           </div>
           <DialogFooter className="sm:justify-center">
             <Button onClick={handleUpdateRole} disabled={updateRoleMutation.isPending}>
-              {updateRoleMutation.isPending ? 'Saving...' : 'Save'}
+              {updateRoleMutation.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -216,17 +209,17 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
 
       {!invitesLoading && invites.length > 0 && (
         <div className="border">
-          <div className="px-4 py-3 bg-muted/30 border-b">
+          <div className="border-b bg-muted/30 px-4 py-3">
             <h3 className="text-sm font-medium">Pending Invitations</h3>
           </div>
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b text-left bg-muted/10">
+              <tr className="border-b bg-muted/10 text-left">
                 <th className="px-4 py-2 font-medium text-muted-foreground">Email</th>
                 <th className="px-4 py-2 font-medium text-muted-foreground">Role</th>
                 <th className="px-4 py-2 font-medium text-muted-foreground">Invited By</th>
                 {canManageMembers && (
-                  <th className="px-4 py-2 font-medium text-muted-foreground w-20"></th>
+                  <th className="w-20 px-4 py-2 font-medium text-muted-foreground"></th>
                 )}
               </tr>
             </thead>
@@ -238,7 +231,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
                     {invite.role.charAt(0) + invite.role.slice(1).toLowerCase()}
                   </td>
                   <td className="px-4 py-2 text-muted-foreground">
-                    {invite.invited_by?.name || invite.invited_by?.email || '-'}
+                    {invite.invited_by?.name || invite.invited_by?.email || "-"}
                   </td>
                   {canManageMembers && (
                     <td className="px-4 py-2">
@@ -256,7 +249,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
       )}
 
       <div className="border">
-        <div className="px-4 py-3 bg-muted/30 border-b">
+        <div className="border-b bg-muted/30 px-4 py-3">
           <h3 className="text-sm font-medium">Members</h3>
         </div>
         {membersLoading ? (
@@ -266,12 +259,12 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b text-left bg-muted/10">
+              <tr className="border-b bg-muted/10 text-left">
                 <th className="px-4 py-2 font-medium text-muted-foreground">Name</th>
                 <th className="px-4 py-2 font-medium text-muted-foreground">Email</th>
                 <th className="px-4 py-2 font-medium text-muted-foreground">Role</th>
                 {canManageMembers && (
-                  <th className="px-4 py-2 font-medium text-muted-foreground w-20"></th>
+                  <th className="w-20 px-4 py-2 font-medium text-muted-foreground"></th>
                 )}
               </tr>
             </thead>
@@ -281,12 +274,14 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
                   <td className="px-4 py-2">
                     {member.name || <span className="text-muted-foreground">-</span>}
                   </td>
-                  <td className="px-4 py-2 text-muted-foreground">{member.email || '-'}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{member.email || "-"}</td>
                   <td className="px-4 py-2">
                     {canManageMembers ? (
                       <button
-                        onClick={() => setEditingMember({ userId: member.user_id, role: member.role })}
-                        className="hover:underline cursor-pointer"
+                        onClick={() =>
+                          setEditingMember({ userId: member.user_id, role: member.role })
+                        }
+                        className="cursor-pointer hover:underline"
                       >
                         {member.role.charAt(0) + member.role.slice(1).toLowerCase()}
                       </button>

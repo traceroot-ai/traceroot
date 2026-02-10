@@ -10,12 +10,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const signUpSchema = z
   .object({
@@ -112,9 +107,7 @@ export default function SignUpPage() {
               <label className="mb-1 block text-[13px] font-medium">Name</label>
               <Input placeholder="John Doe" className="h-8 text-[13px]" {...register("name")} />
               {errors.name && (
-                <p className="mt-1 text-[11px] text-red-500">
-                  {errors.name.message}
-                </p>
+                <p className="mt-1 text-[11px] text-red-500">{errors.name.message}</p>
               )}
             </div>
 
@@ -127,9 +120,7 @@ export default function SignUpPage() {
                 {...register("email")}
               />
               {errors.email && (
-                <p className="mt-1 text-[11px] text-red-500">
-                  {errors.email.message}
-                </p>
+                <p className="mt-1 text-[11px] text-red-500">{errors.email.message}</p>
               )}
             </div>
 
@@ -151,16 +142,12 @@ export default function SignUpPage() {
                 </button>
               </div>
               {errors.password && (
-                <p className="mt-1 text-[11px] text-red-500">
-                  {errors.password.message}
-                </p>
+                <p className="mt-1 text-[11px] text-red-500">{errors.password.message}</p>
               )}
             </div>
 
             <div>
-              <label className="mb-1 block text-[13px] font-medium">
-                Confirm Password
-              </label>
+              <label className="mb-1 block text-[13px] font-medium">Confirm Password</label>
               <div className="relative">
                 <Input
                   type={showConfirmPassword ? "text" : "password"}
@@ -173,21 +160,15 @@ export default function SignUpPage() {
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
-                  {showConfirmPassword ? (
-                    <EyeOff size={16} />
-                  ) : (
-                    <Eye size={16} />
-                  )}
+                  {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
               {errors.confirmPassword && (
-                <p className="mt-1 text-[11px] text-red-500">
-                  {errors.confirmPassword.message}
-                </p>
+                <p className="mt-1 text-[11px] text-red-500">{errors.confirmPassword.message}</p>
               )}
             </div>
 
-            <Button type="submit" size="sm" className="w-full h-8 text-[13px]" disabled={isLoading}>
+            <Button type="submit" size="sm" className="h-8 w-full text-[13px]" disabled={isLoading}>
               {isLoading ? "Creating account..." : "Sign up"}
             </Button>
           </form>
@@ -197,16 +178,14 @@ export default function SignUpPage() {
               <span className="w-full border-t" />
             </div>
             <div className="relative flex justify-center text-[11px] uppercase">
-              <span className="bg-card px-2 text-muted-foreground">
-                Or continue with
-              </span>
+              <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
             </div>
           </div>
 
           <Button
             variant="outline"
             size="sm"
-            className="w-full h-8 text-[13px]"
+            className="h-8 w-full text-[13px]"
             onClick={handleGoogleSignUp}
             disabled={isGoogleLoading}
           >
@@ -215,10 +194,7 @@ export default function SignUpPage() {
 
           <p className="text-center text-[12px] text-muted-foreground">
             Already have an account?{" "}
-            <Link
-              href="/auth/sign-in"
-              className="font-medium text-primary hover:underline"
-            >
+            <Link href="/auth/sign-in" className="font-medium text-primary hover:underline">
               Sign in
             </Link>
           </p>

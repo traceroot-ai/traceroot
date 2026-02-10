@@ -1,0 +1,77 @@
+"use client";
+
+import { useEffect } from "react";
+import { Github, BookOpen, MessageCircle } from "lucide-react";
+import { useLayout } from "@/components/layout/app-layout";
+import { clientEnv } from "@/env.client";
+
+const supportChannels = [
+  {
+    id: "documentation",
+    title: "Documentation",
+    description: "Tutorials and guides to get started.",
+    icon: BookOpen,
+    href: clientEnv.NEXT_PUBLIC_DOCS_URL,
+    external: true,
+  },
+  {
+    id: "github-issues",
+    title: "GitHub Issues",
+    description: "Report bugs or request new features.",
+    icon: Github,
+    href: clientEnv.NEXT_PUBLIC_GITHUB_ISSUES_URL,
+    external: true,
+  },
+  {
+    id: "discord",
+    title: "Discord",
+    description: "Chat with the community and team.",
+    icon: MessageCircle,
+    href: clientEnv.NEXT_PUBLIC_DISCORD_INVITE_URL,
+    external: true,
+  },
+];
+
+export default function SupportPage() {
+  const { setHeaderContent } = useLayout();
+
+  // Set header breadcrumb
+  useEffect(() => {
+    setHeaderContent(<span className="text-[13px] font-medium">Support</span>);
+    return () => setHeaderContent(null);
+  }, [setHeaderContent]);
+
+  return (
+    <div className="h-full overflow-auto bg-background">
+      <div className="p-4">
+        {/* Section header */}
+        <div className="mb-4">
+          <h1 className="text-lg font-semibold">Support</h1>
+          <p className="text-[13px] text-muted-foreground">Get help and connect with us</p>
+        </div>
+
+        {/* Support channels grid */}
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          {supportChannels.map((channel) => {
+            const Icon = channel.icon;
+            return (
+              <a
+                key={channel.id}
+                href={channel.href}
+                target={channel.external ? "_blank" : undefined}
+                rel={channel.external ? "noopener noreferrer" : undefined}
+                className="flex items-start gap-3 rounded-lg border border-border p-4 transition-colors hover:bg-muted/50"
+              >
+                <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <h3 className="text-[13px] font-medium">{channel.title}</h3>
+                  <p className="mt-0.5 text-[12px] text-muted-foreground">{channel.description}</p>
+                </div>
+              </a>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
