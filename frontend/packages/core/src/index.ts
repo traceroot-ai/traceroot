@@ -1,3 +1,6 @@
+// Load environment variables from core's .env
+import "./env.js";
+
 // Database
 export { prisma } from "./lib/prisma.js";
 export { PrismaClient } from "@prisma/client";

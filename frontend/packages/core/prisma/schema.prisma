@@ -71,8 +71,10 @@ model Workspace {
   stripePriceId          String?                                                                                                                                                                                         
   subscriptionStatus     String?   // active, canceled, past_due, trialing                                                                                                                                               
   billingCycleAnchor     DateTime?                                                                                                                                                                                       
-  plan                   String    @default("free") // free, starter, pro, startups    
+  plan                   String    @default("free") // free, starter, pro, startups
 
+  @@index([stripeCustomerId])
+  @@index([stripeSubscriptionId])
   @@map("workspaces")
 }
 

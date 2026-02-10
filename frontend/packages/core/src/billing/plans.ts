@@ -49,7 +49,7 @@ export const PLANS: Record<PlanType, {
     name: "Free",
     description: "Get started with basic features",
     price: 0,
-    stripePriceId: "price_1SxbCQHEW7wjsEBpoPfZ8H9U", // Free plan price ID
+    stripePriceId: process.env.STRIPE_PRICE_ID_FREE || "",
     highlighted: false,
     badge: null,
     features: [
@@ -65,7 +65,7 @@ export const PLANS: Record<PlanType, {
     name: "Starter",
     description: "For individuals and small teams",
     price: 49,
-    stripePriceId: "price_1SxbDtHEW7wjsEBpGhmNkwgw", // Starter plan price ID
+    stripePriceId: process.env.STRIPE_PRICE_ID_STARTER || "",
     highlighted: false,
     badge: null,
     features: [
@@ -83,7 +83,7 @@ export const PLANS: Record<PlanType, {
     name: "Pro",
     description: "For all your extra messaging needs",
     price: 99,
-    stripePriceId: "price_1SxbELHEW7wjsEBpXTz5ABOM", // Pro plan price ID
+    stripePriceId: process.env.STRIPE_PRICE_ID_PRO || "",
     highlighted: true,
     badge: "Popular",
     features: [
@@ -99,7 +99,7 @@ export const PLANS: Record<PlanType, {
     name: "Startups",
     description: "For those of you who are really serious",
     price: 999,
-    stripePriceId: "price_1SxbEZHEW7wjsEBpOAi0Rlc3", // Startups plan price ID
+    stripePriceId: process.env.STRIPE_PRICE_ID_STARTUPS || "",
     highlighted: false,
     badge: null,
     features: [

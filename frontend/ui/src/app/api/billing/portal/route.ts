@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     const workspace = await prisma.workspace.findFirst({
       where: {
         id: workspaceId,
-        members: { some: { userId: session.user.id } },
+        members: { some: { userId: session.user.id, role: "ADMIN" } },
       },
     });
     if (!workspace?.stripeCustomerId) {

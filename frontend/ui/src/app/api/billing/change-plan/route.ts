@@ -126,6 +126,16 @@ export async function POST(req: NextRequest) {
         currentPriceId: updatedSub.items.data[0]?.price.id,
       });
 
+      // Update database immediately for better UX (webhook will also update, but may be delayed)
+      await prisma.workspace.update({
+        where: { id: workspaceId },
+        data: {
+          stripePriceId: newPlanConfig.stripePriceId,
+          plan: newPlan,
+          subscriptionStatus: updatedSub.status,
+        },
+      });
+
       return NextResponse.json({ success: true, message: "Upgraded immediately" });
     } else {
       // DOWNGRADE to lower paid plan: Schedule change at period end
