@@ -27,7 +27,7 @@ export interface SubscriptionInfo {
  */
 export async function createCheckoutSession(
   workspaceId: string,
-  plan: string
+  plan: string,
 ): Promise<CheckoutResponse> {
   return fetchNextApi<CheckoutResponse>("/billing/checkout", {
     method: "POST",
@@ -40,7 +40,7 @@ export async function createCheckoutSession(
  */
 export async function changePlan(
   workspaceId: string,
-  newPlan: string
+  newPlan: string,
 ): Promise<ChangePlanResponse> {
   return fetchNextApi<ChangePlanResponse>("/billing/change-plan", {
     method: "POST",

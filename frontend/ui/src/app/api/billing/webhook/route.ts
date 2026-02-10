@@ -51,9 +51,7 @@ export async function POST(req: NextRequest) {
             billingPriceId: priceId,
             billingStatus: subscription.status, // active, past_due, canceled, etc.
             billingPlan: plan,
-            billingPeriodStart: new Date(
-              subscription.billing_cycle_anchor * 1000,
-            ),
+            billingPeriodStart: new Date(subscription.billing_cycle_anchor * 1000),
           },
         });
 
@@ -84,9 +82,7 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        console.log(
-          `Subscription deleted for workspace ${workspaceId}, reverted to free plan`,
-        );
+        console.log(`Subscription deleted for workspace ${workspaceId}, reverted to free plan`);
         break;
       }
 

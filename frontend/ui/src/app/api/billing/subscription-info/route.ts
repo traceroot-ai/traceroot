@@ -47,19 +47,15 @@ export async function GET(req: NextRequest) {
     const stripe = getStripeOrThrow();
 
     // Fetch live subscription from Stripe
-    const subscription = await stripe.subscriptions.retrieve(
-      workspace.billingSubscriptionId,
-      { expand: ["schedule"] }
-    );
+    const subscription = await stripe.subscriptions.retrieve(workspace.billingSubscriptionId, {
+      expand: ["schedule"],
+    });
 
     const nowSec = Math.floor(Date.now() / 1000);
 
     // Check for cancellation
     let cancellation: SubscriptionInfo["cancellation"] = null;
-    if (
-      typeof subscription.cancel_at === "number" &&
-      subscription.cancel_at > nowSec
-    ) {
+    if (typeof subscription.cancel_at === "number" && subscription.cancel_at > nowSec) {
       cancellation = { cancelAt: new Date(subscription.cancel_at * 1000) };
     } else if (subscription.cancel_at_period_end === true) {
       cancellation = {
@@ -82,9 +78,7 @@ export async function GET(req: NextRequest) {
       "status" in schedule &&
       ["active", "not_started"].includes(schedule.status)
     ) {
-      const fullSchedule = await stripe.subscriptionSchedules.retrieve(
-        schedule.id
-      );
+      const fullSchedule = await stripe.subscriptionSchedules.retrieve(schedule.id);
       const phases = fullSchedule.phases ?? [];
       const nextPhase = phases.find((p) => (p.start_date ?? 0) > nowSec);
 
@@ -107,9 +101,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(info);
   } catch (error) {
     console.error("Subscription info error:", error);
-    return NextResponse.json(
-      { error: "Failed to get subscription info" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to get subscription info" }, { status: 500 });
   }
 }

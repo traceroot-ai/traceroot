@@ -107,7 +107,7 @@ export function BillingTab({
 
       {/* Error Message */}
       {error && (
-        <div className="border border-destructive bg-destructive/10 text-destructive p-3 text-sm">
+        <div className="border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
           {error}
         </div>
       )}
@@ -115,23 +115,21 @@ export function BillingTab({
       {/* Current Plan Section */}
       <div className="border p-4">
         <h3 className="text-sm font-medium">Current plan</h3>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="mt-1 text-sm text-muted-foreground">
           You are currently on the{" "}
           <span className="font-medium text-foreground">{currentPlanConfig.name}</span> plan.
         </p>
 
         {/* Cancellation Notice */}
         {subscriptionInfo?.cancellation && (
-          <div className="mt-3 flex items-start gap-2 p-3 border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950">
-            <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+          <div className="mt-3 flex items-start gap-2 border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
             <div className="text-sm">
-              <p className="font-medium text-amber-800 dark:text-amber-200">
-                Subscription ending
-              </p>
+              <p className="font-medium text-amber-800 dark:text-amber-200">Subscription ending</p>
               <p className="text-amber-700 dark:text-amber-300">
                 Your subscription will be canceled on{" "}
-                {new Date(subscriptionInfo.cancellation.cancelAt).toLocaleDateString()}.
-                You will be downgraded to the Free plan after this date.
+                {new Date(subscriptionInfo.cancellation.cancelAt).toLocaleDateString()}. You will be
+                downgraded to the Free plan after this date.
               </p>
             </div>
           </div>
@@ -139,16 +137,15 @@ export function BillingTab({
 
         {/* Scheduled Plan Change Notice */}
         {subscriptionInfo?.scheduledChange && (
-          <div className="mt-3 flex items-start gap-2 p-3 border border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950">
-            <CalendarClock className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+          <div className="mt-3 flex items-start gap-2 border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950">
+            <CalendarClock className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" />
             <div className="text-sm">
-              <p className="font-medium text-blue-800 dark:text-blue-200">
-                Plan change scheduled
-              </p>
+              <p className="font-medium text-blue-800 dark:text-blue-200">Plan change scheduled</p>
               <p className="text-blue-700 dark:text-blue-300">
                 Your plan will change to{" "}
                 <span className="font-medium">
-                  {PLANS[subscriptionInfo.scheduledChange.newPlan as PlanType]?.name || subscriptionInfo.scheduledChange.newPlan}
+                  {PLANS[subscriptionInfo.scheduledChange.newPlan as PlanType]?.name ||
+                    subscriptionInfo.scheduledChange.newPlan}
                 </span>{" "}
                 on {new Date(subscriptionInfo.scheduledChange.switchAt).toLocaleDateString()}.
               </p>
@@ -158,7 +155,7 @@ export function BillingTab({
 
         {/* Billing Period */}
         {subscriptionInfo?.billingPeriod && !subscriptionInfo.cancellation && (
-          <p className="text-xs text-muted-foreground mt-2">
+          <p className="mt-2 text-xs text-muted-foreground">
             Current billing period:{" "}
             {new Date(subscriptionInfo.billingPeriod.start).toLocaleDateString()} -{" "}
             {new Date(subscriptionInfo.billingPeriod.end).toLocaleDateString()}
@@ -166,20 +163,11 @@ export function BillingTab({
         )}
 
         <div className="mt-3 flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowPricingDialog(true)}
-          >
+          <Button variant="outline" size="sm" onClick={() => setShowPricingDialog(true)}>
             Change plan
           </Button>
           {hasSubscription && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleOpenPortal}
-              disabled={isLoading}
-            >
+            <Button variant="ghost" size="sm" onClick={handleOpenPortal} disabled={isLoading}>
               Manage billing <ExternalLink className="ml-1 h-3 w-3" />
             </Button>
           )}
@@ -221,33 +209,31 @@ export function BillingTab({
                     <div
                       key={planId}
                       className={cn(
-                        "border flex flex-col",
-                        plan.highlighted && "border-foreground shadow-md"
+                        "flex flex-col border",
+                        plan.highlighted && "border-foreground shadow-md",
                       )}
                     >
                       {/* Plan header */}
-                      <div className="border-b px-4 pt-4 pb-3">
+                      <div className="border-b px-4 pb-3 pt-4">
                         <div className="flex items-center justify-between">
                           <h3 className="text-lg font-semibold">{plan.name}</h3>
                           {plan.badge && (
-                            <span className="text-xs px-2 py-1 bg-muted rounded-full">
+                            <span className="rounded-full bg-muted px-2 py-1 text-xs">
                               {plan.badge}
                             </span>
                           )}
                         </div>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {plan.description}
-                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">{plan.description}</p>
                       </div>
 
                       {/* Price */}
-                      <div className="px-4 py-3 border-b">
+                      <div className="border-b px-4 py-3">
                         <span className="text-2xl font-bold">${plan.price}</span>
                         <span className="text-muted-foreground"> per month</span>
                       </div>
 
                       {/* Features */}
-                      <div className="px-4 py-3 flex-1">
+                      <div className="flex-1 px-4 py-3">
                         <ul className="space-y-2">
                           {plan.features.map((feature, index) => (
                             <li key={index} className="text-sm">
@@ -271,7 +257,7 @@ export function BillingTab({
                       </div>
                     </div>
                   );
-                }
+                },
               )}
             </div>
           </div>

@@ -35,16 +35,19 @@ function getEntitlementsForPlan(plan: PlanType): Entitlement[] {
 }
 
 // Single source of truth for all plan data
-export const PLANS: Record<PlanType, {
-  name: string;
-  description: string;
-  price: number;
-  billingPriceId: string;
-  highlighted: boolean;
-  badge: string | null;
-  features: string[];
-  entitlements: Entitlement[];
-}> = {
+export const PLANS: Record<
+  PlanType,
+  {
+    name: string;
+    description: string;
+    price: number;
+    billingPriceId: string;
+    highlighted: boolean;
+    badge: string | null;
+    features: string[];
+    entitlements: Entitlement[];
+  }
+> = {
   free: {
     name: "Free",
     description: "Get started with basic features",
@@ -160,11 +163,9 @@ export function getEntitlements(plan: PlanType): Entitlement[] {
 export function requireEntitlement(
   plan: PlanType,
   entitlement: Entitlement,
-  message?: string
+  message?: string,
 ): void {
   if (!hasEntitlement(plan, entitlement)) {
-    throw new Error(
-      message ?? `Plan "${plan}" does not have access to "${entitlement}"`
-    );
+    throw new Error(message ?? `Plan "${plan}" does not have access to "${entitlement}"`);
   }
 }

@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import {
-  prisma,
-  getStripeOrThrow,
-  getPlanConfig,
-  isUpgrade,
-  type PlanType,
-} from "@traceroot/core";
+import { prisma, getStripeOrThrow, getPlanConfig, isUpgrade, type PlanType } from "@traceroot/core";
 
 export async function POST(req: NextRequest) {
   try {
@@ -27,10 +21,7 @@ export async function POST(req: NextRequest) {
       },
     });
     if (!workspace) {
-      return NextResponse.json(
-        { error: "Workspace not found" },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
     }
 
     const stripe = getStripeOrThrow();
@@ -57,13 +48,12 @@ export async function POST(req: NextRequest) {
       }
 
       // First, release any existing schedule
-      const subscription = await stripe.subscriptions.retrieve(
-        workspace.billingSubscriptionId
-      );
+      const subscription = await stripe.subscriptions.retrieve(workspace.billingSubscriptionId);
       if (subscription.schedule) {
-        const scheduleId = typeof subscription.schedule === 'string'
-          ? subscription.schedule
-          : subscription.schedule.id;
+        const scheduleId =
+          typeof subscription.schedule === "string"
+            ? subscription.schedule
+            : subscription.schedule.id;
         await stripe.subscriptionSchedules.release(scheduleId);
       }
 
@@ -74,22 +64,23 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: "Subscription will be canceled at period end"
+        message: "Subscription will be canceled at period end",
       });
     }
 
     // Case 2: No subscription yet = need to go through checkout
     if (!workspace.billingSubscriptionId) {
       return NextResponse.json(
-        { error: "No subscription. Use checkout endpoint instead.", redirect: "/api/billing/checkout" },
+        {
+          error: "No subscription. Use checkout endpoint instead.",
+          redirect: "/api/billing/checkout",
+        },
         { status: 400 },
       );
     }
 
     // Case 3: Has subscription, changing to another paid plan
-    const subscription = await stripe.subscriptions.retrieve(
-      workspace.billingSubscriptionId,
-    );
+    const subscription = await stripe.subscriptions.retrieve(workspace.billingSubscriptionId);
     const subscriptionItemId = subscription.items.data[0].id;
 
     // If subscription is set to cancel, remove that first
@@ -103,9 +94,10 @@ export async function POST(req: NextRequest) {
       // UPGRADE: Immediate change with proration
       // First, release any existing schedule (e.g., pending downgrade)
       if (subscription.schedule) {
-        const scheduleId = typeof subscription.schedule === 'string'
-          ? subscription.schedule
-          : subscription.schedule.id;
+        const scheduleId =
+          typeof subscription.schedule === "string"
+            ? subscription.schedule
+            : subscription.schedule.id;
         await stripe.subscriptionSchedules.release(scheduleId);
       }
 
@@ -141,9 +133,10 @@ export async function POST(req: NextRequest) {
       // DOWNGRADE to lower paid plan: Schedule change at period end
       // First, release any existing schedule (release just detaches, cancel can affect subscription)
       if (subscription.schedule) {
-        const scheduleId = typeof subscription.schedule === 'string'
-          ? subscription.schedule
-          : subscription.schedule.id;
+        const scheduleId =
+          typeof subscription.schedule === "string"
+            ? subscription.schedule
+            : subscription.schedule.id;
         await stripe.subscriptionSchedules.release(scheduleId);
       }
 
@@ -155,9 +148,7 @@ export async function POST(req: NextRequest) {
       await stripe.subscriptionSchedules.update(schedule.id, {
         phases: [
           {
-            items: [
-              { price: subscription.items.data[0].price.id, quantity: 1 },
-            ],
+            items: [{ price: subscription.items.data[0].price.id, quantity: 1 }],
             start_date: schedule.phases[0].start_date,
             end_date: subscription.current_period_end,
           },
@@ -170,14 +161,11 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: "Downgrade scheduled for next billing period"
+        message: "Downgrade scheduled for next billing period",
       });
     }
   } catch (error) {
     console.error("Change plan error:", error);
-    return NextResponse.json(
-      { error: "Failed to change plan" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Failed to change plan" }, { status: 500 });
   }
 }
