@@ -18,6 +18,11 @@ export async function POST(req: NextRequest) {
     const { workspaceId, plan } = await req.json();
 
     // Validate plan
+    const validPlans: PlanType[] = ["free", "starter", "pro", "startups"];
+    if (!plan || !validPlans.includes(plan)) {
+      return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
+    }
+
     const planConfig = getPlanConfig(plan as PlanType);
     if (!planConfig.stripePriceId) {
       return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
