@@ -19,10 +19,7 @@ export async function POST(req: NextRequest) {
       },
     });
     if (!workspace?.billingCustomerId) {
-      return NextResponse.json(
-        { error: "No billing account" },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: "No billing account" }, { status: 404 });
     }
 
     const stripe = getStripeOrThrow();
@@ -35,9 +32,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ url: portalSession.url });
   } catch (error) {
     console.error("Portal error:", error);
-    return NextResponse.json(
-      { error: "Failed to create portal" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Failed to create portal" }, { status: 500 });
   }
 }

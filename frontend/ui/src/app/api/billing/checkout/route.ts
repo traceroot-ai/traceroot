@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import {
-  prisma,
-  getStripeOrThrow,
-  getPlanConfig,
-  type PlanType,
-} from "@traceroot/core";
+import { prisma, getStripeOrThrow, getPlanConfig, type PlanType } from "@traceroot/core";
 
 export async function POST(req: NextRequest) {
   try {
@@ -36,10 +31,7 @@ export async function POST(req: NextRequest) {
       },
     });
     if (!workspace) {
-      return NextResponse.json(
-        { error: "Workspace not found" },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
     }
 
     const stripe = getStripeOrThrow();
@@ -74,9 +66,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ url: checkoutSession.url });
   } catch (error) {
     console.error("Checkout error:", error);
-    return NextResponse.json(
-      { error: "Failed to create checkout" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Failed to create checkout" }, { status: 500 });
   }
 }
