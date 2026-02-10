@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
         members: { some: { userId: session.user.id, role: "ADMIN" } },
       },
     });
-    if (!workspace?.stripeCustomerId) {
+    if (!workspace?.billingCustomerId) {
       return NextResponse.json(
         { error: "No billing account" },
         { status: 404 },
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     const stripe = getStripeOrThrow();
 
     const portalSession = await stripe.billingPortal.sessions.create({
-      customer: workspace.stripeCustomerId,
+      customer: workspace.billingCustomerId,
       return_url: `${process.env.NEXTAUTH_URL}/workspaces/${workspaceId}/settings/billing`,
     });
 

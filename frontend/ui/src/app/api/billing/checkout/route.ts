@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     }
 
     const planConfig = getPlanConfig(plan as PlanType);
-    if (!planConfig.stripePriceId) {
+    if (!planConfig.billingPriceId) {
       return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
     }
 
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     const stripe = getStripeOrThrow();
 
     // Create or get Stripe customer
-    let customerId = workspace.stripeCustomerId;
+    let customerId = workspace.billingCustomerId;
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: session.user.email ?? undefined,
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
       customerId = customer.id;
       await prisma.workspace.update({
         where: { id: workspaceId },
-        data: { stripeCustomerId: customerId },
+        data: { billingCustomerId: customerId },
       });
     }
 
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     const checkoutSession = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: "subscription",
-      line_items: [{ price: planConfig.stripePriceId, quantity: 1 }],
+      line_items: [{ price: planConfig.billingPriceId, quantity: 1 }],
       success_url: `${process.env.NEXTAUTH_URL}/workspaces/${workspaceId}/settings/billing?success=true`,
       cancel_url: `${process.env.NEXTAUTH_URL}/workspaces/${workspaceId}/settings/billing?canceled=true`,
       metadata: { workspaceId },

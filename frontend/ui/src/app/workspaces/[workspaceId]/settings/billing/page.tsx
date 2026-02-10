@@ -57,8 +57,8 @@ export default function WorkspaceSettingsBillingPage() {
         ) : (
           <BillingTab
             workspaceId={workspaceId}
-            currentPlan={(workspace?.plan as PlanType) || "free"}
-            hasSubscription={!!workspace?.stripeSubscriptionId}
+            currentPlan={(workspace?.billingPlan as PlanType) || "free"}
+            hasSubscription={!!workspace?.billingSubscriptionId}
           />
         )}
       </div>

@@ -39,7 +39,7 @@ export const PLANS: Record<PlanType, {
   name: string;
   description: string;
   price: number;
-  stripePriceId: string;
+  billingPriceId: string;
   highlighted: boolean;
   badge: string | null;
   features: string[];
@@ -49,7 +49,7 @@ export const PLANS: Record<PlanType, {
     name: "Free",
     description: "Get started with basic features",
     price: 0,
-    stripePriceId: process.env.STRIPE_PRICE_ID_FREE || "",
+    billingPriceId: process.env.STRIPE_PRICE_ID_FREE || "",
     highlighted: false,
     badge: null,
     features: [
@@ -65,7 +65,7 @@ export const PLANS: Record<PlanType, {
     name: "Starter",
     description: "For individuals and small teams",
     price: 49,
-    stripePriceId: process.env.STRIPE_PRICE_ID_STARTER || "",
+    billingPriceId: process.env.STRIPE_PRICE_ID_STARTER || "",
     highlighted: false,
     badge: null,
     features: [
@@ -83,7 +83,7 @@ export const PLANS: Record<PlanType, {
     name: "Pro",
     description: "For all your extra messaging needs",
     price: 99,
-    stripePriceId: process.env.STRIPE_PRICE_ID_PRO || "",
+    billingPriceId: process.env.STRIPE_PRICE_ID_PRO || "",
     highlighted: true,
     badge: "Popular",
     features: [
@@ -99,7 +99,7 @@ export const PLANS: Record<PlanType, {
     name: "Startups",
     description: "For those of you who are really serious",
     price: 999,
-    stripePriceId: process.env.STRIPE_PRICE_ID_STARTUPS || "",
+    billingPriceId: process.env.STRIPE_PRICE_ID_STARTUPS || "",
     highlighted: false,
     badge: null,
     features: [
@@ -123,7 +123,7 @@ export function getPlanConfig(plan: PlanType): PlanConfig {
 export function mapPriceIdToPlan(priceId: string | null): PlanType {
   if (!priceId) return "free";
   for (const [planKey, config] of Object.entries(PLANS)) {
-    if (config.stripePriceId === priceId) {
+    if (config.billingPriceId === priceId) {
       return planKey as PlanType;
     }
   }
