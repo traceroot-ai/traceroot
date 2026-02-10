@@ -24,9 +24,10 @@ export const config = {
     // Protect all routes except:
     // - api/auth (NextAuth routes)
     // - api/internal (internal API for Python backend, uses X-Internal-Secret)
+    // - api/billing/webhook (Stripe webhook, uses signature verification)
     // - auth/* (sign-in, sign-up pages)
     // - _next (Next.js internals)
     // - static files
-    "/((?!api/auth|api/internal|auth/|_next/static|_next/image|favicon.ico).*)",
+    "/((?!api/auth|api/internal|api/billing/webhook|auth/|_next/static|_next/image|favicon.ico).*)",
   ],
 };

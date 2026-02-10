@@ -59,6 +59,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       create_time: p.createTime,
     })),
     create_time: workspace.createTime,
+    // Billing fields
+    billingPlan: workspace.billingPlan,
+    billingCustomerId: workspace.billingCustomerId,
+    billingSubscriptionId: workspace.billingSubscriptionId,
+    billingStatus: workspace.billingStatus,
   });
 }
 

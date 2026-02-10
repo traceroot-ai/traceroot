@@ -15,6 +15,11 @@ export interface Workspace {
   project_count?: number;
   create_time: string;
   update_time?: string;
+  // Billing fields
+  billingPlan?: string;
+  billingCustomerId?: string | null;
+  billingSubscriptionId?: string | null;
+  billingStatus?: string | null;
 }
 
 export interface WorkspaceWithProjects extends Workspace {
