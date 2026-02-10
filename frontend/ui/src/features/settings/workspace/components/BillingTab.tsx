@@ -23,7 +23,7 @@ import {
 interface BillingTabProps {
   workspaceId: string;
   currentPlan?: PlanType;
-  hasSubscription?: boolean; // true if workspace has stripeSubscriptionId
+  hasSubscription?: boolean; // true if workspace has billingSubscriptionId
 }
 
 export function BillingTab({

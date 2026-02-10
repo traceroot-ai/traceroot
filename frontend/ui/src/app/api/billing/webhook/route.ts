@@ -46,12 +46,12 @@ export async function POST(req: NextRequest) {
         await prisma.workspace.update({
           where: { id: workspaceId },
           data: {
-            stripeCustomerId: subscription.customer as string,
-            stripeSubscriptionId: subscription.id,
-            stripePriceId: priceId,
-            subscriptionStatus: subscription.status, // active, past_due, canceled, etc.
-            plan: plan,
-            billingCycleAnchor: new Date(
+            billingCustomerId: subscription.customer as string,
+            billingSubscriptionId: subscription.id,
+            billingPriceId: priceId,
+            billingStatus: subscription.status, // active, past_due, canceled, etc.
+            billingPlan: plan,
+            billingPeriodStart: new Date(
               subscription.billing_cycle_anchor * 1000,
             ),
           },
@@ -76,11 +76,11 @@ export async function POST(req: NextRequest) {
         await prisma.workspace.update({
           where: { id: workspaceId },
           data: {
-            stripeSubscriptionId: null,
-            stripePriceId: null,
-            subscriptionStatus: null,
-            plan: "free",
-            billingCycleAnchor: null,
+            billingSubscriptionId: null,
+            billingPriceId: null,
+            billingStatus: null,
+            billingPlan: "free",
+            billingPeriodStart: null,
           },
         });
 

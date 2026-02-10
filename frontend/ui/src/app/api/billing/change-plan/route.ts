@@ -34,14 +34,14 @@ export async function POST(req: NextRequest) {
     }
 
     const stripe = getStripeOrThrow();
-    const currentPlan = workspace.plan as PlanType;
+    const currentPlan = workspace.billingPlan as PlanType;
 
     console.log("Change plan request:", {
       currentPlan,
       newPlan,
       isUpgradeResult: isUpgrade(currentPlan, newPlan as PlanType),
-      subscriptionId: workspace.stripeSubscriptionId,
-      newPriceId: newPlanConfig.stripePriceId,
+      subscriptionId: workspace.billingSubscriptionId,
+      newPriceId: newPlanConfig.billingPriceId,
     });
 
     // Case 0: Same plan, nothing to do
@@ -51,14 +51,14 @@ export async function POST(req: NextRequest) {
 
     // Case 1: Downgrade to free = cancel subscription at period end
     if (newPlan === "free") {
-      if (!workspace.stripeSubscriptionId) {
+      if (!workspace.billingSubscriptionId) {
         // Already on free, nothing to do
         return NextResponse.json({ success: true, message: "Already on free plan" });
       }
 
       // First, release any existing schedule
       const subscription = await stripe.subscriptions.retrieve(
-        workspace.stripeSubscriptionId
+        workspace.billingSubscriptionId
       );
       if (subscription.schedule) {
         const scheduleId = typeof subscription.schedule === 'string'
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Cancel at period end (user keeps access until period ends)
-      await stripe.subscriptions.update(workspace.stripeSubscriptionId, {
+      await stripe.subscriptions.update(workspace.billingSubscriptionId, {
         cancel_at_period_end: true,
       });
 
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Case 2: No subscription yet = need to go through checkout
-    if (!workspace.stripeSubscriptionId) {
+    if (!workspace.billingSubscriptionId) {
       return NextResponse.json(
         { error: "No subscription. Use checkout endpoint instead.", redirect: "/api/billing/checkout" },
         { status: 400 },
@@ -88,13 +88,13 @@ export async function POST(req: NextRequest) {
 
     // Case 3: Has subscription, changing to another paid plan
     const subscription = await stripe.subscriptions.retrieve(
-      workspace.stripeSubscriptionId,
+      workspace.billingSubscriptionId,
     );
     const subscriptionItemId = subscription.items.data[0].id;
 
     // If subscription is set to cancel, remove that first
     if (subscription.cancel_at_period_end) {
-      await stripe.subscriptions.update(workspace.stripeSubscriptionId, {
+      await stripe.subscriptions.update(workspace.billingSubscriptionId, {
         cancel_at_period_end: false,
       });
     }
@@ -110,13 +110,13 @@ export async function POST(req: NextRequest) {
       }
 
       console.log("Upgrading subscription:", {
-        subscriptionId: workspace.stripeSubscriptionId,
+        subscriptionId: workspace.billingSubscriptionId,
         itemId: subscriptionItemId,
-        newPriceId: newPlanConfig.stripePriceId,
+        newPriceId: newPlanConfig.billingPriceId,
       });
 
-      const updatedSub = await stripe.subscriptions.update(workspace.stripeSubscriptionId, {
-        items: [{ id: subscriptionItemId, price: newPlanConfig.stripePriceId }],
+      const updatedSub = await stripe.subscriptions.update(workspace.billingSubscriptionId!, {
+        items: [{ id: subscriptionItemId, price: newPlanConfig.billingPriceId }],
         proration_behavior: "always_invoice",
       });
 
@@ -130,9 +130,9 @@ export async function POST(req: NextRequest) {
       await prisma.workspace.update({
         where: { id: workspaceId },
         data: {
-          stripePriceId: newPlanConfig.stripePriceId,
-          plan: newPlan,
-          subscriptionStatus: updatedSub.status,
+          billingPriceId: newPlanConfig.billingPriceId,
+          billingPlan: newPlan,
+          billingStatus: updatedSub.status,
         },
       });
 
@@ -149,7 +149,7 @@ export async function POST(req: NextRequest) {
 
       // Create schedule for downgrade
       const schedule = await stripe.subscriptionSchedules.create({
-        from_subscription: workspace.stripeSubscriptionId,
+        from_subscription: workspace.billingSubscriptionId!,
       });
 
       await stripe.subscriptionSchedules.update(schedule.id, {
@@ -162,7 +162,7 @@ export async function POST(req: NextRequest) {
             end_date: subscription.current_period_end,
           },
           {
-            items: [{ price: newPlanConfig.stripePriceId, quantity: 1 }],
+            items: [{ price: newPlanConfig.billingPriceId, quantity: 1 }],
             start_date: subscription.current_period_end,
           },
         ],

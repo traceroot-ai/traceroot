@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     }
 
     // No subscription = free plan, no extra info needed
-    if (!workspace.stripeSubscriptionId) {
+    if (!workspace.billingSubscriptionId) {
       const info: SubscriptionInfo = {
         cancellation: null,
         scheduledChange: null,
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
 
     // Fetch live subscription from Stripe
     const subscription = await stripe.subscriptions.retrieve(
-      workspace.stripeSubscriptionId,
+      workspace.billingSubscriptionId,
       { expand: ["schedule"] }
     );
 

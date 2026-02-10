@@ -16,11 +16,10 @@ export interface Workspace {
   create_time: string;
   update_time?: string;
   // Billing fields
-  plan?: string;
-  stripeCustomerId?: string | null;
-  stripeSubscriptionId?: string | null;
-  subscriptionStatus?: string | null;
-  cancelAtPeriodEnd?: boolean | null;
+  billingPlan?: string;
+  billingCustomerId?: string | null;
+  billingSubscriptionId?: string | null;
+  billingStatus?: string | null;
 }
 
 export interface WorkspaceWithProjects extends Workspace {
