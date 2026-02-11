@@ -26,7 +26,7 @@ export function JsonRenderer({ value, depth = 0 }: JsonRendererProps) {
     if (value.startsWith("{") || value.startsWith("[")) {
       try {
         const parsed = JSON.parse(value);
-        if (typeof parsed === "object" && parsed !== null) {
+        if (typeof parsed === "object" && parsed !== null && depth < 10) {
           return <JsonRenderer value={parsed} depth={depth} />;
         }
       } catch {
