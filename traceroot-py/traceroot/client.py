@@ -19,6 +19,7 @@ from traceroot.env import (
     TRACEROOT_FLUSH_INTERVAL,
     TRACEROOT_HOST_URL,
 )
+from traceroot.instrumentation.registry import Integration
 from traceroot.transport.span_processor import TracerootSpanProcessor
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ class TracerootClient:
         flush_interval: float | None = None,
         batch_size: int | None = None,
         enabled: bool | None = None,
+        integrations: list[Integration] | None = None,
     ):
         """Initialize the Traceroot client.
 
@@ -49,6 +51,7 @@ class TracerootClient:
             batch_size: Maximum items per batch before flush. Falls back to
                 TRACEROOT_FLUSH_AT env var, then 100.
             enabled: Whether tracing is enabled. Falls back to TRACEROOT_ENABLED env var.
+            integrations: Libraries to auto-instrument (e.g. ["openai", "langchain"]).
         """
         # Resolve config with env var fallbacks
         self.api_key = api_key or os.environ.get(TRACEROOT_API_KEY, "")
@@ -68,10 +71,13 @@ class TracerootClient:
             env_enabled = os.environ.get(TRACEROOT_ENABLED, "").lower()
             enabled = env_enabled not in ("false", "0", "no", "off") if env_enabled else True
 
+        self._integrations = integrations
+
         self._enabled = enabled and bool(self.api_key)
         self._span_processor: TracerootSpanProcessor | None = None
         self._provider: TracerProvider | None = None
         self._initialized = False
+        self._instrumented: list[Integration] = []
 
         if self._enabled:
             self._initialize()
@@ -101,6 +107,15 @@ class TracerootClient:
 
         self._initialized = True
         logger.debug("Traceroot client initialized with TracerProvider")
+
+        # Instrumentation (after TracerProvider is set up)
+        if self._integrations is not None:
+            from traceroot.instrumentation.registry import initialize_integrations
+
+            self._instrumented = initialize_integrations(
+                tracer_provider=self._provider,
+                integrations=self._integrations,
+            )
 
     @property
     def enabled(self) -> bool:
