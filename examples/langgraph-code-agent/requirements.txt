@@ -1,0 +1,11 @@
+langchain==0.3.26
+langgraph==0.4.9
+langchain-openai==0.3.25
+openai>=1.0.0
+python-dotenv>=1.0.0
+fastapi==0.115.12
+uvicorn==0.34.3
+
+# When running from this repo, use the local SDK:
+-e ../../traceroot-py
+# When traceroot is published to PyPI, replace with: traceroot
