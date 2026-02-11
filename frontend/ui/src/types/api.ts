@@ -108,6 +108,7 @@ export interface Span {
   total_tokens: number | null;
   input: string | null;
   output: string | null;
+  metadata: string | null;
 }
 
 export interface TraceDetail {
@@ -121,6 +122,7 @@ export interface TraceDetail {
   release: string | null;
   input: string | null;
   output: string | null;
+  metadata: string | null;
   spans: Span[];
 }
 

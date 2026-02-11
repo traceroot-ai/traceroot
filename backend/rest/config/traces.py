@@ -24,6 +24,7 @@ class SpanResponse(BaseModel):
     total_tokens: int | None
     input: str | None
     output: str | None
+    metadata: str | None
 
 
 class TraceListItem(BaseModel):
@@ -70,4 +71,5 @@ class TraceDetailResponse(BaseModel):
     release: str | None
     input: str | None
     output: str | None
+    metadata: str | None
     spans: list[SpanResponse]
