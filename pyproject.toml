@@ -98,6 +98,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "backend/rest/main.py" = ["E402"]  # load_dotenv() must run before imports
 "backend/worker/celery_app.py" = ["E402"]  # load_dotenv() must run before imports
+"examples/**/*.py" = ["E402"]  # examples need dotenv/traceroot init before other imports
 
 [tool.ruff.lint.isort]
 known-first-party = ["db", "rest", "shared", "worker", "traceroot"]
