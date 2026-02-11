@@ -12,9 +12,8 @@ Basic Usage:
     def my_agent(query: str) -> str:
         return process(query)
 
-    # Use OpenInference for auto-instrumentation
-    from openinference.instrumentation.openai import OpenAIInstrumentor
-    OpenAIInstrumentor().instrument()
+    # Auto-instrument LangChain
+    traceroot.initialize(integrations=[Integration.LANGCHAIN])
 
 Session Management:
     from openinference.instrumentation import using_attributes
@@ -30,6 +29,7 @@ from openinference.instrumentation import using_attributes
 from traceroot.client import TracerootClient
 from traceroot.context import get_current_span_id, get_current_trace_id
 from traceroot.decorators import observe
+from traceroot.instrumentation import Integration
 from traceroot.update import update_current_span, update_current_trace
 
 __version__ = "0.1.0"
@@ -46,6 +46,7 @@ def initialize(
     flush_interval: float = 5.0,
     batch_size: int = 100,
     enabled: bool = True,
+    integrations: list[Integration] | None = None,
 ) -> TracerootClient:
     """Initialize the global Traceroot client.
 
@@ -57,13 +58,15 @@ def initialize(
         flush_interval: Seconds between automatic flushes. Default: 5.0
         batch_size: Max batch size before flush. Default: 100
         enabled: Whether tracing is enabled. Default: True
+        integrations: Libraries to auto-instrument. Use Integration enum
+            values (e.g. [Integration.OPENAI, Integration.LANGCHAIN]).
 
     Returns:
         The TracerootClient instance.
 
     Example:
         import traceroot
-        traceroot.initialize()  # Reads from env vars
+        traceroot.initialize(integrations=[Integration.OPENAI, Integration.LANGCHAIN])
     """
     global _client
     _client = TracerootClient(
@@ -72,6 +75,7 @@ def initialize(
         flush_interval=flush_interval,
         batch_size=batch_size,
         enabled=enabled,
+        integrations=integrations,
     )
     return _client
 
@@ -109,6 +113,7 @@ __all__ = [
     "shutdown",
     "observe",
     "TracerootClient",
+    "Integration",
     # Context utilities
     "get_current_trace_id",
     "get_current_span_id",
