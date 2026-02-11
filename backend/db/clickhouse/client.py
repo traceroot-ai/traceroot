@@ -101,8 +101,8 @@ class ClickHouseClient:
                     s.get("total_tokens"),
                     s.get("input"),
                     s.get("output"),
-                    s.get("metadata"),
                     s.get("environment", "default"),
+                    s.get("metadata"),
                     now,  # ch_create_time
                     now,  # ch_update_time
                 ]
@@ -129,8 +129,8 @@ class ClickHouseClient:
                 "total_tokens",
                 "input",
                 "output",
-                "metadata",
                 "environment",
+                "metadata",
                 "ch_create_time",
                 "ch_update_time",
             ],
