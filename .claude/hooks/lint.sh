@@ -9,7 +9,7 @@ if [ -z "$FILE_PATH" ] || [ ! -f "$FILE_PATH" ]; then
   exit 0
 fi
 
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+PROJECT_ROOT="$(pwd)"
 
 # --- Python files: ruff ---
 if [[ "$FILE_PATH" == *.py ]]; then
@@ -36,13 +36,13 @@ if [[ "$FILE_PATH" == *.ts || "$FILE_PATH" == *.tsx || "$FILE_PATH" == *.js || "
   fi
 
   # Auto-fix: prettier
-  npx --prefix "$FRONTEND_DIR" prettier --write "$FILE_PATH" 2>/dev/null
+  (cd "$FRONTEND_DIR" && npx prettier --write "$FILE_PATH" 2>/dev/null)
 
   # Auto-fix: eslint
-  npx --prefix "$FRONTEND_DIR" eslint --fix "$FILE_PATH" 2>/dev/null
+  (cd "$FRONTEND_DIR" && npx eslint --fix "$FILE_PATH" 2>/dev/null)
 
   # Check for remaining eslint errors
-  ERRORS=$(npx --prefix "$FRONTEND_DIR" eslint "$FILE_PATH" 2>&1)
+  ERRORS=$(cd "$FRONTEND_DIR" && npx eslint "$FILE_PATH" 2>&1)
   if [ $? -ne 0 ]; then
     echo "$ERRORS" >&2
     exit 2
