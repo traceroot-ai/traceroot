@@ -123,6 +123,9 @@ def code_node(state: AgentState) -> dict:
 
 
 def execute_node(state: AgentState) -> dict:
+    # WARNING: This example executes LLM-generated code without sandboxing.
+    # In production, use a sandboxed environment (Docker, gVisor, etc.)
+    # and enforce resource limits (CPU, memory, network).
     try:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write(state["code"])

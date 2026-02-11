@@ -64,13 +64,32 @@ def get_stock_price(symbol: str) -> dict:
 
 @observe(name="calculate", type="tool")
 def calculate(expression: str) -> dict:
-    """Evaluate a math expression."""
+    """Evaluate a math expression safely using AST parsing."""
+    import ast
+    import operator
+
+    ops = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+    }
+
+    def _eval(node):
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        if isinstance(node, ast.BinOp) and type(node.op) in ops:
+            return ops[type(node.op)](_eval(node.left), _eval(node.right))
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            return -_eval(node.operand)
+        raise ValueError(f"Unsupported expression: {ast.dump(node)}")
+
     try:
-        allowed = set("0123456789+-*/.() ")
-        if all(c in allowed for c in expression):
-            result = eval(expression)
-            return {"expression": expression, "result": result}
-        return {"error": "Invalid expression"}
+        tree = ast.parse(expression, mode="eval")
+        result = _eval(tree)
+        return {"expression": expression, "result": result}
     except Exception as e:
         return {"error": str(e)}
 
