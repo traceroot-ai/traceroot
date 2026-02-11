@@ -297,6 +297,7 @@ def test_error_sets_span_status(memory_exporter):
 
 def test_metadata_and_tags(memory_exporter):
     """Test metadata and tags are captured in attributes."""
+    import json
 
     @observe(
         name="tagged-op",
@@ -314,6 +315,58 @@ def test_metadata_and_tags(memory_exporter):
     # Check tags are set
     tags = get_span_attribute(span, SpanAttributes.SPAN_TAGS)
     assert tags is not None
+    assert "production" in tags
+    assert "critical" in tags
+
+    # Check metadata is set and contains expected data
+    metadata_raw = get_span_attribute(span, SpanAttributes.SPAN_METADATA)
+    assert metadata_raw is not None
+    metadata = json.loads(metadata_raw)
+    assert metadata["version"] == "1.0"
+    assert metadata["env"] == "test"
+
+
+def test_update_current_span_metadata(memory_exporter):
+    """Test update_current_span sets metadata on the active span."""
+    import json
+
+    @observe(name="span-with-metadata")
+    def func_with_metadata():
+        traceroot.update_current_span(metadata={"custom_key": "custom_value", "score": 0.95})
+        return "done"
+
+    func_with_metadata()
+
+    spans = memory_exporter.get_finished_spans()
+    assert len(spans) == 1
+
+    span = spans[0]
+    metadata_raw = get_span_attribute(span, SpanAttributes.SPAN_METADATA)
+    assert metadata_raw is not None
+    metadata = json.loads(metadata_raw)
+    assert metadata["custom_key"] == "custom_value"
+    assert metadata["score"] == 0.95
+
+
+def test_update_current_trace_metadata(memory_exporter):
+    """Test update_current_trace sets trace-level metadata on the active span."""
+    import json
+
+    @observe(name="trace-with-metadata")
+    def func_with_trace_metadata():
+        traceroot.update_current_trace(metadata={"trace_level": "info"})
+        return "done"
+
+    func_with_trace_metadata()
+
+    spans = memory_exporter.get_finished_spans()
+    assert len(spans) == 1
+
+    span = spans[0]
+    metadata_raw = get_span_attribute(span, SpanAttributes.TRACE_METADATA)
+    assert metadata_raw is not None
+    metadata = json.loads(metadata_raw)
+    assert metadata["trace_level"] == "info"
 
 
 def test_function_name_as_default(memory_exporter):
