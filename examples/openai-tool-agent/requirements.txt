@@ -1,0 +1,6 @@
+openai>=1.0.0
+python-dotenv>=1.0.0
+
+# When running from this repo, use the local SDK:
+-e ../../traceroot-py
+# When traceroot is published to PyPI, replace with: traceroot
