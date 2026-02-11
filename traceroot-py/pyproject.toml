@@ -21,12 +21,12 @@ dependencies = [
     "opentelemetry-sdk>=1.20",
     "opentelemetry-exporter-otlp-proto-http>=1.20",
     "openinference-instrumentation>=0.1.12",
+    "openinference-instrumentation-openai>=0.1.0",
+    "openinference-instrumentation-anthropic>=0.1.0",
+    "openinference-instrumentation-langchain>=0.1.0",
 ]
 
 [project.optional-dependencies]
-openai = ["openai>=1.0"]
-anthropic = ["anthropic>=0.18"]
-all = ["openai>=1.0", "anthropic>=0.18"]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
