@@ -22,7 +22,8 @@ uv run --with-requirements requirements.txt python server.py
 ## Usage
 
 **Server mode** (default):
-```bashpython server.py
+```bash
+python server.py
 
 curl -X POST http://localhost:9999/code \
      -H "Content-Type: application/json" \
