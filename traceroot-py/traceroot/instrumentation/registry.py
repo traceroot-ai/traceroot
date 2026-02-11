@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
 import logging
 from collections.abc import Sequence
 from enum import StrEnum
