@@ -37,6 +37,7 @@ TRACE_DETAIL = {
     "release": None,
     "input": None,
     "output": None,
+    "metadata": None,
     "spans": [
         {
             "span_id": "span-1",
@@ -55,6 +56,7 @@ TRACE_DETAIL = {
             "total_tokens": None,
             "input": None,
             "output": None,
+            "metadata": None,
         }
     ],
 }
