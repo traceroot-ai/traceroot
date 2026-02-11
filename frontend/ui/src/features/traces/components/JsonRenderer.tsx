@@ -22,6 +22,17 @@ export function JsonRenderer({ value, depth = 0 }: JsonRendererProps) {
   }
 
   if (typeof value === "string") {
+    // Try to parse JSON strings and render them as structured objects
+    if (value.startsWith("{") || value.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(value);
+        if (typeof parsed === "object" && parsed !== null && depth < 10) {
+          return <JsonRenderer value={parsed} depth={depth} />;
+        }
+      } catch {
+        // Not valid JSON, render as plain string
+      }
+    }
     return (
       <span className="whitespace-pre-wrap break-words text-green-700 dark:text-green-400">
         &quot;{value}&quot;

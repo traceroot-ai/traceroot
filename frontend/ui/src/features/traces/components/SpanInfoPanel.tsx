@@ -39,6 +39,7 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
   const timestamp = isTrace ? trace.trace_start_time : selection.span.span_start_time;
   const input = isTrace ? trace.input : selection.span.input;
   const output = isTrace ? trace.output : selection.span.output;
+  const metadata = isTrace ? trace.metadata : selection.span.metadata;
 
   // Trace-level aggregates
   const traceTotalCost = isTrace ? getTraceTotalCost(trace) : null;
@@ -197,6 +198,15 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
           onCopy={output ? () => copyToClipboard(output) : undefined}
         >
           <ContentRenderer content={output} />
+        </ExpandableSection>
+
+        {/* Metadata */}
+        <ExpandableSection
+          title="Metadata"
+          defaultOpen={true}
+          onCopy={metadata ? () => copyToClipboard(metadata) : undefined}
+        >
+          <ContentRenderer content={metadata} />
         </ExpandableSection>
       </div>
     </div>

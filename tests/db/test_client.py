@@ -49,10 +49,11 @@ class TestInsertTracesBatch:
         assert row[7] == "v1.0"  # release
         assert row[8] == "hello"  # input
         assert row[9] == "world"  # output
+        assert row[10] is None  # metadata
         # ch_create_time and ch_update_time are auto-set
-        assert isinstance(row[10], datetime)
         assert isinstance(row[11], datetime)
-        assert len(columns) == 12
+        assert isinstance(row[12], datetime)
+        assert len(columns) == 13
 
     def test_empty_batch_no_insert(self):
         """Empty list -> no _client.insert() call."""
@@ -112,7 +113,7 @@ class TestInsertSpansBatch:
         assert row[12] == 100  # input_tokens
         assert row[13] == 50  # output_tokens
         assert row[14] == 150  # total_tokens
-        assert len(columns) == 20
+        assert len(columns) == 21
 
     def test_optional_fields_none(self):
         """None values for optional fields (cost, tokens)."""

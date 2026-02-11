@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS spans
     input               Nullable(String) CODEC(ZSTD(3)),
     output              Nullable(String) CODEC(ZSTD(3)),
     environment         String DEFAULT 'default',
+    metadata            Nullable(String) CODEC(ZSTD(3)),
     ch_create_time      DateTime64(3) DEFAULT now64(3),
     ch_update_time      DateTime64(3) DEFAULT now64(3)
 )

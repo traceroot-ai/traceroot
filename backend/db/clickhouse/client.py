@@ -48,6 +48,7 @@ class ClickHouseClient:
                     t.get("release"),
                     t.get("input"),
                     t.get("output"),
+                    t.get("metadata"),
                     now,  # ch_create_time
                     now,  # ch_update_time
                 ]
@@ -67,6 +68,7 @@ class ClickHouseClient:
                 "release",
                 "input",
                 "output",
+                "metadata",
                 "ch_create_time",
                 "ch_update_time",
             ],
@@ -100,6 +102,7 @@ class ClickHouseClient:
                     s.get("input"),
                     s.get("output"),
                     s.get("environment", "default"),
+                    s.get("metadata"),
                     now,  # ch_create_time
                     now,  # ch_update_time
                 ]
@@ -127,6 +130,7 @@ class ClickHouseClient:
                 "input",
                 "output",
                 "environment",
+                "metadata",
                 "ch_create_time",
                 "ch_update_time",
             ],

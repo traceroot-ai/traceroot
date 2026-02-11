@@ -135,7 +135,7 @@ class TraceReaderService:
         trace_query = """
             SELECT
                 trace_id, project_id, name, trace_start_time,
-                user_id, session_id, environment, release, input, output
+                user_id, session_id, environment, release, input, output, metadata
             FROM traces FINAL
             WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
             LIMIT 1
@@ -160,6 +160,7 @@ class TraceReaderService:
             "release": row[7],
             "input": row[8],
             "output": row[9],
+            "metadata": row[10],
         }
 
         # Fetch spans
@@ -168,7 +169,7 @@ class TraceReaderService:
                 span_id, trace_id, parent_span_id, name, span_kind,
                 span_start_time, span_end_time, status, status_message,
                 model_name, cost, input_tokens, output_tokens, total_tokens,
-                input, output
+                input, output, metadata
             FROM spans FINAL
             WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
             ORDER BY span_start_time ASC
@@ -198,6 +199,7 @@ class TraceReaderService:
                     "total_tokens": int(row[13]) if row[13] is not None else None,
                     "input": row[14],
                     "output": row[15],
+                    "metadata": row[16],
                 }
             )
 
