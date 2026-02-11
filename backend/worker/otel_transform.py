@@ -41,6 +41,35 @@ from shared.enums import SpanKind, SpanStatus
 
 logger = logging.getLogger(__name__)
 
+# Attributes that are already extracted into dedicated fields
+_KNOWN_ATTRIBUTE_PREFIXES = {
+    "traceroot.span.input",
+    "traceroot.span.output",
+    "traceroot.span.type",
+    "traceroot.span.metadata",
+    "traceroot.span.tags",
+    "traceroot.llm.",
+    "traceroot.trace.",
+    "traceroot.environment",
+    "traceroot.version",
+    "openinference.span.kind",
+    "session.id",
+    "session.user_id",
+    "user.id",
+    "input.value",
+    "output.value",
+    "gen_ai.",
+    "llm.token_count.",
+    "llm.model_name",
+    "llm.input_messages",
+    "llm.output_messages",
+}
+
+
+def _is_known_attribute(key: str) -> bool:
+    """Check if an attribute key is already extracted into a dedicated field."""
+    return any(key == prefix or key.startswith(prefix) for prefix in _KNOWN_ATTRIBUTE_PREFIXES)
+
 
 def decode_otel_id(b64_value: str | None) -> str | None:
     """Decode base64-encoded OTEL trace/span ID to hex string.
@@ -367,6 +396,24 @@ def transform_otel_to_clickhouse(
                         if usage["cost"] is not None:
                             span_record["cost"] = usage["cost"]
 
+                # Extract metadata
+                # Priority: explicit traceroot.span.metadata > remaining attributes
+                explicit_metadata = span_attrs.get("traceroot.span.metadata")
+                if explicit_metadata is not None:
+                    if isinstance(explicit_metadata, str):
+                        span_record["metadata"] = explicit_metadata
+                    else:
+                        span_record["metadata"] = json.dumps(explicit_metadata)
+                else:
+                    # Collect non-internal attributes as metadata
+                    extra_attrs = {
+                        k: v
+                        for k, v in span_attrs.items()
+                        if not _is_known_attribute(k) and v is not None
+                    }
+                    if extra_attrs:
+                        span_record["metadata"] = json.dumps(extra_attrs)
+
                 # Check span status for errors
                 status = otel_span.get("status", {})
                 status_code = status.get("code", 0)
@@ -415,6 +462,15 @@ def transform_otel_to_clickhouse(
                         "session_id": trace_attrs[trace_id]["session_id"],
                         "environment": environment,
                     }
+
+                    # Extract trace-level metadata
+                    trace_metadata = span_attrs.get("traceroot.trace.metadata")
+                    if trace_metadata is not None:
+                        traces[trace_id]["metadata"] = (
+                            json.dumps(trace_metadata)
+                            if not isinstance(trace_metadata, str)
+                            else trace_metadata
+                        )
 
                     # Root span input/output becomes trace input/output
                     if span_input is not None:
