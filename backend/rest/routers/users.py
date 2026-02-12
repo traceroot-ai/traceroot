@@ -3,10 +3,10 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Query, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, Query, status
 
 from rest.routers.deps import ProjectAccess
+from rest.schemas.users import UserListResponse
 from rest.services.trace_reader import get_trace_reader_service
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/projects/{project_id}/users", tags=["Users"])
 
 
-@router.get("")
+@router.get("", response_model=UserListResponse)
 async def list_users(
     project_id: str,
     _access: ProjectAccess,  # Validates user has access to project
@@ -38,7 +38,7 @@ async def list_users(
         return result
     except Exception as e:
         logger.exception(f"Error listing users: {e}")
-        return JSONResponse(
+        raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"detail": "Failed to list users"},
-        )
+            detail="Failed to list users",
+        ) from e

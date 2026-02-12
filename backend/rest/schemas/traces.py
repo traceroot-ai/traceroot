@@ -1,8 +1,10 @@
-"""Trace schemas for request/response validation."""
+"""Trace-related response schemas."""
 
 from datetime import datetime
 
 from pydantic import BaseModel
+
+from rest.schemas.common import PaginationMeta
 
 
 class SpanResponse(BaseModel):
@@ -41,14 +43,6 @@ class TraceListItem(BaseModel):
     status: str  # "ok" or "error"
     input: str | None
     output: str | None
-
-
-class PaginationMeta(BaseModel):
-    """Pagination metadata."""
-
-    page: int
-    limit: int
-    total: int
 
 
 class TraceListResponse(BaseModel):

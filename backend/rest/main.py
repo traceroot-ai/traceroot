@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from rest.routers.public.traces import router as public_traces_router
 from rest.routers.traces import router as traces_router
 from rest.routers.users import router as users_router
+from rest.schemas.common import HealthResponse
 from shared.config import settings
 
 app = FastAPI(
@@ -44,10 +45,10 @@ app.include_router(users_router, prefix="/api/v1")
 app.include_router(public_traces_router, prefix="/api/v1")
 
 
-@app.get("/health")
-async def health_check():
+@app.get("/health", response_model=HealthResponse)
+async def health_check() -> HealthResponse:
     """Health check endpoint."""
-    return {"status": "ok"}
+    return HealthResponse(status="ok")
 
 
 if __name__ == "__main__":
