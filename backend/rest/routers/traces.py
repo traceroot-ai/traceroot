@@ -5,8 +5,8 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from rest.config.traces import TraceDetailResponse, TraceListResponse
 from rest.routers.deps import ProjectAccess
+from rest.schemas.traces import TraceDetailResponse, TraceListResponse
 from rest.services.trace_reader import get_trace_reader_service
 
 logger = logging.getLogger(__name__)
