@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma, FREE_PLAN_LIMIT } from "@traceroot/core";
+import { prisma, USAGE_CONFIG } from "@traceroot/core";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
 
 const validateKeySchema = z.object({
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     projectId: accessKey.projectId,
     workspaceId: accessKey.project.workspace.id,
     billingPlan,
-    freePlanLimit: billingPlan === "free" ? FREE_PLAN_LIMIT : null,
+    freePlanLimit: billingPlan === "free" ? USAGE_CONFIG.includedUnits : null,
     expiresAt: accessKey.expireTime?.toISOString() ?? null,
   });
 }

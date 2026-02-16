@@ -14,11 +14,8 @@ export const USAGE_CONFIG = {
   pricePerUnit: 0.02,
 } as const;
 
-// Free plan limit (blocked when exceeded, no payment method on file)
-export const FREE_PLAN_LIMIT = 10_000;
-
 export function isFreePlanBlocked(currentUsage: number): boolean {
-  return currentUsage >= FREE_PLAN_LIMIT;
+  return currentUsage >= USAGE_CONFIG.includedUnits;
 }
 
 // =============================================================================

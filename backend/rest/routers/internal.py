@@ -32,84 +32,6 @@ def verify_internal_secret(
 # =============================================================================
 
 
-class ProjectUsageItem(BaseModel):
-    project_id: str
-    trace_count: int
-    span_count: int
-    total_events: int
-
-
-class UsageByProjectResponse(BaseModel):
-    projects: list[ProjectUsageItem]
-
-
-@router.get(
-    "/usage/by-project",
-    response_model=UsageByProjectResponse,
-    dependencies=[Depends(verify_internal_secret)],
-)
-async def get_usage_by_project(
-    start: datetime = Query(..., description="Start of interval (ISO format)"),
-    end: datetime = Query(..., description="End of interval (ISO format)"),
-) -> UsageByProjectResponse:
-    """Get usage counts (traces + spans) per project for a time interval."""
-    ch = get_clickhouse_client()
-
-    # Query traces count per project
-    traces_result = ch.query(
-        """
-        SELECT
-            project_id,
-            count(*) as count
-        FROM traces
-        WHERE ch_create_time >= {start:DateTime64(3)}
-          AND ch_create_time < {end:DateTime64(3)}
-        GROUP BY project_id
-        """,
-        parameters={"start": start.isoformat(), "end": end.isoformat()},
-    )
-
-    traces_by_project: dict[str, int] = {}
-    for row in traces_result.result_rows:
-        traces_by_project[row[0]] = int(row[1])
-
-    # Query spans count per project
-    spans_result = ch.query(
-        """
-        SELECT
-            project_id,
-            count(*) as count
-        FROM spans
-        WHERE ch_create_time >= {start:DateTime64(3)}
-          AND ch_create_time < {end:DateTime64(3)}
-        GROUP BY project_id
-        """,
-        parameters={"start": start.isoformat(), "end": end.isoformat()},
-    )
-
-    spans_by_project: dict[str, int] = {}
-    for row in spans_result.result_rows:
-        spans_by_project[row[0]] = int(row[1])
-
-    # Combine results
-    all_projects = set(traces_by_project.keys()) | set(spans_by_project.keys())
-    projects = []
-
-    for project_id in all_projects:
-        trace_count = traces_by_project.get(project_id, 0)
-        span_count = spans_by_project.get(project_id, 0)
-        projects.append(
-            ProjectUsageItem(
-                project_id=project_id,
-                trace_count=trace_count,
-                span_count=span_count,
-                total_events=trace_count + span_count,
-            )
-        )
-
-    return UsageByProjectResponse(projects=projects)
-
-
 class UsageTotalResponse(BaseModel):
     total_events: int
 
@@ -132,25 +54,29 @@ async def get_usage_total(
 
     ch = get_clickhouse_client()
 
+    # Format datetime without timezone for ClickHouse
+    start_str = start.strftime("%Y-%m-%d %H:%M:%S")
+    end_str = end.strftime("%Y-%m-%d %H:%M:%S")
+
     result = ch.query(
         """
         SELECT count(*) as total
         FROM (
             SELECT 1 FROM traces
             WHERE project_id IN {project_ids:Array(String)}
-              AND ch_create_time >= {start:DateTime64(3)}
-              AND ch_create_time < {end:DateTime64(3)}
+              AND ch_create_time >= {start:String}
+              AND ch_create_time < {end:String}
             UNION ALL
             SELECT 1 FROM spans
             WHERE project_id IN {project_ids:Array(String)}
-              AND ch_create_time >= {start:DateTime64(3)}
-              AND ch_create_time < {end:DateTime64(3)}
+              AND ch_create_time >= {start:String}
+              AND ch_create_time < {end:String}
         )
         """,
         parameters={
             "project_ids": project_id_list,
-            "start": start.isoformat(),
-            "end": end.isoformat(),
+            "start": start_str,
+            "end": end_str,
         },
     )
 

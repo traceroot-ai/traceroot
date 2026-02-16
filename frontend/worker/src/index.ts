@@ -45,9 +45,9 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Schedule usage metering job to run every hour at minute 5
-  // (5 minutes after the hour to ensure all data is flushed)
-  cron.schedule("5 * * * *", async () => {
+  // Schedule usage metering job (default: every hour at minute 5)
+  const meteringCron = process.env.USAGE_METERING_CRON || "5 * * * *";
+  cron.schedule(meteringCron, async () => {
     if (isShuttingDown) return;
 
     console.log("[Worker] Running scheduled usage metering job...");
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   });
 
   console.log("[Worker] Scheduled jobs:");
-  console.log("  - Usage metering: every hour at :05");
+  console.log(`  - Usage metering: ${meteringCron}`);
 
   // Run initial job on startup (optional, for catching up)
   if (process.env.RUN_METERING_ON_STARTUP === "true") {

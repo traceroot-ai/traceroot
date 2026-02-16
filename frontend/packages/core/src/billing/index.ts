@@ -10,7 +10,6 @@ export {
   USAGE_CONFIG,
   USAGE_PRICE_ID,
   USAGE_PRICING_DESCRIPTION,
-  FREE_PLAN_LIMIT,
   // Types
   type PlanType,
   type PlanConfig,
@@ -29,6 +28,6 @@ export {
   getSeatLimit,
   canAddSeat,
   requireSeatAvailable,
-  // Free plan limit
+  // Free plan blocking
   isFreePlanBlocked,
 } from "./plans.js";
