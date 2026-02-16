@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from httpx import Response
 
 from rest.routers.deps import get_project_access
-from rest.routers.public.traces import authenticate_api_key, AuthResult
+from rest.routers.public.traces import AuthResult, authenticate_api_key
 
 BASE_URL = "http://localhost:3000"
 

@@ -91,7 +91,8 @@ Once inside the devserver tmux session:
 | 2 | REST API | http://localhost:8000/docs |
 | 3 | Celery Worker | (background) |
 | 4 | Frontend | http://localhost:3000 |
-| 5 | Infra Logs | PG, ClickHouse, Redis, MinIO logs |
+| 5 | Billing Worker | (background) |
+| 6 | Infra Logs | PG, ClickHouse, Redis, MinIO logs |
 
 ### Environment
 
@@ -148,6 +149,31 @@ cd frontend/ui && pnpm test
 | `cd frontend/packages/core && pnpm db:migrate` | Run Prisma migrations (dev) |
 | `docker compose ps` | Check infrastructure status |
 | `docker compose logs -f clickhouse` | Tail specific service logs |
+
+### Starting the Billing Worker Manually
+
+The billing worker (TypeScript) runs usage metering jobs to report usage to Stripe. It's included in `make dev`, but you can also run it manually:
+
+```bash
+cd frontend/worker
+
+# Build the worker
+pnpm build
+
+# Run with environment variables from root .env
+pnpm dotenv -e ../../.env -- node dist/index.js
+
+# Run with metering job on startup (useful for testing)
+RUN_METERING_ON_STARTUP=true pnpm dotenv -e ../../.env -- node dist/index.js
+```
+
+**Configuration** (in `.env`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `USAGE_METERING_CRON` | `5 * * * *` | Cron schedule for usage metering (default: 5 min past every hour) |
+| `RUN_METERING_ON_STARTUP` | `false` | Run metering job immediately on worker startup |
+| `BACKEND_INTERNAL_URL` | `http://localhost:8000` | Python backend URL for internal API calls |
 
 ---
 
