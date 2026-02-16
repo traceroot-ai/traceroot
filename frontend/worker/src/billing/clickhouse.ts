@@ -2,13 +2,6 @@
  * Usage API client - calls Python backend for ClickHouse queries.
  */
 
-export interface ProjectUsage {
-  projectId: string;
-  traceCount: number;
-  spanCount: number;
-  totalEvents: number;
-}
-
 // Backend internal API base URL
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
@@ -44,36 +37,8 @@ async function internalApiRequest<T>(
 }
 
 /**
- * Get usage counts (traces + spans) per project for a time interval.
- * Used for billing metering.
- */
-export async function getUsageByProjectInInterval(params: {
-  start: Date;
-  end: Date;
-}): Promise<ProjectUsage[]> {
-  const result = await internalApiRequest<{
-    projects: Array<{
-      project_id: string;
-      trace_count: number;
-      span_count: number;
-      total_events: number;
-    }>;
-  }>("/api/v1/internal/usage/by-project", {
-    start: params.start.toISOString(),
-    end: params.end.toISOString(),
-  });
-
-  return result.projects.map((p) => ({
-    projectId: p.project_id,
-    traceCount: p.trace_count,
-    spanCount: p.span_count,
-    totalEvents: p.total_events,
-  }));
-}
-
-/**
  * Get total usage for a workspace (sum of all projects) in the current billing period.
- * Used for checking free tier limits.
+ * Used for billing metering.
  */
 export async function getWorkspaceUsageInPeriod(params: {
   projectIds: string[];
