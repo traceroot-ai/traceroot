@@ -5,11 +5,10 @@ Tests that free plan users are blocked when they exceed the usage limit.
 
 from unittest.mock import MagicMock
 
-import pytest
 from fastapi.testclient import TestClient
 
 from rest.main import app
-from rest.routers.public.traces import authenticate_api_key, AuthResult
+from rest.routers.public.traces import AuthResult, authenticate_api_key
 
 
 def make_auth_result(

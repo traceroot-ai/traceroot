@@ -221,6 +221,11 @@ def make_driver(autoreload=False):
                 command=celery_command,
                 web_urls=[],
             ),
+            schema.Service(
+                title="Billing Worker",
+                command="cd frontend/worker && pnpm build && pnpm dotenv -e ../../.env -- node dist/index.js",
+                web_urls=[],
+            ),
         ]
         + infra_services(),
         prerequisites=(

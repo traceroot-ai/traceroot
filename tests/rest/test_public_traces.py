@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rest.main import app
-from rest.routers.public.traces import authenticate_api_key, AuthResult
+from rest.routers.public.traces import AuthResult, authenticate_api_key
 
 
 def make_auth_result(project_id: str = "test-project") -> AuthResult:
