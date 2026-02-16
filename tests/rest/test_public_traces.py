@@ -10,13 +10,23 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rest.main import app
-from rest.routers.public.traces import authenticate_api_key
+from rest.routers.public.traces import authenticate_api_key, AuthResult
+
+
+def make_auth_result(project_id: str = "test-project") -> AuthResult:
+    """Create an AuthResult for testing (paid plan, no limit)."""
+    return AuthResult(
+        project_id=project_id,
+        workspace_id="test-workspace",
+        billing_plan="pro",
+        free_plan_limit=None,
+    )
 
 
 @pytest.fixture()
 def client(monkeypatch):
     """TestClient with mocked auth, S3, Celery, and protobuf decode."""
-    app.dependency_overrides[authenticate_api_key] = lambda: "test-project"
+    app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result()
 
     mock_payload = {"resourceSpans": [{"resource": {}, "scopeSpans": []}]}
     monkeypatch.setattr(
@@ -65,13 +75,13 @@ class TestIngestTraces:
         mock_decode.assert_called_once_with(raw_bytes)
 
     def test_empty_body_returns_400(self):
-        app.dependency_overrides[authenticate_api_key] = lambda: "test-project"
+        app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result()
         test_client = TestClient(app)
         response = test_client.post("/api/v1/public/traces", content=b"")
         assert response.status_code == 400
 
     def test_invalid_protobuf_returns_400(self, monkeypatch):
-        app.dependency_overrides[authenticate_api_key] = lambda: "test-project"
+        app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result()
         monkeypatch.setattr(
             "rest.routers.public.traces.decode_otlp_protobuf",
             MagicMock(side_effect=Exception("Invalid protobuf")),
@@ -81,7 +91,7 @@ class TestIngestTraces:
         assert response.status_code == 400
 
     def test_invalid_gzip_returns_400(self):
-        app.dependency_overrides[authenticate_api_key] = lambda: "test-project"
+        app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result()
         test_client = TestClient(app)
         response = test_client.post(
             "/api/v1/public/traces",

@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { PLANS, type PlanType, isUpgrade } from "@traceroot/core";
+import { PLANS, type PlanType, isUpgrade, USAGE_PRICING_DESCRIPTION } from "@traceroot/core";
 import {
   createCheckoutSession,
   changePlan,
@@ -228,8 +228,15 @@ export function BillingTab({
 
                       {/* Price */}
                       <div className="border-b px-4 py-3">
-                        <span className="text-2xl font-bold">${plan.price}</span>
-                        <span className="text-muted-foreground"> per month</span>
+                        <div>
+                          <span className="text-2xl font-bold">${plan.price}</span>
+                          <span className="text-muted-foreground"> per month</span>
+                        </div>
+                        {planId !== "free" && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            + {USAGE_PRICING_DESCRIPTION}
+                          </p>
+                        )}
                       </div>
 
                       {/* Features */}

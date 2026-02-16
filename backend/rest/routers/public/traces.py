@@ -15,6 +15,7 @@ import gzip
 import hashlib
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -26,6 +27,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 )
 from pydantic import BaseModel
 
+from db.clickhouse.client import get_clickhouse_client
 from rest.services.s3 import get_s3_service
 from shared.config import settings
 from worker.ingest_tasks import process_s3_traces
@@ -35,32 +37,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/public/traces", tags=["Traces (Public)"])
 
 
+@dataclass
+class AuthResult:
+    """Result of API key authentication with billing info."""
+
+    project_id: str
+    workspace_id: str
+    billing_plan: str
+    free_plan_limit: int | None
+
+
 async def authenticate_api_key(
     authorization: Annotated[str | None, Header()] = None,
-) -> str:
-    """Authenticate the request using API key and return the project_id.
-
-    The API key should be in the Authorization header as:
-        Authorization: Bearer <api_key>
-
-    Validates the API key by calling the Next.js internal API.
-
-    Args:
-        authorization: Authorization header value.
-
-    Returns:
-        The project_id associated with the API key.
-
-    Raises:
-        HTTPException: If authentication fails.
-    """
+) -> AuthResult:
+    """Authenticate the request and return auth result with billing info."""
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing Authorization header",
         )
 
-    # Parse "Bearer <token>" format
     parts = authorization.split(" ", 1)
     if len(parts) != 2 or parts[0].lower() != "bearer":
         raise HTTPException(
@@ -69,11 +65,8 @@ async def authenticate_api_key(
         )
 
     api_key = parts[1]
-
-    # Hash the key
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
 
-    # Validate via Next.js internal API
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
@@ -104,16 +97,20 @@ async def authenticate_api_key(
     data = response.json()
 
     if not data.get("valid"):
-        error_message = data.get("error", "Invalid API key")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=error_message,
+            detail=data.get("error", "Invalid API key"),
         )
 
-    return data["projectId"]
+    return AuthResult(
+        project_id=data["projectId"],
+        workspace_id=data["workspaceId"],
+        billing_plan=data["billingPlan"],
+        free_plan_limit=data.get("freePlanLimit"),
+    )
 
 
-ProjectId = Annotated[str, Depends(authenticate_api_key)]
+Auth = Annotated[AuthResult, Depends(authenticate_api_key)]
 
 
 def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
@@ -142,10 +139,29 @@ class IngestResponse(BaseModel):
     file_key: str
 
 
+def get_current_usage(project_id: str) -> int:
+    """Get current month's usage (traces + spans) for a project from ClickHouse."""
+    ch = get_clickhouse_client()
+    now = datetime.now(UTC)
+    start_of_month = datetime(now.year, now.month, 1, tzinfo=UTC)
+
+    result = ch.query(
+        """
+        SELECT
+            (SELECT count() FROM traces WHERE project_id = {project_id:String} AND ch_create_time >= {start:DateTime64})
+            +
+            (SELECT count() FROM spans WHERE project_id = {project_id:String} AND ch_create_time >= {start:DateTime64})
+        AS total
+        """,
+        parameters={"project_id": project_id, "start": start_of_month},
+    )
+    return result.result_rows[0][0] if result.result_rows else 0
+
+
 @router.post("", response_model=IngestResponse)
 async def ingest_traces(
     request: Request,
-    project_id: ProjectId,
+    auth: Auth,
 ):
     """Ingest OTLP trace data.
 
@@ -162,6 +178,17 @@ async def ingest_traces(
     Body:
         OTLP trace data in protobuf format
     """
+    # Check free plan quota
+    if auth.free_plan_limit is not None:
+        current_usage = get_current_usage(auth.project_id)
+        if current_usage >= auth.free_plan_limit:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=f"Free plan limit exceeded ({current_usage}/{auth.free_plan_limit} events). Please upgrade to continue.",
+            )
+
+    project_id = auth.project_id
+
     # 1. Read body
     body = await request.body()
 

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, getSeatLimit, canAddSeat, type PlanType } from "@traceroot/core";
 import { requireAuth, errorResponse, successResponse } from "@/lib/auth-helpers";
 
 type RouteParams = { params: Promise<{ inviteId: string }> };
@@ -12,12 +12,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
-  // Find the invite
+  // Find the invite with workspace details for seat check
   const invite = await prisma.invite.findUnique({
     where: { id: inviteId },
     include: {
       workspace: {
-        select: { id: true, name: true },
+        select: {
+          id: true,
+          name: true,
+          billingPlan: true,
+          _count: {
+            select: { members: true },
+          },
+        },
       },
     },
   });
@@ -47,6 +54,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       where: { id: inviteId },
     });
     return errorResponse("You are already a member of this workspace", 409);
+  }
+
+  // Check seat limit before accepting invite
+  // (Plan may have been downgraded since invite was sent)
+  const plan = (invite.workspace.billingPlan || "free") as PlanType;
+  const currentMembers = invite.workspace._count.members;
+  const seatLimit = getSeatLimit(plan);
+
+  if (!canAddSeat(plan, currentMembers)) {
+    return errorResponse(
+      `This workspace has reached its seat limit (${seatLimit}). ` +
+        `Ask an admin to upgrade the plan or remove a member.`,
+      403,
+    );
   }
 
   // Accept the invite: create membership and delete invite
