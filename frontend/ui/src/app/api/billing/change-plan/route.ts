@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma, getStripeOrThrow, getPlanConfig, isUpgrade, type PlanType } from "@traceroot/core";
+import {
+  prisma,
+  getStripeOrThrow,
+  getPlanConfig,
+  isUpgrade,
+  USAGE_PRICE_ID,
+  type PlanType,
+} from "@traceroot/core";
 
 export async function POST(req: NextRequest) {
   try {
@@ -81,7 +88,20 @@ export async function POST(req: NextRequest) {
 
     // Case 3: Has subscription, changing to another paid plan
     const subscription = await stripe.subscriptions.retrieve(workspace.billingSubscriptionId);
-    const subscriptionItemId = subscription.items.data[0].id;
+
+    // Find the plan item (non-metered) - we have two items: plan + usage
+    const planItem = subscription.items.data.find(
+      (item) => item.price.recurring?.usage_type !== "metered",
+    );
+    const usageItem = subscription.items.data.find(
+      (item) => item.price.recurring?.usage_type === "metered",
+    );
+
+    if (!planItem) {
+      return NextResponse.json({ error: "Plan subscription item not found" }, { status: 500 });
+    }
+
+    const subscriptionItemId = planItem.id;
 
     // If subscription is set to cancel, remove that first
     if (subscription.cancel_at_period_end) {
@@ -145,15 +165,25 @@ export async function POST(req: NextRequest) {
         from_subscription: workspace.billingSubscriptionId!,
       });
 
+      // Build items for both phases (keep usage item, change plan item)
+      const currentPhaseItems = [
+        { price: planItem.price.id, quantity: 1 },
+        ...(usageItem ? [{ price: usageItem.price.id }] : []),
+      ];
+      const nextPhaseItems = [
+        { price: newPlanConfig.billingPriceId, quantity: 1 },
+        ...(usageItem ? [{ price: usageItem.price.id }] : []),
+      ];
+
       await stripe.subscriptionSchedules.update(schedule.id, {
         phases: [
           {
-            items: [{ price: subscription.items.data[0].price.id, quantity: 1 }],
+            items: currentPhaseItems,
             start_date: schedule.phases[0].start_date,
             end_date: subscription.current_period_end,
           },
           {
-            items: [{ price: newPlanConfig.billingPriceId, quantity: 1 }],
+            items: nextPhaseItems,
             start_date: subscription.current_period_end,
           },
         ],
