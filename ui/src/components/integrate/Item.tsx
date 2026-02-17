@@ -3,9 +3,9 @@
 import React, { useState, useEffect } from "react";
 import { TbEye, TbEyeOff } from "react-icons/tb";
 import { FiCopy } from "react-icons/fi";
-import { FaGithub } from "react-icons/fa";
+import { FaGithub, FaCheck } from "react-icons/fa";
 import { SiNotion, SiSlack, SiOpenai, SiAnthropic } from "react-icons/si";
-import { FaCheck } from "react-icons/fa";
+import GitHubOAuthModal from "./GitHubOAuthModal";
 import { Integration } from "@/types/integration";
 import { TokenResource, ResourceType } from "@/models/integrate";
 import { useAuth } from "@clerk/nextjs";
@@ -44,6 +44,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
   const [displayToken, setDisplayToken] = useState<string>("");
   const [isEditing, setIsEditing] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+  const [showGitHubModal, setShowGitHubModal] = useState(false);
   const { getToken } = useAuth();
 
   // Initialize display token from integration
@@ -352,7 +353,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
   };
 
   return (
-    <Card>
+    <Card className="flex flex-col h-full">
       <CardHeader>
         <div className="flex items-center space-x-2.5">
           {integration.id === "traceroot" ? (
@@ -391,7 +392,7 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-6">
+      <CardContent className="flex flex-col gap-6 flex-1">
         <div className="flex flex-wrap gap-1">
           {/* Status Badge - First */}
           <Badge
@@ -423,106 +424,149 @@ export default function Item({ integration, onUpdateIntegration }: ItemProps) {
         </div>
 
         {/* Configuration Section */}
-        <div className="space-y-6">
-          <div className="relative font-mono">
-            <Input
-              type={showSecret ? "text" : "password"}
-              value={isEditing ? authSecret : displayToken || authSecret}
-              onChange={(e) => {
-                // Only allow editing if not TraceRoot
-                if (integration.id !== "traceroot") {
-                  setAuthSecret(e.target.value);
-                  if (!isEditing) setIsEditing(true);
-                }
-              }}
-              onFocus={() => {
-                // Only allow editing if not TraceRoot
-                if (
-                  integration.id !== "traceroot" &&
-                  displayToken &&
-                  !isEditing
-                ) {
-                  setAuthSecret(displayToken);
-                  setIsEditing(true);
-                }
-              }}
-              placeholder={
-                integration.id === "traceroot"
-                  ? LOCAL_MODE
-                    ? "Not needed in self-host mode"
-                    : "Generate the TraceRoot token"
-                  : `Enter your ${integration.name} Authentication`
-              }
-              readOnly={integration.id === "traceroot"}
-              aria-invalid={showError}
-              className={`${
-                integration.id === "traceroot" ? "pr-20" : "pr-10"
-              } ${integration.id === "traceroot" ? "cursor-not-allowed" : ""}`}
-            />
+        <div className="space-y-6 mt-auto">
+          {integration.id === "github" ? (
+            <div className="flex gap-2">
+              {integration.connected ? (
+                <>
+                  <Button
+                    onClick={() =>
+                      window.open("/api/auth/github/manage", "_blank")
+                    }
+                    variant="default"
+                    size="sm"
+                    className="flex-1"
+                  >
+                    <FaGithub size={14} />
+                    Manage
+                  </Button>
+                  <Button
+                    onClick={handleCancel}
+                    disabled={isLoading}
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                  >
+                    {isLoading ? "Disconnecting..." : "Disconnect"}
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  onClick={() => setShowGitHubModal(true)}
+                  variant="default"
+                  size="sm"
+                  className="flex-1"
+                >
+                  <FaGithub size={14} />
+                  Connect to GitHub
+                </Button>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="relative font-mono">
+                <Input
+                  type={showSecret ? "text" : "password"}
+                  value={isEditing ? authSecret : displayToken || authSecret}
+                  onChange={(e) => {
+                    if (integration.id !== "traceroot") {
+                      setAuthSecret(e.target.value);
+                      if (!isEditing) setIsEditing(true);
+                    }
+                  }}
+                  onFocus={() => {
+                    if (
+                      integration.id !== "traceroot" &&
+                      displayToken &&
+                      !isEditing
+                    ) {
+                      setAuthSecret(displayToken);
+                      setIsEditing(true);
+                    }
+                  }}
+                  placeholder={
+                    integration.id === "traceroot"
+                      ? LOCAL_MODE
+                        ? "Not needed in self-host mode"
+                        : "Generate the TraceRoot token"
+                      : `Enter your ${integration.name} Authentication`
+                  }
+                  readOnly={integration.id === "traceroot"}
+                  aria-invalid={showError}
+                  className={`${
+                    integration.id === "traceroot" ? "pr-20" : "pr-10"
+                  } ${integration.id === "traceroot" ? "cursor-not-allowed" : ""}`}
+                />
 
-            {/* Copy button for TraceRoot only */}
-            {integration.id === "traceroot" && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={handleCopyToken}
-                className="absolute inset-y-0 right-10 h-auto w-auto p-1 hover:bg-transparent"
-              >
-                {isCopied ? <FaCheck size={12} /> : <FiCopy size={20} />}
-              </Button>
-            )}
+                {integration.id === "traceroot" && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleCopyToken}
+                    className="absolute inset-y-0 right-10 h-auto w-auto p-1 hover:bg-transparent"
+                  >
+                    {isCopied ? <FaCheck size={12} /> : <FiCopy size={20} />}
+                  </Button>
+                )}
 
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowSecret(!showSecret)}
-              className="absolute inset-y-0 right-0 h-auto w-auto p-1 pr-3 hover:bg-transparent"
-            >
-              {showSecret ? <TbEyeOff size={20} /> : <TbEye size={20} />}
-            </Button>
-          </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowSecret(!showSecret)}
+                  className="absolute inset-y-0 right-0 h-auto w-auto p-1 pr-3 hover:bg-transparent"
+                >
+                  {showSecret ? <TbEyeOff size={20} /> : <TbEye size={20} />}
+                </Button>
+              </div>
 
-          <div className="flex gap-2">
-            {integration.id === "traceroot" ? (
-              <Button
-                onClick={handleGenerateToken}
-                disabled={
-                  isLoading ||
-                  displayToken !== "" ||
-                  (LOCAL_MODE && integration.id === "traceroot")
-                }
-                variant="default"
-                size="sm"
-                className="flex-1"
-              >
-                {isLoading ? "Generating..." : "Generate"}
-              </Button>
-            ) : (
-              <Button
-                onClick={handleSaveConfiguration}
-                disabled={isLoading}
-                variant="default"
-                size="sm"
-                className="flex-1"
-              >
-                {isLoading ? "Saving..." : "Save"}
-              </Button>
-            )}
-            <Button
-              onClick={handleCancel}
-              disabled={
-                isLoading || (LOCAL_MODE && integration.id === "traceroot")
-              }
-              variant="outline"
-              size="sm"
-              className="flex-1"
-            >
-              {isLoading ? "Removing..." : "Remove"}
-            </Button>
-          </div>
+              <div className="flex gap-2">
+                {integration.id === "traceroot" ? (
+                  <Button
+                    onClick={handleGenerateToken}
+                    disabled={
+                      isLoading ||
+                      displayToken !== "" ||
+                      (LOCAL_MODE && integration.id === "traceroot")
+                    }
+                    variant="default"
+                    size="sm"
+                    className="flex-1"
+                  >
+                    {isLoading ? "Generating..." : "Generate"}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleSaveConfiguration}
+                    disabled={isLoading}
+                    variant="default"
+                    size="sm"
+                    className="flex-1"
+                  >
+                    {isLoading ? "Saving..." : "Save"}
+                  </Button>
+                )}
+                <Button
+                  onClick={handleCancel}
+                  disabled={
+                    isLoading || (LOCAL_MODE && integration.id === "traceroot")
+                  }
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                >
+                  {isLoading ? "Removing..." : "Remove"}
+                </Button>
+              </div>
+            </>
+          )}
         </div>
+
+        <GitHubOAuthModal
+          open={showGitHubModal}
+          onClose={() => setShowGitHubModal(false)}
+        />
       </CardContent>
     </Card>
   );

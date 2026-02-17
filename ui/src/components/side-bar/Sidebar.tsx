@@ -19,6 +19,7 @@ import { BsTencentQq } from "react-icons/bs";
 import { SiJaeger } from "react-icons/si";
 import { APP_VERSION } from "@/constants/version";
 import { loadProviderSelection, getProviderRegion } from "@/utils/provider";
+import TraceRootLogo from "@/components/TraceRootLogo";
 
 import {
   Sidebar,
@@ -56,12 +57,6 @@ const LOCAL_MODE = process.env.NEXT_PUBLIC_LOCAL_MODE === "true";
 
 function LogoComponent() {
   const { state } = useSidebar();
-  const { theme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   return (
     <SidebarMenuItem className="list-none">
@@ -70,39 +65,7 @@ function LogoComponent() {
           href="/"
           className={`flex items-center ${state === "collapsed" ? "justify-center" : "justify-start gap-2"}`}
         >
-          <div
-            className={`${mounted && theme === "dark" ? "bg-white" : "bg-black"} rounded-lg p-1.5`}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className={`h-6 w-6 ${mounted && theme === "dark" ? "text-black" : "text-white"}`}
-              viewBox="0 0 23 23"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.25"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="11.5" cy="3.5" r="2.5" />
-              <circle cx="5.5" cy="11.5" r="2.5" />
-
-              {/* Right node */}
-              <circle cx="17.5" cy="11.5" r="2.5" />
-
-              {/* Connecting lines from root */}
-              <line x1="11.5" y1="6" x2="11.5" y2="8" />
-              <line x1="11.5" y1="8" x2="7.5" y2="10" />
-              <line x1="11.5" y1="8" x2="15.5" y2="10" />
-
-              {/* Connecting lines to leaf nodes */}
-              <line x1="5.5" y1="14" x2="5.5" y2="17" />
-              <line x1="17.5" y1="14" x2="17.5" y2="17" />
-
-              {/* Leaf nodes */}
-              <circle cx="5.5" cy="19.5" r="2.5" />
-              <circle cx="17.5" cy="19.5" r="2.5" />
-            </svg>
-          </div>
+          <TraceRootLogo size={24} />
           {state === "expanded" && (
             <div className="flex flex-col font-main">
               <span className="font-semibold text-base text-neutral-800 dark:text-neutral-200">

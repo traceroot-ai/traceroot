@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Item from "./Item";
 import { Integration } from "@/types/integration";
 import { useUser } from "@clerk/nextjs";
@@ -73,42 +74,59 @@ export default function RightPanel() {
   const [integrations, setIntegrations] =
     useState<Integration[]>(initialIntegrations);
   const { user } = useUser();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   // Function to fetch token for a specific integration
-  const fetchIntegrationToken = async (
-    resourceType: ResourceType,
-  ): Promise<string | null> => {
-    try {
-      const response = await fetch(
-        `/api/get_connect?resourceType=${resourceType}`,
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
+  const fetchIntegrationToken = useCallback(
+    async (resourceType: ResourceType): Promise<string | null> => {
+      try {
+        const response = await fetch(
+          `/api/get_connect?resourceType=${resourceType}`,
+          {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+            },
           },
-        },
-      );
-
-      if (!response.ok) {
-        console.error(
-          `Failed to fetch token for ${resourceType}:`,
-          response.statusText,
         );
+
+        if (!response.ok) {
+          console.error(
+            `Failed to fetch token for ${resourceType}:`,
+            response.statusText,
+          );
+          return null;
+        }
+
+        const data = await response.json();
+
+        if (data.success && data.token) {
+          return data.token;
+        }
+
+        return null;
+      } catch (error) {
+        console.error(`Error fetching token for ${resourceType}:`, error);
         return null;
       }
+    },
+    [],
+  );
 
-      const data = await response.json();
-
-      if (data.success && data.token) {
-        return data.token;
-      }
-
-      return null;
-    } catch (error) {
-      console.error(`Error fetching token for ${resourceType}:`, error);
-      return null;
+  // Re-fetch GitHub token and clean up URL after OAuth callback
+  useEffect(() => {
+    if (searchParams.get("github") === "connected") {
+      fetchIntegrationToken(ResourceType.GITHUB).then((token) => {
+        setIntegrations((prev) =>
+          prev.map((i) =>
+            i.id === "github" ? { ...i, token, connected: !!token } : i,
+          ),
+        );
+      });
+      router.replace("/integrate");
     }
-  };
+  }, [searchParams, fetchIntegrationToken, router]);
 
   // Function to fetch all integration tokens
   const fetchAllIntegrationTokens = async () => {

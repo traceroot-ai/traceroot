@@ -10,6 +10,8 @@ const isPublicRoute = createRouteMatcher([
   "/sign-up(.*)",
   "/auth/auth-callback(.*)",
   "/api/autumn(.*)",
+  "/api/auth/github/start",
+  "/api/auth/github/callback",
 ]);
 
 // Self-host mode: skip all Clerk authentication
