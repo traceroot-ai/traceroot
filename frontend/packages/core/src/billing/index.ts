@@ -10,8 +10,8 @@ export {
   USAGE_CONFIG,
   USAGE_PRICE_ID,
   USAGE_PRICING_DESCRIPTION,
+  PlanType,
   // Types
-  type PlanType,
   type PlanConfig,
   type Entitlement,
   // Plan helpers

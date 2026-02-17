@@ -12,7 +12,6 @@ const serverSchema = z.object({
   // Stripe Billing
   STRIPE_SECRET_KEY: z.string().default(""),
   STRIPE_WEBHOOK_SIGNING_SECRET: z.string().default(""),
-  STRIPE_PRICE_ID_FREE: z.string().default(""),
   STRIPE_PRICE_ID_STARTER: z.string().default(""),
   STRIPE_PRICE_ID_PRO: z.string().default(""),
   STRIPE_PRICE_ID_STARTUPS: z.string().default(""),

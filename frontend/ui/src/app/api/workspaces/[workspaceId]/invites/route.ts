@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma, Role, RoleSchema, getSeatLimit, canAddSeat, type PlanType } from "@traceroot/core";
+import { prisma, Role, RoleSchema, getSeatLimit, canAddSeat, PlanType } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return errorResponse("Workspace not found", 404);
   }
 
-  const plan = (workspace.billingPlan || "free") as PlanType;
+  const plan = (workspace.billingPlan || PlanType.FREE) as PlanType;
   const currentSeats = workspace._count.members + workspace._count.invites;
   const seatLimit = getSeatLimit(plan);
 

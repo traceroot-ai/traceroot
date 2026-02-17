@@ -1,7 +1,13 @@
 // =============================================================================
 // PLAN TYPES
 // =============================================================================
-export type PlanType = "free" | "starter" | "pro" | "startups";
+export const PlanType = {
+  FREE: "free",
+  STARTER: "starter",
+  PRO: "pro",
+  STARTUPS: "startups",
+} as const;
+export type PlanType = (typeof PlanType)[keyof typeof PlanType];
 
 // =============================================================================
 // STRIPE USAGE PRICING
@@ -23,10 +29,10 @@ export function isFreePlanBlocked(currentUsage: number): boolean {
 // =============================================================================
 // Seats are enforced: users cannot exceed the limit for their plan
 export const SEAT_LIMITS: Record<PlanType, number> = {
-  free: 1,
-  starter: 5,
-  pro: Infinity, // unlimited
-  startups: Infinity, // unlimited
+  [PlanType.FREE]: 1,
+  [PlanType.STARTER]: 5,
+  [PlanType.PRO]: Infinity, // unlimited
+  [PlanType.STARTUPS]: Infinity, // unlimited
 };
 
 // =============================================================================
@@ -34,15 +40,15 @@ export const SEAT_LIMITS: Record<PlanType, number> = {
 // =============================================================================
 // Features are boolean flags - you either have access or you don't
 const ENTITLEMENT_CONFIG = {
-  "7d-retention": ["free"],
-  "30d-retention": ["starter", "pro", "startups"],
-  "source-code-visible": ["starter", "pro", "startups"],
-  "ai-chat-mode": ["free", "starter", "pro", "startups"],
-  "ai-agent-mode": ["pro", "startups"],
-  "ai-auto-triage": ["pro", "startups"],
-  "github-integration": ["pro", "startups"],
-  "slack-notion-integration": ["startups"],
-  "soc2-iso27001": ["startups"],
+  "7d-retention": [PlanType.FREE],
+  "30d-retention": [PlanType.STARTER, PlanType.PRO, PlanType.STARTUPS],
+  "source-code-visible": [PlanType.STARTER, PlanType.PRO, PlanType.STARTUPS],
+  "ai-chat-mode": [PlanType.FREE, PlanType.STARTER, PlanType.PRO, PlanType.STARTUPS],
+  "ai-agent-mode": [PlanType.PRO, PlanType.STARTUPS],
+  "ai-auto-triage": [PlanType.PRO, PlanType.STARTUPS],
+  "github-integration": [PlanType.PRO, PlanType.STARTUPS],
+  "slack-notion-integration": [PlanType.STARTUPS],
+  "soc2-iso27001": [PlanType.STARTUPS],
 } as const;
 
 // Derive types from the config
@@ -72,7 +78,7 @@ export const PLANS: Record<
     entitlements: Entitlement[];
   }
 > = {
-  free: {
+  [PlanType.FREE]: {
     name: "Free",
     description: "Get started with basic features",
     price: 0,
@@ -80,9 +86,9 @@ export const PLANS: Record<
     highlighted: false,
     badge: null,
     features: ["1 seat", "10k events/month (traces + spans)", "7d retention", "AI chat mode"],
-    entitlements: getEntitlementsForPlan("free"),
+    entitlements: getEntitlementsForPlan(PlanType.FREE),
   },
-  starter: {
+  [PlanType.STARTER]: {
     name: "Starter",
     description: "For individuals and small teams",
     price: 49,
@@ -97,9 +103,9 @@ export const PLANS: Record<
       "Source code visible in UI",
       "AI chat mode",
     ],
-    entitlements: getEntitlementsForPlan("starter"),
+    entitlements: getEntitlementsForPlan(PlanType.STARTER),
   },
-  pro: {
+  [PlanType.PRO]: {
     name: "Pro",
     description: "For growing teams",
     price: 99,
@@ -113,9 +119,9 @@ export const PLANS: Record<
       "GitHub integration",
       "AI auto-triaging",
     ],
-    entitlements: getEntitlementsForPlan("pro"),
+    entitlements: getEntitlementsForPlan(PlanType.PRO),
   },
-  startups: {
+  [PlanType.STARTUPS]: {
     name: "Startups",
     description: "For scaling organizations",
     price: 999,
@@ -128,7 +134,7 @@ export const PLANS: Record<
       "SOC2 & ISO27001 reports",
       "Priority support",
     ],
-    entitlements: getEntitlementsForPlan("startups"),
+    entitlements: getEntitlementsForPlan(PlanType.STARTUPS),
   },
 };
 
@@ -142,21 +148,21 @@ export function getPlanConfig(plan: PlanType): PlanConfig {
 }
 
 export function mapPriceIdToPlan(priceId: string | null): PlanType {
-  if (!priceId) return "free";
+  if (!priceId) return PlanType.FREE;
   for (const [planKey, config] of Object.entries(PLANS)) {
     if (config.billingPriceId === priceId) {
       return planKey as PlanType;
     }
   }
-  return "free";
+  return PlanType.FREE;
 }
 
 export function getPlanOrder(plan: PlanType): number {
   const order: Record<PlanType, number> = {
-    free: 0,
-    starter: 1,
-    pro: 2,
-    startups: 3,
+    [PlanType.FREE]: 0,
+    [PlanType.STARTER]: 1,
+    [PlanType.PRO]: 2,
+    [PlanType.STARTUPS]: 3,
   };
   return order[plan];
 }
