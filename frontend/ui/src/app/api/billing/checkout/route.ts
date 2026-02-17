@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import {
-  prisma,
-  getStripeOrThrow,
-  getPlanConfig,
-  USAGE_PRICE_ID,
-  type PlanType,
-} from "@traceroot/core";
+import { prisma, getStripeOrThrow, getPlanConfig, USAGE_PRICE_ID, PlanType } from "@traceroot/core";
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,7 +13,7 @@ export async function POST(req: NextRequest) {
     const { workspaceId, plan } = await req.json();
 
     // Validate plan (free plan has no checkout - users just sign up)
-    const paidPlans: PlanType[] = ["starter", "pro", "startups"];
+    const paidPlans: PlanType[] = [PlanType.STARTER, PlanType.PRO, PlanType.STARTUPS];
     if (!plan || !paidPlans.includes(plan)) {
       return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
     }

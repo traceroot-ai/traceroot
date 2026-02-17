@@ -9,7 +9,7 @@
  */
 
 import Stripe from "stripe";
-import { prisma, USAGE_PRICE_ID, USAGE_CONFIG } from "@traceroot/core";
+import { prisma, USAGE_PRICE_ID, USAGE_CONFIG, PlanType } from "@traceroot/core";
 import { getWorkspaceUsageDetails } from "./clickhouse";
 
 let stripe: Stripe | null = null;
@@ -94,7 +94,7 @@ async function processWorkspace(
   },
 ): Promise<void> {
   const projectIds = workspace.projects.map((p) => p.id);
-  const isFreePlan = workspace.billingPlan === "free";
+  const isFreePlan = workspace.billingPlan === PlanType.FREE;
 
   // 1. Query usage ONCE
   let usage: { traces: number; spans: number };

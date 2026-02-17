@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@traceroot/core";
+import { prisma, PlanType } from "@traceroot/core";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
 
 const validateKeySchema = z.object({
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     data: { lastUseTime: new Date() },
   });
 
-  const billingPlan = accessKey.project.workspace.billingPlan || "free";
+  const billingPlan = accessKey.project.workspace.billingPlan || PlanType.FREE;
 
   return NextResponse.json({
     valid: true,

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma, getSeatLimit, canAddSeat, type PlanType } from "@traceroot/core";
+import { prisma, getSeatLimit, canAddSeat, PlanType } from "@traceroot/core";
 import { requireAuth, errorResponse, successResponse } from "@/lib/auth-helpers";
 
 type RouteParams = { params: Promise<{ inviteId: string }> };
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   // Check seat limit before accepting invite
   // (Plan may have been downgraded since invite was sent)
-  const plan = (invite.workspace.billingPlan || "free") as PlanType;
+  const plan = (invite.workspace.billingPlan || PlanType.FREE) as PlanType;
   const currentMembers = invite.workspace._count.members;
   const seatLimit = getSeatLimit(plan);
 

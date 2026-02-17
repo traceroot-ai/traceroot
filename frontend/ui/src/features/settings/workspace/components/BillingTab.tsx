@@ -13,7 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   PLANS,
-  type PlanType,
+  PlanType,
   isUpgrade,
   USAGE_PRICING_DESCRIPTION,
   USAGE_CONFIG,
@@ -36,7 +36,7 @@ interface BillingTabProps {
 
 export function BillingTab({
   workspaceId,
-  currentPlan = "free",
+  currentPlan = PlanType.FREE,
   hasSubscription = false,
   currentUsage,
 }: BillingTabProps) {
@@ -65,7 +65,7 @@ export function BillingTab({
     setError(null);
 
     try {
-      if (!hasSubscription && newPlan !== "free") {
+      if (!hasSubscription && newPlan !== PlanType.FREE) {
         // No subscription yet, need to go through checkout
         const { url } = await createCheckoutSession(workspaceId, newPlan);
         window.location.href = url;
@@ -99,7 +99,7 @@ export function BillingTab({
 
   function getButtonText(planId: PlanType): string {
     if (planId === currentPlan) return "Current Plan";
-    if (planId === "free") return "Downgrade";
+    if (planId === PlanType.FREE) return "Downgrade";
     if (isUpgrade(currentPlan, planId)) return "Upgrade";
     return "Downgrade";
   }
@@ -187,7 +187,7 @@ export function BillingTab({
       <div className="border p-4">
         <h3 className="text-sm font-medium">Usage</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          {currentPlan === "free"
+          {currentPlan === PlanType.FREE
             ? "Total events used (traces + spans). Free plan includes 10k events."
             : "Events used this billing period (traces + spans)."}
         </p>
@@ -204,7 +204,7 @@ export function BillingTab({
             <span className="font-medium">Total events</span>
             <span className="font-medium">
               {((currentUsage?.traces ?? 0) + (currentUsage?.spans ?? 0)).toLocaleString()}
-              {currentPlan === "free" && ` / ${USAGE_CONFIG.includedUnits.toLocaleString()}`}
+              {currentPlan === PlanType.FREE && ` / ${USAGE_CONFIG.includedUnits.toLocaleString()}`}
             </span>
           </div>
         </div>
@@ -255,7 +255,7 @@ export function BillingTab({
                           <span className="text-2xl font-bold">${plan.price}</span>
                           <span className="text-muted-foreground"> per month</span>
                         </div>
-                        {planId !== "free" && (
+                        {planId !== PlanType.FREE && (
                           <p className="mt-1 text-xs text-muted-foreground">
                             + {USAGE_PRICING_DESCRIPTION}
                           </p>

@@ -7,7 +7,7 @@ import {
   getPlanConfig,
   isUpgrade,
   USAGE_PRICE_ID,
-  type PlanType,
+  PlanType,
 } from "@traceroot/core";
 
 export async function POST(req: NextRequest) {
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Case 1: Downgrade to free = cancel subscription at period end
-    if (newPlan === "free") {
+    if (newPlan === PlanType.FREE) {
       if (!workspace.billingSubscriptionId) {
         // Already on free, nothing to do
         return NextResponse.json({ success: true, message: "Already on free plan" });
