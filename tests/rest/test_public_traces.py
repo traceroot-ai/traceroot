@@ -18,6 +18,7 @@ def make_auth_result(project_id: str = "test-project") -> AuthResult:
     return AuthResult(
         project_id=project_id,
         workspace_id="test-workspace",
+        workspace_project_ids=[project_id],
         billing_plan="pro",
         free_plan_limit=None,
     )

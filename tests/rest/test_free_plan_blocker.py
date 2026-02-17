@@ -14,6 +14,7 @@ from rest.routers.public.traces import AuthResult, authenticate_api_key
 def make_auth_result(
     project_id: str = "test-project",
     workspace_id: str = "test-workspace",
+    workspace_project_ids: list[str] | None = None,
     billing_plan: str = "free",
     free_plan_limit: int | None = 10_000,
 ) -> AuthResult:
@@ -21,6 +22,7 @@ def make_auth_result(
     return AuthResult(
         project_id=project_id,
         workspace_id=workspace_id,
+        workspace_project_ids=workspace_project_ids or [project_id],
         billing_plan=billing_plan,
         free_plan_limit=free_plan_limit,
     )

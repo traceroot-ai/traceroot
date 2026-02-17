@@ -57,9 +57,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Create checkout session: plan price + usage price (tiered)
-    const lineItems = [
-      { price: planConfig.billingPriceId, quantity: 1 },
-    ];
+    const lineItems = [{ price: planConfig.billingPriceId, quantity: 1 }];
 
     if (USAGE_PRICE_ID) {
       lineItems.push({ price: USAGE_PRICE_ID, quantity: 1 });

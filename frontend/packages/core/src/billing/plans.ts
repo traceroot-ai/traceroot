@@ -29,7 +29,6 @@ export const SEAT_LIMITS: Record<PlanType, number> = {
   startups: Infinity, // unlimited
 };
 
-
 // =============================================================================
 // FEATURE ENTITLEMENTS
 // =============================================================================
@@ -80,12 +79,7 @@ export const PLANS: Record<
     billingPriceId: "",
     highlighted: false,
     badge: null,
-    features: [
-      "1 seat",
-      "10k events/month (traces + spans)",
-      "7d retention",
-      "AI chat mode",
-    ],
+    features: ["1 seat", "10k events/month (traces + spans)", "7d retention", "AI chat mode"],
     entitlements: getEntitlementsForPlan("free"),
   },
   starter: {
@@ -222,4 +216,3 @@ export function requireSeatAvailable(
     );
   }
 }
-

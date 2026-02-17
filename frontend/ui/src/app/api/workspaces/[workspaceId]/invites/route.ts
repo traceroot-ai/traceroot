@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  prisma,
-  Role,
-  RoleSchema,
-  getSeatLimit,
-  canAddSeat,
-  type PlanType,
-} from "@traceroot/core";
+import { prisma, Role, RoleSchema, getSeatLimit, canAddSeat, type PlanType } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,

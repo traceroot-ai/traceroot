@@ -89,13 +89,9 @@ export async function POST(req: NextRequest) {
     // Case 3: Has subscription, changing to another paid plan
     const subscription = await stripe.subscriptions.retrieve(workspace.billingSubscriptionId);
 
-    // Find the plan item (non-metered) - we have two items: plan + usage
-    const planItem = subscription.items.data.find(
-      (item) => item.price.recurring?.usage_type !== "metered",
-    );
-    const usageItem = subscription.items.data.find(
-      (item) => item.price.recurring?.usage_type === "metered",
-    );
+    // Find the plan item and usage item by price ID (consistent with billing worker)
+    const planItem = subscription.items.data.find((item) => item.price.id !== USAGE_PRICE_ID);
+    const usageItem = subscription.items.data.find((item) => item.price.id === USAGE_PRICE_ID);
 
     if (!planItem) {
       return NextResponse.json({ error: "Plan subscription item not found" }, { status: 500 });
