@@ -192,9 +192,7 @@ async def ingest_traces(
     """
     # Check free plan quota (workspace-level, not per-project)
     if auth.free_plan_limit is not None:
-        current_usage = await asyncio.to_thread(
-            get_current_usage, auth.workspace_project_ids
-        )
+        current_usage = await asyncio.to_thread(get_current_usage, auth.workspace_project_ids)
         if current_usage >= auth.free_plan_limit:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
