@@ -64,6 +64,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     billingCustomerId: workspace.billingCustomerId,
     billingSubscriptionId: workspace.billingSubscriptionId,
     billingStatus: workspace.billingStatus,
+    currentUsage: workspace.currentUsage,
   });
 }
 

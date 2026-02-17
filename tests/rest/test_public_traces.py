@@ -14,13 +14,12 @@ from rest.routers.public.traces import AuthResult, authenticate_api_key
 
 
 def make_auth_result(project_id: str = "test-project") -> AuthResult:
-    """Create an AuthResult for testing (paid plan, no limit)."""
+    """Create an AuthResult for testing (paid plan, not blocked)."""
     return AuthResult(
         project_id=project_id,
         workspace_id="test-workspace",
-        workspace_project_ids=[project_id],
         billing_plan="pro",
-        free_plan_limit=None,
+        ingestion_blocked=False,
     )
 
 

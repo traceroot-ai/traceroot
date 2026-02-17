@@ -11,7 +11,6 @@ Authentication is via API key in the Authorization header:
     Authorization: Bearer <api_key>
 """
 
-import asyncio
 import gzip
 import hashlib
 import logging
@@ -28,7 +27,6 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 )
 from pydantic import BaseModel
 
-from db.clickhouse.client import get_clickhouse_client
 from rest.services.s3 import get_s3_service
 from shared.config import settings
 from worker.ingest_tasks import process_s3_traces
@@ -44,9 +42,8 @@ class AuthResult:
 
     project_id: str
     workspace_id: str
-    workspace_project_ids: list[str]
     billing_plan: str
-    free_plan_limit: int | None
+    ingestion_blocked: bool
 
 
 async def authenticate_api_key(
@@ -107,9 +104,8 @@ async def authenticate_api_key(
     return AuthResult(
         project_id=data["projectId"],
         workspace_id=data["workspaceId"],
-        workspace_project_ids=data.get("workspaceProjectIds", [data["projectId"]]),
         billing_plan=data["billingPlan"],
-        free_plan_limit=data.get("freePlanLimit"),
+        ingestion_blocked=data.get("ingestionBlocked", False),
     )
 
 
@@ -142,34 +138,6 @@ class IngestResponse(BaseModel):
     file_key: str
 
 
-def get_current_usage(project_ids: list[str]) -> int:
-    """Get current month's usage (traces + spans) for all projects in workspace from ClickHouse."""
-    if not project_ids:
-        return 0
-
-    ch = get_clickhouse_client()
-    now = datetime.now(UTC)
-    start_of_month = datetime(now.year, now.month, 1, tzinfo=UTC)
-    start_str = start_of_month.strftime("%Y-%m-%d %H:%M:%S")
-
-    result = ch.query(
-        """
-        SELECT count(*) as total
-        FROM (
-            SELECT 1 FROM traces
-            WHERE project_id IN {project_ids:Array(String)}
-              AND ch_create_time >= {start:String}
-            UNION ALL
-            SELECT 1 FROM spans
-            WHERE project_id IN {project_ids:Array(String)}
-              AND ch_create_time >= {start:String}
-        )
-        """,
-        parameters={"project_ids": project_ids, "start": start_str},
-    )
-    return int(result.result_rows[0][0]) if result.result_rows else 0
-
-
 @router.post("", response_model=IngestResponse)
 async def ingest_traces(
     request: Request,
@@ -190,14 +158,13 @@ async def ingest_traces(
     Body:
         OTLP trace data in protobuf format
     """
-    # Check free plan quota (workspace-level, not per-project)
-    if auth.free_plan_limit is not None:
-        current_usage = await asyncio.to_thread(get_current_usage, auth.workspace_project_ids)
-        if current_usage >= auth.free_plan_limit:
-            raise HTTPException(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail=f"Free plan limit exceeded ({current_usage}/{auth.free_plan_limit} events). Please upgrade to continue.",
-            )
+    # Check if ingestion is blocked (free plan limit exceeded)
+    # This flag is updated hourly by the billing worker
+    if auth.ingestion_blocked:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Free plan limit exceeded. Please upgrade to continue.",
+        )
 
     project_id = auth.project_id
 

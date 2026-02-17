@@ -1,6 +1,6 @@
 """Unit tests for free plan blocker in traces ingestion endpoint.
 
-Tests that free plan users are blocked when they exceed the usage limit.
+Tests that free plan users are blocked when ingestion_blocked flag is set.
 """
 
 from unittest.mock import MagicMock
@@ -14,35 +14,26 @@ from rest.routers.public.traces import AuthResult, authenticate_api_key
 def make_auth_result(
     project_id: str = "test-project",
     workspace_id: str = "test-workspace",
-    workspace_project_ids: list[str] | None = None,
     billing_plan: str = "free",
-    free_plan_limit: int | None = 10_000,
+    ingestion_blocked: bool = False,
 ) -> AuthResult:
     """Create an AuthResult for testing."""
     return AuthResult(
         project_id=project_id,
         workspace_id=workspace_id,
-        workspace_project_ids=workspace_project_ids or [project_id],
         billing_plan=billing_plan,
-        free_plan_limit=free_plan_limit,
+        ingestion_blocked=ingestion_blocked,
     )
 
 
 class TestFreePlanBlocker:
     """Tests for free plan usage blocking."""
 
-    def test_free_plan_blocked_when_over_limit(self, monkeypatch):
-        """Free plan user should get 402 when usage exceeds limit."""
-        # Mock auth to return free plan with 10k limit
+    def test_blocked_when_ingestion_blocked_true(self, monkeypatch):
+        """User should get 402 when ingestion_blocked is true."""
         app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result(
             billing_plan="free",
-            free_plan_limit=10_000,
-        )
-
-        # Mock ClickHouse to return usage over limit
-        monkeypatch.setattr(
-            "rest.routers.public.traces.get_current_usage",
-            lambda project_id: 10_001,
+            ingestion_blocked=True,
         )
 
         test_client = TestClient(app)
@@ -50,36 +41,12 @@ class TestFreePlanBlocker:
 
         assert response.status_code == 402
         assert "Free plan limit exceeded" in response.json()["detail"]
-        assert "10001/10000" in response.json()["detail"]
 
-    def test_free_plan_blocked_at_exact_limit(self, monkeypatch):
-        """Free plan user should get 402 when usage equals limit."""
+    def test_allowed_when_ingestion_blocked_false(self, monkeypatch):
+        """User should be allowed when ingestion_blocked is false."""
         app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result(
             billing_plan="free",
-            free_plan_limit=10_000,
-        )
-
-        monkeypatch.setattr(
-            "rest.routers.public.traces.get_current_usage",
-            lambda project_id: 10_000,
-        )
-
-        test_client = TestClient(app)
-        response = test_client.post("/api/v1/public/traces", content=b"fake-protobuf")
-
-        assert response.status_code == 402
-
-    def test_free_plan_allowed_under_limit(self, monkeypatch):
-        """Free plan user should be allowed when usage is under limit."""
-        app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result(
-            billing_plan="free",
-            free_plan_limit=10_000,
-        )
-
-        # Mock usage under limit
-        monkeypatch.setattr(
-            "rest.routers.public.traces.get_current_usage",
-            lambda project_id: 9_999,
+            ingestion_blocked=False,
         )
 
         # Mock other dependencies
@@ -97,10 +64,10 @@ class TestFreePlanBlocker:
         assert response.status_code == 200
 
     def test_paid_plan_not_blocked(self, monkeypatch):
-        """Paid plan user should never be blocked (no free_plan_limit)."""
+        """Paid plan user should never be blocked."""
         app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result(
             billing_plan="pro",
-            free_plan_limit=None,  # Paid plans have no limit
+            ingestion_blocked=False,
         )
 
         # Mock other dependencies
@@ -112,21 +79,16 @@ class TestFreePlanBlocker:
         monkeypatch.setattr("rest.routers.public.traces.get_s3_service", lambda: mock_s3)
         monkeypatch.setattr("rest.routers.public.traces.process_s3_traces", MagicMock())
 
-        # Note: get_current_usage should NOT be called for paid plans
-        mock_usage = MagicMock()
-        monkeypatch.setattr("rest.routers.public.traces.get_current_usage", mock_usage)
-
         test_client = TestClient(app)
         response = test_client.post("/api/v1/public/traces", content=b"fake-protobuf")
 
         assert response.status_code == 200
-        mock_usage.assert_not_called()
 
     def test_starter_plan_not_blocked(self, monkeypatch):
         """Starter plan should not be blocked."""
         app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result(
             billing_plan="starter",
-            free_plan_limit=None,
+            ingestion_blocked=False,
         )
 
         monkeypatch.setattr(

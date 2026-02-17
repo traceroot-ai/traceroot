@@ -59,6 +59,7 @@ export default function WorkspaceSettingsBillingPage() {
             workspaceId={workspaceId}
             currentPlan={(workspace?.billingPlan as PlanType) || "free"}
             hasSubscription={!!workspace?.billingSubscriptionId}
+            currentUsage={workspace?.currentUsage}
           />
         )}
       </div>

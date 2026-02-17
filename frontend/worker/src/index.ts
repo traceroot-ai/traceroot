@@ -2,13 +2,13 @@
  * Traceroot Worker
  *
  * Background job processor for:
- * - Usage metering (hourly)
+ * - Billing (hourly): usage stats, free plan blocking, Stripe metering
  * - Future: email sending, data cleanup, etc.
  */
 
 import cron from "node-cron";
 import { prisma } from "@traceroot/core";
-import { runUsageMeteringJob, closeClickHouseClient } from "./billing";
+import { runBillingJob, closeClickHouseClient } from "./billing";
 
 // Graceful shutdown handling
 let isShuttingDown = false;
@@ -45,29 +45,29 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Schedule usage metering job (default: every hour at minute 5)
-  const meteringCron = process.env.USAGE_METERING_CRON || "5 * * * *";
-  cron.schedule(meteringCron, async () => {
+  // Schedule billing job (default: every hour at minute 5)
+  const billingCron = process.env.USAGE_METERING_CRON || "5 * * * *";
+  cron.schedule(billingCron, async () => {
     if (isShuttingDown) return;
 
-    console.log("[Worker] Running scheduled usage metering job...");
+    console.log("[Worker] Running scheduled billing job...");
     try {
-      await runUsageMeteringJob();
+      await runBillingJob();
     } catch (error) {
-      console.error("[Worker] Usage metering job failed:", error);
+      console.error("[Worker] Billing job failed:", error);
     }
   });
 
   console.log("[Worker] Scheduled jobs:");
-  console.log(`  - Usage metering: ${meteringCron}`);
+  console.log(`  - Billing: ${billingCron}`);
 
   // Run initial job on startup (optional, for catching up)
   if (process.env.RUN_METERING_ON_STARTUP === "true") {
-    console.log("[Worker] Running initial usage metering job...");
+    console.log("[Worker] Running initial billing job...");
     try {
-      await runUsageMeteringJob();
+      await runBillingJob();
     } catch (error) {
-      console.error("[Worker] Initial usage metering job failed:", error);
+      console.error("[Worker] Initial billing job failed:", error);
     }
   }
 

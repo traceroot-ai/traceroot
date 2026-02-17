@@ -34,27 +34,27 @@ async function internalApiRequest<T>(path: string, params?: Record<string, strin
 }
 
 /**
- * Get total usage for a workspace (sum of all projects) in the current billing period.
- * Used for billing metering.
+ * Get detailed usage (traces and spans separately) for a workspace.
  */
-export async function getWorkspaceUsageInPeriod(params: {
+export async function getWorkspaceUsageDetails(params: {
   projectIds: string[];
   start: Date;
   end: Date;
-}): Promise<number> {
+}): Promise<{ traces: number; spans: number }> {
   if (params.projectIds.length === 0) {
-    return 0;
+    return { traces: 0, spans: 0 };
   }
 
   const result = await internalApiRequest<{
-    total_events: number;
-  }>("/api/v1/internal/usage/total", {
+    traces: number;
+    spans: number;
+  }>("/api/v1/internal/usage/details", {
     project_ids: params.projectIds.join(","),
     start: params.start.toISOString(),
     end: params.end.toISOString(),
   });
 
-  return result.total_events;
+  return result;
 }
 
 /**

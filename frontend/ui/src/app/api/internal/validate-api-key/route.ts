@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma, USAGE_CONFIG } from "@traceroot/core";
+import { prisma } from "@traceroot/core";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
 
 const validateKeySchema = z.object({
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
 
   const { keyHash } = result.data;
 
-  // Look up access key by hash with workspace billing info and all workspace projects
+  // Look up access key by hash with workspace billing info
   const accessKey = await prisma.accessKey.findUnique({
     where: { secretHash: keyHash },
     include: {
@@ -44,10 +44,7 @@ export async function POST(request: NextRequest) {
             select: {
               id: true,
               billingPlan: true,
-              projects: {
-                where: { deleteTime: null },
-                select: { id: true },
-              },
+              ingestionBlocked: true,
             },
           },
         },
@@ -76,15 +73,13 @@ export async function POST(request: NextRequest) {
   });
 
   const billingPlan = accessKey.project.workspace.billingPlan || "free";
-  const workspaceProjectIds = accessKey.project.workspace.projects.map((p) => p.id);
 
   return NextResponse.json({
     valid: true,
     projectId: accessKey.projectId,
     workspaceId: accessKey.project.workspace.id,
-    workspaceProjectIds,
     billingPlan,
-    freePlanLimit: billingPlan === "free" ? USAGE_CONFIG.includedUnits : null,
+    ingestionBlocked: accessKey.project.workspace.ingestionBlocked,
     expiresAt: accessKey.expireTime?.toISOString() ?? null,
   });
 }
