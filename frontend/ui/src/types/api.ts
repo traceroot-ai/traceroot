@@ -6,6 +6,14 @@ import type { Role, SpanKind, SpanStatus, TraceStatus } from "@traceroot/core";
 
 export type { Role };
 
+// Usage stats (cached, updated hourly)
+export interface UsageStats {
+  traces: number;
+  spans: number;
+  tokens: number;
+  updatedAt: string;
+}
+
 // Workspace types
 export interface Workspace {
   id: string;
@@ -20,6 +28,7 @@ export interface Workspace {
   billingCustomerId?: string | null;
   billingSubscriptionId?: string | null;
   billingStatus?: string | null;
+  currentUsage?: UsageStats | null;
 }
 
 export interface WorkspaceWithProjects extends Workspace {

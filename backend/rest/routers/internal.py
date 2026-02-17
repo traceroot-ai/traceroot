@@ -36,6 +36,11 @@ class UsageTotalResponse(BaseModel):
     total_events: int
 
 
+class UsageDetailsResponse(BaseModel):
+    traces: int
+    spans: int
+
+
 @router.get(
     "/usage/total",
     response_model=UsageTotalResponse,
@@ -82,3 +87,63 @@ async def get_usage_total(
 
     total = int(result.result_rows[0][0]) if result.result_rows else 0
     return UsageTotalResponse(total_events=total)
+
+
+@router.get(
+    "/usage/details",
+    response_model=UsageDetailsResponse,
+    dependencies=[Depends(verify_internal_secret)],
+)
+async def get_usage_details(
+    project_ids: str = Query(..., description="Comma-separated list of project IDs"),
+    start: datetime = Query(..., description="Start of interval (ISO format)"),
+    end: datetime = Query(..., description="End of interval (ISO format)"),
+) -> UsageDetailsResponse:
+    """Get detailed usage (traces and spans separately) for specific projects."""
+    project_id_list = [p.strip() for p in project_ids.split(",") if p.strip()]
+
+    if not project_id_list:
+        return UsageDetailsResponse(traces=0, spans=0)
+
+    ch = get_clickhouse_client()
+
+    # Format datetime without timezone for ClickHouse
+    start_str = start.strftime("%Y-%m-%d %H:%M:%S")
+    end_str = end.strftime("%Y-%m-%d %H:%M:%S")
+
+    # Query traces count
+    traces_result = ch.query(
+        """
+        SELECT count(*) as total
+        FROM traces
+        WHERE project_id IN {project_ids:Array(String)}
+          AND ch_create_time >= {start:String}
+          AND ch_create_time < {end:String}
+        """,
+        parameters={
+            "project_ids": project_id_list,
+            "start": start_str,
+            "end": end_str,
+        },
+    )
+
+    # Query spans count
+    spans_result = ch.query(
+        """
+        SELECT count(*) as total
+        FROM spans
+        WHERE project_id IN {project_ids:Array(String)}
+          AND ch_create_time >= {start:String}
+          AND ch_create_time < {end:String}
+        """,
+        parameters={
+            "project_ids": project_id_list,
+            "start": start_str,
+            "end": end_str,
+        },
+    )
+
+    traces = int(traces_result.result_rows[0][0]) if traces_result.result_rows else 0
+    spans = int(spans_result.result_rows[0][0]) if spans_result.result_rows else 0
+
+    return UsageDetailsResponse(traces=traces, spans=spans)

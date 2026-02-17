@@ -29,19 +29,17 @@ class TestAuthenticateApiKey:
                     "valid": True,
                     "projectId": "proj-123",
                     "workspaceId": "ws-456",
-                    "workspaceProjectIds": ["proj-123", "proj-456"],
                     "billingPlan": "pro",
-                    "freePlanLimit": None,
+                    "ingestionBlocked": False,
                 },
             )
         )
         result = await authenticate_api_key("Bearer test-api-key")
         assert isinstance(result, AuthResult)
-        assert result.workspace_project_ids == ["proj-123", "proj-456"]
         assert result.project_id == "proj-123"
         assert result.workspace_id == "ws-456"
         assert result.billing_plan == "pro"
-        assert result.free_plan_limit is None
+        assert result.ingestion_blocked is False
 
     async def test_missing_header(self):
         with pytest.raises(HTTPException) as exc_info:
