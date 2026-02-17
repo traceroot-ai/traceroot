@@ -23,16 +23,21 @@ class TestAuthenticateApiKey:
     @respx.mock
     async def test_valid_key(self):
         respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
-            return_value=Response(200, json={
-                "valid": True,
-                "projectId": "proj-123",
-                "workspaceId": "ws-456",
-                "billingPlan": "pro",
-                "freePlanLimit": None,
-            })
+            return_value=Response(
+                200,
+                json={
+                    "valid": True,
+                    "projectId": "proj-123",
+                    "workspaceId": "ws-456",
+                    "workspaceProjectIds": ["proj-123", "proj-456"],
+                    "billingPlan": "pro",
+                    "freePlanLimit": None,
+                },
+            )
         )
         result = await authenticate_api_key("Bearer test-api-key")
         assert isinstance(result, AuthResult)
+        assert result.workspace_project_ids == ["proj-123", "proj-456"]
         assert result.project_id == "proj-123"
         assert result.workspace_id == "ws-456"
         assert result.billing_plan == "pro"

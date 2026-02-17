@@ -2,12 +2,6 @@
  * Billing module exports.
  */
 
-export {
-  runUsageMeteringJob,
-  getCurrentWorkspaceUsage,
-} from "./usageMetering";
+export { runUsageMeteringJob, getCurrentWorkspaceUsage } from "./usageMetering";
 
-export {
-  getWorkspaceUsageInPeriod,
-  closeClickHouseClient,
-} from "./clickhouse";
+export { getWorkspaceUsageInPeriod, closeClickHouseClient } from "./clickhouse";

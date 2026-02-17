@@ -9,10 +9,7 @@ const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
 /**
  * Make an authenticated request to the internal backend API.
  */
-async function internalApiRequest<T>(
-  path: string,
-  params?: Record<string, string>,
-): Promise<T> {
+async function internalApiRequest<T>(path: string, params?: Record<string, string>): Promise<T> {
   const url = new URL(path, BACKEND_URL);
   if (params) {
     for (const [key, value] of Object.entries(params)) {

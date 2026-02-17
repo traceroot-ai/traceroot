@@ -54,10 +54,7 @@ export async function runUsageMeteringJob(): Promise<void> {
       try {
         await updateWorkspaceUsage(workspace, stripeClient);
       } catch (error) {
-        console.error(
-          `[UsageMetering] Error processing workspace ${workspace.id}:`,
-          error,
-        );
+        console.error(`[UsageMetering] Error processing workspace ${workspace.id}:`, error);
       }
     }
 
@@ -106,23 +103,15 @@ async function updateWorkspaceUsage(
   // Quantity = actual event count (Stripe tiered pricing handles the tiers)
   const quantity = totalEvents;
 
-  console.log(
-    `[UsageMetering] Workspace ${workspace.id}: ${totalEvents} events`,
-  );
+  console.log(`[UsageMetering] Workspace ${workspace.id}: ${totalEvents} events`);
 
   // Get the subscription and find the usage price item
-  const subscription = await stripeClient.subscriptions.retrieve(
-    workspace.billingSubscriptionId,
-  );
+  const subscription = await stripeClient.subscriptions.retrieve(workspace.billingSubscriptionId);
 
-  const usageItem = subscription.items.data.find(
-    (item) => item.price.id === USAGE_PRICE_ID,
-  );
+  const usageItem = subscription.items.data.find((item) => item.price.id === USAGE_PRICE_ID);
 
   if (!usageItem) {
-    console.warn(
-      `[UsageMetering] No usage item found for workspace ${workspace.id}`,
-    );
+    console.warn(`[UsageMetering] No usage item found for workspace ${workspace.id}`);
     return;
   }
 
