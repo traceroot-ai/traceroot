@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import {
-  prisma,
-  getStripeOrThrow,
-  getPlanConfig,
-  isUpgrade,
-  USAGE_PRICE_ID,
-  PlanType,
-} from "@traceroot/core";
+import { prisma, getStripeOrThrow, getPlanConfig, isUpgrade, PlanType } from "@traceroot/core";
 
 export async function POST(req: NextRequest) {
   try {
@@ -89,9 +82,8 @@ export async function POST(req: NextRequest) {
     // Case 3: Has subscription, changing to another paid plan
     const subscription = await stripe.subscriptions.retrieve(workspace.billingSubscriptionId);
 
-    // Find the plan item and usage item by price ID (consistent with billing worker)
-    const planItem = subscription.items.data.find((item) => item.price.id !== USAGE_PRICE_ID);
-    const usageItem = subscription.items.data.find((item) => item.price.id === USAGE_PRICE_ID);
+    // With tiered pricing, there's only one subscription item (the plan price)
+    const planItem = subscription.items.data[0];
 
     if (!planItem) {
       return NextResponse.json({ error: "Plan subscription item not found" }, { status: 500 });
@@ -161,25 +153,15 @@ export async function POST(req: NextRequest) {
         from_subscription: workspace.billingSubscriptionId!,
       });
 
-      // Build items for both phases (keep usage item, change plan item)
-      const currentPhaseItems = [
-        { price: planItem.price.id, quantity: 1 },
-        ...(usageItem ? [{ price: usageItem.price.id }] : []),
-      ];
-      const nextPhaseItems = [
-        { price: newPlanConfig.billingPriceId, quantity: 1 },
-        ...(usageItem ? [{ price: usageItem.price.id }] : []),
-      ];
-
       await stripe.subscriptionSchedules.update(schedule.id, {
         phases: [
           {
-            items: currentPhaseItems,
+            items: [{ price: planItem.price.id, quantity: planItem.quantity ?? 1 }],
             start_date: schedule.phases[0].start_date,
             end_date: subscription.current_period_end,
           },
           {
-            items: nextPhaseItems,
+            items: [{ price: newPlanConfig.billingPriceId, quantity: 1 }],
             start_date: subscription.current_period_end,
           },
         ],

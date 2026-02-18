@@ -9,7 +9,7 @@
  */
 
 import Stripe from "stripe";
-import { prisma, USAGE_PRICE_ID, USAGE_CONFIG, PlanType } from "@traceroot/core";
+import { prisma, USAGE_CONFIG, PlanType } from "@traceroot/core";
 import { getWorkspaceUsageDetails } from "./clickhouse";
 
 let stripe: Stripe | null = null;
@@ -44,8 +44,6 @@ export async function runBillingJob(): Promise<void> {
     console.log(`[Billing] Processing ${workspaces.length} workspaces`);
 
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     const allTimeStart = new Date(0);
 
     let stripeClient: Stripe | null = null;
@@ -59,8 +57,6 @@ export async function runBillingJob(): Promise<void> {
       try {
         await processWorkspace(workspace, {
           now,
-          monthStart,
-          monthEnd,
           allTimeStart,
           stripeClient,
         });
@@ -82,13 +78,12 @@ async function processWorkspace(
     billingPlan: string;
     billingSubscriptionId: string | null;
     billingPeriodStart: Date | null;
+    billingPeriodEnd: Date | null;
     ingestionBlocked: boolean;
     projects: { id: string }[];
   },
   ctx: {
     now: Date;
-    monthStart: Date;
-    monthEnd: Date;
     allTimeStart: Date;
     stripeClient: Stripe | null;
   },
@@ -101,12 +96,28 @@ async function processWorkspace(
   if (projectIds.length === 0) {
     usage = { traces: 0, spans: 0 };
   } else {
-    // Free plan: total usage (all time), Paid plans: monthly usage
-    const start = isFreePlan ? ctx.allTimeStart : ctx.monthStart;
+    // Free plan: total usage (all time)
+    // Paid plans: usage within current billing period (from Stripe webhook)
+    let start: Date;
+    let end: Date;
+
+    if (isFreePlan) {
+      start = ctx.allTimeStart;
+      end = ctx.now;
+    } else if (workspace.billingPeriodStart && workspace.billingPeriodEnd) {
+      // Use billing period dates from Stripe (updated via webhook each month)
+      start = workspace.billingPeriodStart;
+      end = workspace.billingPeriodEnd;
+    } else {
+      // Fallback to calendar month if no billing period set
+      start = new Date(ctx.now.getFullYear(), ctx.now.getMonth(), 1);
+      end = new Date(ctx.now.getFullYear(), ctx.now.getMonth() + 1, 1);
+    }
+
     usage = await getWorkspaceUsageDetails({
       projectIds,
       start,
-      end: ctx.monthEnd,
+      end,
     });
   }
 
@@ -159,19 +170,20 @@ async function updateStripeQuantity(
 ): Promise<void> {
   try {
     const subscription = await stripeClient.subscriptions.retrieve(subscriptionId);
-    const usageItem = subscription.items.data.find((item) => item.price.id === USAGE_PRICE_ID);
+    // With tiered pricing, there's only one subscription item (the plan price)
+    const planItem = subscription.items.data[0];
 
-    if (!usageItem) {
-      console.warn(`[Billing] No usage item found for subscription ${subscriptionId}`);
+    if (!planItem) {
+      console.warn(`[Billing] No subscription item found for ${subscriptionId}`);
       return;
     }
 
-    if (usageItem.quantity !== quantity) {
-      await stripeClient.subscriptionItems.update(usageItem.id, {
+    if (planItem.quantity !== quantity) {
+      await stripeClient.subscriptionItems.update(planItem.id, {
         quantity,
         proration_behavior: "none",
       });
-      console.log(`[Billing] Updated Stripe quantity: ${usageItem.quantity} -> ${quantity}`);
+      console.log(`[Billing] Updated Stripe quantity: ${planItem.quantity} -> ${quantity}`);
     }
   } catch (error) {
     console.error(`[Billing] Failed to update Stripe for subscription ${subscriptionId}:`, error);
