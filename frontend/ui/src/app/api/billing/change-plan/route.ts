@@ -116,7 +116,13 @@ export async function POST(req: NextRequest) {
       });
 
       const updatedSub = await stripe.subscriptions.update(workspace.billingSubscriptionId!, {
-        items: [{ id: subscriptionItemId, price: newPlanConfig.billingPriceId }],
+        items: [
+          {
+            id: subscriptionItemId,
+            price: newPlanConfig.billingPriceId,
+            quantity: planItem.quantity ?? 1, // Preserve current usage quantity
+          },
+        ],
         proration_behavior: "always_invoice",
       });
 
