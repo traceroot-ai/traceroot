@@ -12,8 +12,9 @@ export type PlanType = (typeof PlanType)[keyof typeof PlanType];
 // =============================================================================
 // STRIPE USAGE PRICING
 // =============================================================================
-// Tiered price for usage billing (traces + spans) - pricing configured in Stripe
-export const USAGE_PRICE_ID = process.env.STRIPE_USAGE_PRICE_ID || "";
+// Each plan uses graduated tiered pricing:
+// - Tier 1: 0-10k events included in base price
+// - Tier 2: 10k+ events at $0.02/event
 export const USAGE_PRICING_DESCRIPTION = "10k events included, then $0.02/event";
 export const USAGE_CONFIG = {
   includedUnits: 10_000,

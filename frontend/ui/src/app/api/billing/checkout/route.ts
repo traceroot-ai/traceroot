@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma, getStripeOrThrow, getPlanConfig, USAGE_PRICE_ID, PlanType } from "@traceroot/core";
+import { prisma, getStripeOrThrow, getPlanConfig, PlanType } from "@traceroot/core";
 
 export async function POST(req: NextRequest) {
   try {
@@ -50,17 +50,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Create checkout session: plan price + usage price (tiered)
-    const lineItems = [{ price: planConfig.billingPriceId, quantity: 1 }];
-
-    if (USAGE_PRICE_ID) {
-      lineItems.push({ price: USAGE_PRICE_ID, quantity: 1 });
-    }
-
+    // Create checkout session with tiered price (includes base + usage)
+    // Quantity represents total events, Stripe calculates tiered pricing automatically
     const checkoutSession = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: "subscription",
-      line_items: lineItems,
+      line_items: [{ price: planConfig.billingPriceId, quantity: 1 }],
       success_url: `${process.env.NEXTAUTH_URL}/workspaces/${workspaceId}/settings/billing?success=true`,
       cancel_url: `${process.env.NEXTAUTH_URL}/workspaces/${workspaceId}/settings/billing?canceled=true`,
       metadata: { workspaceId },

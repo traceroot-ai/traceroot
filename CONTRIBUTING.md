@@ -162,9 +162,6 @@ pnpm build
 
 # Run with environment variables from root .env
 pnpm dotenv -e ../../.env -- node dist/index.js
-
-# Run with metering job on startup (useful for testing)
-RUN_METERING_ON_STARTUP=true pnpm dotenv -e ../../.env -- node dist/index.js
 ```
 
 **Configuration** (in `.env`):
@@ -172,7 +169,6 @@ RUN_METERING_ON_STARTUP=true pnpm dotenv -e ../../.env -- node dist/index.js
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `USAGE_METERING_CRON` | `5 * * * *` | Cron schedule for usage metering (default: 5 min past every hour) |
-| `RUN_METERING_ON_STARTUP` | `false` | Run metering job immediately on worker startup |
 | `BACKEND_INTERNAL_URL` | `http://localhost:8000` | Python backend URL for internal API calls |
 
 ---

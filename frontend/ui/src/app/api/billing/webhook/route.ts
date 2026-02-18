@@ -32,12 +32,20 @@ export async function POST(req: NextRequest) {
       case "customer.subscription.updated": {
         // Handles: new subscription, plan changes, payment status changes
         // Stripe auto-updates subscription.status on payment success/failure
-        const subscription = event.data.object as Stripe.Subscription;
+        let subscription = event.data.object as Stripe.Subscription;
         const workspaceId = subscription.metadata.workspaceId;
 
         if (!workspaceId) {
           console.error("No workspaceId in subscription metadata");
           break;
+        }
+
+        // If billing period dates are missing, fetch full subscription from Stripe
+        if (!subscription.current_period_start || !subscription.current_period_end) {
+          console.log(
+            `Billing period missing in webhook, fetching subscription ${subscription.id}`,
+          );
+          subscription = await stripe.subscriptions.retrieve(subscription.id);
         }
 
         const priceId = subscription.items.data[0]?.price.id;
@@ -51,12 +59,14 @@ export async function POST(req: NextRequest) {
             billingPriceId: priceId,
             billingStatus: subscription.status, // active, past_due, canceled, etc.
             billingPlan: plan,
-            billingPeriodStart: new Date(subscription.billing_cycle_anchor * 1000),
+            // Store current billing period dates (updated each month when subscription renews)
+            billingPeriodStart: new Date(subscription.current_period_start * 1000),
+            billingPeriodEnd: new Date(subscription.current_period_end * 1000),
           },
         });
 
         console.log(
-          `Subscription ${event.type} for workspace ${workspaceId}, priceId: ${priceId}, plan: ${plan}, status: ${subscription.status}`,
+          `Subscription ${event.type} for workspace ${workspaceId}, plan: ${plan}, status: ${subscription.status}, period: ${subscription.current_period_start} - ${subscription.current_period_end}`,
         );
         break;
       }
@@ -79,6 +89,7 @@ export async function POST(req: NextRequest) {
             billingStatus: null,
             billingPlan: PlanType.FREE,
             billingPeriodStart: null,
+            billingPeriodEnd: null,
           },
         });
 

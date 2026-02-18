@@ -60,17 +60,6 @@ async function main(): Promise<void> {
 
   console.log("[Worker] Scheduled jobs:");
   console.log(`  - Billing: ${billingCron}`);
-
-  // Run initial job on startup (optional, for catching up)
-  if (process.env.RUN_METERING_ON_STARTUP === "true") {
-    console.log("[Worker] Running initial billing job...");
-    try {
-      await runBillingJob();
-    } catch (error) {
-      console.error("[Worker] Initial billing job failed:", error);
-    }
-  }
-
   console.log("[Worker] Worker is running. Press Ctrl+C to stop.");
 
   // Keep the process alive
