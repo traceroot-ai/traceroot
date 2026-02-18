@@ -6,8 +6,11 @@ export {
   // Constants
   PLANS,
   ENTITLEMENTS,
+  SEAT_LIMITS,
+  USAGE_CONFIG,
+  USAGE_PRICING_DESCRIPTION,
+  PlanType,
   // Types
-  type PlanType,
   type PlanConfig,
   type Entitlement,
   // Plan helpers
@@ -20,4 +23,10 @@ export {
   hasEntitlement,
   getEntitlements,
   requireEntitlement,
+  // Seat enforcement
+  getSeatLimit,
+  canAddSeat,
+  requireSeatAvailable,
+  // Free plan blocking
+  isFreePlanBlocked,
 } from "./plans.js";

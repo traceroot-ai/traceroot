@@ -16,6 +16,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from rest.routers.internal import router as internal_router
 from rest.routers.public.traces import router as public_traces_router
 from rest.routers.traces import router as traces_router
 from rest.routers.users import router as users_router
@@ -43,6 +44,9 @@ app.include_router(users_router, prefix="/api/v1")
 
 # Public API for SDK ingestion (API key auth)
 app.include_router(public_traces_router, prefix="/api/v1")
+
+# Internal API for worker/service communication (protected by secret)
+app.include_router(internal_router, prefix="/api/v1")
 
 
 @app.get("/health", response_model=HealthResponse)
