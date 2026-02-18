@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma, Role, RoleSchema } from "@traceroot/core";
+import { prisma, Role, RoleSchema, getSeatLimit, canAddSeat, PlanType } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -112,6 +112,35 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   if (existingInvite) {
     return errorResponse("An invite has already been sent to this email", 409);
+  }
+
+  // Check seat limit before creating invite
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    include: {
+      _count: {
+        select: {
+          members: true,
+          invites: true,
+        },
+      },
+    },
+  });
+
+  if (!workspace) {
+    return errorResponse("Workspace not found", 404);
+  }
+
+  const plan = (workspace.billingPlan || PlanType.FREE) as PlanType;
+  const currentSeats = workspace._count.members + workspace._count.invites;
+  const seatLimit = getSeatLimit(plan);
+
+  if (!canAddSeat(plan, currentSeats)) {
+    return errorResponse(
+      `Your ${plan} plan is limited to ${seatLimit} seat${seatLimit === 1 ? "" : "s"}. ` +
+        `Upgrade your plan to invite more members.`,
+      403,
+    );
   }
 
   const inviteId = crypto.randomUUID();

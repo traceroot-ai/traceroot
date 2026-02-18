@@ -8,7 +8,7 @@ import { WorkspaceBreadcrumb } from "@/features/workspaces/components";
 import { BillingTab } from "@/features/settings/workspace";
 import { useQuery } from "@tanstack/react-query";
 import { getWorkspace } from "@/lib/api";
-import type { PlanType } from "@traceroot/core";
+import { PlanType } from "@traceroot/core";
 
 const settingsTabs = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
@@ -57,8 +57,9 @@ export default function WorkspaceSettingsBillingPage() {
         ) : (
           <BillingTab
             workspaceId={workspaceId}
-            currentPlan={(workspace?.billingPlan as PlanType) || "free"}
+            currentPlan={(workspace?.billingPlan as PlanType) || PlanType.FREE}
             hasSubscription={!!workspace?.billingSubscriptionId}
+            currentUsage={workspace?.currentUsage}
           />
         )}
       </div>

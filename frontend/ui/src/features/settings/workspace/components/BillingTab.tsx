@@ -11,7 +11,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { PLANS, type PlanType, isUpgrade } from "@traceroot/core";
+import {
+  PLANS,
+  PlanType,
+  isUpgrade,
+  USAGE_PRICING_DESCRIPTION,
+  USAGE_CONFIG,
+} from "@traceroot/core";
+import type { UsageStats } from "@/types/api";
 import {
   createCheckoutSession,
   changePlan,
@@ -24,12 +31,14 @@ interface BillingTabProps {
   workspaceId: string;
   currentPlan?: PlanType;
   hasSubscription?: boolean; // true if workspace has billingSubscriptionId
+  currentUsage?: UsageStats | null;
 }
 
 export function BillingTab({
   workspaceId,
-  currentPlan = "free",
+  currentPlan = PlanType.FREE,
   hasSubscription = false,
+  currentUsage,
 }: BillingTabProps) {
   const [showPricingDialog, setShowPricingDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -56,7 +65,7 @@ export function BillingTab({
     setError(null);
 
     try {
-      if (!hasSubscription && newPlan !== "free") {
+      if (!hasSubscription && newPlan !== PlanType.FREE) {
         // No subscription yet, need to go through checkout
         const { url } = await createCheckoutSession(workspaceId, newPlan);
         window.location.href = url;
@@ -90,7 +99,7 @@ export function BillingTab({
 
   function getButtonText(planId: PlanType): string {
     if (planId === currentPlan) return "Current Plan";
-    if (planId === "free") return "Downgrade";
+    if (planId === PlanType.FREE) return "Downgrade";
     if (isUpgrade(currentPlan, planId)) return "Upgrade";
     return "Downgrade";
   }
@@ -178,18 +187,32 @@ export function BillingTab({
       <div className="border p-4">
         <h3 className="text-sm font-medium">Usage</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Your usage statistics for the current billing period.
+          {currentPlan === PlanType.FREE
+            ? "Total events used (traces + spans). Free plan includes 10k events."
+            : "Events used this billing period (traces + spans)."}
         </p>
         <div className="mt-3 space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Traces</span>
-            <span>0 / 1,000</span>
+            <span>{(currentUsage?.traces ?? 0).toLocaleString()}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">LLM tokens</span>
-            <span>0 / 100,000</span>
+            <span className="text-muted-foreground">Spans</span>
+            <span>{(currentUsage?.spans ?? 0).toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between border-t pt-2">
+            <span className="font-medium">Total events</span>
+            <span className="font-medium">
+              {((currentUsage?.traces ?? 0) + (currentUsage?.spans ?? 0)).toLocaleString()}
+              {currentPlan === PlanType.FREE && ` / ${USAGE_CONFIG.includedUnits.toLocaleString()}`}
+            </span>
           </div>
         </div>
+        {currentUsage?.updatedAt && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Last updated: {new Date(currentUsage.updatedAt).toLocaleString()}
+          </p>
+        )}
       </div>
 
       {/* Pricing Dialog */}
@@ -228,8 +251,15 @@ export function BillingTab({
 
                       {/* Price */}
                       <div className="border-b px-4 py-3">
-                        <span className="text-2xl font-bold">${plan.price}</span>
-                        <span className="text-muted-foreground"> per month</span>
+                        <div>
+                          <span className="text-2xl font-bold">${plan.price}</span>
+                          <span className="text-muted-foreground"> per month</span>
+                        </div>
+                        {planId !== PlanType.FREE && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            + {USAGE_PRICING_DESCRIPTION}
+                          </p>
+                        )}
                       </div>
 
                       {/* Features */}

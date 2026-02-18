@@ -15,6 +15,7 @@ import gzip
 import hashlib
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -35,32 +36,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/public/traces", tags=["Traces (Public)"])
 
 
+@dataclass
+class AuthResult:
+    """Result of API key authentication with billing info."""
+
+    project_id: str
+    workspace_id: str
+    billing_plan: str
+    ingestion_blocked: bool
+
+
 async def authenticate_api_key(
     authorization: Annotated[str | None, Header()] = None,
-) -> str:
-    """Authenticate the request using API key and return the project_id.
-
-    The API key should be in the Authorization header as:
-        Authorization: Bearer <api_key>
-
-    Validates the API key by calling the Next.js internal API.
-
-    Args:
-        authorization: Authorization header value.
-
-    Returns:
-        The project_id associated with the API key.
-
-    Raises:
-        HTTPException: If authentication fails.
-    """
+) -> AuthResult:
+    """Authenticate the request and return auth result with billing info."""
     if not authorization:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing Authorization header",
         )
 
-    # Parse "Bearer <token>" format
     parts = authorization.split(" ", 1)
     if len(parts) != 2 or parts[0].lower() != "bearer":
         raise HTTPException(
@@ -69,11 +64,8 @@ async def authenticate_api_key(
         )
 
     api_key = parts[1]
-
-    # Hash the key
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
 
-    # Validate via Next.js internal API
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
@@ -104,16 +96,20 @@ async def authenticate_api_key(
     data = response.json()
 
     if not data.get("valid"):
-        error_message = data.get("error", "Invalid API key")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=error_message,
+            detail=data.get("error", "Invalid API key"),
         )
 
-    return data["projectId"]
+    return AuthResult(
+        project_id=data["projectId"],
+        workspace_id=data["workspaceId"],
+        billing_plan=data["billingPlan"],
+        ingestion_blocked=data.get("ingestionBlocked", False),
+    )
 
 
-ProjectId = Annotated[str, Depends(authenticate_api_key)]
+Auth = Annotated[AuthResult, Depends(authenticate_api_key)]
 
 
 def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
@@ -145,7 +141,7 @@ class IngestResponse(BaseModel):
 @router.post("", response_model=IngestResponse)
 async def ingest_traces(
     request: Request,
-    project_id: ProjectId,
+    auth: Auth,
 ):
     """Ingest OTLP trace data.
 
@@ -162,6 +158,16 @@ async def ingest_traces(
     Body:
         OTLP trace data in protobuf format
     """
+    # Check if ingestion is blocked (free plan limit exceeded)
+    # This flag is updated hourly by the billing worker
+    if auth.ingestion_blocked:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Free plan limit exceeded. Please upgrade to continue.",
+        )
+
+    project_id = auth.project_id
+
     # 1. Read body
     body = await request.body()
 

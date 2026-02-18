@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma, getStripeOrThrow, getPlanConfig, isUpgrade, type PlanType } from "@traceroot/core";
+import { prisma, getStripeOrThrow, getPlanConfig, isUpgrade, PlanType } from "@traceroot/core";
 
 export async function POST(req: NextRequest) {
   try {
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Case 1: Downgrade to free = cancel subscription at period end
-    if (newPlan === "free") {
+    if (newPlan === PlanType.FREE) {
       if (!workspace.billingSubscriptionId) {
         // Already on free, nothing to do
         return NextResponse.json({ success: true, message: "Already on free plan" });
@@ -81,7 +81,15 @@ export async function POST(req: NextRequest) {
 
     // Case 3: Has subscription, changing to another paid plan
     const subscription = await stripe.subscriptions.retrieve(workspace.billingSubscriptionId);
-    const subscriptionItemId = subscription.items.data[0].id;
+
+    // With tiered pricing, there's only one subscription item (the plan price)
+    const planItem = subscription.items.data[0];
+
+    if (!planItem) {
+      return NextResponse.json({ error: "Plan subscription item not found" }, { status: 500 });
+    }
+
+    const subscriptionItemId = planItem.id;
 
     // If subscription is set to cancel, remove that first
     if (subscription.cancel_at_period_end) {
@@ -108,7 +116,13 @@ export async function POST(req: NextRequest) {
       });
 
       const updatedSub = await stripe.subscriptions.update(workspace.billingSubscriptionId!, {
-        items: [{ id: subscriptionItemId, price: newPlanConfig.billingPriceId }],
+        items: [
+          {
+            id: subscriptionItemId,
+            price: newPlanConfig.billingPriceId,
+            quantity: planItem.quantity ?? 1, // Preserve current usage quantity
+          },
+        ],
         proration_behavior: "always_invoice",
       });
 
@@ -148,7 +162,7 @@ export async function POST(req: NextRequest) {
       await stripe.subscriptionSchedules.update(schedule.id, {
         phases: [
           {
-            items: [{ price: subscription.items.data[0].price.id, quantity: 1 }],
+            items: [{ price: planItem.price.id, quantity: planItem.quantity ?? 1 }],
             start_date: schedule.phases[0].start_date,
             end_date: subscription.current_period_end,
           },

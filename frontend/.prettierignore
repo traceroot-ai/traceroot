@@ -1,0 +1,7 @@
+# Generated files
+.next
+node_modules
+dist
+coverage
+*.lock
+pnpm-lock.yaml

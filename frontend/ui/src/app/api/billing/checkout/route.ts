@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma, getStripeOrThrow, getPlanConfig, type PlanType } from "@traceroot/core";
+import { prisma, getStripeOrThrow, getPlanConfig, PlanType } from "@traceroot/core";
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,15 +12,15 @@ export async function POST(req: NextRequest) {
 
     const { workspaceId, plan } = await req.json();
 
-    // Validate plan
-    const validPlans: PlanType[] = ["free", "starter", "pro", "startups"];
-    if (!plan || !validPlans.includes(plan)) {
+    // Validate plan (free plan has no checkout - users just sign up)
+    const paidPlans: PlanType[] = [PlanType.STARTER, PlanType.PRO, PlanType.STARTUPS];
+    if (!plan || !paidPlans.includes(plan)) {
       return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
     }
 
     const planConfig = getPlanConfig(plan as PlanType);
     if (!planConfig.billingPriceId) {
-      return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
+      return NextResponse.json({ error: "Plan not configured" }, { status: 400 });
     }
 
     // Get workspace and verify access
@@ -50,7 +50,8 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Create checkout session
+    // Create checkout session with tiered price (includes base + usage)
+    // Quantity represents total events, Stripe calculates tiered pricing automatically
     const checkoutSession = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: "subscription",

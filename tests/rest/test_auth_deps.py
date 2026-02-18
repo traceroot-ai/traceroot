@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from httpx import Response
 
 from rest.routers.deps import get_project_access
-from rest.routers.public.traces import authenticate_api_key
+from rest.routers.public.traces import AuthResult, authenticate_api_key
 
 BASE_URL = "http://localhost:3000"
 
@@ -23,10 +23,23 @@ class TestAuthenticateApiKey:
     @respx.mock
     async def test_valid_key(self):
         respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
-            return_value=Response(200, json={"valid": True, "projectId": "proj-123"})
+            return_value=Response(
+                200,
+                json={
+                    "valid": True,
+                    "projectId": "proj-123",
+                    "workspaceId": "ws-456",
+                    "billingPlan": "pro",
+                    "ingestionBlocked": False,
+                },
+            )
         )
         result = await authenticate_api_key("Bearer test-api-key")
-        assert result == "proj-123"
+        assert isinstance(result, AuthResult)
+        assert result.project_id == "proj-123"
+        assert result.workspace_id == "ws-456"
+        assert result.billing_plan == "pro"
+        assert result.ingestion_blocked is False
 
     async def test_missing_header(self):
         with pytest.raises(HTTPException) as exc_info:
