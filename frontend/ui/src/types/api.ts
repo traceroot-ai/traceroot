@@ -163,6 +163,56 @@ export interface TraceQueryOptions {
   search_query?: string;
 }
 
+// Session types
+export interface SessionListItem {
+  session_id: string;
+  trace_count: number;
+  user_ids: string[];
+  first_trace_time: string | null;
+  last_trace_time: string | null;
+  duration_ms: number | null;
+  total_input_tokens: number | null;
+  total_output_tokens: number | null;
+  input: string | null;
+  output: string | null;
+}
+
+export interface SessionListResponse {
+  data: SessionListItem[];
+  meta: { page: number; limit: number; total: number };
+}
+
+export interface SessionTraceItem {
+  trace_id: string;
+  name: string;
+  trace_start_time: string;
+  user_id: string | null;
+  input: string | null;
+  output: string | null;
+  duration_ms: number | null;
+  status: string;
+}
+
+export interface SessionDetailResponse {
+  session_id: string;
+  traces: SessionTraceItem[];
+  user_ids: string[];
+  trace_count: number;
+  first_trace_time: string | null;
+  last_trace_time: string | null;
+  duration_ms: number | null;
+  total_input_tokens: number | null;
+  total_output_tokens: number | null;
+}
+
+export interface SessionQueryOptions {
+  page?: number;
+  limit?: number;
+  search_query?: string;
+  start_after?: string;
+  end_before?: string;
+}
+
 // Legacy aliases for backward compatibility
 export type Organization = Workspace;
 export type OrganizationWithProjects = WorkspaceWithProjects;
