@@ -309,7 +309,7 @@ class TraceReaderService:
                 JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
                 WHERE t.project_id = {project_id:String}
                   AND t.session_id IN ({session_ids:Array(String)})
-                  AND (s.input != '' AND s.input != '{}' OR s.output != '' AND s.output != '{}')
+                  AND ((s.input != '' AND s.input != '{}') OR (s.output != '' AND s.output != '{}'))
                 GROUP BY t.session_id
             """
             span_io_result = self._client.query(
@@ -407,7 +407,7 @@ class TraceReaderService:
                 FROM spans FINAL
                 WHERE project_id = {project_id:String}
                   AND trace_id IN ({trace_ids:Array(String)})
-                  AND (input != '' AND input != '{}' OR output != '' AND output != '{}')
+                  AND ((input != '' AND input != '{}') OR (output != '' AND output != '{}'))
                 GROUP BY trace_id
             """
             span_io_result = self._client.query(
