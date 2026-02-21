@@ -3,8 +3,9 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { getTraces, getTrace } from "@/lib/api";
+import { getSessions, getSession } from "@/lib/api/sessions";
 import { getUsers, type UserQueryOptions } from "@/lib/api/users";
-import type { TraceQueryOptions } from "@/types/api";
+import type { SessionQueryOptions, TraceQueryOptions } from "@/types/api";
 
 // Individual state hooks (for fine-grained control)
 export { usePagination } from "./use-pagination";
@@ -64,5 +65,34 @@ export function useUsers(projectId: string, options: UserQueryOptions = {}) {
       options.end_before,
     ],
     queryFn: () => getUsers(projectId, options),
+  });
+}
+
+/**
+ * Hook for fetching paginated sessions list
+ */
+export function useSessions(projectId: string, options: SessionQueryOptions = {}) {
+  return useQuery({
+    queryKey: [
+      "sessions",
+      projectId,
+      options.page,
+      options.limit,
+      options.search_query,
+      options.start_after,
+      options.end_before,
+    ],
+    queryFn: () => getSessions(projectId, options),
+  });
+}
+
+/**
+ * Hook for fetching a single session detail
+ */
+export function useSession(projectId: string, sessionId: string, enabled: boolean = true) {
+  return useQuery({
+    queryKey: ["session", projectId, sessionId],
+    queryFn: () => getSession(projectId, sessionId),
+    enabled,
   });
 }
