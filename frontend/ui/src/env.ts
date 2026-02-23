@@ -9,6 +9,8 @@ const serverSchema = z.object({
   TRACEROOT_SMTP_URL: z.string().optional(),
   TRACEROOT_SMTP_MAIL_FROM: z.string().optional(),
   NEXT_PUBLIC_LOGO_URL: z.string().optional(),
+  // Billing toggle — set to "false" for self-hosted deployments to unlock all features
+  ENABLE_BILLING: z.string().default("true"),
   // Stripe Billing
   STRIPE_SECRET_KEY: z.string().default(""),
   STRIPE_WEBHOOK_SIGNING_SECRET: z.string().default(""),
