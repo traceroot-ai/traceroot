@@ -17,6 +17,7 @@ from tmux_tools import schema
 
 REST_PORT = 8000
 FRONTEND_PORT = 3000
+AGENT_PORT = 8100
 
 
 # ---------------------------------------------------------------------------
@@ -226,10 +227,18 @@ def make_driver(autoreload=False):
                 command="cd frontend/worker && pnpm build && pnpm dotenv -e ../../.env -- node dist/index.js",
                 web_urls=[],
             ),
+            schema.Service(
+                title="Agent",
+                command="cd frontend/packages/agent && pnpm dev",
+                web_urls=[
+                    ("Agent API", f"http://localhost:{AGENT_PORT}"),
+                ],
+            ),
         ]
         + infra_services(),
         prerequisites=(
-            tool_prerequisites() + [port_available(REST_PORT), port_available(FRONTEND_PORT)]
+            tool_prerequisites()
+            + [port_available(REST_PORT), port_available(FRONTEND_PORT), port_available(AGENT_PORT)]
         ),
     )
 

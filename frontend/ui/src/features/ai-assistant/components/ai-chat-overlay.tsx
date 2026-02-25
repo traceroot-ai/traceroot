@@ -1,0 +1,81 @@
+"use client";
+
+import { X, Plus, History } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { MessageList } from "./message-list";
+import { MessageInput } from "./message-input";
+import { SessionHistory } from "./session-history";
+import { useAiChat } from "../hooks/use-ai-chat";
+
+interface AiChatOverlayProps {
+  projectId: string;
+  traceId?: string;
+  onClose: () => void;
+}
+
+/**
+ * AI chat panel for use inside trace detail viewer.
+ * traceId is passed through to the agent so it knows which trace the user is viewing.
+ */
+export function AiChatOverlay({ projectId, traceId, onClose }: AiChatOverlayProps) {
+  const {
+    messages,
+    isStreaming,
+    sessions,
+    historyOpen,
+    currentSessionId,
+    setHistoryOpen,
+    handleSend,
+    handleNewSession,
+    handleOpenHistory,
+    handleSelectSession,
+    handleDeleteSession,
+  } = useAiChat({ projectId, traceId });
+
+  return (
+    <div className="flex h-full w-[400px] flex-col border-l bg-background">
+      {/* Header */}
+      <div className="flex h-10 items-center gap-1 border-b bg-muted/30 px-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          title="New session"
+          onClick={handleNewSession}
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </Button>
+        <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              title="History"
+              onClick={handleOpenHistory}
+            >
+              <History className="h-3.5 w-3.5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent side="bottom" align="start" className="w-[300px] p-1" sideOffset={4}>
+            <SessionHistory
+              sessions={sessions}
+              currentSessionId={currentSessionId}
+              projectId={projectId}
+              onSelect={handleSelectSession}
+              onDelete={handleDeleteSession}
+            />
+          </PopoverContent>
+        </Popover>
+        <div className="flex-1" />
+        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClose}>
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      <MessageList messages={messages} />
+      <MessageInput onSend={handleSend} disabled={isStreaming} />
+    </div>
+  );
+}
