@@ -22,14 +22,14 @@ Parameters: filters (object) — optional filters like limit, userId, sessionId,
 Use this first to find relevant traces before diving deeper.
 
 ### Deep Investigation: download_trace
-Use this to download a full trace into your workspace for deep analysis. Creates 2 files per trace.
+Use this to download a full trace into your workspace for deep analysis. Creates 3 files per trace.
 Parameters: traceId (string) — the trace ID to download.
 After downloading, use bash/read tools to explore the 3 files:
 - /workspace/traces/{trace_id}_{name}/trace.jsonl — trace metadata (single line)
 - /workspace/traces/{trace_id}_{name}/tree.json — span hierarchy structure (pretty-printed)
 - /workspace/traces/{trace_id}_{name}/spans.jsonl — all spans, one JSON object per line
 
-### File Analysis: bash, read, write, edit
+### File Analysis: bash, read, write
 Standard tools for exploring downloaded trace data in /workspace/.
 Use grep/jq on spans.jsonl — each line is a complete span object.
 Examples: grep "ERROR" spans.jsonl, jq 'select(.span_kind == "GENERATION")' spans.jsonl

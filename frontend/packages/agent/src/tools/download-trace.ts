@@ -2,7 +2,7 @@ import { Type, type Static } from "@sinclair/typebox";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { Executor } from "../executors/interface.js";
 
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
+const FASTAPI_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 
 const downloadTraceSchema = Type.Object({
   label: Type.String({
