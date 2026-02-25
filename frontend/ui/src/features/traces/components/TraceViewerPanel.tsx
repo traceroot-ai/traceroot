@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Workflow, X, ArrowUp, ArrowDown } from "lucide-react";
+import { Workflow, X, ArrowUp, ArrowDown, BotMessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getTrace } from "@/lib/api";
 import type { TraceSelection } from "../types";
 import { SpanTreeView } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
+import { AiChatOverlay } from "@/features/ai-assistant/components/ai-chat-overlay";
 
 interface TraceViewerPanelProps {
   projectId: string;
@@ -30,6 +31,7 @@ export function TraceViewerPanel({
   canNavigateDown,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
+  const [aiChatOpen, setAiChatOpen] = useState(false);
 
   const {
     data: trace,
@@ -77,6 +79,15 @@ export function TraceViewerPanel({
             <ArrowDown className="h-4 w-4" />
           </Button>
           <div className="w-2" /> {/* Spacer */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAiChatOpen(!aiChatOpen)}
+            className="h-7 w-7 p-0"
+            title="AI Assistant"
+          >
+            <BotMessageSquare className="h-4 w-4" />
+          </Button>
           <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
             <X className="h-4 w-4" />
           </Button>
@@ -100,7 +111,7 @@ export function TraceViewerPanel({
           </div>
 
           {/* Right: Detail panel */}
-          <div className="flex-1 overflow-hidden bg-background">
+          <div className="min-w-0 flex-1 overflow-hidden bg-background">
             <SpanInfoPanel
               projectId={projectId}
               trace={trace}
@@ -108,6 +119,15 @@ export function TraceViewerPanel({
               onClose={onClose}
             />
           </div>
+
+          {/* AI Chat overlay */}
+          {aiChatOpen && (
+            <AiChatOverlay
+              projectId={projectId}
+              traceId={traceId}
+              onClose={() => setAiChatOpen(false)}
+            />
+          )}
         </div>
       )}
     </div>
