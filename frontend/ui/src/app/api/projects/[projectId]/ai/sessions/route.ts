@@ -23,6 +23,13 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     },
   });
 
+  if (!res.ok) {
+    return new Response(JSON.stringify({ error: `Agent service error: ${res.status}` }), {
+      status: res.status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const data = await res.json();
   return successResponse(data);
 }
@@ -49,6 +56,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     },
     body: JSON.stringify({ title: body.title }),
   });
+
+  if (!res.ok) {
+    return new Response(JSON.stringify({ error: `Agent service error: ${res.status}` }), {
+      status: res.status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
   const data = await res.json();
   return successResponse(data, 201);

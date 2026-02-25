@@ -1,7 +1,7 @@
 import { Type, type Static } from "@sinclair/typebox";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
+const FASTAPI_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 
 const queryTracesSchema = Type.Object({
   label: Type.String({
