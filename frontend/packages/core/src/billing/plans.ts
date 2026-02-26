@@ -1,4 +1,14 @@
 // =============================================================================
+// BILLING TOGGLE
+// =============================================================================
+// When ENABLE_BILLING is "false", all entitlements are unlocked, seat limits
+// are removed, and ingestion is never blocked. Self-hosted deployments should
+// set this to "false" and skip running the billing worker.
+export function isBillingEnabled(): boolean {
+  return process.env.ENABLE_BILLING !== "false";
+}
+
+// =============================================================================
 // PLAN TYPES
 // =============================================================================
 export const PlanType = {
@@ -22,6 +32,7 @@ export const USAGE_CONFIG = {
 } as const;
 
 export function isFreePlanBlocked(currentUsage: number): boolean {
+  if (!isBillingEnabled()) return false;
   return currentUsage >= USAGE_CONFIG.includedUnits;
 }
 
@@ -180,6 +191,7 @@ export function isDowngrade(currentPlan: PlanType, newPlan: PlanType): boolean {
 // ENTITLEMENT HELPERS
 // =============================================================================
 export function hasEntitlement(plan: PlanType, entitlement: Entitlement): boolean {
+  if (!isBillingEnabled()) return true;
   return (ENTITLEMENT_CONFIG[entitlement] as readonly string[]).includes(plan);
 }
 
@@ -205,6 +217,7 @@ export function getSeatLimit(plan: PlanType): number {
 }
 
 export function canAddSeat(plan: PlanType, currentSeatCount: number): boolean {
+  if (!isBillingEnabled()) return true;
   const limit = SEAT_LIMITS[plan];
   return currentSeatCount < limit;
 }

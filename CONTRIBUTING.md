@@ -404,6 +404,7 @@ See `.env.example` for all configuration options:
 | `INTERNAL_API_SECRET` | `dev-internal-secret` | Shared secret for internal API auth |
 | `NEXTAUTH_URL` | `http://localhost:3000` | NextAuth callback URL |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000/api/v1` | Frontend API endpoint |
+| `ENABLE_BILLING` | `true` | Set to `false` for self-hosted deployments to disable billing, unlock all entitlements, remove seat limits, and never block ingestion. When `false`, you don't need Stripe keys or the billing worker. |
 
 ---
 
