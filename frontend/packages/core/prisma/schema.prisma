@@ -116,7 +116,8 @@ model User {
   updateTime    DateTime          @default(now()) @map("update_time") @db.Timestamp(6)
   invites       Invite[]
   memberships   WorkspaceMember[]
-  accounts      Account[]
+  accounts         Account[]
+  githubConnection GitHubConnection?
 
   @@map("users")
 }
@@ -142,6 +143,23 @@ model Account {
 
   @@unique([provider, providerAccountId])
   @@map("accounts")
+}
+
+// GitHub App Connections - Links GitHub accounts and app installations to users
+model GitHubConnection {
+  id              String   @id @default(cuid()) @db.VarChar
+  userId          String   @unique @map("user_id") @db.VarChar
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  githubUserId    String   @map("github_user_id") @db.VarChar
+  githubUsername  String   @map("github_username") @db.VarChar
+  accessToken     String   @map("access_token") @db.Text
+  installationId  String?  @map("installation_id") @db.VarChar
+
+  createTime      DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime      DateTime @updatedAt @map("update_time") @db.Timestamp(6)
+
+  @@map("github_connections")
 }
 
 // AI Sessions - Conversation sessions for the AI debugging assistant
