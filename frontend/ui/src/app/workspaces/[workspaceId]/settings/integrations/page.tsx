@@ -5,7 +5,7 @@ import Link from "next/link";
 import { SlidersHorizontal, Users, Blocks, CreditCard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { WorkspaceBreadcrumb } from "@/features/workspaces/components";
-import { MembersTab } from "@/features/settings/workspace";
+import { IntegrationsTab } from "@/features/settings/workspace";
 
 const settingsTabs = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
@@ -14,7 +14,7 @@ const settingsTabs = [
   { id: "billing", label: "Billing", icon: CreditCard, href: "billing" },
 ] as const;
 
-export default function WorkspaceSettingsMembersPage() {
+export default function WorkspaceSettingsIntegrationsPage() {
   const params = useParams();
   const workspaceId = params.workspaceId as string;
 
@@ -32,7 +32,7 @@ export default function WorkspaceSettingsMembersPage() {
                   href={`/workspaces/${workspaceId}/settings/${tab.href}`}
                   className={cn(
                     "flex w-full items-center gap-2 px-3 py-2 text-[13px] transition-colors",
-                    tab.id === "members" ? "bg-muted" : "hover:bg-muted/50",
+                    tab.id === "integrations" ? "bg-muted" : "hover:bg-muted/50",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -45,7 +45,7 @@ export default function WorkspaceSettingsMembersPage() {
       </nav>
 
       <div className="flex-1 overflow-auto p-6">
-        <MembersTab workspaceId={workspaceId} />
+        <IntegrationsTab workspaceId={workspaceId} />
       </div>
     </div>
   );

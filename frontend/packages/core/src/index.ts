@@ -12,6 +12,7 @@ export type {
   AccessKey,
   Invite,
   Account,
+  GitHubConnection,
 } from "@prisma/client";
 
 // Constants & Zod schemas
