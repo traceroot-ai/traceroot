@@ -122,97 +122,110 @@ export function BillingTab({
       )}
 
       {/* Current Plan Section */}
-      <div className="border p-4">
-        <h3 className="text-sm font-medium">Current plan</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          You are currently on the{" "}
-          <span className="font-medium text-foreground">{currentPlanConfig.name}</span> plan.
-        </p>
-
-        {/* Cancellation Notice */}
-        {subscriptionInfo?.cancellation && (
-          <div className="mt-3 flex items-start gap-2 border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950">
-            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
-            <div className="text-sm">
-              <p className="font-medium text-amber-800 dark:text-amber-200">Subscription ending</p>
-              <p className="text-amber-700 dark:text-amber-300">
-                Your subscription will be canceled on{" "}
-                {new Date(subscriptionInfo.cancellation.cancelAt).toLocaleDateString()}. You will be
-                downgraded to the Free plan after this date.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Scheduled Plan Change Notice */}
-        {subscriptionInfo?.scheduledChange && (
-          <div className="mt-3 flex items-start gap-2 border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950">
-            <CalendarClock className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" />
-            <div className="text-sm">
-              <p className="font-medium text-blue-800 dark:text-blue-200">Plan change scheduled</p>
-              <p className="text-blue-700 dark:text-blue-300">
-                Your plan will change to{" "}
-                <span className="font-medium">
-                  {PLANS[subscriptionInfo.scheduledChange.newPlan as PlanType]?.name ||
-                    subscriptionInfo.scheduledChange.newPlan}
-                </span>{" "}
-                on {new Date(subscriptionInfo.scheduledChange.switchAt).toLocaleDateString()}.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Billing Period */}
-        {subscriptionInfo?.billingPeriod && !subscriptionInfo.cancellation && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Current billing period:{" "}
-            {new Date(subscriptionInfo.billingPeriod.start).toLocaleDateString()} -{" "}
-            {new Date(subscriptionInfo.billingPeriod.end).toLocaleDateString()}
+      <div className="border">
+        <div className="border-b bg-muted/30 px-4 py-3">
+          <h3 className="text-sm font-medium">Current plan</h3>
+        </div>
+        <div className="px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            You are currently on the{" "}
+            <span className="font-medium text-foreground">{currentPlanConfig.name}</span> plan.
           </p>
-        )}
 
-        <div className="mt-3 flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowPricingDialog(true)}>
-            Change plan
-          </Button>
-          {hasSubscription && (
-            <Button variant="ghost" size="sm" onClick={handleOpenPortal} disabled={isLoading}>
-              Manage billing <ExternalLink className="ml-1 h-3 w-3" />
-            </Button>
+          {/* Cancellation Notice */}
+          {subscriptionInfo?.cancellation && (
+            <div className="mt-3 flex items-start gap-2 border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950">
+              <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+              <div className="text-sm">
+                <p className="font-medium text-amber-800 dark:text-amber-200">
+                  Subscription ending
+                </p>
+                <p className="text-amber-700 dark:text-amber-300">
+                  Your subscription will be canceled on{" "}
+                  {new Date(subscriptionInfo.cancellation.cancelAt).toLocaleDateString()}. You will
+                  be downgraded to the Free plan after this date.
+                </p>
+              </div>
+            </div>
           )}
+
+          {/* Scheduled Plan Change Notice */}
+          {subscriptionInfo?.scheduledChange && (
+            <div className="mt-3 flex items-start gap-2 border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950">
+              <CalendarClock className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" />
+              <div className="text-sm">
+                <p className="font-medium text-blue-800 dark:text-blue-200">
+                  Plan change scheduled
+                </p>
+                <p className="text-blue-700 dark:text-blue-300">
+                  Your plan will change to{" "}
+                  <span className="font-medium">
+                    {PLANS[subscriptionInfo.scheduledChange.newPlan as PlanType]?.name ||
+                      subscriptionInfo.scheduledChange.newPlan}
+                  </span>{" "}
+                  on {new Date(subscriptionInfo.scheduledChange.switchAt).toLocaleDateString()}.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Billing Period */}
+          {subscriptionInfo?.billingPeriod && !subscriptionInfo.cancellation && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Current billing period:{" "}
+              {new Date(subscriptionInfo.billingPeriod.start).toLocaleDateString()} -{" "}
+              {new Date(subscriptionInfo.billingPeriod.end).toLocaleDateString()}
+            </p>
+          )}
+
+          <div className="mt-3 flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowPricingDialog(true)}>
+              Change plan
+            </Button>
+            {hasSubscription && (
+              <Button variant="ghost" size="sm" onClick={handleOpenPortal} disabled={isLoading}>
+                Manage billing <ExternalLink className="ml-1 h-3 w-3" />
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Usage Section */}
-      <div className="border p-4">
-        <h3 className="text-sm font-medium">Usage</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {currentPlan === PlanType.FREE
-            ? "Total events used (traces + spans). Free plan includes 10k events."
-            : "Events used this billing period (traces + spans)."}
-        </p>
-        <div className="mt-3 space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Traces</span>
-            <span>{(currentUsage?.traces ?? 0).toLocaleString()}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Spans</span>
-            <span>{(currentUsage?.spans ?? 0).toLocaleString()}</span>
-          </div>
-          <div className="flex justify-between border-t pt-2">
-            <span className="font-medium">Total events</span>
-            <span className="font-medium">
-              {((currentUsage?.traces ?? 0) + (currentUsage?.spans ?? 0)).toLocaleString()}
-              {currentPlan === PlanType.FREE && ` / ${USAGE_CONFIG.includedUnits.toLocaleString()}`}
-            </span>
-          </div>
+      <div className="border">
+        <div className="border-b bg-muted/30 px-4 py-3">
+          <h3 className="text-sm font-medium">Usage</h3>
         </div>
-        {currentUsage?.updatedAt && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            Last updated: {new Date(currentUsage.updatedAt).toLocaleString()}
+        <div className="px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            {currentPlan === PlanType.FREE
+              ? "Total events used (traces + spans). Free plan includes 10k events."
+              : "Events used this billing period (traces + spans)."}
           </p>
-        )}
+          <div className="mt-3 space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Traces</span>
+              <span>{(currentUsage?.traces ?? 0).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Spans</span>
+              <span>{(currentUsage?.spans ?? 0).toLocaleString()}</span>
+            </div>
+            <div className="-mx-4 flex justify-between border-t px-4 pt-2">
+              <span className="font-medium">Total events</span>
+              <span className="font-medium">
+                {((currentUsage?.traces ?? 0) + (currentUsage?.spans ?? 0)).toLocaleString()}
+                {currentPlan === PlanType.FREE &&
+                  ` / ${USAGE_CONFIG.includedUnits.toLocaleString()}`}
+              </span>
+            </div>
+          </div>
+          {currentUsage?.updatedAt && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Last updated: {new Date(currentUsage.updatedAt).toLocaleString()}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Pricing Dialog */}
