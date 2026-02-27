@@ -15,6 +15,14 @@ const serverSchema = z.object({
   STRIPE_PRICE_ID_STARTER: z.string().default(""),
   STRIPE_PRICE_ID_PRO: z.string().default(""),
   STRIPE_PRICE_ID_STARTUPS: z.string().default(""),
+  // GitHub App
+  GITHUB_APP_ID: z.string().default(""),
+  GITHUB_APP_NAME: z.string().default(""),
+  GITHUB_APP_PRIVATE_KEY: z.string().default(""),
+  GITHUB_APP_CLIENT_ID: z.string().default(""),
+  GITHUB_APP_CLIENT_SECRET: z.string().default(""),
+  GITHUB_WEBHOOK_SECRET: z.string().default(""),
+  GITHUB_OAUTH_REDIRECT_URI: z.string().default("http://localhost:3000/api/github/callback"),
 });
 
 export const env = serverSchema.parse(process.env);
