@@ -34,6 +34,15 @@ class SpanAttributes:
     TRACE_TAGS = "traceroot.trace.tags"
 
     # =========================================================================
+    # Git Context Attributes
+    # =========================================================================
+    GIT_REPO = "traceroot.git.repo"
+    GIT_REF = "traceroot.git.ref"
+    GIT_SOURCE_FILE = "traceroot.git.source_file"
+    GIT_SOURCE_LINE = "traceroot.git.source_line"
+    GIT_SOURCE_FUNCTION = "traceroot.git.source_function"
+
+    # =========================================================================
     # System Attributes
     # =========================================================================
     ENVIRONMENT = "traceroot.environment"

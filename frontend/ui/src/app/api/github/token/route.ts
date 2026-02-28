@@ -1,17 +1,25 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { prisma } from "@traceroot/core";
-import { requireAuth } from "@/lib/auth-helpers";
+import { requireAuth, verifyInternalSecret } from "@/lib/auth-helpers";
 import { getInstallationToken } from "@traceroot/github";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const authResult = await requireAuth();
-    if (authResult.error) return authResult.error;
-    const { user } = authResult;
+    // Support both session auth (browser) and internal x-user-id (agent service)
+    let userId: string;
+    const internalUserId = request.headers.get("x-user-id");
+
+    if (internalUserId && verifyInternalSecret(request)) {
+      userId = internalUserId;
+    } else {
+      const authResult = await requireAuth();
+      if (authResult.error) return authResult.error;
+      userId = authResult.user.id;
+    }
 
     const connection = await prisma.gitHubConnection.findUnique({
-      where: { userId: user.id },
+      where: { userId },
     });
 
     if (!connection || !connection.installationId) {
@@ -27,6 +35,7 @@ export async function GET() {
     return NextResponse.json({
       token,
       installation_id: connection.installationId,
+      github_username: connection.githubUsername,
       expires_at,
     });
   } catch (error) {

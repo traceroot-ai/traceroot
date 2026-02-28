@@ -47,6 +47,8 @@ def initialize(
     batch_size: int = 100,
     enabled: bool = True,
     integrations: list[Integration] | None = None,
+    git_repo: str | None = None,
+    git_ref: str | None = None,
 ) -> TracerootClient:
     """Initialize the global Traceroot client.
 
@@ -76,6 +78,8 @@ def initialize(
         batch_size=batch_size,
         enabled=enabled,
         integrations=integrations,
+        git_repo=git_repo,
+        git_ref=git_ref,
     )
     return _client
 

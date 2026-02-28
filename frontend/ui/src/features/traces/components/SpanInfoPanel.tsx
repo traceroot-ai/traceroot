@@ -9,6 +9,9 @@ import {
   CircleStop,
   CircleDollarSign,
   AlertCircle,
+  GitBranch,
+  GitCommitHorizontal,
+  FileCode,
 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { formatDuration, formatDate, formatTokens } from "@/lib/utils";
@@ -67,7 +70,7 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
           />
         </div>
         <div className="mb-3 text-xs text-muted-foreground">{formatDate(timestamp)}</div>
-        {/* Static metadata badges */}
+        {/* Row 1: LLM related badges */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
             <span className="text-muted-foreground">Span Kind:</span>
@@ -129,7 +132,44 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
           )}
         </div>
 
-        {/* Clickable User/Session links */}
+        {/* Row 2: Git related badges */}
+        {isTrace && (trace.git_ref || trace.git_repo) && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {trace.git_repo && (
+              <a
+                href={`https://github.com/${trace.git_repo}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
+              >
+                <GitBranch className="h-3 w-3 text-muted-foreground" />
+                <span className="text-muted-foreground">Repo:</span>
+                <span className="font-mono font-medium">{trace.git_repo}</span>
+              </a>
+            )}
+            {trace.git_ref && (
+              <a
+                href={
+                  trace.git_repo
+                    ? `https://github.com/${trace.git_repo}/commit/${trace.git_ref}`
+                    : undefined
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs ${
+                  trace.git_repo ? "cursor-pointer transition-colors hover:bg-muted" : ""
+                }`}
+                title={trace.git_ref}
+              >
+                <GitCommitHorizontal className="h-3 w-3 text-muted-foreground" />
+                <span className="text-muted-foreground">Ref:</span>
+                <span className="font-mono font-medium">{trace.git_ref.substring(0, 7)}</span>
+              </a>
+            )}
+          </div>
+        )}
+
+        {/* Row 3: User/Session links */}
         {isTrace && (trace.user_id || trace.session_id) && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {trace.user_id && (
@@ -172,10 +212,40 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
         {/* Error message */}
         {statusMessage && (
           <div className="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
-            <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-400">
+            <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-400">
               <AlertCircle className="h-3 w-3" />
               Error
             </div>
+            {/* Source location info */}
+            {!isTrace && (trace.git_repo || trace.git_ref || selection.span.git_source_file) && (
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                {trace.git_repo && (
+                  <div className="inline-flex items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
+                    <GitBranch className="h-3 w-3 text-red-600 dark:text-red-400" />
+                    <span className="font-mono text-red-700 dark:text-red-300">
+                      {trace.git_repo}
+                    </span>
+                  </div>
+                )}
+                {trace.git_ref && (
+                  <div className="inline-flex items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
+                    <GitCommitHorizontal className="h-3 w-3 text-red-600 dark:text-red-400" />
+                    <span className="font-mono text-red-700 dark:text-red-300">
+                      {trace.git_ref.substring(0, 7)}
+                    </span>
+                  </div>
+                )}
+                {selection.span.git_source_file && (
+                  <div className="inline-flex items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
+                    <FileCode className="h-3 w-3 text-red-600 dark:text-red-400" />
+                    <span className="font-mono text-red-700 dark:text-red-300">
+                      {selection.span.git_source_file}
+                      {selection.span.git_source_line && `:${selection.span.git_source_line}`}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
             <p className="whitespace-pre-wrap break-all font-mono text-xs text-red-600 dark:text-red-400">
               {statusMessage}
             </p>

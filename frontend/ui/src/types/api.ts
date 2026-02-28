@@ -118,6 +118,9 @@ export interface Span {
   input: string | null;
   output: string | null;
   metadata: string | null;
+  git_source_file: string | null;
+  git_source_line: number | null;
+  git_source_function: string | null;
 }
 
 export interface TraceDetail {
@@ -127,6 +130,8 @@ export interface TraceDetail {
   trace_start_time: string;
   user_id: string | null;
   session_id: string | null;
+  git_ref: string | null;
+  git_repo: string | null;
   environment: string;
   release: string | null;
   input: string | null;

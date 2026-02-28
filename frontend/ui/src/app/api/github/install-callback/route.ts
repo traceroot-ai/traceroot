@@ -30,18 +30,19 @@ export async function GET(request: NextRequest) {
     if (authResult.error) return authResult.error;
     const { user } = authResult;
 
-    // Upsert to handle case where OAuth connection doesn't exist yet
-    await prisma.gitHubConnection.upsert({
+    // Only update installationId on an existing connection (OAuth must complete first)
+    const updated = await prisma.gitHubConnection.updateMany({
       where: { userId: user.id },
-      create: {
-        userId: user.id,
-        githubUserId: "",
-        githubUsername: "",
-        accessToken: "",
-        installationId,
-      },
-      update: { installationId },
+      data: { installationId },
     });
+
+    if (updated.count === 0) {
+      // No OAuth connection exists yet — redirect to OAuth flow first
+      const returnTo = request.cookies.get(GITHUB_RETURN_TO_COOKIE)?.value || "/";
+      return NextResponse.redirect(
+        new URL(`/api/github/login?returnTo=${encodeURIComponent(returnTo)}`, request.url),
+      );
+    }
 
     // Redirect to return URL
     const returnTo = request.cookies.get(GITHUB_RETURN_TO_COOKIE)?.value || "/";
