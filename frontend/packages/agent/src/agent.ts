@@ -59,7 +59,7 @@ async function fetchProviderConfig(
       };
     }
   } catch (err) {
-    console.warn(`[Agent] Failed to fetch BYOK config for ${providerName}:`, err);
+    console.warn(`[Agent] Failed to fetch BYOK config for ${providerName}`);
   }
 
   return null;
@@ -92,7 +92,7 @@ async function fetchProviderKey(workspaceId: string, provider: string): Promise<
       }
     }
   } catch (err) {
-    console.warn(`[Agent] Failed to fetch BYOK key for ${provider}:`, err);
+    console.warn(`[Agent] Failed to fetch BYOK key for ${provider}`);
   }
 
   // Fall back to env var
