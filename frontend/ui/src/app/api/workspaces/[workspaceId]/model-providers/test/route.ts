@@ -115,9 +115,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "google": {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
-        );
+        const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models", {
+          headers: { "x-goog-api-key": apiKey || "" },
+        });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           return successResponse({
