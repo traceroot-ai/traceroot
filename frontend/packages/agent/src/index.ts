@@ -93,7 +93,13 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   const sessionId = c.req.param("sessionId");
   const userId = c.req.header("x-user-id") || "";
   const workspaceId = c.req.header("x-workspace-id") || "";
-  const body = await c.req.json<{ message: string; model?: string; traceId?: string }>();
+  const body = await c.req.json<{
+    message: string;
+    model?: string;
+    traceId?: string;
+    providerName?: string;
+    source?: "system" | "byok";
+  }>();
 
   const systemPrompt = getSystemPrompt({ projectId, traceId: body.traceId });
 
@@ -106,6 +112,8 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
 
   const tools = createTools({ projectId, userId, executor });
 
+  console.log(`[Agent] POST message: session=${sessionId}, model=${body.model}, provider=${body.providerName}, source=${body.source}`);
+
   const { agent, sessionManager } = await getOrCreateAgent({
     sessionId,
     projectId,
@@ -114,7 +122,11 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     systemPrompt,
     tools,
     model: body.model,
+    providerName: body.providerName,
+    source: body.source,
   });
+
+  console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
 
   // Persist user message to DB via SessionManager
   await sessionManager.appendMessage("user", body.message);
@@ -132,6 +144,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     await new Promise<void>((resolve) => {
       runAgent(agent, body.message, {
         onEvent: (event) => {
+          console.log(`[Agent] Event: ${event.type}`, event.type === "message_update" ? JSON.stringify(event).slice(0, 200) : "");
           // Forward all events to the frontend
           stream.writeSSE({
             event: event.type,
@@ -148,6 +161,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           }
         },
         onError: (error) => {
+          console.error(`[Agent] ERROR:`, error.message);
           stream.writeSSE({
             event: "error",
             data: JSON.stringify({ message: error.message }),
@@ -155,6 +169,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           resolve();
         },
         onDone: async () => {
+          console.log(`[Agent] Done. Assistant text length: ${assistantText.length}`);
           // Persist assistant response to DB via SessionManager
           if (assistantText) {
             await sessionManager.appendMessage("assistant", assistantText);

@@ -82,9 +82,34 @@ model Workspace {
   ingestionBlocked       Boolean   @default(false) @map("ingestion_blocked") // true when free plan exceeds usage limit
   currentUsage           Json?     @map("current_usage") // { traces, spans, tokens, updatedAt }
 
+  modelProviders ModelProvider[]
+
   @@index([billingCustomerId])
   @@index([billingSubscriptionId])
   @@map("workspaces")
+}
+
+// Model Providers - Per-workspace BYOK LLM API keys
+model ModelProvider {
+  id                String    @id @default(cuid()) @db.VarChar
+  workspaceId       String    @map("workspace_id") @db.VarChar
+  adapter           String    @db.VarChar        // "openai"|"anthropic"|"azure"|"google"|"amazon-bedrock"|"deepseek"|"openrouter"
+  provider          String    @db.VarChar        // user-defined label: "My OpenAI", "DeepSeek", etc.
+  keyCipher         String    @map("key_cipher") @db.Text
+  keyPreview        String    @map("key_preview") @db.VarChar  // "...xxxx"
+  baseUrl           String?   @map("base_url") @db.VarChar
+  customModels      String[]  @default([]) @map("custom_models")
+  withDefaultModels Boolean   @default(true) @map("with_default_models")
+  config            Json?     @db.JsonB          // adapter-specific (region, apiVersion, etc.)
+  enabled           Boolean   @default(true)
+  createdBy         String    @map("created_by") @db.VarChar
+  createTime        DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime        DateTime  @default(now()) @updatedAt @map("update_time") @db.Timestamp(6)
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([workspaceId, provider], map: "uq_model_provider_workspace_provider")
+  @@index([workspaceId], map: "ix_model_provider_workspace_id")
+  @@map("model_providers")
 }
 
 // Projects - Container for traces and access keys

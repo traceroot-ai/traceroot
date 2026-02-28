@@ -42,6 +42,21 @@ export {
   deleteApiKey,
 } from "./access-keys";
 
+// Model Provider APIs (BYOK)
+export {
+  getModelProviders,
+  createModelProvider,
+  updateModelProvider,
+  deleteModelProvider,
+  testModelProvider,
+  getAvailableLlmModels,
+  type ModelProviderResponse,
+  type AvailableLlmModel,
+  type SystemModelGroup,
+  type ByokProviderGroup,
+  type LlmModelsResponse,
+} from "./model-providers";
+
 // Trace APIs
 export { getTraces, getTrace } from "./traces";
 
