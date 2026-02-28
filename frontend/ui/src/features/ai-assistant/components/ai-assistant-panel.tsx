@@ -2,12 +2,14 @@
 
 import { useParams } from "next/navigation";
 import { X, Plus, History } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
 import { useAiChat } from "../hooks/use-ai-chat";
+import { getProject } from "@/lib/api";
 
 interface AiAssistantPanelProps {
   open: boolean;
@@ -17,6 +19,16 @@ interface AiAssistantPanelProps {
 export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
   const params = useParams();
   const projectId = params?.projectId as string | undefined;
+  const workspaceIdFromUrl = params?.workspaceId as string | undefined;
+
+  const { data: project } = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => getProject(projectId!),
+    enabled: !!projectId,
+  });
+
+  // workspaceId from URL (workspace pages) or from project (project pages)
+  const workspaceId = workspaceIdFromUrl || project?.workspace_id;
 
   const {
     messages,
@@ -76,10 +88,16 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
       </div>
 
       {/* Messages */}
-      <MessageList messages={messages} />
+      {!projectId ? (
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-[13px] text-muted-foreground">
+          Open a project to start using the AI assistant.
+        </div>
+      ) : (
+        <MessageList messages={messages} />
+      )}
 
       {/* Input */}
-      <MessageInput onSend={handleSend} disabled={isStreaming} />
+      <MessageInput onSend={handleSend} disabled={isStreaming || !projectId} workspaceId={workspaceId} />
     </div>
   );
 }

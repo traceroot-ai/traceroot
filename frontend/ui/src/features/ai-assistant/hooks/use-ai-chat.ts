@@ -3,6 +3,7 @@
 import { useRef, useState, useCallback } from "react";
 import { useAIStream } from "./use-ai-stream";
 import type { AISession, AIMessage } from "../types";
+import type { ModelSelection } from "../components/model-selector";
 
 interface UseAiChatOptions {
   projectId: string | undefined;
@@ -35,11 +36,27 @@ export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
   }, [projectId, traceId]);
 
   const handleSend = useCallback(
-    async (message: string, model: string) => {
-      if (!projectId) return;
+    async (message: string, modelSelection: ModelSelection) => {
+      console.log("[AI Chat] handleSend called, projectId:", projectId, "model:", modelSelection);
+      if (!projectId) {
+        console.warn("[AI Chat] No projectId — aborting send");
+        return;
+      }
       const sessionId = await ensureSession();
-      if (!sessionId) return;
-      sendMessage({ sessionId, message, projectId, model, traceId });
+      console.log("[AI Chat] sessionId:", sessionId);
+      if (!sessionId) {
+        console.warn("[AI Chat] No sessionId — aborting send");
+        return;
+      }
+      sendMessage({
+        sessionId,
+        message,
+        projectId,
+        model: modelSelection.model,
+        providerName: modelSelection.provider,
+        source: modelSelection.source,
+        traceId,
+      });
     },
     [projectId, traceId, ensureSession, sendMessage],
   );

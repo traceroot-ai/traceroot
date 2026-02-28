@@ -14,6 +14,8 @@ export function useAIStream() {
       message: string;
       projectId: string;
       model?: string;
+      providerName?: string;
+      source?: "system" | "byok";
       traceId?: string;
     }) => {
       // Add user message
@@ -52,6 +54,8 @@ export function useAIStream() {
           body: JSON.stringify({
             message: params.message,
             model: params.model,
+            providerName: params.providerName,
+            source: params.source,
             traceId: params.traceId,
           }),
           signal: abortController.signal,

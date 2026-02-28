@@ -17,6 +17,8 @@ const serverSchema = z.object({
   STRIPE_PRICE_ID_STARTER: z.string().default(""),
   STRIPE_PRICE_ID_PRO: z.string().default(""),
   STRIPE_PRICE_ID_STARTUPS: z.string().default(""),
+  // Encryption (BYOK)
+  ENCRYPTION_KEY: z.string().length(64).optional(), // 64 hex chars = 256 bits
   // GitHub App
   GITHUB_APP_ID: z.string().default(""),
   GITHUB_APP_NAME: z.string().default(""),

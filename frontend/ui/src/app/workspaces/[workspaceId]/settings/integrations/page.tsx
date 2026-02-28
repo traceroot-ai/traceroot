@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { SlidersHorizontal, Users, Blocks, CreditCard } from "lucide-react";
+import { SlidersHorizontal, Users, Blocks, CreditCard, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { WorkspaceBreadcrumb } from "@/features/workspaces/components";
 import { IntegrationsTab } from "@/features/settings/workspace";
@@ -10,6 +10,7 @@ import { IntegrationsTab } from "@/features/settings/workspace";
 const settingsTabs = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
   { id: "members", label: "Members", icon: Users, href: "members" },
+  { id: "model-providers", label: "Model Providers", icon: Bot, href: "model-providers" },
   { id: "integrations", label: "Integrations", icon: Blocks, href: "integrations" },
   { id: "billing", label: "Billing", icon: CreditCard, href: "billing" },
 ] as const;
