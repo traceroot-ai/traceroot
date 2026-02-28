@@ -27,6 +27,9 @@ class SpanResponse(BaseModel):
     input: str | None
     output: str | None
     metadata: str | None
+    git_source_file: str | None = None
+    git_source_line: int | None = None
+    git_source_function: str | None = None
 
 
 class TraceListItem(BaseModel):
@@ -61,8 +64,8 @@ class TraceDetailResponse(BaseModel):
     trace_start_time: datetime
     user_id: str | None
     session_id: str | None
-    environment: str
-    release: str | None
+    git_ref: str | None
+    git_repo: str | None
     input: str | None
     output: str | None
     metadata: str | None

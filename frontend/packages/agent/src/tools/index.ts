@@ -3,6 +3,10 @@ import type { Executor } from "../executors/interface.js";
 import { createQueryTracesTool } from "./query-traces.js";
 import { createDownloadTraceTool } from "./download-trace.js";
 import { createBashTool, createReadTool, createWriteTool } from "./sandbox.js";
+import { createCheckGitHubAccessTool } from "./github-access.js";
+import { createGitCloneTool } from "./git-clone.js";
+
+const UI_BASE_URL = process.env.TRACEROOT_UI_URL || "http://localhost:3000";
 
 /**
  * Create all tools for the agent. Follows Mom's createMomTools() pattern.
@@ -21,6 +25,10 @@ export function createTools(params: {
   // Host-side tools (run on host, call FastAPI directly)
   tools.push(createQueryTracesTool(params.projectId, params.userId));
   tools.push(createDownloadTraceTool(params.projectId, params.userId, params.executor));
+
+  // GitHub tools (host-side, need auth tokens)
+  tools.push(createCheckGitHubAccessTool(params.userId, UI_BASE_URL));
+  tools.push(createGitCloneTool(params.userId, UI_BASE_URL, params.executor));
 
   // Sandbox-side tools (run inside Docker container via executor)
   tools.push(createBashTool(params.executor));

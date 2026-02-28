@@ -127,3 +127,27 @@ Used for identifying the source of traces in multi-service architectures.
 
 **Default:** ``unknown_service``
 """
+
+# =============================================================================
+# Git Context
+# =============================================================================
+
+TRACEROOT_GIT_REPO = "TRACEROOT_GIT_REPO"
+"""
+.. envvar:: TRACEROOT_GIT_REPO
+
+Repository in "owner/repo" format for GitHub integration.
+Auto-detected from git remote if not set.
+
+**Example:** ``myorg/myrepo``
+"""
+
+TRACEROOT_GIT_REF = "TRACEROOT_GIT_REF"
+"""
+.. envvar:: TRACEROOT_GIT_REF
+
+Git reference (tag, branch, or commit SHA) of the running code.
+Auto-detected from git HEAD if not set.
+
+**Example:** ``v1.2.3`` or ``abc123def``
+"""

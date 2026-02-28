@@ -18,8 +18,8 @@ export class DockerExecutor implements Executor {
       "-d",
       "--name",
       `traceroot-sandbox-${Date.now()}`,
-      "--network",
-      "none", // NO network access — fully isolated
+      // Network enabled — required for git clone and gh CLI (per design doc)
+      // Token-based auth is ephemeral (1hr) and container is disposable
       "-w",
       WORKSPACE_DIR,
       DOCKER_IMAGE,
@@ -33,7 +33,9 @@ export class DockerExecutor implements Executor {
     await this.exec(`mkdir -p ${WORKSPACE_DIR}/traces ${WORKSPACE_DIR}/notes`);
 
     // Install basic tools if not in image
-    await this.exec("apt-get update -qq && apt-get install -y -qq git jq > /dev/null 2>&1 || true");
+    await this.exec(
+      "apt-get update -qq && apt-get install -y -qq git jq curl > /dev/null 2>&1 || true",
+    );
 
     console.log(`[DockerExecutor] Container ready: ${this.containerId.slice(0, 12)}`);
   }
@@ -130,6 +132,46 @@ export class DockerExecutor implements Executor {
     }
     this.containerId = null;
   }
+}
+
+/**
+ * Set up gh CLI in a Docker container and authenticate with a GitHub token.
+ * Call this when the agent needs GitHub CLI access in the sandbox.
+ */
+export async function setupGhCli(
+  executor: Executor,
+  githubToken: string,
+  githubUsername?: string,
+): Promise<void> {
+  // Install gh CLI if not present
+  await executor.exec(
+    `
+    type gh >/dev/null 2>&1 || {
+      apt-get update -qq
+      apt-get install -y -qq curl
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+      chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        | tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+      apt-get update -qq
+      apt-get install -y -qq gh
+    }
+  `,
+    { timeout: 120 },
+  );
+
+  // Authenticate gh CLI (write token to temp file, auth, then delete)
+  await executor.writeFile("/tmp/.gh_token", githubToken);
+  await executor.exec("gh auth login --with-token < /tmp/.gh_token && rm /tmp/.gh_token");
+
+  // Configure git identity for commits
+  const name = githubUsername || "TraceRoot Agent";
+  const email = githubUsername
+    ? `${githubUsername}@users.noreply.github.com`
+    : "agent@traceroot.ai";
+  await executor.exec(`git config --global user.name "${name}"`);
+  await executor.exec(`git config --global user.email "${email}"`);
 }
 
 function shellEscape(s: string): string {

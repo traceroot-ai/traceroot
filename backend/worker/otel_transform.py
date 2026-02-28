@@ -52,6 +52,7 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
     "traceroot.trace.",
     "traceroot.environment",
     "traceroot.version",
+    "traceroot.git.",
     "openinference.span.kind",
     "session.id",
     "session.user_id",
@@ -245,14 +246,6 @@ def transform_otel_to_clickhouse(
         resource = resource_span.get("resource", {})
         resource_attrs = attributes_to_dict(resource.get("attributes", []))
 
-        # Get environment from resource attributes
-        environment = (
-            resource_attrs.get("deployment.environment")
-            or resource_attrs.get("traceroot.environment")
-            or resource_attrs.get("service.environment")
-            or "default"
-        )
-
         # camelCase: scopeSpans
         scope_spans = resource_span.get("scopeSpans", [])
 
@@ -298,8 +291,18 @@ def transform_otel_to_clickhouse(
                     "name": span_name,
                     "span_kind": span_kind,
                     "status": SpanStatus.OK,
-                    "environment": environment,
                 }
+
+                # Extract git source fields for span
+                git_source_file = span_attrs.get("traceroot.git.source_file")
+                git_source_line = span_attrs.get("traceroot.git.source_line")
+                git_source_function = span_attrs.get("traceroot.git.source_function")
+                if git_source_file is not None:
+                    span_record["git_source_file"] = git_source_file
+                if git_source_line is not None:
+                    span_record["git_source_line"] = git_source_line
+                if git_source_function is not None:
+                    span_record["git_source_function"] = git_source_function
 
                 # Extract input/output if present
                 # Priority: traceroot SDK attrs > OpenInference attrs
@@ -453,6 +456,12 @@ def transform_otel_to_clickhouse(
                 # This prevents batches without root spans from creating trace
                 # records with incorrect names that would overwrite the correct one
                 if not parent_span_id:
+                    # Extract git context for trace
+                    git_ref = span_attrs.get("traceroot.git.ref") or resource_attrs.get(
+                        "traceroot.version"
+                    )
+                    git_repo = span_attrs.get("traceroot.git.repo")
+
                     traces[trace_id] = {
                         "trace_id": trace_id,
                         "project_id": project_id,
@@ -460,8 +469,12 @@ def transform_otel_to_clickhouse(
                         "name": span_name,
                         "user_id": trace_attrs[trace_id]["user_id"],
                         "session_id": trace_attrs[trace_id]["session_id"],
-                        "environment": environment,
                     }
+
+                    if git_ref is not None:
+                        traces[trace_id]["git_ref"] = git_ref
+                    if git_repo is not None:
+                        traces[trace_id]["git_repo"] = git_repo
 
                     # Extract trace-level metadata
                     trace_metadata = span_attrs.get("traceroot.trace.metadata")
