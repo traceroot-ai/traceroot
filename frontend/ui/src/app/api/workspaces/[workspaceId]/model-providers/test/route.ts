@@ -58,7 +58,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return errorResponse(result.error.issues[0].message, 400);
   }
 
-  const { adapter, apiKey, baseUrl, awsAccessKeyId, awsSecretAccessKey, awsRegion, useDefaultCredentials } = result.data;
+  const {
+    adapter,
+    apiKey,
+    baseUrl,
+    awsAccessKeyId,
+    awsSecretAccessKey,
+    awsRegion,
+    useDefaultCredentials,
+  } = result.data;
 
   try {
     switch (adapter) {
@@ -100,9 +108,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           const errObj = err as Record<string, Record<string, unknown>>;
           return successResponse({
             success: false,
-            error: errObj.error?.message
-              ? String(errObj.error.message)
-              : "Invalid API key",
+            error: errObj.error?.message ? String(errObj.error.message) : "Invalid API key",
           });
         }
         break;
@@ -117,7 +123,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           return successResponse({
             success: false,
             error: (err as Record<string, unknown>).error
-              ? String((err as Record<string, Record<string, unknown>>).error?.message || `HTTP ${res.status}`)
+              ? String(
+                  (err as Record<string, Record<string, unknown>>).error?.message ||
+                    `HTTP ${res.status}`,
+                )
               : `HTTP ${res.status}`,
           });
         }
@@ -132,12 +141,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           });
         }
         const apiVersion = "2024-06-01";
-        const res = await fetch(
-          `${baseUrl.replace(/\/$/, "")}/models?api-version=${apiVersion}`,
-          {
-            headers: { "api-key": apiKey || "" },
-          },
-        );
+        const res = await fetch(`${baseUrl.replace(/\/$/, "")}/models?api-version=${apiVersion}`, {
+          headers: { "api-key": apiKey || "" },
+        });
         if (!res.ok) {
           return successResponse({
             success: false,

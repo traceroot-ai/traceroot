@@ -60,9 +60,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     select: { billingPlan: true },
   });
 
-  const byokEnabled = workspace
-    ? hasEntitlement(workspace.billingPlan as PlanType, "byok")
-    : false;
+  const byokEnabled = workspace ? hasEntitlement(workspace.billingPlan as PlanType, "byok") : false;
 
   const providers = await prisma.modelProvider.findMany({
     where: { workspaceId },

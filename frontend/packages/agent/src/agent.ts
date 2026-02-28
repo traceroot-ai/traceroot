@@ -69,10 +69,7 @@ async function fetchProviderConfig(
  * Resolve an API key for a pi-ai provider: BYOK (DB) first, env var fallback.
  * Used as the getApiKey callback for the Agent.
  */
-async function fetchProviderKey(
-  workspaceId: string,
-  provider: string,
-): Promise<string> {
+async function fetchProviderKey(workspaceId: string, provider: string): Promise<string> {
   const cacheKey = `${workspaceId}:${provider}`;
   const cached = keyCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
@@ -150,10 +147,7 @@ function buildFallbackModel(modelId: string, apiProtocol: string, provider: stri
   };
 }
 
-function resolveModel(
-  modelId?: string,
-  providerConfig?: ProviderConfig | null,
-) {
+function resolveModel(modelId?: string, providerConfig?: ProviderConfig | null) {
   const effectiveModelId = modelId || "claude-sonnet-4-5";
 
   // 1. BYOK: use adapter → pi-ai provider mapping
@@ -161,9 +155,7 @@ function resolveModel(
     const piAiProvider = ADAPTER_TO_PI_AI[providerConfig.adapter];
     if (piAiProvider) {
       const model = getModel(piAiProvider as any, effectiveModelId as any);
-      const baseUrl =
-        providerConfig.baseUrl ||
-        ADAPTER_DEFAULT_BASE_URL[providerConfig.adapter];
+      const baseUrl = providerConfig.baseUrl || ADAPTER_DEFAULT_BASE_URL[providerConfig.adapter];
       if (baseUrl && model && typeof model === "object" && "config" in model) {
         (model as any).config = {
           ...(model as any).config,
@@ -232,10 +224,7 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
   // Fetch BYOK provider config if this is a BYOK model
   let providerConfig: ProviderConfig | null = null;
   if (config.source === "byok" && config.providerName) {
-    providerConfig = await fetchProviderConfig(
-      config.workspaceId,
-      config.providerName,
-    );
+    providerConfig = await fetchProviderConfig(config.workspaceId, config.providerName);
   }
 
   const model = resolveModel(config.model, providerConfig);
