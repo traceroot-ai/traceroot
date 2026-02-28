@@ -51,7 +51,6 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
     "traceroot.llm.",
     "traceroot.trace.",
     "traceroot.environment",
-    "traceroot.version",
     "traceroot.git.",
     "openinference.span.kind",
     "session.id",
@@ -242,10 +241,6 @@ def transform_otel_to_clickhouse(
     resource_spans = otel_data.get("resourceSpans", [])
 
     for resource_span in resource_spans:
-        # Extract resource attributes (common to all spans in this resource)
-        resource = resource_span.get("resource", {})
-        resource_attrs = attributes_to_dict(resource.get("attributes", []))
-
         # camelCase: scopeSpans
         scope_spans = resource_span.get("scopeSpans", [])
 
@@ -457,9 +452,7 @@ def transform_otel_to_clickhouse(
                 # records with incorrect names that would overwrite the correct one
                 if not parent_span_id:
                     # Extract git context for trace
-                    git_ref = span_attrs.get("traceroot.git.ref") or resource_attrs.get(
-                        "traceroot.version"
-                    )
+                    git_ref = span_attrs.get("traceroot.git.ref")
                     git_repo = span_attrs.get("traceroot.git.repo")
 
                     traces[trace_id] = {

@@ -46,4 +46,3 @@ class SpanAttributes:
     # System Attributes
     # =========================================================================
     ENVIRONMENT = "traceroot.environment"
-    VERSION = "traceroot.version"

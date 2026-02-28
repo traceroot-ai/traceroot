@@ -51,7 +51,7 @@ export function createGitCloneTool(
       const { token, github_username } = await tokenRes.json();
 
       // 2. Prepare clone
-      const repoPath = params.repo.replace("/", "_");
+      const repoPath = params.repo.replaceAll("/", "_");
       const clonePath = `/workspace/repos/${repoPath}`;
       const cloneUrl = `https://x-access-token:${token}@github.com/${params.repo}.git`;
 
