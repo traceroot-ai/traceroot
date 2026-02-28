@@ -1,10 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma, SYSTEM_MODELS, DEFAULT_MODELS } from "@traceroot/core";
-import {
-  requireAuth,
-  requireWorkspaceMembership,
-  successResponse,
-} from "@/lib/auth-helpers";
+import { requireAuth, requireWorkspaceMembership, successResponse } from "@/lib/auth-helpers";
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
 
@@ -37,9 +33,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   });
 
   const byokProviders = dbProviders.map((p) => {
-    const defaultModels = p.withDefaultModels
-      ? (DEFAULT_MODELS[p.adapter] || [])
-      : [];
+    const defaultModels = p.withDefaultModels ? DEFAULT_MODELS[p.adapter] || [] : [];
     const customModels = (p.customModels || []).map((id) => ({
       id,
       label: id,

@@ -97,7 +97,11 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
       )}
 
       {/* Input */}
-      <MessageInput onSend={handleSend} disabled={isStreaming || !projectId} workspaceId={workspaceId} />
+      <MessageInput
+        onSend={handleSend}
+        disabled={isStreaming || !projectId}
+        workspaceId={workspaceId}
+      />
     </div>
   );
 }

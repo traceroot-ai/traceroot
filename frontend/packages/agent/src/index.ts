@@ -112,7 +112,9 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
 
   const tools = createTools({ projectId, userId, executor });
 
-  console.log(`[Agent] POST message: session=${sessionId}, model=${body.model}, provider=${body.providerName}, source=${body.source}`);
+  console.log(
+    `[Agent] POST message: session=${sessionId}, model=${body.model}, provider=${body.providerName}, source=${body.source}`,
+  );
 
   const { agent, sessionManager } = await getOrCreateAgent({
     sessionId,
@@ -144,7 +146,10 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     await new Promise<void>((resolve) => {
       runAgent(agent, body.message, {
         onEvent: (event) => {
-          console.log(`[Agent] Event: ${event.type}`, event.type === "message_update" ? JSON.stringify(event).slice(0, 200) : "");
+          console.log(
+            `[Agent] Event: ${event.type}`,
+            event.type === "message_update" ? JSON.stringify(event).slice(0, 200) : "",
+          );
           // Forward all events to the frontend
           stream.writeSSE({
             event: event.type,

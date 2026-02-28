@@ -58,7 +58,7 @@ const ENTITLEMENT_CONFIG = {
   "ai-chat-mode": [PlanType.FREE, PlanType.STARTER, PlanType.PRO, PlanType.STARTUPS],
   "ai-agent-mode": [PlanType.PRO, PlanType.STARTUPS],
   "ai-auto-triage": [PlanType.PRO, PlanType.STARTUPS],
-  "byok": [PlanType.PRO, PlanType.STARTUPS],
+  byok: [PlanType.PRO, PlanType.STARTUPS],
   "github-integration": [PlanType.PRO, PlanType.STARTUPS],
   "slack-notion-integration": [PlanType.STARTUPS],
   "soc2-iso27001": [PlanType.STARTUPS],

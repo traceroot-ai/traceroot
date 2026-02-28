@@ -7,10 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { SYSTEM_MODELS } from "@traceroot/core";
-import {
-  getAvailableLlmModels,
-  type AvailableLlmModel,
-} from "@/lib/api";
+import { getAvailableLlmModels, type AvailableLlmModel } from "@/lib/api";
 
 export interface ModelSelection {
   model: string;
@@ -68,7 +65,12 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
             <ChevronDown className="h-3 w-3" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent side="top" align="start" className="w-[220px] max-h-[320px] overflow-y-auto p-1" sideOffset={4}>
+        <PopoverContent
+          side="top"
+          align="start"
+          className="max-h-[320px] w-[220px] overflow-y-auto p-1"
+          sideOffset={4}
+        >
           {models.map((m) => (
             <button
               key={m.id}

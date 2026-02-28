@@ -7,9 +7,7 @@ const AUTH_TAG_LENGTH = 16;
 function getEncryptionKey(): Buffer {
   const hex = process.env.ENCRYPTION_KEY;
   if (!hex || hex.length !== 64) {
-    throw new Error(
-      "ENCRYPTION_KEY must be set to a 64-character hex string (256 bits).",
-    );
+    throw new Error("ENCRYPTION_KEY must be set to a 64-character hex string (256 bits).");
   }
   return Buffer.from(hex, "hex");
 }
@@ -24,10 +22,7 @@ export function encryptKey(plaintext: string): string {
   const cipher = createCipheriv(ALGORITHM, key, iv, {
     authTagLength: AUTH_TAG_LENGTH,
   });
-  const encrypted = Buffer.concat([
-    cipher.update(plaintext, "utf8"),
-    cipher.final(),
-  ]);
+  const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
   return `${iv.toString("base64")}:${encrypted.toString("base64")}:${authTag.toString("base64")}`;
 }
@@ -48,10 +43,7 @@ export function decryptKey(encrypted: string): string {
     authTagLength: AUTH_TAG_LENGTH,
   });
   decipher.setAuthTag(authTag);
-  const decrypted = Buffer.concat([
-    decipher.update(ciphertext),
-    decipher.final(),
-  ]);
+  const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
   return decrypted.toString("utf8");
 }
 

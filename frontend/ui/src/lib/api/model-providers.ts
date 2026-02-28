@@ -93,10 +93,7 @@ export async function updateModelProvider(
   });
 }
 
-export async function deleteModelProvider(
-  workspaceId: string,
-  providerId: string,
-): Promise<void> {
+export async function deleteModelProvider(workspaceId: string, providerId: string): Promise<void> {
   return fetchNextApi(`/workspaces/${workspaceId}/model-providers/${providerId}`, {
     method: "DELETE",
   });
@@ -121,8 +118,6 @@ export async function testModelProvider(
   });
 }
 
-export async function getAvailableLlmModels(
-  workspaceId: string,
-): Promise<LlmModelsResponse> {
+export async function getAvailableLlmModels(workspaceId: string): Promise<LlmModelsResponse> {
   return fetchNextApi(`/workspaces/${workspaceId}/llm-models`);
 }

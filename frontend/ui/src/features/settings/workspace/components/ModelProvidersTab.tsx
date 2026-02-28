@@ -216,16 +216,14 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
         <h2 className="text-lg font-semibold">Model Providers</h2>
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-8">
-            <p className="text-sm text-muted-foreground text-center">
-              Bring Your Own Key (BYOK) lets you configure your own LLM API keys for this
-              workspace. Available on Pro and Startups plans.
+            <p className="text-center text-sm text-muted-foreground">
+              Bring Your Own Key (BYOK) lets you configure your own LLM API keys for this workspace.
+              Available on Pro and Startups plans.
             </p>
             <Button
               variant="default"
               size="sm"
-              onClick={() =>
-                (window.location.href = `/workspaces/${workspaceId}/settings/billing`)
-              }
+              onClick={() => (window.location.href = `/workspaces/${workspaceId}/settings/billing`)}
             >
               Upgrade Plan
               <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
@@ -309,15 +307,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                 <CardContent>
                   <div className="flex items-center gap-4 text-xs text-muted-foreground">
                     <span>Key: {p.keyPreview}</span>
-                    <span
-                      className={p.enabled ? "text-green-600" : "text-yellow-600"}
-                    >
+                    <span className={p.enabled ? "text-green-600" : "text-yellow-600"}>
                       {p.enabled ? "Enabled" : "Disabled"}
                     </span>
                     {p.baseUrl && <span>URL: {p.baseUrl}</span>}
-                    {allModels.length > 0 && (
-                      <span>Custom models: {allModels.join(", ")}</span>
-                    )}
+                    {allModels.length > 0 && <span>Custom models: {allModels.join(", ")}</span>}
                   </div>
                 </CardContent>
               </Card>
@@ -342,11 +336,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
             {/* Adapter selector */}
             <div className="space-y-2">
               <label className="text-sm font-medium">Adapter</label>
-              <Select
-                value={adapter}
-                onValueChange={handleAdapterChange}
-                disabled={!!editProvider}
-              >
+              <Select value={adapter} onValueChange={handleAdapterChange} disabled={!!editProvider}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select an adapter" />
                 </SelectTrigger>
@@ -459,12 +449,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-medium">Models</label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={addCustomModel}
-                  >
+                  <Button type="button" variant="outline" size="sm" onClick={addCustomModel}>
                     <Plus className="mr-1 h-3 w-3" />
                     Add Model
                   </Button>
@@ -490,11 +475,13 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                   </div>
                 ))}
 
-                {adapterConfig.requiresCustomModels && !hasDefaults && customModels.length === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    This adapter requires at least one custom model ID.
-                  </p>
-                )}
+                {adapterConfig.requiresCustomModels &&
+                  !hasDefaults &&
+                  customModels.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      This adapter requires at least one custom model ID.
+                    </p>
+                  )}
               </div>
             )}
 
@@ -507,9 +494,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                 disabled={!canTest || testMutation.isPending}
                 onClick={handleTest}
               >
-                {testMutation.isPending && (
-                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                )}
+                {testMutation.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
                 Test Connection
               </Button>
               {testResult && (
@@ -548,8 +533,8 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
           <DialogHeader>
             <DialogTitle>Delete Provider</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete {deleteTarget?.provider}? Models from this
-              provider will no longer be available.
+              Are you sure you want to delete {deleteTarget?.provider}? Models from this provider
+              will no longer be available.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -561,9 +546,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
               disabled={deleteMutation.isPending}
               onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
             >
-              {deleteMutation.isPending && (
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-              )}
+              {deleteMutation.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
               Delete
             </Button>
           </DialogFooter>
