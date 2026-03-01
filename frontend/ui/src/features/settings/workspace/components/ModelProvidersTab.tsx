@@ -48,6 +48,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   const [baseUrl, setBaseUrl] = useState("");
   const [customModels, setCustomModels] = useState<string[]>([]);
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   // Bedrock-specific
   const [awsAccessKeyId, setAwsAccessKeyId] = useState("");
   const [awsSecretAccessKey, setAwsSecretAccessKey] = useState("");
@@ -67,6 +68,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       queryClient.invalidateQueries({ queryKey: ["llm-models", workspaceId] });
       closeDialog();
     },
+    onError: (err) => setSaveError(err instanceof Error ? err.message : "Failed to save"),
   });
 
   const updateMutation = useMutation({
@@ -77,6 +79,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       queryClient.invalidateQueries({ queryKey: ["llm-models", workspaceId] });
       closeDialog();
     },
+    onError: (err) => setSaveError(err instanceof Error ? err.message : "Failed to save"),
   });
 
   const deleteMutation = useMutation({
@@ -107,6 +110,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     setBaseUrl("");
     setCustomModels([]);
     setTestResult(null);
+    setSaveError(null);
     setAwsAccessKeyId("");
     setAwsSecretAccessKey("");
     setAwsRegion("us-east-1");
@@ -135,6 +139,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   }
 
   function handleSave() {
+    setSaveError(null);
     const base: Record<string, unknown> = {
       adapter,
       provider: providerName,
@@ -184,9 +189,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   }
 
   function handleAdapterChange(value: string) {
+    const prevConfig = adapter ? ADAPTER_CONFIG[adapter] : null;
     setAdapter(value);
     const config = ADAPTER_CONFIG[value];
-    if (config && !providerName) {
+    // Auto-fill provider name if empty or still matches previous adapter's default label
+    if (config && (!providerName || providerName === prevConfig?.label)) {
       setProviderName(config.label);
     }
   }
@@ -514,6 +521,13 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
               )}
             </div>
           </div>
+
+          {saveError && (
+            <div className="flex items-center gap-1 text-xs text-destructive">
+              <XCircle className="h-3.5 w-3.5" />
+              {saveError}
+            </div>
+          )}
 
           <DialogFooter>
             <Button variant="outline" onClick={closeDialog}>
