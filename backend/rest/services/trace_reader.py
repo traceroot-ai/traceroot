@@ -135,7 +135,7 @@ class TraceReaderService:
         trace_query = """
             SELECT
                 trace_id, project_id, name, trace_start_time,
-                user_id, session_id, environment, release, input, output, metadata
+                user_id, session_id, git_ref, git_repo, input, output, metadata
             FROM traces FINAL
             WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
             LIMIT 1
@@ -156,8 +156,8 @@ class TraceReaderService:
             "trace_start_time": row[3],
             "user_id": row[4],
             "session_id": row[5],
-            "environment": row[6],
-            "release": row[7],
+            "git_ref": row[6],
+            "git_repo": row[7],
             "input": row[8],
             "output": row[9],
             "metadata": row[10],
@@ -169,7 +169,8 @@ class TraceReaderService:
                 span_id, trace_id, parent_span_id, name, span_kind,
                 span_start_time, span_end_time, status, status_message,
                 model_name, cost, input_tokens, output_tokens, total_tokens,
-                input, output, metadata
+                input, output, metadata,
+                git_source_file, git_source_line, git_source_function
             FROM spans FINAL
             WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
             ORDER BY span_start_time ASC
@@ -200,6 +201,9 @@ class TraceReaderService:
                     "input": row[14],
                     "output": row[15],
                     "metadata": row[16],
+                    "git_source_file": row[17],
+                    "git_source_line": int(row[18]) if row[18] is not None else None,
+                    "git_source_function": row[19],
                 }
             )
 

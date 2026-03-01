@@ -11,6 +11,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from traceroot.constants import SpanKind
+from traceroot.git_context import capture_source_location
 from traceroot.span_attributes import SpanAttributes
 from traceroot.utils import serialize_value, set_span_attribute
 
@@ -96,6 +97,30 @@ def observe(
                         span, validated_kind, metadata, tags, args, kwargs, func, capture_input
                     )
 
+                    # Auto-capture source location
+                    source = capture_source_location()
+                    if source.get("git_source_file"):
+                        span.set_attribute(
+                            SpanAttributes.GIT_SOURCE_FILE, source["git_source_file"]
+                        )
+                    if source.get("git_source_line"):
+                        span.set_attribute(
+                            SpanAttributes.GIT_SOURCE_LINE, source["git_source_line"]
+                        )
+                    if source.get("git_source_function"):
+                        span.set_attribute(
+                            SpanAttributes.GIT_SOURCE_FUNCTION, source["git_source_function"]
+                        )
+
+                    # Set trace-level git context from client
+                    from traceroot import get_client
+
+                    client = get_client()
+                    if client and client.git_repo:
+                        span.set_attribute(SpanAttributes.GIT_REPO, client.git_repo)
+                    if client and client.git_ref:
+                        span.set_attribute(SpanAttributes.GIT_REF, client.git_ref)
+
                     try:
                         result = await func(*args, **kwargs)
                         if capture_output and result is not None:
@@ -118,6 +143,30 @@ def observe(
                     _set_span_attributes(
                         span, validated_kind, metadata, tags, args, kwargs, func, capture_input
                     )
+
+                    # Auto-capture source location
+                    source = capture_source_location()
+                    if source.get("git_source_file"):
+                        span.set_attribute(
+                            SpanAttributes.GIT_SOURCE_FILE, source["git_source_file"]
+                        )
+                    if source.get("git_source_line"):
+                        span.set_attribute(
+                            SpanAttributes.GIT_SOURCE_LINE, source["git_source_line"]
+                        )
+                    if source.get("git_source_function"):
+                        span.set_attribute(
+                            SpanAttributes.GIT_SOURCE_FUNCTION, source["git_source_function"]
+                        )
+
+                    # Set trace-level git context from client
+                    from traceroot import get_client
+
+                    client = get_client()
+                    if client and client.git_repo:
+                        span.set_attribute(SpanAttributes.GIT_REPO, client.git_repo)
+                    if client and client.git_ref:
+                        span.set_attribute(SpanAttributes.GIT_REF, client.git_ref)
 
                     try:
                         result = func(*args, **kwargs)

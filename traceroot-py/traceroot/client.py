@@ -19,6 +19,7 @@ from traceroot.env import (
     TRACEROOT_FLUSH_INTERVAL,
     TRACEROOT_HOST_URL,
 )
+from traceroot.git_context import auto_detect_git_context
 from traceroot.instrumentation.registry import Integration
 from traceroot.transport.span_processor import TracerootSpanProcessor
 
@@ -40,6 +41,8 @@ class TracerootClient:
         batch_size: int | None = None,
         enabled: bool | None = None,
         integrations: list[Integration] | None = None,
+        git_repo: str | None = None,
+        git_ref: str | None = None,
     ):
         """Initialize the Traceroot client.
 
@@ -52,6 +55,10 @@ class TracerootClient:
                 TRACEROOT_FLUSH_AT env var, then 100.
             enabled: Whether tracing is enabled. Falls back to TRACEROOT_ENABLED env var.
             integrations: Libraries to auto-instrument (e.g. ["openai", "langchain"]).
+            git_repo: Repository in "owner/repo" format. Falls back to TRACEROOT_GIT_REPO
+                env var, then auto-detected from git remote.
+            git_ref: Git reference (commit SHA, tag, branch). Falls back to TRACEROOT_GIT_REF
+                env var, then auto-detected from git HEAD.
         """
         # Resolve config with env var fallbacks
         self.api_key = api_key or os.environ.get(TRACEROOT_API_KEY, "")
@@ -72,6 +79,11 @@ class TracerootClient:
             enabled = env_enabled not in ("false", "0", "no", "off") if env_enabled else True
 
         self._integrations = integrations
+
+        # Resolve git context (explicit > env var > auto-detect)
+        git_ctx = auto_detect_git_context()
+        self.git_repo = git_repo or os.environ.get("TRACEROOT_GIT_REPO") or git_ctx.get("git_repo")
+        self.git_ref = git_ref or os.environ.get("TRACEROOT_GIT_REF") or git_ctx.get("git_ref")
 
         self._enabled = enabled and bool(self.api_key)
         self._span_processor: TracerootSpanProcessor | None = None
