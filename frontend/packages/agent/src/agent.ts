@@ -171,10 +171,9 @@ function resolveModel(modelId?: string, providerConfig?: ProviderConfig | null) 
   if (providerConfig) {
     const piAIProvider = ADAPTER_TO_PI_AI[providerConfig.adapter];
     if (piAIProvider) {
-      const modelProtocols =
-        (providerConfig.config as Record<string, unknown>)?.modelProtocols as
-          | Record<string, string>
-          | undefined;
+      const modelProtocols = (providerConfig.config as Record<string, unknown>)?.modelProtocols as
+        | Record<string, string>
+        | undefined;
       const apiProtocol =
         modelProtocols?.[effectiveModelId] ||
         ADAPTER_API_PROTOCOL[providerConfig.adapter] ||
@@ -256,7 +255,10 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
   }
 
   const model = resolveModel(config.model, providerConfig);
-  console.log(`[Agent] Using model="${config.model || "claude-sonnet-4-5"}" source=${config.source || "system"} provider=${config.providerName || "—"}`, JSON.stringify(model));
+  console.log(
+    `[Agent] Using model="${config.model || "claude-sonnet-4-5"}" source=${config.source || "system"} provider=${config.providerName || "—"}`,
+    JSON.stringify(model),
+  );
 
   const agent = new Agent({
     initialState: {

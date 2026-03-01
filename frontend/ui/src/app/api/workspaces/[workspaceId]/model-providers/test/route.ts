@@ -59,13 +59,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return errorResponse(result.error.issues[0].message, 400);
   }
 
-  const {
-    adapter,
-    baseUrl,
-    awsAccessKeyId,
-    awsSecretAccessKey,
-    useDefaultCredentials,
-  } = result.data;
+  const { adapter, baseUrl, awsAccessKeyId, awsSecretAccessKey, useDefaultCredentials } =
+    result.data;
 
   // Resolve API key: use provided key, or fetch from DB via providerId
   let apiKey = result.data.apiKey;
