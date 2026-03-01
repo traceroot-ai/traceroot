@@ -90,10 +90,7 @@ export const SYSTEM_MODELS: {
 
 // Available API protocols per adapter — shown in provider settings UI
 // When multiple protocols are available, user can choose; otherwise the default is used.
-export const ADAPTER_AVAILABLE_PROTOCOLS: Record<
-  string,
-  { value: string; label: string }[]
-> = {
+export const ADAPTER_AVAILABLE_PROTOCOLS: Record<string, { value: string; label: string }[]> = {
   openai: [
     { value: "openai-completions", label: "Chat Completions" },
     { value: "openai-responses", label: "Responses API" },

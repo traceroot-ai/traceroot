@@ -108,7 +108,8 @@ export function useAIStream() {
                   }
                 }
                 if (eventData.type === "error") {
-                  const errorMsg = eventData.message || eventData.error?.errorMessage || "Unknown error";
+                  const errorMsg =
+                    eventData.message || eventData.error?.errorMessage || "Unknown error";
                   setMessages((prev) =>
                     prev.map((m) =>
                       m.id === assistantMsgId

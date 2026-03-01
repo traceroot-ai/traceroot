@@ -95,7 +95,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
                   {m.label}
                 </span>
                 {showProvider && (
-                  <span className="text-[10px] text-muted-foreground">{m.provider}</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">{m.provider}</span>
                 )}
               </button>
             );

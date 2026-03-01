@@ -31,12 +31,17 @@ app.get("/health", (c) => {
 
 // Cache invalidation — called by Next.js API when a model provider is updated/deleted
 app.post("/api/v1/cache/invalidate-provider", async (c) => {
-  const { workspaceId, providerName } = await c.req.json<{ workspaceId: string; providerName: string }>();
+  const { workspaceId, providerName } = await c.req.json<{
+    workspaceId: string;
+    providerName: string;
+  }>();
   if (!workspaceId || !providerName) {
     return c.json({ error: "workspaceId and providerName required" }, 400);
   }
   invalidateProviderCache(workspaceId, providerName);
-  console.log(`[Agent] Cache invalidated for provider "${providerName}" in workspace ${workspaceId}`);
+  console.log(
+    `[Agent] Cache invalidated for provider "${providerName}" in workspace ${workspaceId}`,
+  );
   return c.json({ ok: true });
 });
 

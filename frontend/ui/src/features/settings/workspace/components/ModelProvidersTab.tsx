@@ -497,15 +497,17 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                       <Input
                         value={model}
                         onChange={(e) => updateCustomModel(i, e.target.value)}
-                        placeholder={{
-                          openai: "e.g. gpt-4o, gpt-5",
-                          anthropic: "e.g. claude-sonnet-4-5",
-                          azure: "e.g. my-gpt4-deployment",
-                          google: "e.g. gemini-2.5-flash",
-                          "amazon-bedrock": "e.g. anthropic.claude-v2",
-                          deepseek: "e.g. deepseek-chat, deepseek-reasoner",
-                          openrouter: "e.g. openai/gpt-4o",
-                        }[adapter] || "Model ID"}
+                        placeholder={
+                          {
+                            openai: "e.g. gpt-4o, gpt-5",
+                            anthropic: "e.g. claude-sonnet-4-5",
+                            azure: "e.g. my-gpt4-deployment",
+                            google: "e.g. gemini-2.5-flash",
+                            "amazon-bedrock": "e.g. anthropic.claude-v2",
+                            deepseek: "e.g. deepseek-chat, deepseek-reasoner",
+                            openrouter: "e.g. openai/gpt-4o",
+                          }[adapter] || "Model ID"
+                        }
                         className="flex-1"
                       />
                       {hasMultipleProtocols && (
