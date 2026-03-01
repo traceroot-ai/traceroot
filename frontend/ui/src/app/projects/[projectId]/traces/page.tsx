@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import { formatDuration, formatDate, cn } from "@/lib/utils";
+import { formatDuration, formatDate, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { TraceListItem } from "@/types/api";
 import { useTraces, useListPageState } from "@/features/traces/hooks";
 import { TraceViewerPanel } from "@/features/traces/components";
@@ -27,6 +27,7 @@ export default function TracesPage() {
   const router = useRouter();
   const projectId = params.projectId as string;
   const userId = searchParams.get("user_id");
+  const traceIdFromUrl = searchParams.get("traceId");
 
   // Use URL-synced state management hook (shares date filter with other pages)
   const {
@@ -41,7 +42,7 @@ export default function TracesPage() {
 
   // UI state for popovers
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
-  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
 
   // Fetch traces with combined query options + user filter from URL
   const { data, isLoading, error } = useTraces(projectId, {
@@ -53,36 +54,13 @@ export default function TracesPage() {
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
   const totalPages = Math.ceil(meta.total / meta.limit);
 
-  // Build URL with preserved filter and pagination params
-  const buildUrlWithFilters = (path: string, extraParams?: Record<string, string>) => {
-    const params = new URLSearchParams();
-
-    // Add extra params
-    if (extraParams) {
-      for (const [key, value] of Object.entries(extraParams)) {
-        params.set(key, value);
-      }
-    }
-
-    // Preserve pagination params
-    const pageIndex = searchParams.get("page_index");
-    const pageLimit = searchParams.get("page_limit");
-
-    if (pageIndex) params.set("page_index", pageIndex);
-    if (pageLimit) params.set("page_limit", pageLimit);
-
-    // Preserve date filter params
-    const dateFilter = searchParams.get("date_filter");
-    const start = searchParams.get("start");
-    const end = searchParams.get("end");
-
-    if (dateFilter) params.set("date_filter", dateFilter);
-    if (start) params.set("start", start);
-    if (end) params.set("end", end);
-
-    const queryString = params.toString();
-    return queryString ? `${path}?${queryString}` : path;
-  };
+  const buildUrl = (path: string, extraParams?: Record<string, string>) =>
+    buildUrlWithFilters(path, {
+      dateFilter: state.dateFilter,
+      customStartDate: state.customStartDate,
+      customEndDate: state.customEndDate,
+      extraParams,
+    });
 
   return (
     <div className="relative flex h-full text-[13px]">
@@ -99,7 +77,7 @@ export default function TracesPage() {
               return (
                 <Link
                   key={tab.id}
-                  href={buildUrlWithFilters(`/projects/${projectId}/${tab.href}`)}
+                  href={buildUrl(`/projects/${projectId}/${tab.href}`)}
                   className={cn(
                     "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
                     isActive
@@ -133,7 +111,7 @@ export default function TracesPage() {
               <span className="text-[12px] font-medium text-foreground">{userId}</span>
               <button
                 type="button"
-                onClick={() => router.push(buildUrlWithFilters(`/projects/${projectId}/traces`))}
+                onClick={() => router.push(buildUrl(`/projects/${projectId}/traces`))}
                 className="ml-1 rounded p-0.5 transition-colors hover:bg-muted"
               >
                 <X className="h-3 w-3 text-muted-foreground" />
@@ -367,6 +345,9 @@ export default function TracesPage() {
               traces.findIndex((t: TraceListItem) => t.trace_id === selectedTraceId) <
               traces.length - 1
             }
+            dateFilter={state.dateFilter}
+            customStartDate={state.customStartDate}
+            customEndDate={state.customEndDate}
           />
         </div>
       )}

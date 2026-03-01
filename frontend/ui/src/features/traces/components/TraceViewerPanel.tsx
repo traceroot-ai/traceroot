@@ -17,6 +17,9 @@ interface TraceViewerPanelProps {
   onNavigate: (direction: "up" | "down") => void;
   canNavigateUp: boolean;
   canNavigateDown: boolean;
+  dateFilter?: { id: string; isCustom?: boolean };
+  customStartDate?: Date | null;
+  customEndDate?: Date | null;
 }
 
 /**
@@ -29,6 +32,9 @@ export function TraceViewerPanel({
   onNavigate,
   canNavigateUp,
   canNavigateDown,
+  dateFilter,
+  customStartDate,
+  customEndDate,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   const [aiChatOpen, setAiChatOpen] = useState(false);
@@ -117,6 +123,9 @@ export function TraceViewerPanel({
               trace={trace}
               selection={selection}
               onClose={onClose}
+              dateFilter={dateFilter}
+              customStartDate={customStartDate}
+              customEndDate={customEndDate}
             />
           </div>
 

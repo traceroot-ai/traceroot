@@ -6,8 +6,40 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Build a URL path with preserved date filter and optional extra query params.
+ */
+export function buildUrlWithFilters(
+  basePath: string,
+  opts?: {
+    dateFilter?: { id: string; isCustom?: boolean };
+    customStartDate?: Date | null;
+    customEndDate?: Date | null;
+    extraParams?: Record<string, string>;
+  },
+): string {
+  const params = new URLSearchParams();
+
+  if (opts?.dateFilter) {
+    params.set("date_filter", opts.dateFilter.id);
+    if (opts.dateFilter.isCustom && opts.customStartDate && opts.customEndDate) {
+      params.set("start", opts.customStartDate.toISOString());
+      params.set("end", opts.customEndDate.toISOString());
+    }
+  }
+
+  if (opts?.extraParams) {
+    for (const [key, value] of Object.entries(opts.extraParams)) {
+      params.set(key, value);
+    }
+  }
+
+  const qs = params.toString();
+  return qs ? `${basePath}?${qs}` : basePath;
+}
+
+/**
  * Format duration in milliseconds to human readable string.
- * e.g., 1500 -> "1.5s", 150 -> "150ms", 65000 -> "1m 5s"
+ * e.g., 1500 -> "1.5s", 150 -> "150ms", 65000 -> "1m 5s", 3700000 -> "1h 1m"
  */
 export function formatDuration(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "-";
@@ -18,6 +50,13 @@ export function formatDuration(ms: number | null | undefined): string {
 
   if (ms < 60000) {
     return `${(ms / 1000).toFixed(1)}s`;
+  }
+
+  // For >= 1 hour, show hours and minutes
+  if (ms >= 3600000) {
+    const hours = Math.floor(ms / 3600000);
+    const minutes = Math.round((ms % 3600000) / 60000);
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
   }
 
   const minutes = Math.floor(ms / 60000);
