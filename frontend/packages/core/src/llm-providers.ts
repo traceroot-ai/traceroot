@@ -75,7 +75,7 @@ export const SYSTEM_MODELS: {
     provider: "OpenAI",
     envVar: "OPENAI_API_KEY",
     piAIProvider: "openai",
-    apiProtocol: "openai-responses",
+    apiProtocol: "openai-completions",
     models: [
       { id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
       { id: "gpt-5", label: "GPT-5" },
