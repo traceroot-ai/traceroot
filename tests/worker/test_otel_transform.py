@@ -402,26 +402,6 @@ class TestTransformOtelToClickhouse:
         assert spans[0].get("input_tokens") is not None
         assert spans[0].get("output_tokens") is not None
 
-    def test_environment_from_resource_attrs(self):
-        trace_hex = "aa" * 16
-        span_hex = "bb" * 8
-        payload = {
-            "resourceSpans": [
-                {
-                    "resource": {"attributes": [make_attr("deployment.environment", "staging")]},
-                    "scopeSpans": [
-                        {
-                            "scope": {"name": "test"},
-                            "spans": [make_span(trace_hex, span_hex)],
-                        }
-                    ],
-                }
-            ]
-        }
-        traces, spans = transform_otel_to_clickhouse(payload, "proj-1")
-        assert traces[0]["environment"] == "staging"
-        assert spans[0]["environment"] == "staging"
-
     def test_openinference_input_output(self):
         trace_hex = "aa" * 16
         span_hex = "bb" * 8

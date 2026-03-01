@@ -18,8 +18,10 @@ CREATE TABLE IF NOT EXISTS spans
     total_tokens        Nullable(Int64),
     input               Nullable(String) CODEC(ZSTD(3)),
     output              Nullable(String) CODEC(ZSTD(3)),
-    environment         String DEFAULT 'default',
     metadata            Nullable(String) CODEC(ZSTD(3)),
+    git_source_file     Nullable(String),
+    git_source_line     Nullable(Int32),
+    git_source_function Nullable(String),
     ch_create_time      DateTime64(3) DEFAULT now64(3),
     ch_update_time      DateTime64(3) DEFAULT now64(3)
 )

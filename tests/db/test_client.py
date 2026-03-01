@@ -23,8 +23,8 @@ class TestInsertTracesBatch:
                 "name": "test-trace",
                 "user_id": "user-1",
                 "session_id": "sess-1",
-                "environment": "production",
-                "release": "v1.0",
+                "git_ref": "abc123",
+                "git_repo": "owner/repo",
                 "input": "hello",
                 "output": "world",
             }
@@ -45,8 +45,8 @@ class TestInsertTracesBatch:
         assert row[3] == "test-trace"  # name
         assert row[4] == "user-1"  # user_id
         assert row[5] == "sess-1"  # session_id
-        assert row[6] == "production"  # environment
-        assert row[7] == "v1.0"  # release
+        assert row[6] == "abc123"  # git_ref
+        assert row[7] == "owner/repo"  # git_repo
         assert row[8] == "hello"  # input
         assert row[9] == "world"  # output
         assert row[10] is None  # metadata
@@ -89,7 +89,6 @@ class TestInsertSpansBatch:
                 "total_tokens": 150,
                 "input": "hello",
                 "output": "world",
-                "environment": "default",
             }
         ]
         client.insert_spans_batch(spans)
@@ -113,7 +112,7 @@ class TestInsertSpansBatch:
         assert row[12] == 100  # input_tokens
         assert row[13] == 50  # output_tokens
         assert row[14] == 150  # total_tokens
-        assert len(columns) == 21
+        assert len(columns) == 23
 
     def test_optional_fields_none(self):
         """None values for optional fields (cost, tokens)."""
