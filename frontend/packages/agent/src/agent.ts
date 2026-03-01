@@ -187,13 +187,10 @@ function resolveModel(modelId?: string, providerConfig?: ProviderConfig | null) 
     }
   }
 
-  // 2. System models: try pi-ai first, fallback to manual construction
+  // 2. System models: always use buildFallbackModel (don't trust pi-ai registry —
+  //    it may use openai-responses which has store/multi-turn issues)
   const sysInfo = systemModelLookup.get(effectiveModelId);
   if (sysInfo) {
-    const model = getModel(sysInfo.piAIProvider as any, effectiveModelId as any);
-    if (model) return model;
-    // Model not in pi-ai registry — build a compatible object
-    console.log(`[Agent] Model "${effectiveModelId}" not in pi-ai, using fallback`);
     return buildFallbackModel(effectiveModelId, sysInfo.apiProtocol, sysInfo.piAIProvider);
   }
 
