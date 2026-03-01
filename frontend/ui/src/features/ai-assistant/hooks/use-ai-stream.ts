@@ -94,6 +94,29 @@ export function useAIStream() {
                     );
                   }
                 }
+                // Show API errors to the user
+                if (eventData.type === "message_end") {
+                  const msg = eventData.message;
+                  if (msg?.stopReason === "error" && msg.errorMessage) {
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === assistantMsgId
+                          ? { ...m, content: `Error: ${msg.errorMessage}`, isStreaming: false }
+                          : m,
+                      ),
+                    );
+                  }
+                }
+                if (eventData.type === "error") {
+                  const errorMsg = eventData.message || eventData.error?.errorMessage || "Unknown error";
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantMsgId
+                        ? { ...m, content: `Error: ${errorMsg}`, isStreaming: false }
+                        : m,
+                    ),
+                  );
+                }
               } catch {
                 // Skip unparseable lines
               }

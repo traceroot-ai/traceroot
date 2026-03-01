@@ -14,6 +14,20 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 
+const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
+
+async function invalidateAgentProviderCache(workspaceId: string, providerName: string) {
+  try {
+    await fetch(`${AGENT_SERVICE_URL}/api/v1/cache/invalidate-provider`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspaceId, providerName }),
+    });
+  } catch {
+    // Agent service may be down — cache will expire via TTL
+  }
+}
+
 const updateSchema = z.object({
   provider: z.string().min(1).max(100).optional(), // rename label
   apiKey: z.string().min(1).optional(),
@@ -85,8 +99,17 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   if (baseUrl !== undefined) data.baseUrl = baseUrl;
   if (customModels !== undefined) data.customModels = customModels;
   if (withDefaultModels !== undefined) data.withDefaultModels = withDefaultModels;
-  if (config !== undefined) data.config = config;
   if (enabled !== undefined) data.enabled = enabled;
+
+  // Merge config: existing + new config fields + awsRegion (if Bedrock)
+  if (config !== undefined || awsRegion) {
+    const existingConfig = (existing.config as Record<string, unknown>) || {};
+    data.config = {
+      ...existingConfig,
+      ...(config || {}),
+      ...(awsRegion ? { awsRegion } : {}),
+    };
+  }
 
   // Handle credential updates
   if (existing.adapter === "amazon-bedrock") {
@@ -97,10 +120,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       const creds = JSON.stringify({ awsAccessKeyId, awsSecretAccessKey });
       data.keyCipher = encryptKey(creds);
       data.keyPreview = maskKey(awsAccessKeyId);
-    }
-    if (awsRegion) {
-      const existingConfig = (existing.config as Record<string, unknown>) || {};
-      data.config = { ...existingConfig, awsRegion };
     }
   } else if (apiKey) {
     data.keyCipher = encryptKey(apiKey);
@@ -125,6 +144,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       updateTime: true,
     },
   });
+
+  // Invalidate agent cache so the new key takes effect immediately
+  await invalidateAgentProviderCache(workspaceId, existing.provider);
 
   return successResponse(updated);
 }
@@ -151,6 +173,9 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   }
 
   await prisma.modelProvider.delete({ where: { id: providerId } });
+
+  // Invalidate agent cache
+  await invalidateAgentProviderCache(workspaceId, existing.provider);
 
   return successResponse({ deleted: true });
 }

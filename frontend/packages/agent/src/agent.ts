@@ -11,6 +11,7 @@ import {
   SYSTEM_MODELS,
   ADAPTER_TO_PI_AI,
   ADAPTER_DEFAULT_BASE_URL,
+  ADAPTER_API_PROTOCOL,
   BEDROCK_USE_DEFAULT_CREDENTIALS,
 } from "@traceroot/core";
 import { SessionManager } from "./session.js";
@@ -66,7 +67,7 @@ async function fetchProviderConfig(
       return providerConfig;
     }
   } catch (err) {
-    console.warn(`[Agent] Failed to fetch BYOK config for ${providerName}`);
+    console.error(`[Agent] Failed to fetch BYOK config for ${providerName}:`, err);
   }
 
   return null;
@@ -119,10 +120,8 @@ async function fetchProviderKey(workspaceId: string, provider: string): Promise<
   // Fall back to env var
   const envKey = getEnvApiKey(provider);
   if (!envKey) {
-    throw new Error(
-      `No API key found for provider "${provider}". ` +
-        `Configure a BYOK key in workspace settings or set the environment variable.`,
-    );
+    console.warn(`[Agent] No API key found for provider "${provider}" (no BYOK, no env var)`);
+    return "";
   }
   return envKey;
 }
@@ -143,15 +142,11 @@ for (const sys of SYSTEM_MODELS) {
   }
 }
 
-// Provider → default base URL for fallback model objects
-const PROVIDER_BASE_URLS: Record<string, string> = {
-  anthropic: "https://api.anthropic.com",
-  openai: "https://api.openai.com",
-};
-
 /**
  * Build a fallback model object for models not yet in pi-ai's registry.
  * Uses the same shape as pi-ai model objects.
+ * NOTE: baseUrl is left empty so the SDK uses its default (e.g. https://api.openai.com/v1).
+ * The caller sets baseUrl explicitly when needed (DeepSeek, custom URL, etc.).
  */
 function buildFallbackModel(modelId: string, apiProtocol: string, provider: string) {
   return {
@@ -159,8 +154,8 @@ function buildFallbackModel(modelId: string, apiProtocol: string, provider: stri
     name: modelId,
     api: apiProtocol,
     provider,
-    baseUrl: PROVIDER_BASE_URLS[provider] || "",
-    reasoning: true,
+    baseUrl: "",
+    reasoning: false,
     input: ["text", "image"] as ("text" | "image")[],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 200000,
@@ -171,17 +166,23 @@ function buildFallbackModel(modelId: string, apiProtocol: string, provider: stri
 function resolveModel(modelId?: string, providerConfig?: ProviderConfig | null) {
   const effectiveModelId = modelId || "claude-sonnet-4-5";
 
-  // 1. BYOK: use adapter → pi-ai provider mapping
+  // 1. BYOK: always build model from adapter config (don't trust pi-ai registry —
+  //    it may assign a wrong API protocol for custom/BYOK models)
   if (providerConfig) {
     const piAIProvider = ADAPTER_TO_PI_AI[providerConfig.adapter];
     if (piAIProvider) {
-      const model = getModel(piAIProvider as any, effectiveModelId as any);
+      const modelProtocols =
+        (providerConfig.config as Record<string, unknown>)?.modelProtocols as
+          | Record<string, string>
+          | undefined;
+      const apiProtocol =
+        modelProtocols?.[effectiveModelId] ||
+        ADAPTER_API_PROTOCOL[providerConfig.adapter] ||
+        "openai-completions";
+      const model = buildFallbackModel(effectiveModelId, apiProtocol, piAIProvider);
       const baseUrl = providerConfig.baseUrl || ADAPTER_DEFAULT_BASE_URL[providerConfig.adapter];
-      if (baseUrl && model && typeof model === "object" && "config" in model) {
-        (model as any).config = {
-          ...(model as any).config,
-          baseURL: baseUrl,
-        };
+      if (baseUrl) {
+        model.baseUrl = baseUrl;
       }
       return model;
     }
@@ -246,9 +247,16 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
   let providerConfig: ProviderConfig | null = null;
   if (config.source === "byok" && config.providerName) {
     providerConfig = await fetchProviderConfig(config.workspaceId, config.providerName);
+    if (!providerConfig) {
+      throw new Error(
+        `BYOK provider "${config.providerName}" not found or disabled. ` +
+          `Check workspace settings.`,
+      );
+    }
   }
 
   const model = resolveModel(config.model, providerConfig);
+  console.log(`[Agent] Using model="${config.model || "claude-sonnet-4-5"}" source=${config.source || "system"} provider=${config.providerName || "—"}`, JSON.stringify(model));
 
   const agent = new Agent({
     initialState: {
@@ -320,4 +328,20 @@ export function removeAgent(sessionId: string): void {
   sessionAgents.delete(sessionId);
   sessionManagers.delete(sessionId);
   sessionModels.delete(sessionId);
+}
+
+/**
+ * Invalidate cached provider config when a provider is updated or deleted.
+ * Also evicts any session agents that used this provider so they re-fetch on next message.
+ */
+export function invalidateProviderCache(workspaceId: string, providerName: string): void {
+  const cacheKey = `${workspaceId}:${providerName}`;
+  configCache.delete(cacheKey);
+  // Evict session agents that may hold a stale key in their closure
+  for (const [sessionId, modelKey] of sessionModels) {
+    if (modelKey.includes(providerName)) {
+      sessionAgents.delete(sessionId);
+      sessionModels.delete(sessionId);
+    }
+  }
 }

@@ -21,9 +21,25 @@ export const ADAPTER_TO_PI_AI: Record<string, string> = {
   openrouter: "openrouter",
 };
 
-// Default base URLs for adapters that need them
+// Default base URLs for adapters
 export const ADAPTER_DEFAULT_BASE_URL: Record<string, string> = {
+  openai: "https://api.openai.com/v1",
+  anthropic: "https://api.anthropic.com",
+  google: "https://generativelanguage.googleapis.com",
   deepseek: "https://api.deepseek.com/v1",
+  openrouter: "https://openrouter.ai/api/v1",
+};
+
+// API protocol per adapter — used to build fallback model objects for BYOK models
+// not found in pi-ai's registry. Must match pi-ai's registered API providers.
+export const ADAPTER_API_PROTOCOL: Record<string, string> = {
+  openai: "openai-completions",
+  anthropic: "anthropic-messages",
+  azure: "azure-openai-responses",
+  google: "google-generative-ai",
+  "amazon-bedrock": "bedrock-converse-stream",
+  deepseek: "openai-completions",
+  openrouter: "openai-completions",
 };
 
 export interface LLMModelDef {
@@ -71,6 +87,27 @@ export const SYSTEM_MODELS: {
 ];
 
 // Default models per adapter (for BYOK providers)
+
+// Available API protocols per adapter — shown in provider settings UI
+// When multiple protocols are available, user can choose; otherwise the default is used.
+export const ADAPTER_AVAILABLE_PROTOCOLS: Record<
+  string,
+  { value: string; label: string }[]
+> = {
+  openai: [
+    { value: "openai-completions", label: "Chat Completions" },
+    { value: "openai-responses", label: "Responses API" },
+  ],
+  anthropic: [{ value: "anthropic-messages", label: "Messages API" }],
+  azure: [{ value: "azure-openai-responses", label: "Azure OpenAI Responses" }],
+  google: [{ value: "google-generative-ai", label: "Generative AI" }],
+  "amazon-bedrock": [{ value: "bedrock-converse-stream", label: "Bedrock Converse" }],
+  deepseek: [{ value: "openai-completions", label: "Chat Completions" }],
+  openrouter: [
+    { value: "openai-completions", label: "Chat Completions" },
+    { value: "openai-responses", label: "Responses API" },
+  ],
+};
 
 // Adapter UI metadata
 export const ADAPTER_CONFIG: Record<
