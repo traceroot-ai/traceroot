@@ -21,7 +21,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ADAPTER_CONFIG } from "@traceroot/core";
+import {
+  ADAPTER_CONFIG,
+  ADAPTER_API_PROTOCOL,
+  ADAPTER_AVAILABLE_PROTOCOLS,
+  ADAPTER_DEFAULT_BASE_URL,
+} from "@traceroot/core";
 import {
   getModelProviders,
   createModelProvider,
@@ -49,6 +54,8 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   const [customModels, setCustomModels] = useState<string[]>([]);
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Per-model API protocol overrides: modelId -> protocol
+  const [modelProtocols, setModelProtocols] = useState<Record<string, string>>({});
   // Bedrock-specific
   const [awsAccessKeyId, setAwsAccessKeyId] = useState("");
   const [awsSecretAccessKey, setAwsSecretAccessKey] = useState("");
@@ -109,6 +116,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     setApiKey("");
     setBaseUrl("");
     setCustomModels([]);
+    setModelProtocols({});
     setTestResult(null);
     setSaveError(null);
     setAwsAccessKeyId("");
@@ -130,6 +138,9 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     setApiKey("");
     setBaseUrl(p.baseUrl || "");
     setCustomModels(p.customModels || []);
+    setModelProtocols(
+      ((p.config as Record<string, unknown>)?.modelProtocols as Record<string, string>) || {},
+    );
     setTestResult(null);
     setAwsAccessKeyId("");
     setAwsSecretAccessKey("");
@@ -140,12 +151,26 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
 
   function handleSave() {
     setSaveError(null);
+    // Build config with per-model protocol overrides (only non-default ones)
+    const defaultProtocol = ADAPTER_API_PROTOCOL[adapter] || "";
+    const trimmedModels = customModels.map((m) => m.trim()).filter(Boolean);
+    const filteredProtocols: Record<string, string> = {};
+    for (const modelId of trimmedModels) {
+      const proto = modelProtocols[modelId];
+      if (proto && proto !== defaultProtocol) {
+        filteredProtocols[modelId] = proto;
+      }
+    }
+    const config: Record<string, unknown> = {};
+    if (Object.keys(filteredProtocols).length > 0) config.modelProtocols = filteredProtocols;
+
     const base: Record<string, unknown> = {
       adapter,
       provider: providerName,
       baseUrl: baseUrl || undefined,
-      customModels,
+      customModels: trimmedModels,
       withDefaultModels: true,
+      ...(Object.keys(config).length > 0 ? { config } : {}),
     };
 
     if (adapterConfig?.credentialType === "aws") {
@@ -180,8 +205,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
         testData.awsAccessKeyId = awsAccessKeyId;
         testData.awsSecretAccessKey = awsSecretAccessKey;
       }
-    } else {
+    } else if (apiKey) {
       testData.apiKey = apiKey;
+    } else if (editProvider) {
+      // Use stored key from DB
+      testData.providerId = editProvider.id;
     }
     if (baseUrl) testData.baseUrl = baseUrl;
     setTestResult(null);
@@ -196,6 +224,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     if (config && (!providerName || providerName === prevConfig?.label)) {
       setProviderName(config.label);
     }
+    setModelProtocols({});
   }
 
   function addCustomModel() {
@@ -259,7 +288,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     adapter &&
     (adapterConfig?.credentialType === "aws"
       ? useDefaultCredentials || (awsAccessKeyId && awsSecretAccessKey)
-      : !!apiKey);
+      : !!(apiKey || editProvider));
 
   return (
     <div className="space-y-4">
@@ -427,8 +456,8 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
               </div>
             ) : null}
 
-            {/* Base URL — shown for adapters that support it */}
-            {adapterConfig && (
+            {/* Base URL — hidden for Bedrock (uses AWS regions, not URLs) */}
+            {adapterConfig && adapterConfig.credentialType !== "aws" && (
               <div className="space-y-2">
                 <label className="text-sm font-medium">
                   Base URL{adapterConfig.requiresBaseUrl ? "" : " (optional)"}
@@ -439,7 +468,9 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                   placeholder={
                     adapterConfig.requiresBaseUrl
                       ? "https://your-resource.openai.azure.com"
-                      : "Leave blank for default"
+                      : ADAPTER_DEFAULT_BASE_URL[adapter]
+                        ? `Default: ${ADAPTER_DEFAULT_BASE_URL[adapter]}`
+                        : "Leave blank for default"
                   }
                 />
               </div>
@@ -456,24 +487,57 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                   </Button>
                 </div>
 
-                {customModels.map((model, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <Input
-                      value={model}
-                      onChange={(e) => updateCustomModel(i, e.target.value)}
-                      placeholder="Model ID (e.g. deepseek-chat)"
-                      className="flex-1"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeCustomModel(i)}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                ))}
+                {(() => {
+                  const protocols = ADAPTER_AVAILABLE_PROTOCOLS[adapter];
+                  const hasMultipleProtocols = protocols && protocols.length > 1;
+                  const defaultProto = ADAPTER_API_PROTOCOL[adapter] || "";
+
+                  return customModels.map((model, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Input
+                        value={model}
+                        onChange={(e) => updateCustomModel(i, e.target.value)}
+                        placeholder={{
+                          openai: "e.g. gpt-4o, gpt-5",
+                          anthropic: "e.g. claude-sonnet-4-5",
+                          azure: "e.g. my-gpt4-deployment",
+                          google: "e.g. gemini-2.5-flash",
+                          "amazon-bedrock": "e.g. anthropic.claude-v2",
+                          deepseek: "e.g. deepseek-chat, deepseek-reasoner",
+                          openrouter: "e.g. openai/gpt-4o",
+                        }[adapter] || "Model ID"}
+                        className="flex-1"
+                      />
+                      {hasMultipleProtocols && (
+                        <Select
+                          value={modelProtocols[model] || defaultProto}
+                          onValueChange={(v) =>
+                            setModelProtocols((prev) => ({ ...prev, [model]: v }))
+                          }
+                        >
+                          <SelectTrigger className="w-[180px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {protocols.map((p) => (
+                              <SelectItem key={p.value} value={p.value}>
+                                {p.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeCustomModel(i)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ));
+                })()}
 
                 {customModels.length === 0 && (
                   <p className="text-xs text-muted-foreground">

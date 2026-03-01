@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { Role, LLMAdapter } from "@traceroot/core";
+import { Role, LLMAdapter, prisma, decryptKey } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -21,6 +21,7 @@ const ADAPTER_VALUES = [
 const testSchema = z.object({
   adapter: z.enum(ADAPTER_VALUES),
   apiKey: z.string().optional(),
+  providerId: z.string().optional(), // use stored key from DB
   baseUrl: z.string().optional(),
   config: z.record(z.string(), z.unknown()).optional(),
   // Bedrock-specific
@@ -60,13 +61,23 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   const {
     adapter,
-    apiKey,
     baseUrl,
     awsAccessKeyId,
     awsSecretAccessKey,
-    awsRegion,
     useDefaultCredentials,
   } = result.data;
+
+  // Resolve API key: use provided key, or fetch from DB via providerId
+  let apiKey = result.data.apiKey;
+  if (!apiKey && result.data.providerId) {
+    const provider = await prisma.modelProvider.findFirst({
+      where: { id: result.data.providerId, workspaceId },
+      select: { keyCipher: true },
+    });
+    if (provider?.keyCipher) {
+      apiKey = decryptKey(provider.keyCipher);
+    }
+  }
 
   try {
     switch (adapter) {
