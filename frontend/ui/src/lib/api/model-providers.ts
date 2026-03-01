@@ -18,7 +18,7 @@ export interface ModelProviderResponse {
   updateTime: string;
 }
 
-export interface AvailableLlmModel {
+export interface AvailableLLMModel {
   id: string;
   label: string;
 }
@@ -26,17 +26,17 @@ export interface AvailableLlmModel {
 export interface SystemModelGroup {
   provider: string;
   source: "system";
-  models: AvailableLlmModel[];
+  models: AvailableLLMModel[];
 }
 
 export interface ByokProviderGroup {
   provider: string; // user-defined label
   adapter: string;
   source: "byok";
-  models: AvailableLlmModel[];
+  models: AvailableLLMModel[];
 }
 
-export interface LlmModelsResponse {
+export interface LLMModelsResponse {
   systemModels: SystemModelGroup[];
   byokProviders: ByokProviderGroup[];
 }
@@ -118,6 +118,6 @@ export async function testModelProvider(
   });
 }
 
-export async function getAvailableLlmModels(workspaceId: string): Promise<LlmModelsResponse> {
+export async function getAvailableLLMModels(workspaceId: string): Promise<LLMModelsResponse> {
   return fetchNextApi(`/workspaces/${workspaceId}/llm-models`);
 }

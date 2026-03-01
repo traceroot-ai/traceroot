@@ -49,12 +49,12 @@ export {
   updateModelProvider,
   deleteModelProvider,
   testModelProvider,
-  getAvailableLlmModels,
+  getAvailableLLMModels,
   type ModelProviderResponse,
-  type AvailableLlmModel,
+  type AvailableLLMModel,
   type SystemModelGroup,
   type ByokProviderGroup,
-  type LlmModelsResponse,
+  type LLMModelsResponse,
 } from "./model-providers";
 
 // Trace APIs

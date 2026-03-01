@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { SYSTEM_MODELS } from "@traceroot/core";
-import { getAvailableLlmModels, type AvailableLlmModel } from "@/lib/api";
+import { getAvailableLLMModels, type AvailableLLMModel } from "@/lib/api";
 
 export interface ModelSelection {
   model: string;
@@ -31,12 +31,12 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
 
   const { data } = useQuery({
     queryKey: ["llm-models", workspaceId],
-    queryFn: () => getAvailableLlmModels(workspaceId!),
+    queryFn: () => getAvailableLLMModels(workspaceId!),
     enabled: !!workspaceId,
   });
 
   // Build flat model list: system models + BYOK-only models (deduplicated)
-  const models: (AvailableLlmModel & { provider: string; source: "system" | "byok" })[] = (() => {
+  const models: (AvailableLLMModel & { provider: string; source: "system" | "byok" })[] = (() => {
     if (!data) return FALLBACK_MODELS;
     const systemList = data.systemModels.flatMap((g) =>
       g.models.map((m) => ({ ...m, provider: g.provider, source: "system" as const })),
