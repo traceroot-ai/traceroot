@@ -96,7 +96,7 @@ model ModelProvider {
   adapter           String    @db.VarChar        // "openai"|"anthropic"|"azure"|"google"|"amazon-bedrock"|"deepseek"|"openrouter"
   provider          String    @db.VarChar        // user-defined label: "My OpenAI", "DeepSeek", etc.
   keyCipher         String    @map("key_cipher") @db.Text
-  keyPreview        String    @map("key_preview") @db.VarChar  // "...xxxx"
+  keyPreview        String    @map("key_preview") @db.VarChar  // "xxxx...xxxx"
   baseUrl           String?   @map("base_url") @db.VarChar
   customModels      String[]  @default([]) @map("custom_models")
   withDefaultModels Boolean   @default(true) @map("with_default_models")
