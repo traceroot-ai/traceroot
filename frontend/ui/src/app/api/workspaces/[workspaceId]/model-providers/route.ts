@@ -7,7 +7,7 @@ import {
   maskKey,
   hasEntitlement,
   type PlanType,
-  LlmAdapter,
+  LLMAdapter,
   BEDROCK_USE_DEFAULT_CREDENTIALS,
 } from "@traceroot/core";
 import {
@@ -18,13 +18,13 @@ import {
 } from "@/lib/auth-helpers";
 
 const ADAPTER_VALUES = [
-  LlmAdapter.OPENAI,
-  LlmAdapter.ANTHROPIC,
-  LlmAdapter.AZURE,
-  LlmAdapter.GOOGLE,
-  LlmAdapter.AMAZON_BEDROCK,
-  LlmAdapter.DEEPSEEK,
-  LlmAdapter.OPENROUTER,
+  LLMAdapter.OPENAI,
+  LLMAdapter.ANTHROPIC,
+  LLMAdapter.AZURE,
+  LLMAdapter.GOOGLE,
+  LLMAdapter.AMAZON_BEDROCK,
+  LLMAdapter.DEEPSEEK,
+  LLMAdapter.OPENROUTER,
 ] as const;
 
 const createSchema = z.object({

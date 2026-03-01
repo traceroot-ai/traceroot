@@ -1,5 +1,5 @@
 // Adapter enum — maps to pi-ai provider names
-export const LlmAdapter = {
+export const LLMAdapter = {
   OPENAI: "openai",
   ANTHROPIC: "anthropic",
   AZURE: "azure",
@@ -8,7 +8,7 @@ export const LlmAdapter = {
   DEEPSEEK: "deepseek",
   OPENROUTER: "openrouter",
 } as const;
-export type LlmAdapter = (typeof LlmAdapter)[keyof typeof LlmAdapter];
+export type LLMAdapter = (typeof LLMAdapter)[keyof typeof LLMAdapter];
 
 // Maps our adapter name → pi-ai's getModel() provider argument
 export const ADAPTER_TO_PI_AI: Record<string, string> = {
@@ -26,7 +26,7 @@ export const ADAPTER_DEFAULT_BASE_URL: Record<string, string> = {
   deepseek: "https://api.deepseek.com/v1",
 };
 
-export interface LlmModelDef {
+export interface LLMModelDef {
   id: string;
   label: string;
 }
@@ -37,15 +37,15 @@ export interface LlmModelDef {
 export const SYSTEM_MODELS: {
   provider: string;
   envVar: string;
-  piAiProvider: string;
+  piAIProvider: string;
   /** pi-ai API protocol used to construct fallback model objects */
   apiProtocol: string;
-  models: LlmModelDef[];
+  models: LLMModelDef[];
 }[] = [
   {
     provider: "Anthropic",
     envVar: "ANTHROPIC_API_KEY",
-    piAiProvider: "anthropic",
+    piAIProvider: "anthropic",
     apiProtocol: "anthropic-messages",
     models: [
       { id: "claude-opus-4-6", label: "Claude Opus 4.6" },
@@ -58,7 +58,7 @@ export const SYSTEM_MODELS: {
   {
     provider: "OpenAI",
     envVar: "OPENAI_API_KEY",
-    piAiProvider: "openai",
+    piAIProvider: "openai",
     apiProtocol: "openai-responses",
     models: [
       { id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
@@ -71,7 +71,7 @@ export const SYSTEM_MODELS: {
 ];
 
 // Default models per adapter (for BYOK providers)
-export const DEFAULT_MODELS: Record<string, LlmModelDef[]> = {
+export const DEFAULT_MODELS: Record<string, LLMModelDef[]> = {
   openai: [
     { id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
     { id: "gpt-5", label: "GPT-5" },

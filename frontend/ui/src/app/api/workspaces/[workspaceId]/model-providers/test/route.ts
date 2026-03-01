@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { Role, LlmAdapter } from "@traceroot/core";
+import { Role, LLMAdapter } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -9,13 +9,13 @@ import {
 } from "@/lib/auth-helpers";
 
 const ADAPTER_VALUES = [
-  LlmAdapter.OPENAI,
-  LlmAdapter.ANTHROPIC,
-  LlmAdapter.AZURE,
-  LlmAdapter.GOOGLE,
-  LlmAdapter.AMAZON_BEDROCK,
-  LlmAdapter.DEEPSEEK,
-  LlmAdapter.OPENROUTER,
+  LLMAdapter.OPENAI,
+  LLMAdapter.ANTHROPIC,
+  LLMAdapter.AZURE,
+  LLMAdapter.GOOGLE,
+  LLMAdapter.AMAZON_BEDROCK,
+  LLMAdapter.DEEPSEEK,
+  LLMAdapter.OPENROUTER,
 ] as const;
 
 const testSchema = z.object({

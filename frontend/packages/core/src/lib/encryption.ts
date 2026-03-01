@@ -1,7 +1,8 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 
 const ALGORITHM = "aes-256-gcm";
-const IV_LENGTH = 12;
+/** Initialization vector length in bytes. A random IV ensures identical plaintexts produce different ciphertexts. */
+const INIT_VECTOR_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 
 function getEncryptionKey(): Buffer {
@@ -18,13 +19,13 @@ function getEncryptionKey(): Buffer {
  */
 export function encryptKey(plaintext: string): string {
   const key = getEncryptionKey();
-  const iv = randomBytes(IV_LENGTH);
-  const cipher = createCipheriv(ALGORITHM, key, iv, {
+  const initVector = randomBytes(INIT_VECTOR_LENGTH);
+  const cipher = createCipheriv(ALGORITHM, key, initVector, {
     authTagLength: AUTH_TAG_LENGTH,
   });
   const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
-  return `${iv.toString("base64")}:${encrypted.toString("base64")}:${authTag.toString("base64")}`;
+  return `${initVector.toString("base64")}:${encrypted.toString("base64")}:${authTag.toString("base64")}`;
 }
 
 /**
@@ -32,14 +33,14 @@ export function encryptKey(plaintext: string): string {
  */
 export function decryptKey(encrypted: string): string {
   const key = getEncryptionKey();
-  const [ivB64, ciphertextB64, tagB64] = encrypted.split(":");
-  if (!ivB64 || !ciphertextB64 || !tagB64) {
+  const [initVectorB64, ciphertextB64, tagB64] = encrypted.split(":");
+  if (!initVectorB64 || !ciphertextB64 || !tagB64) {
     throw new Error("Invalid encrypted key format");
   }
-  const iv = Buffer.from(ivB64, "base64");
+  const initVector = Buffer.from(initVectorB64, "base64");
   const ciphertext = Buffer.from(ciphertextB64, "base64");
   const authTag = Buffer.from(tagB64, "base64");
-  const decipher = createDecipheriv(ALGORITHM, key, iv, {
+  const decipher = createDecipheriv(ALGORITHM, key, initVector, {
     authTagLength: AUTH_TAG_LENGTH,
   });
   decipher.setAuthTag(authTag);
@@ -48,9 +49,10 @@ export function decryptKey(encrypted: string): string {
 }
 
 /**
- * Mask an API key for display: returns `"...xxxx"` (last 4 chars).
+ * Mask an API key for display: returns `"xxxx...xxxx"` (first 4 + last 4 chars).
+ * Follows the same pattern as traceroot API tokens.
  */
 export function maskKey(key: string): string {
-  if (key.length <= 4) return "..." + key;
-  return "..." + key.slice(-4);
+  if (key.length <= 8) return key;
+  return key.slice(0, 4) + "..." + key.slice(-4);
 }

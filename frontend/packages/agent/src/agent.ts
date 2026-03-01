@@ -15,16 +15,16 @@ import {
 } from "@traceroot/core";
 import { SessionManager } from "./session.js";
 
-// Provider key cache: workspaceId:provider -> { key, expiresAt }
-const keyCache = new Map<string, { key: string; expiresAt: number }>();
-const KEY_CACHE_TTL_MS = 60_000; // 1 minute
-
 interface ProviderConfig {
   adapter: string;
   key: string;
   baseUrl: string | null;
   config: Record<string, unknown> | null;
 }
+
+// Provider config cache: workspaceId:provider -> { config, expiresAt }
+const configCache = new Map<string, { config: ProviderConfig; expiresAt: number }>();
+const CONFIG_CACHE_TTL_MS = 60_000; // 1 minute
 
 /**
  * Resolve full provider config for a BYOK provider by name.
@@ -34,7 +34,10 @@ async function fetchProviderConfig(
   providerName: string,
 ): Promise<ProviderConfig | null> {
   const cacheKey = `${workspaceId}:${providerName}`;
-  const cached = keyCache.get(cacheKey);
+  const cached = configCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.config;
+  }
 
   try {
     const row = await prisma.modelProvider.findUnique({
@@ -50,13 +53,17 @@ async function fetchProviderConfig(
 
     if (row?.enabled && row.keyCipher) {
       const key = decryptKey(row.keyCipher);
-      keyCache.set(cacheKey, { key, expiresAt: Date.now() + KEY_CACHE_TTL_MS });
-      return {
+      const providerConfig: ProviderConfig = {
         adapter: row.adapter,
         key,
         baseUrl: row.baseUrl,
         config: row.config as Record<string, unknown> | null,
       };
+      configCache.set(cacheKey, {
+        config: providerConfig,
+        expiresAt: Date.now() + CONFIG_CACHE_TTL_MS,
+      });
+      return providerConfig;
     }
   } catch (err) {
     console.warn(`[Agent] Failed to fetch BYOK config for ${providerName}`);
@@ -70,24 +77,38 @@ async function fetchProviderConfig(
  * Used as the getApiKey callback for the Agent.
  */
 async function fetchProviderKey(workspaceId: string, provider: string): Promise<string> {
-  const cacheKey = `${workspaceId}:${provider}`;
-  const cached = keyCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.key;
+  // Check configCache — any cached provider whose adapter maps to this pi-ai provider
+  for (const [, cached] of configCache) {
+    if (cached.expiresAt > Date.now()) {
+      const piAIProvider = ADAPTER_TO_PI_AI[cached.config.adapter];
+      if (piAIProvider === provider) {
+        return cached.config.key;
+      }
+    }
   }
 
   // Try to find any BYOK provider that maps to this pi-ai provider
   try {
     const rows = await prisma.modelProvider.findMany({
       where: { workspaceId, enabled: true },
-      select: { adapter: true, keyCipher: true, provider: true },
+      select: { adapter: true, keyCipher: true, provider: true, baseUrl: true, config: true },
     });
 
     for (const row of rows) {
-      const piAiProvider = ADAPTER_TO_PI_AI[row.adapter];
-      if (piAiProvider === provider && row.keyCipher) {
+      const piAIProvider = ADAPTER_TO_PI_AI[row.adapter];
+      if (piAIProvider === provider && row.keyCipher) {
         const key = decryptKey(row.keyCipher);
-        keyCache.set(cacheKey, { key, expiresAt: Date.now() + KEY_CACHE_TTL_MS });
+        const providerConfig: ProviderConfig = {
+          adapter: row.adapter,
+          key,
+          baseUrl: row.baseUrl,
+          config: row.config as Record<string, unknown> | null,
+        };
+        const cacheKey = `${workspaceId}:${row.provider}`;
+        configCache.set(cacheKey, {
+          config: providerConfig,
+          expiresAt: Date.now() + CONFIG_CACHE_TTL_MS,
+        });
         return key;
       }
     }
@@ -112,11 +133,11 @@ const sessionManagers = new Map<string, SessionManager>();
 const sessionModels = new Map<string, string>();
 
 // Build system model lookup from SYSTEM_MODELS
-const systemModelLookup = new Map<string, { piAiProvider: string; apiProtocol: string }>();
+const systemModelLookup = new Map<string, { piAIProvider: string; apiProtocol: string }>();
 for (const sys of SYSTEM_MODELS) {
   for (const m of sys.models) {
     systemModelLookup.set(m.id, {
-      piAiProvider: sys.piAiProvider,
+      piAIProvider: sys.piAIProvider,
       apiProtocol: sys.apiProtocol,
     });
   }
@@ -152,9 +173,9 @@ function resolveModel(modelId?: string, providerConfig?: ProviderConfig | null) 
 
   // 1. BYOK: use adapter → pi-ai provider mapping
   if (providerConfig) {
-    const piAiProvider = ADAPTER_TO_PI_AI[providerConfig.adapter];
-    if (piAiProvider) {
-      const model = getModel(piAiProvider as any, effectiveModelId as any);
+    const piAIProvider = ADAPTER_TO_PI_AI[providerConfig.adapter];
+    if (piAIProvider) {
+      const model = getModel(piAIProvider as any, effectiveModelId as any);
       const baseUrl = providerConfig.baseUrl || ADAPTER_DEFAULT_BASE_URL[providerConfig.adapter];
       if (baseUrl && model && typeof model === "object" && "config" in model) {
         (model as any).config = {
@@ -169,11 +190,11 @@ function resolveModel(modelId?: string, providerConfig?: ProviderConfig | null) 
   // 2. System models: try pi-ai first, fallback to manual construction
   const sysInfo = systemModelLookup.get(effectiveModelId);
   if (sysInfo) {
-    const model = getModel(sysInfo.piAiProvider as any, effectiveModelId as any);
+    const model = getModel(sysInfo.piAIProvider as any, effectiveModelId as any);
     if (model) return model;
     // Model not in pi-ai registry — build a compatible object
     console.log(`[Agent] Model "${effectiveModelId}" not in pi-ai, using fallback`);
-    return buildFallbackModel(effectiveModelId, sysInfo.apiProtocol, sysInfo.piAiProvider);
+    return buildFallbackModel(effectiveModelId, sysInfo.apiProtocol, sysInfo.piAIProvider);
   }
 
   // 3. Default
@@ -236,6 +257,7 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
       thinkingLevel: "off",
       tools: config.tools,
     },
+    // TODO: implement proper convertToLlm instead of identity cast
     convertToLlm: (messages: AgentMessage[]) => messages as Message[],
     getApiKey: async (provider: string) => {
       // If we have BYOK config with a decrypted key, use it directly
