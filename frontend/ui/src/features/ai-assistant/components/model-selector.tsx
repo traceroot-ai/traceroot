@@ -26,6 +26,10 @@ const FALLBACK_MODELS = SYSTEM_MODELS.flatMap((s) =>
   s.models.map((m) => ({ ...m, provider: s.provider, source: "system" as const })),
 );
 
+function modelKey(m: { id: string; source: string; provider: string }) {
+  return `${m.source}:${m.provider}:${m.id}`;
+}
+
 export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
@@ -35,22 +39,20 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
     enabled: !!workspaceId,
   });
 
-  // Build flat model list: system models + BYOK-only models (deduplicated)
+  // Build flat model list: BYOK models first, then system models. No deduplication.
   const models: (AvailableLLMModel & { provider: string; source: "system" | "byok" })[] = (() => {
     if (!data) return FALLBACK_MODELS;
     const systemList = data.systemModels.flatMap((g) =>
       g.models.map((m) => ({ ...m, provider: g.provider, source: "system" as const })),
     );
-    const systemIds = new Set(systemList.map((m) => m.id));
     const byokList = data.byokProviders.flatMap((g) =>
-      g.models
-        .filter((m) => !systemIds.has(m.id)) // skip duplicates of system models
-        .map((m) => ({ ...m, provider: g.provider, source: "byok" as const })),
+      g.models.map((m) => ({ ...m, provider: g.provider, source: "byok" as const })),
     );
     return [...byokList, ...systemList];
   })();
 
-  const selectedModel = models.find((m) => m.id === value.model);
+  const selectedKey = modelKey(value);
+  const selectedModel = models.find((m) => modelKey(m) === selectedKey);
 
   return (
     <div className="flex items-center">
@@ -68,25 +70,36 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
         <PopoverContent
           side="top"
           align="start"
-          className="max-h-[320px] w-[220px] overflow-y-auto p-1"
+          className="max-h-[320px] w-[280px] overflow-y-auto p-1"
           sideOffset={4}
         >
-          {models.map((m) => (
-            <button
-              key={m.id}
-              className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12px] transition-colors hover:bg-muted/50",
-                m.id === value.model && "font-medium text-foreground",
-              )}
-              onClick={() => {
-                onChange({ model: m.id, provider: m.provider, source: m.source });
-                setOpen(false);
-              }}
-            >
-              {m.id === value.model && <span className="text-[11px]">&#10003;</span>}
-              {m.label}
-            </button>
-          ))}
+          {models.map((m) => {
+            const key = modelKey(m);
+            const isSelected = key === selectedKey;
+            // Show provider tag for BYOK models to distinguish from system ones
+            const showProvider = m.source === "byok";
+            return (
+              <button
+                key={key}
+                className={cn(
+                  "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-[12px] transition-colors hover:bg-muted/50",
+                  isSelected && "font-medium text-foreground",
+                )}
+                onClick={() => {
+                  onChange({ model: m.id, provider: m.provider, source: m.source });
+                  setOpen(false);
+                }}
+              >
+                <span className="flex items-center gap-1.5">
+                  {isSelected && <span className="text-[11px]">&#10003;</span>}
+                  {m.label}
+                </span>
+                {showProvider && (
+                  <span className="text-[10px] text-muted-foreground">{m.provider}</span>
+                )}
+              </button>
+            );
+          })}
           {models.length === 0 && (
             <div className="px-2.5 py-3 text-center text-[11px] text-muted-foreground">
               No models available

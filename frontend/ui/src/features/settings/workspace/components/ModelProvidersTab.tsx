@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ADAPTER_CONFIG, DEFAULT_MODELS } from "@traceroot/core";
+import { ADAPTER_CONFIG } from "@traceroot/core";
 import {
   getModelProviders,
   createModelProvider,
@@ -244,7 +244,6 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   const providers = data?.providers ?? [];
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const adapterConfig = adapter ? ADAPTER_CONFIG[adapter] : null;
-  const hasDefaults = adapter ? (DEFAULT_MODELS[adapter] || []).length > 0 : false;
 
   // Determine if save is allowed
   const hasCredentials =
@@ -254,12 +253,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
         ? true // existing key is kept
         : !!apiKey;
   const hasRequiredBaseUrl = adapterConfig?.requiresBaseUrl ? !!baseUrl : true;
-  const hasRequiredCustomModels =
-    adapterConfig?.requiresCustomModels && !hasDefaults
-      ? customModels.filter(Boolean).length > 0
-      : true;
-  const canSave =
-    adapter && providerName && hasCredentials && hasRequiredBaseUrl && hasRequiredCustomModels;
+  const canSave = adapter && providerName && hasCredentials && hasRequiredBaseUrl;
 
   const canTest =
     adapter &&
@@ -451,7 +445,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
               </div>
             )}
 
-            {/* Custom Models */}
+            {/* Models */}
             {adapterConfig && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -462,13 +456,12 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                   </Button>
                 </div>
 
-                {/* Custom model inputs */}
                 {customModels.map((model, i) => (
                   <div key={i} className="flex items-center gap-2">
                     <Input
                       value={model}
                       onChange={(e) => updateCustomModel(i, e.target.value)}
-                      placeholder="Model ID (e.g. gpt-4-deployment)"
+                      placeholder="Model ID (e.g. deepseek-chat)"
                       className="flex-1"
                     />
                     <Button
@@ -482,13 +475,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                   </div>
                 ))}
 
-                {adapterConfig.requiresCustomModels &&
-                  !hasDefaults &&
-                  customModels.length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      This adapter requires at least one custom model ID.
-                    </p>
-                  )}
+                {customModels.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Add model IDs you want to use with this provider.
+                  </p>
+                )}
               </div>
             )}
 
