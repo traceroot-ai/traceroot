@@ -246,20 +246,37 @@ class TraceReaderService:
 
         query = f"""
             SELECT
-                t.session_id,
-                count(DISTINCT t.trace_id) as trace_count,
-                groupUniqArray(t.user_id) as user_ids,
-                min(t.trace_start_time) as first_trace_time,
-                max(t.trace_start_time) as last_trace_time,
-                dateDiff('millisecond', min(t.trace_start_time), max(t.trace_start_time)) as duration_ms,
-                sum(s.input_tokens) as total_input_tokens,
-                sum(s.output_tokens) as total_output_tokens,
-                argMin(t.input, t.trace_start_time) as trace_input,
-                argMax(t.output, t.trace_start_time) as trace_output
-            FROM traces AS t FINAL
-            LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
-            WHERE {where_clause}
-            GROUP BY t.session_id
+                sub.session_id,
+                count(*) as trace_count,
+                groupUniqArray(sub.user_id) as user_ids,
+                min(sub.trace_start_time) as first_trace_time,
+                max(sub.trace_start_time) as last_trace_time,
+                sum(sub.trace_duration_ms) as duration_ms,
+                sum(sub.trace_input_tokens) as total_input_tokens,
+                sum(sub.trace_output_tokens) as total_output_tokens,
+                argMin(sub.trace_input, sub.trace_start_time) as trace_input,
+                argMax(sub.trace_output, sub.trace_start_time) as trace_output
+            FROM (
+                SELECT
+                    t.session_id,
+                    t.trace_id,
+                    t.trace_start_time,
+                    t.user_id,
+                    t.input as trace_input,
+                    t.output as trace_output,
+                    if(
+                        min(s.span_start_time) IS NOT NULL AND max(s.span_end_time) IS NOT NULL,
+                        dateDiff('millisecond', min(s.span_start_time), max(s.span_end_time)),
+                        NULL
+                    ) as trace_duration_ms,
+                    sum(s.input_tokens) as trace_input_tokens,
+                    sum(s.output_tokens) as trace_output_tokens
+                FROM traces AS t FINAL
+                LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
+                WHERE {where_clause}
+                GROUP BY t.session_id, t.trace_id, t.trace_start_time, t.user_id, t.input, t.output
+            ) AS sub
+            GROUP BY sub.session_id
             ORDER BY last_trace_time DESC
             LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
         """
@@ -444,9 +461,9 @@ class TraceReaderService:
 
         first_time = traces[0]["trace_start_time"] if traces else None
         last_time = traces[-1]["trace_start_time"] if traces else None
-        duration_ms = None
-        if first_time and last_time and first_time != last_time:
-            duration_ms = (last_time - first_time).total_seconds() * 1000
+        # Sum of individual trace durations (not wall clock time between first and last)
+        valid_durations = [t["duration_ms"] for t in traces if t["duration_ms"] is not None]
+        duration_ms = sum(valid_durations) if valid_durations else None
 
         return {
             "session_id": session_id,

@@ -2,14 +2,15 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { Workflow, Users, Layers, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ProjectBreadcrumb } from "@/features/projects/components";
+import { SessionDetailPanel } from "@/features/traces/components/SessionDetailPanel";
 import { useSessions, useListPageState } from "@/features/traces/hooks";
-import { formatDate, formatDuration, cn } from "@/lib/utils";
+import { formatDate, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { SessionListItem, SessionQueryOptions } from "@/types/api";
 
 const tabs = [
@@ -18,26 +19,13 @@ const tabs = [
   { id: "sessions", label: "Sessions", icon: Layers, href: "sessions" },
 ];
 
-function formatTokens(count: number | null): string {
-  if (count === null || count === undefined) return "-";
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`;
-  return String(count);
-}
-
-/** Truncate text for table cell preview */
-function truncate(text: string | null, maxLen: number = 80): string {
-  if (!text) return "-";
-  if (text.length <= maxLen) return text;
-  return text.slice(0, maxLen) + "...";
-}
-
 export default function SessionsPage() {
   const params = useParams();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = params.projectId as string;
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
+  const sessionIdFromUrl = searchParams.get("sessionId");
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(sessionIdFromUrl);
 
   const {
     state,
@@ -66,28 +54,13 @@ export default function SessionsPage() {
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
   const totalPages = Math.ceil(meta.total / meta.limit);
 
-  const buildUrlWithFilters = (path: string) => {
-    const urlParams = new URLSearchParams();
-
-    const pageIndex = searchParams.get("page_index");
-    const pageLimit = searchParams.get("page_limit");
-    if (pageIndex) urlParams.set("page_index", pageIndex);
-    if (pageLimit) urlParams.set("page_limit", pageLimit);
-
-    const dateFilter = searchParams.get("date_filter");
-    const start = searchParams.get("start");
-    const end = searchParams.get("end");
-    if (dateFilter) urlParams.set("date_filter", dateFilter);
-    if (start) urlParams.set("start", start);
-    if (end) urlParams.set("end", end);
-
-    const queryString = urlParams.toString();
-    return queryString ? `${path}?${queryString}` : path;
-  };
-
-  const handleSessionClick = (sessionId: string) => {
-    router.push(`/projects/${projectId}/sessions/${encodeURIComponent(sessionId)}`);
-  };
+  const buildUrl = (path: string, extraParams?: Record<string, string>) =>
+    buildUrlWithFilters(path, {
+      dateFilter: state.dateFilter,
+      customStartDate: state.customStartDate,
+      customEndDate: state.customEndDate,
+      extraParams,
+    });
 
   return (
     <div className="relative flex h-full text-[13px]">
@@ -103,7 +76,7 @@ export default function SessionsPage() {
               return (
                 <Link
                   key={tab.id}
-                  href={buildUrlWithFilters(`/projects/${projectId}/${tab.href}`)}
+                  href={buildUrl(`/projects/${projectId}/${tab.href}`)}
                   className={cn(
                     "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
                     isActive
@@ -123,7 +96,7 @@ export default function SessionsPage() {
         <SearchFilterBar
           searchValue={state.keyword}
           onSearchChange={updateKeyword}
-          searchPlaceholder="Search by session ID..."
+          searchPlaceholder="Search..."
           dateFilter={state.dateFilter}
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
@@ -162,77 +135,42 @@ export default function SessionsPage() {
                         Timestamp
                       </th>
                       <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        ID
+                        Session ID
                       </th>
                       <th className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        User IDs
+                        User ID
                       </th>
-                      <th className="w-[70px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="w-[70px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Traces
-                      </th>
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Input
-                      </th>
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Output
-                      </th>
-                      <th className="w-[90px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Latency
-                      </th>
-                      <th className="w-[80px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Tokens
                       </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {sessions.map((session: SessionListItem) => {
-                      const totalTokens =
-                        session.total_input_tokens !== null || session.total_output_tokens !== null
-                          ? (session.total_input_tokens ?? 0) + (session.total_output_tokens ?? 0)
-                          : null;
-                      return (
-                        <tr
-                          key={session.session_id}
-                          onClick={() => handleSessionClick(session.session_id)}
-                          className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
-                        >
-                          <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                            {formatDate(session.first_trace_time)}
-                          </td>
-                          <td className="border-r border-border/50 px-3 py-1.5 text-[12px] font-medium text-foreground">
-                            {session.session_id}
-                          </td>
-                          <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                            {session.user_ids.length > 0 ? session.user_ids.join(", ") : "-"}
-                          </td>
-                          <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                            {session.trace_count}
-                          </td>
-                          <td className="max-w-[180px] border-r border-border/50 px-3 py-1.5">
-                            <span
-                              className="block truncate font-mono text-[11px] text-muted-foreground"
-                              title={session.input ?? undefined}
-                            >
-                              {truncate(session.input)}
-                            </span>
-                          </td>
-                          <td className="max-w-[180px] border-r border-border/50 px-3 py-1.5">
-                            <span
-                              className="block truncate font-mono text-[11px] text-muted-foreground"
-                              title={session.output ?? undefined}
-                            >
-                              {truncate(session.output)}
-                            </span>
-                          </td>
-                          <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                            {formatDuration(session.duration_ms)}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-1.5 text-[12px] text-foreground">
-                            {formatTokens(totalTokens)}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {sessions.map((session: SessionListItem) => (
+                      <tr
+                        key={session.session_id}
+                        onClick={() => setSelectedSessionId(session.session_id)}
+                        className={cn(
+                          "cursor-pointer border-b border-border/50 transition-colors last:border-0",
+                          selectedSessionId === session.session_id
+                            ? "bg-muted"
+                            : "hover:bg-muted/50",
+                        )}
+                      >
+                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                          {formatDate(session.first_trace_time)}
+                        </td>
+                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] font-medium text-foreground">
+                          {session.session_id}
+                        </td>
+                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                          {session.user_ids.length > 0 ? session.user_ids.join(", ") : "-"}
+                        </td>
+                        <td className="px-3 py-1.5 text-[12px] text-muted-foreground">
+                          {session.trace_count}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -335,6 +273,37 @@ export default function SessionsPage() {
           )}
         </div>
       </div>
+
+      {/* Detail panel - overlays right side, slides in from right (like traces) */}
+      {selectedSessionId && (
+        <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl">
+          <SessionDetailPanel
+            projectId={projectId}
+            sessionId={selectedSessionId}
+            onClose={() => setSelectedSessionId(null)}
+            onNavigate={(direction) => {
+              const currentIndex = sessions.findIndex(
+                (s: SessionListItem) => s.session_id === selectedSessionId,
+              );
+              if (direction === "up" && currentIndex > 0) {
+                setSelectedSessionId(sessions[currentIndex - 1].session_id);
+              } else if (direction === "down" && currentIndex < sessions.length - 1) {
+                setSelectedSessionId(sessions[currentIndex + 1].session_id);
+              }
+            }}
+            canNavigateUp={
+              sessions.findIndex((s: SessionListItem) => s.session_id === selectedSessionId) > 0
+            }
+            canNavigateDown={
+              sessions.findIndex((s: SessionListItem) => s.session_id === selectedSessionId) <
+              sessions.length - 1
+            }
+            dateFilter={state.dateFilter}
+            customStartDate={state.customStartDate}
+            customEndDate={state.customEndDate}
+          />
+        </div>
+      )}
     </div>
   );
 }
