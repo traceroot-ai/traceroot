@@ -71,30 +71,6 @@ export const SYSTEM_MODELS: {
 ];
 
 // Default models per adapter (for BYOK providers)
-export const DEFAULT_MODELS: Record<string, LLMModelDef[]> = {
-  openai: [
-    { id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
-    { id: "gpt-5", label: "GPT-5" },
-    { id: "gpt-5-mini", label: "GPT-5 Mini" },
-  ],
-  anthropic: [
-    { id: "claude-opus-4-6", label: "Claude Opus 4.6" },
-    { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-    { id: "claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
-    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
-  ],
-  google: [
-    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
-    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-  ],
-  deepseek: [
-    { id: "deepseek-chat", label: "DeepSeek Chat" },
-    { id: "deepseek-reasoner", label: "DeepSeek Reasoner" },
-  ],
-  azure: [],
-  "amazon-bedrock": [],
-  openrouter: [],
-};
 
 // Adapter UI metadata
 export const ADAPTER_CONFIG: Record<

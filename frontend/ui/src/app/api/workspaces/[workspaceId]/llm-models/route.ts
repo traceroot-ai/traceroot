@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma, SYSTEM_MODELS, DEFAULT_MODELS } from "@traceroot/core";
+import { prisma, SYSTEM_MODELS } from "@traceroot/core";
 import { requireAuth, requireWorkspaceMembership, successResponse } from "@/lib/auth-helpers";
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
@@ -21,37 +21,22 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     models: s.models,
   }));
 
-  // BYOK providers: fetch from DB, merge default + custom models
+  // BYOK providers: only user-configured custom models
   const dbProviders = await prisma.modelProvider.findMany({
     where: { workspaceId, enabled: true },
     select: {
       adapter: true,
       provider: true,
       customModels: true,
-      withDefaultModels: true,
     },
   });
 
-  const byokProviders = dbProviders.map((p) => {
-    const defaultModels = p.withDefaultModels ? DEFAULT_MODELS[p.adapter] || [] : [];
-    const customModels = (p.customModels || []).map((id) => ({
-      id,
-      label: id,
-    }));
-    // Merge defaults + custom, deduplicate by ID
-    const allModels = [...defaultModels];
-    for (const cm of customModels) {
-      if (!allModels.some((m) => m.id === cm.id)) {
-        allModels.push(cm);
-      }
-    }
-    return {
-      provider: p.provider,
-      adapter: p.adapter,
-      source: "byok" as const,
-      models: allModels,
-    };
-  });
+  const byokProviders = dbProviders.map((p) => ({
+    provider: p.provider,
+    adapter: p.adapter,
+    source: "byok" as const,
+    models: (p.customModels || []).map((id) => ({ id, label: id })),
+  }));
 
   return successResponse({ systemModels, byokProviders });
 }
