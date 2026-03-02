@@ -46,12 +46,12 @@ class TraceReaderService:
             params["user_id"] = user_id
 
         # Date range filtering (convert to UTC naive datetime for ClickHouse)
-        if start_after:
+        if start_after is not None:
             conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
             params["start_after"] = _to_utc_naive(start_after)
 
-        if end_before:
-            conditions.append("t.trace_start_time <= {end_before:DateTime64(3)}")
+        if end_before is not None:
+            conditions.append("t.trace_start_time < {end_before:DateTime64(3)}")
             params["end_before"] = _to_utc_naive(end_before)
 
         # Multi-field keyword search (trace_id, name, session_id, user_id)
@@ -234,12 +234,12 @@ class TraceReaderService:
             conditions.append("t.session_id ILIKE {search_kw:String}")
             params["search_kw"] = f"%{search_query}%"
 
-        if start_after:
+        if start_after is not None:
             conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
             params["start_after"] = _to_utc_naive(start_after)
 
-        if end_before:
-            conditions.append("t.trace_start_time <= {end_before:DateTime64(3)}")
+        if end_before is not None:
+            conditions.append("t.trace_start_time < {end_before:DateTime64(3)}")
             params["end_before"] = _to_utc_naive(end_before)
 
         where_clause = " AND ".join(conditions)
@@ -358,12 +358,35 @@ class TraceReaderService:
         stripped = value.strip()
         return stripped in ("", "{}", "null", "None")
 
-    def get_session(self, project_id: str, session_id: str) -> dict | None:
+    def get_session(
+        self,
+        project_id: str,
+        session_id: str,
+        start_after: datetime | None = None,
+        end_before: datetime | None = None,
+    ) -> dict | None:
         """Get session detail with all traces for conversation view."""
         params: dict = {"project_id": project_id, "session_id": session_id}
 
+        # Build WHERE conditions
+        conditions = [
+            "t.project_id = {project_id:String}",
+            "t.session_id = {session_id:String}",
+        ]
+
+        # Date range filtering
+        if start_after is not None:
+            conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
+            params["start_after"] = _to_utc_naive(start_after)
+
+        if end_before is not None:
+            conditions.append("t.trace_start_time < {end_before:DateTime64(3)}")
+            params["end_before"] = _to_utc_naive(end_before)
+
+        where_clause = " AND ".join(conditions)
+
         # Step 1: Get all traces for this session with basic info
-        traces_query = """
+        traces_query = f"""
             SELECT
                 t.trace_id,
                 t.name,
@@ -379,7 +402,7 @@ class TraceReaderService:
                 if(countIf(s.status = 'ERROR') > 0, 'error', 'ok') as status
             FROM traces AS t FINAL
             LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
-            WHERE t.project_id = {project_id:String} AND t.session_id = {session_id:String}
+            WHERE {where_clause}
             GROUP BY t.trace_id, t.name, t.trace_start_time, t.user_id, t.input, t.output
             ORDER BY t.trace_start_time ASC
         """

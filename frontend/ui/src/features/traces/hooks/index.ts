@@ -3,7 +3,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { getTraces, getTrace } from "@/lib/api";
-import { getSessions, getSession } from "@/lib/api/sessions";
+import { getSessions, getSession, type SessionDetailOptions } from "@/lib/api/sessions";
 import { getUsers, type UserQueryOptions } from "@/lib/api/users";
 import type { SessionQueryOptions, TraceQueryOptions } from "@/types/api";
 
@@ -89,10 +89,15 @@ export function useSessions(projectId: string, options: SessionQueryOptions = {}
 /**
  * Hook for fetching a single session detail
  */
-export function useSession(projectId: string, sessionId: string, enabled: boolean = true) {
+export function useSession(
+  projectId: string,
+  sessionId: string,
+  options: SessionDetailOptions = {},
+  enabled: boolean = true,
+) {
   return useQuery({
-    queryKey: ["session", projectId, sessionId],
-    queryFn: () => getSession(projectId, sessionId),
+    queryKey: ["session", projectId, sessionId, options.start_after, options.end_before],
+    queryFn: () => getSession(projectId, sessionId, options),
     enabled,
   });
 }
