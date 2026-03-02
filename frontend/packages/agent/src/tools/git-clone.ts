@@ -2,6 +2,7 @@ import { Type } from "@mariozechner/pi-ai";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { Executor } from "../executors/interface.js";
 import { setupGhCli } from "../executors/docker.js";
+import { setupGhCliDaytona } from "../executors/daytona.js";
 
 const schema = Type.Object({
   label: Type.String({ description: "Brief description of what you're cloning" }),
@@ -51,36 +52,59 @@ export function createGitCloneTool(
       const { token, github_username } = await tokenRes.json();
 
       // 2. Prepare clone
+      const workDir = executor.getWorkspacePath();
       const repoPath = params.repo.replaceAll("/", "_");
-      const clonePath = `/workspace/repos/${repoPath}`;
-      const cloneUrl = `https://x-access-token:${token}@github.com/${params.repo}.git`;
+      const clonePath = `${workDir}/repos/${repoPath}`;
 
-      // 3. Ensure git is installed and repos dir exists
-      await executor.exec("mkdir -p /workspace/repos");
+      // 3. Ensure repos dir exists
+      await executor.exec(`mkdir -p ${workDir}/repos`);
 
-      // 4. Clone (shallow for speed)
-      let cloneCmd: string;
-      if (params.ref) {
-        // Try as branch/tag first, fall back to fetch+checkout for commit SHAs
-        cloneCmd = `git clone --depth 1 --branch "${params.ref}" "${cloneUrl}" "${clonePath}" 2>/dev/null || (git clone "${cloneUrl}" "${clonePath}" && cd "${clonePath}" && git checkout "${params.ref}")`;
+      // 4. Clone — native SDK path (Daytona) or exec fallback (Docker)
+      if (executor.hasNativeGit?.()) {
+        try {
+          await executor.cloneRepo!(`https://github.com/${params.repo}.git`, clonePath, {
+            ref: params.ref,
+            username: "x-access-token",
+            password: token,
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Clone failed:\n${msg.replaceAll(token, "[REDACTED]")}`,
+              },
+            ],
+            details: undefined,
+          };
+        }
       } else {
-        cloneCmd = `git clone --depth 1 "${cloneUrl}" "${clonePath}"`;
-      }
+        const cloneUrl = `https://x-access-token:${token}@github.com/${params.repo}.git`;
 
-      const result = await executor.exec(cloneCmd, { timeout: 120 });
+        let cloneCmd: string;
+        if (params.ref) {
+          // Try as branch/tag first, fall back to fetch+checkout for commit SHAs
+          cloneCmd = `git clone --depth 1 --branch "${params.ref}" "${cloneUrl}" "${clonePath}" 2>/dev/null || (git clone "${cloneUrl}" "${clonePath}" && cd "${clonePath}" && git checkout "${params.ref}")`;
+        } else {
+          cloneCmd = `git clone --depth 1 "${cloneUrl}" "${clonePath}"`;
+        }
 
-      if (result.code !== 0) {
-        // Sanitize error (remove token from output)
-        const sanitizedErr = result.stderr.replace(token, "[REDACTED]");
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Clone failed:\n${sanitizedErr}`,
-            },
-          ],
-          details: undefined,
-        };
+        const result = await executor.exec(cloneCmd, { timeout: 120 });
+
+        if (result.code !== 0) {
+          // Sanitize error (remove token from output)
+          const sanitizedErr = result.stderr.replace(token, "[REDACTED]");
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Clone failed:\n${sanitizedErr}`,
+              },
+            ],
+            details: undefined,
+          };
+        }
       }
 
       // 5. Get commit info
@@ -88,7 +112,11 @@ export function createGitCloneTool(
 
       // 6. Set up gh CLI in sandbox (install + authenticate) so agent can query PRs/issues
       try {
-        await setupGhCli(executor, token, github_username);
+        if (executor.hasNativeGit?.()) {
+          await setupGhCliDaytona(executor, token, github_username);
+        } else {
+          await setupGhCli(executor, token, github_username);
+        }
       } catch {
         // Non-fatal — clone succeeded, gh is a nice-to-have
         console.warn("[git_clone] Failed to set up gh CLI in sandbox");

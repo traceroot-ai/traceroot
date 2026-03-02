@@ -81,10 +81,15 @@ export function useAIStream() {
               try {
                 const eventData = JSON.parse(line.slice(6));
                 // pi-agent-core message_update events contain assistantMessageEvent
-                // with type "text_delta" and a delta string (the incremental text).
+                // with type "text_delta" (or "thinking_delta" for reasoning models like DeepSeek)
+                // and a delta string (the incremental text).
                 if (eventData.type === "message_update") {
                   const delta = eventData.assistantMessageEvent;
-                  if (delta?.type === "text_delta" && delta.delta) {
+                  // Handle both text_delta and thinking_delta (for DeepSeek reasoner)
+                  if (
+                    (delta?.type === "text_delta" || delta?.type === "thinking_delta") &&
+                    delta.delta
+                  ) {
                     setMessages((prev) =>
                       prev.map((msg) =>
                         msg.id === assistantMsgId
