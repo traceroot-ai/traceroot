@@ -45,4 +45,21 @@ export interface Executor {
 
   /** Tear down the sandbox/container. */
   destroy(): Promise<void>;
+
+  /**
+   * Clone a git repository using native SDK support (optional).
+   * Falls back to exec('git clone ...') if not implemented.
+   */
+  cloneRepo?(
+    url: string,
+    path: string,
+    options?: {
+      ref?: string;
+      username?: string;
+      password?: string;
+    },
+  ): Promise<void>;
+
+  /** Whether this executor has native git support. */
+  hasNativeGit?(): boolean;
 }
