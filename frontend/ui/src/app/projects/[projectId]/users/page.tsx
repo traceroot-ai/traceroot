@@ -2,14 +2,14 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { Workflow, Users, Layers, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useUsers, useListPageState } from "@/features/traces/hooks";
-import { formatDate, cn } from "@/lib/utils";
+import { formatDate, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { UserListItem } from "@/lib/api/users";
 import type { UserQueryOptions } from "@/lib/api/users";
 
@@ -22,7 +22,6 @@ const tabs = [
 export default function UsersPage() {
   const params = useParams();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const projectId = params.projectId as string;
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
 
@@ -55,39 +54,16 @@ export default function UsersPage() {
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
   const totalPages = Math.ceil(meta.total / meta.limit);
 
-  // Build URL with preserved filter and pagination params
-  const buildUrlWithFilters = (path: string, extraParams?: Record<string, string>) => {
-    const params = new URLSearchParams();
-
-    // Add extra params (like user_id)
-    if (extraParams) {
-      for (const [key, value] of Object.entries(extraParams)) {
-        params.set(key, value);
-      }
-    }
-
-    // Preserve pagination params
-    const pageIndex = searchParams.get("page_index");
-    const pageLimit = searchParams.get("page_limit");
-
-    if (pageIndex) params.set("page_index", pageIndex);
-    if (pageLimit) params.set("page_limit", pageLimit);
-
-    // Preserve date filter params
-    const dateFilter = searchParams.get("date_filter");
-    const start = searchParams.get("start");
-    const end = searchParams.get("end");
-
-    if (dateFilter) params.set("date_filter", dateFilter);
-    if (start) params.set("start", start);
-    if (end) params.set("end", end);
-
-    const queryString = params.toString();
-    return queryString ? `${path}?${queryString}` : path;
-  };
+  const buildUrl = (path: string, extraParams?: Record<string, string>) =>
+    buildUrlWithFilters(path, {
+      dateFilter: state.dateFilter,
+      customStartDate: state.customStartDate,
+      customEndDate: state.customEndDate,
+      extraParams,
+    });
 
   const handleUserClick = (userId: string) => {
-    router.push(buildUrlWithFilters(`/projects/${projectId}/traces`, { user_id: userId }));
+    router.push(buildUrl(`/projects/${projectId}/traces`, { user_id: userId }));
   };
 
   return (
@@ -105,7 +81,7 @@ export default function UsersPage() {
               return (
                 <Link
                   key={tab.id}
-                  href={buildUrlWithFilters(`/projects/${projectId}/${tab.href}`)}
+                  href={buildUrl(`/projects/${projectId}/${tab.href}`)}
                   className={cn(
                     "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
                     isActive

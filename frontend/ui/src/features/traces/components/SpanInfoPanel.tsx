@@ -14,7 +14,7 @@ import {
   FileCode,
 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
-import { formatDuration, formatDate, formatTokens } from "@/lib/utils";
+import { formatDuration, formatDate, formatTokens, buildUrlWithFilters } from "@/lib/utils";
 import { SpanStatus } from "@traceroot/core";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
@@ -28,13 +28,28 @@ interface SpanInfoPanelProps {
   trace: TraceDetail;
   selection: TraceSelection;
   onClose?: () => void;
+  dateFilter?: { id: string; isCustom?: boolean };
+  customStartDate?: Date | null;
+  customEndDate?: Date | null;
 }
 
 /**
  * Right panel showing detailed information about selected trace or span
  */
-export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfoPanelProps) {
+export function SpanInfoPanel({
+  projectId,
+  trace,
+  selection,
+  onClose,
+  dateFilter,
+  customStartDate,
+  customEndDate,
+}: SpanInfoPanelProps) {
   const router = useRouter();
+
+  const buildUrl = (basePath: string, extraParams?: Record<string, string>) =>
+    buildUrlWithFilters(basePath, { dateFilter, customStartDate, customEndDate, extraParams });
+
   const isTrace = selection.type === "trace";
   const name = isTrace ? trace.name : selection.span.name;
   const kind = isTrace ? "trace" : selection.span.span_kind;
@@ -178,7 +193,9 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
                 onClick={() => {
                   onClose?.();
                   router.push(
-                    `/projects/${projectId}/traces?user_id=${encodeURIComponent(trace.user_id!)}`,
+                    buildUrl(`/projects/${projectId}/traces`, {
+                      user_id: trace.user_id!,
+                    }),
                   );
                 }}
                 className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
@@ -193,7 +210,12 @@ export function SpanInfoPanel({ projectId, trace, selection, onClose }: SpanInfo
               <button
                 type="button"
                 onClick={() => {
-                  /* TODO: handle session_id click */
+                  onClose?.();
+                  router.push(
+                    buildUrl(`/projects/${projectId}/sessions`, {
+                      sessionId: trace.session_id!,
+                    }),
+                  );
                 }}
                 className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
               >
