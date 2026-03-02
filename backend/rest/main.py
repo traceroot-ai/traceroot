@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from rest.routers.internal import router as internal_router
 from rest.routers.public.traces import router as public_traces_router
+from rest.routers.sessions import router as sessions_router
 from rest.routers.traces import router as traces_router
 from rest.routers.users import router as users_router
 from rest.schemas.common import HealthResponse
@@ -41,6 +42,7 @@ app.add_middleware(
 # Trace reading from ClickHouse (user auth via headers from Next.js)
 app.include_router(traces_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
+app.include_router(sessions_router, prefix="/api/v1")
 
 # Public API for SDK ingestion (API key auth)
 app.include_router(public_traces_router, prefix="/api/v1")
