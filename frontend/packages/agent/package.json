@@ -17,12 +17,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@traceroot/core": "workspace:*",
+    "@hono/node-server": "^1.0.0",
     "@mariozechner/pi-agent-core": "^0.52.0",
     "@mariozechner/pi-ai": "^0.52.0",
-    "@sinclair/typebox": "^0.34.0",
-    "hono": "^4.0.0",
-    "@hono/node-server": "^1.0.0"
+    "@traceroot/core": "workspace:*",
+    "hono": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
