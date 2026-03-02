@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -17,6 +18,7 @@ import { ExpandableSection } from "@/components/ui/expandable-section";
 import { useSession } from "@/features/traces/hooks";
 import { ContentRenderer } from "./ContentRenderer";
 import { formatDuration, cn, buildUrlWithFilters } from "@/lib/utils";
+import { toTimestampBounds } from "@/lib/date-filter";
 import type { SessionTraceItem } from "@/types/api";
 
 interface SessionDetailPanelProps {
@@ -89,7 +91,22 @@ export function SessionDetailPanel({
   customEndDate,
 }: SessionDetailPanelProps) {
   const router = useRouter();
-  const { data, isLoading, error } = useSession(projectId, sessionId);
+
+  // Compute timestamps from date filter props
+  const sessionQueryOptions = useMemo(() => {
+    if (!dateFilter) return {};
+    const timestamps = toTimestampBounds(
+      dateFilter.id,
+      customStartDate ?? undefined,
+      customEndDate ?? undefined,
+    );
+    return {
+      start_after: timestamps.startAfter,
+      end_before: timestamps.endBefore,
+    };
+  }, [dateFilter, customStartDate, customEndDate]);
+
+  const { data, isLoading, error } = useSession(projectId, sessionId, sessionQueryOptions);
 
   const buildUrl = (basePath: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(basePath, { dateFilter, customStartDate, customEndDate, extraParams });

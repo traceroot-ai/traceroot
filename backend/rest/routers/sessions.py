@@ -49,11 +49,18 @@ async def get_session(
     project_id: str,
     session_id: str,
     _access: ProjectAccess,
+    start_after: datetime | None = Query(None, description="Filter traces after this time"),
+    end_before: datetime | None = Query(None, description="Filter traces before this time"),
 ):
     """Get session detail with all traces for conversation view."""
     try:
         service = get_trace_reader_service()
-        result = service.get_session(project_id=project_id, session_id=session_id)
+        result = service.get_session(
+            project_id=project_id,
+            session_id=session_id,
+            start_after=start_after,
+            end_before=end_before,
+        )
         if result is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
