@@ -77,7 +77,6 @@ export const SYSTEM_MODELS: {
     piAIProvider: "openai",
     apiProtocol: "openai-completions",
     models: [
-      { id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
       { id: "gpt-5", label: "GPT-5" },
       { id: "gpt-5-mini", label: "GPT-5 Mini" },
       { id: "o3", label: "o3" },
