@@ -25,7 +25,7 @@ export const ADAPTER_TO_PI_AI: Record<string, string> = {
 export const ADAPTER_DEFAULT_BASE_URL: Record<string, string> = {
   openai: "https://api.openai.com/v1",
   anthropic: "https://api.anthropic.com",
-  google: "https://generativelanguage.googleapis.com",
+  google: "https://generativelanguage.googleapis.com/v1alpha",
   deepseek: "https://api.deepseek.com/v1",
   openrouter: "https://openrouter.ai/api/v1",
 };

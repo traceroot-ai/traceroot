@@ -274,6 +274,11 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
           return providerConfig.key;
         }
       }
+      // System models: always use env var, never fall through to BYOK keys
+      if (config.source !== "byok") {
+        const envKey = getEnvApiKey(provider);
+        if (envKey) return envKey;
+      }
       return fetchProviderKey(config.workspaceId, provider);
     },
   });
