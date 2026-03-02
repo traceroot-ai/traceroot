@@ -1,4 +1,4 @@
-import { Type, type Static } from "@sinclair/typebox";
+import { Type, type Static } from "@mariozechner/pi-ai";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 
 const FASTAPI_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";

@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type } from "@mariozechner/pi-ai";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 
 const schema = Type.Object({
