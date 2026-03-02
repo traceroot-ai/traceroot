@@ -44,9 +44,6 @@ importers:
       '@mariozechner/pi-ai':
         specifier: ^0.52.0
         version: 0.52.12(ws@8.19.0)(zod@3.25.76)
-      '@sinclair/typebox':
-        specifier: ^0.34.0
-        version: 0.34.48
       '@traceroot/core':
         specifier: workspace:*
         version: link:../core

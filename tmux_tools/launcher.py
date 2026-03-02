@@ -224,7 +224,7 @@ def make_driver(autoreload=False):
             ),
             schema.Service(
                 title="Billing Worker",
-                command="cd frontend/worker && pnpm build && pnpm dotenv -e ../../.env -- node dist/index.js",
+                command="cd frontend/worker && pnpm dev",
                 web_urls=[],
             ),
             schema.Service(
