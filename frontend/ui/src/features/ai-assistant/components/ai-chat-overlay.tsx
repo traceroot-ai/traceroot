@@ -1,12 +1,14 @@
 "use client";
 
 import { X, Plus, History } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
 import { useAiChat } from "../hooks/use-ai-chat";
+import { getProject } from "@/lib/api";
 
 interface AiChatOverlayProps {
   projectId: string;
@@ -19,6 +21,13 @@ interface AiChatOverlayProps {
  * traceId is passed through to the agent so it knows which trace the user is viewing.
  */
 export function AiChatOverlay({ projectId, traceId, onClose }: AiChatOverlayProps) {
+  const { data: project } = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => getProject(projectId),
+    enabled: !!projectId,
+  });
+  const workspaceId = project?.workspace_id;
+
   const {
     messages,
     isStreaming,
@@ -75,7 +84,7 @@ export function AiChatOverlay({ projectId, traceId, onClose }: AiChatOverlayProp
       </div>
 
       <MessageList messages={messages} />
-      <MessageInput onSend={handleSend} disabled={isStreaming} />
+      <MessageInput onSend={handleSend} disabled={isStreaming} workspaceId={workspaceId} />
     </div>
   );
 }

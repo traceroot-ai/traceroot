@@ -57,7 +57,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         "x-user-id": user.id,
         "x-workspace-id": accessResult.project.workspaceId,
       },
-      body: JSON.stringify({ message: body.message, model: body.model, traceId: body.traceId }),
+      body: JSON.stringify({
+        message: body.message,
+        model: body.model,
+        providerName: body.providerName,
+        source: body.source,
+        traceId: body.traceId,
+      }),
     },
   );
 

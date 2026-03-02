@@ -10,7 +10,7 @@ import {
   deleteSession,
   updateSessionTitle,
 } from "./session.js";
-import { getOrCreateAgent, runAgent, removeAgent } from "./agent.js";
+import { getOrCreateAgent, runAgent, removeAgent, invalidateProviderCache } from "./agent.js";
 import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor } from "./executors/index.js";
 import { createTools } from "./tools/index.js";
@@ -27,6 +27,22 @@ const sessionExecutors = new Map<string, Executor>();
 // Health check
 app.get("/health", (c) => {
   return c.json({ status: "ok", service: "traceroot-agent" });
+});
+
+// Cache invalidation — called by Next.js API when a model provider is updated/deleted
+app.post("/api/v1/cache/invalidate-provider", async (c) => {
+  const { workspaceId, providerName } = await c.req.json<{
+    workspaceId: string;
+    providerName: string;
+  }>();
+  if (!workspaceId || !providerName) {
+    return c.json({ error: "workspaceId and providerName required" }, 400);
+  }
+  invalidateProviderCache(workspaceId, providerName);
+  console.log(
+    `[Agent] Cache invalidated for provider "${providerName}" in workspace ${workspaceId}`,
+  );
+  return c.json({ ok: true });
 });
 
 // Session CRUD routes
@@ -93,7 +109,13 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   const sessionId = c.req.param("sessionId");
   const userId = c.req.header("x-user-id") || "";
   const workspaceId = c.req.header("x-workspace-id") || "";
-  const body = await c.req.json<{ message: string; model?: string; traceId?: string }>();
+  const body = await c.req.json<{
+    message: string;
+    model?: string;
+    traceId?: string;
+    providerName?: string;
+    source?: "system" | "byok";
+  }>();
 
   const systemPrompt = getSystemPrompt({ projectId, traceId: body.traceId });
 
@@ -106,6 +128,10 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
 
   const tools = createTools({ projectId, userId, executor });
 
+  console.log(
+    `[Agent] POST message: session=${sessionId}, model=${body.model}, provider=${body.providerName}, source=${body.source}`,
+  );
+
   const { agent, sessionManager } = await getOrCreateAgent({
     sessionId,
     projectId,
@@ -114,7 +140,11 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     systemPrompt,
     tools,
     model: body.model,
+    providerName: body.providerName,
+    source: body.source,
   });
+
+  console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
 
   // Persist user message to DB via SessionManager
   await sessionManager.appendMessage("user", body.message);
@@ -132,6 +162,21 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     await new Promise<void>((resolve) => {
       runAgent(agent, body.message, {
         onEvent: (event) => {
+          if (event.type === "message_update") {
+            // Log first delta to inspect event structure
+            if (!assistantText) {
+              console.log(`[Agent] First message_update:`, JSON.stringify(event).slice(0, 500));
+            }
+          } else {
+            console.log(`[Agent] Event: ${event.type}`);
+          }
+          // Log error details from failed API calls
+          if (event.type === "message_end") {
+            const msg = (event as any).message;
+            if (msg?.stopReason === "error") {
+              console.error(`[Agent] API error:`, msg.errorMessage || "unknown");
+            }
+          }
           // Forward all events to the frontend
           stream.writeSSE({
             event: event.type,
@@ -148,6 +193,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           }
         },
         onError: (error) => {
+          console.error(`[Agent] ERROR:`, error.message);
           stream.writeSSE({
             event: "error",
             data: JSON.stringify({ message: error.message }),
@@ -155,6 +201,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           resolve();
         },
         onDone: async () => {
+          console.log(`[Agent] Done. Assistant text length: ${assistantText.length}`);
           // Persist assistant response to DB via SessionManager
           if (assistantText) {
             await sessionManager.appendMessage("assistant", assistantText);
