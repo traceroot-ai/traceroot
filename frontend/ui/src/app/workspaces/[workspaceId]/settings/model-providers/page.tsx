@@ -2,10 +2,10 @@
 
 import { useParams } from "next/navigation";
 import { WorkspaceBreadcrumb } from "@/features/workspaces/components";
-import { MembersTab } from "@/features/settings/workspace";
+import { ModelProvidersTab } from "@/features/settings/workspace";
 import { SettingsLayout, WORKSPACE_SETTINGS_TABS } from "@/features/settings/settings-layout";
 
-export default function WorkspaceSettingsMembersPage() {
+export default function WorkspaceSettingsModelProvidersPage() {
   const params = useParams();
   const workspaceId = params.workspaceId as string;
 
@@ -15,10 +15,10 @@ export default function WorkspaceSettingsMembersPage() {
 
       <SettingsLayout
         tabs={WORKSPACE_SETTINGS_TABS}
-        activeTab="members"
+        activeTab="model-providers"
         basePath={`/workspaces/${workspaceId}/settings`}
       >
-        <MembersTab workspaceId={workspaceId} />
+        <ModelProvidersTab workspaceId={workspaceId} />
       </SettingsLayout>
     </div>
   );
