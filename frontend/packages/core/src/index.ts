@@ -1,10 +1,10 @@
 // Database
-export { prisma } from "./lib/prisma.js";
+export { prisma } from "./lib/prisma";
 export { PrismaClient } from "@prisma/client";
-export * from "./billing/index.js";
+export * from "./billing/index";
 
 // Encryption
-export { encryptKey, decryptKey, maskKey } from "./lib/encryption.js";
+export { encryptKey, decryptKey, maskKey } from "./lib/encryption";
 
 // Re-export Prisma types
 export type {
@@ -20,11 +20,11 @@ export type {
 } from "@prisma/client";
 
 // Constants & Zod schemas
-export * from "./constants.js";
-export * from "./schemas.js";
+export * from "./constants";
+export * from "./schemas";
 
 // LLM Providers
-export * from "./llm-providers.js";
+export * from "./llm-providers";
 
 // Shared types
-export * from "./types/index.js";
+export * from "./types/index";

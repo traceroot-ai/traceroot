@@ -1,5 +1,5 @@
 // Stripe client
-export { stripe, getStripeOrThrow } from "./stripe.js";
+export { stripe, getStripeOrThrow } from "./stripe";
 
 // Plans and entitlements (single source of truth)
 export {
@@ -29,4 +29,4 @@ export {
   requireSeatAvailable,
   // Free plan blocking
   isFreePlanBlocked,
-} from "./plans.js";
+} from "./plans";
