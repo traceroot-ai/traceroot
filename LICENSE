@@ -1,3 +1,17 @@
+Copyright 2024-2026 Traceroot AI, Inc.
+
+Portions of this software are licensed as follows:
+
+- Content of any directory named "ee" (including but not limited to
+  ee/, frontend/packages/core/src/ee/, frontend/ui/src/ee/,
+  frontend/worker/src/ee/) is licensed under the Traceroot
+  Enterprise License (see ee/LICENSE).
+
+- All third-party components retain their original licenses.
+
+- All other content is licensed under the Apache License 2.0
+  (see below).
+
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/
