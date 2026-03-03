@@ -25,7 +25,7 @@ import {
   getPortalUrl,
   getSubscriptionInfo,
   type SubscriptionInfo,
-} from "@/lib/api";
+} from "./api";
 
 interface BillingTabProps {
   workspaceId: string;
