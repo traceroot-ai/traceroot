@@ -4,7 +4,7 @@ import type { Executor, ExecResult, ExecOptions } from "./interface.js";
 
 const execFileAsync = promisify(execFile);
 
-const DOCKER_IMAGE = process.env.SANDBOX_DOCKER_IMAGE || "ubuntu:24.04";
+const DOCKER_IMAGE = "ubuntu:24.04";
 const WORKSPACE_DIR = "/workspace";
 
 export class DockerExecutor implements Executor {
