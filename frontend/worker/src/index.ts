@@ -8,7 +8,7 @@
 
 import cron from "node-cron";
 import { prisma } from "@traceroot/core";
-import { runBillingJob, closeClickHouseClient } from "./billing";
+import { runBillingJob, closeClickHouseClient } from "./ee/billing";
 
 // Graceful shutdown handling
 let isShuttingDown = false;
