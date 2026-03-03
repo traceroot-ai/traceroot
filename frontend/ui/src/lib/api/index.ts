@@ -60,15 +60,6 @@ export {
 // Trace APIs
 export { getTraces, getTrace } from "./traces";
 
-// Billing APIs
-export {
-  createCheckoutSession,
-  changePlan,
-  getPortalUrl,
-  getSubscriptionInfo,
-  type SubscriptionInfo,
-} from "./billing";
-
 // Re-export all types from types/api.ts for backward compatibility
 export type {
   Role,
