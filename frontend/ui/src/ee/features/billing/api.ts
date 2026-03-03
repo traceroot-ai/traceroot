@@ -1,7 +1,7 @@
 /**
  * Billing API functions
  */
-import { fetchNextApi } from "./client";
+import { fetchNextApi } from "@/lib/api/client";
 
 interface CheckoutResponse {
   url: string;

@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, Loader2, CheckCircle2, XCircle, ArrowUpRight, X } from "lucide-react";
+import { Plus, Loader2, CheckCircle2, XCircle, ArrowUpRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AddButton } from "@/components/ui/add-button";
+import { DeleteIconButton } from "@/components/ui/delete-button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -248,10 +249,13 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   // Upgrade prompt if BYOK is not enabled
   if (data && !data.byokEnabled) {
     return (
-      <div className="space-y-4">
-        <h2 className="text-lg font-semibold">Model Providers</h2>
-        <Card>
-          <CardContent className="flex flex-col items-center gap-3 py-8">
+      <div className="max-w-3xl space-y-6">
+        <div>
+          <h2 className="text-xl font-semibold">Model Providers</h2>
+          <p className="text-sm text-muted-foreground">Configure your own LLM API keys</p>
+        </div>
+        <div className="border">
+          <div className="flex flex-col items-center gap-3 px-4 py-8">
             <p className="text-center text-sm text-muted-foreground">
               Bring Your Own Key (BYOK) lets you configure your own LLM API keys for this workspace.
               Available on Pro and Startups plans.
@@ -264,8 +268,8 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
               Upgrade Plan
               <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
             </Button>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
@@ -291,64 +295,62 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       : !!(apiKey || editProvider));
 
   return (
-    <div className="space-y-4">
+    <div className="max-w-3xl space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Model Providers</h2>
-        <Button size="sm" onClick={openAddDialog}>
-          <Plus className="mr-1 h-3.5 w-3.5" />
-          Add Provider
-        </Button>
+        <div>
+          <h2 className="text-xl font-semibold">Model Providers</h2>
+          <p className="text-sm text-muted-foreground">Configure your own LLM API keys</p>
+        </div>
+        <AddButton onClick={openAddDialog}>Add Provider</AddButton>
       </div>
 
-      {providers.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            No API keys configured. Add a provider to use your own LLM keys.
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {providers.map((p) => {
-            const cfg = ADAPTER_CONFIG[p.adapter];
-            const allModels = p.customModels || [];
-            return (
-              <Card key={p.id}>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">
-                    {p.provider}
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      {cfg?.label ?? p.adapter}
-                    </span>
-                  </CardTitle>
-                  <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => openEditDialog(p)}>
-                      Edit
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => setDeleteTarget(p)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span>Key: {p.keyPreview}</span>
-                    <span className={p.enabled ? "text-green-600" : "text-yellow-600"}>
-                      {p.enabled ? "Enabled" : "Disabled"}
-                    </span>
-                    {p.baseUrl && <span>URL: {p.baseUrl}</span>}
-                    {allModels.length > 0 && <span>Custom models: {allModels.join(", ")}</span>}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+      <div className="border">
+        <div className="border-b bg-muted/30 px-4 py-3">
+          <h3 className="text-sm font-medium">Configured Providers</h3>
         </div>
-      )}
+        {providers.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+            No API keys configured. Add a provider to use your own LLM keys.
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/10 text-left">
+                <th className="px-4 py-2 font-medium text-muted-foreground">Provider</th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">Adapter</th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">Key</th>
+                <th className="px-4 py-2 font-medium text-muted-foreground">Status</th>
+                <th className="w-20 px-4 py-2 font-medium text-muted-foreground"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {providers.map((p) => {
+                const cfg = ADAPTER_CONFIG[p.adapter];
+                return (
+                  <tr key={p.id} className="border-b last:border-b-0 hover:bg-muted/20">
+                    <td className="px-4 py-2">{p.provider}</td>
+                    <td className="px-4 py-2 text-muted-foreground">{cfg?.label ?? p.adapter}</td>
+                    <td className="px-4 py-2 text-muted-foreground">{p.keyPreview}</td>
+                    <td className="px-4 py-2">
+                      <span className={p.enabled ? "text-green-600" : "text-yellow-600"}>
+                        {p.enabled ? "Enabled" : "Disabled"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => openEditDialog(p)}>
+                          Edit
+                        </Button>
+                        <DeleteIconButton onClick={() => setDeleteTarget(p)} />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={(open) => !open && closeDialog()}>

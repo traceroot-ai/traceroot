@@ -4,7 +4,7 @@ import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { PlanType } from "@traceroot/core";
 import { WorkspaceBreadcrumb } from "@/features/workspaces/components";
-import { BillingTab } from "@/features/settings/workspace";
+import { BillingTab } from "@/ee/features/billing/BillingTab";
 import { getWorkspace } from "@/lib/api";
 import { SettingsLayout, WORKSPACE_SETTINGS_TABS } from "@/features/settings/settings-layout";
 
