@@ -52,8 +52,8 @@ export class DaytonaExecutor implements Executor {
 
     return {
       stdout: result.result ?? "",
-      stderr: "",
-      code: result.exitCode,
+      stderr: result.exitCode !== 0 ? (result.result ?? "") : "",
+      code: result.exitCode ?? 1,
     };
   }
 
@@ -144,7 +144,7 @@ export async function setupGhCliDaytona(
 
   // Authenticate gh CLI via native file upload (avoids shell escaping issues with tokens)
   await executor.writeFile("/tmp/.gh_token", githubToken);
-  await executor.exec("gh auth login --with-token < /tmp/.gh_token && rm /tmp/.gh_token");
+  await executor.exec("gh auth login --with-token < /tmp/.gh_token; rm -f /tmp/.gh_token");
 
   // Configure git identity
   const name = githubUsername || "TraceRoot Agent";
