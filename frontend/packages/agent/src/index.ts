@@ -158,16 +158,19 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
 
   return streamSSE(c, async (stream) => {
     let assistantText = "";
+    let loggedFirstUpdate = false;
 
     await new Promise<void>((resolve) => {
       runAgent(agent, body.message, {
         onEvent: (event) => {
           if (event.type === "message_update") {
-            // Log first delta to inspect event structure
-            if (!assistantText) {
+            // Log only the very first message_update for debugging
+            if (!loggedFirstUpdate) {
+              loggedFirstUpdate = true;
               console.log(`[Agent] First message_update:`, JSON.stringify(event).slice(0, 500));
             }
-          } else {
+          } else if (event.type !== "message_start") {
+            // Skip noisy message_start, log other event types
             console.log(`[Agent] Event: ${event.type}`);
           }
           // Log error details from failed API calls
