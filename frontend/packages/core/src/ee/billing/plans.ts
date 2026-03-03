@@ -1,12 +1,5 @@
-// =============================================================================
-// BILLING TOGGLE
-// =============================================================================
-// When ENABLE_BILLING is "false", all entitlements are unlocked, seat limits
-// are removed, and ingestion is never blocked. Self-hosted deployments should
-// set this to "false" and skip running the billing worker.
-export function isBillingEnabled(): boolean {
-  return process.env.ENABLE_BILLING !== "false";
-}
+import { isBillingEnabled } from "../license";
+export { isBillingEnabled };
 
 // =============================================================================
 // PLAN TYPES
