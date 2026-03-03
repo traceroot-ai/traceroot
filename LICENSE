@@ -1,10 +1,10 @@
-Copyright 2024-2026 Traceroot AI, Inc.
+Copyright 2024-2026 TraceRoot AI, Inc.
 
 Portions of this software are licensed as follows:
 
 - Content of any directory named "ee" (including but not limited to
-  ee/, frontend/packages/core/src/ee/, frontend/ui/src/ee/,
-  frontend/worker/src/ee/) is licensed under the Traceroot
+  "ee/", "frontend/packages/core/src/ee/", "frontend/ui/src/ee/",
+  "frontend/worker/src/ee/") is licensed under the TraceRoot
   Enterprise License (see ee/LICENSE).
 
 - All third-party components retain their original licenses.

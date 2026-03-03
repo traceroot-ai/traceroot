@@ -1,24 +1,23 @@
-Traceroot Enterprise Edition License
+The TraceRoot Enterprise Edition License (the "Enterprise License")
+Copyright (c) 2024-2026 TraceRoot AI, Inc.
 
-Copyright (c) 2024-2026 Traceroot AI, Inc.
-
-With regard to the Traceroot Software:
+With regard to the TraceRoot Software:
 
 This software and associated documentation files (the "Software") may only be
 used in production if you (and any entity that you represent) have agreed to,
-and are in compliance with, the Traceroot Terms of Service, available at
+and are in compliance with, the TraceRoot Terms of Service, available at
 https://traceroot.ai/terms (the "Enterprise Terms"), or other agreement
-governing the use of the Software, as agreed by you and Traceroot AI, Inc.,
-and otherwise have a valid Traceroot Enterprise Edition license key for the
+governing the use of the Software, as agreed by you and TraceRoot AI, Inc.,
+and otherwise have a valid TraceRoot Enterprise Edition license key for the
 correct number of user seats. Subject to the foregoing sentence, you are free
 to modify this Software and publish patches to the Software. You agree that
-Traceroot AI, Inc. and/or its licensors (as applicable) retain all right, title
+TraceRoot AI, Inc. and/or its licensors (as applicable) retain all right, title
 and interest in and to all such modifications and/or patches, and all such
 modifications and/or patches may only be used, copied, modified, displayed,
 distributed, or otherwise exploited with a valid Enterprise Edition license
 for the correct number of user seats. Notwithstanding the foregoing, you may
 copy and modify the Software for development and testing purposes, without
-requiring a license key. You agree that Traceroot AI, Inc. and/or its licensors
+requiring a license key. You agree that TraceRoot AI, Inc. and/or its licensors
 (as applicable) retain all right, title and interest in and to all such
 modifications. You are not granted any other rights beyond what is expressly
 stated herein. Subject to the foregoing, it is forbidden to copy, merge,
@@ -32,6 +31,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-For all third party components incorporated into the Traceroot Software, those
+For all third party components incorporated into the TraceRoot Software, those
 components are licensed under the original license provided by the owner of the
 applicable component.
