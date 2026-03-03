@@ -1,7 +1,7 @@
 // Database
 export { prisma } from "./lib/prisma";
 export { PrismaClient } from "@prisma/client";
-export * from "./billing/index";
+export * from "./ee/billing/index";
 
 // Encryption
 export { encryptKey, decryptKey, maskKey } from "./lib/encryption";
