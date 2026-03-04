@@ -1,0 +1,106 @@
+# docker-compose.prod.yml
+# Local production-mode testing. Builds all app images and runs with local infra.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: local-dev-secret-change-in-production
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+      INTERNAL_API_SECRET: internal-secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  rest:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.rest
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "8123"
+      CLICKHOUSE_NATIVE_PORT: "9000"
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_DATABASE: default
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY_ID: minio
+      S3_SECRET_ACCESS_KEY: minio-password
+      S3_BUCKET_NAME: traceroot
+      INTERNAL_API_SECRET: internal-secret
+      TRACEROOT_UI_URL: http://web:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "8123"
+      CLICKHOUSE_NATIVE_PORT: "9000"
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_DATABASE: default
+      REDIS_URL: redis://redis:6379/0
+      REDIS_RESULT_URL: redis://redis:6379/1
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY_ID: minio
+      S3_SECRET_ACCESS_KEY: minio-password
+      S3_BUCKET_NAME: traceroot
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  billing:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.billing
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "8123"
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      REDIS_URL: redis://redis:6379/0
+      NEXT_PUBLIC_API_URL: http://rest:8000/api/v1
+      INTERNAL_API_SECRET: internal-secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+
+  agent:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.agent
+    ports:
+      - "8100:8100"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      AGENT_SERVICE_URL: http://localhost:8100
+      INTERNAL_API_SECRET: internal-secret
+      TRACEROOT_UI_URL: http://web:3000
+    depends_on:
+      postgres:
+        condition: service_healthy

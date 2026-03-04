@@ -1,0 +1,69 @@
+# docker/Dockerfile.web
+FROM node:20-alpine AS base
+RUN apk add --no-cache openssl && \
+    corepack enable && corepack prepare pnpm@latest --activate
+
+# --- Dependencies stage ---
+FROM base AS deps
+WORKDIR /app
+
+# Copy workspace root files
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+
+# Copy package.json for each workspace package
+COPY frontend/ui/package.json ./ui/package.json
+COPY frontend/packages/core/package.json ./packages/core/package.json
+COPY frontend/packages/github/package.json ./packages/github/package.json
+
+# Install all dependencies
+RUN pnpm install --frozen-lockfile
+
+# --- Builder stage ---
+FROM base AS builder
+WORKDIR /app
+
+# Copy deps
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/ui/node_modules ./ui/node_modules
+COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
+COPY --from=deps /app/packages/github/node_modules ./packages/github/node_modules
+
+# Copy source code
+COPY frontend/packages/core ./packages/core
+COPY frontend/packages/github ./packages/github
+COPY frontend/ui ./ui
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+
+# Copy Prisma schema and generate client
+COPY frontend/packages/core/prisma ./packages/core/prisma
+RUN cd packages/core && npx prisma generate \
+    && mkdir -p /tmp/prisma-engines/.prisma \
+    && cp -rL /app/node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client /tmp/prisma-engines/.prisma/client
+
+# Build the Next.js app
+RUN cd ui && pnpm build
+
+# --- Runner stage ---
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+RUN apk add --no-cache openssl && \
+    addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# Copy standalone output
+COPY --from=builder /app/ui/.next/standalone ./
+COPY --from=builder /app/ui/.next/static ./ui/.next/static
+COPY --from=builder /app/ui/public ./ui/public
+
+# Copy Prisma client (needed at runtime for API routes)
+COPY --from=builder /tmp/prisma-engines/.prisma ./node_modules/.prisma
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+CMD ["node", "ui/server.js"]

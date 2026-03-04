@@ -1,0 +1,13 @@
+# .dockerignore
+.git
+.github
+.vscode
+.claude
+node_modules
+__pycache__
+*.pyc
+.next
+.env
+.env.*
+*.md
+test_*.py

@@ -1,0 +1,63 @@
+# docker/Dockerfile.agent
+FROM node:20-alpine AS base
+RUN apk add --no-cache openssl && \
+    corepack enable && corepack prepare pnpm@latest --activate
+
+FROM base AS deps
+WORKDIR /app
+
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+COPY frontend/packages/agent/package.json ./packages/agent/package.json
+COPY frontend/packages/core/package.json ./packages/core/package.json
+
+RUN pnpm install --frozen-lockfile
+
+FROM base AS builder
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages/agent/node_modules ./packages/agent/node_modules
+COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
+
+COPY frontend/packages/core ./packages/core
+COPY frontend/packages/agent ./packages/agent
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+
+# Generate Prisma client (agent depends on core which uses Prisma)
+COPY frontend/packages/core/prisma ./packages/core/prisma
+RUN cd packages/core && npx prisma generate \
+    && mkdir -p /tmp/prisma-engines/.prisma \
+    && cp -rL /app/node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client /tmp/prisma-engines/.prisma/client
+
+# Build core for Node.js (patch tsconfig to produce CJS, patch package.json exports)
+RUN cd packages/core && \
+    node -e "const t=JSON.parse(require('fs').readFileSync('tsconfig.json','utf8')); t.compilerOptions.module='CommonJS'; t.compilerOptions.moduleResolution='node'; require('fs').writeFileSync('tsconfig.json',JSON.stringify(t,null,2))" && \
+    pnpm build && \
+    node -e "const p=JSON.parse(require('fs').readFileSync('package.json','utf8')); p.main='./dist/index.js'; p.exports={'.':{'types':'./dist/index.d.ts','default':'./dist/index.js'}}; require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+RUN cd packages/agent && pnpm build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+RUN apk add --no-cache openssl && \
+    addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 agentjs
+
+# Copy workspace node_modules (pnpm hoisted deps)
+COPY --from=builder /app/node_modules ./node_modules
+# Copy compiled core package (including node_modules for CJS resolution)
+COPY --from=builder /app/packages/core/dist ./packages/core/dist
+COPY --from=builder /app/packages/core/package.json ./packages/core/package.json
+COPY --from=builder /app/packages/core/node_modules ./packages/core/node_modules
+# Copy compiled agent
+COPY --from=builder /app/packages/agent/dist ./packages/agent/dist
+COPY --from=builder /app/packages/agent/package.json ./packages/agent/package.json
+COPY --from=builder /app/packages/agent/node_modules ./packages/agent/node_modules
+# Copy Prisma engines
+COPY --from=builder /tmp/prisma-engines/.prisma ./node_modules/.prisma
+
+USER agentjs
+
+EXPOSE 8100
+
+CMD ["node", "packages/agent/dist/index.js"]

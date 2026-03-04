@@ -26,8 +26,8 @@ const FALLBACK_MODELS = SYSTEM_MODELS.flatMap((s) =>
   s.models.map((m) => ({ ...m, provider: s.provider, source: "system" as const })),
 );
 
-function modelKey(m: { id: string; source: string; provider: string }) {
-  return `${m.source}:${m.provider}:${m.id}`;
+function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
+  return `${m.source}:${m.provider}:${m.id ?? m.model}`;
 }
 
 export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorProps) {
