@@ -22,6 +22,7 @@ export const USAGE_PRICING_DESCRIPTION = "10k events included, then $0.02/event"
 export const USAGE_CONFIG = {
   includedUnits: 10_000,
   pricePerUnit: 0.02,
+  aiIncludedTokens: 8_000, // 1M tokens free per billing period (all plans) — temporarily set to 8k for testing
 } as const;
 
 export function isFreePlanBlocked(currentUsage: number): boolean {
