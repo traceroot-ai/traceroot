@@ -61,7 +61,7 @@ class WelcomeScreen:
     def render_text(self) -> str:
         parts: list[str] = []
         logo = r"""
-         _                                    _
+         _                                      _
         | |_ _ __ __ _  ___ ___ _ __ ___   ___ | |_
         | __| '__/ _` |/ __/ _ \ '__/ _ \ / _ \| __|
         | |_| | | (_| | (_|  __/ | | (_) | (_) | |_
