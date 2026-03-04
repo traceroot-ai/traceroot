@@ -160,6 +160,13 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     let assistantText = "";
     let loggedFirstUpdate = false;
 
+    // Accumulate token usage across all message_end events (tool-use loops)
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let totalCost = 0;
+    let responseModel: string | undefined;
+    let responseProvider: string | undefined;
+
     await new Promise<void>((resolve) => {
       runAgent(agent, body.message, {
         onEvent: (event) => {
@@ -173,12 +180,22 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
             // Skip noisy message_start, log other event types
             console.log(`[Agent] Event: ${event.type}`);
           }
-          // Log error details from failed API calls
+          // Log error details and accumulate token usage from message_end
           if (event.type === "message_end") {
             const msg = (event as any).message;
+            console.log(`[Agent] message_end:`, JSON.stringify({ model: msg?.model, provider: msg?.provider, usage: msg?.usage, stopReason: msg?.stopReason }).slice(0, 500));
             if (msg?.stopReason === "error") {
               console.error(`[Agent] API error:`, msg.errorMessage || "unknown");
             }
+            // Accumulate token usage
+            const usage = msg?.usage;
+            if (usage) {
+              totalInputTokens += usage.input ?? usage.inputTokens ?? 0;
+              totalOutputTokens += usage.output ?? usage.outputTokens ?? 0;
+              totalCost += usage.cost?.total ?? 0;
+            }
+            if (msg?.model) responseModel = msg.model;
+            if (msg?.provider) responseProvider = msg.provider;
           }
           // Forward all events to the frontend
           stream.writeSSE({
@@ -190,7 +207,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           if (event.type === "message_update") {
             const msgEvent = event as any;
             const delta = msgEvent.assistantMessageEvent;
-            if (delta?.type === "text_delta") {
+            if ((delta?.type === "text_delta" || delta?.type === "thinking_delta") && delta.delta) {
               assistantText += delta.delta;
             }
           }
@@ -207,7 +224,17 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           console.log(`[Agent] Done. Assistant text length: ${assistantText.length}`);
           // Persist assistant response to DB via SessionManager
           if (assistantText) {
-            await sessionManager.appendMessage("assistant", assistantText);
+            const tokenUsage = responseModel
+              ? {
+                  model: responseModel,
+                  provider: responseProvider || "unknown",
+                  isByok: body.source === "byok",
+                  inputTokens: totalInputTokens,
+                  outputTokens: totalOutputTokens,
+                  costUsd: totalCost,
+                }
+              : undefined;
+            await sessionManager.appendMessage("assistant", assistantText, undefined, tokenUsage);
           }
           stream.writeSSE({ event: "done", data: "{}" });
           resolve();
