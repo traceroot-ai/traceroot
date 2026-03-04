@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "traceroot.fullname" . }}-rest
+  labels:
+    {{- include "traceroot.labels" . | nindent 4 }}
+    app: rest
+spec:
+  replicas: {{ .Values.rest.replicas }}
+  selector:
+    matchLabels:
+      {{- include "traceroot.selectorLabels" . | nindent 6 }}
+      app: rest
+  template:
+    metadata:
+      labels:
+        {{- include "traceroot.selectorLabels" . | nindent 8 }}
+        app: rest
+    spec:
+      containers:
+        - name: rest
+          image: "{{ .Values.rest.image.repository }}:{{ .Values.rest.image.tag }}"
+          ports:
+            - containerPort: {{ .Values.rest.port }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.existingSecret }}
+                  key: {{ .Values.postgresql.secretKeys.databaseUrl }}
+            - name: CLICKHOUSE_HOST
+              value: {{ include "traceroot.clickhouse.hostname" . | quote }}
+            - name: CLICKHOUSE_PORT
+              value: "8123"
+            - name: CLICKHOUSE_NATIVE_PORT
+              value: "9000"
+            - name: CLICKHOUSE_USER
+              value: {{ .Values.clickhouse.auth.username | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.clickhouse.auth.existingSecret }}
+                  key: {{ .Values.clickhouse.auth.existingSecretKey }}
+            - name: CLICKHOUSE_DATABASE
+              value: "default"
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.existingSecret }}
+                  key: {{ .Values.redis.secretKeys.url }}
+            - name: S3_BUCKET_NAME
+              value: {{ .Values.s3.bucket | quote }}
+            - name: S3_ENDPOINT_URL
+              value: {{ .Values.s3.endpoint | quote }}
+            - name: AWS_DEFAULT_REGION
+              value: {{ .Values.s3.region | quote }}
+            - name: INTERNAL_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: {{ .Values.secrets.keys.internalApiSecret }}
+            - name: TRACEROOT_UI_URL
+              value: "http://{{ include "traceroot.fullname" . }}-web:{{ .Values.web.port }}"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.rest.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.rest.resources | nindent 12 }}

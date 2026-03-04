@@ -1,0 +1,128 @@
+# charts/traceroot/values.yaml
+
+# --- Web (Next.js) ---
+web:
+  image:
+    repository: ""  # Set via --set or values override
+    tag: "latest"
+  replicas: 1
+  port: 3000
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+# --- REST API (FastAPI) ---
+rest:
+  image:
+    repository: ""
+    tag: "latest"
+  replicas: 1
+  port: 8000
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+# --- Celery Worker ---
+worker:
+  image:
+    repository: ""
+    tag: "latest"
+  replicas: 1
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+# --- Billing Worker ---
+billing:
+  image:
+    repository: ""
+    tag: "latest"
+  replicas: 1
+  resources:
+    requests:
+      cpu: "128m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# --- Agent (Hono) ---
+agent:
+  image:
+    repository: ""
+    tag: "latest"
+  replicas: 1
+  port: 8100
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+# --- Ingress ---
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+  host: ""  # Leave empty for ALB-generated URL
+
+# --- External services (set by Terraform) ---
+postgresql:
+  host: ""
+  database: ""
+  existingSecret: "traceroot"
+  secretKeys:
+    databaseUrl: "database-url"
+    password: "postgres-password"
+
+redis:
+  existingSecret: "traceroot"
+  secretKeys:
+    url: "redis-url"
+
+s3:
+  bucket: ""
+  region: ""
+  endpoint: ""  # Empty = use AWS S3 default
+  forcePathStyle: false
+
+# --- ClickHouse (Bitnami subchart) ---
+clickhouse:
+  deploy: true
+  auth:
+    username: default
+    existingSecret: "traceroot"
+    existingSecretKey: "clickhouse-password"
+  replicaCount: 1  # Simple: single node
+  shards: 1
+  zookeeper:
+    enabled: false  # Not needed for single node
+  persistence:
+    size: 20Gi
+
+# --- Secrets ---
+secrets:
+  existingSecret: "traceroot"
+  keys:
+    nextauthSecret: "nextauth-secret"
+    internalApiSecret: "internal-api-secret"
+
+# --- General ---
+nextauth:
+  url: ""  # e.g., https://app.traceroot.ai or ALB URL

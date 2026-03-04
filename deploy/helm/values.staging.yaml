@@ -1,0 +1,38 @@
+# charts/traceroot/values.staging.yaml
+# Populate after running terraform apply
+
+web:
+  image:
+    repository: "<ECR_ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/traceroot-web"
+  replicas: 1
+
+rest:
+  image:
+    repository: "<ECR_ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/traceroot-rest"
+  replicas: 1
+
+worker:
+  image:
+    repository: "<ECR_ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/traceroot-worker"
+  replicas: 1
+
+billing:
+  image:
+    repository: "<ECR_ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/traceroot-billing"
+  replicas: 1
+
+agent:
+  image:
+    repository: "<ECR_ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/traceroot-agent"
+  replicas: 1
+
+nextauth:
+  url: ""  # Will be ALB URL initially
+
+postgresql:
+  host: "<RDS_ENDPOINT>"
+  database: "traceroot_staging"
+
+s3:
+  bucket: "<S3_BUCKET>"
+  region: "us-east-1"
