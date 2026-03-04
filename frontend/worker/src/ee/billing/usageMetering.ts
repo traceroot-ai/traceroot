@@ -123,6 +123,40 @@ async function processWorkspace(
 
   const totalEvents = usage.traces + usage.spans;
 
+  // 1b. Query AI token usage from ai_messages (same time range as events)
+  const aiStart = isFreePlan
+    ? ctx.allTimeStart
+    : (workspace.billingPeriodStart ?? new Date(ctx.now.getFullYear(), ctx.now.getMonth(), 1));
+  const aiEnd = isFreePlan
+    ? ctx.now
+    : (workspace.billingPeriodEnd ?? new Date(ctx.now.getFullYear(), ctx.now.getMonth() + 1, 1));
+
+  const aiUsageWhere = {
+    role: "assistant" as const,
+    inputTokens: { not: null as null },
+    session: { workspaceId: workspace.id },
+    createTime: { gte: aiStart, lt: aiEnd },
+  };
+
+  const [systemAgg, byokAgg, byModel] = await Promise.all([
+    prisma.aIMessage.aggregate({
+      where: { ...aiUsageWhere, isByok: false },
+      _count: { id: true },
+      _sum: { inputTokens: true, outputTokens: true, costUsd: true },
+    }),
+    prisma.aIMessage.aggregate({
+      where: { ...aiUsageWhere, isByok: true },
+      _count: { id: true },
+      _sum: { inputTokens: true, outputTokens: true, costUsd: true },
+    }),
+    prisma.aIMessage.groupBy({
+      by: ["model", "provider", "isByok"],
+      where: aiUsageWhere,
+      _count: { id: true },
+      _sum: { inputTokens: true, outputTokens: true, costUsd: true },
+    }),
+  ]);
+
   // 2. Build update data
   const updateData: {
     currentUsage: object;
@@ -133,6 +167,29 @@ async function processWorkspace(
       spans: usage.spans,
       tokens: 0,
       updatedAt: ctx.now.toISOString(),
+      ai: {
+        systemUsage: {
+          messages: systemAgg._count.id,
+          inputTokens: systemAgg._sum.inputTokens ?? 0,
+          outputTokens: systemAgg._sum.outputTokens ?? 0,
+          costUsd: Number(systemAgg._sum.costUsd ?? 0),
+        },
+        byokUsage: {
+          messages: byokAgg._count.id,
+          inputTokens: byokAgg._sum.inputTokens ?? 0,
+          outputTokens: byokAgg._sum.outputTokens ?? 0,
+          costUsd: Number(byokAgg._sum.costUsd ?? 0),
+        },
+        byModel: byModel.map((row) => ({
+          model: row.model ?? "unknown",
+          provider: row.provider ?? "unknown",
+          isByok: row.isByok ?? false,
+          messages: row._count.id,
+          inputTokens: row._sum.inputTokens ?? 0,
+          outputTokens: row._sum.outputTokens ?? 0,
+          costUsd: Number(row._sum.costUsd ?? 0),
+        })),
+      },
     },
   };
 
@@ -158,8 +215,12 @@ async function processWorkspace(
     await updateStripeQuantity(workspace.billingSubscriptionId, totalEvents, ctx.stripeClient);
   }
 
+  const aiMessages = systemAgg._count.id + byokAgg._count.id;
+  const aiInputTokens = (systemAgg._sum.inputTokens ?? 0) + (byokAgg._sum.inputTokens ?? 0);
+  const aiOutputTokens = (systemAgg._sum.outputTokens ?? 0) + (byokAgg._sum.outputTokens ?? 0);
+
   console.log(
-    `[Billing] Workspace ${workspace.id} (${workspace.billingPlan}): ${usage.traces} traces, ${usage.spans} spans`,
+    `[Billing] Workspace ${workspace.id} (${workspace.billingPlan}): ${usage.traces} traces, ${usage.spans} spans, ${aiMessages} AI messages (${aiInputTokens} in / ${aiOutputTokens} out tokens)`,
   );
 }
 

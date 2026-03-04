@@ -46,6 +46,7 @@ export function BillingTab({
   const [subscriptionInfo, setSubscriptionInfo] = useState<SubscriptionInfo | null>(null);
 
   const currentPlanConfig = PLANS[currentPlan];
+  const aiUsage = currentUsage?.ai;
 
   // Fetch live subscription info from Stripe
   useEffect(() => {
@@ -194,7 +195,7 @@ export function BillingTab({
       {/* Usage Section */}
       <div className="border">
         <div className="border-b bg-muted/30 px-4 py-3">
-          <h3 className="text-sm font-medium">Usage</h3>
+          <h3 className="text-sm font-medium">Event Usage</h3>
         </div>
         <div className="px-4 py-3">
           <p className="text-sm text-muted-foreground">
@@ -224,6 +225,99 @@ export function BillingTab({
             <p className="mt-2 text-xs text-muted-foreground">
               Last updated: {new Date(currentUsage.updatedAt).toLocaleString()}
             </p>
+          )}
+        </div>
+      </div>
+
+      {/* AI Token Usage Section */}
+      <div className="border">
+        <div className="border-b bg-muted/30 px-4 py-3">
+          <h3 className="text-sm font-medium">AI Token Usage</h3>
+        </div>
+        <div className="px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            AI assistant token usage this billing period.
+          </p>
+
+          {aiUsage ? (
+            <div className="mt-3 space-y-4">
+              {/* System Models */}
+              <div>
+                <p className="text-sm font-medium">System Models (TraceRoot)</p>
+                <div className="mt-2 space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Input tokens</span>
+                    <span>{aiUsage.systemUsage.inputTokens.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Output tokens</span>
+                    <span>{aiUsage.systemUsage.outputTokens.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total tokens</span>
+                    <span>
+                      {(
+                        aiUsage.systemUsage.inputTokens + aiUsage.systemUsage.outputTokens
+                      ).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Estimated cost</span>
+                    <span>${aiUsage.systemUsage.costUsd.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* BYOK Models */}
+              <div>
+                <p className="text-sm font-medium">BYOK Models (your keys)</p>
+                <div className="mt-2 space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Input tokens</span>
+                    <span>{aiUsage.byokUsage.inputTokens.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Output tokens</span>
+                    <span>{aiUsage.byokUsage.outputTokens.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total tokens</span>
+                    <span>
+                      {(
+                        aiUsage.byokUsage.inputTokens + aiUsage.byokUsage.outputTokens
+                      ).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Estimated cost</span>
+                    <span>${aiUsage.byokUsage.costUsd.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* By Model */}
+              {aiUsage.byModel.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium">By Model</p>
+                  <div className="mt-2 space-y-1 text-sm">
+                    {aiUsage.byModel.map((row) => (
+                      <div key={`${row.model}-${row.isByok}`} className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          {row.model}
+                          {row.isByok && " (BYOK)"}
+                        </span>
+                        <span>
+                          {(row.inputTokens + row.outputTokens).toLocaleString()} tokens &middot; $
+                          {row.costUsd.toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">No usage data available.</p>
           )}
         </div>
       </div>
