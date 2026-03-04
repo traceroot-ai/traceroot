@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "traceroot.fullname" . }}-agent
+  labels:
+    {{- include "traceroot.labels" . | nindent 4 }}
+    app: agent
+spec:
+  replicas: {{ .Values.agent.replicas }}
+  selector:
+    matchLabels:
+      {{- include "traceroot.selectorLabels" . | nindent 6 }}
+      app: agent
+  template:
+    metadata:
+      labels:
+        {{- include "traceroot.selectorLabels" . | nindent 8 }}
+        app: agent
+    spec:
+      containers:
+        - name: agent
+          image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
+          ports:
+            - containerPort: {{ .Values.agent.port }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.existingSecret }}
+                  key: {{ .Values.postgresql.secretKeys.databaseUrl }}
+            - name: AGENT_SERVICE_URL
+              value: "http://0.0.0.0:{{ .Values.agent.port }}"
+            - name: INTERNAL_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: {{ .Values.secrets.keys.internalApiSecret }}
+            - name: TRACEROOT_UI_URL
+              value: "http://{{ include "traceroot.fullname" . }}-web:{{ .Values.web.port }}"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.agent.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}

@@ -56,5 +56,5 @@ variable "cache_node_type" {
 variable "traceroot_helm_chart_path" {
   description = "Path to the Traceroot Helm chart"
   type        = string
-  default     = "../../charts/traceroot"
+  default     = "../../helm"
 }
