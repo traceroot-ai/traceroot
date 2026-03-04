@@ -1,0 +1,24 @@
+# docker/Dockerfile.worker
+FROM python:3.12-slim AS builder
+
+WORKDIR /app
+RUN pip install uv
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+COPY backend ./backend
+
+FROM python:3.12-slim AS runner
+
+WORKDIR /app
+RUN pip install uv
+
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/backend ./backend
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+WORKDIR /app/backend
+
+CMD ["celery", "-A", "worker.celery_app", "worker", "--loglevel=info"]
