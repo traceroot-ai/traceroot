@@ -76,10 +76,13 @@ async function processWorkspace(
   workspace: {
     id: string;
     billingPlan: string;
+    billingCustomerId: string | null;
     billingSubscriptionId: string | null;
     billingPeriodStart: Date | null;
     billingPeriodEnd: Date | null;
     ingestionBlocked: boolean;
+    aiBlocked: boolean;
+    currentUsage: any;
     projects: { id: string }[];
   },
   ctx: {
@@ -157,10 +160,15 @@ async function processWorkspace(
     }),
   ]);
 
+  // Calculate total system tokens (for free allowance check)
+  const totalSystemTokens =
+    (systemAgg._sum.inputTokens ?? 0) + (systemAgg._sum.outputTokens ?? 0);
+
   // 2. Build update data
   const updateData: {
     currentUsage: object;
     ingestionBlocked?: boolean;
+    aiBlocked?: boolean;
   } = {
     currentUsage: {
       traces: usage.traces,
@@ -193,7 +201,7 @@ async function processWorkspace(
     },
   };
 
-  // 3. For free plan: update ingestionBlocked
+  // 3. For free plan: update ingestionBlocked and aiBlocked
   if (isFreePlan) {
     const shouldBeBlocked = totalEvents >= USAGE_CONFIG.includedUnits;
     if (workspace.ingestionBlocked !== shouldBeBlocked) {
@@ -202,18 +210,56 @@ async function processWorkspace(
         `[Billing] Workspace ${workspace.id}: ${totalEvents}/${USAGE_CONFIG.includedUnits} events, blocked: ${shouldBeBlocked}`,
       );
     }
+
+    // Block AI when free allowance exceeded (free plan has no subscription to bill)
+    const shouldBlockAi = totalSystemTokens >= USAGE_CONFIG.aiIncludedTokens;
+    if (workspace.aiBlocked !== shouldBlockAi) {
+      updateData.aiBlocked = shouldBlockAi;
+      console.log(
+        `[Billing] Workspace ${workspace.id}: ${totalSystemTokens}/${USAGE_CONFIG.aiIncludedTokens} AI tokens, ai_blocked: ${shouldBlockAi}`,
+      );
+    }
   }
 
-  // 4. Update database
+  // 4. For paid plans with subscription: update Stripe before DB write
+  if (!isFreePlan && workspace.billingSubscriptionId && ctx.stripeClient) {
+    await updateStripeQuantity(workspace.billingSubscriptionId, totalEvents, ctx.stripeClient);
+
+    // 4b. Report AI usage delta (system models only — BYOK is not billed)
+    // Only bill for tokens above the free allowance (1M tokens)
+    // Calculate billable cost: proportional to tokens above allowance
+    const systemCostUsd = Number(systemAgg._sum.costUsd ?? 0);
+    const billableCostUsd = totalSystemTokens > USAGE_CONFIG.aiIncludedTokens
+      ? systemCostUsd * (totalSystemTokens - USAGE_CONFIG.aiIncludedTokens) / totalSystemTokens
+      : 0;
+
+    // Meter events are additive, so only report the increase since last run
+    const previousUsage = workspace.currentUsage as any;
+    const lastReportedCost = previousUsage?.ai?.lastReportedCostUsd ?? 0;
+    const deltaCost = billableCostUsd - lastReportedCost;
+
+    if (deltaCost > 0) {
+      const reported = await reportAIUsageToStripe(
+        workspace.id,
+        workspace.billingCustomerId!,
+        deltaCost,
+        ctx.stripeClient,
+      );
+      if (reported) {
+        // Track what we've reported so we don't double-report
+        (updateData.currentUsage as any).ai.lastReportedCostUsd = billableCostUsd;
+      }
+    } else {
+      // Preserve last reported value
+      (updateData.currentUsage as any).ai.lastReportedCostUsd = lastReportedCost;
+    }
+  }
+
+  // 5. Update database (after Stripe so lastReportedCostUsd is accurate)
   await prisma.workspace.update({
     where: { id: workspace.id },
     data: updateData,
   });
-
-  // 5. For paid plans with subscription: update Stripe
-  if (!isFreePlan && workspace.billingSubscriptionId && ctx.stripeClient) {
-    await updateStripeQuantity(workspace.billingSubscriptionId, totalEvents, ctx.stripeClient);
-  }
 
   const aiMessages = systemAgg._count.id + byokAgg._count.id;
   const aiInputTokens = (systemAgg._sum.inputTokens ?? 0) + (byokAgg._sum.inputTokens ?? 0);
@@ -231,11 +277,14 @@ async function updateStripeQuantity(
 ): Promise<void> {
   try {
     const subscription = await stripeClient.subscriptions.retrieve(subscriptionId);
-    // With tiered pricing, there's only one subscription item (the plan price)
-    const planItem = subscription.items.data[0];
+    // Find the plan item (not the AI usage metered item)
+    const aiUsagePriceId = process.env.STRIPE_AI_USAGE_PRICE_ID;
+    const planItem = subscription.items.data.find(
+      (item) => item.price.id !== aiUsagePriceId,
+    );
 
     if (!planItem) {
-      console.warn(`[Billing] No subscription item found for ${subscriptionId}`);
+      console.warn(`[Billing] No plan subscription item found for ${subscriptionId}`);
       return;
     }
 
@@ -248,5 +297,41 @@ async function updateStripeQuantity(
     }
   } catch (error) {
     console.error(`[Billing] Failed to update Stripe for subscription ${subscriptionId}:`, error);
+  }
+}
+
+/**
+ * Report AI token usage cost to Stripe via meter events.
+ * Converts costUsd to cents (units at $0.01 each).
+ * Only reports system model usage — BYOK is not billed.
+ * Returns true if successfully reported.
+ */
+async function reportAIUsageToStripe(
+  workspaceId: string,
+  customerId: string,
+  costUsd: number,
+  stripeClient: Stripe,
+): Promise<boolean> {
+  const costCents = Math.round(costUsd * 100);
+  if (costCents <= 0) return false;
+
+  try {
+    await stripeClient.billing.meterEvents.create({
+      event_name: "ai_token_usage",
+      payload: {
+        stripe_customer_id: customerId,
+        value: String(costCents),
+      },
+    });
+    console.log(
+      `[Billing] Reported AI usage to Stripe: workspace=${workspaceId}, delta=$${costUsd.toFixed(2)} (${costCents} units)`,
+    );
+    return true;
+  } catch (error) {
+    console.error(
+      `[Billing] Failed to report AI usage to Stripe for workspace ${workspaceId}:`,
+      error,
+    );
+    return false;
   }
 }

@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { prisma } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
@@ -44,6 +45,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
+
+  // Check if AI usage is blocked (free allowance exceeded on free plan)
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: accessResult.project.workspaceId },
+    select: { aiBlocked: true },
+  });
+  if (workspace?.aiBlocked) {
+    return new Response(
+      JSON.stringify({ error: "AI token allowance exceeded. Upgrade your plan to continue using AI." }),
+      { status: 403, headers: { "Content-Type": "application/json" } },
+    );
+  }
 
   const body = await request.json();
 

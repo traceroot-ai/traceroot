@@ -50,12 +50,19 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Create checkout session with tiered price (includes base + usage)
-    // Quantity represents total events, Stripe calculates tiered pricing automatically
+    // Create checkout session with plan price + AI usage metered price
+    const lineItems: { price: string; quantity?: number }[] = [
+      { price: planConfig.billingPriceId, quantity: 1 },
+    ];
+    const aiUsagePriceId = process.env.STRIPE_AI_USAGE_PRICE_ID;
+    if (aiUsagePriceId) {
+      lineItems.push({ price: aiUsagePriceId });
+    }
+
     const checkoutSession = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: "subscription",
-      line_items: [{ price: planConfig.billingPriceId, quantity: 1 }],
+      line_items: lineItems,
       success_url: `${process.env.NEXTAUTH_URL}/workspaces/${workspaceId}/settings/billing?success=true`,
       cancel_url: `${process.env.NEXTAUTH_URL}/workspaces/${workspaceId}/settings/billing?canceled=true`,
       metadata: { workspaceId },

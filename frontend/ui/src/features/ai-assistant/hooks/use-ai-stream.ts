@@ -61,7 +61,10 @@ export function useAIStream() {
           signal: abortController.signal,
         });
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => null);
+          throw new Error(errorBody?.error || `HTTP ${response.status}`);
+        }
         if (!response.body) throw new Error("No response body");
 
         const reader = response.body.getReader();
