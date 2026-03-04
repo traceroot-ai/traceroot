@@ -98,7 +98,7 @@ services:
       - "8100:8100"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
-      AGENT_SERVICE_URL: http://localhost:8100
+      AGENT_SERVICE_URL: http://agent:8100
       INTERNAL_API_SECRET: internal-secret
       TRACEROOT_UI_URL: http://web:3000
     depends_on:
