@@ -6,6 +6,7 @@ Handles all setup automatically: deps, infra, migrations.
 Usage:
     python tmux_tools/launcher.py                # normal mode
     python tmux_tools/launcher.py --autoreload   # auto-reload backend on file changes
+    python tmux_tools/launcher.py --prod         # production mode (all services in Docker)
 """
 
 import argparse
@@ -18,6 +19,7 @@ from tmux_tools import schema
 REST_PORT = 8000
 FRONTEND_PORT = 3000
 AGENT_PORT = 8100
+PROD_COMPOSE = "docker compose -f docker-compose.prod.yml"
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +102,48 @@ def run_setup():
     ensure_frontend_deps()
     ensure_migrations()
     print("\nSetup complete. Launching development environment...\n")
+
+
+def run_prod_setup():
+    """Build Docker images and start all services. Idempotent."""
+    ensure_env_file()
+
+    print("Building Docker images (cached if unchanged)...")
+    subprocess.run(
+        f"{PROD_COMPOSE} build".split(),
+        check=True,
+    )
+
+    print("Starting infrastructure (PostgreSQL, ClickHouse, MinIO, Redis)...")
+    subprocess.run(
+        f"{PROD_COMPOSE} up -d --wait postgres clickhouse minio redis".split(),
+        check=True,
+    )
+    # minio-init is a one-shot container — start it separately (--wait fails on exit-0 containers)
+    subprocess.run(
+        f"{PROD_COMPOSE} up -d minio-init".split(),
+        check=True,
+    )
+
+    print("Running database migrations (PostgreSQL)...")
+    subprocess.run(
+        f"{PROD_COMPOSE} run --rm migrate".split(),
+        check=True,
+    )
+
+    print("Running database migrations (ClickHouse)...")
+    subprocess.run(
+        f"{PROD_COMPOSE} run --rm migrate-clickhouse".split(),
+        check=True,
+    )
+
+    print("Starting application services (web, rest, worker, billing, agent)...")
+    subprocess.run(
+        f"{PROD_COMPOSE} up -d web rest worker billing agent".split(),
+        check=True,
+    )
+
+    print("\nAll containers started. Launching log viewer...\n")
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +287,84 @@ def make_driver(autoreload=False):
     )
 
 
+def prod_infra_services():
+    """Infrastructure log streams for prod mode."""
+    return [
+        schema.Service(
+            title="PostgreSQL",
+            command=f"{PROD_COMPOSE} logs -f --tail=50 postgres",
+            web_urls=[],
+        ),
+        schema.Service(
+            title="ClickHouse",
+            command=f"{PROD_COMPOSE} logs -f --tail=50 clickhouse",
+            web_urls=[],
+        ),
+        schema.Service(
+            title="Redis",
+            command=f"{PROD_COMPOSE} logs -f --tail=50 redis",
+            web_urls=[],
+        ),
+        schema.Service(
+            title="MinIO",
+            command=f"{PROD_COMPOSE} logs -f --tail=50 minio",
+            web_urls=[
+                ("MinIO Console", "http://localhost:9091"),
+            ],
+        ),
+    ]
+
+
+def make_prod_driver():
+    """Full stack in Docker: all app + infra services as containers."""
+    return schema.Driver(
+        name="traceroot-prod",
+        welcome_title="production environment (local Docker)",
+        on_start=run_prod_setup,
+        services=[
+            schema.Service(
+                title="Web",
+                command=f"{PROD_COMPOSE} logs -f --tail=50 web",
+                web_urls=[
+                    ("Traceroot UI", f"http://localhost:{FRONTEND_PORT}"),
+                ],
+            ),
+            schema.Service(
+                title="REST API",
+                command=f"{PROD_COMPOSE} logs -f --tail=50 rest",
+                web_urls=[
+                    ("REST API docs", f"http://localhost:{REST_PORT}/docs"),
+                ],
+            ),
+            schema.Service(
+                title="Celery Worker",
+                command=f"{PROD_COMPOSE} logs -f --tail=50 worker",
+                web_urls=[],
+            ),
+            schema.Service(
+                title="Billing Worker",
+                command=f"{PROD_COMPOSE} logs -f --tail=50 billing",
+                web_urls=[],
+            ),
+            schema.Service(
+                title="Agent",
+                command=f"{PROD_COMPOSE} logs -f --tail=50 agent",
+                web_urls=[
+                    ("Agent API", f"http://localhost:{AGENT_PORT}"),
+                ],
+            ),
+        ]
+        + prod_infra_services(),
+        prerequisites=[
+            schema.Prerequisite(
+                name="docker is installed and running",
+                command="docker ps",
+                instructions="Install Docker: https://docs.docker.com/get-docker/",
+            ),
+        ],
+    )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Launch Traceroot dev environment")
     parser.add_argument(
@@ -250,6 +372,15 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable auto-reload for backend services on file changes",
     )
+    parser.add_argument(
+        "--prod",
+        action="store_true",
+        help="Launch production mode (all services in Docker)",
+    )
     args = parser.parse_args()
-    driver = make_driver(autoreload=args.autoreload)
+
+    if args.prod:
+        driver = make_prod_driver()
+    else:
+        driver = make_driver(autoreload=args.autoreload)
     driver.run()
