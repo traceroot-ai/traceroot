@@ -1,0 +1,87 @@
+# docker/Dockerfile.web
+FROM node:20-alpine AS base
+RUN apk add --no-cache openssl && \
+    corepack enable && corepack prepare pnpm@latest --activate
+
+# --- Dependencies stage ---
+FROM base AS deps
+WORKDIR /app
+
+# Copy workspace root files
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+
+# Copy package.json for each workspace package
+COPY frontend/ui/package.json ./ui/package.json
+COPY frontend/packages/core/package.json ./packages/core/package.json
+COPY frontend/packages/github/package.json ./packages/github/package.json
+
+# Install all dependencies
+RUN pnpm install --frozen-lockfile
+
+# --- Builder stage ---
+FROM base AS builder
+WORKDIR /app
+
+# Copy deps
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/ui/node_modules ./ui/node_modules
+COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
+COPY --from=deps /app/packages/github/node_modules ./packages/github/node_modules
+
+# Copy source code
+COPY frontend/packages/core ./packages/core
+COPY frontend/packages/github ./packages/github
+COPY frontend/ui ./ui
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+
+# Generate Prisma client and stash engine binary for the runner stage
+# (pnpm symlinks break Next.js standalone output file tracing)
+RUN cd packages/core && npx prisma generate \
+    && mkdir -p /tmp/prisma-engines/.prisma \
+    && cp -rL /app/node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client /tmp/prisma-engines/.prisma/client
+
+# Build the Next.js app
+# Next.js middleware (Edge Runtime) inlines env vars at build time, so
+# NEXTAUTH_SECRET must match the runtime value. Pass it via docker-compose
+# build args or it defaults to the .env value.
+ARG NEXTAUTH_SECRET
+ENV NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+RUN cd ui && pnpm build
+
+# --- Migrate stage (used by docker-compose migrate service) ---
+FROM base AS migrate
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
+COPY frontend/packages/core/prisma ./packages/core/prisma
+ENTRYPOINT ["./packages/core/node_modules/.bin/prisma", "migrate", "deploy", "--schema", "packages/core/prisma/schema.prisma"]
+
+# --- Runner stage ---
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+RUN apk add --no-cache openssl && \
+    addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# Copy standalone output
+COPY --from=builder /app/ui/.next/standalone ./
+COPY --from=builder /app/ui/.next/static ./ui/.next/static
+COPY --from=builder /app/ui/public ./ui/public
+
+# Copy Prisma engine binary to paths the bundled client searches at runtime.
+# pnpm symlinks break Next.js output file tracing, so we copy explicitly.
+COPY --from=builder /tmp/prisma-engines/.prisma/client/libquery_engine* ./ui/.next/server/
+COPY --from=builder /tmp/prisma-engines/.prisma ./node_modules/.prisma
+
+# Include Prisma schema + migrations so `prisma migrate deploy` can run from this image
+COPY --from=builder /app/packages/core/prisma ./packages/core/prisma
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+CMD ["node", "ui/server.js"]

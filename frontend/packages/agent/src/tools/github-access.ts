@@ -16,13 +16,16 @@ export function createCheckGitHubAccessTool(
       "Check if your GitHub App installation has access to a repository. Use this before attempting to clone.",
     parameters: schema,
     execute: async (_, params): Promise<AgentToolResult<undefined>> => {
-      // 1. Get installation token from UI service
-      const tokenRes = await fetch(`${uiBaseUrl}/api/github/token`, {
-        headers: {
-          "x-user-id": userId,
-          "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
+      // 1. Get installation token from UI service (pass repo to resolve correct installation)
+      const tokenRes = await fetch(
+        `${uiBaseUrl}/api/github/token?repo=${encodeURIComponent(params.repo)}`,
+        {
+          headers: {
+            "x-user-id": userId,
+            "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
+          },
         },
-      });
+      );
 
       if (!tokenRes.ok) {
         return {

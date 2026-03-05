@@ -55,6 +55,7 @@ class Prerequisite:
 
 @dataclass
 class WelcomeScreen:
+    title: str
     web_urls: list[tuple[str, str]]
     additional_instructions: str
 
@@ -69,8 +70,8 @@ class WelcomeScreen:
     """
         parts.append(f"\033[1;32m{logo}\033[0m")
 
-        parts.append("""
-Welcome to the Traceroot development environment.
+        parts.append(f"""
+Welcome to the Traceroot {self.title}.
 
     * To quit, press Ctrl-Q
     * To switch windows, press Shift+Left or Shift+Right
@@ -105,6 +106,7 @@ class Service:
 class Driver:
     name: str
     services: list[Service]
+    welcome_title: str = "development environment"
     additional_instructions: str = ""
     prerequisites: list[Prerequisite] = field(default_factory=list)
     on_exit: str | None = None
@@ -170,6 +172,7 @@ class Driver:
             web_urls.extend(svc.web_urls)
 
         return WelcomeScreen(
+            title=self.welcome_title,
             web_urls=web_urls,
             additional_instructions=self.additional_instructions,
         )
