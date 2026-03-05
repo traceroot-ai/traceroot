@@ -163,6 +163,8 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     // Accumulate token usage across all message_end events (tool-use loops)
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
+    let totalCacheReadTokens = 0;
+    let totalCacheWriteTokens = 0;
     let totalCost = 0;
     let responseModel: string | undefined;
     let responseProvider: string | undefined;
@@ -200,6 +202,8 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
             if (usage) {
               totalInputTokens += usage.input ?? usage.inputTokens ?? 0;
               totalOutputTokens += usage.output ?? usage.outputTokens ?? 0;
+              totalCacheReadTokens += usage.cacheRead ?? 0;
+              totalCacheWriteTokens += usage.cacheWrite ?? 0;
               totalCost += usage.cost?.total ?? 0;
             }
             if (msg?.model) responseModel = msg.model;
@@ -237,7 +241,13 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
               totalCost > 0
                 ? totalCost
                 : responseModel
-                  ? calculateModelCost(responseModel, totalInputTokens, totalOutputTokens)
+                  ? calculateModelCost(
+                      responseModel,
+                      totalInputTokens,
+                      totalOutputTokens,
+                      totalCacheReadTokens,
+                      totalCacheWriteTokens,
+                    )
                   : 0;
             const tokenUsage = responseModel
               ? {
