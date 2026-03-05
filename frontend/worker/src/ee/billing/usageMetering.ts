@@ -126,39 +126,57 @@ async function processWorkspace(
 
   const totalEvents = usage.traces + usage.spans;
 
-  // 1b. Query AI token usage from ai_messages (same time range as events)
-  const aiStart = isFreePlan
+  // 1b. Query AI token usage
+  // System models: use billing period (same as events) for cost tracking
+  const aiSystemStart = isFreePlan
     ? ctx.allTimeStart
     : (workspace.billingPeriodStart ?? new Date(ctx.now.getFullYear(), ctx.now.getMonth(), 1));
-  const aiEnd = isFreePlan
+  const aiSystemEnd = isFreePlan
     ? ctx.now
     : (workspace.billingPeriodEnd ?? new Date(ctx.now.getFullYear(), ctx.now.getMonth() + 1, 1));
 
-  const aiUsageWhere = {
+  const systemWhere = {
     role: "assistant" as const,
     inputTokens: { not: null as null },
+    isByok: false as const,
     session: { workspaceId: workspace.id },
-    createTime: { gte: aiStart, lt: aiEnd },
+    createTime: { gte: aiSystemStart, lt: aiSystemEnd },
   };
 
-  const [systemAgg, byokAgg, byModel] = await Promise.all([
+  // BYOK models: always all-time (no billing cycle, for reference only)
+  const byokWhere = {
+    role: "assistant" as const,
+    inputTokens: { not: null as null },
+    isByok: true as const,
+    session: { workspaceId: workspace.id },
+  };
+
+  const [systemAgg, byokAgg, systemByModel, byokByModel] = await Promise.all([
     prisma.aIMessage.aggregate({
-      where: { ...aiUsageWhere, isByok: false },
+      where: systemWhere,
       _count: { id: true },
       _sum: { inputTokens: true, outputTokens: true, costUsd: true },
     }),
     prisma.aIMessage.aggregate({
-      where: { ...aiUsageWhere, isByok: true },
+      where: byokWhere,
       _count: { id: true },
       _sum: { inputTokens: true, outputTokens: true, costUsd: true },
     }),
     prisma.aIMessage.groupBy({
       by: ["model", "provider", "isByok"],
-      where: aiUsageWhere,
+      where: systemWhere,
+      _count: { id: true },
+      _sum: { inputTokens: true, outputTokens: true, costUsd: true },
+    }),
+    prisma.aIMessage.groupBy({
+      by: ["model", "provider", "isByok"],
+      where: byokWhere,
       _count: { id: true },
       _sum: { inputTokens: true, outputTokens: true, costUsd: true },
     }),
   ]);
+
+  const byModel = [...systemByModel, ...byokByModel];
 
   // Calculate total system cost (for free allowance check)
   const systemCostUsd = Number(systemAgg._sum.costUsd ?? 0);
@@ -215,7 +233,7 @@ async function processWorkspace(
     if (workspace.aiBlocked !== shouldBlockAi) {
       updateData.aiBlocked = shouldBlockAi;
       console.log(
-        `[Billing] Workspace ${workspace.id}: $${systemCostUsd.toFixed(2)}/$${USAGE_CONFIG.aiIncludedCostUsd} AI cost, ai_blocked: ${shouldBlockAi}`,
+        `[Billing] Workspace ${workspace.id}: $${systemCostUsd.toFixed(4)}/$${USAGE_CONFIG.aiIncludedCostUsd} AI cost, ai_blocked: ${shouldBlockAi}`,
       );
     }
   }
@@ -263,7 +281,7 @@ async function processWorkspace(
   });
 
   console.log(
-    `[Billing] Workspace ${workspace.id} (${workspace.billingPlan}): ${usage.traces} traces, ${usage.spans} spans | system: ${systemAgg._count.id} msgs (${systemAgg._sum.inputTokens ?? 0} in / ${systemAgg._sum.outputTokens ?? 0} out, $${systemCostUsd.toFixed(4)}) | byok: ${byokAgg._count.id} msgs (${byokAgg._sum.inputTokens ?? 0} in / ${byokAgg._sum.outputTokens ?? 0} out)`,
+    `[Billing] Workspace ${workspace.id} (${workspace.billingPlan}): ${usage.traces} traces, ${usage.spans} spans | system: ${systemAgg._count.id} msgs (${systemAgg._sum.inputTokens ?? 0} in / ${systemAgg._sum.outputTokens ?? 0} out, $${systemCostUsd.toFixed(4)}) | byok: ${byokAgg._count.id} msgs (all-time, ${byokAgg._sum.inputTokens ?? 0} in / ${byokAgg._sum.outputTokens ?? 0} out)`,
   );
 }
 
@@ -299,8 +317,7 @@ async function updateStripeQuantity(
 
 /**
  * Report AI token usage cost to Stripe via meter events.
- * Converts costUsd to milli-cents (units at $0.001 each).
- * Stripe price must be set to $0.001/unit to match.
+ * Converts costUsd to cents (units at $0.01 each).
  * Only reports system model usage — BYOK is not billed.
  * Returns true if successfully reported.
  */
@@ -310,19 +327,19 @@ async function reportAIUsageToStripe(
   costUsd: number,
   stripeClient: Stripe,
 ): Promise<boolean> {
-  const units = Math.round(costUsd * 1000);
-  if (units <= 0) return false;
+  const costCents = Math.round(costUsd * 100);
+  if (costCents <= 0) return false;
 
   try {
     await stripeClient.billing.meterEvents.create({
       event_name: "ai_token_usage",
       payload: {
         stripe_customer_id: customerId,
-        value: String(units),
+        value: String(costCents),
       },
     });
     console.log(
-      `[Billing] Reported AI usage to Stripe: workspace=${workspaceId}, delta=$${costUsd.toFixed(4)} (${units} units @ $0.001)`,
+      `[Billing] Reported AI usage to Stripe: workspace=${workspaceId}, delta=$${costUsd.toFixed(2)} (${costCents} units @ $0.01)`,
     );
     return true;
   } catch (error) {
