@@ -48,6 +48,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   const body = await request.json();
 
+  // Validate BYOK source: verify workspace actually has a configured provider
+  if (body.source === "byok") {
+    const hasConfiguredByok = await prisma.modelProvider.findFirst({
+      where: { workspaceId: accessResult.project.workspaceId },
+    });
+    if (!hasConfiguredByok) {
+      return new Response(JSON.stringify({ error: "No BYOK provider configured." }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }
+
   // Check if AI usage is blocked (free allowance exceeded) — only for system models, BYOK always allowed
   if (body.source !== "byok") {
     const workspace = await prisma.workspace.findUnique({
@@ -56,7 +69,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     if (workspace?.aiBlocked) {
       return new Response(
-        JSON.stringify({ error: "AI token allowance exceeded. Upgrade your plan or use your own API key (BYOK) to continue." }),
+        JSON.stringify({
+          error:
+            "AI token allowance exceeded. Upgrade your plan or use your own API key (BYOK) to continue.",
+        }),
         { status: 403, headers: { "Content-Type": "application/json" } },
       );
     }
