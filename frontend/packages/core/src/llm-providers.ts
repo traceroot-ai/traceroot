@@ -45,6 +45,30 @@ export const ADAPTER_API_PROTOCOL: Record<string, string> = {
 export interface LLMModelDef {
   id: string;
   label: string;
+  /** Cost per 1M input tokens in USD */
+  inputCostPer1M?: number;
+  /** Cost per 1M output tokens in USD */
+  outputCostPer1M?: number;
+}
+
+/** Pricing table for system models (USD per 1M tokens) */
+export const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  "claude-opus-4-6":   { input: 15,  output: 75 },
+  "claude-sonnet-4-6": { input: 3,   output: 15 },
+  "claude-opus-4-5":   { input: 15,  output: 75 },
+  "claude-sonnet-4-5": { input: 3,   output: 15 },
+  "claude-haiku-4-5":  { input: 0.8, output: 4 },
+  "gpt-5":             { input: 2,   output: 10 },
+  "gpt-5-mini":        { input: 0.4, output: 1.6 },
+  "o3":                { input: 2,   output: 10 },
+  "o4-mini":           { input: 1.1, output: 4.4 },
+};
+
+/** Calculate cost in USD given model ID and token counts */
+export function calculateModelCost(modelId: string, inputTokens: number, outputTokens: number): number {
+  const pricing = MODEL_PRICING[modelId];
+  if (!pricing) return 0;
+  return (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000;
 }
 
 // ──────────────────────────────────────────────

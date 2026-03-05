@@ -160,9 +160,8 @@ async function processWorkspace(
     }),
   ]);
 
-  // Calculate total system tokens (for free allowance check)
-  const totalSystemTokens =
-    (systemAgg._sum.inputTokens ?? 0) + (systemAgg._sum.outputTokens ?? 0);
+  // Calculate total system cost (for free allowance check)
+  const systemCostUsd = Number(systemAgg._sum.costUsd ?? 0);
 
   // 2. Build update data
   const updateData: {
@@ -180,7 +179,7 @@ async function processWorkspace(
           messages: systemAgg._count.id,
           inputTokens: systemAgg._sum.inputTokens ?? 0,
           outputTokens: systemAgg._sum.outputTokens ?? 0,
-          costUsd: Number(systemAgg._sum.costUsd ?? 0),
+          costUsd: systemCostUsd,
         },
         byokUsage: {
           messages: byokAgg._count.id,
@@ -211,14 +210,20 @@ async function processWorkspace(
       );
     }
 
-    // Block AI when free allowance exceeded (free plan has no subscription to bill)
-    const shouldBlockAi = totalSystemTokens >= USAGE_CONFIG.aiIncludedTokens;
+    // Block AI when free cost allowance exceeded (free plan has no subscription to bill)
+    const shouldBlockAi = systemCostUsd >= USAGE_CONFIG.aiIncludedCostUsd;
     if (workspace.aiBlocked !== shouldBlockAi) {
       updateData.aiBlocked = shouldBlockAi;
       console.log(
-        `[Billing] Workspace ${workspace.id}: ${totalSystemTokens}/${USAGE_CONFIG.aiIncludedTokens} AI tokens, ai_blocked: ${shouldBlockAi}`,
+        `[Billing] Workspace ${workspace.id}: $${systemCostUsd.toFixed(2)}/$${USAGE_CONFIG.aiIncludedCostUsd} AI cost, ai_blocked: ${shouldBlockAi}`,
       );
     }
+  }
+
+  // 3b. For paid plans: always unblock AI (overage is billed, not blocked)
+  if (!isFreePlan && workspace.aiBlocked) {
+    updateData.aiBlocked = false;
+    console.log(`[Billing] Workspace ${workspace.id}: unblocking AI (paid plan)`);
   }
 
   // 4. For paid plans with subscription: update Stripe before DB write
@@ -226,12 +231,8 @@ async function processWorkspace(
     await updateStripeQuantity(workspace.billingSubscriptionId, totalEvents, ctx.stripeClient);
 
     // 4b. Report AI usage delta (system models only — BYOK is not billed)
-    // Only bill for tokens above the free allowance (1M tokens)
-    // Calculate billable cost: proportional to tokens above allowance
-    const systemCostUsd = Number(systemAgg._sum.costUsd ?? 0);
-    const billableCostUsd = totalSystemTokens > USAGE_CONFIG.aiIncludedTokens
-      ? systemCostUsd * (totalSystemTokens - USAGE_CONFIG.aiIncludedTokens) / totalSystemTokens
-      : 0;
+    // First $5 of AI usage is free; bill anything above that
+    const billableCostUsd = Math.max(0, systemCostUsd - USAGE_CONFIG.aiIncludedCostUsd);
 
     // Meter events are additive, so only report the increase since last run
     const previousUsage = workspace.currentUsage as any;
@@ -261,12 +262,8 @@ async function processWorkspace(
     data: updateData,
   });
 
-  const aiMessages = systemAgg._count.id + byokAgg._count.id;
-  const aiInputTokens = (systemAgg._sum.inputTokens ?? 0) + (byokAgg._sum.inputTokens ?? 0);
-  const aiOutputTokens = (systemAgg._sum.outputTokens ?? 0) + (byokAgg._sum.outputTokens ?? 0);
-
   console.log(
-    `[Billing] Workspace ${workspace.id} (${workspace.billingPlan}): ${usage.traces} traces, ${usage.spans} spans, ${aiMessages} AI messages (${aiInputTokens} in / ${aiOutputTokens} out tokens)`,
+    `[Billing] Workspace ${workspace.id} (${workspace.billingPlan}): ${usage.traces} traces, ${usage.spans} spans | system: ${systemAgg._count.id} msgs (${systemAgg._sum.inputTokens ?? 0} in / ${systemAgg._sum.outputTokens ?? 0} out, $${systemCostUsd.toFixed(4)}) | byok: ${byokAgg._count.id} msgs (${byokAgg._sum.inputTokens ?? 0} in / ${byokAgg._sum.outputTokens ?? 0} out)`,
   );
 }
 
@@ -302,7 +299,8 @@ async function updateStripeQuantity(
 
 /**
  * Report AI token usage cost to Stripe via meter events.
- * Converts costUsd to cents (units at $0.01 each).
+ * Converts costUsd to milli-cents (units at $0.001 each).
+ * Stripe price must be set to $0.001/unit to match.
  * Only reports system model usage — BYOK is not billed.
  * Returns true if successfully reported.
  */
@@ -312,19 +310,19 @@ async function reportAIUsageToStripe(
   costUsd: number,
   stripeClient: Stripe,
 ): Promise<boolean> {
-  const costCents = Math.round(costUsd * 100);
-  if (costCents <= 0) return false;
+  const units = Math.round(costUsd * 1000);
+  if (units <= 0) return false;
 
   try {
     await stripeClient.billing.meterEvents.create({
       event_name: "ai_token_usage",
       payload: {
         stripe_customer_id: customerId,
-        value: String(costCents),
+        value: String(units),
       },
     });
     console.log(
-      `[Billing] Reported AI usage to Stripe: workspace=${workspaceId}, delta=$${costUsd.toFixed(2)} (${costCents} units)`,
+      `[Billing] Reported AI usage to Stripe: workspace=${workspaceId}, delta=$${costUsd.toFixed(4)} (${units} units @ $0.001)`,
     );
     return true;
   } catch (error) {
