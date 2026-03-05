@@ -29,13 +29,16 @@ export function createGitCloneTool(
         await executor.init();
       }
 
-      // 1. Get installation token
-      const tokenRes = await fetch(`${uiBaseUrl}/api/github/token`, {
-        headers: {
-          "x-user-id": userId,
-          "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
+      // 1. Get installation token (pass repo to resolve correct installation for org repos)
+      const tokenRes = await fetch(
+        `${uiBaseUrl}/api/github/token?repo=${encodeURIComponent(params.repo)}`,
+        {
+          headers: {
+            "x-user-id": userId,
+            "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
+          },
         },
-      });
+      );
 
       if (!tokenRes.ok) {
         return {

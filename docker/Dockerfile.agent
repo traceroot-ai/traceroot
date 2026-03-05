@@ -39,9 +39,7 @@ RUN cd packages/agent && pnpm build
 FROM node:20-alpine AS runner
 WORKDIR /app
 
-RUN apk add --no-cache openssl && \
-    addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 agentjs
+RUN apk add --no-cache openssl docker-cli
 
 # Copy workspace node_modules (pnpm hoisted deps)
 COPY --from=builder /app/node_modules ./node_modules
@@ -55,8 +53,6 @@ COPY --from=builder /app/packages/agent/package.json ./packages/agent/package.js
 COPY --from=builder /app/packages/agent/node_modules ./packages/agent/node_modules
 # Copy Prisma engines
 COPY --from=builder /tmp/prisma-engines/.prisma ./node_modules/.prisma
-
-USER agentjs
 
 EXPOSE 8100
 

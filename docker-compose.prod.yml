@@ -1,23 +1,179 @@
 # docker-compose.prod.yml
-# Local production-mode testing. Builds all app images and runs with local infra.
-# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+# Standalone production compose. Runs everything: infra + app services.
+# Usage: docker compose -f docker-compose.prod.yml up --build
+#
+# All configurable values use ${VAR:-default} so they can be overridden via
+# .env (local) or environment injection (AWS ECS, K8s, etc.).
 
 services:
+  # ---------------------------------------------------------------------------
+  # Infrastructure
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: docker.io/postgres:${POSTGRES_VERSION:-17}
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - 127.0.0.1:5432:5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-24.3}
+    restart: always
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-default}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+    ports:
+      - 127.0.0.1:8123:8123
+      - 127.0.0.1:9000:9000
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+
+  minio:
+    image: docker.io/minio/minio:latest
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio-password}
+    ports:
+      - 9090:9000
+      - 127.0.0.1:9091:9001
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
+
+  minio-init:
+    image: docker.io/minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 $${MINIO_ROOT_USER:-minio} $${MINIO_ROOT_PASSWORD:-minio-password};
+      mc mb myminio/traceroot --ignore-existing;
+      exit 0;
+      "
+
+  redis:
+    image: docker.io/redis:7-alpine
+    restart: always
+    command: redis-server --appendonly yes
+    ports:
+      - 127.0.0.1:6379:6379
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # Migrations (run once before app services start)
+  # ---------------------------------------------------------------------------
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+      target: migrate
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  migrate-clickhouse:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.migrate-clickhouse
+    command: ["clickhouse://clickhouse:clickhouse@clickhouse:9000/default", "up"]
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # Application services
+  # ---------------------------------------------------------------------------
   web:
     build:
       context: .
       dockerfile: docker/Dockerfile.web
+      args:
+        NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-local-dev-secret-change-in-production}
     ports:
       - "3000:3000"
     environment:
+      # --- Internal Docker networking (fixed) ---
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
-      NEXTAUTH_URL: http://localhost:3000
-      NEXTAUTH_SECRET: local-dev-secret-change-in-production
-      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
-      INTERNAL_API_SECRET: internal-secret
+      AGENT_SERVICE_URL: http://agent:8100
+      TRACEROOT_UI_URL: http://web:3000
+      # --- Auth ---
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-local-dev-secret-change-in-production}
+      AUTH_GOOGLE_CLIENT_ID: ${AUTH_GOOGLE_CLIENT_ID:-}
+      AUTH_GOOGLE_CLIENT_SECRET: ${AUTH_GOOGLE_CLIENT_SECRET:-}
+      # --- API ---
+      # NOTE: NEXT_PUBLIC_* vars are baked at build time in Next.js.
+      # For production, rebuild the image with the correct value or use
+      # runtime env rewriting in next.config.js.
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-internal-secret}
+      # --- AI keys ---
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # --- Encryption ---
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      # --- Billing ---
+      ENABLE_BILLING: ${ENABLE_BILLING:-true}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SIGNING_SECRET: ${STRIPE_WEBHOOK_SIGNING_SECRET:-}
+      STRIPE_PRICE_ID_STARTER: ${STRIPE_PRICE_ID_STARTER:-}
+      STRIPE_PRICE_ID_PRO: ${STRIPE_PRICE_ID_PRO:-}
+      STRIPE_PRICE_ID_STARTUPS: ${STRIPE_PRICE_ID_STARTUPS:-}
+      # --- GitHub App ---
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_APP_NAME: ${GITHUB_APP_NAME:-}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+      GITHUB_APP_CLIENT_ID: ${GITHUB_APP_CLIENT_ID:-}
+      GITHUB_APP_CLIENT_SECRET: ${GITHUB_APP_CLIENT_SECRET:-}
+      GITHUB_OAUTH_REDIRECT_URI: ${GITHUB_OAUTH_REDIRECT_URI:-http://localhost:3000/api/github/callback}
+      # --- Email ---
+      TRACEROOT_SMTP_URL: ${TRACEROOT_SMTP_URL:-}
+      TRACEROOT_SMTP_MAIL_FROM: ${TRACEROOT_SMTP_MAIL_FROM:-}
+      # --- Enterprise ---
+      TRACEROOT_EE_LICENSE_KEY: ${TRACEROOT_EE_LICENSE_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   rest:
     build:
@@ -26,25 +182,30 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # --- Internal Docker networking (fixed) ---
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: "8123"
       CLICKHOUSE_NATIVE_PORT: "9000"
-      CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: clickhouse
-      CLICKHOUSE_DATABASE: default
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
       REDIS_URL: redis://redis:6379/0
+      REDIS_RESULT_URL: redis://redis:6379/1
       S3_ENDPOINT_URL: http://minio:9000
-      S3_ACCESS_KEY_ID: minio
-      S3_SECRET_ACCESS_KEY: minio-password
-      S3_BUCKET_NAME: traceroot
-      INTERNAL_API_SECRET: internal-secret
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minio}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minio-password}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-traceroot}
+      S3_REGION: ${S3_REGION:-us-east-1}
       TRACEROOT_UI_URL: http://web:3000
+      # --- Secrets ---
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-internal-secret}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
     depends_on:
-      postgres:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      migrate-clickhouse:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 
@@ -53,21 +214,26 @@ services:
       context: .
       dockerfile: docker/Dockerfile.worker
     environment:
+      # --- Internal Docker networking (fixed) ---
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: "8123"
       CLICKHOUSE_NATIVE_PORT: "9000"
-      CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: clickhouse
-      CLICKHOUSE_DATABASE: default
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
       REDIS_URL: redis://redis:6379/0
       REDIS_RESULT_URL: redis://redis:6379/1
       S3_ENDPOINT_URL: http://minio:9000
-      S3_ACCESS_KEY_ID: minio
-      S3_SECRET_ACCESS_KEY: minio-password
-      S3_BUCKET_NAME: traceroot
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minio}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minio-password}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-traceroot}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      # --- Worker config ---
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-5}
+      BATCH_SIZE: ${BATCH_SIZE:-100}
     depends_on:
-      clickhouse:
-        condition: service_healthy
+      migrate-clickhouse:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 
@@ -76,19 +242,31 @@ services:
       context: .
       dockerfile: docker/Dockerfile.billing
     environment:
+      # --- Internal Docker networking (fixed) ---
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: "8123"
-      CLICKHOUSE_USER: clickhouse
-      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
       REDIS_URL: redis://redis:6379/0
-      NEXT_PUBLIC_API_URL: http://rest:8000/api/v1
-      INTERNAL_API_SECRET: internal-secret
+      BACKEND_INTERNAL_URL: http://rest:8000
+      # --- Secrets ---
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-internal-secret}
+      # --- Billing ---
+      ENABLE_BILLING: ${ENABLE_BILLING:-true}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SIGNING_SECRET: ${STRIPE_WEBHOOK_SIGNING_SECRET:-}
+      STRIPE_PRICE_ID_STARTER: ${STRIPE_PRICE_ID_STARTER:-}
+      STRIPE_PRICE_ID_PRO: ${STRIPE_PRICE_ID_PRO:-}
+      STRIPE_PRICE_ID_STARTUPS: ${STRIPE_PRICE_ID_STARTUPS:-}
+      # --- Worker config ---
+      USAGE_METERING_CRON: ${USAGE_METERING_CRON:-"5 * * * *"}
     depends_on:
-      postgres:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      migrate-clickhouse:
+        condition: service_completed_successfully
 
   agent:
     build:
@@ -96,11 +274,35 @@ services:
       dockerfile: docker/Dockerfile.agent
     ports:
       - "8100:8100"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
+      # --- Internal Docker networking (fixed) ---
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
       AGENT_SERVICE_URL: http://agent:8100
-      INTERNAL_API_SECRET: internal-secret
+      BACKEND_INTERNAL_URL: http://rest:8000
       TRACEROOT_UI_URL: http://web:3000
+      # --- Secrets ---
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-internal-secret}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      # --- Sandbox ---
+      SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-docker}
+      DAYTONA_API_KEY: ${DAYTONA_API_KEY:-}
+      # --- AI keys ---
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:
+    driver: local
+  clickhouse_data:
+    driver: local
+  clickhouse_logs:
+    driver: local
+  minio_data:
+    driver: local
+  redis_data:
+    driver: local
