@@ -143,12 +143,17 @@ for (const sys of SYSTEM_MODELS) {
 }
 
 /**
- * Build a fallback model object for models not yet in pi-ai's registry.
- * Uses the same shape as pi-ai model objects.
- * NOTE: baseUrl is left empty so the SDK uses its default (e.g. https://api.openai.com/v1).
- * The caller sets baseUrl explicitly when needed (DeepSeek, custom URL, etc.).
+ * Build a model object that overrides the API protocol while preserving
+ * pi-ai's registry data (pricing, context window, etc.) when available.
+ * Falls back to a manual object for models not in the registry.
  */
 function buildFallbackModel(modelId: string, apiProtocol: string, provider: string) {
+  // Try to get the model from pi-ai's registry for pricing data
+  const registryModel = getModel(provider, modelId);
+  console.log(`[Agent] pi-ai registry lookup: provider=${provider}, model=${modelId}, found=${!!registryModel}`, registryModel ? JSON.stringify(registryModel.cost) : "N/A");
+  if (registryModel) {
+    return { ...registryModel, api: apiProtocol };
+  }
   return {
     id: modelId,
     name: modelId,
