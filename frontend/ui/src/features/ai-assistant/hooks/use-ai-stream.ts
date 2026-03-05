@@ -63,7 +63,15 @@ export function useAIStream() {
 
         if (!response.ok) {
           const errorBody = await response.json().catch(() => null);
-          throw new Error(errorBody?.error || `HTTP ${response.status}`);
+          const errorMessage = errorBody?.error || `HTTP ${response.status}`;
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMsgId
+                ? { ...msg, content: `Error: ${errorMessage}`, isStreaming: false }
+                : msg,
+            ),
+          );
+          return;
         }
         if (!response.body) throw new Error("No response body");
 
@@ -135,12 +143,13 @@ export function useAIStream() {
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           console.error("[AI Stream] Error:", error);
+          const errorMessage = (error as Error).message || "Failed to get response.";
           setMessages((prev) =>
             prev.map((msg) =>
               msg.id === assistantMsgId
                 ? {
                     ...msg,
-                    content: msg.content || "Error: Failed to get response.",
+                    content: msg.content || `Error: ${errorMessage}`,
                     isStreaming: false,
                   }
                 : msg,

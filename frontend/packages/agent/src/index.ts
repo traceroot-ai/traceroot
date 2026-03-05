@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { prisma } from "@traceroot/core";
+import { prisma, calculateModelCost } from "@traceroot/core";
 import {
   createSession,
   getSession,
@@ -224,6 +224,12 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           console.log(`[Agent] Done. Assistant text length: ${assistantText.length}`);
           // Persist assistant response to DB via SessionManager
           if (assistantText) {
+            // Use our pricing table if pi-ai returned 0 cost
+            const costUsd = totalCost > 0
+              ? totalCost
+              : responseModel
+                ? calculateModelCost(responseModel, totalInputTokens, totalOutputTokens)
+                : 0;
             const tokenUsage = responseModel
               ? {
                   model: responseModel,
@@ -231,7 +237,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
                   isByok: body.source === "byok",
                   inputTokens: totalInputTokens,
                   outputTokens: totalOutputTokens,
-                  costUsd: totalCost,
+                  costUsd,
                 }
               : undefined;
             await sessionManager.appendMessage("assistant", assistantText, undefined, tokenUsage);

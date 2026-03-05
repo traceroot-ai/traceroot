@@ -21,8 +21,7 @@ export type PlanType = (typeof PlanType)[keyof typeof PlanType];
 export const USAGE_PRICING_DESCRIPTION = "10k events included, then $0.02/event";
 export const USAGE_CONFIG = {
   includedUnits: 10_000,
-  pricePerUnit: 0.02,
-  aiIncludedTokens: 8_000, // 1M tokens free per billing period (all plans) — temporarily set to 8k for testing
+  aiIncludedCostUsd: 0.001, // $5 free AI usage per billing period (all plans)
 } as const;
 
 export function isFreePlanBlocked(currentUsage: number): boolean {
@@ -92,7 +91,7 @@ export const PLANS: Record<
     billingPriceId: "",
     highlighted: false,
     badge: null,
-    features: ["1 seat", "10k events/month (traces + spans)", "7d retention", "AI chat mode"],
+    features: ["1 seat", "10k events/month (traces + spans)", "7d retention", "AI chat mode", "Bring your own API keys (BYOK)"],
     entitlements: getEntitlementsForPlan(PlanType.FREE),
   },
   [PlanType.STARTER]: {
@@ -109,6 +108,7 @@ export const PLANS: Record<
       "30d retention",
       "Source code visible in UI",
       "AI chat mode",
+      "Bring your own API keys (BYOK)",
     ],
     entitlements: getEntitlementsForPlan(PlanType.STARTER),
   },
@@ -123,7 +123,6 @@ export const PLANS: Record<
       "Everything in Starter",
       "Unlimited seats",
       "AI chat + agent mode",
-      "Bring your own API keys (BYOK)",
       "GitHub integration",
       "AI auto-triaging",
     ],

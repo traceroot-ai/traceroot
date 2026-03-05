@@ -46,19 +46,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
 
-  // Check if AI usage is blocked (free allowance exceeded on free plan)
-  const workspace = await prisma.workspace.findUnique({
-    where: { id: accessResult.project.workspaceId },
-    select: { aiBlocked: true },
-  });
-  if (workspace?.aiBlocked) {
-    return new Response(
-      JSON.stringify({ error: "AI token allowance exceeded. Upgrade your plan to continue using AI." }),
-      { status: 403, headers: { "Content-Type": "application/json" } },
-    );
-  }
-
   const body = await request.json();
+
+  // Check if AI usage is blocked (free allowance exceeded) — only for system models, BYOK always allowed
+  if (body.source !== "byok") {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: accessResult.project.workspaceId },
+      select: { aiBlocked: true },
+    });
+    if (workspace?.aiBlocked) {
+      return new Response(
+        JSON.stringify({ error: "AI token allowance exceeded. Upgrade your plan or use your own API key (BYOK) to continue." }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
+  }
 
   // Proxy to agent service, passthrough SSE stream
   const agentRes = await fetch(
