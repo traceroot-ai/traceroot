@@ -1,0 +1,10 @@
+# docker/Dockerfile.migrate-clickhouse
+# Lightweight image for running goose ClickHouse migrations.
+FROM golang:1.23-alpine AS build
+RUN go install github.com/pressly/goose/v3/cmd/goose@v3.24.1
+
+FROM alpine:3.21
+COPY --from=build /go/bin/goose /usr/local/bin/goose
+COPY backend/db/clickhouse/migrations /migrations
+
+ENTRYPOINT ["goose", "-dir", "/migrations", "clickhouse"]

@@ -83,13 +83,12 @@ def on_worker_ready(**kwargs):
                 logger.info(f"goose: {line}")
 
         if result.returncode != 0:
-            raise RuntimeError(f"goose migration failed: {result.stderr}")
+            logger.warning(f"ClickHouse migration skipped: {result.stderr.strip()}")
+            return
 
         logger.info("ClickHouse migrations completed successfully")
 
     except FileNotFoundError:
-        logger.warning("goose not found. Install with: brew install goose")
-        raise
+        logger.warning("goose not found, skipping ClickHouse migrations.")
     except Exception as e:
         logger.error(f"ClickHouse migration failed: {e}")
-        raise
