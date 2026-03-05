@@ -249,6 +249,11 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
                       totalCacheWriteTokens,
                     )
                   : 0;
+            if (costUsd === 0 && responseModel && (totalInputTokens > 0 || totalOutputTokens > 0)) {
+              console.warn(
+                `[Agent] MODEL_PRICING missing for "${responseModel}", cost recorded as $0`,
+              );
+            }
             const tokenUsage = responseModel
               ? {
                   model: responseModel,
