@@ -28,6 +28,6 @@ export const config = {
     // - auth/* (sign-in, sign-up pages)
     // - _next (Next.js internals)
     // - static files
-    "/((?!api/auth|api/internal|api/billing/webhook|api/github/token|auth/|_next/static|_next/image|favicon.ico).*)",
+    "/((?!api/auth|api/internal|api/billing/webhook|api/github/token|api/github/callback|api/github/install-callback|auth/|_next/static|_next/image|favicon.ico).*)",
   ],
 };

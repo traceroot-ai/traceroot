@@ -17,6 +17,7 @@ COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/backend ./backend
 
 ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app/backend"
 
 WORKDIR /app/backend
 
