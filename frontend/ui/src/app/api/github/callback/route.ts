@@ -61,6 +61,34 @@ export async function GET(request: NextRequest) {
     if (authResult.error) return authResult.error;
     const { user } = authResult;
 
+    // Look up existing GitHub App installations for this user.
+    // If the app is already installed (e.g. by a teammate), we can grab the
+    // installation_id now instead of relying on the install-callback redirect
+    // (which GitHub skips for already-installed apps).
+    let installationId: string | undefined;
+    try {
+      const installRes = await fetch("https://api.github.com/user/installations", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/vnd.github.v3+json",
+          "User-Agent": "Traceroot",
+        },
+      });
+      if (installRes.ok) {
+        const data = await installRes.json();
+        const appId = env.GITHUB_APP_ID;
+        const installation = data.installations?.find(
+          (inst: { app_id: number }) => String(inst.app_id) === appId,
+        );
+        if (installation) {
+          installationId = String(installation.id);
+        }
+      }
+    } catch (e) {
+      // Non-fatal — installationId will be filled later via install-callback
+      console.warn("Failed to look up existing GitHub App installations:", e);
+    }
+
     // Upsert GitHubConnection
     await prisma.gitHubConnection.upsert({
       where: { userId: user.id },
@@ -69,11 +97,13 @@ export async function GET(request: NextRequest) {
         githubUserId: String(ghUser.id),
         githubUsername: ghUser.login,
         accessToken,
+        ...(installationId && { installationId }),
       },
       update: {
         githubUserId: String(ghUser.id),
         githubUsername: ghUser.login,
         accessToken,
+        ...(installationId && { installationId }),
       },
     });
 
@@ -81,8 +111,10 @@ export async function GET(request: NextRequest) {
     const returnTo = request.cookies.get(GITHUB_RETURN_TO_COOKIE)?.value || "/";
 
     // Redirect to installation flow
+    // Use NEXTAUTH_URL as base — request.url inside Docker resolves to 0.0.0.0
+    // which loses the session cookie (set on localhost).
     const response = NextResponse.redirect(
-      new URL(`/api/github/install?returnTo=${encodeURIComponent(returnTo)}`, request.url),
+      new URL(`/api/github/install?returnTo=${encodeURIComponent(returnTo)}`, env.NEXTAUTH_URL),
     );
 
     // Clear OAuth state cookie

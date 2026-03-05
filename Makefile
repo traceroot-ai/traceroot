@@ -21,3 +21,23 @@ dev-reset:
 	rm -rf frontend/node_modules frontend/ui/node_modules frontend/worker/node_modules frontend/packages/core/node_modules
 	rm -rf .venv
 	uv run python tmux_tools/launcher.py
+
+# --- Production (Docker) ---------------------------------------------------
+
+PROD_COMPOSE := docker compose -f docker-compose.prod.yml
+
+.PHONY: prod prod-down prod-reset
+
+## Start all services in Docker with tmux log viewer (builds on first run).
+prod:
+	uv run python tmux_tools/launcher.py --prod
+
+## Stop all production containers.
+prod-down:
+	$(PROD_COMPOSE) down
+
+## Nuclear reset: stop containers, remove volumes and built images.
+prod-reset:
+	@echo "Resetting production environment..."
+	tmux -L development kill-session -t traceroot-prod 2>/dev/null || true
+	$(PROD_COMPOSE) down -v --rmi local
