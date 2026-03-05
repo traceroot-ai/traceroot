@@ -244,12 +244,14 @@ export function BillingTab({
           <div className="border-b bg-muted/30 px-4 py-3">
             <h3 className="text-sm font-medium">AI Token Usage</h3>
           </div>
-          <div className="px-4 py-3 space-y-4">
+          <div className="space-y-4 px-4 py-3">
             {/* System Models */}
             <div>
               <div className="flex items-baseline justify-between">
                 <p className="text-sm font-medium">System Models</p>
-                <span className="text-sm font-medium">{formatCost(aiUsage.systemUsage.costUsd)}</span>
+                <span className="text-sm font-medium">
+                  {formatCost(aiUsage.systemUsage.costUsd)}
+                </span>
               </div>
               <p className="text-xs text-muted-foreground">
                 {currentPlan === PlanType.FREE
@@ -258,7 +260,10 @@ export function BillingTab({
               </p>
               <div className="mt-2 flex justify-between text-sm text-muted-foreground">
                 <span>Input / Output</span>
-                <span>{aiUsage.systemUsage.inputTokens.toLocaleString()} / {aiUsage.systemUsage.outputTokens.toLocaleString()}</span>
+                <span>
+                  {aiUsage.systemUsage.inputTokens.toLocaleString()} /{" "}
+                  {aiUsage.systemUsage.outputTokens.toLocaleString()}
+                </span>
               </div>
             </div>
 
@@ -276,7 +281,10 @@ export function BillingTab({
                 </p>
                 <div className="mt-2 flex justify-between text-sm text-muted-foreground">
                   <span>Input / Output</span>
-                  <span>{aiUsage.byokUsage.inputTokens.toLocaleString()} / {aiUsage.byokUsage.outputTokens.toLocaleString()}</span>
+                  <span>
+                    {aiUsage.byokUsage.inputTokens.toLocaleString()} /{" "}
+                    {aiUsage.byokUsage.outputTokens.toLocaleString()}
+                  </span>
                 </div>
               </div>
             )}
@@ -284,15 +292,13 @@ export function BillingTab({
             {/* By Model breakdown */}
             {aiUsage.byModel.length > 0 && (
               <div className="-mx-4 border-t px-4 pt-3">
-                <p className="text-xs font-medium text-muted-foreground uppercase">By model</p>
+                <p className="text-xs font-medium uppercase text-muted-foreground">By model</p>
                 <div className="mt-2 space-y-1.5 text-sm">
                   {aiUsage.byModel.map((row) => (
                     <div key={`${row.model}-${row.isByok}`} className="flex justify-between">
                       <span className="text-muted-foreground">
                         {row.model}
-                        {row.isByok && (
-                          <span className="ml-1 text-xs opacity-60">BYOK</span>
-                        )}
+                        {row.isByok && <span className="ml-1 text-xs opacity-60">BYOK</span>}
                       </span>
                       <span className="text-muted-foreground">
                         {formatTokens(row.inputTokens, row.outputTokens)}

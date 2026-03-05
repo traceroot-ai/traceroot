@@ -245,7 +245,12 @@ async function processWorkspace(
   }
 
   // 4. For paid plans with subscription: update Stripe before DB write
-  if (!isFreePlan && workspace.billingSubscriptionId && ctx.stripeClient) {
+  if (
+    !isFreePlan &&
+    workspace.billingSubscriptionId &&
+    workspace.billingCustomerId &&
+    ctx.stripeClient
+  ) {
     await updateStripeQuantity(workspace.billingSubscriptionId, totalEvents, ctx.stripeClient);
 
     // 4b. Report AI usage delta (system models only — BYOK is not billed)
@@ -253,8 +258,12 @@ async function processWorkspace(
     const billableCostUsd = Math.max(0, systemCostUsd - USAGE_CONFIG.aiIncludedCostUsd);
 
     // Meter events are additive, so only report the increase since last run
+    // Reset tracking when billing period changes (prevents negative delta after period rollover)
     const previousUsage = workspace.currentUsage as any;
-    const lastReportedCost = previousUsage?.ai?.lastReportedCostUsd ?? 0;
+    const prevPeriodStart = previousUsage?.ai?.lastReportedPeriodStart ?? null;
+    const currentPeriodStart = workspace.billingPeriodStart?.toISOString() ?? null;
+    const lastReportedCost =
+      prevPeriodStart === currentPeriodStart ? (previousUsage?.ai?.lastReportedCostUsd ?? 0) : 0;
     const deltaCost = billableCostUsd - lastReportedCost;
 
     if (deltaCost > 0) {
@@ -267,10 +276,12 @@ async function processWorkspace(
       if (reported) {
         // Track what we've reported so we don't double-report
         (updateData.currentUsage as any).ai.lastReportedCostUsd = billableCostUsd;
+        (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
       }
     } else {
-      // Preserve last reported value
+      // Preserve last reported value (and period start for reset detection)
       (updateData.currentUsage as any).ai.lastReportedCostUsd = lastReportedCost;
+      (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
     }
   }
 
@@ -294,9 +305,7 @@ async function updateStripeQuantity(
     const subscription = await stripeClient.subscriptions.retrieve(subscriptionId);
     // Find the plan item (not the AI usage metered item)
     const aiUsagePriceId = process.env.STRIPE_AI_USAGE_PRICE_ID;
-    const planItem = subscription.items.data.find(
-      (item) => item.price.id !== aiUsagePriceId,
-    );
+    const planItem = subscription.items.data.find((item) => item.price.id !== aiUsagePriceId);
 
     if (!planItem) {
       console.warn(`[Billing] No plan subscription item found for ${subscriptionId}`);

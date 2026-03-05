@@ -91,7 +91,13 @@ export const PLANS: Record<
     billingPriceId: "",
     highlighted: false,
     badge: null,
-    features: ["1 seat", "10k events/month (traces + spans)", "7d retention", "AI chat mode", "Bring your own API keys (BYOK)"],
+    features: [
+      "1 seat",
+      "10k events/month (traces + spans)",
+      "7d retention",
+      "AI chat mode",
+      "Bring your own API keys (BYOK)",
+    ],
     entitlements: getEntitlementsForPlan(PlanType.FREE),
   },
   [PlanType.STARTER]: {

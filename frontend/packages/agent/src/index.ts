@@ -183,7 +183,15 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           // Log error details and accumulate token usage from message_end
           if (event.type === "message_end") {
             const msg = (event as any).message;
-            console.log(`[Agent] message_end:`, JSON.stringify({ model: msg?.model, provider: msg?.provider, usage: msg?.usage, stopReason: msg?.stopReason }).slice(0, 500));
+            console.log(
+              `[Agent] message_end:`,
+              JSON.stringify({
+                model: msg?.model,
+                provider: msg?.provider,
+                usage: msg?.usage,
+                stopReason: msg?.stopReason,
+              }).slice(0, 500),
+            );
             if (msg?.stopReason === "error") {
               console.error(`[Agent] API error:`, msg.errorMessage || "unknown");
             }
@@ -225,11 +233,12 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           // Persist assistant response to DB via SessionManager
           if (assistantText) {
             // Use our pricing table if pi-ai returned 0 cost
-            const costUsd = totalCost > 0
-              ? totalCost
-              : responseModel
-                ? calculateModelCost(responseModel, totalInputTokens, totalOutputTokens)
-                : 0;
+            const costUsd =
+              totalCost > 0
+                ? totalCost
+                : responseModel
+                  ? calculateModelCost(responseModel, totalInputTokens, totalOutputTokens)
+                  : 0;
             const tokenUsage = responseModel
               ? {
                   model: responseModel,
