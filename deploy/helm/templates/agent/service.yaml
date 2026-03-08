@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "traceroot.fullname" . }}-agent
+  labels:
+    {{- include "traceroot.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.agent.port }}
+      targetPort: {{ .Values.agent.port }}
+  selector:
+    {{- include "traceroot.selectorLabels" . | nindent 4 }}
+    app: agent

@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "traceroot.fullname" . }}-web
+  labels:
+    {{- include "traceroot.labels" . | nindent 4 }}
+    app: web
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector:
+    matchLabels:
+      {{- include "traceroot.selectorLabels" . | nindent 6 }}
+      app: web
+  template:
+    metadata:
+      labels:
+        {{- include "traceroot.selectorLabels" . | nindent 8 }}
+        app: web
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      containers:
+        - name: web
+          image: "{{ .Values.web.image.repository }}:{{ .Values.web.image.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.web.port }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.existingSecret }}
+                  key: {{ .Values.postgresql.secretKeys.databaseUrl }}
+            - name: NEXTAUTH_URL
+              value: {{ .Values.nextauth.url | quote }}
+            - name: NEXTAUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: {{ .Values.secrets.keys.nextauthSecret }}
+            - name: INTERNAL_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: {{ .Values.secrets.keys.internalApiSecret }}
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: {{ .Values.secrets.keys.encryptionKey }}
+            - name: AGENT_SERVICE_URL
+              value: "http://{{ include "traceroot.fullname" . }}-agent:{{ .Values.agent.port }}"
+            - name: NEXT_PUBLIC_API_URL
+              value: "http://{{ include "traceroot.fullname" . }}-rest:{{ .Values.rest.port }}/api/v1"
+            - name: HOSTNAME
+              value: "0.0.0.0"
+            {{- if .Values.llmKeys }}
+            {{- if .Values.llmKeys.existingSecret }}
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.llmKeys.existingSecret }}
+                  key: {{ .Values.llmKeys.keys.anthropicApiKey }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.llmKeys.existingSecret }}
+                  key: {{ .Values.llmKeys.keys.openaiApiKey }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.github }}
+            {{- if .Values.github.existingSecret }}
+            - name: GITHUB_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.github.existingSecret }}
+                  key: {{ .Values.github.keys.appId }}
+            - name: GITHUB_APP_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.github.existingSecret }}
+                  key: {{ .Values.github.keys.appName }}
+            - name: GITHUB_APP_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.github.existingSecret }}
+                  key: {{ .Values.github.keys.clientId }}
+            - name: GITHUB_APP_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.github.existingSecret }}
+                  key: {{ .Values.github.keys.clientSecret }}
+            - name: GITHUB_APP_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.github.existingSecret }}
+                  key: {{ .Values.github.keys.privateKey }}
+            - name: GITHUB_OAUTH_REDIRECT_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.github.existingSecret }}
+                  key: {{ .Values.github.keys.oauthRedirectUri }}
+            {{- end }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: {{ .Values.web.port }}
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: {{ .Values.web.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}

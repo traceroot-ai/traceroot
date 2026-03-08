@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "traceroot.fullname" . }}-rest
+  labels:
+    {{- include "traceroot.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.rest.port }}
+      targetPort: {{ .Values.rest.port }}
+  selector:
+    {{- include "traceroot.selectorLabels" . | nindent 4 }}
+    app: rest

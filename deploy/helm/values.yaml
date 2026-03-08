@@ -1,0 +1,180 @@
+# deploy/helm/values.yaml
+
+# --- Global ---
+global:
+  security:
+    allowInsecureImages: true  # Required for bitnamilegacy/* images
+imagePullPolicy: Always
+
+# --- Service Account (IRSA for S3 access) ---
+serviceAccount:
+  create: true
+  name: traceroot
+  annotations: {}
+  # eks.amazonaws.com/role-arn: <IRSA_ROLE_ARN>  # Set in values.staging/production.yaml
+
+# --- Web (Next.js) ---
+web:
+  image:
+    repository: ""  # Set via --set or values override
+    tag: "latest"
+  replicas: 1
+  port: 3000
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+# --- REST API (FastAPI) ---
+rest:
+  image:
+    repository: ""
+    tag: "latest"
+  replicas: 1
+  port: 8000
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+# --- Celery Worker ---
+worker:
+  image:
+    repository: ""
+    tag: "latest"
+  replicas: 1
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+# --- Billing Worker ---
+billing:
+  image:
+    repository: ""
+    tag: "latest"
+  replicas: 1
+  resources:
+    requests:
+      cpu: "128m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# --- Agent (Hono) ---
+agent:
+  image:
+    repository: ""
+    tag: "latest"
+  replicas: 1
+  port: 8100
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
+# --- Ingress ---
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip  # Required for Fargate
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+  host: ""  # Leave empty for ALB-generated URL
+
+# --- External services (set by Terraform) ---
+postgresql:
+  host: ""
+  database: ""
+  existingSecret: "traceroot"
+  secretKeys:
+    databaseUrl: "database-url"
+    password: "postgres-password"
+
+redis:
+  existingSecret: "traceroot"
+  secretKeys:
+    url: "redis-url"
+
+s3:
+  bucket: ""
+  region: ""
+  endpoint: ""  # Empty = use AWS S3 default
+  forcePathStyle: false
+
+# --- ClickHouse (Bitnami subchart) ---
+# Storage: Terraform pre-creates PersistentVolumes bound to EFS access points.
+# The PVs have claim_ref pointing to the exact PVC names this chart creates.
+# This is "static provisioning" - Fargate can mount EFS without the CSI controller.
+clickhouse:
+  deploy: true
+  image:
+    repository: bitnamilegacy/clickhouse  # Free image (bitnami is paid)
+  auth:
+    username: default
+    existingSecret: "traceroot"
+    existingSecretKey: "clickhouse-password"
+  replicaCount: 1  # Must match terraform var.clickhouse_replica_count
+  shards: 1
+  zookeeper:
+    enabled: false  # Not needed for single node
+  persistence:
+    enabled: true
+    size: 20Gi  # Must match terraform var.clickhouse_storage_size
+    storageClass: "efs"  # Uses pre-provisioned PVs from Terraform
+
+# --- Migrations ---
+migrations:
+  postgres:
+    image:
+      repository: ""  # Set in values.staging/production.yaml
+      tag: "latest"
+  clickhouse:
+    image:
+      repository: ""  # Set in values.staging/production.yaml
+      tag: "latest"
+
+# --- Secrets ---
+secrets:
+  existingSecret: "traceroot"
+  keys:
+    nextauthSecret: "nextauth-secret"
+    internalApiSecret: "internal-api-secret"
+    encryptionKey: "encryption-key"
+
+# --- GitHub App Integration ---
+github:
+  existingSecret: ""  # e.g., "traceroot-github"
+  keys:
+    appId: "github-app-id"
+    appName: "github-app-name"
+    clientId: "github-app-client-id"
+    clientSecret: "github-app-client-secret"
+    privateKey: "github-app-private-key"
+    oauthRedirectUri: "github-oauth-redirect-uri"
+
+# --- LLM API Keys (for system-provided models) ---
+llmKeys:
+  existingSecret: ""  # e.g., "traceroot-llm-keys"
+  keys:
+    anthropicApiKey: "anthropic-api-key"
+    openaiApiKey: "openai-api-key"
+    daytonaApiKey: "daytona-api-key"
+
+# --- General ---
+nextauth:
+  url: ""  # e.g., https://app.traceroot.ai or ALB URL

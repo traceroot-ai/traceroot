@@ -1,0 +1,13 @@
+# deploy/helm/Chart.yaml
+apiVersion: v2
+name: traceroot
+description: AI agent observability platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+dependencies:
+  - name: clickhouse
+    version: 8.0.5
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: clickhouse.deploy

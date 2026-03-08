@@ -1,4 +1,4 @@
-# terraform/aws/ingress.tf
+# deploy/terraform/aws/ingress.tf
 
 # IRSA role for ALB controller
 module "lb_controller_irsa" {
@@ -35,6 +35,17 @@ resource "helm_release" "aws_lb_controller" {
   set {
     name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
     value = module.lb_controller_irsa.iam_role_arn
+  }
+
+  # Required for Fargate - can't use EC2 metadata
+  set {
+    name  = "vpcId"
+    value = module.vpc.vpc_id
+  }
+
+  set {
+    name  = "region"
+    value = var.aws_region
   }
 
   depends_on = [module.eks]

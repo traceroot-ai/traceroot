@@ -1,4 +1,4 @@
-# terraform/aws/eks.tf
+# deploy/terraform/aws/eks.tf
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
@@ -13,6 +13,9 @@ module "eks" {
   # Public endpoint for kubectl access
   cluster_endpoint_public_access = true
 
+  # Grant cluster creator admin access (required for kubectl)
+  enable_cluster_creator_admin_permissions = true
+
   # Fargate profiles — no EC2 nodes to manage
   fargate_profiles = {
     for ns in var.fargate_profile_namespaces : ns => {
@@ -21,6 +24,9 @@ module "eks" {
   }
 
   # EKS add-ons
+  # EFS CSI driver: controller runs on Fargate, node DaemonSet won't schedule (no EC2 nodes).
+  # That's fine — we use static provisioning (pre-created PVs in efs.tf) so only the
+  # controller + CSI driver registration is needed. Fargate handles the actual EFS mount.
   cluster_addons = {
     coredns = {
       configuration_values = jsonencode({
@@ -30,6 +36,8 @@ module "eks" {
     kube-proxy             = {}
     vpc-cni                = {}
     eks-pod-identity-agent = {}
+    # aws-efs-csi-driver removed — Fargate DaemonSet incompatible.
+    # Install via Helm with node.enabled=false instead (Step 4).
   }
 
   tags = local.tags
