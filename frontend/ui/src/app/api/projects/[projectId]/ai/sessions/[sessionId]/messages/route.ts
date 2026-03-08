@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, ModelSource } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   const body = await request.json();
 
   // Validate BYOK source: verify workspace actually has a configured provider
-  if (body.source === "byok") {
+  if (body.source === ModelSource.BYOK) {
     const hasConfiguredByok = await prisma.modelProvider.findFirst({
       where: { workspaceId: accessResult.project.workspaceId },
     });
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 
   // Check if AI usage is blocked (free allowance exceeded) — only for system models, BYOK always allowed
-  if (body.source !== "byok") {
+  if (body.source !== ModelSource.BYOK) {
     const workspace = await prisma.workspace.findUnique({
       where: { id: accessResult.project.workspaceId },
       select: { aiBlocked: true },

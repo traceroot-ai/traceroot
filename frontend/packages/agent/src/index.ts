@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { prisma, calculateModelCost } from "@traceroot/core";
+import { prisma, calculateModelCost, ModelSource } from "@traceroot/core";
 import {
   createSession,
   getSession,
@@ -114,7 +114,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     model?: string;
     traceId?: string;
     providerName?: string;
-    source?: "system" | "byok";
+    source?: ModelSource;
   }>();
 
   const systemPrompt = getSystemPrompt({ projectId, traceId: body.traceId });
@@ -237,7 +237,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           // Persist assistant response to DB via SessionManager
           if (assistantText) {
             // Use our pricing table if pi-ai returned 0 cost
-            const costUsd =
+            const cost =
               totalCost > 0
                 ? totalCost
                 : responseModel
@@ -249,7 +249,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
                       totalCacheWriteTokens,
                     )
                   : 0;
-            if (costUsd === 0 && responseModel && (totalInputTokens > 0 || totalOutputTokens > 0)) {
+            if (cost === 0 && responseModel && (totalInputTokens > 0 || totalOutputTokens > 0)) {
               console.warn(
                 `[Agent] MODEL_PRICING missing for "${responseModel}", cost recorded as $0`,
               );
@@ -258,10 +258,10 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
               ? {
                   model: responseModel,
                   provider: responseProvider || "unknown",
-                  isByok: body.source === "byok",
+                  isByok: body.source === ModelSource.BYOK,
                   inputTokens: totalInputTokens,
                   outputTokens: totalOutputTokens,
-                  costUsd,
+                  cost,
                 }
               : undefined;
             await sessionManager.appendMessage("assistant", assistantText, undefined, tokenUsage);
