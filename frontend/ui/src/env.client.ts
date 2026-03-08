@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const clientSchema = z.object({
-  NEXT_PUBLIC_API_URL: z.string().default("http://localhost:8000/api/v1"),
+  NEXT_PUBLIC_API_URL: z.string().default("/api/v1"),
   NEXT_PUBLIC_DOCS_URL: z.string().default("https://docs.traceroot.ai"),
   NEXT_PUBLIC_GITHUB_REPO_URL: z.string().default("https://github.com/traceroot-ai/traceroot"),
   NEXT_PUBLIC_GITHUB_ISSUES_URL: z

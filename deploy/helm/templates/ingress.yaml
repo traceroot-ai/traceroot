@@ -15,6 +15,13 @@ spec:
       {{- end }}
       http:
         paths:
+          - path: /api/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "traceroot.fullname" . }}-rest
+                port:
+                  number: {{ .Values.rest.port }}
           - path: /
             pathType: Prefix
             backend:

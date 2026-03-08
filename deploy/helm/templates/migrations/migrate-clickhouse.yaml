@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "traceroot.fullname" . }}-migrate-clickhouse
+  labels:
+    {{- include "traceroot.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "traceroot.selectorLabels" . | nindent 8 }}
+        app: migrate-clickhouse
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: "{{ .Values.migrations.clickhouse.image.repository }}:{{ .Values.migrations.clickhouse.image.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              goose -dir /migrations clickhouse "clickhouse://{{ .Values.clickhouse.auth.username }}:${CLICKHOUSE_PASSWORD}@{{ include "traceroot.clickhouse.hostname" . }}:9000/default" up
+          env:
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.clickhouse.auth.existingSecret }}
+                  key: {{ .Values.clickhouse.auth.existingSecretKey }}
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

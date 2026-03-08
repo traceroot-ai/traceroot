@@ -44,8 +44,10 @@ RUN cd packages/core && npx prisma generate \
 # Next.js middleware (Edge Runtime) inlines env vars at build time, so
 # NEXTAUTH_SECRET must match the runtime value. Pass it via docker-compose
 # build args or it defaults to the .env value.
-ARG NEXTAUTH_SECRET
+ARG NEXTAUTH_SECRET=build-time-placeholder-replaced-at-runtime
 ENV NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+ARG NEXT_PUBLIC_API_URL=/api/v1
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 RUN cd ui && pnpm build
 
 # --- Migrate stage (used by docker-compose migrate service) ---
@@ -73,6 +75,10 @@ COPY --from=builder /app/ui/public ./ui/public
 # pnpm symlinks break Next.js output file tracing, so we copy explicitly.
 COPY --from=builder /tmp/prisma-engines/.prisma/client/libquery_engine* ./ui/.next/server/
 COPY --from=builder /tmp/prisma-engines/.prisma ./node_modules/.prisma
+
+# Copy @prisma/client runtime (pnpm symlinks prevent Next.js standalone from tracing it)
+RUN mkdir -p ./node_modules/@prisma
+COPY --from=builder /app/node_modules/.pnpm/@prisma+client*/node_modules/@prisma/client ./node_modules/@prisma/client
 
 # Include Prisma schema + migrations so `prisma migrate deploy` can run from this image
 COPY --from=builder /app/packages/core/prisma ./packages/core/prisma

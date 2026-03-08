@@ -17,9 +17,11 @@ spec:
         {{- include "traceroot.selectorLabels" . | nindent 8 }}
         app: billing
     spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
       containers:
         - name: billing
           image: "{{ .Values.billing.image.repository }}:{{ .Values.billing.image.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
           env:
             - name: DATABASE_URL
               valueFrom:
@@ -37,6 +39,8 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.clickhouse.auth.existingSecret }}
                   key: {{ .Values.clickhouse.auth.existingSecretKey }}
+            - name: CLICKHOUSE_DATABASE
+              value: "default"
             - name: REDIS_URL
               valueFrom:
                 secretKeyRef:

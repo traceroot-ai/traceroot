@@ -1,4 +1,4 @@
-# terraform/aws/variables.tf
+# deploy/terraform/aws/variables.tf
 
 variable "name" {
   description = "Name prefix for all resources"
@@ -57,4 +57,23 @@ variable "traceroot_helm_chart_path" {
   description = "Path to the Traceroot Helm chart"
   type        = string
   default     = "../../helm"
+}
+
+# --- ClickHouse (EFS storage) ---
+variable "clickhouse_replica_count" {
+  description = "Number of ClickHouse replicas (each gets a separate EFS access point)"
+  type        = number
+  default     = 1
+}
+
+variable "clickhouse_storage_size" {
+  description = "Storage size for each ClickHouse replica"
+  type        = string
+  default     = "20Gi"
+}
+
+variable "clickhouse_namespace" {
+  description = "Kubernetes namespace where ClickHouse will be deployed"
+  type        = string
+  default     = "traceroot-staging"
 }

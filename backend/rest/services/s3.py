@@ -47,7 +47,7 @@ class S3Service:
             region: AWS region. Defaults to settings.
         """
         s3 = settings.s3
-        self._endpoint_url = endpoint_url or s3.endpoint_url
+        self._endpoint_url = (endpoint_url or s3.endpoint_url) or None
         self._access_key_id = access_key_id or s3.access_key_id
         self._secret_access_key = secret_access_key or s3.secret_access_key
         self._bucket_name = bucket_name or s3.bucket_name

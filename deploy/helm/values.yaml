@@ -1,4 +1,17 @@
-# charts/traceroot/values.yaml
+# deploy/helm/values.yaml
+
+# --- Global ---
+global:
+  security:
+    allowInsecureImages: true  # Required for bitnamilegacy/* images
+imagePullPolicy: Always
+
+# --- Service Account (IRSA for S3 access) ---
+serviceAccount:
+  create: true
+  name: traceroot
+  annotations: {}
+  # eks.amazonaws.com/role-arn: <IRSA_ROLE_ARN>  # Set in values.staging/production.yaml
 
 # --- Web (Next.js) ---
 web:
@@ -79,6 +92,7 @@ ingress:
   className: alb
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip  # Required for Fargate
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
   host: ""  # Leave empty for ALB-generated URL
 
@@ -103,18 +117,36 @@ s3:
   forcePathStyle: false
 
 # --- ClickHouse (Bitnami subchart) ---
+# Storage: Terraform pre-creates PersistentVolumes bound to EFS access points.
+# The PVs have claim_ref pointing to the exact PVC names this chart creates.
+# This is "static provisioning" - Fargate can mount EFS without the CSI controller.
 clickhouse:
   deploy: true
+  image:
+    repository: bitnamilegacy/clickhouse  # Free image (bitnami is paid)
   auth:
     username: default
     existingSecret: "traceroot"
     existingSecretKey: "clickhouse-password"
-  replicaCount: 1  # Simple: single node
+  replicaCount: 1  # Must match terraform var.clickhouse_replica_count
   shards: 1
   zookeeper:
     enabled: false  # Not needed for single node
   persistence:
-    size: 20Gi
+    enabled: true
+    size: 20Gi  # Must match terraform var.clickhouse_storage_size
+    storageClass: "efs"  # Uses pre-provisioned PVs from Terraform
+
+# --- Migrations ---
+migrations:
+  postgres:
+    image:
+      repository: ""  # Set in values.staging/production.yaml
+      tag: "latest"
+  clickhouse:
+    image:
+      repository: ""  # Set in values.staging/production.yaml
+      tag: "latest"
 
 # --- Secrets ---
 secrets:
@@ -122,6 +154,26 @@ secrets:
   keys:
     nextauthSecret: "nextauth-secret"
     internalApiSecret: "internal-api-secret"
+    encryptionKey: "encryption-key"
+
+# --- GitHub App Integration ---
+github:
+  existingSecret: ""  # e.g., "traceroot-github"
+  keys:
+    appId: "github-app-id"
+    appName: "github-app-name"
+    clientId: "github-app-client-id"
+    clientSecret: "github-app-client-secret"
+    privateKey: "github-app-private-key"
+    oauthRedirectUri: "github-oauth-redirect-uri"
+
+# --- LLM API Keys (for system-provided models) ---
+llmKeys:
+  existingSecret: ""  # e.g., "traceroot-llm-keys"
+  keys:
+    anthropicApiKey: "anthropic-api-key"
+    openaiApiKey: "openai-api-key"
+    daytonaApiKey: "daytona-api-key"
 
 # --- General ---
 nextauth:

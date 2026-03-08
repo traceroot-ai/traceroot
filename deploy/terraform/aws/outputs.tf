@@ -1,4 +1,4 @@
-# terraform/aws/outputs.tf
+# deploy/terraform/aws/outputs.tf
 
 output "cluster_name" {
   description = "EKS cluster name"
@@ -17,7 +17,8 @@ output "ecr_repositories" {
     rest    = aws_ecr_repository.services["rest"].repository_url
     worker  = aws_ecr_repository.services["worker"].repository_url
     billing = aws_ecr_repository.services["billing"].repository_url
-    agent   = aws_ecr_repository.services["agent"].repository_url
+    agent              = aws_ecr_repository.services["agent"].repository_url
+    migrate-clickhouse = aws_ecr_repository.services["migrate-clickhouse"].repository_url
   }
 }
 
@@ -34,4 +35,20 @@ output "redis_endpoint" {
 output "s3_bucket" {
   description = "S3 bucket name"
   value       = aws_s3_bucket.traceroot.id
+}
+
+# EFS for ClickHouse storage (static provisioning - no CSI controller needed)
+output "efs_file_system_id" {
+  description = "EFS file system ID for ClickHouse storage"
+  value       = aws_efs_file_system.traceroot.id
+}
+
+output "clickhouse_pv_names" {
+  description = "Pre-provisioned PersistentVolume names for ClickHouse"
+  value       = [for pv in kubernetes_persistent_volume.clickhouse_data : pv.metadata[0].name]
+}
+
+output "irsa_role_arn" {
+  description = "IRSA role ARN for application pods (S3 access)"
+  value       = aws_iam_role.traceroot_irsa.arn
 }
