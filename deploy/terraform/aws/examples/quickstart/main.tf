@@ -1,4 +1,4 @@
-# terraform/aws/examples/quickstart/main.tf
+# deploy/terraform/aws/examples/quickstart/main.tf
 #
 # Minimal example to deploy Traceroot on AWS.
 #

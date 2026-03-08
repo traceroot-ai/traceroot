@@ -1,4 +1,4 @@
-# terraform/aws/secrets.tf
+# deploy/terraform/aws/secrets.tf
 
 resource "random_password" "nextauth_secret" {
   length  = 64
@@ -12,6 +12,11 @@ resource "random_password" "internal_api_secret" {
 
 resource "random_password" "clickhouse" {
   length  = 32
+  special = false
+}
+
+resource "random_password" "encryption_key" {
+  length  = 64
   special = false
 }
 
@@ -40,7 +45,8 @@ resource "kubernetes_secret" "staging" {
     "internal-api-secret" = random_password.internal_api_secret.result
     "clickhouse-password" = random_password.clickhouse.result
     "database-url"        = "postgresql://traceroot:${random_password.postgres.result}@${aws_rds_cluster.postgres.endpoint}:5432/traceroot_staging"
-    "redis-url"           = "rediss://:${random_password.redis.result}@${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379/0"
+    "redis-url"           = "rediss://:${random_password.redis.result}@${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379/0?ssl_cert_reqs=CERT_REQUIRED"
+    "encryption-key"      = random_password.encryption_key.result
   }
 
   depends_on = [module.eks]
@@ -60,7 +66,8 @@ resource "kubernetes_secret" "production" {
     "internal-api-secret" = random_password.internal_api_secret.result
     "clickhouse-password" = random_password.clickhouse.result
     "database-url"        = "postgresql://traceroot:${random_password.postgres.result}@${aws_rds_cluster.postgres.endpoint}:5432/traceroot_production"
-    "redis-url"           = "rediss://:${random_password.redis.result}@${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379/0"
+    "redis-url"           = "rediss://:${random_password.redis.result}@${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379/0?ssl_cert_reqs=CERT_REQUIRED"
+    "encryption-key"      = random_password.encryption_key.result
   }
 
   depends_on = [module.eks]

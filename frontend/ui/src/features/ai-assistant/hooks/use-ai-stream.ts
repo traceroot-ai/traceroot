@@ -3,6 +3,18 @@
 import { useState, useCallback, useRef } from "react";
 import type { AIMessage } from "../types";
 
+/** Generate a UUID that works in both secure (HTTPS) and insecure (HTTP) contexts. */
+function generateId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  // Fallback for HTTP (non-secure) contexts where crypto.randomUUID is unavailable
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 export function useAIStream() {
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -20,7 +32,7 @@ export function useAIStream() {
     }) => {
       // Add user message
       const userMsg: AIMessage = {
-        id: crypto.randomUUID(),
+        id: generateId(),
         role: "user",
         content: params.message,
         timestamp: new Date().toISOString(),
@@ -29,7 +41,7 @@ export function useAIStream() {
 
       // Start streaming assistant response
       setIsStreaming(true);
-      const assistantMsgId = crypto.randomUUID();
+      const assistantMsgId = generateId();
 
       setMessages((prev) => [
         ...prev,
