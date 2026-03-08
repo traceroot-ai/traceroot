@@ -1,0 +1,20 @@
+# terraform/aws/terraform.tfvars.example
+#
+# Copy to terraform.tfvars and edit:
+#   cp terraform.tfvars.example terraform.tfvars
+
+name       = "traceroot"
+aws_region = "us-east-1"
+
+# VPC
+vpc_cidr = "10.0.0.0/16"
+
+# EKS
+kubernetes_version = "1.32"
+
+# RDS Aurora Serverless v2
+postgres_min_capacity = 0.5
+postgres_max_capacity = 2.0
+
+# ElastiCache
+cache_node_type = "cache.t4g.micro"
