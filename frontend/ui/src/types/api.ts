@@ -219,7 +219,7 @@ export interface AIUsageCategory {
   messages: number;
   inputTokens: number;
   outputTokens: number;
-  costUsd: number;
+  cost: number;
 }
 
 export interface AIUsageByModel extends AIUsageCategory {

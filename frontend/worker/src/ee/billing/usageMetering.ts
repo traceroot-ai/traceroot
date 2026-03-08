@@ -155,31 +155,31 @@ async function processWorkspace(
     prisma.aIMessage.aggregate({
       where: systemWhere,
       _count: { id: true },
-      _sum: { inputTokens: true, outputTokens: true, costUsd: true },
+      _sum: { inputTokens: true, outputTokens: true, cost: true },
     }),
     prisma.aIMessage.aggregate({
       where: byokWhere,
       _count: { id: true },
-      _sum: { inputTokens: true, outputTokens: true, costUsd: true },
+      _sum: { inputTokens: true, outputTokens: true, cost: true },
     }),
     prisma.aIMessage.groupBy({
       by: ["model", "provider", "isByok"],
       where: systemWhere,
       _count: { id: true },
-      _sum: { inputTokens: true, outputTokens: true, costUsd: true },
+      _sum: { inputTokens: true, outputTokens: true, cost: true },
     }),
     prisma.aIMessage.groupBy({
       by: ["model", "provider", "isByok"],
       where: byokWhere,
       _count: { id: true },
-      _sum: { inputTokens: true, outputTokens: true, costUsd: true },
+      _sum: { inputTokens: true, outputTokens: true, cost: true },
     }),
   ]);
 
   const byModel = [...systemByModel, ...byokByModel];
 
   // Calculate total system cost (for free allowance check)
-  const systemCostUsd = Number(systemAgg._sum.costUsd ?? 0);
+  const systemCostUsd = Number(systemAgg._sum.cost ?? 0);
 
   // 2. Build update data
   const updateData: {
@@ -197,13 +197,13 @@ async function processWorkspace(
           messages: systemAgg._count.id,
           inputTokens: systemAgg._sum.inputTokens ?? 0,
           outputTokens: systemAgg._sum.outputTokens ?? 0,
-          costUsd: systemCostUsd,
+          cost: systemCostUsd,
         },
         byokUsage: {
           messages: byokAgg._count.id,
           inputTokens: byokAgg._sum.inputTokens ?? 0,
           outputTokens: byokAgg._sum.outputTokens ?? 0,
-          costUsd: Number(byokAgg._sum.costUsd ?? 0),
+          cost: Number(byokAgg._sum.cost ?? 0),
         },
         byModel: byModel.map((row) => ({
           model: row.model ?? "unknown",
@@ -212,7 +212,7 @@ async function processWorkspace(
           messages: row._count.id,
           inputTokens: row._sum.inputTokens ?? 0,
           outputTokens: row._sum.outputTokens ?? 0,
-          costUsd: Number(row._sum.costUsd ?? 0),
+          cost: Number(row._sum.cost ?? 0),
         })),
       },
     },
@@ -229,11 +229,11 @@ async function processWorkspace(
     }
 
     // Block AI when free cost allowance exceeded (free plan has no subscription to bill)
-    const shouldBlockAi = systemCostUsd >= USAGE_CONFIG.aiIncludedCostUsd;
+    const shouldBlockAi = systemCostUsd >= USAGE_CONFIG.aiIncludedCost;
     if (workspace.aiBlocked !== shouldBlockAi) {
       updateData.aiBlocked = shouldBlockAi;
       console.log(
-        `[Billing] Workspace ${workspace.id}: $${systemCostUsd.toFixed(4)}/$${USAGE_CONFIG.aiIncludedCostUsd} AI cost, ai_blocked: ${shouldBlockAi}`,
+        `[Billing] Workspace ${workspace.id}: $${systemCostUsd.toFixed(4)}/$${USAGE_CONFIG.aiIncludedCost} AI cost, ai_blocked: ${shouldBlockAi}`,
       );
     }
   }
@@ -255,7 +255,7 @@ async function processWorkspace(
 
     // 4b. Report AI usage delta (system models only — BYOK is not billed)
     // First $5 of AI usage is free; bill anything above that
-    const billableCostUsd = Math.max(0, systemCostUsd - USAGE_CONFIG.aiIncludedCostUsd);
+    const billableCostUsd = Math.max(0, systemCostUsd - USAGE_CONFIG.aiIncludedCost);
 
     // Meter events are additive, so only report the increase since last run
     // Reset tracking when billing period changes (prevents negative delta after period rollover)
@@ -326,17 +326,17 @@ async function updateStripeQuantity(
 
 /**
  * Report AI token usage cost to Stripe via meter events.
- * Converts costUsd to cents (units at $0.01 each).
+ * Converts cost to cents (units at $0.01 each).
  * Only reports system model usage — BYOK is not billed.
  * Returns true if successfully reported.
  */
 async function reportAIUsageToStripe(
   workspaceId: string,
   customerId: string,
-  costUsd: number,
+  cost: number,
   stripeClient: Stripe,
 ): Promise<boolean> {
-  const costCents = Math.round(costUsd * 100);
+  const costCents = Math.round(cost * 100);
   if (costCents <= 0) return false;
 
   try {
@@ -348,7 +348,7 @@ async function reportAIUsageToStripe(
       },
     });
     console.log(
-      `[Billing] Reported AI usage to Stripe: workspace=${workspaceId}, delta=$${costUsd.toFixed(2)} (${costCents} units @ $0.01)`,
+      `[Billing] Reported AI usage to Stripe: workspace=${workspaceId}, delta=$${cost.toFixed(2)} (${costCents} units @ $0.01)`,
     );
     return true;
   } catch (error) {

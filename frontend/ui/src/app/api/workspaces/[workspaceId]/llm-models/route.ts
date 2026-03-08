@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma, SYSTEM_MODELS } from "@traceroot/core";
+import { prisma, SYSTEM_MODELS, ModelSource } from "@traceroot/core";
 import { requireAuth, requireWorkspaceMembership, successResponse } from "@/lib/auth-helpers";
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   );
   const systemModels = SYSTEM_MODELS.filter((s) => !!process.env[s.envVar]).map((s) => ({
     provider: s.provider,
-    source: "system" as const,
+    source: ModelSource.SYSTEM,
     models: s.models,
   }));
 
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   const byokProviders = dbProviders.map((p) => ({
     provider: p.provider,
     adapter: p.adapter,
-    source: "byok" as const,
+    source: ModelSource.BYOK,
     models: (p.customModels || [])
       .map((id) => id.trim())
       .filter(Boolean)

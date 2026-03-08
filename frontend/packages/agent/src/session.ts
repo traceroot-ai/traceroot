@@ -14,7 +14,7 @@ export interface TokenUsageData {
   isByok: boolean;
   inputTokens: number;
   outputTokens: number;
-  costUsd: number;
+  cost: number;
 }
 
 export class SessionManager {
@@ -74,7 +74,7 @@ export class SessionManager {
           isByok: tokenUsage.isByok,
           inputTokens: tokenUsage.inputTokens,
           outputTokens: tokenUsage.outputTokens,
-          costUsd: tokenUsage.costUsd,
+          cost: tokenUsage.cost,
         }),
       },
     });

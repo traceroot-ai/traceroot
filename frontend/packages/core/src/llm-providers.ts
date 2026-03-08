@@ -1,3 +1,10 @@
+// Model source — system (TraceRoot-hosted) or BYOK (user's own keys)
+export const ModelSource = {
+  SYSTEM: "system",
+  BYOK: "byok",
+} as const;
+export type ModelSource = (typeof ModelSource)[keyof typeof ModelSource];
+
 // Adapter enum — maps to pi-ai provider names
 export const LLMAdapter = {
   OPENAI: "openai",

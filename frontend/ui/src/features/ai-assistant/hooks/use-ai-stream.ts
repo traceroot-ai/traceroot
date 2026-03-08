@@ -15,7 +15,7 @@ export function useAIStream() {
       projectId: string;
       model?: string;
       providerName?: string;
-      source?: "system" | "byok";
+      source?: "system" | "byok"; // ModelSource values
       traceId?: string;
     }) => {
       // Add user message

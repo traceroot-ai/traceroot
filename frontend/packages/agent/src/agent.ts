@@ -13,6 +13,7 @@ import {
   ADAPTER_DEFAULT_BASE_URL,
   ADAPTER_API_PROTOCOL,
   BEDROCK_USE_DEFAULT_CREDENTIALS,
+  ModelSource,
 } from "@traceroot/core";
 import { SessionManager } from "./session.js";
 
@@ -215,7 +216,7 @@ export interface AgentRunnerConfig {
   tools: AgentTool<any>[];
   model?: string;
   providerName?: string; // BYOK provider name
-  source?: "system" | "byok"; // where the model comes from
+  source?: ModelSource; // where the model comes from
 }
 
 export interface AgentEventHandler {
@@ -249,7 +250,7 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
 
   // Fetch BYOK provider config if this is a BYOK model
   let providerConfig: ProviderConfig | null = null;
-  if (config.source === "byok" && config.providerName) {
+  if (config.source === ModelSource.BYOK && config.providerName) {
     providerConfig = await fetchProviderConfig(config.workspaceId, config.providerName);
     if (!providerConfig) {
       throw new Error(
@@ -261,7 +262,7 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
 
   const model = resolveModel(config.model, providerConfig);
   console.log(
-    `[Agent] Using model="${config.model || "claude-sonnet-4-5"}" source=${config.source || "system"} provider=${config.providerName || "—"}`,
+    `[Agent] Using model="${config.model || "claude-sonnet-4-5"}" source=${config.source || ModelSource.SYSTEM} provider=${config.providerName || "—"}`,
     JSON.stringify(model),
   );
 
@@ -283,7 +284,7 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
         }
       }
       // System models: always use env var, never fall through to BYOK keys
-      if (config.source !== "byok") {
+      if (config.source !== ModelSource.BYOK) {
         const envKey = getEnvApiKey(provider);
         if (envKey) return envKey;
       }
