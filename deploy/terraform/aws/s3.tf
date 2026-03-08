@@ -1,4 +1,4 @@
-# terraform/aws/s3.tf
+# deploy/terraform/aws/s3.tf
 
 resource "aws_s3_bucket" "traceroot" {
   bucket_prefix = "${var.name}-"

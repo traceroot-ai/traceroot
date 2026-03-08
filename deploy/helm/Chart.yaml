@@ -1,4 +1,4 @@
-# charts/traceroot/Chart.yaml
+# deploy/helm/Chart.yaml
 apiVersion: v2
 name: traceroot
 description: AI agent observability platform

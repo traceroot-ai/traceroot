@@ -17,9 +17,11 @@ spec:
         {{- include "traceroot.selectorLabels" . | nindent 8 }}
         app: agent
     spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
       containers:
         - name: agent
           image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
           ports:
             - containerPort: {{ .Values.agent.port }}
           env:
@@ -37,6 +39,34 @@ spec:
                   key: {{ .Values.secrets.keys.internalApiSecret }}
             - name: TRACEROOT_UI_URL
               value: "http://{{ include "traceroot.fullname" . }}-web:{{ .Values.web.port }}"
+            - name: BACKEND_INTERNAL_URL
+              value: "http://{{ include "traceroot.fullname" . }}-rest:{{ .Values.rest.port }}"
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: {{ .Values.secrets.keys.encryptionKey }}
+            - name: SANDBOX_PROVIDER
+              value: "daytona"
+            {{- if .Values.llmKeys }}
+            {{- if .Values.llmKeys.existingSecret }}
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.llmKeys.existingSecret }}
+                  key: {{ .Values.llmKeys.keys.anthropicApiKey }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.llmKeys.existingSecret }}
+                  key: {{ .Values.llmKeys.keys.openaiApiKey }}
+            - name: DAYTONA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.llmKeys.existingSecret }}
+                  key: {{ .Values.llmKeys.keys.daytonaApiKey }}
+            {{- end }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /health

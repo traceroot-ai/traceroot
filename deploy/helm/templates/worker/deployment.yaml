@@ -17,9 +17,11 @@ spec:
         {{- include "traceroot.selectorLabels" . | nindent 8 }}
         app: worker
     spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
       containers:
         - name: worker
           image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
           env:
             - name: CLICKHOUSE_HOST
               value: {{ include "traceroot.clickhouse.hostname" . | quote }}

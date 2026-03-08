@@ -17,9 +17,11 @@ spec:
         {{- include "traceroot.selectorLabels" . | nindent 8 }}
         app: rest
     spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
       containers:
         - name: rest
           image: "{{ .Values.rest.image.repository }}:{{ .Values.rest.image.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
           ports:
             - containerPort: {{ .Values.rest.port }}
           env:
@@ -48,6 +50,11 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.redis.existingSecret }}
                   key: {{ .Values.redis.secretKeys.url }}
+            - name: REDIS_RESULT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.existingSecret }}
+                  key: {{ .Values.redis.secretKeys.url }}
             - name: S3_BUCKET_NAME
               value: {{ .Values.s3.bucket | quote }}
             - name: S3_ENDPOINT_URL
@@ -61,6 +68,8 @@ spec:
                   key: {{ .Values.secrets.keys.internalApiSecret }}
             - name: TRACEROOT_UI_URL
               value: "http://{{ include "traceroot.fullname" . }}-web:{{ .Values.web.port }}"
+            - name: CORS_ORIGINS
+              value: '["{{ .Values.nextauth.url }}"]'
           livenessProbe:
             httpGet:
               path: /health

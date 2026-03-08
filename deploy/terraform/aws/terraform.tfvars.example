@@ -1,4 +1,4 @@
-# terraform/aws/terraform.tfvars.example
+# deploy/terraform/aws/terraform.tfvars.example
 #
 # Copy to terraform.tfvars and edit:
 #   cp terraform.tfvars.example terraform.tfvars

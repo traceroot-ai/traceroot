@@ -1,4 +1,4 @@
-# terraform/aws/versions.tf
+# deploy/terraform/aws/versions.tf
 terraform {
   required_version = ">= 1.0"
 
