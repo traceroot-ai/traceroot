@@ -8,18 +8,18 @@ Thanks for your interest in contributing! This guide will help you get started.
 - uv: Python package manager
 - pnpm: Node.js package manager
 - tmux: terminal multiplexer
-- goose: clickHouse migration tool
+- goose: ClickHouse migration tool
 
 ## Quick Start
 
 ```bash
 cp .env.example .env  # First time only — then edit with your API keys
-make dev              # Start the full dev environment
-make dev-authreload   # Restart with fresh auth state
-make dev-reset        # Nuke everything to start clean
+make dev-autoreload   # Service restart with local code changes
 ```
 
-`make dev` handles the rest automatically: installs deps, starts Docker containers, runs migrations, and launches everything in tmux, where each tmux window corresponds to a service.
+`make dev-autoreload` handles the rest automatically: installs deps, starts Docker containers, runs migrations, and launches everything in tmux, where each tmux window corresponds to a service.
+
+To fully reset your dev environment (nuke containers, volumes, etc.), run `make dev-reset`.
 
 ## License
 
