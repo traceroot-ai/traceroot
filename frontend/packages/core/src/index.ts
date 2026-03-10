@@ -26,5 +26,8 @@ export * from "./schemas";
 // LLM Providers
 export * from "./llm-providers";
 
+// Model Pricing (DB-backed)
+export * from "./model-pricing";
+
 // Shared types
 export * from "./types/index";

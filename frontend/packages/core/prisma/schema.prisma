@@ -227,3 +227,28 @@ model AIMessage {
   @@index([sessionId], map: "ix_ai_message_session_id")
   @@map("ai_messages")
 }
+
+// Standard Model Pricing - Single source of truth for model costs
+model StandardModel {
+  id           String               @id @db.VarChar
+  modelName    String               @map("model_name") @db.VarChar
+  matchPattern String               @map("match_pattern") @db.VarChar
+  provider     String               @db.VarChar
+  createTime   DateTime             @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime   DateTime             @default(now()) @updatedAt @map("update_time") @db.Timestamp(6)
+  prices       StandardModelPrice[]
+
+  @@unique([modelName])
+  @@map("standard_models")
+}
+
+model StandardModelPrice {
+  id        String        @id @default(cuid()) @db.VarChar
+  modelId   String        @map("model_id") @db.VarChar
+  usageType String        @map("usage_type") @db.VarChar
+  price     Decimal       @db.Decimal(18, 12)
+  model     StandardModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([modelId, usageType])
+  @@map("standard_model_prices")
+}
