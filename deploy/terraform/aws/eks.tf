@@ -43,6 +43,14 @@ module "eks" {
   tags = local.tags
 }
 
+# Attach ECR pull policy to all Fargate pod execution roles
+# Fargate default role only allows public ECR, we need private ECR access
+resource "aws_iam_role_policy_attachment" "fargate_ecr" {
+  for_each   = module.eks.fargate_profiles
+  role       = each.value.iam_role_name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
 # Configure kubectl access
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint

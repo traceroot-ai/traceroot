@@ -47,7 +47,7 @@ spec:
                   name: {{ .Values.secrets.existingSecret }}
                   key: {{ .Values.secrets.keys.encryptionKey }}
             - name: SANDBOX_PROVIDER
-              value: "daytona"
+              value: {{ .Values.sandboxProvider | quote }}
             {{- if .Values.llmKeys }}
             {{- if .Values.llmKeys.existingSecret }}
             - name: ANTHROPIC_API_KEY
@@ -66,6 +66,9 @@ spec:
                   name: {{ .Values.llmKeys.existingSecret }}
                   key: {{ .Values.llmKeys.keys.daytonaApiKey }}
             {{- end }}
+            {{- end }}
+            {{- with .Values.additionalEnv }}
+            {{- toYaml . | nindent 12 }}
             {{- end }}
           livenessProbe:
             httpGet:

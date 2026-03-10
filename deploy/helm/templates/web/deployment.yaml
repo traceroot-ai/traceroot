@@ -53,6 +53,20 @@ spec:
               value: "http://{{ include "traceroot.fullname" . }}-rest:{{ .Values.rest.port }}/api/v1"
             - name: HOSTNAME
               value: "0.0.0.0"
+            - name: ENABLE_BILLING
+              value: {{ .Values.enableBilling | quote }}
+            # --- Branding ---
+            - name: NEXT_PUBLIC_LOGO_URL
+              value: {{ .Values.branding.logoUrl | quote }}
+            - name: NEXT_PUBLIC_DOCS_URL
+              value: {{ .Values.branding.docsUrl | quote }}
+            - name: NEXT_PUBLIC_GITHUB_REPO_URL
+              value: {{ .Values.branding.githubRepoUrl | quote }}
+            - name: NEXT_PUBLIC_GITHUB_ISSUES_URL
+              value: {{ .Values.branding.githubIssuesUrl | quote }}
+            - name: NEXT_PUBLIC_DISCORD_INVITE_URL
+              value: {{ .Values.branding.discordInviteUrl | quote }}
+            # --- LLM keys (conditional) ---
             {{- if .Values.llmKeys }}
             {{- if .Values.llmKeys.existingSecret }}
             - name: ANTHROPIC_API_KEY
@@ -67,6 +81,7 @@ spec:
                   key: {{ .Values.llmKeys.keys.openaiApiKey }}
             {{- end }}
             {{- end }}
+            # --- GitHub App (conditional) ---
             {{- if .Values.github }}
             {{- if .Values.github.existingSecret }}
             - name: GITHUB_APP_ID
@@ -100,6 +115,80 @@ spec:
                   name: {{ .Values.github.existingSecret }}
                   key: {{ .Values.github.keys.oauthRedirectUri }}
             {{- end }}
+            {{- end }}
+            # --- Google OAuth (conditional) ---
+            {{- if .Values.googleOAuth }}
+            {{- if .Values.googleOAuth.existingSecret }}
+            - name: AUTH_GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.googleOAuth.existingSecret }}
+                  key: {{ .Values.googleOAuth.keys.clientId }}
+            - name: AUTH_GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.googleOAuth.existingSecret }}
+                  key: {{ .Values.googleOAuth.keys.clientSecret }}
+            {{- end }}
+            {{- end }}
+            # --- Stripe (conditional) ---
+            {{- if .Values.stripe }}
+            {{- if .Values.stripe.existingSecret }}
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stripe.existingSecret }}
+                  key: {{ .Values.stripe.keys.secretKey }}
+            - name: STRIPE_WEBHOOK_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stripe.existingSecret }}
+                  key: {{ .Values.stripe.keys.webhookSigningSecret }}
+            - name: STRIPE_PRICE_ID_STARTER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stripe.existingSecret }}
+                  key: {{ .Values.stripe.keys.priceIdStarter }}
+            - name: STRIPE_PRICE_ID_PRO
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stripe.existingSecret }}
+                  key: {{ .Values.stripe.keys.priceIdPro }}
+            - name: STRIPE_PRICE_ID_STARTUPS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stripe.existingSecret }}
+                  key: {{ .Values.stripe.keys.priceIdStartups }}
+            {{- end }}
+            {{- end }}
+            # --- SMTP (conditional) ---
+            {{- if .Values.smtp }}
+            {{- if .Values.smtp.existingSecret }}
+            - name: TRACEROOT_SMTP_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.smtp.existingSecret }}
+                  key: {{ .Values.smtp.keys.url }}
+            - name: TRACEROOT_SMTP_MAIL_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.smtp.existingSecret }}
+                  key: {{ .Values.smtp.keys.mailFrom }}
+            {{- end }}
+            {{- end }}
+            # --- Enterprise license (conditional) ---
+            {{- if .Values.enterprise }}
+            {{- if .Values.enterprise.existingSecret }}
+            - name: TRACEROOT_EE_LICENSE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.enterprise.existingSecret }}
+                  key: {{ .Values.enterprise.keys.licenseKey }}
+            {{- end }}
+            {{- end }}
+            # --- Additional env vars (escape hatch) ---
+            {{- with .Values.additionalEnv }}
+            {{- toYaml . | nindent 12 }}
             {{- end }}
           livenessProbe:
             httpGet:

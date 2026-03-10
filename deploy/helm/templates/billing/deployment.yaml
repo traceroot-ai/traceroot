@@ -53,5 +53,42 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secrets.existingSecret }}
                   key: {{ .Values.secrets.keys.internalApiSecret }}
+            - name: ENABLE_BILLING
+              value: {{ .Values.enableBilling | quote }}
+            - name: USAGE_METERING_CRON
+              value: {{ .Values.billing.usageMeteringCron | quote }}
+            # --- Stripe (conditional) ---
+            {{- if .Values.stripe }}
+            {{- if .Values.stripe.existingSecret }}
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stripe.existingSecret }}
+                  key: {{ .Values.stripe.keys.secretKey }}
+            - name: STRIPE_WEBHOOK_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stripe.existingSecret }}
+                  key: {{ .Values.stripe.keys.webhookSigningSecret }}
+            - name: STRIPE_PRICE_ID_STARTER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stripe.existingSecret }}
+                  key: {{ .Values.stripe.keys.priceIdStarter }}
+            - name: STRIPE_PRICE_ID_PRO
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stripe.existingSecret }}
+                  key: {{ .Values.stripe.keys.priceIdPro }}
+            - name: STRIPE_PRICE_ID_STARTUPS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stripe.existingSecret }}
+                  key: {{ .Values.stripe.keys.priceIdStartups }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.additionalEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           resources:
             {{- toYaml .Values.billing.resources | nindent 12 }}
