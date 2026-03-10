@@ -1,3 +1,10 @@
+// Model source — system (TraceRoot-hosted) or BYOK (user's own keys)
+export const ModelSource = {
+  SYSTEM: "system",
+  BYOK: "byok",
+} as const;
+export type ModelSource = (typeof ModelSource)[keyof typeof ModelSource];
+
 // Adapter enum — maps to pi-ai provider names
 export const LLMAdapter = {
   OPENAI: "openai",
@@ -45,6 +52,47 @@ export const ADAPTER_API_PROTOCOL: Record<string, string> = {
 export interface LLMModelDef {
   id: string;
   label: string;
+  /** Cost per 1M input tokens in USD */
+  inputCostPer1M?: number;
+  /** Cost per 1M output tokens in USD */
+  outputCostPer1M?: number;
+}
+
+/** Pricing table for system models (USD per 1M tokens) */
+export const MODEL_PRICING: Record<
+  string,
+  { input: number; output: number; cacheRead: number; cacheWrite: number }
+> = {
+  // Anthropic: cacheRead = 10% of input, cacheWrite = 125% of input
+  "claude-opus-4-6": { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+  "claude-sonnet-4-6": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  "claude-opus-4-5": { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+  "claude-sonnet-4-5": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  "claude-haiku-4-5": { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 },
+  // OpenAI: cacheRead = 50% of input, no cacheWrite
+  "gpt-5": { input: 2, output: 10, cacheRead: 1, cacheWrite: 2 },
+  "gpt-5-mini": { input: 0.4, output: 1.6, cacheRead: 0.2, cacheWrite: 0.4 },
+  o3: { input: 2, output: 10, cacheRead: 1, cacheWrite: 2 },
+  "o4-mini": { input: 1.1, output: 4.4, cacheRead: 0.55, cacheWrite: 1.1 },
+};
+
+/** Calculate cost in USD given model ID and token counts */
+export function calculateModelCost(
+  modelId: string,
+  inputTokens: number,
+  outputTokens: number,
+  cacheReadTokens: number = 0,
+  cacheWriteTokens: number = 0,
+): number {
+  const pricing = MODEL_PRICING[modelId];
+  if (!pricing) return 0;
+  return (
+    (inputTokens * pricing.input +
+      outputTokens * pricing.output +
+      cacheReadTokens * pricing.cacheRead +
+      cacheWriteTokens * pricing.cacheWrite) /
+    1_000_000
+  );
 }
 
 // ──────────────────────────────────────────────

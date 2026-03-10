@@ -8,6 +8,15 @@ import type { UserMessage, Message } from "@mariozechner/pi-ai";
 // Ours: PostgreSQL AISession/AIMessage <-> Agent messages
 // ============================================================
 
+export interface TokenUsageData {
+  model: string;
+  provider: string;
+  isByok: boolean;
+  inputTokens: number;
+  outputTokens: number;
+  cost: number;
+}
+
 export class SessionManager {
   constructor(private sessionId: string) {}
 
@@ -51,6 +60,7 @@ export class SessionManager {
     role: string,
     content: string,
     metadata?: Record<string, unknown>,
+    tokenUsage?: TokenUsageData,
   ): Promise<void> {
     await prisma.aIMessage.create({
       data: {
@@ -58,6 +68,14 @@ export class SessionManager {
         role,
         content,
         metadata: metadata as any,
+        ...(tokenUsage && {
+          model: tokenUsage.model,
+          provider: tokenUsage.provider,
+          isByok: tokenUsage.isByok,
+          inputTokens: tokenUsage.inputTokens,
+          outputTokens: tokenUsage.outputTokens,
+          cost: tokenUsage.cost,
+        }),
       },
     });
   }

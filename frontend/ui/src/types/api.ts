@@ -6,12 +6,13 @@ import type { Role, SpanKind, SpanStatus, TraceStatus } from "@traceroot/core";
 
 export type { Role };
 
-// Usage stats (cached, updated hourly)
+// Usage stats (cached, updated hourly by billing worker)
 export interface UsageStats {
   traces: number;
   spans: number;
   tokens: number;
   updatedAt: string;
+  ai?: AIUsageData;
 }
 
 // Workspace types
@@ -211,6 +212,26 @@ export interface SessionQueryOptions {
   search_query?: string;
   start_after?: string;
   end_before?: string;
+}
+
+// AI token usage stats (nested in UsageStats.ai)
+export interface AIUsageCategory {
+  messages: number;
+  inputTokens: number;
+  outputTokens: number;
+  cost: number;
+}
+
+export interface AIUsageByModel extends AIUsageCategory {
+  model: string;
+  provider: string;
+  isByok: boolean;
+}
+
+export interface AIUsageData {
+  systemUsage: AIUsageCategory;
+  byokUsage: AIUsageCategory;
+  byModel: AIUsageByModel[];
 }
 
 // Legacy aliases for backward compatibility

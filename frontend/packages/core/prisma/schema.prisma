@@ -80,7 +80,8 @@ model Workspace {
   billingPeriodEnd       DateTime? @map("billing_period_end")
   billingPlan            String    @default("free") @map("billing_plan") // free, starter, pro, startups
   ingestionBlocked       Boolean   @default(false) @map("ingestion_blocked") // true when free plan exceeds usage limit
-  currentUsage           Json?     @map("current_usage") // { traces, spans, tokens, updatedAt }
+  aiBlocked              Boolean   @default(false) @map("ai_blocked") // true when free plan exceeds AI token allowance
+  currentUsage           Json?     @map("current_usage") // { traces, spans, tokens, updatedAt, ai }
 
   modelProviders ModelProvider[]
 
@@ -209,13 +210,19 @@ model AISession {
 
 // AI Messages - Individual messages within an AI session
 model AIMessage {
-  id         String    @id @default(cuid()) @db.VarChar
-  sessionId  String    @map("session_id") @db.VarChar
-  role       String    @db.VarChar  // user, assistant, tool
-  content    String    @db.Text
-  metadata   Json?     @db.JsonB    // tool name, tool result, etc.
-  createTime DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
-  session    AISession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id           String    @id @default(cuid()) @db.VarChar
+  sessionId    String    @map("session_id") @db.VarChar
+  role         String    @db.VarChar  // user, assistant, tool
+  content      String    @db.Text
+  metadata     Json?     @db.JsonB    // tool name, tool result, etc.
+  model        String?   @db.VarChar
+  provider     String?   @db.VarChar
+  isByok       Boolean?  @map("is_byok")
+  inputTokens  Int?      @map("input_tokens")
+  outputTokens Int?      @map("output_tokens")
+  cost         Decimal?  @map("cost_usd") @db.Decimal(10, 6)
+  createTime   DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  session      AISession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([sessionId], map: "ix_ai_message_session_id")
   @@map("ai_messages")

@@ -51,7 +51,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
     return [...byokList, ...systemList];
   })();
 
-  const selectedKey = modelKey(value);
+  const selectedKey = modelKey({ id: value.model, source: value.source, provider: value.provider });
   const selectedModel = models.find((m) => modelKey(m) === selectedKey);
 
   return (
