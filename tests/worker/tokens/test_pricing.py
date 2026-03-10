@@ -1,33 +1,55 @@
 """Unit tests for model pricing and cost calculation."""
 
+from unittest.mock import patch
+
 from worker.tokens.pricing import calculate_cost, get_model_price
 
+# Mock data matching the standard-model-prices.json (prices in USD per token)
+MOCK_CACHE = [
+    {
+        "model_name": "gpt-4o",
+        "match_pattern": "(?i)^(openai\\/)?(gpt-4o)(-[\\d-]+)?$",
+        "prices": {"input": 0.0000025, "output": 0.00001},
+    },
+    {
+        "model_name": "claude-3-5-sonnet",
+        "match_pattern": "(?i)^(anthropic\\/)?(claude-3-5-sonnet)(-[\\d-]+)?$",
+        "prices": {"input": 0.000003, "output": 0.000015},
+    },
+]
 
+
+def _mock_load_cache():
+    return MOCK_CACHE
+
+
+@patch("worker.tokens.pricing._load_cache", _mock_load_cache)
 class TestGetModelPrice:
     def test_exact_match(self):
         price = get_model_price("gpt-4o")
         assert price is not None
         assert "input" in price
         assert "output" in price
-        assert price["input"] == 2.50
-        assert price["output"] == 10.00
+        assert price["input"] == 0.0000025
+        assert price["output"] == 0.00001
 
-    def test_prefix_match(self):
-        """Versioned model name should match the base model."""
+    def test_regex_match(self):
+        """Versioned model name should match via regex."""
         price = get_model_price("gpt-4o-2024-01-01")
         assert price is not None
-        assert price["input"] == 2.50
+        assert price["input"] == 0.0000025
 
     def test_claude_model(self):
         price = get_model_price("claude-3-5-sonnet")
         assert price is not None
-        assert price["input"] == 3.00
-        assert price["output"] == 15.00
+        assert price["input"] == 0.000003
+        assert price["output"] == 0.000015
 
     def test_unknown_model(self):
         assert get_model_price("unknown-model-xyz") is None
 
 
+@patch("worker.tokens.pricing._load_cache", _mock_load_cache)
 class TestCalculateCost:
     def test_known_model_with_text(self):
         result = calculate_cost("gpt-4o", "Hello world", "Hi there")

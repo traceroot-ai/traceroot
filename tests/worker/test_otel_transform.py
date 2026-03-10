@@ -357,6 +357,8 @@ class TestTransformOtelToClickhouse:
 
     def test_api_tokens_preferred_over_estimation(self):
         """API-provided token counts should be used over text-based estimation."""
+        from unittest.mock import patch
+
         trace_hex = "aa" * 16
         span_hex = "bb" * 8
         payload = make_otel_payload(
@@ -372,7 +374,9 @@ class TestTransformOtelToClickhouse:
                 )
             ]
         )
-        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        mock_prices = {"input": 0.0000025, "output": 0.00001}
+        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
 
         assert spans[0]["input_tokens"] == 100
         assert spans[0]["output_tokens"] == 50
@@ -381,6 +385,8 @@ class TestTransformOtelToClickhouse:
 
     def test_text_estimation_fallback(self):
         """Falls back to text-based token estimation when no API counts."""
+        from unittest.mock import patch
+
         trace_hex = "aa" * 16
         span_hex = "bb" * 8
         payload = make_otel_payload(
@@ -396,7 +402,9 @@ class TestTransformOtelToClickhouse:
                 )
             ]
         )
-        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        mock_prices = {"input": 0.0000025, "output": 0.00001}
+        with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
 
         # Text estimation should produce some token count
         assert spans[0].get("input_tokens") is not None
