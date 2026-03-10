@@ -227,3 +227,13 @@ references/**/venv/
 references/**/__pycache__/
 references/**/.venv/
 references/**/node_modules/
+
+# ===================
+# Terraform
+# ===================
+*.tfvars
+!*.tfvars.example
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl

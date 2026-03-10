@@ -1,22 +1,21 @@
 # deploy/helm/values.yaml
+# Base defaults — all values are overridden by Terraform's helm_release (traceroot.tf)
 
-# --- Global ---
 global:
   security:
-    allowInsecureImages: true  # Required for bitnamilegacy/* images
+    allowInsecureImages: true
+
 imagePullPolicy: Always
 
-# --- Service Account (IRSA for S3 access) ---
 serviceAccount:
   create: true
   name: traceroot
   annotations: {}
-  # eks.amazonaws.com/role-arn: <IRSA_ROLE_ARN>  # Set in values.staging/production.yaml
 
-# --- Web (Next.js) ---
+# --- Services ---
 web:
   image:
-    repository: ""  # Set via --set or values override
+    repository: ""
     tag: "latest"
   replicas: 1
   port: 3000
@@ -28,7 +27,6 @@ web:
       cpu: "1"
       memory: "1Gi"
 
-# --- REST API (FastAPI) ---
 rest:
   image:
     repository: ""
@@ -43,12 +41,13 @@ rest:
       cpu: "1"
       memory: "1Gi"
 
-# --- Celery Worker ---
 worker:
   image:
     repository: ""
     tag: "latest"
   replicas: 1
+  pollIntervalSeconds: "5"
+  batchSize: "100"
   resources:
     requests:
       cpu: "250m"
@@ -57,12 +56,12 @@ worker:
       cpu: "1"
       memory: "1Gi"
 
-# --- Billing Worker ---
 billing:
   image:
     repository: ""
     tag: "latest"
   replicas: 1
+  usageMeteringCron: "5 * * * *"
   resources:
     requests:
       cpu: "128m"
@@ -71,7 +70,6 @@ billing:
       cpu: "500m"
       memory: "512Mi"
 
-# --- Agent (Hono) ---
 agent:
   image:
     repository: ""
@@ -86,17 +84,17 @@ agent:
       cpu: "1"
       memory: "1Gi"
 
-# --- Ingress ---
+# --- Ingress (overridden by Terraform with TLS config) ---
 ingress:
   enabled: true
   className: alb
+  host: ""
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip  # Required for Fargate
+    alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
-  host: ""  # Leave empty for ALB-generated URL
 
-# --- External services (set by Terraform) ---
+# --- External services (injected by Terraform) ---
 postgresql:
   host: ""
   database: ""
@@ -113,42 +111,39 @@ redis:
 s3:
   bucket: ""
   region: ""
-  endpoint: ""  # Empty = use AWS S3 default
+  endpoint: ""
   forcePathStyle: false
 
 # --- ClickHouse (Bitnami subchart) ---
-# Storage: Terraform pre-creates PersistentVolumes bound to EFS access points.
-# The PVs have claim_ref pointing to the exact PVC names this chart creates.
-# This is "static provisioning" - Fargate can mount EFS without the CSI controller.
 clickhouse:
   deploy: true
   image:
-    repository: bitnamilegacy/clickhouse  # Free image (bitnami is paid)
+    repository: bitnamilegacy/clickhouse
   auth:
     username: default
     existingSecret: "traceroot"
     existingSecretKey: "clickhouse-password"
-  replicaCount: 1  # Must match terraform var.clickhouse_replica_count
+  replicaCount: 1
   shards: 1
   zookeeper:
-    enabled: false  # Not needed for single node
+    enabled: false
   persistence:
     enabled: true
-    size: 20Gi  # Must match terraform var.clickhouse_storage_size
-    storageClass: "efs"  # Uses pre-provisioned PVs from Terraform
+    size: 20Gi
+    storageClass: "efs"
 
 # --- Migrations ---
 migrations:
   postgres:
     image:
-      repository: ""  # Set in values.staging/production.yaml
+      repository: ""
       tag: "latest"
   clickhouse:
     image:
-      repository: ""  # Set in values.staging/production.yaml
+      repository: ""
       tag: "latest"
 
-# --- Secrets ---
+# --- Secrets (managed by Terraform) ---
 secrets:
   existingSecret: "traceroot"
   keys:
@@ -156,9 +151,8 @@ secrets:
     internalApiSecret: "internal-api-secret"
     encryptionKey: "encryption-key"
 
-# --- GitHub App Integration ---
 github:
-  existingSecret: ""  # e.g., "traceroot-github"
+  existingSecret: ""
   keys:
     appId: "github-app-id"
     appName: "github-app-name"
@@ -167,14 +161,59 @@ github:
     privateKey: "github-app-private-key"
     oauthRedirectUri: "github-oauth-redirect-uri"
 
-# --- LLM API Keys (for system-provided models) ---
 llmKeys:
-  existingSecret: ""  # e.g., "traceroot-llm-keys"
+  existingSecret: ""
   keys:
     anthropicApiKey: "anthropic-api-key"
     openaiApiKey: "openai-api-key"
     daytonaApiKey: "daytona-api-key"
 
-# --- General ---
 nextauth:
-  url: ""  # e.g., https://app.traceroot.ai or ALB URL
+  url: ""
+
+# --- Feature flags ---
+enableBilling: "true"
+
+# --- Sandbox provider ---
+sandboxProvider: "daytona"
+
+# --- Branding / Public URLs ---
+branding:
+  logoUrl: "https://raw.githubusercontent.com/traceroot-ai/traceroot/pivot/agentops/frontend/ui/public/images/icon-v2.png"
+  docsUrl: "https://docs.traceroot.ai"
+  githubRepoUrl: "https://github.com/traceroot-ai/traceroot"
+  githubIssuesUrl: "https://github.com/traceroot-ai/traceroot/issues"
+  discordInviteUrl: "https://discord.com/invite/tPyffEZvvJ"
+
+# --- Stripe (optional — set existingSecret to enable) ---
+stripe:
+  existingSecret: ""
+  keys:
+    secretKey: "stripe-secret-key"
+    webhookSigningSecret: "stripe-webhook-signing-secret"
+    priceIdStarter: "stripe-price-id-starter"
+    priceIdPro: "stripe-price-id-pro"
+    priceIdStartups: "stripe-price-id-startups"
+
+# --- Google OAuth (optional — set existingSecret to enable) ---
+googleOAuth:
+  existingSecret: ""
+  keys:
+    clientId: "google-client-id"
+    clientSecret: "google-client-secret"
+
+# --- Email / SMTP (optional — set existingSecret to enable) ---
+smtp:
+  existingSecret: ""
+  keys:
+    url: "smtp-url"
+    mailFrom: "smtp-mail-from"
+
+# --- Enterprise license (optional) ---
+enterprise:
+  existingSecret: ""
+  keys:
+    licenseKey: "ee-license-key"
+
+# --- Additional environment variables (escape hatch for anything not covered above) ---
+additionalEnv: []

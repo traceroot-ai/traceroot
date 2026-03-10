@@ -18,3 +18,50 @@ postgres_max_capacity = 2.0
 
 # ElastiCache
 cache_node_type = "cache.t4g.micro"
+
+# Custom domain (leave empty to use ALB URL)
+# domain = "staging.traceroot.ai"
+
+# GitHub App (from github.com/organizations/<org>/settings/apps/<app>)
+# github_app_id            = "2954599"
+# github_app_name          = "traceroot-app"
+# github_app_client_id     = "Iv23li..."
+# github_app_client_secret = "e4f107..."
+# github_app_private_key   = file("path/to/private-key.pem")
+
+# LLM API Keys
+# anthropic_api_key = "sk-ant-..."
+# openai_api_key    = "sk-proj-..."
+# daytona_api_key   = "dtn_..."
+
+# Google OAuth
+# google_oauth_client_id     = "123456.apps.googleusercontent.com"
+# google_oauth_client_secret = "GOCSPX-..."
+
+# Stripe Billing
+# stripe_secret_key             = "sk_live_..."
+# stripe_webhook_signing_secret = "whsec_..."
+# stripe_price_id_starter       = "price_..."
+# stripe_price_id_pro           = "price_..."
+# stripe_price_id_startups      = "price_..."
+
+# Email / SMTP
+# smtp_url       = "smtp://user:pass@host:587"
+# smtp_mail_from = "noreply@traceroot.ai"
+
+# Enterprise License
+# enterprise_license_key = "traceroot_ee_..."
+
+# Feature Flags
+# enable_billing = "true"  # Set "false" for self-hosted to unlock all features
+
+# Replicas
+# web_replicas    = 1
+# rest_replicas   = 1
+# worker_replicas = 1
+
+# Additional environment variables (escape hatch for anything not covered above)
+# Each entry must have either `value` (plain text) or `valueFrom` (secret reference), not both.
+# additional_env = [
+#   { name = "CUSTOM_VAR", value = "custom-value" },
+# ]
