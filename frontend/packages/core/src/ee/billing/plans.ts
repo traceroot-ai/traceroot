@@ -21,7 +21,7 @@ export type PlanType = (typeof PlanType)[keyof typeof PlanType];
 export const USAGE_PRICING_DESCRIPTION = "10k events included, then $0.02/event";
 export const USAGE_CONFIG = {
   includedUnits: 10_000,
-  aiIncludedCost: 0.1, // $5 free AI usage per billing period (all plans)
+  aiIncludedCost: 5, // $5 free AI usage per billing period (all plans)
 } as const;
 
 export function isFreePlanBlocked(currentUsage: number): boolean {
