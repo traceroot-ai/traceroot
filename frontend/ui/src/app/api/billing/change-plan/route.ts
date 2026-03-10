@@ -82,8 +82,9 @@ export async function POST(req: NextRequest) {
     // Case 3: Has subscription, changing to another paid plan
     const subscription = await stripe.subscriptions.retrieve(workspace.billingSubscriptionId);
 
-    // With tiered pricing, there's only one subscription item (the plan price)
-    const planItem = subscription.items.data[0];
+    // Find the plan item (non-metered) vs AI usage item (metered)
+    const aiUsagePriceId = process.env.STRIPE_AI_USAGE_PRICE_ID;
+    const planItem = subscription.items.data.find((item) => item.price.id !== aiUsagePriceId);
 
     if (!planItem) {
       return NextResponse.json({ error: "Plan subscription item not found" }, { status: 500 });

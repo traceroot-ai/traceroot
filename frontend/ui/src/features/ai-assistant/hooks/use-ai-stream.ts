@@ -27,7 +27,7 @@ export function useAIStream() {
       projectId: string;
       model?: string;
       providerName?: string;
-      source?: "system" | "byok";
+      source?: "system" | "byok"; // ModelSource values
       traceId?: string;
     }) => {
       // Add user message
@@ -73,7 +73,18 @@ export function useAIStream() {
           signal: abortController.signal,
         });
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => null);
+          const errorMessage = errorBody?.error || `HTTP ${response.status}`;
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMsgId
+                ? { ...msg, content: `Error: ${errorMessage}`, isStreaming: false }
+                : msg,
+            ),
+          );
+          return;
+        }
         if (!response.body) throw new Error("No response body");
 
         const reader = response.body.getReader();
@@ -144,12 +155,13 @@ export function useAIStream() {
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           console.error("[AI Stream] Error:", error);
+          const errorMessage = (error as Error).message || "Failed to get response.";
           setMessages((prev) =>
             prev.map((msg) =>
               msg.id === assistantMsgId
                 ? {
                     ...msg,
-                    content: msg.content || "Error: Failed to get response.",
+                    content: msg.content || `Error: ${errorMessage}`,
                     isStreaming: false,
                   }
                 : msg,

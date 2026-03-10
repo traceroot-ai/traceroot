@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { prisma, ModelSource } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
@@ -46,6 +47,36 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   if (accessResult.error) return accessResult.error;
 
   const body = await request.json();
+
+  // Validate BYOK source: verify workspace actually has a configured provider
+  if (body.source === ModelSource.BYOK) {
+    const hasConfiguredByok = await prisma.modelProvider.findFirst({
+      where: { workspaceId: accessResult.project.workspaceId },
+    });
+    if (!hasConfiguredByok) {
+      return new Response(JSON.stringify({ error: "No BYOK provider configured." }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }
+
+  // Check if AI usage is blocked (free allowance exceeded) — only for system models, BYOK always allowed
+  if (body.source !== ModelSource.BYOK) {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: accessResult.project.workspaceId },
+      select: { aiBlocked: true },
+    });
+    if (workspace?.aiBlocked) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "AI token allowance exceeded. Upgrade your plan or use your own API key (BYOK) to continue.",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } },
+      );
+    }
+  }
 
   // Proxy to agent service, passthrough SSE stream
   const agentRes = await fetch(

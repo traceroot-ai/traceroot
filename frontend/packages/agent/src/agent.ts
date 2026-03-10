@@ -13,6 +13,7 @@ import {
   ADAPTER_DEFAULT_BASE_URL,
   ADAPTER_API_PROTOCOL,
   BEDROCK_USE_DEFAULT_CREDENTIALS,
+  ModelSource,
 } from "@traceroot/core";
 import { SessionManager } from "./session.js";
 
@@ -143,12 +144,20 @@ for (const sys of SYSTEM_MODELS) {
 }
 
 /**
- * Build a fallback model object for models not yet in pi-ai's registry.
- * Uses the same shape as pi-ai model objects.
- * NOTE: baseUrl is left empty so the SDK uses its default (e.g. https://api.openai.com/v1).
- * The caller sets baseUrl explicitly when needed (DeepSeek, custom URL, etc.).
+ * Build a model object that overrides the API protocol while preserving
+ * pi-ai's registry data (pricing, context window, etc.) when available.
+ * Falls back to a manual object for models not in the registry.
  */
 function buildFallbackModel(modelId: string, apiProtocol: string, provider: string) {
+  // Try to get the model from pi-ai's registry for pricing data
+  const registryModel = getModel(provider, modelId);
+  console.log(
+    `[Agent] pi-ai registry lookup: provider=${provider}, model=${modelId}, found=${!!registryModel}`,
+    registryModel ? JSON.stringify(registryModel.cost) : "N/A",
+  );
+  if (registryModel) {
+    return { ...registryModel, api: apiProtocol };
+  }
   return {
     id: modelId,
     name: modelId,
@@ -207,7 +216,7 @@ export interface AgentRunnerConfig {
   tools: AgentTool<any>[];
   model?: string;
   providerName?: string; // BYOK provider name
-  source?: "system" | "byok"; // where the model comes from
+  source?: ModelSource; // where the model comes from
 }
 
 export interface AgentEventHandler {
@@ -241,7 +250,7 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
 
   // Fetch BYOK provider config if this is a BYOK model
   let providerConfig: ProviderConfig | null = null;
-  if (config.source === "byok" && config.providerName) {
+  if (config.source === ModelSource.BYOK && config.providerName) {
     providerConfig = await fetchProviderConfig(config.workspaceId, config.providerName);
     if (!providerConfig) {
       throw new Error(
@@ -253,7 +262,7 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
 
   const model = resolveModel(config.model, providerConfig);
   console.log(
-    `[Agent] Using model="${config.model || "claude-sonnet-4-5"}" source=${config.source || "system"} provider=${config.providerName || "—"}`,
+    `[Agent] Using model="${config.model || "claude-sonnet-4-5"}" source=${config.source || ModelSource.SYSTEM} provider=${config.providerName || "—"}`,
     JSON.stringify(model),
   );
 
@@ -275,7 +284,7 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
         }
       }
       // System models: always use env var, never fall through to BYOK keys
-      if (config.source !== "byok") {
+      if (config.source !== ModelSource.BYOK) {
         const envKey = getEnvApiKey(provider);
         if (envKey) return envKey;
       }
