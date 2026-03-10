@@ -1,0 +1,278 @@
+[
+  {
+    "id": "tr-claude-opus-4-6",
+    "modelName": "claude-opus-4-6",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-6)(-[\\d-]+)?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.000015,
+      "output": 0.000075,
+      "cacheRead": 0.0000015,
+      "cacheWrite": 0.00001875
+    }
+  },
+  {
+    "id": "tr-claude-sonnet-4-6",
+    "modelName": "claude-sonnet-4-6",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4-6)(-[\\d-]+)?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.000003,
+      "output": 0.000015,
+      "cacheRead": 0.0000003,
+      "cacheWrite": 0.00000375
+    }
+  },
+  {
+    "id": "tr-claude-opus-4-5",
+    "modelName": "claude-opus-4-5",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-5)(-[\\d-]+)?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.000015,
+      "output": 0.000075,
+      "cacheRead": 0.0000015,
+      "cacheWrite": 0.00001875
+    }
+  },
+  {
+    "id": "tr-claude-sonnet-4-5",
+    "modelName": "claude-sonnet-4-5",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4-5)(-[\\d-]+)?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.000003,
+      "output": 0.000015,
+      "cacheRead": 0.0000003,
+      "cacheWrite": 0.00000375
+    }
+  },
+  {
+    "id": "tr-claude-haiku-4-5",
+    "modelName": "claude-haiku-4-5",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-haiku-4-5)(-[\\d-]+)?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.0000008,
+      "output": 0.000004,
+      "cacheRead": 0.00000008,
+      "cacheWrite": 0.000001
+    }
+  },
+  {
+    "id": "tr-gpt-5",
+    "modelName": "gpt-5",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000002,
+      "output": 0.00001,
+      "cacheRead": 0.000001,
+      "cacheWrite": 0.000002
+    }
+  },
+  {
+    "id": "tr-gpt-5-mini",
+    "modelName": "gpt-5-mini",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5-mini)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000004,
+      "output": 0.0000016,
+      "cacheRead": 0.0000002,
+      "cacheWrite": 0.0000004
+    }
+  },
+  {
+    "id": "tr-o3",
+    "modelName": "o3",
+    "matchPattern": "(?i)^(openai\\/)?o3(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000002,
+      "output": 0.00001,
+      "cacheRead": 0.000001,
+      "cacheWrite": 0.000002
+    }
+  },
+  {
+    "id": "tr-o4-mini",
+    "modelName": "o4-mini",
+    "matchPattern": "(?i)^(openai\\/)?o4-mini(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000011,
+      "output": 0.0000044,
+      "cacheRead": 0.00000055,
+      "cacheWrite": 0.0000011
+    }
+  },
+  {
+    "id": "tr-gpt-4o",
+    "modelName": "gpt-4o",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4o)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000025,
+      "output": 0.00001,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-4o-mini",
+    "modelName": "gpt-4o-mini",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4o-mini)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00000015,
+      "output": 0.0000006,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-4-turbo",
+    "modelName": "gpt-4-turbo",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4-turbo)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00001,
+      "output": 0.00003,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-4",
+    "modelName": "gpt-4",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00003,
+      "output": 0.00006,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-3.5-turbo",
+    "modelName": "gpt-3.5-turbo",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-3\\.5-turbo)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000005,
+      "output": 0.0000015,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-o1",
+    "modelName": "o1",
+    "matchPattern": "(?i)^(openai\\/)?o1(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000015,
+      "output": 0.00006,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-o1-mini",
+    "modelName": "o1-mini",
+    "matchPattern": "(?i)^(openai\\/)?o1-mini(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000003,
+      "output": 0.000012,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-o3-mini",
+    "modelName": "o3-mini",
+    "matchPattern": "(?i)^(openai\\/)?o3-mini(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000011,
+      "output": 0.0000044,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-claude-3-5-sonnet",
+    "modelName": "claude-3-5-sonnet",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-5-sonnet)(-[\\d-]+)?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.000003,
+      "output": 0.000015,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-claude-3-5-haiku",
+    "modelName": "claude-3-5-haiku",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-5-haiku)(-[\\d-]+)?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.0000008,
+      "output": 0.000004,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-claude-3-opus",
+    "modelName": "claude-3-opus",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-opus)(-[\\d-]+)?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.000015,
+      "output": 0.000075,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-claude-3-sonnet",
+    "modelName": "claude-3-sonnet",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-sonnet)(-[\\d-]+)?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.000003,
+      "output": 0.000015,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-claude-3-haiku",
+    "modelName": "claude-3-haiku",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-haiku)(-[\\d-]+)?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.00000025,
+      "output": 0.00000125,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-claude-sonnet-4",
+    "modelName": "claude-sonnet-4",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4)(-[\\d-]+)?$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.000003,
+      "output": 0.000015,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  }
+]

@@ -139,7 +139,7 @@ export function SpanInfoPanel({
               </span>
             </div>
           )}
-          {!isTrace && selection.span.cost != null && selection.span.cost > 0 && (
+          {!isTrace && selection.span.cost != null && (
             <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
               <CircleDollarSign className="h-3 w-3 text-muted-foreground" />
               <span className="font-medium">{selection.span.cost.toFixed(6)}</span>

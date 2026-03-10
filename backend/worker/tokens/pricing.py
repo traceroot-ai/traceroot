@@ -1,42 +1,97 @@
 """Model pricing and cost calculation.
 
-Pricing sources:
-- OpenAI: https://openai.com/api/pricing/
-- Anthropic: https://www.anthropic.com/pricing#anthropic-api
+Prices are loaded from the ``standard_models`` / ``standard_model_prices``
+PostgreSQL tables (synced from standard-model-prices.json by the TS services).
+The in-memory cache is populated on first call and persists for the process
+lifetime (prices only change on deploy/restart).
 """
 
+from __future__ import annotations
+
+import re
 from decimal import Decimal
+
+import psycopg2
+
+from shared.config import settings
 
 from .usage import count_tokens
 
-# Prices in USD per 1M tokens
-MODEL_PRICES: dict[str, dict[str, float]] = {
-    # OpenAI - https://openai.com/api/pricing/
-    "gpt-4o": {"input": 2.50, "output": 10.00},
-    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
-    "gpt-4-turbo": {"input": 10.00, "output": 30.00},
-    "gpt-4": {"input": 30.00, "output": 60.00},
-    "gpt-3.5-turbo": {"input": 0.50, "output": 1.50},
-    "o1": {"input": 15.00, "output": 60.00},
-    "o1-mini": {"input": 3.00, "output": 12.00},
-    "o3-mini": {"input": 1.10, "output": 4.40},
-    # Anthropic - https://www.anthropic.com/pricing#anthropic-api
-    "claude-3-5-sonnet": {"input": 3.00, "output": 15.00},
-    "claude-3-5-haiku": {"input": 0.80, "output": 4.00},
-    "claude-3-opus": {"input": 15.00, "output": 75.00},
-    "claude-3-sonnet": {"input": 3.00, "output": 15.00},
-    "claude-3-haiku": {"input": 0.25, "output": 1.25},
-    "claude-sonnet-4": {"input": 3.00, "output": 15.00},
-}
+# ---------------------------------------------------------------------------
+# In-memory cache (populated on first call)
+# ---------------------------------------------------------------------------
+
+_cache: list[dict] | None = None
+
+
+def _load_cache() -> list[dict]:
+    global _cache
+    if _cache is not None:
+        return _cache
+
+    models: list[dict] = []
+    try:
+        conn = psycopg2.connect(settings.database_url)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT m.model_name, m.match_pattern, p.usage_type, p.price
+                    FROM standard_models m
+                    JOIN standard_model_prices p ON p.model_id = m.id
+                    ORDER BY m.model_name, p.usage_type
+                    """
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        # If DB is unavailable, return empty cache — cost will be None
+        _cache = []
+        return _cache
+
+    # Group rows by model_name
+    by_model: dict[str, dict] = {}
+    for model_name, match_pattern, usage_type, price in rows:
+        if model_name not in by_model:
+            by_model[model_name] = {
+                "model_name": model_name,
+                "match_pattern": match_pattern,
+                "prices": {},
+            }
+        by_model[model_name]["prices"][usage_type] = float(price) if isinstance(price, Decimal) else price
+
+    models = list(by_model.values())
+    _cache = models
+    return _cache
+
+
+# ---------------------------------------------------------------------------
+# Public API (unchanged signatures)
+# ---------------------------------------------------------------------------
 
 
 def get_model_price(model: str) -> dict[str, float] | None:
-    """Lookup price for model. Tries exact match, then prefix match."""
-    if model in MODEL_PRICES:
-        return MODEL_PRICES[model]
-    for key in MODEL_PRICES:
-        if model.startswith(key):
-            return MODEL_PRICES[key]
+    """Lookup price for model. Tries exact match, then regex fallback.
+
+    Returns dict with keys like ``input``, ``output``, ``cacheRead``, ``cacheWrite``
+    (values in USD per token), or None if not found.
+    """
+    cache = _load_cache()
+
+    # Exact match on model_name
+    for entry in cache:
+        if entry["model_name"] == model:
+            return entry["prices"]
+
+    # Regex fallback using match_pattern
+    for entry in cache:
+        try:
+            if re.search(entry["match_pattern"], model, re.IGNORECASE):
+                return entry["prices"]
+        except re.error:
+            continue
+
     return None
 
 
@@ -71,9 +126,9 @@ def calculate_cost(
 
     prices = get_model_price(model)
     if prices:
-        # Convert to Decimal for precision
-        input_cost = Decimal(input_tokens) * Decimal(str(prices["input"])) / Decimal("1000000")
-        output_cost = Decimal(output_tokens) * Decimal(str(prices["output"])) / Decimal("1000000")
+        # Prices are in USD per token — multiply directly
+        input_cost = Decimal(input_tokens) * Decimal(str(prices.get("input", 0)))
+        output_cost = Decimal(output_tokens) * Decimal(str(prices.get("output", 0)))
         result["cost"] = float(input_cost + output_cost)
 
     return result

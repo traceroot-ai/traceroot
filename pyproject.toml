@@ -28,6 +28,8 @@ dependencies = [
     "httpx>=0.28.1",
     # Tokenization
     "tiktoken>=0.5.0",
+    # PostgreSQL (for standard model pricing lookup)
+    "psycopg2-binary>=2.9",
 ]
 
 [dependency-groups]

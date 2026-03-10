@@ -7,7 +7,7 @@
  */
 
 import cron from "node-cron";
-import { prisma } from "@traceroot/core";
+import { prisma, syncStandardPrices } from "@traceroot/core";
 import { runBillingJob, closeClickHouseClient } from "./ee/billing";
 
 // Graceful shutdown handling
@@ -44,6 +44,9 @@ async function main(): Promise<void> {
     console.error("[Worker] Failed to connect to database:", error);
     process.exit(1);
   }
+
+  // Sync standard model pricing from JSON → DB
+  await syncStandardPrices();
 
   // Schedule billing job (default: every hour at minute 5)
   const billingCron = process.env.USAGE_METERING_CRON || "5 * * * *";

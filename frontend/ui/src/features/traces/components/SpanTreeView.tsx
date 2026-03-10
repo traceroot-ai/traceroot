@@ -169,7 +169,7 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
                     {formatTokens(span.total_tokens)}
                   </span>
                 )}
-                {span.span_kind === SpanKind.LLM && span.cost != null && span.cost > 0 && (
+                {span.span_kind === SpanKind.LLM && span.cost != null && (
                   <span className="inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
                     <CircleDollarSign className="h-2.5 w-2.5" />
                     {span.cost.toFixed(4)}
