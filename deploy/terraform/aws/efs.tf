@@ -125,3 +125,67 @@ resource "kubernetes_storage_class" "efs" {
   }
   storage_provisioner = "efs.csi.aws.com"
 }
+
+# EFS access points for ClickHouse replicas (isolation + POSIX user enforcement)
+resource "aws_efs_access_point" "clickhouse" {
+  count          = var.clickhouse_replica_count
+  file_system_id = aws_efs_file_system.traceroot.id
+
+  root_directory {
+    path = "/clickhouse/${count.index}"
+    creation_info {
+      owner_gid   = 1001
+      owner_uid   = 1001
+      permissions = "0755"
+    }
+  }
+
+  posix_user {
+    gid = 1001
+    uid = 1001
+  }
+
+  tags = merge(local.tags, {
+    Name = "${var.name}-clickhouse-${count.index}"
+  })
+}
+
+# Pre-provisioned PersistentVolumes for ClickHouse
+# Static provisioning: Terraform creates PVs with claim_ref to match the exact PVC
+# names the Bitnami ClickHouse chart creates. This avoids the PVC scheduling race
+# on Fargate (Task 29) because the PV is already bound before the pod starts.
+resource "kubernetes_persistent_volume" "clickhouse_data" {
+  count = var.clickhouse_replica_count
+
+  metadata {
+    name = "clickhouse-data-${count.index}"
+  }
+
+  spec {
+    capacity = {
+      storage = var.clickhouse_storage_size
+    }
+
+    access_modes                     = ["ReadWriteOnce"]
+    persistent_volume_reclaim_policy = "Retain"
+    storage_class_name               = kubernetes_storage_class.efs.metadata[0].name
+
+    persistent_volume_source {
+      csi {
+        driver        = "efs.csi.aws.com"
+        volume_handle = "${aws_efs_file_system.traceroot.id}::${aws_efs_access_point.clickhouse[count.index].id}"
+      }
+    }
+
+    # Pre-bind to the exact PVC name the Bitnami chart creates
+    claim_ref {
+      name      = "data-traceroot-clickhouse-shard0-${count.index}"
+      namespace = var.clickhouse_namespace
+    }
+  }
+
+  depends_on = [
+    kubernetes_storage_class.efs,
+    aws_efs_mount_target.eks,
+  ]
+}
