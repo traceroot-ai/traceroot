@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { X, Plus, History } from "lucide-react";
+import { X, Plus, History, Square } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -38,6 +38,7 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
     currentSessionId,
     setHistoryOpen,
     handleSend,
+    handleAbort,
     handleNewSession,
     handleOpenHistory,
     handleSelectSession,
@@ -99,8 +100,20 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
       {/* Input */}
       <MessageInput
         onSend={handleSend}
-        disabled={isStreaming || !projectId}
+        disabled={!projectId}
         workspaceId={workspaceId}
+        actions={
+          isStreaming && (
+            <button
+              onClick={handleAbort}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+              title="Stop generation"
+            >
+              <Square className="h-3 w-3 fill-current" />
+              Stop
+            </button>
+          )
+        }
       />
     </div>
   );

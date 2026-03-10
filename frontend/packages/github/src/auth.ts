@@ -1,4 +1,4 @@
-import { generateJWT } from "./jwt.js";
+import { generateJWT } from "./jwt";
 
 export async function getInstallationToken(
   installationId: string,
