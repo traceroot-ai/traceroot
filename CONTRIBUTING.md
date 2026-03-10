@@ -2,6 +2,14 @@
 
 Thanks for your interest in contributing! This guide will help you get started.
 
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/)
+- [uv](https://docs.astral.sh/uv/) — Python package manager
+- [pnpm](https://pnpm.io/) — Node.js package manager
+- [goose](https://github.com/pressly/goose) — ClickHouse migrations (`brew install goose`)
+- [tmux](https://github.com/tmux/tmux) — Terminal multiplexer (`brew install tmux`)
+
 ## Quick Start
 
 ```bash
@@ -16,14 +24,6 @@ That's it. `make dev` handles everything:
 - Installs dependencies
 - Runs migrations
 - Launches all services in tmux
-
-### Prerequisites
-
-- [Docker](https://docs.docker.com/get-docker/)
-- [uv](https://docs.astral.sh/uv/) — Python package manager
-- [pnpm](https://pnpm.io/) — Node.js package manager
-- [goose](https://github.com/pressly/goose) — ClickHouse migrations (`brew install goose`)
-- [tmux](https://github.com/tmux/tmux) — Terminal multiplexer (`brew install tmux`)
 
 ## Project Structure
 
