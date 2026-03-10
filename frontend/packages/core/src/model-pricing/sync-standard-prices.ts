@@ -39,44 +39,45 @@ export async function syncStandardPrices(): Promise<void> {
       }
     }
 
-    await prisma.standardModel.upsert({
-      where: { modelName: entry.modelName },
-      create: {
-        id: entry.id,
-        modelName: entry.modelName,
-        matchPattern: entry.matchPattern,
-        provider: entry.provider,
-        prices: {
-          create: priceRows.map((r) => ({
+    // Wrap in transaction to avoid a race window where prices are deleted but not yet recreated
+    await prisma.$transaction(async (tx) => {
+      const model = await tx.standardModel.upsert({
+        where: { modelName: entry.modelName },
+        create: {
+          id: entry.id,
+          modelName: entry.modelName,
+          matchPattern: entry.matchPattern,
+          provider: entry.provider,
+          prices: {
+            create: priceRows.map((r) => ({
+              usageType: r.usageType,
+              price: r.price,
+            })),
+          },
+        },
+        update: {
+          matchPattern: entry.matchPattern,
+          provider: entry.provider,
+          prices: {
+            deleteMany: {},
+          },
+        },
+      });
+
+      // Recreate prices after update (deleteMany above only runs on update path)
+      const existing = await tx.standardModelPrice.count({
+        where: { modelId: model.id },
+      });
+      if (existing === 0) {
+        await tx.standardModelPrice.createMany({
+          data: priceRows.map((r) => ({
+            modelId: model.id,
             usageType: r.usageType,
             price: r.price,
           })),
-        },
-      },
-      update: {
-        matchPattern: entry.matchPattern,
-        provider: entry.provider,
-        prices: {
-          // Delete all existing prices and recreate — simplest way to handle changes
-          deleteMany: {},
-        },
-      },
+        });
+      }
     });
-
-    // After update, recreate prices (deleteMany above only runs on update path)
-    // Check if prices exist; if not, create them
-    const existing = await prisma.standardModelPrice.count({
-      where: { modelId: entry.id },
-    });
-    if (existing === 0) {
-      await prisma.standardModelPrice.createMany({
-        data: priceRows.map((r) => ({
-          modelId: entry.id,
-          usageType: r.usageType,
-          price: r.price,
-        })),
-      });
-    }
   }
 
   // Invalidate in-memory cache
