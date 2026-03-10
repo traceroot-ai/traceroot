@@ -71,7 +71,11 @@ pip install traceroot
 ```
 
 ```python
+import traceroot
 from traceroot import observe
+
+# Initialize once at startup — reads TRACEROOT_API_KEY from env by default
+traceroot.initialize()
 
 @observe()
 def my_agent():
