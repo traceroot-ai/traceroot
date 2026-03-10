@@ -12,13 +12,13 @@ import logging
 import re
 from decimal import Decimal
 
-logger = logging.getLogger(__name__)
-
 import psycopg2
 
 from shared.config import settings
 
 from .usage import count_tokens
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # In-memory cache (populated on first call)
