@@ -223,4 +223,6 @@ make dev-reset  # Nuclear option
 
 ## License
 
-Apache-2.0. You'll need to sign the [CLA](https://cla-assistant.io/traceroot-ai/traceroot) for contributions.
+TraceRoot is Apache-2.0 licensed. See [LICENSE](LICENSE) for more details.
+
+When contributing to the TraceRoot codebase, you need to agree to the [Contributor License Agreement](https://cla-assistant.io/traceroot-ai/traceroot). You only need to do this once.
