@@ -46,9 +46,9 @@ See the [Quickstart](https://docs.traceroot.ai/quickstart) for usage examples.
 
 ## Community
 
-**Contributing**: Check out our [guide](/CONTRIBUTING.md) — all help is appreciated!
+**Contributing** 🤝: If you're interested in contributing, you can check out our guide [here](/CONTRIBUTING.md). All types of help are appreciated :)
 
-**Support**: Join us on [Discord](https://discord.gg/tPyffEZvvJ) or email `founders@traceroot.ai`
+**Support** 💬: If you need any type of support, we're typically most responsive on our [Discord channel](https://discord.gg/tPyffEZvvJ), but feel free to email us `founders@traceroot.ai` too!
 
 ## Contributors
 
