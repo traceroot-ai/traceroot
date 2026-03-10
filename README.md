@@ -46,7 +46,7 @@ See the [Quickstart](https://docs.traceroot.ai/quickstart) for usage examples.
 
 ## Community
 
-**Special Thanks**: Thanks for [pi-mono](https://github.com/badlogic/pi-mono) project, which powers the foundation of our agentic debugging runtime!
+Special Thanks for [pi-mono](https://github.com/badlogic/pi-mono) project, which powers the foundation of our agentic debugging runtime!
 
 **Contributing** 🤝: If you're interested in contributing, you can check out our guide [here](/CONTRIBUTING.md). All types of help are appreciated :)
 
