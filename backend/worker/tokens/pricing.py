@@ -8,8 +8,11 @@ lifetime (prices only change on deploy/restart).
 
 from __future__ import annotations
 
+import logging
 import re
 from decimal import Decimal
+
+logger = logging.getLogger(__name__)
 
 import psycopg2
 
@@ -46,9 +49,12 @@ def _load_cache() -> list[dict]:
         finally:
             conn.close()
     except Exception:
-        # If DB is unavailable, return empty cache — cost will be None
-        _cache = []
-        return _cache
+        # DB unavailable — return empty list but do NOT cache,
+        # so the next call will retry the connection.
+        logger.warning(
+            "Failed to load model prices from DB — costs will be None until DB is available"
+        )
+        return []
 
     # Group rows by model_name
     by_model: dict[str, dict] = {}
