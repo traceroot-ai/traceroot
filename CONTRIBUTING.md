@@ -4,13 +4,11 @@ Thanks for your interest in contributing! This guide will help you get started.
 
 ## Development Requirements
 
-You need these installed before running anything:
-
-- [Docker](https://docs.docker.com/get-docker/) (must be running)
-- [uv](https://docs.astral.sh/uv/) — Python package manager
-- [pnpm](https://pnpm.io/) — Node package manager
-- [tmux](https://github.com/tmux/tmux) — terminal multiplexer
-- [goose](https://github.com/pressly/goose) — ClickHouse migrations (`brew install goose` on Mac)
+- Docker desktop app
+- uv: Python package manager
+- pnpm: Node.js package manager
+- tmux: terminal multiplexer
+- goose: clickHouse migration tool
 
 ## Quick Start
 
