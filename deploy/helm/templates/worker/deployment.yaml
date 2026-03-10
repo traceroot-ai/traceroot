@@ -54,5 +54,12 @@ spec:
               value: {{ .Values.s3.endpoint | quote }}
             - name: AWS_DEFAULT_REGION
               value: {{ .Values.s3.region | quote }}
+            - name: POLL_INTERVAL_SECONDS
+              value: {{ .Values.worker.pollIntervalSeconds | quote }}
+            - name: BATCH_SIZE
+              value: {{ .Values.worker.batchSize | quote }}
+            {{- with .Values.additionalEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
