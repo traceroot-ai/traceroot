@@ -59,7 +59,9 @@ def _load_cache() -> list[dict]:
                 "match_pattern": match_pattern,
                 "prices": {},
             }
-        by_model[model_name]["prices"][usage_type] = float(price) if isinstance(price, Decimal) else price
+        by_model[model_name]["prices"][usage_type] = (
+            float(price) if isinstance(price, Decimal) else price
+        )
 
     models = list(by_model.values())
     _cache = models
