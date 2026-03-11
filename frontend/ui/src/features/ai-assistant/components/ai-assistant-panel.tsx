@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { X, Plus, History, Square } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -16,7 +17,38 @@ interface AiAssistantPanelProps {
   onClose: () => void;
 }
 
+const MIN_WIDTH = 280;
+const MAX_WIDTH = 900;
+const DEFAULT_WIDTH = 400;
+
 export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
+  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const dragging = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(0);
+
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      dragging.current = true;
+      startX.current = e.clientX;
+      startWidth.current = width;
+      e.preventDefault();
+
+      const onMouseMove = (e: MouseEvent) => {
+        if (!dragging.current) return;
+        const delta = startX.current - e.clientX;
+        setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth.current + delta)));
+      };
+      const onMouseUp = () => {
+        dragging.current = false;
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+      };
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+    },
+    [width],
+  );
   const params = useParams();
   const projectId = params?.projectId as string | undefined;
   const workspaceIdFromUrl = params?.workspaceId as string | undefined;
@@ -48,7 +80,15 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
   if (!open) return null;
 
   return (
-    <div className="flex h-screen w-[400px] shrink-0 flex-col border-l bg-background">
+    <div
+      className="relative flex h-screen shrink-0 flex-col border-l bg-background"
+      style={{ width }}
+    >
+      {/* Left resize handle */}
+      <div
+        className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50"
+        onMouseDown={onMouseDown}
+      />
       {/* Header */}
       <div className="flex h-14 items-center gap-1 border-b px-3">
         <Button

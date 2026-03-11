@@ -2,6 +2,7 @@
 
 import { X, Plus, History, Square } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { useCallback, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MessageList } from "./message-list";
@@ -20,7 +21,39 @@ interface AiChatOverlayProps {
  * AI chat panel for use inside trace detail viewer.
  * traceId is passed through to the agent so it knows which trace the user is viewing.
  */
+const MIN_WIDTH = 280;
+const MAX_WIDTH = 900;
+const DEFAULT_WIDTH = 400;
+
 export function AiChatOverlay({ projectId, traceId, onClose }: AiChatOverlayProps) {
+  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const dragging = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(0);
+
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      dragging.current = true;
+      startX.current = e.clientX;
+      startWidth.current = width;
+      e.preventDefault();
+
+      const onMouseMove = (e: MouseEvent) => {
+        if (!dragging.current) return;
+        const delta = startX.current - e.clientX;
+        setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth.current + delta)));
+      };
+      const onMouseUp = () => {
+        dragging.current = false;
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+      };
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+    },
+    [width],
+  );
+
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => getProject(projectId),
@@ -44,7 +77,12 @@ export function AiChatOverlay({ projectId, traceId, onClose }: AiChatOverlayProp
   } = useAiChat({ projectId, traceId });
 
   return (
-    <div className="flex h-full w-[400px] flex-col border-l bg-background">
+    <div className="relative flex h-full flex-col border-l bg-background" style={{ width }}>
+      {/* Left resize handle */}
+      <div
+        className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50"
+        onMouseDown={onMouseDown}
+      />
       {/* Header */}
       <div className="flex h-10 items-center gap-1 border-b bg-muted/30 px-3">
         <Button
