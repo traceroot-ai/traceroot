@@ -1,9 +1,13 @@
 # .github/workflows/docker-images.yml
+# Builds and pushes Docker images to ECR.
+# Triggered manually or on a schedule — NOT on every push.
+# Build validation (build-test.yml) runs on every push/PR to catch errors early.
 name: Build & Push Docker Images
 
 on:
-  push:
-    branches: [main, pivot/agentops]
+  schedule:
+    # Daily at 3am
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -12,7 +16,6 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   AWS_REGION: us-east-1
