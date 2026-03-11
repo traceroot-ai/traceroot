@@ -12,7 +12,7 @@ variable "environment" {
   default     = "staging"
 
   validation {
-    condition     = can(regex("^[a-z][a-z0-9-]*$", var.environment))
+    condition     = can(regex("^[a-z][a-z0-9-]*[a-z0-9]$", var.environment))
     error_message = "Environment must be lowercase alphanumeric with hyphens (e.g. staging, production)."
   }
 }

@@ -18,6 +18,7 @@ cluster, RDS, Redis, etc. No shared infrastructure, no shared secrets.
 
 | What differs            | Staging example              | Production example          |
 |------------------------|------------------------------|-----------------------------|
+| `name`                 | `"traceroot-staging"`        | `"traceroot-prod"`          |
 | `environment`          | `"staging"`                  | `"production"`              |
 | `domain`               | `"staging.traceroot.ai"`     | `"app.traceroot.ai"`       |
 | `image_tag`            | `"latest"`                   | `"sha-abc1234"`             |
@@ -25,6 +26,10 @@ cluster, RDS, Redis, etc. No shared infrastructure, no shared secrets.
 | Replicas               | 1                            | 2+                          |
 | Kubernetes namespace   | `traceroot-staging`          | `traceroot-production`      |
 | Database name          | `traceroot_staging`          | `traceroot_production`      |
+
+> **Important:** `name` must differ between environments because AWS resources (EKS cluster,
+> RDS, ElastiCache, IAM roles, EFS, S3) are named using this prefix and must be globally
+> unique within an AWS account.
 
 ## Prerequisites
 
@@ -109,7 +114,7 @@ terraform apply -var-file=staging.tfvars --target aws_ecr_repository.services
 export REGION=us-east-1
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 export REGISTRY=$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
-export TAG=$(git rev-parse --short HEAD)  # or "latest"
+export TAG=$(git rev-parse --short HEAD)
 
 # Login to ECR
 aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $REGISTRY
