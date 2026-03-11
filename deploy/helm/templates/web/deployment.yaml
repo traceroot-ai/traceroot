@@ -159,6 +159,11 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.stripe.existingSecret }}
                   key: {{ .Values.stripe.keys.priceIdStartups }}
+            - name: STRIPE_PRICE_ID_AI_USAGE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stripe.existingSecret }}
+                  key: {{ .Values.stripe.keys.priceIdAiUsage }}
             {{- end }}
             {{- end }}
             # --- SMTP (conditional) ---
