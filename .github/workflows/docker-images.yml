@@ -1,9 +1,13 @@
 # .github/workflows/docker-images.yml
+# Builds and pushes Docker images to ECR.
+# Triggered manually or on a schedule — NOT on every push.
+# Build validation (build-test.yml) runs on every push/PR to catch errors early.
 name: Build & Push Docker Images
 
 on:
-  push:
-    branches: [main, pivot/agentops]
+  schedule:
+    # Daily at 3am
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -18,14 +22,8 @@ env:
   ECR_REGISTRY: 965747688757.dkr.ecr.us-east-1.amazonaws.com
 
 jobs:
-  # Gate: run build validation before pushing images
-  validate:
-    name: Validate Builds
-    uses: ./.github/workflows/build-test.yml
-
   build-and-push:
     name: Build ${{ matrix.service }}
-    needs: [validate]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -69,9 +67,8 @@ jobs:
         with:
           images: ${{ env.ECR_REGISTRY }}/traceroot-${{ matrix.service }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest
             type=sha,prefix=sha-
-            type=ref,event=branch
 
       - name: Build and push
         uses: docker/build-push-action@v6

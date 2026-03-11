@@ -1,7 +1,7 @@
 # .github/workflows/build-test.yml
 # Validates that all TypeScript packages compile and all Docker images build.
-# Runs on PRs and push — catches type errors and Dockerfile issues BEFORE
-# images are pushed to ECR.
+# Runs on every PR and push to catch build errors early.
+# Docker image publishing (docker-images.yml) is separate and manual/scheduled.
 name: Build Validation
 
 on:
@@ -10,7 +10,6 @@ on:
   pull_request:
   merge_group:
   workflow_dispatch:
-  workflow_call:
 
 concurrency:
   group: build-test-${{ github.event.pull_request.number || github.ref }}
