@@ -12,15 +12,20 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   AWS_REGION: us-east-1
   ECR_REGISTRY: 965747688757.dkr.ecr.us-east-1.amazonaws.com
 
 jobs:
+  # Gate: run build validation before pushing images
+  validate:
+    name: Validate Builds
+    uses: ./.github/workflows/build-test.yml
+
   build-and-push:
     name: Build ${{ matrix.service }}
+    needs: [validate]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false

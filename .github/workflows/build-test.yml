@@ -1,0 +1,104 @@
+# .github/workflows/build-test.yml
+# Validates that all TypeScript packages compile and all Docker images build.
+# Runs on PRs and push — catches type errors and Dockerfile issues BEFORE
+# images are pushed to ECR.
+name: Build Validation
+
+on:
+  push:
+    branches: [main, pivot/agentops]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: build-test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # TypeScript build — fast feedback on type errors (~2 min)
+  # ---------------------------------------------------------------------------
+  typescript-build:
+    name: TypeScript Build
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: cd frontend/packages/core && pnpm db:generate
+
+      - name: Build @traceroot/core
+        run: cd frontend/packages/core && pnpm build
+
+      - name: Build @traceroot/github
+        run: cd frontend/packages/github && pnpm build
+
+      - name: Build @traceroot/agent
+        run: cd frontend/packages/agent && pnpm build
+
+      - name: Build traceroot-worker (billing)
+        run: cd frontend/worker && pnpm build
+
+  # ---------------------------------------------------------------------------
+  # Docker build — validates all 7 Dockerfiles build successfully (~8 min)
+  # This is the definitive gate: catches COPY issues, missing build steps,
+  # dependency mismatches, etc.
+  # ---------------------------------------------------------------------------
+  docker-build:
+    name: Docker Build (${{ matrix.service }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: web
+            dockerfile: docker/Dockerfile.web
+          - service: rest
+            dockerfile: docker/Dockerfile.rest
+          - service: worker
+            dockerfile: docker/Dockerfile.worker
+          - service: billing
+            dockerfile: docker/Dockerfile.billing
+          - service: agent
+            dockerfile: docker/Dockerfile.agent
+          - service: migrate-clickhouse
+            dockerfile: docker/Dockerfile.migrate-clickhouse
+          - service: migrate-postgres
+            dockerfile: docker/Dockerfile.migrate-postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: true
+          tags: traceroot-${{ matrix.service }}:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
