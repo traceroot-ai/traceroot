@@ -174,6 +174,12 @@ variable "stripe_price_id_startups" {
   default     = ""
 }
 
+variable "stripe_price_id_ai_usage" {
+  description = "Stripe price ID for AI usage metering"
+  type        = string
+  default     = ""
+}
+
 # --- Google OAuth ---
 variable "google_oauth_client_id" {
   description = "Google OAuth client ID"
