@@ -36,16 +36,16 @@ importers:
   packages/agent:
     dependencies:
       '@daytonaio/sdk':
-        specifier: ^0.148.0
+        specifier: 0.148.0
         version: 0.148.0(ws@8.19.0)
       '@hono/node-server':
         specifier: ^1.0.0
         version: 1.19.9(hono@4.12.3)
       '@mariozechner/pi-agent-core':
-        specifier: ^0.52.0
+        specifier: 0.52.12
         version: 0.52.12(ws@8.19.0)(zod@3.25.76)
       '@mariozechner/pi-ai':
-        specifier: ^0.52.0
+        specifier: 0.52.12
         version: 0.52.12(ws@8.19.0)(zod@3.25.76)
       '@traceroot/core':
         specifier: workspace:*
@@ -223,7 +223,7 @@ importers:
         specifier: ^3.0.0
         version: 3.0.3
       stripe:
-        specifier: ^14.0.0
+        specifier: 14.25.0
         version: 14.25.0
     devDependencies:
       '@types/node':

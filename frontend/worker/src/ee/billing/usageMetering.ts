@@ -346,6 +346,7 @@ async function reportAIUsageToStripe(
         stripe_customer_id: customerId,
         value: String(costCents),
       },
+      timestamp: Math.floor(Date.now() / 1000),
     });
     console.log(
       `[Billing] Reported AI usage to Stripe: workspace=${workspaceId}, delta=$${cost.toFixed(2)} (${costCents} units @ $0.01)`,
