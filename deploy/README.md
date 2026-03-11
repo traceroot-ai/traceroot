@@ -128,7 +128,6 @@ done
 ```
 
 > **Tip:** Set `image_tag` in your tfvars to match `$TAG` (e.g. `image_tag = "sha-abc1234"`).
-> This makes every deploy traceable to a specific git commit (Langfuse pattern).
 
 ### Step 6: Full terraform apply
 
