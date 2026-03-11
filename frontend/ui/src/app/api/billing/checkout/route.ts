@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     const lineItems: { price: string; quantity?: number }[] = [
       { price: planConfig.billingPriceId, quantity: 1 },
     ];
-    const aiUsagePriceId = process.env.STRIPE_AI_USAGE_PRICE_ID;
+    const aiUsagePriceId = process.env.STRIPE_PRICE_ID_AI_USAGE;
     if (aiUsagePriceId) {
       lineItems.push({ price: aiUsagePriceId });
     }

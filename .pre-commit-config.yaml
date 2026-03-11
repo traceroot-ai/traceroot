@@ -31,7 +31,7 @@ repos:
     hooks:
       - id: frontend-lint
         name: frontend lint-staged
-        entry: bash -c 'cd frontend && pnpm exec lint-staged'
+        entry: bash -c 'cd frontend && [ -d node_modules ] || pnpm install --frozen-lockfile && pnpm exec lint-staged'
         language: system
         files: ^frontend/
         pass_filenames: false
