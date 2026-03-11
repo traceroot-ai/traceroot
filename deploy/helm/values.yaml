@@ -194,6 +194,7 @@ stripe:
     priceIdStarter: "stripe-price-id-starter"
     priceIdPro: "stripe-price-id-pro"
     priceIdStartups: "stripe-price-id-startups"
+    priceIdAiUsage: "stripe-price-id-ai-usage"
 
 # --- Google OAuth (optional — set existingSecret to enable) ---
 googleOAuth:

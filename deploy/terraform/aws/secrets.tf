@@ -105,6 +105,7 @@ resource "kubernetes_secret" "staging_stripe" {
     "stripe-price-id-starter"       = var.stripe_price_id_starter
     "stripe-price-id-pro"           = var.stripe_price_id_pro
     "stripe-price-id-startups"      = var.stripe_price_id_startups
+    "stripe-price-id-ai-usage"      = var.stripe_price_id_ai_usage
   }
 
   depends_on = [module.eks]
@@ -217,6 +218,7 @@ resource "kubernetes_secret" "production_stripe" {
     "stripe-price-id-starter"       = var.stripe_price_id_starter
     "stripe-price-id-pro"           = var.stripe_price_id_pro
     "stripe-price-id-startups"      = var.stripe_price_id_startups
+    "stripe-price-id-ai-usage"      = var.stripe_price_id_ai_usage
   }
 
   depends_on = [module.eks]
