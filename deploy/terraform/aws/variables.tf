@@ -6,6 +6,23 @@ variable "name" {
   default     = "traceroot"
 }
 
+variable "environment" {
+  description = "Environment name — controls namespace (traceroot-{env}) and database (traceroot_{env}). Use Terraform workspaces to isolate state per environment."
+  type        = string
+  default     = "staging"
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]*$", var.environment))
+    error_message = "Environment must be lowercase alphanumeric with hyphens (e.g. staging, production)."
+  }
+}
+
+variable "image_tag" {
+  description = "Docker image tag for all services. Use git SHA for traceability (e.g. sha-abc1234). Defaults to 'latest'."
+  type        = string
+  default     = "latest"
+}
+
 variable "aws_region" {
   description = "AWS region to deploy into"
   type        = string
@@ -29,7 +46,7 @@ variable "kubernetes_version" {
 variable "fargate_profile_namespaces" {
   description = "Namespaces for Fargate profiles"
   type        = list(string)
-  default     = ["kube-system", "traceroot-staging", "traceroot-production", "default"]
+  default     = ["kube-system", "default"]
 }
 
 # --- RDS ---
@@ -73,9 +90,9 @@ variable "clickhouse_storage_size" {
 }
 
 variable "clickhouse_namespace" {
-  description = "Kubernetes namespace where ClickHouse will be deployed"
+  description = "Kubernetes namespace where ClickHouse will be deployed. Defaults to traceroot-{environment}."
   type        = string
-  default     = "traceroot-staging"
+  default     = ""
 }
 
 # --- Custom Domain + TLS ---

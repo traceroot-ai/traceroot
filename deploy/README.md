@@ -1,7 +1,30 @@
 # Deploying Traceroot to AWS
 
 Single-command infrastructure provisioning using Terraform + Helm on EKS Fargate.
-Follows the [Langfuse AWS Terraform](https://github.com/langfuse/langfuse-terraform-aws) pattern.
+
+## Multi-Environment Setup
+
+Staging and production use the **same Terraform code** with different configuration:
+
+```
+deploy/terraform/aws/
+├── terraform.tfvars.example   # template (checked in)
+├── staging.tfvars             # staging config (gitignored)
+├── production.tfvars          # production config (gitignored)
+```
+
+**Terraform workspaces** isolate state per environment — each gets its own VPC, EKS
+cluster, RDS, Redis, etc. No shared infrastructure, no shared secrets.
+
+| What differs            | Staging example              | Production example          |
+|------------------------|------------------------------|-----------------------------|
+| `environment`          | `"staging"`                  | `"production"`              |
+| `domain`               | `"staging.traceroot.ai"`     | `"app.traceroot.ai"`       |
+| `image_tag`            | `"latest"`                   | `"sha-abc1234"`             |
+| Stripe keys            | test keys (`sk_test_...`)    | live keys (`sk_live_...`)   |
+| Replicas               | 1                            | 2+                          |
+| Kubernetes namespace   | `traceroot-staging`          | `traceroot-production`      |
+| Database name          | `traceroot_staging`          | `traceroot_production`      |
 
 ## Prerequisites
 
@@ -13,33 +36,53 @@ Follows the [Langfuse AWS Terraform](https://github.com/langfuse/langfuse-terraf
 
 ## Step-by-step: First Deploy (from scratch)
 
+These steps are the same for staging and production — just swap the workspace name
+and tfvars file.
+
 ### Step 1: Configure
 
 ```bash
 cd deploy/terraform/aws
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with your values (domain, API keys, etc.)
+
+# Create your environment config
+cp terraform.tfvars.example staging.tfvars
+# Edit staging.tfvars: set environment="staging", domain, API keys, etc.
 ```
 
-### Step 2: Create Route53 zone
+> **Production:** `cp terraform.tfvars.example production.tfvars` and set
+> `environment = "production"`, your production domain, live Stripe keys, etc.
+
+### Step 2: Initialize and create workspace
+
+```bash
+terraform init
+
+# Create a workspace for this environment
+terraform workspace new staging
+```
+
+> **Production:** `terraform workspace new production`
+
+### Step 3: Create Route53 zone
 
 Terraform creates a Route53 hosted zone for your domain, but DNS validation
 (for the TLS certificate) requires your domain registrar to point NS records
 at Route53 BEFORE the full apply. So we create the zone first:
 
 ```bash
-terraform init
-terraform apply --target aws_route53_zone.app
+terraform apply -var-file=staging.tfvars --target aws_route53_zone.app
 ```
 
 This outputs 4 nameservers. Copy them.
 
-### Step 3: Set up DNS delegation
+> **Production:** `terraform apply -var-file=production.tfvars --target aws_route53_zone.app`
+
+### Step 4: Set up DNS delegation
 
 Go to your DNS provider (e.g. Cloudflare) and:
 
-1. Delete any existing records for your domain (e.g. old CNAME to Vercel)
-2. Add 4 NS records pointing your domain to the Route53 nameservers from Step 2
+1. Add NS records pointing your subdomain to the Route53 nameservers from Step 3
+2. Delete any conflicting records (e.g. old CNAME to Vercel)
 
 Wait for propagation:
 
@@ -48,49 +91,49 @@ dig staging.traceroot.ai NS
 # Should return the 4 Route53 nameservers
 ```
 
-### Step 4: Build & push Docker images
+### Step 5: Build & push Docker images
 
 The Helm chart references private ECR images. Terraform creates the ECR
 repositories, but they're empty. The Helm release will fail if images don't
 exist (migration jobs run as pre-install hooks and will ImagePullBackOff).
 
-**Build images BEFORE the full terraform apply:**
+**Create ECR repos first (if fresh deploy):**
 
 ```bash
-# Get your registry URL (from a previous partial apply, or hardcode your account ID)
+terraform apply -var-file=staging.tfvars --target aws_ecr_repository.services
+```
+
+**Build and push all images:**
+
+```bash
 export REGION=us-east-1
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 export REGISTRY=$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
+export TAG=$(git rev-parse --short HEAD)  # or "latest"
 
 # Login to ECR
 aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $REGISTRY
 
-# From repo root
-cd /path/to/traceroot
-
-# Build & push all images (linux/amd64 for Fargate)
+# From repo root — build & push all images (linux/amd64 for Fargate)
 for svc in web rest worker billing agent; do
-  docker build --platform linux/amd64 -f docker/Dockerfile.$svc -t $REGISTRY/traceroot-$svc:latest .
-  docker push $REGISTRY/traceroot-$svc:latest
+  docker build --platform linux/amd64 -f docker/Dockerfile.$svc -t $REGISTRY/traceroot-$svc:$TAG .
+  docker push $REGISTRY/traceroot-$svc:$TAG
 done
 
 # Migration images
-docker build --platform linux/amd64 -f docker/Dockerfile.migrate-postgres -t $REGISTRY/traceroot-migrate-postgres:latest .
-docker push $REGISTRY/traceroot-migrate-postgres:latest
-
-docker build --platform linux/amd64 -f docker/Dockerfile.migrate-clickhouse -t $REGISTRY/traceroot-migrate-clickhouse:latest .
-docker push $REGISTRY/traceroot-migrate-clickhouse:latest
+for svc in migrate-postgres migrate-clickhouse; do
+  docker build --platform linux/amd64 -f docker/Dockerfile.$svc -t $REGISTRY/traceroot-$svc:$TAG .
+  docker push $REGISTRY/traceroot-$svc:$TAG
+done
 ```
 
-**Note:** The ECR repos must exist before you can push. If this is a truly fresh
-deploy, run `terraform apply --target aws_ecr_repository.services` first to
-create them.
+> **Tip:** Set `image_tag` in your tfvars to match `$TAG` (e.g. `image_tag = "sha-abc1234"`).
+> This makes every deploy traceable to a specific git commit (Langfuse pattern).
 
-### Step 5: Full terraform apply
+### Step 6: Full terraform apply
 
 ```bash
-cd deploy/terraform/aws
-terraform apply
+terraform apply -var-file=staging.tfvars
 ```
 
 This creates everything:
@@ -100,7 +143,7 @@ This creates everything:
 - ElastiCache (Redis)
 - S3 bucket (with IRSA — no static credentials)
 - EFS + access points (ClickHouse storage)
-- ACM certificate + DNS validation (instant if Step 3 is done)
+- ACM certificate + DNS validation (instant if Step 4 is done)
 - Kubernetes secrets (auto-generated passwords + your API keys)
 - ALB Load Balancer Controller
 - Helm release (ClickHouse, migrations, all app services)
@@ -109,13 +152,15 @@ This creates everything:
 Takes ~20 minutes. The ACM cert validation should complete in seconds
 (not 60+ minutes) because DNS is already delegated.
 
-### Step 6: Verify
+> **Production:** `terraform apply -var-file=production.tfvars`
+
+### Step 7: Verify
 
 ```bash
 # Update kubeconfig
 aws eks update-kubeconfig --name traceroot --region $REGION
 
-# Check pods
+# Check pods (namespace matches your environment)
 kubectl get pods -n traceroot-staging
 
 # Check ingress
@@ -125,27 +170,57 @@ kubectl get ingress -n traceroot-staging
 curl -I https://staging.traceroot.ai
 ```
 
+> **Production:** Replace `traceroot-staging` with `traceroot-production`
+> and the domain with your production URL.
+
 ## Subsequent Deploys
 
 After the first deploy, you only need:
 
 ```bash
-# If you changed terraform config
-terraform apply
+# Switch to the right workspace
+terraform workspace select staging  # or: production
 
-# If you changed app code (rebuild + restart)
-docker build --platform linux/amd64 -f docker/Dockerfile.web -t $REGISTRY/traceroot-web:latest .
-docker push $REGISTRY/traceroot-web:latest
+# If you changed terraform config
+terraform apply -var-file=staging.tfvars
+
+# If you changed app code — rebuild with git SHA tag
+export TAG=sha-$(git rev-parse --short HEAD)
+
+docker build --platform linux/amd64 -f docker/Dockerfile.web -t $REGISTRY/traceroot-web:$TAG .
+docker push $REGISTRY/traceroot-web:$TAG
+
+# Update the image tag in Helm (via terraform)
+# Edit staging.tfvars: image_tag = "sha-abc1234"
+terraform apply -var-file=staging.tfvars
+
+# Or quick restart if using image_tag = "latest"
 kubectl rollout restart deployment/traceroot-web -n traceroot-staging
 ```
 
-Once CI/CD is set up, the build/push/restart is automated on git push.
+Once CI/CD is set up, the build/push/apply is automated on git push.
+
+## Switching Between Environments
+
+```bash
+# List workspaces
+terraform workspace list
+
+# Switch
+terraform workspace select staging
+terraform workspace select production
+
+# Always use the matching tfvars file!
+terraform workspace select production
+terraform apply -var-file=production.tfvars  # NOT staging.tfvars
+```
 
 ## Tear Down
 
 ```bash
-cd deploy/terraform/aws
-terraform destroy
+terraform workspace select staging  # or: production
+terraform destroy -var-file=staging.tfvars
 ```
 
 **Warning:** This deletes everything including the database. Back up first.
+Each workspace is independent — destroying staging does not affect production.

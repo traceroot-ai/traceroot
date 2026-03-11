@@ -18,7 +18,7 @@ imagePullPolicy: Always
 web:
   image:
     repository: ${aws_ecr_repository.services["web"].repository_url}
-    tag: latest
+    tag: ${var.image_tag}
   replicas: ${var.web_replicas}
   port: 3000
   resources:
@@ -32,7 +32,7 @@ web:
 rest:
   image:
     repository: ${aws_ecr_repository.services["rest"].repository_url}
-    tag: latest
+    tag: ${var.image_tag}
   replicas: ${var.rest_replicas}
   port: 8000
   resources:
@@ -46,7 +46,7 @@ rest:
 worker:
   image:
     repository: ${aws_ecr_repository.services["worker"].repository_url}
-    tag: latest
+    tag: ${var.image_tag}
   replicas: ${var.worker_replicas}
   resources:
     requests:
@@ -59,7 +59,7 @@ worker:
 billing:
   image:
     repository: ${aws_ecr_repository.services["billing"].repository_url}
-    tag: latest
+    tag: ${var.image_tag}
   replicas: 1
   resources:
     requests:
@@ -72,7 +72,7 @@ billing:
 agent:
   image:
     repository: ${aws_ecr_repository.services["agent"].repository_url}
-    tag: latest
+    tag: ${var.image_tag}
   replicas: 1
   port: 8100
   resources:
@@ -87,18 +87,18 @@ migrations:
   postgres:
     image:
       repository: ${aws_ecr_repository.services["migrate-postgres"].repository_url}
-      tag: latest
+      tag: ${var.image_tag}
   clickhouse:
     image:
       repository: ${aws_ecr_repository.services["migrate-clickhouse"].repository_url}
-      tag: latest
+      tag: ${var.image_tag}
 
 nextauth:
   url: "${local.app_url}"
 
 postgresql:
   host: "${aws_rds_cluster.postgres.endpoint}"
-  database: "traceroot_staging"
+  database: "${local.database_name}"
   existingSecret: "traceroot"
   secretKeys:
     databaseUrl: "database-url"
@@ -216,7 +216,7 @@ EOT
 resource "helm_release" "traceroot" {
   name      = "traceroot"
   chart     = var.traceroot_helm_chart_path
-  namespace = kubernetes_namespace.staging.metadata[0].name
+  namespace = kubernetes_namespace.app.metadata[0].name
 
   values = compact([
     local.traceroot_values,
@@ -238,12 +238,12 @@ resource "helm_release" "traceroot" {
   }
 
   depends_on = [
-    kubernetes_namespace.staging,
+    kubernetes_namespace.app,
     aws_iam_role.traceroot_irsa,
     aws_iam_role_policy.traceroot_s3_access,
     kubernetes_persistent_volume.clickhouse_data,
     helm_release.aws_lb_controller,
-    kubernetes_secret.staging,
+    kubernetes_secret.app,
     kubernetes_storage_class.efs,
     aws_acm_certificate_validation.app,
   ]

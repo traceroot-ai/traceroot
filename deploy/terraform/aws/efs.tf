@@ -180,7 +180,7 @@ resource "kubernetes_persistent_volume" "clickhouse_data" {
     # Pre-bind to the exact PVC name the Bitnami chart creates
     claim_ref {
       name      = "data-traceroot-clickhouse-shard0-${count.index}"
-      namespace = var.clickhouse_namespace
+      namespace = local.clickhouse_ns
     }
   }
 
