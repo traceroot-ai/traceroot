@@ -18,7 +18,9 @@ environment = "staging"
 # Docker image tag — use git SHA for traceability (e.g. "sha-abc1234")
 # image_tag = "latest"
 
-name       = "traceroot"
+# Name prefix for all AWS resources — must be unique per environment in the same account.
+# Examples: "traceroot-staging", "traceroot-prod"
+name = "traceroot-staging"
 aws_region = "us-east-1"
 
 # VPC
@@ -57,7 +59,7 @@ cache_node_type = "cache.t4g.micro"
 
 # Stripe Billing
 # Note: Use test keys for staging, live keys for production
-# stripe_secret_key             = "sk_live_..."
+# stripe_secret_key             = "sk_test_..."
 # stripe_webhook_signing_secret = "whsec_..."
 # stripe_price_id_starter       = "price_..."
 # stripe_price_id_pro           = "price_..."
