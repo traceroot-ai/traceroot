@@ -304,7 +304,7 @@ async function updateStripeQuantity(
   try {
     const subscription = await stripeClient.subscriptions.retrieve(subscriptionId);
     // Find the plan item (not the AI usage metered item)
-    const aiUsagePriceId = process.env.STRIPE_AI_USAGE_PRICE_ID;
+    const aiUsagePriceId = process.env.STRIPE_PRICE_ID_AI_USAGE;
     const planItem = subscription.items.data.find((item) => item.price.id !== aiUsagePriceId);
 
     if (!planItem) {

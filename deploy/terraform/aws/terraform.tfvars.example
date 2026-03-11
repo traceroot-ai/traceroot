@@ -44,6 +44,7 @@ cache_node_type = "cache.t4g.micro"
 # stripe_price_id_starter       = "price_..."
 # stripe_price_id_pro           = "price_..."
 # stripe_price_id_startups      = "price_..."
+# stripe_price_id_ai_usage      = "price_..."
 
 # Email / SMTP
 # smtp_url       = "smtp://user:pass@host:587"
