@@ -150,7 +150,8 @@ for (const sys of SYSTEM_MODELS) {
  */
 function buildFallbackModel(modelId: string, apiProtocol: string, provider: string) {
   // Try to get the model from pi-ai's registry for pricing data
-  const registryModel = getModel(provider, modelId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const registryModel = getModel(provider as any, modelId as any);
   console.log(
     `[Agent] pi-ai registry lookup: provider=${provider}, model=${modelId}, found=${!!registryModel}`,
     registryModel ? JSON.stringify(registryModel.cost) : "N/A",

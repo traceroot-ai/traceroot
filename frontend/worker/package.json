@@ -19,7 +19,7 @@
   "dependencies": {
     "@traceroot/core": "workspace:*",
     "node-cron": "^3.0.0",
-    "stripe": "^14.0.0"
+    "stripe": "14.25.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

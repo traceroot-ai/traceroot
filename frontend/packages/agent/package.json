@@ -17,10 +17,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@daytonaio/sdk": "^0.148.0",
+    "@daytonaio/sdk": "0.148.0",
     "@hono/node-server": "^1.0.0",
-    "@mariozechner/pi-agent-core": "^0.52.0",
-    "@mariozechner/pi-ai": "^0.52.0",
+    "@mariozechner/pi-agent-core": "0.52.12",
+    "@mariozechner/pi-ai": "0.52.12",
     "@traceroot/core": "workspace:*",
     "hono": "^4.0.0"
   },
