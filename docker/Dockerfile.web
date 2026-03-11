@@ -34,6 +34,9 @@ COPY frontend/packages/github ./packages/github
 COPY frontend/ui ./ui
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 
+# Build workspace packages that export compiled dist/
+RUN cd packages/github && pnpm build
+
 # Generate Prisma client and stash engine binary for the runner stage
 # (pnpm symlinks break Next.js standalone output file tracing)
 RUN cd packages/core && npx prisma generate \
