@@ -134,7 +134,7 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
           Open a project to start using the AI assistant.
         </div>
       ) : (
-        <MessageList messages={messages} />
+        <MessageList messages={messages} sessionStreaming={isStreaming} />
       )}
 
       {/* Input */}
