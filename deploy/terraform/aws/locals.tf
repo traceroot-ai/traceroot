@@ -17,7 +17,7 @@ locals {
   clickhouse_ns = var.clickhouse_namespace != "" ? var.clickhouse_namespace : local.namespace
 
   # Ensure the environment namespace is always in the Fargate profile list
-  fargate_namespaces = distinct(concat(var.fargate_profile_namespaces, [local.namespace]))
+  fargate_namespaces = distinct(concat(var.fargate_profile_namespaces, [local.namespace, local.clickhouse_ns]))
 
   tags = {
     Project     = var.name
