@@ -64,7 +64,7 @@ jobs:
         with:
           images: ${{ env.ECR_REGISTRY }}/traceroot-${{ matrix.service }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-
             type=ref,event=branch
 
