@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import type { AIMessage } from "../types";
+import type { AIMessage, ToolCallStep } from "../types";
 
 /** Generate a UUID that works in both secure (HTTPS) and insecure (HTTP) contexts. */
 function generateId(): string {
@@ -19,6 +19,7 @@ export function useAIStream() {
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
 
   const sendMessage = useCallback(
     async (params: {
@@ -88,6 +89,7 @@ export function useAIStream() {
         if (!response.body) throw new Error("No response body");
 
         const reader = response.body.getReader();
+        readerRef.current = reader;
         const decoder = new TextDecoder();
         let buffer = "";
 
@@ -108,11 +110,7 @@ export function useAIStream() {
                 // and a delta string (the incremental text).
                 if (eventData.type === "message_update") {
                   const delta = eventData.assistantMessageEvent;
-                  // Handle both text_delta and thinking_delta (for DeepSeek reasoner)
-                  if (
-                    (delta?.type === "text_delta" || delta?.type === "thinking_delta") &&
-                    delta.delta
-                  ) {
+                  if (delta?.type === "text_delta" && delta.delta) {
                     setMessages((prev) =>
                       prev.map((msg) =>
                         msg.id === assistantMsgId
@@ -121,10 +119,20 @@ export function useAIStream() {
                       ),
                     );
                   }
+                  if (delta?.type === "thinking_delta" && delta.delta) {
+                    setMessages((prev) =>
+                      prev.map((msg) =>
+                        msg.id === assistantMsgId
+                          ? { ...msg, thinking: (msg.thinking ?? "") + delta.delta }
+                          : msg,
+                      ),
+                    );
+                  }
                 }
-                // Show API errors to the user
+                // Show API errors and capture usage stats
                 if (eventData.type === "message_end") {
                   const msg = eventData.message;
+
                   if (msg?.stopReason === "error" && msg.errorMessage) {
                     setMessages((prev) =>
                       prev.map((m) =>
@@ -134,6 +142,59 @@ export function useAIStream() {
                       ),
                     );
                   }
+
+                  if (msg?.usage) {
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === assistantMsgId
+                          ? {
+                              ...m,
+                              inputTokens: msg.usage.input,
+                              outputTokens: msg.usage.output,
+                              totalTokens: msg.usage.totalTokens,
+                              costUsd: msg.usage.cost?.total,
+                            }
+                          : m,
+                      ),
+                    );
+                  }
+                }
+                if (eventData.type === "tool_execution_start") {
+                  const toolStepMsg: AIMessage = {
+                    id: eventData.toolCallId,
+                    role: "tool_step",
+                    content: "",
+                    timestamp: new Date().toISOString(),
+                    toolStep: {
+                      toolCallId: eventData.toolCallId,
+                      toolName: eventData.toolName,
+                      args: eventData.args ?? {},
+                      status: "running",
+                    },
+                  };
+                  setMessages((prev) => {
+                    const idx = prev.findIndex((m) => m.id === assistantMsgId);
+                    // Insert just before the assistant placeholder; if not found, insert second-to-last
+                    const insertAt = idx !== -1 ? idx : Math.max(0, prev.length - 1);
+                    return [...prev.slice(0, insertAt), toolStepMsg, ...prev.slice(insertAt)];
+                  });
+                }
+                if (eventData.type === "tool_execution_end") {
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === eventData.toolCallId
+                        ? {
+                            ...m,
+                            toolStep: {
+                              ...m.toolStep!,
+                              result: eventData.result,
+                              isError: eventData.isError,
+                              status: eventData.isError ? ("error" as const) : ("done" as const),
+                            },
+                          }
+                        : m,
+                    ),
+                  );
                 }
                 if (eventData.type === "error") {
                   const errorMsg =
@@ -174,12 +235,14 @@ export function useAIStream() {
           prev.map((msg) => (msg.id === assistantMsgId ? { ...msg, isStreaming: false } : msg)),
         );
         abortRef.current = null;
+        readerRef.current = null;
       }
     },
     [],
   );
 
   const abort = useCallback(() => {
+    readerRef.current?.cancel();
     abortRef.current?.abort();
   }, []);
 

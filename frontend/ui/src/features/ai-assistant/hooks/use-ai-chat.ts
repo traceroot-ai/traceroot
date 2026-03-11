@@ -11,10 +11,14 @@ interface UseAiChatOptions {
 }
 
 export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
-  const { messages, isStreaming, sendMessage, setMessages } = useAIStream();
+  const { messages, isStreaming, sendMessage, abort, setMessages } = useAIStream();
   const sessionIdRef = useRef<string | null>(null);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // isSending covers the gap between user hitting send and isStreaming becoming true
+  // (session creation + first network round-trip). Without this, React 19 can batch
+  // setIsStreaming(true) and setIsStreaming(false) into a single frame, hiding the button.
+  const [isSending, setIsSending] = useState(false);
 
   // Lazy session creation — only when first message is sent
   const ensureSession = useCallback(async (): Promise<string | null> => {
@@ -26,6 +30,7 @@ export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ traceId }),
       });
+      if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
       const data = await res.json();
       sessionIdRef.current = data.id;
       return data.id;
@@ -37,26 +42,23 @@ export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
 
   const handleSend = useCallback(
     async (message: string, modelSelection: ModelSelection) => {
-      console.log("[AI Chat] handleSend called, projectId:", projectId, "model:", modelSelection);
-      if (!projectId) {
-        console.warn("[AI Chat] No projectId — aborting send");
-        return;
+      if (!projectId) return;
+      setIsSending(true);
+      try {
+        const sessionId = await ensureSession();
+        if (!sessionId) return;
+        sendMessage({
+          sessionId,
+          message,
+          projectId,
+          model: modelSelection.model,
+          providerName: modelSelection.provider,
+          source: modelSelection.source,
+          traceId,
+        });
+      } finally {
+        setIsSending(false);
       }
-      const sessionId = await ensureSession();
-      console.log("[AI Chat] sessionId:", sessionId);
-      if (!sessionId) {
-        console.warn("[AI Chat] No sessionId — aborting send");
-        return;
-      }
-      sendMessage({
-        sessionId,
-        message,
-        projectId,
-        model: modelSelection.model,
-        providerName: modelSelection.provider,
-        source: modelSelection.source,
-        traceId,
-      });
     },
     [projectId, traceId, ensureSession, sendMessage],
   );
@@ -118,7 +120,7 @@ export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
   return {
     // State
     messages,
-    isStreaming,
+    isStreaming: isSending || isStreaming || messages.some((m) => m.isStreaming),
     sessions,
     historyOpen,
     currentSessionId: sessionIdRef.current,
@@ -128,6 +130,7 @@ export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
 
     // Actions
     handleSend,
+    handleAbort: abort,
     handleNewSession,
     handleOpenHistory,
     handleSelectSession,

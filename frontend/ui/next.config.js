@@ -4,7 +4,7 @@ const path = require("path");
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
-  transpilePackages: ["@traceroot/core"],
+  transpilePackages: ["@traceroot/core", "@traceroot/github"],
   // Include monorepo root so standalone output traces deps outside ui/
   outputFileTracingRoot: path.join(__dirname, "../"),
   // Force-include Prisma engine binary (pnpm symlinks break automatic tracing).
