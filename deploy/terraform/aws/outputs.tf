@@ -1,5 +1,10 @@
 # deploy/terraform/aws/outputs.tf
 
+output "environment" {
+  description = "Active environment"
+  value       = var.environment
+}
+
 output "aws_region" {
   description = "AWS region"
   value       = var.aws_region
@@ -15,13 +20,18 @@ output "cluster_endpoint" {
   value       = module.eks.cluster_endpoint
 }
 
+output "namespace" {
+  description = "Kubernetes namespace for this environment"
+  value       = local.namespace
+}
+
 output "ecr_repositories" {
   description = "ECR repository URLs"
   value = {
-    web     = aws_ecr_repository.services["web"].repository_url
-    rest    = aws_ecr_repository.services["rest"].repository_url
-    worker  = aws_ecr_repository.services["worker"].repository_url
-    billing = aws_ecr_repository.services["billing"].repository_url
+    web                = aws_ecr_repository.services["web"].repository_url
+    rest               = aws_ecr_repository.services["rest"].repository_url
+    worker             = aws_ecr_repository.services["worker"].repository_url
+    billing            = aws_ecr_repository.services["billing"].repository_url
     agent              = aws_ecr_repository.services["agent"].repository_url
     migrate-postgres   = aws_ecr_repository.services["migrate-postgres"].repository_url
     migrate-clickhouse = aws_ecr_repository.services["migrate-clickhouse"].repository_url
@@ -61,12 +71,17 @@ output "irsa_role_arn" {
 
 output "app_url" {
   description = "Application URL (custom domain or ALB)"
-  value       = var.domain != "" ? "https://${var.domain}" : "See ALB URL via: kubectl get ingress -n traceroot-staging"
+  value       = var.domain != "" ? "https://${var.domain}" : "See ALB URL via: kubectl get ingress -n ${local.namespace}"
 }
 
 output "nameservers" {
   description = "Route53 nameservers — point your domain registrar here"
   value       = var.domain != "" ? aws_route53_zone.app[0].name_servers : []
+}
+
+output "image_tag" {
+  description = "Docker image tag deployed"
+  value       = var.image_tag
 }
 
 output "helm_release_status" {

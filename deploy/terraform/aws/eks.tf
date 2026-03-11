@@ -18,7 +18,7 @@ module "eks" {
 
   # Fargate profiles — no EC2 nodes to manage
   fargate_profiles = {
-    for ns in var.fargate_profile_namespaces : ns => {
+    for ns in local.fargate_namespaces : ns => {
       selectors = [{ namespace = ns }]
     }
   }
