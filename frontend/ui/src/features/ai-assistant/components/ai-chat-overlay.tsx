@@ -122,7 +122,7 @@ export function AiChatOverlay({ projectId, traceId, onClose }: AiChatOverlayProp
         </Button>
       </div>
 
-      <MessageList messages={messages} />
+      <MessageList messages={messages} sessionStreaming={isStreaming} />
       <MessageInput
         onSend={handleSend}
         workspaceId={workspaceId}
