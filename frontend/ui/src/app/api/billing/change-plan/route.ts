@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
     const subscription = await stripe.subscriptions.retrieve(workspace.billingSubscriptionId);
 
     // Find the plan item (non-metered) vs AI usage item (metered)
-    const aiUsagePriceId = process.env.STRIPE_AI_USAGE_PRICE_ID;
+    const aiUsagePriceId = process.env.STRIPE_PRICE_ID_AI_USAGE;
     const planItem = subscription.items.data.find((item) => item.price.id !== aiUsagePriceId);
 
     if (!planItem) {
