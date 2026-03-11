@@ -67,8 +67,9 @@ jobs:
         with:
           images: ${{ env.ECR_REGISTRY }}/traceroot-${{ matrix.service }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-
+            type=ref,event=branch
 
       - name: Build and push
         uses: docker/build-push-action@v6
