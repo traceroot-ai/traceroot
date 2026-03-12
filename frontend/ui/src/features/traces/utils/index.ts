@@ -108,7 +108,7 @@ export function formatContentPreview(text: string | null): string {
  * Calculate total cost from all spans in a trace
  */
 export function getTraceTotalCost(trace: TraceDetail): number | null {
-  const costs = trace.spans.filter((s) => s.cost !== null && s.cost > 0).map((s) => s.cost!);
+  const costs = trace.spans.filter((s) => s.cost !== null).map((s) => s.cost!);
   if (costs.length === 0) return null;
   return costs.reduce((sum, cost) => sum + cost, 0);
 }
