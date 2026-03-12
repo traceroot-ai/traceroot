@@ -56,6 +56,8 @@ export interface LLMModelDef {
   inputCostPer1M?: number;
   /** Cost per 1M output tokens in USD */
   outputCostPer1M?: number;
+  /** Override the provider-level apiProtocol for this specific model */
+  apiProtocol?: string;
 }
 
 // ──────────────────────────────────────────────
@@ -92,6 +94,8 @@ export const SYSTEM_MODELS: {
       { id: "gpt-5-mini", label: "GPT-5 Mini" },
       { id: "o3", label: "o3" },
       { id: "o4-mini", label: "o4-mini" },
+      // Codex models require the Responses API (not Chat Completions)
+      { id: "gpt-5.3-codex", label: "GPT-5.3 Codex", apiProtocol: "openai-responses" },
     ],
   },
 ];
