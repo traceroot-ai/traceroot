@@ -133,12 +133,13 @@ const sessionManagers = new Map<string, SessionManager>();
 const sessionModels = new Map<string, string>();
 
 // Build system model lookup from SYSTEM_MODELS
+// Per-model apiProtocol overrides the provider-level default (e.g. Codex needs openai-responses)
 const systemModelLookup = new Map<string, { piAIProvider: string; apiProtocol: string }>();
 for (const sys of SYSTEM_MODELS) {
   for (const m of sys.models) {
     systemModelLookup.set(m.id, {
       piAIProvider: sys.piAIProvider,
-      apiProtocol: sys.apiProtocol,
+      apiProtocol: m.apiProtocol || sys.apiProtocol,
     });
   }
 }
@@ -197,8 +198,8 @@ function resolveModel(modelId?: string, providerConfig?: ProviderConfig | null) 
     }
   }
 
-  // 2. System models: always use buildFallbackModel (don't trust pi-ai registry —
-  //    it may use openai-responses which has store/multi-turn issues)
+  // 2. System models: use buildFallbackModel with per-model protocol
+  //    (most OpenAI models use completions; Codex models require responses)
   const sysInfo = systemModelLookup.get(effectiveModelId);
   if (sysInfo) {
     return buildFallbackModel(effectiveModelId, sysInfo.apiProtocol, sysInfo.piAIProvider);
