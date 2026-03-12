@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { prisma, calculateModelCost, ModelSource } from "@traceroot/core";
+import { prisma, calculateCost, syncStandardPrices, ModelSource } from "@traceroot/core";
 import {
   createSession,
   getSession,
@@ -241,7 +241,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
               totalCost > 0
                 ? totalCost
                 : responseModel
-                  ? calculateModelCost(
+                  ? await calculateCost(
                       responseModel,
                       totalInputTokens,
                       totalOutputTokens,
@@ -251,7 +251,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
                   : 0;
             if (cost === 0 && responseModel && (totalInputTokens > 0 || totalOutputTokens > 0)) {
               console.warn(
-                `[Agent] MODEL_PRICING missing for "${responseModel}", cost recorded as $0`,
+                `[Agent] Standard model pricing missing for "${responseModel}", cost recorded as $0`,
               );
             }
             const tokenUsage = responseModel
@@ -310,6 +310,9 @@ async function main(): Promise<void> {
     console.error("[Agent] Failed to connect to database:", error);
     process.exit(1);
   }
+
+  // Sync standard model pricing from JSON → DB
+  await syncStandardPrices();
 
   serve({ fetch: app.fetch, port: PORT }, (info) => {
     console.log(`[Agent] Listening on http://localhost:${info.port}`);

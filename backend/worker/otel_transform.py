@@ -365,15 +365,12 @@ def transform_otel_to_clickhouse(
                         if prices:
                             from decimal import Decimal
 
-                            input_cost = (
-                                Decimal(input_tokens)
-                                * Decimal(str(prices["input"]))
-                                / Decimal("1000000")
+                            # Prices are in USD per token — multiply directly
+                            input_cost = Decimal(input_tokens) * Decimal(
+                                str(prices.get("input", 0))
                             )
-                            output_cost = (
-                                Decimal(output_tokens)
-                                * Decimal(str(prices["output"]))
-                                / Decimal("1000000")
+                            output_cost = Decimal(output_tokens) * Decimal(
+                                str(prices.get("output", 0))
                             )
                             span_record["cost"] = float(input_cost + output_cost)
                     else:

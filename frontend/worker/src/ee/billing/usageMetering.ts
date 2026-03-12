@@ -179,7 +179,7 @@ async function processWorkspace(
   const byModel = [...systemByModel, ...byokByModel];
 
   // Calculate total system cost (for free allowance check)
-  const systemCostUsd = Number(systemAgg._sum.cost ?? 0);
+  const systemCost = Number(systemAgg._sum.cost ?? 0);
 
   // 2. Build update data
   const updateData: {
@@ -197,7 +197,7 @@ async function processWorkspace(
           messages: systemAgg._count.id,
           inputTokens: systemAgg._sum.inputTokens ?? 0,
           outputTokens: systemAgg._sum.outputTokens ?? 0,
-          cost: systemCostUsd,
+          cost: systemCost,
         },
         byokUsage: {
           messages: byokAgg._count.id,
@@ -229,11 +229,11 @@ async function processWorkspace(
     }
 
     // Block AI when free cost allowance exceeded (free plan has no subscription to bill)
-    const shouldBlockAi = systemCostUsd >= USAGE_CONFIG.aiIncludedCost;
+    const shouldBlockAi = systemCost >= USAGE_CONFIG.aiIncludedCost;
     if (workspace.aiBlocked !== shouldBlockAi) {
       updateData.aiBlocked = shouldBlockAi;
       console.log(
-        `[Billing] Workspace ${workspace.id}: $${systemCostUsd.toFixed(4)}/$${USAGE_CONFIG.aiIncludedCost} AI cost, ai_blocked: ${shouldBlockAi}`,
+        `[Billing] Workspace ${workspace.id}: $${systemCost.toFixed(4)}/$${USAGE_CONFIG.aiIncludedCost} AI cost, ai_blocked: ${shouldBlockAi}`,
       );
     }
   }
@@ -245,6 +245,9 @@ async function processWorkspace(
   }
 
   // 4. For paid plans with subscription: update Stripe before DB write
+  console.log(
+    `[Billing] Stripe check: isFreePlan=${isFreePlan}, subscriptionId=${!!workspace.billingSubscriptionId}, customerId=${!!workspace.billingCustomerId}, stripeClient=${!!ctx.stripeClient}`,
+  );
   if (
     !isFreePlan &&
     workspace.billingSubscriptionId &&
@@ -255,7 +258,7 @@ async function processWorkspace(
 
     // 4b. Report AI usage delta (system models only — BYOK is not billed)
     // First $5 of AI usage is free; bill anything above that
-    const billableCostUsd = Math.max(0, systemCostUsd - USAGE_CONFIG.aiIncludedCost);
+    const billableCost = Math.max(0, systemCost - USAGE_CONFIG.aiIncludedCost);
 
     // Meter events are additive, so only report the increase since last run
     // Reset tracking when billing period changes (prevents negative delta after period rollover)
@@ -264,7 +267,10 @@ async function processWorkspace(
     const currentPeriodStart = workspace.billingPeriodStart?.toISOString() ?? null;
     const lastReportedCost =
       prevPeriodStart === currentPeriodStart ? (previousUsage?.ai?.lastReportedCostUsd ?? 0) : 0;
-    const deltaCost = billableCostUsd - lastReportedCost;
+    const deltaCost = billableCost - lastReportedCost;
+    console.log(
+      `[Billing] AI metering: systemCost=$${systemCost.toFixed(4)}, billable=$${billableCost.toFixed(4)}, lastReported=$${lastReportedCost.toFixed(4)}, delta=$${deltaCost.toFixed(4)}`,
+    );
 
     if (deltaCost > 0) {
       const reported = await reportAIUsageToStripe(
@@ -275,7 +281,7 @@ async function processWorkspace(
       );
       if (reported) {
         // Track what we've reported so we don't double-report
-        (updateData.currentUsage as any).ai.lastReportedCostUsd = billableCostUsd;
+        (updateData.currentUsage as any).ai.lastReportedCostUsd = billableCost;
         (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
       }
     } else {
@@ -292,7 +298,7 @@ async function processWorkspace(
   });
 
   console.log(
-    `[Billing] Workspace ${workspace.id} (${workspace.billingPlan}): ${usage.traces} traces, ${usage.spans} spans | system: ${systemAgg._count.id} msgs (${systemAgg._sum.inputTokens ?? 0} in / ${systemAgg._sum.outputTokens ?? 0} out, $${systemCostUsd.toFixed(4)}) | byok: ${byokAgg._count.id} msgs (all-time, ${byokAgg._sum.inputTokens ?? 0} in / ${byokAgg._sum.outputTokens ?? 0} out)`,
+    `[Billing] Workspace ${workspace.id} (${workspace.billingPlan}): ${usage.traces} traces, ${usage.spans} spans | system: ${systemAgg._count.id} msgs (${systemAgg._sum.inputTokens ?? 0} in / ${systemAgg._sum.outputTokens ?? 0} out, $${systemCost.toFixed(4)}) | byok: ${byokAgg._count.id} msgs (all-time, ${byokAgg._sum.inputTokens ?? 0} in / ${byokAgg._sum.outputTokens ?? 0} out)`,
   );
 }
 
