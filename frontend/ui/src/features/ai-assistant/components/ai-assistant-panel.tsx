@@ -2,7 +2,6 @@
 
 import { useParams } from "next/navigation";
 import { X, Plus, History, Square } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -10,6 +9,7 @@ import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
 import { useAiChat } from "../hooks/use-ai-chat";
+import { usePanelResize } from "../hooks/use-panel-resize";
 import { getProject } from "@/lib/api";
 
 interface AiAssistantPanelProps {
@@ -17,38 +17,8 @@ interface AiAssistantPanelProps {
   onClose: () => void;
 }
 
-const MIN_WIDTH = 280;
-const MAX_WIDTH = 900;
-const DEFAULT_WIDTH = 400;
-
 export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
-  const [width, setWidth] = useState(DEFAULT_WIDTH);
-  const dragging = useRef(false);
-  const startX = useRef(0);
-  const startWidth = useRef(0);
-
-  const onMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      dragging.current = true;
-      startX.current = e.clientX;
-      startWidth.current = width;
-      e.preventDefault();
-
-      const onMouseMove = (e: MouseEvent) => {
-        if (!dragging.current) return;
-        const delta = startX.current - e.clientX;
-        setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth.current + delta)));
-      };
-      const onMouseUp = () => {
-        dragging.current = false;
-        window.removeEventListener("mousemove", onMouseMove);
-        window.removeEventListener("mouseup", onMouseUp);
-      };
-      window.addEventListener("mousemove", onMouseMove);
-      window.addEventListener("mouseup", onMouseUp);
-    },
-    [width],
-  );
+  const { width, onMouseDown } = usePanelResize();
   const params = useParams();
   const projectId = params?.projectId as string | undefined;
   const workspaceIdFromUrl = params?.workspaceId as string | undefined;
