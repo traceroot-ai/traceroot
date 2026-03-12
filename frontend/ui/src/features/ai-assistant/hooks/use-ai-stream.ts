@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import type { AIMessage, ToolCallStep } from "../types";
+import type { AIMessage } from "../types";
 
 /** Generate a UUID that works in both secure (HTTPS) and insecure (HTTP) contexts. */
 function generateId(): string {
@@ -20,6 +20,13 @@ export function useAIStream() {
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  // Tracks the ID of the currently-active assistant text bubble.
+  // null means no text bubble is open yet (e.g. before the first text delta,
+  // or right after a tool call was appended).
+  const currentTextIdRef = useRef<string | null>(null);
+  // Tracks the last frozen bubble ID so usage stats from message_end can still
+  // be attached when a turn ends with a tool call (currentTextIdRef is null then).
+  const lastFrozenIdRef = useRef<string | null>(null);
 
   const sendMessage = useCallback(
     async (params: {
@@ -28,10 +35,9 @@ export function useAIStream() {
       projectId: string;
       model?: string;
       providerName?: string;
-      source?: "system" | "byok"; // ModelSource values
+      source?: "system" | "byok";
       traceId?: string;
     }) => {
-      // Add user message
       const userMsg: AIMessage = {
         id: generateId(),
         role: "user",
@@ -40,20 +46,49 @@ export function useAIStream() {
       };
       setMessages((prev) => [...prev, userMsg]);
 
-      // Start streaming assistant response
       setIsStreaming(true);
-      const assistantMsgId = generateId();
+      currentTextIdRef.current = null;
+      lastFrozenIdRef.current = null;
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: assistantMsgId,
-          role: "assistant",
-          content: "",
-          timestamp: new Date().toISOString(),
-          isStreaming: true,
-        },
-      ]);
+      // Opens a new streaming assistant text bubble and returns its id.
+      // Subsequent text deltas append to this bubble until it is frozen.
+      const openTextBubble = (): string => {
+        const id = generateId();
+        currentTextIdRef.current = id;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id,
+            role: "assistant",
+            content: "",
+            timestamp: new Date().toISOString(),
+            isStreaming: true,
+          },
+        ]);
+        return id;
+      };
+
+      // Stops the currently-active text bubble from streaming (freezes it).
+      const freezeCurrentBubble = () => {
+        if (!currentTextIdRef.current) return;
+        const frozenId = currentTextIdRef.current;
+        lastFrozenIdRef.current = frozenId;
+        currentTextIdRef.current = null;
+        setMessages((prev) =>
+          prev.map((m) => (m.id === frozenId ? { ...m, isStreaming: false } : m)),
+        );
+      };
+
+      // Helper: show an error in the current bubble or open a new one.
+      const showError = (errorMessage: string) => {
+        const targetId = currentTextIdRef.current ?? openTextBubble();
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === targetId ? { ...m, content: `Error: ${errorMessage}`, isStreaming: false } : m,
+          ),
+        );
+        currentTextIdRef.current = null;
+      };
 
       const abortController = new AbortController();
       abortRef.current = abortController;
@@ -76,14 +111,7 @@ export function useAIStream() {
 
         if (!response.ok) {
           const errorBody = await response.json().catch(() => null);
-          const errorMessage = errorBody?.error || `HTTP ${response.status}`;
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === assistantMsgId
-                ? { ...msg, content: `Error: ${errorMessage}`, isStreaming: false }
-                : msg,
-            ),
-          );
+          showError(errorBody?.error || `HTTP ${response.status}`);
           return;
         }
         if (!response.body) throw new Error("No response body");
@@ -105,61 +133,66 @@ export function useAIStream() {
             if (line.startsWith("data: ")) {
               try {
                 const eventData = JSON.parse(line.slice(6));
-                // pi-agent-core message_update events contain assistantMessageEvent
-                // with type "text_delta" (or "thinking_delta" for reasoning models like DeepSeek)
-                // and a delta string (the incremental text).
+
                 if (eventData.type === "message_update") {
                   const delta = eventData.assistantMessageEvent;
+
                   if (delta?.type === "text_delta" && delta.delta) {
+                    // Open a new bubble if there isn't one (first text, or post-tool text)
+                    if (!currentTextIdRef.current) openTextBubble();
+                    const targetId = currentTextIdRef.current!;
                     setMessages((prev) =>
                       prev.map((msg) =>
-                        msg.id === assistantMsgId
-                          ? { ...msg, content: msg.content + delta.delta }
-                          : msg,
+                        msg.id === targetId ? { ...msg, content: msg.content + delta.delta } : msg,
                       ),
                     );
                   }
+
                   if (delta?.type === "thinking_delta" && delta.delta) {
+                    if (!currentTextIdRef.current) openTextBubble();
+                    const targetId = currentTextIdRef.current!;
                     setMessages((prev) =>
                       prev.map((msg) =>
-                        msg.id === assistantMsgId
+                        msg.id === targetId
                           ? { ...msg, thinking: (msg.thinking ?? "") + delta.delta }
                           : msg,
                       ),
                     );
                   }
                 }
-                // Show API errors and capture usage stats
+
+                // Capture usage stats on the last text bubble
                 if (eventData.type === "message_end") {
                   const msg = eventData.message;
 
                   if (msg?.stopReason === "error" && msg.errorMessage) {
-                    setMessages((prev) =>
-                      prev.map((m) =>
-                        m.id === assistantMsgId
-                          ? { ...m, content: `Error: ${msg.errorMessage}`, isStreaming: false }
-                          : m,
-                      ),
-                    );
+                    showError(msg.errorMessage);
                   }
 
                   if (msg?.usage) {
-                    setMessages((prev) =>
-                      prev.map((m) =>
-                        m.id === assistantMsgId
-                          ? {
-                              ...m,
-                              inputTokens: msg.usage.input,
-                              outputTokens: msg.usage.output,
-                              totalTokens: msg.usage.totalTokens,
-                              costUsd: msg.usage.cost?.total,
-                            }
-                          : m,
-                      ),
-                    );
+                    const lastId = currentTextIdRef.current ?? lastFrozenIdRef.current;
+                    if (lastId) {
+                      setMessages((prev) =>
+                        prev.map((m) =>
+                          m.id === lastId
+                            ? {
+                                ...m,
+                                inputTokens: msg.usage.input,
+                                outputTokens: msg.usage.output,
+                                totalTokens: msg.usage.totalTokens,
+                                costUsd: msg.usage.cost?.total,
+                              }
+                            : m,
+                        ),
+                      );
+                    }
                   }
                 }
+
+                // Tool call starts: freeze current text bubble, then append the tool step
                 if (eventData.type === "tool_execution_start") {
+                  freezeCurrentBubble();
+
                   const toolStepMsg: AIMessage = {
                     id: eventData.toolCallId,
                     role: "tool_step",
@@ -172,13 +205,9 @@ export function useAIStream() {
                       status: "running",
                     },
                   };
-                  setMessages((prev) => {
-                    const idx = prev.findIndex((m) => m.id === assistantMsgId);
-                    // Insert just before the assistant placeholder; if not found, insert second-to-last
-                    const insertAt = idx !== -1 ? idx : Math.max(0, prev.length - 1);
-                    return [...prev.slice(0, insertAt), toolStepMsg, ...prev.slice(insertAt)];
-                  });
+                  setMessages((prev) => [...prev, toolStepMsg]);
                 }
+
                 if (eventData.type === "tool_execution_end") {
                   setMessages((prev) =>
                     prev.map((m) =>
@@ -196,16 +225,11 @@ export function useAIStream() {
                     ),
                   );
                 }
+
                 if (eventData.type === "error") {
                   const errorMsg =
                     eventData.message || eventData.error?.errorMessage || "Unknown error";
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === assistantMsgId
-                        ? { ...m, content: `Error: ${errorMsg}`, isStreaming: false }
-                        : m,
-                    ),
-                  );
+                  showError(errorMsg);
                 }
               } catch {
                 // Skip unparseable lines
@@ -216,24 +240,12 @@ export function useAIStream() {
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
           console.error("[AI Stream] Error:", error);
-          const errorMessage = (error as Error).message || "Failed to get response.";
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === assistantMsgId
-                ? {
-                    ...msg,
-                    content: msg.content || `Error: ${errorMessage}`,
-                    isStreaming: false,
-                  }
-                : msg,
-            ),
-          );
+          showError((error as Error).message || "Failed to get response.");
         }
       } finally {
+        // Freeze the last open bubble (if streaming was cut short)
+        freezeCurrentBubble();
         setIsStreaming(false);
-        setMessages((prev) =>
-          prev.map((msg) => (msg.id === assistantMsgId ? { ...msg, isStreaming: false } : msg)),
-        );
         abortRef.current = null;
         readerRef.current = null;
       }
