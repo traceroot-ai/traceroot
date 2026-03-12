@@ -1,9 +1,26 @@
 # deploy/terraform/aws/terraform.tfvars.example
 #
-# Copy to terraform.tfvars and edit:
-#   cp terraform.tfvars.example terraform.tfvars
+# Copy to a named tfvars file for your environment:
+#   cp terraform.tfvars.example staging.tfvars    # edit for staging
+#   cp terraform.tfvars.example production.tfvars  # edit for production
+#
+# Usage with Terraform workspaces:
+#   terraform workspace new staging      # first time only
+#   terraform apply -var-file=staging.tfvars
+#
+#   terraform workspace new production   # first time only
+#   terraform apply -var-file=production.tfvars
 
-name       = "traceroot"
+# --- Environment ---
+# Controls namespace (traceroot-{environment}) and database name (traceroot_{environment})
+environment = "staging"
+
+# Docker image tag — use git SHA for traceability (e.g. "sha-abc1234")
+# image_tag = "latest"
+
+# Name prefix for all AWS resources — must be unique per environment in the same account.
+# Examples: "traceroot-staging", "traceroot-prod"
+name = "traceroot-staging"
 aws_region = "us-east-1"
 
 # VPC
@@ -20,7 +37,9 @@ postgres_max_capacity = 2.0
 cache_node_type = "cache.t4g.micro"
 
 # Custom domain (leave empty to use ALB URL)
-# domain = "staging.traceroot.ai"
+# Staging example:  domain = "staging.traceroot.ai"
+# Production example: domain = "app.traceroot.ai"
+# domain = ""
 
 # GitHub App (from github.com/organizations/<org>/settings/apps/<app>)
 # github_app_id            = "2954599"
@@ -39,7 +58,8 @@ cache_node_type = "cache.t4g.micro"
 # google_oauth_client_secret = "GOCSPX-..."
 
 # Stripe Billing
-# stripe_secret_key             = "sk_live_..."
+# Note: Use test keys for staging, live keys for production
+# stripe_secret_key             = "sk_test_..."
 # stripe_webhook_signing_secret = "whsec_..."
 # stripe_price_id_starter       = "price_..."
 # stripe_price_id_pro           = "price_..."
