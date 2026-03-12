@@ -24,6 +24,9 @@ export function useAIStream() {
   // null means no text bubble is open yet (e.g. before the first text delta,
   // or right after a tool call was appended).
   const currentTextIdRef = useRef<string | null>(null);
+  // Tracks the last frozen bubble ID so usage stats from message_end can still
+  // be attached when a turn ends with a tool call (currentTextIdRef is null then).
+  const lastFrozenIdRef = useRef<string | null>(null);
 
   const sendMessage = useCallback(
     async (params: {
@@ -45,6 +48,7 @@ export function useAIStream() {
 
       setIsStreaming(true);
       currentTextIdRef.current = null;
+      lastFrozenIdRef.current = null;
 
       // Opens a new streaming assistant text bubble and returns its id.
       // Subsequent text deltas append to this bubble until it is frozen.
@@ -68,6 +72,7 @@ export function useAIStream() {
       const freezeCurrentBubble = () => {
         if (!currentTextIdRef.current) return;
         const frozenId = currentTextIdRef.current;
+        lastFrozenIdRef.current = frozenId;
         currentTextIdRef.current = null;
         setMessages((prev) =>
           prev.map((m) => (m.id === frozenId ? { ...m, isStreaming: false } : m)),
@@ -164,21 +169,23 @@ export function useAIStream() {
                     showError(msg.errorMessage);
                   }
 
-                  if (msg?.usage && currentTextIdRef.current) {
-                    const lastId = currentTextIdRef.current;
-                    setMessages((prev) =>
-                      prev.map((m) =>
-                        m.id === lastId
-                          ? {
-                              ...m,
-                              inputTokens: msg.usage.input,
-                              outputTokens: msg.usage.output,
-                              totalTokens: msg.usage.totalTokens,
-                              costUsd: msg.usage.cost?.total,
-                            }
-                          : m,
-                      ),
-                    );
+                  if (msg?.usage) {
+                    const lastId = currentTextIdRef.current ?? lastFrozenIdRef.current;
+                    if (lastId) {
+                      setMessages((prev) =>
+                        prev.map((m) =>
+                          m.id === lastId
+                            ? {
+                                ...m,
+                                inputTokens: msg.usage.input,
+                                outputTokens: msg.usage.output,
+                                totalTokens: msg.usage.totalTokens,
+                                costUsd: msg.usage.cost?.total,
+                              }
+                            : m,
+                        ),
+                      );
+                    }
                   }
                 }
 
