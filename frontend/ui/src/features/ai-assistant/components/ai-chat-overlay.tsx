@@ -8,6 +8,7 @@ import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
 import { useAiChat } from "../hooks/use-ai-chat";
+import { usePanelResize } from "../hooks/use-panel-resize";
 import { getProject } from "@/lib/api";
 
 interface AiChatOverlayProps {
@@ -21,6 +22,8 @@ interface AiChatOverlayProps {
  * traceId is passed through to the agent so it knows which trace the user is viewing.
  */
 export function AiChatOverlay({ projectId, traceId, onClose }: AiChatOverlayProps) {
+  const { width, onMouseDown } = usePanelResize();
+
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => getProject(projectId),
@@ -44,7 +47,12 @@ export function AiChatOverlay({ projectId, traceId, onClose }: AiChatOverlayProp
   } = useAiChat({ projectId, traceId });
 
   return (
-    <div className="flex h-full w-[400px] flex-col border-l bg-background">
+    <div className="relative flex h-full flex-col border-l bg-background" style={{ width }}>
+      {/* Left resize handle */}
+      <div
+        className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50"
+        onMouseDown={onMouseDown}
+      />
       {/* Header */}
       <div className="flex h-10 items-center gap-1 border-b bg-muted/30 px-3">
         <Button
@@ -84,7 +92,7 @@ export function AiChatOverlay({ projectId, traceId, onClose }: AiChatOverlayProp
         </Button>
       </div>
 
-      <MessageList messages={messages} />
+      <MessageList messages={messages} sessionStreaming={isStreaming} />
       <MessageInput
         onSend={handleSend}
         workspaceId={workspaceId}

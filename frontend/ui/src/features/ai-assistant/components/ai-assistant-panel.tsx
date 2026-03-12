@@ -9,6 +9,7 @@ import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
 import { useAiChat } from "../hooks/use-ai-chat";
+import { usePanelResize } from "../hooks/use-panel-resize";
 import { getProject } from "@/lib/api";
 
 interface AiAssistantPanelProps {
@@ -17,6 +18,7 @@ interface AiAssistantPanelProps {
 }
 
 export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
+  const { width, onMouseDown } = usePanelResize();
   const params = useParams();
   const projectId = params?.projectId as string | undefined;
   const workspaceIdFromUrl = params?.workspaceId as string | undefined;
@@ -48,7 +50,15 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
   if (!open) return null;
 
   return (
-    <div className="flex h-screen w-[400px] shrink-0 flex-col border-l bg-background">
+    <div
+      className="relative flex h-screen shrink-0 flex-col border-l bg-background"
+      style={{ width }}
+    >
+      {/* Left resize handle */}
+      <div
+        className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50"
+        onMouseDown={onMouseDown}
+      />
       {/* Header */}
       <div className="flex h-14 items-center gap-1 border-b px-3">
         <Button
@@ -94,7 +104,7 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
           Open a project to start using the AI assistant.
         </div>
       ) : (
-        <MessageList messages={messages} />
+        <MessageList messages={messages} sessionStreaming={isStreaming} />
       )}
 
       {/* Input */}
