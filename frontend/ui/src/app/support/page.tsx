@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { Github, BookOpen, MessageCircle } from "lucide-react";
+import { Github, BookOpen, MessageCircle, Calendar } from "lucide-react";
 import { useLayout } from "@/components/layout/app-layout";
 import { clientEnv } from "@/env.client";
 
@@ -28,6 +28,14 @@ const supportChannels = [
     description: "Chat with the community and team.",
     icon: MessageCircle,
     href: clientEnv.NEXT_PUBLIC_DISCORD_INVITE_URL,
+    external: true,
+  },
+  {
+    id: "contact-founders",
+    title: "Contact Founders",
+    description: "Book a call with the founding team.",
+    icon: Calendar,
+    href: "https://cal.com/traceroot/30min",
     external: true,
   },
 ];
