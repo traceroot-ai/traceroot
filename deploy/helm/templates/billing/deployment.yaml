@@ -28,33 +28,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.postgresql.existingSecret }}
                   key: {{ .Values.postgresql.secretKeys.databaseUrl }}
-            - name: CLICKHOUSE_HOST
-              value: {{ include "traceroot.clickhouse.hostname" . | quote }}
-            - name: CLICKHOUSE_PORT
-              value: "8123"
-            - name: CLICKHOUSE_USER
-              value: {{ .Values.clickhouse.auth.username | quote }}
-            - name: CLICKHOUSE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.clickhouse.auth.existingSecret }}
-                  key: {{ .Values.clickhouse.auth.existingSecretKey }}
-            - name: CLICKHOUSE_DATABASE
-              value: "default"
-            - name: REDIS_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.redis.existingSecret }}
-                  key: {{ .Values.redis.secretKeys.url }}
-            - name: NEXT_PUBLIC_API_URL
-              value: "http://{{ include "traceroot.fullname" . }}-rest:{{ .Values.rest.port }}/api/v1"
+            - name: BACKEND_INTERNAL_URL
+              value: "http://{{ include "traceroot.fullname" . }}-rest:{{ .Values.rest.port }}"
             - name: INTERNAL_API_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.existingSecret }}
                   key: {{ .Values.secrets.keys.internalApiSecret }}
-            - name: ENABLE_BILLING
-              value: {{ .Values.enableBilling | quote }}
             - name: USAGE_METERING_CRON
               value: {{ .Values.billing.usageMeteringCron | quote }}
             # --- Stripe (conditional) ---
@@ -65,26 +45,6 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.stripe.existingSecret }}
                   key: {{ .Values.stripe.keys.secretKey }}
-            - name: STRIPE_WEBHOOK_SIGNING_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.stripe.existingSecret }}
-                  key: {{ .Values.stripe.keys.webhookSigningSecret }}
-            - name: STRIPE_PRICE_ID_STARTER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.stripe.existingSecret }}
-                  key: {{ .Values.stripe.keys.priceIdStarter }}
-            - name: STRIPE_PRICE_ID_PRO
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.stripe.existingSecret }}
-                  key: {{ .Values.stripe.keys.priceIdPro }}
-            - name: STRIPE_PRICE_ID_STARTUPS
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.stripe.existingSecret }}
-                  key: {{ .Values.stripe.keys.priceIdStartups }}
             - name: STRIPE_PRICE_ID_AI_USAGE
               valueFrom:
                 secretKeyRef:
