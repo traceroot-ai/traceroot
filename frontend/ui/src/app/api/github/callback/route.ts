@@ -2,21 +2,33 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { prisma } from "@traceroot/core";
 import { requireAuth } from "@/lib/auth-helpers";
-import { GITHUB_AUTH_STATE_COOKIE, GITHUB_RETURN_TO_COOKIE } from "@traceroot/github";
+import {
+  GITHUB_AUTH_STATE_COOKIE,
+  GITHUB_RETURN_TO_COOKIE,
+  validateCallbackParams,
+  verifyInstallationId,
+} from "@traceroot/github";
 
 export async function GET(request: NextRequest) {
   try {
     const code = request.nextUrl.searchParams.get("code");
     const state = request.nextUrl.searchParams.get("state");
+    const installationId = request.nextUrl.searchParams.get("installation_id");
+    const setupAction = request.nextUrl.searchParams.get("setup_action");
+    const storedState = request.cookies.get(GITHUB_AUTH_STATE_COOKIE)?.value ?? null;
 
-    if (!code || !state) {
-      return NextResponse.json({ error: "Missing code or state parameter" }, { status: 400 });
-    }
+    // Validate callback parameters (handles both normal OAuth and direct GitHub install flows)
+    const validation = validateCallbackParams({
+      code,
+      state,
+      installationId,
+      setupAction,
+      storedState,
+    });
 
-    // Validate CSRF state
-    const storedState = request.cookies.get(GITHUB_AUTH_STATE_COOKIE)?.value;
-    if (!storedState || storedState !== state) {
-      return NextResponse.json({ error: "Invalid state parameter" }, { status: 403 });
+    if (!validation.valid) {
+      const status = validation.error === "Missing code or state parameter" ? 400 : 403;
+      return NextResponse.json({ error: validation.error }, { status });
     }
 
     // Exchange code for access token
@@ -61,11 +73,10 @@ export async function GET(request: NextRequest) {
     if (authResult.error) return authResult.error;
     const { user } = authResult;
 
-    // Look up existing GitHub App installations for this user.
-    // If the app is already installed (e.g. by a teammate), we can grab the
-    // installation_id now instead of relying on the install-callback redirect
-    // (which GitHub skips for already-installed apps).
-    let installationId: string | undefined;
+    // Look up GitHub App installations for this user and verify/resolve installation_id.
+    // If installation_id was passed in URL (direct GitHub install), we verify it belongs
+    // to this user. Otherwise, we look up an existing installation.
+    let resolvedInstallationId: string | undefined;
     try {
       const installRes = await fetch("https://api.github.com/user/installations", {
         headers: {
@@ -76,13 +87,20 @@ export async function GET(request: NextRequest) {
       });
       if (installRes.ok) {
         const data = await installRes.json();
-        const appId = env.GITHUB_APP_ID;
-        const installation = data.installations?.find(
-          (inst: { app_id: number }) => String(inst.app_id) === appId,
+        const installationCheck = verifyInstallationId(
+          installationId,
+          data.installations || [],
+          env.GITHUB_APP_ID,
         );
-        if (installation) {
-          installationId = String(installation.id);
+
+        if (!installationCheck.verified) {
+          console.error(installationCheck.error);
+          return NextResponse.json(
+            { error: "Installation ID does not belong to authenticated user" },
+            { status: 403 },
+          );
         }
+        resolvedInstallationId = installationCheck.installationId;
       }
     } catch (e) {
       // Non-fatal — installationId will be filled later via install-callback
@@ -97,28 +115,39 @@ export async function GET(request: NextRequest) {
         githubUserId: String(ghUser.id),
         githubUsername: ghUser.login,
         accessToken,
-        ...(installationId && { installationId }),
+        ...(resolvedInstallationId && { installationId: resolvedInstallationId }),
       },
       update: {
         githubUserId: String(ghUser.id),
         githubUsername: ghUser.login,
         accessToken,
-        ...(installationId && { installationId }),
+        ...(resolvedInstallationId && { installationId: resolvedInstallationId }),
       },
     });
 
     // Get the return URL from cookie (will be used after installation completes)
     const returnTo = request.cookies.get(GITHUB_RETURN_TO_COOKIE)?.value || "/";
 
-    // Redirect to installation flow
+    // If we already have installation_id (from direct GitHub install), redirect to returnTo.
+    // Otherwise, redirect to the installation flow.
+    const redirectUrl = resolvedInstallationId
+      ? new URL(returnTo, env.NEXTAUTH_URL)
+      : new URL(`/api/github/install?returnTo=${encodeURIComponent(returnTo)}`, env.NEXTAUTH_URL);
+
     // Use NEXTAUTH_URL as base — request.url inside Docker resolves to 0.0.0.0
     // which loses the session cookie (set on localhost).
-    const response = NextResponse.redirect(
-      new URL(`/api/github/install?returnTo=${encodeURIComponent(returnTo)}`, env.NEXTAUTH_URL),
-    );
+    const response = NextResponse.redirect(redirectUrl);
 
     // Clear OAuth state cookie
     response.cookies.set(GITHUB_AUTH_STATE_COOKIE, "", {
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 0,
+      path: "/",
+    });
+    
+    // Clear return-to cookie
+    response.cookies.set(GITHUB_RETURN_TO_COOKIE, "", {
       httpOnly: true,
       sameSite: "lax",
       maxAge: 0,
