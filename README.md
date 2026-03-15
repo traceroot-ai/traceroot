@@ -100,9 +100,9 @@ Infrastructure-as-code deployment configs are available in [`deploy/`](./deploy/
 
 ## SDK
 
-| Language | Package |
-| -------- | ------- |
-| Python | [![PyPI](https://img.shields.io/pypi/v/traceroot)](https://pypi.python.org/pypi/traceroot) |
+| Language | Repository |
+| -------- | ---------- |
+| Python | [traceroot-sdk](https://github.com/traceroot-ai/traceroot-sdk) |
 
 ## Documentation
 
