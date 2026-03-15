@@ -96,7 +96,7 @@ export default function SignUpPage() {
         <CardHeader className="text-center">
           <Image
             src="/images/traceroot_icon.png"
-            alt="Traceroot"
+            alt="TraceRoot"
             width={48}
             height={48}
             className="mx-auto mb-2"
