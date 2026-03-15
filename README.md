@@ -80,9 +80,7 @@ The fastest way to get started. Ample storages and LLM tokens for testing, no cr
   # Hosted the infras in docker and app itself locally
   make dev
   ```
-
-For more details, see [CONTRIBUTING.md](CONTRIBUTING.md).
-</details>
+  For more details, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - Local docker mode: Run TraceRoot locally to test.
 
@@ -95,9 +93,7 @@ For more details, see [CONTRIBUTING.md](CONTRIBUTING.md).
   make prod
   ```
 
-- Terraform (AWS): Run TraceRoot on k8s with Helm and Terraform. This is for production hosting.
-
-  Infrastructure-as-code deployment configs are available in [`deploy`](./deploy/). This is still in testing stage.
+- [Terraform (AWS)](./deploy/): Run TraceRoot on k8s with Helm and Terraform. This is for production hosting. Still in experimental stage.
 
 ## SDK
 
