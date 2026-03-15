@@ -154,12 +154,12 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 )}
               >
                 <Github className="h-3.5 w-3.5 shrink-0" />
-                {!collapsed && <span className="flex-1">Star on GitHub</span>}
+                {!collapsed && <span className="flex-1">GitHub</span>}
               </a>
             </TooltipTrigger>
             {collapsed && (
               <TooltipContent side="right" sideOffset={16}>
-                Star on GitHub
+                GitHub
               </TooltipContent>
             )}
           </Tooltip>
