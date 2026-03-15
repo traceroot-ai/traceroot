@@ -5,12 +5,12 @@
 
 [TraceRoot]("https://traceroot.ai/") is Open-source observability and self-healing layer for AI agents. Capture traces, debug with AI, ship with confidence.
 
-  [![Documentation][docs-image]][docs-url]
-  [![Discord][discord-image]][discord-url]
-  [![PyPI Version][pypi-image]][pypi-url]
-  [![PyPI SDK Downloads][pypi-sdk-downloads-image]][pypi-sdk-downloads-url]
   [![Y Combinator][y-combinator-image]][y-combinator-url]
+  [![License][license-image]][license-url]
   [![X (Twitter)][twitter-image]][twitter-url]
+  [![Discord][discord-image]][discord-url]
+  [![Documentation][docs-image]][docs-url]
+  [![PyPI SDK Downloads][pypi-sdk-downloads-image]][pypi-sdk-downloads-url]
 
 </div>
 
@@ -33,11 +33,11 @@
 pip install traceroot openai
 ```
 
-`.env`
 ```bash
-TRACEROOT_API_KEY=tr_...
-TRACEROOT_HOST_URL=https://app.traceroot.ai  # Cloud (default)
-# TRACEROOT_HOST_URL=http://localhost:8000   # Local development mode
+# Add these in the `.env` file in root directory
+TRACEROOT_API_KEY=tr-0f29d...
+TRACEROOT_HOST_URL=https://app.traceroot.ai  # cloud (default)
+# TRACEROOT_HOST_URL=http://localhost:8000   # local development mode
 ```
 
 ```python
@@ -66,37 +66,36 @@ See the [Quickstart Guide](https://docs.traceroot.ai/quickstart) for more exampl
 
 ### TraceRoot Cloud
 
-The fastest way to get started. [Sign up for free](https://traceroot.ai) — no credit card required.
+The fastest way to get started. Ample storages and LLM tokens for testing, no credit card needed. [Sign up here!](https://app.traceroot.ai)
 
 ### Self-Hosting
 
-<details>
-<summary><b>Developer mode</b></summary>
+- Developer mode: Run TraceRoot locally to contribute.
 
 ```bash
+# Get a copy of the latest repo
 git clone https://github.com/traceroot-ai/traceroot.git
 cd traceroot
+
+# Hosted the infras in docker and app itself locally
 make dev
 ```
-
 For more details, see [DEVELOPMENT.md](DEVELOPMENT.md).
-</details>
 
-<details>
-<summary><b>Local production mode</b></summary>
+- Local docker mode: Run TraceRoot locally to test.
 
 ```bash
+# Get a copy of the latest repo
 git clone https://github.com/traceroot-ai/traceroot.git
 cd traceroot
+
+# Hosted everything in docker
 make prod
 ```
-</details>
 
-<details>
-<summary><b>Terraform (AWS)</b></summary>
+- Terraform (AWS): Run TraceRoot on k8s with Helm and Terraform. This is for production hosting.
 
-Infrastructure-as-code deployment configs are available in [`deploy/`](./deploy/). Currently under active development.
-</details>
+Infrastructure-as-code deployment configs are available in [`deploy`](./deploy/). This is still in testing stage.
 
 ## SDK
 
@@ -106,7 +105,11 @@ Infrastructure-as-code deployment configs are available in [`deploy/`](./deploy/
 
 ## Documentation
 
-Full documentation available at **[docs.traceroot.ai](https://docs.traceroot.ai)**.
+Full documentation available at [docs.traceroot.ai](https://docs.traceroot.ai).
+
+## Security & Privacy
+
+Your data security and privacy are our top priorities. Learn more in our [Security and Privacy](SECURITY.md) documentation.
 
 ## Community
 
@@ -129,12 +132,12 @@ This project is licensed under [Apache 2.0](LICENSE) with additional [Enterprise
 <!-- Links -->
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
 [discord-url]: https://discord.gg/tPyffEZvvJ
+[license-image]: https://img.shields.io/badge/License-Apache%202.0-blue.svg
+[license-url]: https://opensource.org/licenses/Apache-2.0
 [docs-image]: https://img.shields.io/badge/docs-traceroot.ai-0dbf43
 [docs-url]: https://docs.traceroot.ai
-[pypi-image]: https://badge.fury.io/py/traceroot.svg
 [pypi-sdk-downloads-image]: https://static.pepy.tech/badge/traceroot
 [pypi-sdk-downloads-url]: https://pypi.python.org/pypi/traceroot
-[pypi-url]: https://pypi.python.org/pypi/traceroot
 [y-combinator-image]: https://img.shields.io/badge/Combinator-S25-orange?logo=ycombinator&labelColor=white
 [y-combinator-url]: https://www.ycombinator.com/companies/traceroot-ai
 [twitter-image]: https://img.shields.io/twitter/follow/TracerootAI
