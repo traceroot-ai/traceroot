@@ -7,3 +7,9 @@ export {
   GITHUB_INSTALL_STATE_COOKIE,
   GITHUB_RETURN_TO_COOKIE,
 } from "./constants";
+export {
+  validateCallbackParams,
+  verifyInstallationId,
+  type CallbackParams,
+  type ValidationResult,
+} from "./callback-validation";
