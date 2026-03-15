@@ -1,6 +1,6 @@
 <div align="center">
   <a href="https://traceroot.ai/">
-    <img src="misc/images/traceroot_logo.png" alt="TraceRoot Logo">
+    <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
 [TraceRoot]("https://traceroot.ai/") is Open-source observability and self-healing layer for AI agents. Capture traces, debug with AI, ship with confidence.
