@@ -35,7 +35,7 @@ const supportChannels = [
     title: "Contact Founders",
     description: "Book a call with the founding team.",
     icon: Calendar,
-    href: "https://cal.com/traceroot/30min",
+    href: clientEnv.NEXT_PUBLIC_FOUNDERS_CAL_URL,
     external: true,
   },
 ];

@@ -8,6 +8,7 @@ const clientSchema = z.object({
     .string()
     .default("https://github.com/traceroot-ai/traceroot/issues"),
   NEXT_PUBLIC_DISCORD_INVITE_URL: z.string().default("https://discord.com/invite/tPyffEZvvJ"),
+  NEXT_PUBLIC_FOUNDERS_CAL_URL: z.string().default("https://cal.com/traceroot/30min"),
 });
 
 export const clientEnv = clientSchema.parse({
@@ -16,4 +17,5 @@ export const clientEnv = clientSchema.parse({
   NEXT_PUBLIC_GITHUB_REPO_URL: process.env.NEXT_PUBLIC_GITHUB_REPO_URL,
   NEXT_PUBLIC_GITHUB_ISSUES_URL: process.env.NEXT_PUBLIC_GITHUB_ISSUES_URL,
   NEXT_PUBLIC_DISCORD_INVITE_URL: process.env.NEXT_PUBLIC_DISCORD_INVITE_URL,
+  NEXT_PUBLIC_FOUNDERS_CAL_URL: process.env.NEXT_PUBLIC_FOUNDERS_CAL_URL,
 });
