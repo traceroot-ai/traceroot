@@ -9,6 +9,7 @@ WORKDIR /app
 
 # Copy workspace root files
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+COPY frontend/.npmrc ./.npmrc
 
 # Copy package.json for each workspace package
 COPY frontend/ui/package.json ./ui/package.json

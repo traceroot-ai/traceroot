@@ -2,10 +2,11 @@
   "name": "@traceroot/agent",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "dev": "dotenv -e ../../../.env -- tsx watch src/index.ts",
+    "dev": "dotenv -e ../../../.env -- vite-node --watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "clean": "rm -rf dist",
@@ -27,8 +28,9 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "dotenv-cli": "^11.0.0",
-    "tsx": "^4.0.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.0.0",
+    "vite-node": "^6.0.0",
     "vitest": "^3.0.0"
   }
 }
