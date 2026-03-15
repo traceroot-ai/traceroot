@@ -35,8 +35,8 @@ pip install traceroot openai
 
 ```bash
 # Add these in the `.env` file in root directory
-TRACEROOT_API_KEY=tr-0f29d...
-TRACEROOT_HOST_URL=https://app.traceroot.ai  # cloud (default)
+TRACEROOT_API_KEY="tr-0f29d..."
+TRACEROOT_HOST_URL="https://app.traceroot.ai"  # cloud (default)
 # TRACEROOT_HOST_URL=http://localhost:8000   # local development mode
 ```
 
@@ -66,44 +66,44 @@ See the [Quickstart Guide](https://docs.traceroot.ai/quickstart) for more exampl
 
 ### TraceRoot Cloud
 
-The fastest way to get started. Ample storages and LLM tokens for testing, no credit card needed. [Sign up here!](https://app.traceroot.ai)
+The fastest way to get started. Ample storages and LLM tokens for testing, no credit card needed. Sign up [here](https://app.traceroot.ai)!
 
 ### Self-Hosting
 
 - Developer mode: Run TraceRoot locally to contribute.
 
-```bash
-# Get a copy of the latest repo
-git clone https://github.com/traceroot-ai/traceroot.git
-cd traceroot
+  ```bash
+  # Get a copy of the latest repo
+  git clone https://github.com/traceroot-ai/traceroot.git
+  cd traceroot
 
-# Hosted the infras in docker and app itself locally
-make dev
-```
+  # Hosted the infras in docker and app itself locally
+  make dev
+  ```
 
 For more details, see [CONTRIBUTING.md](CONTRIBUTING.md).
 </details>
 
 - Local docker mode: Run TraceRoot locally to test.
 
-```bash
-# Get a copy of the latest repo
-git clone https://github.com/traceroot-ai/traceroot.git
-cd traceroot
+  ```bash
+  # Get a copy of the latest repo
+  git clone https://github.com/traceroot-ai/traceroot.git
+  cd traceroot
 
-# Hosted everything in docker
-make prod
-```
+  # Hosted everything in docker
+  make prod
+  ```
 
 - Terraform (AWS): Run TraceRoot on k8s with Helm and Terraform. This is for production hosting.
 
-Infrastructure-as-code deployment configs are available in [`deploy`](./deploy/). This is still in testing stage.
+  Infrastructure-as-code deployment configs are available in [`deploy`](./deploy/). This is still in testing stage.
 
 ## SDK
 
 | Language | Repository |
 | -------- | ---------- |
-| Python | [traceroot-sdk](https://github.com/traceroot-ai/traceroot-sdk) |
+| Python | [traceroot-py](https://github.com/traceroot-ai/traceroot-sdk) |
 
 ## Documentation
 
