@@ -23,13 +23,15 @@
 
 ## Why TraceRoot?
 
-- Traces alone don't scale.
+- **Traces alone don't scale.**
 
   As AI agent systems grow more complex, manually sifting through traces is not sustainable. TraceRoot pairs structured observability with AI-powered analysis so you can pinpoint issues, not just see them.
-- Debugging ai agent system is painful.
+
+- **Debugging ai agent system is painful.**
 
   Root-causing failures across agent hallucinations, tool call instabilities, and version changes is challenging. TraceRoot provides AI-native debugging that connects your traces to your code version and bug history.
-- Fully open source, no vendor lock-in.
+
+- **Fully open source, no vendor lock-in.**
 
   Both the observability platform and the AI debugging layer are open source. BYOK support for any model provider — OpenAI, Anthropic, Gemini, DeepSeek, and more.
 
