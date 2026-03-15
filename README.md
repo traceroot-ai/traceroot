@@ -80,7 +80,9 @@ cd traceroot
 # Hosted the infras in docker and app itself locally
 make dev
 ```
-For more details, see [DEVELOPMENT.md](DEVELOPMENT.md).
+
+For more details, see [CONTRIBUTING.md](CONTRIBUTING.md).
+</details>
 
 - Local docker mode: Run TraceRoot locally to test.
 
