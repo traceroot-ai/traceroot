@@ -110,12 +110,11 @@ def auto_detect_git_context() -> dict[str, str | None]:
 
         # Parse owner/repo from URL
         # Handles: git@github.com:owner/repo.git, https://github.com/owner/repo.git
-        if "github.com" in remote:
-            repo = remote.split("github.com")[1]
-            repo = repo.lstrip(":").lstrip("/").rstrip("/")
-            if repo.endswith(".git"):
-                repo = repo[:-4]
-            result["git_repo"] = repo
+        import re
+
+        match = re.match(r"(?:https?://|git@)github\.com[:/](.+?)(?:\.git)?$", remote)
+        if match:
+            result["git_repo"] = match.group(1).rstrip("/")
     except Exception:
         pass
 
