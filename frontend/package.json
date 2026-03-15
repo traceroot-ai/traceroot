@@ -1,6 +1,11 @@
 {
   "name": "traceroot-frontend",
   "private": true,
+  "pnpm": {
+    "overrides": {
+      "@mariozechner/pi-ai": "0.57.1"
+    }
+  },
   "scripts": {
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
