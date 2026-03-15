@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -93,6 +94,13 @@ export default function SignUpPage() {
     <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
+          <Image
+            src="/images/traceroot_icon.png"
+            alt="Traceroot"
+            width={48}
+            height={48}
+            className="mx-auto mb-2"
+          />
           <CardTitle className="text-lg font-semibold">Create your account</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
