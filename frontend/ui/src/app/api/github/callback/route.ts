@@ -145,14 +145,6 @@ export async function GET(request: NextRequest) {
       maxAge: 0,
       path: "/",
     });
-    
-    // Clear return-to cookie
-    response.cookies.set(GITHUB_RETURN_TO_COOKIE, "", {
-      httpOnly: true,
-      sameSite: "lax",
-      maxAge: 0,
-      path: "/",
-    });
 
     // Clear return-to cookie
     response.cookies.set(GITHUB_RETURN_TO_COOKIE, "", {
