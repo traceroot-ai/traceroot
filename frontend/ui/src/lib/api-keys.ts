@@ -23,14 +23,11 @@ export function getKeyPrefix(apiKey: string): string {
 
 /**
  * Hash an API key using SHA256.
- * This is what we store in the database for security.
- *
- * Note: SHA256 is appropriate here because API keys are high-entropy random
- * UUIDs (not user-chosen passwords), so brute-force resistance from bcrypt/scrypt
- * is unnecessary. This matches industry practice (GitHub, Stripe, etc.).
+ * SHA256 is appropriate for high-entropy random API keys (not user passwords).
  */
 export function hashApiKey(apiKey: string): string {
-  return createHash("sha256").update(apiKey).digest("hex"); // lgtm[js/insufficient-password-hash]
+  // codeql[js/insufficient-password-hash]
+  return createHash("sha256").update(apiKey).digest("hex");
 }
 
 /**

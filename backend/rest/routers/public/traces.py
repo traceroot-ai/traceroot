@@ -65,7 +65,8 @@ async def authenticate_api_key(
 
     api_key = parts[1]
     # SHA256 is appropriate for API keys (high-entropy random UUIDs, not user passwords).
-    key_hash = hashlib.sha256(api_key.encode()).hexdigest()  # lgtm[py/weak-sensitive-data-hashing]
+    # codeql[py/weak-sensitive-data-hashing]
+    key_hash = hashlib.sha256(api_key.encode()).hexdigest()
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
