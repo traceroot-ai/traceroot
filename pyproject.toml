@@ -50,13 +50,6 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["backend/db", "backend/rest", "backend/worker", "tmux_tools"]
 
-# [tool.uv.workspace]
-# members = [
-#     "traceroot-py",
-# ]
-# NOTE: traceroot-py has been moved to its own repo at /Users/xinweihe/code/traceroot-py
-# Install it via: pip install -e /Users/xinweihe/code/traceroot-py
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
