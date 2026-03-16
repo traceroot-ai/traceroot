@@ -6,7 +6,7 @@
 #
 # Usage:
 #   ./scripts/build_images.sh <BRANCH>
-#   ./scripts/build_images.sh pivot/agentops
+#   ./scripts/build_images.sh my-feature-branch
 #
 set -euo pipefail
 
@@ -21,7 +21,7 @@ if [ -z "$BRANCH" ]; then
   echo
   echo "Examples:"
   echo "  ./scripts/build_images.sh main"
-  echo "  ./scripts/build_images.sh pivot/agentops"
+  echo "  ./scripts/build_images.sh some-feature-branch"
   echo "  ./scripts/build_images.sh my-feature-branch"
   echo
   exit 1
