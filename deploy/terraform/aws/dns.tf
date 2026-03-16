@@ -1,6 +1,6 @@
 # deploy/terraform/aws/dns.tf
 # ACM certificate + Route53 DNS for custom domain with HTTPS
-# Following Langfuse pattern: create the hosted zone, cert, and DNS records all in Terraform.
+# Create the hosted zone, cert, and DNS records all in Terraform.
 # After apply, point your domain registrar's NS records at the Route53 zone.
 
 # Route53 hosted zone (created by Terraform, not pre-existing)

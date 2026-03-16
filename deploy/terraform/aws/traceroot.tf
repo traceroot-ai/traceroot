@@ -1,6 +1,6 @@
 # deploy/terraform/aws/traceroot.tf
 # Helm release for the Traceroot application
-# Following Langfuse pattern: all values inline from Terraform outputs
+# All Helm values inline from Terraform outputs
 
 locals {
   app_url = var.domain != "" ? "https://${var.domain}" : ""
