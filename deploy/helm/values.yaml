@@ -179,7 +179,7 @@ sandboxProvider: "daytona"
 
 # --- Branding / Public URLs ---
 branding:
-  logoUrl: "https://raw.githubusercontent.com/traceroot-ai/traceroot/pivot/agentops/frontend/ui/public/images/traceroot_icon.png"
+  logoUrl: "https://raw.githubusercontent.com/traceroot-ai/traceroot/main/frontend/ui/public/images/traceroot_icon.png"
   docsUrl: "https://docs.traceroot.ai"
   githubRepoUrl: "https://github.com/traceroot-ai/traceroot"
   githubIssuesUrl: "https://github.com/traceroot-ai/traceroot/issues"
