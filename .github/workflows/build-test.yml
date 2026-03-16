@@ -6,7 +6,7 @@ name: Build Validation
 
 on:
   push:
-    branches: [main, pivot/agentops]
+    branches: [main]
   pull_request:
   merge_group:
   workflow_dispatch:
