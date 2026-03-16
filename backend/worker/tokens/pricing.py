@@ -48,11 +48,12 @@ def _load_cache() -> list[dict]:
                 rows = cur.fetchall()
         finally:
             conn.close()
-    except Exception:
+    except Exception as exc:
         # DB unavailable — return empty list but do NOT cache,
         # so the next call will retry the connection.
         logger.warning(
-            "Failed to load model prices from DB — costs will be None until DB is available"
+            "Failed to load model prices from DB — costs will be None until DB is available. Error: %s",
+            exc,
         )
         return []
 
