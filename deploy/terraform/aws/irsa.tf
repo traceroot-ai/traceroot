@@ -1,6 +1,6 @@
 # deploy/terraform/aws/irsa.tf
 # IRSA (IAM Roles for Service Accounts) for application pods to access S3
-# Following Langfuse pattern: pods assume IAM role via annotated ServiceAccount
+# IRSA: pods assume IAM role via annotated ServiceAccount
 
 # IRSA role for traceroot application pods
 resource "aws_iam_role" "traceroot_irsa" {

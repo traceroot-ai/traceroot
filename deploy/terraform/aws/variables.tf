@@ -268,7 +268,7 @@ variable "alb_scheme" {
 
 # --- Additional environment variables ---
 # Catch-all for any env vars not covered above (Google OAuth, SMTP, Stripe, etc.)
-# Following Langfuse pattern: each entry has either `value` (plain text) or `valueFrom` (secret ref).
+# Each entry has either `value` (plain text) or `valueFrom` (secret ref).
 #
 # Example usage in terraform.tfvars:
 #   additional_env = [
