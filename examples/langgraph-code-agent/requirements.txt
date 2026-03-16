@@ -7,5 +7,4 @@ fastapi==0.115.12
 uvicorn==0.34.3
 
 # When running from this repo, use the local SDK:
--e /Users/xinweihe/code/traceroot-py
-# When traceroot is published to PyPI, replace with: traceroot
+traceroot==0.1.0
