@@ -179,13 +179,12 @@ yarn-error.log*
 *.db
 *.db-journal
 traceroot.db
-phoenix.db*
 
 # Prisma
 /prisma/db.sqlite
 /prisma/db.sqlite-journal
 
-# Prisma migrations 
+# Prisma migrations
 frontend/packages/core/prisma/migrations
 
 # ===================
