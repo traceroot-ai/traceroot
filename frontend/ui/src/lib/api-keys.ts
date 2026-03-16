@@ -23,9 +23,10 @@ export function getKeyPrefix(apiKey: string): string {
 
 /**
  * Hash an API key using SHA256.
- * This is what we store in the database for security.
+ * SHA256 is appropriate for high-entropy random API keys (not user passwords).
  */
 export function hashApiKey(apiKey: string): string {
+  // codeql[js/insufficient-password-hash]
   return createHash("sha256").update(apiKey).digest("hex");
 }
 
