@@ -11,13 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import {
-  PLANS,
-  PlanType,
-  isUpgrade,
-  USAGE_PRICING_DESCRIPTION,
-  USAGE_CONFIG,
-} from "@traceroot/core";
+import { PLANS, PlanType, isUpgrade, SPAN_QUOTAS, AI_RUN_QUOTAS } from "@traceroot/core";
 import type { UsageStats } from "@/types/api";
 import {
   createCheckoutSession,
@@ -47,6 +41,8 @@ export function BillingTab({
 
   const currentPlanConfig = PLANS[currentPlan];
   const aiUsage = currentUsage?.ai;
+  const spanQuota = SPAN_QUOTAS[currentPlan];
+  const aiRunQuota = AI_RUN_QUOTAS[currentPlan];
 
   // Fetch live subscription info from Stripe
   useEffect(() => {
@@ -61,6 +57,12 @@ export function BillingTab({
 
   async function handlePlanSelect(newPlan: PlanType) {
     if (newPlan === currentPlan) return;
+
+    // Enterprise = contact sales
+    if (newPlan === PlanType.ENTERPRISE) {
+      window.open("https://cal.com/traceroot/30min", "_blank");
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
@@ -100,6 +102,7 @@ export function BillingTab({
 
   function getButtonText(planId: PlanType): string {
     if (planId === currentPlan) return "Current Plan";
+    if (planId === PlanType.ENTERPRISE) return "Contact Sales";
     if (planId === PlanType.FREE) return "Downgrade";
     if (isUpgrade(currentPlan, planId)) return "Upgrade";
     return "Downgrade";
@@ -201,16 +204,16 @@ export function BillingTab({
         </div>
       </div>
 
-      {/* Usage Section */}
+      {/* Span Usage Section */}
       <div className="border">
         <div className="border-b bg-muted/30 px-4 py-3">
-          <h3 className="text-sm font-medium">Event Usage</h3>
+          <h3 className="text-sm font-medium">Span Usage</h3>
         </div>
         <div className="px-4 py-3">
           <p className="text-sm text-muted-foreground">
             {currentPlan === PlanType.FREE
-              ? "Total events used (traces + spans). Free plan includes 10k events."
-              : "Events used this billing period (traces + spans)."}
+              ? `Spans used this period. Free plan includes ${spanQuota.included.toLocaleString()} spans (hard cap).`
+              : `Spans used this billing period. ${spanQuota.included.toLocaleString()} included, then ${spanQuota.overageLabel}.`}
           </p>
           <div className="mt-3 space-y-2 text-sm">
             <div className="flex justify-between">
@@ -222,11 +225,10 @@ export function BillingTab({
               <span>{(currentUsage?.spans ?? 0).toLocaleString()}</span>
             </div>
             <div className="-mx-4 flex justify-between border-t px-4 pt-2">
-              <span className="font-medium">Total events</span>
+              <span className="font-medium">Total spans</span>
               <span className="font-medium">
                 {((currentUsage?.traces ?? 0) + (currentUsage?.spans ?? 0)).toLocaleString()}
-                {currentPlan === PlanType.FREE &&
-                  ` / ${USAGE_CONFIG.includedUnits.toLocaleString()}`}
+                {` / ${spanQuota.included.toLocaleString()}`}
               </span>
             </div>
           </div>
@@ -238,24 +240,42 @@ export function BillingTab({
         </div>
       </div>
 
-      {/* AI Token Usage Section */}
+      {/* AI Usage Section */}
       <div className="border">
         <div className="border-b bg-muted/30 px-4 py-3">
-          <h3 className="text-sm font-medium">AI Token Usage</h3>
+          <h3 className="text-sm font-medium">AI Usage</h3>
         </div>
         <div className="space-y-4 px-4 py-3">
+          {/* AI Runs */}
+          <div>
+            <div className="flex items-baseline justify-between">
+              <p className="text-sm font-medium">AI Runs</p>
+              <span className="text-sm text-muted-foreground">
+                {aiRunQuota.included === Infinity
+                  ? "Unlimited"
+                  : `${aiRunQuota.included} included/mo`}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              1 run = 1 chat message, 1 agent turn, 1 auto-triage, or 1 issue creation.
+              {currentPlan !== PlanType.FREE &&
+                currentPlan !== PlanType.ENTERPRISE &&
+                ` Overage: ${aiRunQuota.overageLabel}.`}
+            </p>
+          </div>
+
           {/* System Models */}
           <div>
             <div className="flex items-baseline justify-between">
-              <p className="text-sm font-medium">System Models</p>
+              <p className="text-sm font-medium">TR AI Token Cost</p>
               <span className="text-sm font-medium">
                 {formatCost(aiUsage?.systemUsage.cost ?? 0)}
               </span>
             </div>
             <p className="text-xs text-muted-foreground">
               {currentPlan === PlanType.FREE
-                ? `Billed by TraceRoot. $${USAGE_CONFIG.aiIncludedCost} free allowance included.`
-                : `This billing period. First $${USAGE_CONFIG.aiIncludedCost} free, then billed at cost.`}
+                ? "Included in your plan (we pay)."
+                : "Included with runs; 1.05x markup on overage token cost."}
             </p>
             <div className="mt-2 flex justify-between text-sm text-muted-foreground">
               <span>Input / Output</span>
@@ -276,7 +296,7 @@ export function BillingTab({
                 </span>
               </div>
               <p className="text-xs text-muted-foreground">
-                All-time usage with your own API keys. Not billed by TraceRoot.
+                Your own API keys. Not billed by TraceRoot (runs still count).
               </p>
               <div className="mt-2 flex justify-between text-sm text-muted-foreground">
                 <span>Input / Output</span>
@@ -323,6 +343,7 @@ export function BillingTab({
               {(Object.entries(PLANS) as [PlanType, (typeof PLANS)[PlanType]][]).map(
                 ([planId, plan]) => {
                   const isCurrentPlan = planId === currentPlan;
+                  const isEnterprise = planId === PlanType.ENTERPRISE;
 
                   return (
                     <div
@@ -348,14 +369,16 @@ export function BillingTab({
                       {/* Price */}
                       <div className="border-b px-4 py-3">
                         <div>
-                          <span className="text-2xl font-bold">${plan.price}</span>
-                          <span className="text-muted-foreground"> per month</span>
+                          {plan.price !== null ? (
+                            <>
+                              <span className="text-2xl font-bold">${plan.price}</span>
+                              <span className="text-muted-foreground"> per month</span>
+                            </>
+                          ) : (
+                            <span className="text-2xl font-bold">Custom</span>
+                          )}
                         </div>
-                        {planId !== PlanType.FREE && (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            + {USAGE_PRICING_DESCRIPTION}
-                          </p>
-                        )}
+                        <p className="mt-1 text-xs text-muted-foreground">{plan.support} support</p>
                       </div>
 
                       {/* Features */}
@@ -374,7 +397,7 @@ export function BillingTab({
                         <Button
                           variant={plan.highlighted ? "default" : "outline"}
                           className="w-full justify-between"
-                          disabled={isCurrentPlan || isLoading}
+                          disabled={isCurrentPlan || (isLoading && !isEnterprise)}
                           onClick={() => handlePlanSelect(planId)}
                         >
                           {getButtonText(planId)}
