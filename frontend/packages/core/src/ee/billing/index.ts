@@ -8,7 +8,8 @@ export {
   ENTITLEMENTS,
   SEAT_LIMITS,
   USAGE_CONFIG,
-  USAGE_PRICING_DESCRIPTION,
+  EVENT_QUOTAS,
+  AI_RUN_QUOTAS,
   PlanType,
   // Types
   type PlanConfig,

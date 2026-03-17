@@ -8,20 +8,33 @@ export const PlanType = {
   FREE: "free",
   STARTER: "starter",
   PRO: "pro",
-  STARTUPS: "startups",
+  ENTERPRISE: "enterprise",
 } as const;
 export type PlanType = (typeof PlanType)[keyof typeof PlanType];
 
 // =============================================================================
-// STRIPE USAGE PRICING
+// USAGE QUOTAS
 // =============================================================================
-// Each plan uses graduated tiered pricing:
-// - Tier 1: 0-10k events included in base price
-// - Tier 2: 10k+ events at $0.02/event
-export const USAGE_PRICING_DESCRIPTION = "10k events included, then $0.02/event";
+// Spans (observability)
+export const EVENT_QUOTAS: Record<PlanType, { included: number; overageLabel: string }> = {
+  [PlanType.FREE]: { included: 50_000, overageLabel: "Hard cap (upgrade to continue)" },
+  [PlanType.STARTER]: { included: 150_000, overageLabel: "$3 per 50k events" },
+  [PlanType.PRO]: { included: 150_000, overageLabel: "$3 per 50k events" },
+  [PlanType.ENTERPRISE]: { included: Infinity, overageLabel: "Custom" },
+};
+
+// AI runs
+export const AI_RUN_QUOTAS: Record<PlanType, { included: number; overageLabel: string }> = {
+  [PlanType.FREE]: { included: 30, overageLabel: "Hard cap (upgrade to continue)" },
+  [PlanType.STARTER]: { included: 100, overageLabel: "$10 per 100 runs" },
+  [PlanType.PRO]: { included: 100, overageLabel: "$10 per 100 runs" },
+  [PlanType.ENTERPRISE]: { included: Infinity, overageLabel: "Unlimited" },
+};
+
+// Legacy compat — used by usageMetering and free-plan blocking
 export const USAGE_CONFIG = {
-  includedUnits: 10_000,
-  aiIncludedCost: 5, // $5 free AI usage per billing period (all plans)
+  includedUnits: 50_000, // free plan span cap
+  aiIncludedCost: 5, // $5 free AI usage per billing period (legacy, backend will migrate to run-based)
 } as const;
 
 export function isFreePlanBlocked(currentUsage: number): boolean {
@@ -32,29 +45,31 @@ export function isFreePlanBlocked(currentUsage: number): boolean {
 // =============================================================================
 // SEAT LIMITS
 // =============================================================================
-// Seats are enforced: users cannot exceed the limit for their plan
 export const SEAT_LIMITS: Record<PlanType, number> = {
-  [PlanType.FREE]: 1,
-  [PlanType.STARTER]: 5,
+  [PlanType.FREE]: 2,
+  [PlanType.STARTER]: Infinity, // unlimited
   [PlanType.PRO]: Infinity, // unlimited
-  [PlanType.STARTUPS]: Infinity, // unlimited
+  [PlanType.ENTERPRISE]: Infinity, // unlimited
 };
 
 // =============================================================================
 // FEATURE ENTITLEMENTS
 // =============================================================================
-// Features are boolean flags - you either have access or you don't
 const ENTITLEMENT_CONFIG = {
-  "7d-retention": [PlanType.FREE],
-  "30d-retention": [PlanType.STARTER, PlanType.PRO, PlanType.STARTUPS],
-  "source-code-visible": [PlanType.STARTER, PlanType.PRO, PlanType.STARTUPS],
-  "ai-chat-mode": [PlanType.FREE, PlanType.STARTER, PlanType.PRO, PlanType.STARTUPS],
-  "ai-agent-mode": [PlanType.PRO, PlanType.STARTUPS],
-  "ai-auto-triage": [PlanType.PRO, PlanType.STARTUPS],
-  byok: [PlanType.FREE, PlanType.STARTER, PlanType.PRO, PlanType.STARTUPS],
-  "github-integration": [PlanType.PRO, PlanType.STARTUPS],
-  "slack-notion-integration": [PlanType.STARTUPS],
-  "soc2-iso27001": [PlanType.STARTUPS],
+  "15d-retention": [PlanType.FREE],
+  "30d-retention": [PlanType.STARTER],
+  "90d-retention": [PlanType.PRO],
+  "custom-retention": [PlanType.ENTERPRISE],
+  "source-code-visible": [PlanType.STARTER, PlanType.PRO, PlanType.ENTERPRISE],
+  "ai-chat-mode": [PlanType.FREE, PlanType.STARTER, PlanType.PRO, PlanType.ENTERPRISE],
+  "ai-agent-mode": [PlanType.FREE, PlanType.STARTER, PlanType.PRO, PlanType.ENTERPRISE],
+  "ai-auto-triage": [PlanType.FREE, PlanType.STARTER, PlanType.PRO, PlanType.ENTERPRISE],
+  byok: [PlanType.FREE, PlanType.STARTER, PlanType.PRO, PlanType.ENTERPRISE],
+  "github-integration": [PlanType.PRO, PlanType.ENTERPRISE],
+  "slack-integration": [PlanType.PRO, PlanType.ENTERPRISE],
+  soc2: [PlanType.PRO, PlanType.ENTERPRISE],
+  "custom-compliance": [PlanType.ENTERPRISE],
+  "sla-support": [PlanType.ENTERPRISE],
 } as const;
 
 // Derive types from the config
@@ -76,78 +91,77 @@ export const PLANS: Record<
   {
     name: string;
     description: string;
-    price: number;
+    price: number | null; // null = custom/contact us
     billingPriceId: string;
     highlighted: boolean;
     badge: string | null;
     features: string[];
+    support: string;
     entitlements: Entitlement[];
   }
 > = {
   [PlanType.FREE]: {
     name: "Free",
-    description: "Get started with basic features",
+    description: "Get started with core features",
     price: 0,
     billingPriceId: "",
     highlighted: false,
     badge: null,
     features: [
-      "1 seat",
-      "10k events/month (traces + spans)",
-      "7d retention",
-      "AI chat mode",
-      "Bring your own API keys (BYOK)",
+      "2 seats",
+      "50k events/month included",
+      "15-day retention",
+      "30 AI runs/month",
+      "BYOK supported",
     ],
+    support: "Discord",
     entitlements: getEntitlementsForPlan(PlanType.FREE),
   },
   [PlanType.STARTER]: {
     name: "Starter",
-    description: "For individuals and small teams",
-    price: 49,
+    description: "For small teams",
+    price: 30,
     billingPriceId: process.env.STRIPE_PRICE_ID_STARTER || "",
     highlighted: false,
     badge: null,
     features: [
-      "Up to 5 seats",
-      "10k events included",
-      "$0.02/event after 10k",
-      "30d retention",
-      "Source code visible in UI",
-      "AI chat mode",
-      "Bring your own API keys (BYOK)",
+      "Everything in Free",
+      "Unlimited seats",
+      "150k events/month included",
+      "$3 per 50k overage events",
+      "30-day retention",
+      "100 AI runs/month",
+      "$10 per 100 overage runs",
     ],
+    support: "Discord",
     entitlements: getEntitlementsForPlan(PlanType.STARTER),
   },
   [PlanType.PRO]: {
     name: "Pro",
     description: "For growing teams",
-    price: 99,
+    price: 200,
     billingPriceId: process.env.STRIPE_PRICE_ID_PRO || "",
     highlighted: true,
     badge: "Popular",
     features: [
       "Everything in Starter",
-      "Unlimited seats",
-      "AI chat + agent mode",
-      "GitHub integration",
-      "AI auto-triaging",
+      "90-day retention",
+      "Higher rate limits",
+      "SOC2 compliance",
     ],
+    support: "Discord + Slack",
     entitlements: getEntitlementsForPlan(PlanType.PRO),
   },
-  [PlanType.STARTUPS]: {
-    name: "Startups",
+  [PlanType.ENTERPRISE]: {
+    name: "Enterprise",
     description: "For scaling organizations",
-    price: 999,
-    billingPriceId: process.env.STRIPE_PRICE_ID_STARTUPS || "",
+    price: null, // custom pricing
+    billingPriceId: process.env.STRIPE_PRICE_ID_STARTUPS || "", // env var will be renamed in backend migration
     highlighted: false,
     badge: null,
-    features: [
-      "Everything in Pro",
-      "Slack & Notion integration",
-      "SOC2 & ISO27001 reports",
-      "Priority support",
-    ],
-    entitlements: getEntitlementsForPlan(PlanType.STARTUPS),
+    features: ["Everything in Pro", "Custom retention", "Slack + SLA support"],
+    support: "Discord + Slack + SLA",
+    entitlements: getEntitlementsForPlan(PlanType.ENTERPRISE),
   },
 };
 
@@ -175,7 +189,7 @@ export function getPlanOrder(plan: PlanType): number {
     [PlanType.FREE]: 0,
     [PlanType.STARTER]: 1,
     [PlanType.PRO]: 2,
-    [PlanType.STARTUPS]: 3,
+    [PlanType.ENTERPRISE]: 3,
   };
   return order[plan];
 }
