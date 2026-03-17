@@ -16,10 +16,10 @@ export type PlanType = (typeof PlanType)[keyof typeof PlanType];
 // USAGE QUOTAS
 // =============================================================================
 // Spans (observability)
-export const SPAN_QUOTAS: Record<PlanType, { included: number; overageLabel: string }> = {
+export const EVENT_QUOTAS: Record<PlanType, { included: number; overageLabel: string }> = {
   [PlanType.FREE]: { included: 50_000, overageLabel: "Hard cap (upgrade to continue)" },
-  [PlanType.STARTER]: { included: 150_000, overageLabel: "$3 per 50k spans" },
-  [PlanType.PRO]: { included: 150_000, overageLabel: "$3 per 50k spans" },
+  [PlanType.STARTER]: { included: 150_000, overageLabel: "$3 per 50k events" },
+  [PlanType.PRO]: { included: 150_000, overageLabel: "$3 per 50k events" },
   [PlanType.ENTERPRISE]: { included: Infinity, overageLabel: "Custom" },
 };
 
@@ -109,7 +109,7 @@ export const PLANS: Record<
     badge: null,
     features: [
       "2 seats",
-      "50k spans/month included",
+      "50k events/month included",
       "15-day retention",
       "30 AI runs/month",
       "BYOK supported",
@@ -127,8 +127,8 @@ export const PLANS: Record<
     features: [
       "Everything in Free",
       "Unlimited seats",
-      "150k spans/month included",
-      "$3 per 50k overage spans",
+      "150k events/month included",
+      "$3 per 50k overage events",
       "30-day retention",
       "100 AI runs/month",
       "$10 per 100 overage runs",

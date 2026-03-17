@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { PLANS, PlanType, isUpgrade, SPAN_QUOTAS, AI_RUN_QUOTAS } from "@traceroot/core";
+import { PLANS, PlanType, isUpgrade, EVENT_QUOTAS, AI_RUN_QUOTAS } from "@traceroot/core";
 import type { UsageStats } from "@/types/api";
 import {
   createCheckoutSession,
@@ -41,7 +41,7 @@ export function BillingTab({
 
   const currentPlanConfig = PLANS[currentPlan];
   const aiUsage = currentUsage?.ai;
-  const spanQuota = SPAN_QUOTAS[currentPlan];
+  const eventQuota = EVENT_QUOTAS[currentPlan];
   const aiRunQuota = AI_RUN_QUOTAS[currentPlan];
 
   // Fetch live subscription info from Stripe
@@ -204,16 +204,18 @@ export function BillingTab({
         </div>
       </div>
 
-      {/* Span Usage Section */}
+      {/* Event Usage Section */}
       <div className="border">
         <div className="border-b bg-muted/30 px-4 py-3">
-          <h3 className="text-sm font-medium">Span Usage</h3>
+          <h3 className="text-sm font-medium">Event Usage</h3>
         </div>
         <div className="px-4 py-3">
           <p className="text-sm text-muted-foreground">
             {currentPlan === PlanType.FREE
-              ? `Spans used this period. Free plan includes ${spanQuota.included.toLocaleString()} spans (hard cap).`
-              : `Spans used this billing period. ${spanQuota.included.toLocaleString()} included, then ${spanQuota.overageLabel}.`}
+              ? `Events used this period. Free plan includes ${eventQuota.included.toLocaleString()} events (hard cap).`
+              : eventQuota.included === Infinity
+                ? "Events used this billing period. Unlimited events included."
+                : `Events used this billing period. ${eventQuota.included.toLocaleString()} included, then ${eventQuota.overageLabel}.`}
           </p>
           <div className="mt-3 space-y-2 text-sm">
             <div className="flex justify-between">
@@ -225,10 +227,12 @@ export function BillingTab({
               <span>{(currentUsage?.spans ?? 0).toLocaleString()}</span>
             </div>
             <div className="-mx-4 flex justify-between border-t px-4 pt-2">
-              <span className="font-medium">Total spans</span>
+              <span className="font-medium">Total events</span>
               <span className="font-medium">
                 {((currentUsage?.traces ?? 0) + (currentUsage?.spans ?? 0)).toLocaleString()}
-                {` / ${spanQuota.included.toLocaleString()}`}
+                {eventQuota.included === Infinity
+                  ? ""
+                  : ` / ${eventQuota.included.toLocaleString()}`}
               </span>
             </div>
           </div>
