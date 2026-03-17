@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     const { workspaceId, plan } = await req.json();
 
     // Validate plan (free plan has no checkout - users just sign up)
-    const paidPlans: PlanType[] = [PlanType.STARTER, PlanType.PRO, PlanType.STARTUPS];
+    const paidPlans: PlanType[] = [PlanType.STARTER, PlanType.PRO, PlanType.ENTERPRISE];
     if (!plan || !paidPlans.includes(plan)) {
       return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
     }

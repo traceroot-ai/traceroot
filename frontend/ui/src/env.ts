@@ -17,7 +17,7 @@ const serverSchema = z.object({
   STRIPE_WEBHOOK_SIGNING_SECRET: z.string().default(""),
   STRIPE_PRICE_ID_STARTER: z.string().default(""),
   STRIPE_PRICE_ID_PRO: z.string().default(""),
-  STRIPE_PRICE_ID_STARTUPS: z.string().default(""),
+  STRIPE_PRICE_ID_STARTUPS: z.string().default(""), // maps to Enterprise plan (will be renamed in backend migration)
   // Encryption (BYOK)
   ENCRYPTION_KEY: z.string().length(64).optional(), // 64 hex chars = 256 bits
   // GitHub App
