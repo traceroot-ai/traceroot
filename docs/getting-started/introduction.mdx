@@ -1,0 +1,44 @@
+---
+title: Introduction
+description: "Open-source observability and self-healing layer for AI agents"
+---
+
+Traceroot is an open-source observability and self-healing layer for AI agents. Instrument your code with a few lines, get full visibility into every LLM call, tool invocation, and agent decision — then let Traceroot's AI agent debug failures and create fix PRs automatically.
+
+## Key Capabilities
+
+<CardGroup cols={3}>
+  <Card title="Tracing" icon="route">
+    Capture every LLM call, tool use, and agent step with OpenTelemetry-based instrumentation.
+  </Card>
+  <Card title="AI Debugging" icon="bug">
+    An AI agent that performs root cause analysis in a sandboxed environment using your actual source code.
+  </Card>
+  <Card title="Self-Healing" icon="wrench">
+    Automated fix PRs created directly on GitHub, linked back to the trace that surfaced the issue.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+1. **Instrument** — Add the Traceroot Python SDK to your application. Auto-instrumentation captures LLM calls from OpenAI, Anthropic, and LangChain.
+2. **Observe** — View traces in the dashboard. See the full span hierarchy, token usage, cost, and errors.
+3. **Debug** — Ask the AI agent to analyze failing traces. It clones your repo into a sandbox, reads the relevant source code, and identifies the root cause.
+4. **Fix** — The agent writes a fix and opens a PR on GitHub with a description linking back to the original trace.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/getting-started/quickstart">
+    Get your first trace in under 5 minutes.
+  </Card>
+  <Card title="Python SDK" icon="code" href="/tracing/python-sdk">
+    Full SDK reference — initialization, decorators, and configuration.
+  </Card>
+  <Card title="AI Agent" icon="brain" href="/ai-agent/overview">
+    Learn how the AI agent debugs your traces and creates fix PRs.
+  </Card>
+  <Card title="Integrations" icon="puzzle-piece" href="/integrations/overview">
+    Auto-instrument OpenAI, Anthropic, LangChain, and more.
+  </Card>
+</CardGroup>

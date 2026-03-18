@@ -1,0 +1,51 @@
+---
+title: Trace Analysis
+description: Ask the AI agent questions about your traces in natural language
+---
+
+The AI agent can query and analyze your traces using natural language. Ask questions directly from the trace viewer's chat interface.
+
+## The Chat Interface
+
+In the Traceroot dashboard, open the AI chat panel to ask the agent questions about your traces. The agent has access to your full trace history and can search, filter, and aggregate data.
+
+## Example Queries
+
+### Error Analysis
+
+- *"Summarize the errors in the last hour"*
+- *"What's the most common failure mode for this agent?"*
+- *"Show me all traces where the search tool failed"*
+- *"Are there any patterns in the errors from today?"*
+
+### Performance Analysis
+
+- *"Which agent has the highest latency?"*
+- *"What's the average cost per trace this week?"*
+- *"Compare latency between gpt-4o and gpt-4o-mini calls"*
+- *"Find the slowest traces from the last 24 hours"*
+
+### Data Exploration
+
+- *"How many traces did user-123 generate today?"*
+- *"What tools are called most frequently?"*
+- *"Show me a breakdown of model usage across all traces"*
+- *"What's the total token spend this month?"*
+
+## How It Works
+
+The agent uses two primary tools for trace analysis:
+
+| Tool | Purpose |
+|------|---------|
+| `query_traces` | Search ClickHouse with filters (status, span count, duration, date range) and return aggregated results |
+| `download_trace` | Export full trace data including spans, hierarchy, and metadata for deep dives |
+
+The agent formulates queries based on your natural language question, retrieves the data, and presents a summary with relevant details.
+
+## Tips for Better Results
+
+- **Be specific about time ranges** — "errors in the last hour" is more useful than "recent errors"
+- **Mention specific services or agents** — helps narrow the search
+- **Ask follow-up questions** — the agent maintains context within a conversation
+- **Request comparisons** — "compare X vs Y" leverages the agent's ability to aggregate data
