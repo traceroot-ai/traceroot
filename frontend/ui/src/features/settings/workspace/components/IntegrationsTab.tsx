@@ -8,7 +8,7 @@ interface IntegrationsTabProps {
 
 export function IntegrationsTab({ workspaceId: _workspaceId }: IntegrationsTabProps) {
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold">Integrations</h2>
         <p className="text-sm text-muted-foreground">

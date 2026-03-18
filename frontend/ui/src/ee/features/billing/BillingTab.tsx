@@ -118,7 +118,7 @@ export function BillingTab({
   }
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="space-y-6">
       {/* Header */}
       <div>
         <h2 className="text-xl font-semibold">Billing</h2>
