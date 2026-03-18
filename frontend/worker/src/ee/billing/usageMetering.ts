@@ -164,12 +164,13 @@ async function processWorkspace(
     createTime: { gte: aiPeriodStart, lt: aiPeriodEnd },
   };
 
-  // BYOK models: always all-time (no billing cycle, for reference only)
+  // BYOK models: same billing period as system models (runs count toward quota)
   const byokWhere = {
     role: "assistant" as const,
     inputTokens: { not: null as null },
     isByok: true as const,
     session: { workspaceId: workspace.id },
+    createTime: { gte: aiPeriodStart, lt: aiPeriodEnd },
   };
 
   const [systemAgg, byokAgg, systemByModel, byokByModel] = await Promise.all([
@@ -359,7 +360,7 @@ async function processWorkspace(
       `${usage.traces} traces, ${usage.spans} spans | ` +
       `AI runs: ${runsUsed} | ` +
       `system: ${systemAgg._count.id} msgs ($${systemCost.toFixed(4)}) | ` +
-      `byok: ${byokAgg._count.id} msgs (all-time)`,
+      `byok: ${byokAgg._count.id} msgs`,
   );
 }
 
