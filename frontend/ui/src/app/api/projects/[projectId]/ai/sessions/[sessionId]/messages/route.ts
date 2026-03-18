@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma, ModelSource } from "@traceroot/core";
+import { prisma, ModelSource, isBillingEnabled } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     where: { id: accessResult.project.workspaceId },
     select: { aiBlocked: true },
   });
-  if (workspace?.aiBlocked) {
+  if (isBillingEnabled() && workspace?.aiBlocked) {
     return new Response(
       JSON.stringify({
         error: "AI run limit reached. Upgrade your plan to continue.",

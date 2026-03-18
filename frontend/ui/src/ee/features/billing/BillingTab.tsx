@@ -255,8 +255,9 @@ export function BillingTab({
             <div className="flex items-baseline justify-between">
               <p className="text-sm font-medium">AI Runs</p>
               <span className="text-sm font-medium">
-                {aiUsage?.runsUsed ?? 0}
-                {aiRunQuota.included === Infinity ? "" : ` / ${aiRunQuota.included}`}
+                {aiRunQuota.included === Infinity
+                  ? `${aiUsage?.runsUsed ?? 0} (Unlimited)`
+                  : `${aiUsage?.runsUsed ?? 0} / ${aiRunQuota.included}`}
               </span>
             </div>
             <p className="text-xs text-muted-foreground">

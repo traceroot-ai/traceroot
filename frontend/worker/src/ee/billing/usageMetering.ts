@@ -365,8 +365,10 @@ async function processWorkspace(
 
 /**
  * Get the total system model token cost for AI runs beyond the included quota.
- * Orders all assistant messages by time, skips the first `includedRuns`,
- * then sums the cost of system model (non-BYOK) messages in the remainder.
+ *
+ * Two-step approach to avoid loading all overage messages into memory:
+ * 1. Find the cutoff timestamp (createTime of the first overage message)
+ * 2. Aggregate system model cost from that timestamp onward
  */
 async function getOverageSystemModelCost(
   workspaceId: string,
@@ -374,7 +376,9 @@ async function getOverageSystemModelCost(
   start: Date,
   end: Date,
 ): Promise<number> {
-  const overageMessages = await prisma.aIMessage.findMany({
+  // Step 1: Find the cutoff timestamp — the createTime of the first message
+  // after the included quota (e.g., the 101st message for Starter/Pro)
+  const cutoff = await prisma.aIMessage.findMany({
     where: {
       role: "assistant",
       session: { workspaceId },
@@ -382,12 +386,24 @@ async function getOverageSystemModelCost(
     },
     orderBy: { createTime: "asc" },
     skip: includedRuns,
-    select: { isByok: true, cost: true },
+    take: 1,
+    select: { createTime: true },
   });
 
-  return overageMessages
-    .filter((m) => m.isByok === false)
-    .reduce((sum, m) => sum + Number(m.cost ?? 0), 0);
+  if (cutoff.length === 0) return 0;
+
+  // Step 2: Aggregate system model cost from the cutoff onward (DB-side sum)
+  const agg = await prisma.aIMessage.aggregate({
+    where: {
+      role: "assistant",
+      isByok: false,
+      session: { workspaceId },
+      createTime: { gte: cutoff[0].createTime, lt: end },
+    },
+    _sum: { cost: true },
+  });
+
+  return Number(agg._sum.cost ?? 0);
 }
 
 async function updateStripeQuantity(
@@ -435,7 +451,7 @@ async function reportAiRunOverageToStripe(
 
   try {
     await stripeClient.billing.meterEvents.create({
-      event_name: "ai_token_usage",
+      event_name: "ai_usage",
       payload: {
         stripe_customer_id: customerId,
         value: String(units),
