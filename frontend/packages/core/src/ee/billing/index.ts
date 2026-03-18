@@ -30,4 +30,5 @@ export {
   requireSeatAvailable,
   // Free plan blocking
   isFreePlanBlocked,
+  isAiRunBlocked,
 } from "./plans";

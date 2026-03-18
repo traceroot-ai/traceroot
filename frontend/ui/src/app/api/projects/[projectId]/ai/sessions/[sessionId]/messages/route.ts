@@ -61,21 +61,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
   }
 
-  // Check if AI usage is blocked (free allowance exceeded) — only for system models, BYOK always allowed
-  if (body.source !== ModelSource.BYOK) {
-    const workspace = await prisma.workspace.findUnique({
-      where: { id: accessResult.project.workspaceId },
-      select: { aiBlocked: true },
-    });
-    if (workspace?.aiBlocked) {
-      return new Response(
-        JSON.stringify({
-          error:
-            "AI token allowance exceeded. Upgrade your plan or use your own API key (BYOK) to continue.",
-        }),
-        { status: 403, headers: { "Content-Type": "application/json" } },
-      );
-    }
+  // Check if AI runs are blocked (free plan hard cap — applies to both system model and BYOK)
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: accessResult.project.workspaceId },
+    select: { aiBlocked: true },
+  });
+  if (workspace?.aiBlocked) {
+    return new Response(
+      JSON.stringify({
+        error:
+          "AI run limit reached. Upgrade your plan to continue.",
+      }),
+      { status: 403, headers: { "Content-Type": "application/json" } },
+    );
   }
 
   // Proxy to agent service, passthrough SSE stream
