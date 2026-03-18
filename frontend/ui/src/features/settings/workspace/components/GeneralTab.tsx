@@ -73,7 +73,7 @@ export function GeneralTab({ workspaceId }: GeneralTabProps) {
   const isAdmin = workspace?.role === Role.ADMIN;
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold">General</h2>
         <p className="text-sm text-muted-foreground">Manage your workspace settings</p>
