@@ -69,8 +69,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   if (workspace?.aiBlocked) {
     return new Response(
       JSON.stringify({
-        error:
-          "AI run limit reached. Upgrade your plan to continue.",
+        error: "AI run limit reached. Upgrade your plan to continue.",
       }),
       { status: 403, headers: { "Content-Type": "application/json" } },
     );
