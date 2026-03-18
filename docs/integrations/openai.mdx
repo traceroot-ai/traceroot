@@ -1,0 +1,78 @@
+---
+title: OpenAI
+description: Auto-instrument OpenAI API calls
+---
+
+Automatically capture all OpenAI Chat Completions and Responses API calls.
+
+## Setup
+
+```python
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI])
+```
+
+## Usage
+
+Once initialized, all OpenAI calls are captured automatically:
+
+```python
+import openai
+
+client = openai.OpenAI()
+
+# This call is automatically traced
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What is the capital of France?"},
+    ],
+)
+
+print(response.choices[0].message.content)
+```
+
+No additional decorators or wrappers needed — the SDK patches the OpenAI client library to capture every call.
+
+## Combining with `@observe`
+
+For full visibility, wrap your agent logic with `@observe` so OpenAI calls appear as child spans:
+
+```python
+from traceroot import observe
+
+@observe(name="answer_question", type="agent")
+def answer_question(question: str) -> str:
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": question}],
+    )
+    return response.choices[0].message.content
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Model | `gpt-4o`, `gpt-4o-mini`, `o3`, etc. |
+| Messages | Input messages array |
+| Response | Completion content |
+| Tokens | Prompt, completion, and total tokens |
+| Cost | Calculated from token usage and model pricing |
+| Latency | Request duration |
+
+## Async Support
+
+Async OpenAI calls are also captured automatically:
+
+```python
+client = openai.AsyncOpenAI()
+
+response = await client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Hello!"}],
+)
+```

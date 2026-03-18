@@ -1,0 +1,49 @@
+---
+title: Automated PR Creation
+description: The AI agent can write fixes and create pull requests on GitHub
+---
+
+After identifying a root cause, the AI agent can write a fix and open a pull request on GitHub.
+
+## How It Works
+
+1. **Root cause analysis** — The agent first identifies the bug (see [Root Cause Analysis](/ai-agent/root-cause-analysis))
+2. **Fix development** — The agent writes the fix in the sandbox, modifying the cloned source code
+3. **PR creation** — It pushes a branch and opens a PR on GitHub
+
+## What the PR Contains
+
+| Component | Description |
+|-----------|-------------|
+| Title | Concise description of the fix |
+| Description | Explanation of the root cause, linked to the trace that surfaced the issue |
+| Code changes | The minimal fix for the identified bug |
+| Context | References to the specific span and trace data |
+
+## Review Workflow
+
+The AI agent creates the PR, but a human must review and merge it. This ensures:
+- The fix is correct and complete
+- No unintended side effects are introduced
+- Code quality standards are met
+
+PRs are always created on a new branch — the agent never pushes directly to main.
+
+## Best Suited For
+
+The agent works best with:
+- **Clear, well-scoped bugs** that can be traced to specific code
+- **Runtime errors** with clear stack traces and error messages
+- **Logic bugs** where the trace input/output reveals incorrect behavior
+- **Configuration issues** visible in trace metadata
+
+## Limitations
+
+- Complex architectural issues may require human analysis beyond what the agent can provide
+- The agent operates on source code in the sandbox — it cannot run your full test suite or access external services
+- The fix is a best effort — always review the PR before merging
+
+## Prerequisites
+
+- [GitHub Integration](/ai-agent/github-integration) must be set up with **write** access to pull requests
+- [Root Cause Analysis](/ai-agent/root-cause-analysis) must successfully identify the bug

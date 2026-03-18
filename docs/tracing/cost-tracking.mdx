@@ -1,0 +1,51 @@
+---
+title: Cost Tracking
+description: Automatic token counting and cost calculation for LLM calls
+---
+
+Traceroot automatically tracks token usage and calculates cost for every LLM call.
+
+## How It Works
+
+1. **API-reported tokens** — When the LLM provider returns token counts in the response (e.g., OpenAI's `usage` field), Traceroot captures them directly.
+2. **Fallback estimation** — When token counts aren't available, Traceroot estimates using tiktoken.
+3. **Cost calculation** — Token counts are multiplied by the model's pricing from Traceroot's pricing table.
+
+## What Gets Tracked
+
+Each LLM span captures:
+
+| Metric | Description |
+|--------|-------------|
+| Input tokens | Tokens in the prompt/messages |
+| Output tokens | Tokens in the completion/response |
+| Total tokens | Sum of input and output |
+| Cost (USD) | Calculated from token usage and model pricing |
+
+## Viewing Costs
+
+In the dashboard, costs are visible at both the span and trace level:
+- **Per span** — see the cost of each individual LLM call
+- **Per trace** — see the total cost aggregated across all LLM calls in the trace
+
+## Manual Token Reporting
+
+For custom or unsupported providers, report token usage manually:
+
+```python
+from traceroot import observe, update_current_span
+
+@observe(name="custom_llm", type="llm")
+def call_custom_llm(prompt: str):
+    response = my_llm.generate(prompt)
+
+    update_current_span(
+        model="my-custom-model",
+        usage={
+            "input_tokens": response.input_token_count,
+            "output_tokens": response.output_token_count,
+        },
+    )
+
+    return response.text
+```

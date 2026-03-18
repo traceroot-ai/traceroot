@@ -6,7 +6,7 @@ import {
   type LucideIcon,
   SlidersHorizontal,
   Users,
-  Blocks,
+  Puzzle,
   CreditCard,
   Bot,
   Key,
@@ -24,7 +24,7 @@ export const WORKSPACE_SETTINGS_TABS: SettingsTab[] = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
   { id: "members", label: "Members", icon: Users, href: "members" },
   { id: "model-providers", label: "Model Providers", icon: Bot, href: "model-providers" },
-  { id: "integrations", label: "Integrations", icon: Blocks, href: "integrations" },
+  { id: "integrations", label: "Integrations", icon: Puzzle, href: "integrations" },
   { id: "billing", label: "Billing", icon: CreditCard, href: "billing" },
 ];
 
