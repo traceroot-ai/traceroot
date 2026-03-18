@@ -1,50 +1,17 @@
 ---
 title: Root Cause Analysis
-description: How the AI agent identifies the root cause of failures
+description: How the AI agent identifies the root cause of failures in your traces
 ---
 
-When a trace contains errors, the AI agent can perform root cause analysis by combining trace data with your actual source code.
+When a trace contains errors, the AI agent finds the root cause by looking at trace data, prod source code and GitHub activities. Requires setting up [GitHub Integration](/ai-agent/github-integration).
 
 ## How It Works
 
-1. **Trace analysis** — The agent examines error spans, the call hierarchy, input/output data, and timing information
-2. **Code retrieval** — It clones your repository at the relevant commit and reads the source files referenced in the span attributes
-3. **Sandbox debugging** — The agent runs in an isolated Docker or Daytona sandbox where it can execute commands, read files, and test hypotheses
-4. **Root cause identification** — It correlates the trace data with the source code to identify exactly what went wrong and why
-
-## What the Agent Examines
-
-| Data Source | What It Looks At |
-|------------|-----------------|
-| Error spans | Status, error messages, exception types |
-| Call hierarchy | The full span tree showing the execution flow |
-| Input/Output | The data flowing through each span |
-| Git context | The exact file, line, and function for each span |
-| Timing | Latency patterns that might indicate bottlenecks or timeouts |
-
-## Example
-
-Given a trace with an error in a tool call:
-
-The agent would:
-1. Download the full trace data
-2. Identify the failing `query_database` span and its error message
-3. Clone the repo and read the function at `src/tools/database.py:42`
-4. Analyze the error alongside the source code
-5. Report the root cause with the exact code context
-
-For example: *"The `query_database` function fails because it passes an unescaped string to the SQL query on line 48, causing a syntax error when the input contains single quotes."*
+1. **Examine the trace** — reviews error spans, call hierarchy, input/output data, and timing
+2. **Clone the repo** — clones your repository at the relevant commit into an isolated sandbox
+3. **Read the prod source code** — reads the exact file and line captured in the span attributes
+4. **Identify the root cause** — correlates trace data with source code and explains what went wrong
 
 ## Sandbox Isolation
 
-The agent's sandbox is fully isolated. It cannot access your production databases, APIs, or infrastructure. It can only:
-- Read trace data from Traceroot
-- Clone and read your source code from GitHub
-- Execute commands within the sandbox filesystem
-
-This ensures that debugging operations are safe and cannot affect your running systems.
-
-## Prerequisites
-
-- [GitHub Integration](/ai-agent/github-integration) must be set up
-- Traces must include git context (auto-captured by the SDK)
+The agent runs in a fully isolated sandbox — it can read trace data and clone your source code, but cannot access your production databases, APIs, or infrastructure.

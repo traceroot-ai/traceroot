@@ -1,47 +1,41 @@
 ---
-title: Tracing Overview
-description: "Understand traces, spans, and how Traceroot captures your agent's execution"
+title: Overview
+description: Attach context to your traces — users, sessions, tags, metadata, and more
 ---
 
-Traceroot uses [OpenTelemetry](https://opentelemetry.io/) to capture the full execution flow of your AI agents.
+Once you have initialized TraceRoot, LLM calls are traced automatically. To go further — tracing custom functions, identifying users, grouping sessions, or tracking cost — you can use `@observe` and attach rich context to every trace.
 
-## Traces
+## Quickstart
 
-A **trace** represents a complete execution of your agent — from the initial user input to the final output. Each trace has a unique ID and contains one or more spans.
+Here's everything you can attach in one place:
 
-## Spans
+```python
+import traceroot
+from traceroot import Integration, observe, using_attributes
+from openai import OpenAI
 
-A **span** represents a single operation within a trace. Spans are nested to form a tree that shows the full call hierarchy.
+traceroot.initialize(integrations=[Integration.OPENAI])
 
-### Span Kinds
+client = OpenAI()
 
-| Kind | Description |
-|------|-------------|
-| `agent` | A high-level agent step or decision |
-| `llm` | A call to a language model |
-| `tool` | A tool or function invocation |
-| `span` | A general-purpose span (default) |
+@observe(name="run_agent", type="agent", metadata={"version": "v2"})
+def run_agent(query: str) -> str:
+    response = client.chat.completions.create(...)  # tokens + cost tracked automatically
+    return response.choices[0].message.content
 
-<Note>
-If you're using OpenInference conventions, `CHAIN` is automatically mapped to `span`.
-</Note>
+# Use a context manager to propagate user/session context across multiple calls
+with using_attributes(user_id="user-42", session_id="chat-abc", tags=["production"]):
+    run_agent("What's the weather?")
+    run_agent("What about tomorrow?")
+```
 
-## Span Hierarchy
+## Quick Reference
 
-Spans form a parent-child tree. For example, an agent span might contain an LLM span and a tool span:
-
-Each span captures:
-- **Input/Output** — the data flowing through the operation
-- **Timing** — start time, end time, duration
-- **Token usage** — prompt tokens, completion tokens, total
-- **Cost** — calculated from token usage and model pricing
-- **Status** — OK or ERROR
-- **Git context** — source file, line number, and function name (when configured)
-
-## Data Flow
-
-1. Your application sends trace data to the Traceroot REST API via the SDK
-2. Data is staged in object storage (S3/MinIO)
-3. A background worker processes and transforms the data
-4. Traces and spans are stored in ClickHouse for fast querying
-5. The dashboard reads from ClickHouse to display your traces
+| I want to... | Attribute | Guide |
+|---|---|---|
+| Identify which user triggered a trace | `user_id` | [Users](/tracing/users) |
+| Group traces from the same conversation | `session_id` | [Sessions](/tracing/sessions) |
+| Label traces for filtering | `tags` | [Tags](/tracing/tags) |
+| Attach structured key-value context | `metadata` | [Metadata](/tracing/metadata) |
+| Track token usage and LLM cost | auto via instrumentation | [Cost Tracking](/tracing/cost-tracking) |
+| Link traces back to source code + commit | auto via `@observe` | [Git Context](/tracing/git-context) |

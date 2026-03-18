@@ -35,21 +35,6 @@ response = client.messages.create(
 print(response.content[0].text)
 ```
 
-## Combining with `@observe`
-
-```python
-from traceroot import observe
-
-@observe(name="analyze_text", type="agent")
-def analyze_text(text: str) -> str:
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": f"Analyze: {text}"}],
-    )
-    return response.content[0].text
-```
-
 ## What Gets Captured
 
 | Attribute | Description |
@@ -60,17 +45,3 @@ def analyze_text(text: str) -> str:
 | Tokens | Input and output tokens |
 | Cost | Calculated from token usage and model pricing |
 | Latency | Request duration |
-
-## Async Support
-
-Async Anthropic calls are also captured:
-
-```python
-client = anthropic.AsyncAnthropic()
-
-response = await client.messages.create(
-    model="claude-sonnet-4-20250514",
-    max_tokens=1024,
-    messages=[{"role": "user", "content": "Hello!"}],
-)
-```

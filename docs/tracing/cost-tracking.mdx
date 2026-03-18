@@ -3,13 +3,23 @@ title: Cost Tracking
 description: Automatic token counting and cost calculation for LLM calls
 ---
 
-Traceroot automatically tracks token usage and calculates cost for every LLM call.
+When you use TraceRoot's auto-instrumentation for OpenAI, Anthropic, or LangChain, token usage and cost are tracked automatically — no extra code needed.
+
+```python
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI])
+
+# All OpenAI calls are now automatically tracked — tokens, cost, model
+client.chat.completions.create(...)
+```
 
 ## How It Works
 
-1. **API-reported tokens** — When the LLM provider returns token counts in the response (e.g., OpenAI's `usage` field), Traceroot captures them directly.
-2. **Fallback estimation** — When token counts aren't available, Traceroot estimates using tiktoken.
-3. **Cost calculation** — Token counts are multiplied by the model's pricing from Traceroot's pricing table.
+1. **Auto-instrumentation** — TraceRoot intercepts LLM calls from OpenAI, Anthropic, and LangChain and captures token usage from the API response automatically.
+2. **Fallback estimation** — When token counts aren't in the response, TraceRoot estimates using tiktoken.
+3. **Cost calculation** — Token counts are multiplied by the model's pricing from TraceRoot's pricing table.
 
 ## What Gets Tracked
 
