@@ -27,6 +27,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 )
 from pydantic import BaseModel
 
+from ee.license import is_billing_enabled
 from rest.services.s3 import get_s3_service
 from shared.config import settings
 from worker.ingest_tasks import process_s3_traces
@@ -162,7 +163,8 @@ async def ingest_traces(
     """
     # Check if ingestion is blocked (free plan limit exceeded)
     # This flag is updated hourly by the billing worker
-    if auth.ingestion_blocked:
+    # Skip enforcement when billing is disabled (e.g. self-hosted)
+    if is_billing_enabled() and auth.ingestion_blocked:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Free plan limit exceeded. Please upgrade to continue.",

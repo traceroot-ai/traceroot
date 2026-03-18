@@ -48,10 +48,10 @@ export function isFreePlanBlocked(currentUsage: number): boolean {
  */
 export function isAiRunBlocked(plan: PlanType, runsUsed: number): boolean {
   if (!isBillingEnabled()) return false;
-  const quota = AI_RUN_QUOTAS[plan];
-  if (quota.included === Infinity) return false;
-  if (plan === PlanType.FREE) return runsUsed >= quota.included;
-  return false;
+  if (plan === PlanType.FREE) {
+    return runsUsed >= AI_RUN_QUOTAS[plan].included;
+  }
+  return false; // paid plans: overage is billed via Stripe, never hard-blocked
 }
 
 // =============================================================================
