@@ -256,9 +256,7 @@ export function BillingTab({
               <p className="text-sm font-medium">AI Runs</p>
               <span className="text-sm font-medium">
                 {aiUsage?.runsUsed ?? 0}
-                {aiRunQuota.included === Infinity
-                  ? ""
-                  : ` / ${aiRunQuota.included}`}
+                {aiRunQuota.included === Infinity ? "" : ` / ${aiRunQuota.included}`}
               </span>
             </div>
             <p className="text-xs text-muted-foreground">

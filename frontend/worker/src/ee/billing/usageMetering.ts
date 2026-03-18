@@ -319,9 +319,7 @@ async function processWorkspace(
     const prevPeriodStart = previousUsage?.ai?.lastReportedPeriodStart ?? null;
     const currentPeriodStart = workspace.billingPeriodStart?.toISOString() ?? null;
     const lastReportedUnits =
-      prevPeriodStart === currentPeriodStart
-        ? (previousUsage?.ai?.lastReportedUnits ?? 0)
-        : 0;
+      prevPeriodStart === currentPeriodStart ? (previousUsage?.ai?.lastReportedUnits ?? 0) : 0;
     const deltaUnits = totalBillableUnits - lastReportedUnits;
 
     console.log(
