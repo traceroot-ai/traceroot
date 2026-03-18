@@ -1,0 +1,51 @@
+---
+title: Integrations Overview
+description: Auto-instrument LLM providers and agent frameworks
+---
+
+Traceroot auto-instruments popular LLM providers and agent frameworks. When enabled, every LLM call is automatically captured as a span — no code changes needed beyond initialization.
+
+## Supported Integrations
+
+| Integration | Import | What Gets Captured |
+|------------|--------|-------------------|
+| [OpenAI](/integrations/openai) | `Integration.OPENAI` | Chat Completions, Responses API |
+| [Anthropic](/integrations/anthropic) | `Integration.ANTHROPIC` | Messages API |
+| [LangChain / LangGraph](/integrations/langchain) | `Integration.LANGCHAIN` | Agent steps, tool calls, LLM invocations |
+
+## How to Enable
+
+Pass the integrations you want to auto-instrument when initializing:
+
+```python
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(
+    integrations=[
+        Integration.OPENAI,
+        Integration.ANTHROPIC,
+        Integration.LANGCHAIN,
+    ],
+)
+```
+
+You can enable one or all — only the libraries you actually use will be instrumented.
+
+## What Gets Captured
+
+For each LLM call, auto-instrumentation captures:
+
+| Data | Description |
+|------|-------------|
+| Model name | e.g., `gpt-4o`, `claude-sonnet-4-20250514` |
+| Input | Messages or prompt sent to the model |
+| Output | The model's response |
+| Token usage | Input tokens, output tokens, total |
+| Cost | Calculated from token usage and model pricing |
+| Latency | Request duration |
+| Status | OK or ERROR |
+
+## Custom Providers
+
+For LLM providers not covered by auto-instrumentation, use the `@observe` decorator with manual span updates. See [Manual Spans](/tracing/manual-spans) for details.

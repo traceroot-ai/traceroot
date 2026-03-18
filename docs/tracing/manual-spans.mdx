@@ -1,0 +1,74 @@
+---
+title: Manual Spans
+description: Create custom spans for operations that aren't covered by auto-instrumentation
+---
+
+Use `update_current_span` to enrich spans created by `@observe`, or combine `@observe` with manual attribute updates for full control.
+
+## Enriching Observed Spans
+
+```python
+from traceroot import observe, update_current_span
+
+@observe(name="process_order", type="tool")
+def process_order(order_id: str):
+    result = do_processing(order_id)
+
+    update_current_span(
+        input={"order_id": order_id},
+        output={"status": result.status},
+        metadata={"region": "us-west-2"},
+    )
+
+    return result
+```
+
+## Nesting Spans
+
+Spans nest automatically when you call observed functions from other observed functions:
+
+```python
+@observe(name="agent", type="agent")
+def agent(query: str):
+    context = search(query)          # child span
+    return generate(query, context)  # child span
+
+@observe(name="search", type="tool")
+def search(query: str):
+    return db.search(query)
+
+@observe(name="generate", type="llm")
+def generate(query: str, context: str):
+    return llm.complete(query, context)
+```
+
+## LLM-Specific Span Updates
+
+For custom or unsupported LLM providers, manually set LLM attributes:
+
+```python
+@observe(name="custom_llm_call", type="llm")
+def call_custom_llm(prompt: str):
+    response = my_custom_llm.generate(prompt)
+
+    update_current_span(
+        model="my-custom-model",
+        model_parameters={"temperature": 0.7},
+        usage={"input_tokens": 150, "output_tokens": 80},
+        prompt=[{"role": "user", "content": prompt}],
+        output=response.text,
+    )
+
+    return response.text
+```
+
+## Disabling Input/Output Capture
+
+For sensitive data, disable automatic capture:
+
+```python
+@observe(name="process_pii", capture_input=False, capture_output=False)
+def process_pii(user_data: dict):
+    # Input args and return value are NOT captured
+    return sanitize(user_data)
+```

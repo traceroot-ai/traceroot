@@ -1,0 +1,43 @@
+---
+title: Sessions
+description: Group related traces into sessions for multi-turn conversations
+---
+
+Sessions let you group multiple traces together — for example, all the turns in a chat conversation or all the steps in a multi-agent workflow.
+
+## Setting Session and User ID
+
+Use `using_attributes` to tag traces with a session:
+
+```python
+from traceroot import using_attributes
+
+with using_attributes(session_id="chat-abc-123", user_id="user-42"):
+    # All traces within this block share the same session
+    response_1 = agent.run("What's the weather in SF?")
+    response_2 = agent.run("What about tomorrow?")
+```
+
+Or update the current trace directly:
+
+```python
+from traceroot import update_current_trace
+
+@observe(name="handle_request", type="agent")
+def handle_request(query: str, session_id: str, user_id: str):
+    update_current_trace(
+        session_id=session_id,
+        user_id=user_id,
+    )
+    return process(query)
+```
+
+## Viewing Sessions
+
+In the Traceroot dashboard, sessions appear as a grouped view. You can see all traces within a session, along with aggregated metrics like total token usage, cost, and error count.
+
+## Use Cases
+
+- **Chatbot conversations** — group all turns in a conversation under one session
+- **Multi-step agent workflows** — track a complex workflow that spans multiple trace invocations
+- **User analytics** — associate traces with specific users to understand per-user behavior and costs

@@ -1,0 +1,52 @@
+---
+title: GitHub Integration
+description: Connect your GitHub repositories to enable source code correlation and automated PRs
+---
+
+GitHub integration enables the AI agent to access your source code, correlate traces with specific lines of code, and create fix PRs.
+
+## Setup
+
+1. Go to **Settings → GitHub** in the Traceroot dashboard
+2. Click **Install GitHub App** to install the Traceroot GitHub App on your organization or personal account
+3. Grant access to the repositories you want to connect
+4. Verify the connection shows as active in settings
+
+<Note>
+The GitHub App is the recommended approach. It provides fine-grained permissions and automatic token management.
+</Note>
+
+## Permissions
+
+The Traceroot GitHub App requires:
+
+| Permission | Access | Why |
+|-----------|--------|-----|
+| Repository contents | Read | Clone and read source code for debugging |
+| Pull requests | Write | Create fix PRs from root cause analysis |
+| Metadata | Read | List repositories and verify access |
+
+## Source Code Correlation
+
+When your traces include git context (automatically captured by the SDK), the AI agent can map spans to exact source locations:
+
+- **File path** — which file contains the code
+- **Line number** — which line produced the span
+- **Function name** — which function was called
+
+This is set automatically when you use the `@observe` decorator. The SDK captures the decorated function's file, line, and name.
+
+## How It Works
+
+1. You ask the agent to debug a failing trace
+2. The agent checks GitHub access for the repository in the trace's git context
+3. It clones the repo at the relevant commit into a sandbox
+4. It reads the source code at the file/line from the span attributes
+5. It analyzes the execution flow and identifies the root cause
+
+## Requirements
+
+For source code correlation to work, ensure:
+- The Traceroot GitHub App has access to the repository
+- Your SDK is initialized with git context (auto-detected by default, or set `TRACEROOT_GIT_REPO` and `TRACEROOT_GIT_REF`)
+- Traces are generated from code in the connected repository

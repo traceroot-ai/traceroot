@@ -1,0 +1,156 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "Traceroot",
+  "theme": "mint",
+  "colors": {
+    "primary": "#171717",
+    "light": "#171717",
+    "dark": "#F5F5F5"
+  },
+  "rounded": "default",
+  "fonts": {
+    "heading": {
+      "family": "Inter"
+    },
+    "body": {
+      "family": "Inter"
+    }
+  },
+  "layout": {
+    "wide": true
+  },
+  "favicon": "/logo/favicon.png",
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg",
+    "href": "https://traceroot.ai",
+    "size": 36
+  },
+  "contextual": {
+    "options": ["copy", "view", "chatgpt", "claude"]
+  },
+  "search": {
+    "ai": true
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "label": "Github",
+      "href": "https://github.com/traceroot-ai/traceroot"
+    },
+    "links": [
+      {
+        "type": "link",
+        "label": "TraceRoot Cloud",
+        "href": "https://app.traceroot.ai"
+      }
+    ]
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "icon": "book-open",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "getting-started/introduction",
+              "getting-started/quickstart",
+              "developer/self-hosting"
+            ]
+          },
+          {
+            "group": "Tracing",
+            "pages": [
+              "tracing/get-started",
+              {
+                "group": "Features",
+                "pages": [
+                  "tracing/overview",
+                  "tracing/sessions",
+                  "tracing/metadata",
+                  "tracing/cost-tracking"
+                ]
+              },
+              {
+                "group": "SDKs",
+                "pages": [
+                  "tracing/python-sdk",
+                  "tracing/manual-spans",
+                  "tracing/openinference"
+                ]
+              }
+            ]
+          },
+          {
+            "group": "AI Agents",
+            "pages": [
+              "ai-agent/overview",
+              {
+                "group": "Get Started",
+                "pages": [
+                  "ai-agent/github-integration",
+                  "ai-agent/byok"
+                ]
+              },
+              {
+                "group": "Features",
+                "pages": [
+                  "ai-agent/root-cause-analysis",
+                  "ai-agent/pr-creation",
+                  "ai-agent/trace-analysis"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "icon": "puzzle-piece",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "integrations/overview"
+            ]
+          },
+          {
+            "group": "SDK",
+            "pages": [
+              "tracing/python-sdk"
+            ]
+          },
+          {
+            "group": "Frameworks",
+            "pages": [
+              "integrations/langchain"
+            ]
+          },
+          {
+            "group": "Model Providers",
+            "pages": [
+              "integrations/openai",
+              "integrations/anthropic"
+            ]
+          },
+          {
+            "group": "Internal Model Providers",
+            "pages": [
+              "integrations/internal-models"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/traceroot-ai",
+      "x": "https://x.com/TracerootAI",
+      "linkedin": "https://www.linkedin.com/company/traceroot-ai",
+      "discord": "https://discord.gg/tPyffEZvvJ"
+    }
+  }
+}

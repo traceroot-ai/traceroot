@@ -1,0 +1,72 @@
+---
+title: Self-Hosting
+description: Run Traceroot locally or self-hosted with Docker
+---
+
+Traceroot can be run locally for development or self-hosted in production.
+
+<Warning>
+Production self-hosting is experimental and not yet fully documented. For production use, we recommend the hosted version at [app.traceroot.ai](https://app.traceroot.ai).
+</Warning>
+
+## Prerequisites
+
+- Docker and Docker Compose
+- Make
+- Git
+
+## Local Development
+
+```bash
+git clone https://github.com/traceroot-ai/traceroot.git
+cd traceroot
+make dev
+```
+
+`make dev` starts all infrastructure services and application processes in a tmux session:
+
+| Service | Port | Description |
+|---------|------|-------------|
+| REST API | 8000 | FastAPI backend |
+| UI | 3000 | Next.js dashboard |
+| PostgreSQL | 5432 | User data, projects, settings |
+| ClickHouse | 8123, 9000 | Trace and span storage |
+| MinIO (S3 API) | 9090 | Object storage for trace staging |
+| MinIO (Console) | 9091 | MinIO web UI |
+| Redis | 6379 | Task queue and caching |
+
+## Production Self-Host
+
+```bash
+make prod
+```
+
+This runs all services in containers using `docker-compose.prod.yml` via the tmux launcher in production mode.
+
+<Note>
+Production self-hosting is experimental. Expect rough edges around configuration, upgrades, and migration tooling.
+</Note>
+
+## Configuration
+
+All services share a single `.env` file at the repository root. Copy `.env.example` to `.env` and configure your settings:
+
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+Key variables to set:
+- `TRACEROOT_API_KEY` — for SDK authentication
+- Database credentials (PostgreSQL, ClickHouse)
+- Object storage configuration (MinIO/S3)
+
+## Reset
+
+If something goes wrong:
+
+```bash
+make dev-reset
+```
+
+This kills the tmux session, tears down all Docker containers and volumes, and removes installed dependencies. A clean slate.
