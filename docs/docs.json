@@ -33,18 +33,26 @@
     "ai": true
   },
   "navbar": {
+    "links": [
+      {
+        "label": "Examples",
+        "href": "https://github.com/traceroot-ai/traceroot/tree/main/examples"
+      },
+      {
+        "label": "TraceRoot Cloud",
+        "href": "https://app.traceroot.ai"
+      },
+      {
+        "label": "Discord",
+        "icon": "discord",
+        "href": "https://discord.gg/tPyffEZvvJ"
+      }
+    ],
     "primary": {
       "type": "github",
       "label": "Github",
       "href": "https://github.com/traceroot-ai/traceroot"
-    },
-    "links": [
-      {
-        "type": "link",
-        "label": "TraceRoot Cloud",
-        "href": "https://app.traceroot.ai"
-      }
-    ]
+    }
   },
   "navigation": {
     "tabs": [
