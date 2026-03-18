@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "name": "Traceroot",
+  "name": "TraceRoot",
   "theme": "mint",
   "colors": {
     "primary": "#171717",
@@ -71,22 +71,24 @@
           {
             "group": "Tracing",
             "pages": [
+              "tracing/introduction",
               "tracing/get-started",
+              {
+                "group": "SDKs",
+                "pages": [
+                  "tracing/python-sdk"
+                ]
+              },
               {
                 "group": "Features",
                 "pages": [
                   "tracing/overview",
+                  "tracing/users",
                   "tracing/sessions",
+                  "tracing/tags",
                   "tracing/metadata",
-                  "tracing/cost-tracking"
-                ]
-              },
-              {
-                "group": "SDKs",
-                "pages": [
-                  "tracing/python-sdk",
-                  "tracing/manual-spans",
-                  "tracing/openinference"
+                  "tracing/cost-tracking",
+                  "tracing/git-context"
                 ]
               }
             ]
@@ -105,9 +107,9 @@
               {
                 "group": "Features",
                 "pages": [
+                  "ai-agent/trace-analysis",
                   "ai-agent/root-cause-analysis",
-                  "ai-agent/pr-creation",
-                  "ai-agent/trace-analysis"
+                  "ai-agent/pr-creation"
                 ]
               }
             ]
@@ -156,7 +158,7 @@
   "footer": {
     "socials": {
       "github": "https://github.com/traceroot-ai",
-      "x": "https://x.com/TracerootAI",
+      "x": "https://x.com/TraceRootAI",
       "linkedin": "https://www.linkedin.com/company/traceroot-ai",
       "discord": "https://discord.gg/tPyffEZvvJ"
     }

@@ -1,59 +1,29 @@
 ---
-title: AI Agent Overview
+title: Introduction
 description: An AI agent that debugs your traces and creates fix PRs
 ---
 
-Traceroot includes a built-in AI agent that goes beyond dashboards. It can analyze your traces, clone your repository into a sandboxed environment, identify root causes, and create fix PRs — all directly from the trace viewer.
+TraceRoot's AI agent goes beyond dashboards. When you see a failing trace, the agent can analyze it, clone your prod repository into a sandbox, identify the root cause, and open a fix PR — all without leaving the TraceRoot interface.
 
-## The Problem
+Once the AI agent is set up, TraceRoot gives you:
+- **Trace analysis** — ask natural language questions about your traces, errors, and performance.
+- **Root cause analysis** — the agent clones your prod repository and reads the exact file and line that failed.
+- **Automated fix PRs** — After analyzing your traces, recent GitHub changes and point of failure, the agent writes a fix and opens a PR on GitHub for you to review.
+- **Parallel runs** — launch multiple debugging sessions simultaneously to investigate different traces at once.
 
-Observability tools show you *what* went wrong. You still have to figure out *why* and *how to fix it*. That means context-switching between your dashboard, your IDE, your git history, and your terminal.
-
-## The Solution
-
-Traceroot's AI agent closes that loop. When you see a failing trace, you can ask the agent to:
-
-- **Analyze the trace** — summarize errors, identify patterns, compare latency across spans
-- **Find the root cause** — clone your repo, read the relevant source code, trace the execution flow
-- **Fix the bug** — write a fix in a sandboxed environment and create a PR on GitHub
-
-## Agent Tools
-
-The agent has access to these tools:
-
-| Tool | Description |
-|------|-------------|
-| `query_traces` | Search and filter traces with aggregation |
-| `download_trace` | Export full trace data (spans, hierarchy, metadata) |
-| `check_github_access` | Verify GitHub App access to a repository |
-| `git_clone` | Clone a repository into the sandbox |
-| `bash` | Execute commands in the sandbox |
-| `read` / `write` | Read and write files in the sandbox |
-
-## Architecture
-
-```
-Trace (in ClickHouse)
-  → AI Agent (LLM-powered)
-    → Sandbox (Docker or Daytona)
-      → GitHub PR
-```
-
-The agent runs in an isolated sandbox environment. It cannot access your production systems — only the trace data and a clone of your repository.
-
-## Getting Started
+## Where to start
 
 <CardGroup cols={2}>
   <Card title="GitHub Integration" icon="github" href="/ai-agent/github-integration">
     Connect your repositories to enable source code access and PR creation.
   </Card>
-  <Card title="Root Cause Analysis" icon="magnifying-glass" href="/ai-agent/root-cause-analysis">
-    Learn how the agent identifies the root cause of failures.
+  <Card title="BYOK" icon="key" href="/ai-agent/byok">
+    Use your own API keys to choose which model powers the agent.
   </Card>
   <Card title="Trace Analysis" icon="chart-mixed" href="/ai-agent/trace-analysis">
     Ask the agent questions about your traces in natural language.
   </Card>
-  <Card title="BYOK" icon="key" href="/ai-agent/byok">
-    Use your own API keys to choose which model powers the agent.
+  <Card title="Root Cause Analysis" icon="magnifying-glass" href="/ai-agent/root-cause-analysis">
+    Learn how the agent identifies the root cause of failures.
   </Card>
 </CardGroup>

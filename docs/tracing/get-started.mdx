@@ -3,9 +3,9 @@ title: Get Started
 description: Set up tracing for your AI agent in minutes
 ---
 
-## 1. Create a Project
+## 1. Get API Keys
 
-Sign up at [app.traceroot.ai](https://app.traceroot.ai) and create a project. Copy your API key from **Settings → Access Keys**.
+Create API Keys either with [TraceRoot Cloud](https://app.traceroot.ai) or [Self-Hosting](/developer/self-hosting).
 
 ## 2. Install the SDK
 
@@ -27,70 +27,37 @@ poetry add traceroot
 
 ```bash .env
 TRACEROOT_API_KEY=your-api-key
-TRACEROOT_SERVICE_NAME=my-agent
+TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
 ```
 
-## 4. Initialize Tracing
+## 4. Instrument Your Code
 
-Call `traceroot.initialize()` at the top of your entry point, before importing LLM providers:
+Add a single line at the start of your application to instrument all OpenAI API calls.
 
 ```python
 import traceroot
 from traceroot import Integration
+from openai import OpenAI
 
-traceroot.initialize(
-    integrations=[
-        Integration.OPENAI,      # auto-instrument OpenAI
-        Integration.ANTHROPIC,   # auto-instrument Anthropic
-        Integration.LANGCHAIN,   # auto-instrument LangChain
-    ],
-)
+# This single line instruments all OpenAI API calls
+traceroot.initialize(integrations=[Integration.OPENAI])
+
+client = OpenAI()
 ```
 
-<Tip>
-Only pass integrations for the libraries you actually use. Unused integrations are skipped automatically.
-</Tip>
+For full SDK details, see the [Python SDK reference](/tracing/python-sdk).
 
-## 5. Instrument Your Code
+## 5. View Your Traces
 
-Use `@observe` to wrap your agent functions:
-
-```python
-from traceroot import observe
-import openai
-
-client = openai.OpenAI()
-
-@observe(name="my_agent", type="agent")
-def run_agent(query: str) -> str:
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": query}],
-    )
-    return response.choices[0].message.content
-
-result = run_agent("Summarize the latest news")
-```
-
-The `@observe` decorator creates a parent span. The OpenAI call inside is captured automatically as a child span.
-
-## 6. View Your Traces
-
-Open [app.traceroot.ai](https://app.traceroot.ai), navigate to your project, and you'll see the trace with the full span hierarchy, token usage, cost, and timing.
+Open [TraceRoot Cloud](https://app.traceroot.ai) (or your self-hosted dashboard), navigate to your project, and you'll see the full span hierarchy, token usage, cost, and timing.
 
 ---
 
 ## What's Next?
 
 <CardGroup cols={2}>
-  <Card title="Features" icon="sparkles" href="/tracing/overview">
-    Sessions, metadata, cost tracking, and more.
-  </Card>
   <Card title="Python SDK Reference" icon="code" href="/tracing/python-sdk">
     Full API reference for decorators, spans, and configuration.
-  </Card>
-  <Card title="Manual Instrumentation" icon="wrench" href="/tracing/manual-spans">
-    Add custom spans for any function or operation.
   </Card>
   <Card title="AI Agent" icon="brain" href="/ai-agent/overview">
     Auto-debug failing traces with the built-in AI agent.

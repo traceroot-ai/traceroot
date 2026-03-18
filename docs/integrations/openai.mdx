@@ -35,24 +35,6 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-No additional decorators or wrappers needed — the SDK patches the OpenAI client library to capture every call.
-
-## Combining with `@observe`
-
-For full visibility, wrap your agent logic with `@observe` so OpenAI calls appear as child spans:
-
-```python
-from traceroot import observe
-
-@observe(name="answer_question", type="agent")
-def answer_question(question: str) -> str:
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": question}],
-    )
-    return response.choices[0].message.content
-```
-
 ## What Gets Captured
 
 | Attribute | Description |
@@ -63,16 +45,3 @@ def answer_question(question: str) -> str:
 | Tokens | Prompt, completion, and total tokens |
 | Cost | Calculated from token usage and model pricing |
 | Latency | Request duration |
-
-## Async Support
-
-Async OpenAI calls are also captured automatically:
-
-```python
-client = openai.AsyncOpenAI()
-
-response = await client.chat.completions.create(
-    model="gpt-4o",
-    messages=[{"role": "user", "content": "Hello!"}],
-)
-```

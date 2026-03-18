@@ -1,49 +1,27 @@
 ---
 title: Bring Your Own Key (BYOK)
-description: Use your own LLM API keys to power the Traceroot AI agent
+description: Use your own LLM API keys to power the TraceRoot AI agent
 ---
 
-By default, the Traceroot AI agent uses system-provided models. With BYOK, you can use your own API keys to control which model powers the agent.
+By default, TraceRoot provides system models for the AI agent. With BYOK, you can bring your own API keys to control which model is used.
 
-## Default System Models
-
-Without BYOK, these models are available out of the box:
+## Default Models
 
 | Provider | Models |
 |----------|--------|
-| Anthropic | Claude Opus 4.6, Sonnet 4.6, Sonnet 4.5, Haiku 4.5 |
-| OpenAI | GPT-5, GPT-5 Mini, o3, o4-mini |
+| Anthropic | Claude Opus 4.6, Sonnet 4.6, Opus 4.5, Sonnet 4.5, Haiku 4.5 |
+| OpenAI | GPT-5, GPT-5 Mini, GPT-5.3 Codex, o3, o4-mini |
 
 ## Supported Providers
 
-| Provider | Description |
-|----------|-------------|
-| OpenAI | GPT models via OpenAI API |
-| Anthropic | Claude models via Anthropic API |
-| Azure OpenAI | GPT models via Azure-hosted endpoints |
-| Google | Gemini models via Google AI |
-| Amazon Bedrock | Models via AWS Bedrock |
-| DeepSeek | DeepSeek models |
-| OpenRouter | Access multiple providers via OpenRouter |
+OpenAI, Anthropic, Azure OpenAI, Google (Gemini), Amazon Bedrock, xAI, DeepSeek, OpenRouter, Kimi, GLM
 
 ## Setup
 
-1. Go to **Workspace Settings → Model Providers** in the dashboard
-2. Select a provider from the list
+1. Go to Workspace Settings -> Model Providers in the dashboard
+2. Select a provider
 3. Enter your API key
-4. (Optional) Set a custom base URL for self-hosted models
-5. Save — the key is encrypted at rest
+4. Optionally set a custom base URL for self-hosted or proxied models
+5. Save — keys are encrypted at rest and scoped to your workspace
 
-Keys are scoped to your workspace. Each workspace can have its own provider configuration.
-
-## Custom Base URLs
-
-For self-hosted or proxied models, you can set a custom base URL per provider. This is useful for:
-
-- **Self-hosted open-source models** behind an OpenAI-compatible API
-- **Corporate proxies** that route API traffic through internal endpoints
-- **Regional API endpoints** for data residency requirements
-
-## Selecting a Model
-
-Once a provider is configured, you can select which model to use in the AI chat interface. The model selector shows both system models and any models available through your BYOK configuration.
+Once configured, the model selector in the AI chat interface will show both system models and your BYOK models.
