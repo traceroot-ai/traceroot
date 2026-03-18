@@ -229,6 +229,7 @@ export interface AIUsageByModel extends AIUsageCategory {
 }
 
 export interface AIUsageData {
+  runsUsed: number;
   systemUsage: AIUsageCategory;
   byokUsage: AIUsageCategory;
   byModel: AIUsageByModel[];

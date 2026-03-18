@@ -3,13 +3,20 @@
  *
  * Runs hourly to process all workspaces:
  * 1. Query usage (traces + spans) from ClickHouse ONCE per workspace
- * 2. Update currentUsage JSON (for billing page display)
- * 3. Update ingestionBlocked flag (free plan only)
- * 4. Update Stripe subscription quantity (paid plans only)
+ * 2. Count AI runs (assistant messages) from PostgreSQL
+ * 3. Update currentUsage JSON (for billing page display)
+ * 4. Update ingestionBlocked / aiBlocked flags
+ * 5. Report overage to Stripe (paid plans only)
+ *
+ * AI Run Billing:
+ * - Free plan: hard cap at 30 runs/month (blocked when reached)
+ * - Starter/Pro: first 100 runs free, then $10/100 runs + 1.05x system model token cost
+ * - BYOK runs: only run fee, no token markup (user pays their own API)
+ * - Stripe receives units at $0.01 each; TraceRoot calculates the unit count
  */
 
 import Stripe from "stripe";
-import { prisma, USAGE_CONFIG, PlanType } from "@traceroot/core";
+import { prisma, USAGE_CONFIG, PlanType, isAiRunBlocked, AI_RUN_QUOTAS } from "@traceroot/core";
 import { getWorkspaceUsageDetails } from "./clickhouse";
 
 let stripe: Stripe | null = null;
@@ -92,9 +99,12 @@ async function processWorkspace(
   },
 ): Promise<void> {
   const projectIds = workspace.projects.map((p) => p.id);
-  const isFreePlan = workspace.billingPlan === PlanType.FREE;
+  const plan = workspace.billingPlan as PlanType;
+  const isFreePlan = plan === PlanType.FREE;
 
-  // 1. Query usage ONCE
+  // =========================================================================
+  // 1. Query event usage (traces + spans) from ClickHouse
+  // =========================================================================
   let usage: { traces: number; spans: number };
   if (projectIds.length === 0) {
     usage = { traces: 0, spans: 0 };
@@ -126,21 +136,32 @@ async function processWorkspace(
 
   const totalEvents = usage.traces + usage.spans;
 
-  // 1b. Query AI token usage
-  // System models: use billing period (same as events) for cost tracking
-  const aiSystemStart = isFreePlan
+  // =========================================================================
+  // 2. Query AI usage from PostgreSQL
+  // =========================================================================
+  const aiPeriodStart = isFreePlan
     ? ctx.allTimeStart
     : (workspace.billingPeriodStart ?? new Date(ctx.now.getFullYear(), ctx.now.getMonth(), 1));
-  const aiSystemEnd = isFreePlan
+  const aiPeriodEnd = isFreePlan
     ? ctx.now
     : (workspace.billingPeriodEnd ?? new Date(ctx.now.getFullYear(), ctx.now.getMonth() + 1, 1));
 
+  // 2a. Count total AI runs in period (both BYOK and system model)
+  const runsUsed = await prisma.aIMessage.count({
+    where: {
+      role: "assistant",
+      session: { workspaceId: workspace.id },
+      createTime: { gte: aiPeriodStart, lt: aiPeriodEnd },
+    },
+  });
+
+  // 2b. Aggregate system model token usage (for cost display + Stripe metering)
   const systemWhere = {
     role: "assistant" as const,
     inputTokens: { not: null as null },
     isByok: false as const,
     session: { workspaceId: workspace.id },
-    createTime: { gte: aiSystemStart, lt: aiSystemEnd },
+    createTime: { gte: aiPeriodStart, lt: aiPeriodEnd },
   };
 
   // BYOK models: always all-time (no billing cycle, for reference only)
@@ -177,11 +198,11 @@ async function processWorkspace(
   ]);
 
   const byModel = [...systemByModel, ...byokByModel];
-
-  // Calculate total system cost (for free allowance check)
   const systemCost = Number(systemAgg._sum.cost ?? 0);
 
-  // 2. Build update data
+  // =========================================================================
+  // 3. Build update data
+  // =========================================================================
   const updateData: {
     currentUsage: object;
     ingestionBlocked?: boolean;
@@ -193,6 +214,7 @@ async function processWorkspace(
       tokens: 0,
       updatedAt: ctx.now.toISOString(),
       ai: {
+        runsUsed,
         systemUsage: {
           messages: systemAgg._count.id,
           inputTokens: systemAgg._sum.inputTokens ?? 0,
@@ -218,7 +240,11 @@ async function processWorkspace(
     },
   };
 
-  // 3. For free plan: update ingestionBlocked and aiBlocked
+  // =========================================================================
+  // 4. Update blocking flags
+  // =========================================================================
+
+  // 4a. Event ingestion blocking (free plan only)
   if (isFreePlan) {
     const shouldBeBlocked = totalEvents >= USAGE_CONFIG.includedUnits;
     if (workspace.ingestionBlocked !== shouldBeBlocked) {
@@ -227,24 +253,29 @@ async function processWorkspace(
         `[Billing] Workspace ${workspace.id}: ${totalEvents}/${USAGE_CONFIG.includedUnits} events, blocked: ${shouldBeBlocked}`,
       );
     }
+  }
 
-    // Block AI when free cost allowance exceeded (free plan has no subscription to bill)
-    const shouldBlockAi = systemCost >= USAGE_CONFIG.aiIncludedCost;
+  // 4b. AI run blocking
+  if (isFreePlan) {
+    // Free plan: hard cap based on run count
+    const shouldBlockAi = isAiRunBlocked(plan, runsUsed);
     if (workspace.aiBlocked !== shouldBlockAi) {
       updateData.aiBlocked = shouldBlockAi;
       console.log(
-        `[Billing] Workspace ${workspace.id}: $${systemCost.toFixed(4)}/$${USAGE_CONFIG.aiIncludedCost} AI cost, ai_blocked: ${shouldBlockAi}`,
+        `[Billing] Workspace ${workspace.id}: ${runsUsed}/${AI_RUN_QUOTAS[plan].included} AI runs, ai_blocked: ${shouldBlockAi}`,
       );
     }
   }
 
-  // 3b. For paid plans: always unblock AI (overage is billed, not blocked)
+  // 4c. Paid plans: always unblock AI (overage is billed, not blocked)
   if (!isFreePlan && workspace.aiBlocked) {
     updateData.aiBlocked = false;
     console.log(`[Billing] Workspace ${workspace.id}: unblocking AI (paid plan)`);
   }
 
-  // 4. For paid plans with subscription: update Stripe before DB write
+  // =========================================================================
+  // 5. Stripe metering (paid plans only)
+  // =========================================================================
   console.log(
     `[Billing] Stripe check: isFreePlan=${isFreePlan}, subscriptionId=${!!workspace.billingSubscriptionId}, customerId=${!!workspace.billingCustomerId}, stripeClient=${!!ctx.stripeClient}`,
   );
@@ -254,52 +285,111 @@ async function processWorkspace(
     workspace.billingCustomerId &&
     ctx.stripeClient
   ) {
+    // 5a. Update Stripe subscription quantity for event usage
     await updateStripeQuantity(workspace.billingSubscriptionId, totalEvents, ctx.stripeClient);
 
-    // 4b. Report AI usage delta (system models only — BYOK is not billed)
-    // First $5 of AI usage is free; bill anything above that
-    const billableCost = Math.max(0, systemCost - USAGE_CONFIG.aiIncludedCost);
+    // 5b. Report AI run overage to Stripe
+    const includedRuns = AI_RUN_QUOTAS[plan].included;
+    const overageRuns = Math.max(0, runsUsed - includedRuns);
 
-    // Meter events are additive, so only report the increase since last run
+    // Calculate total billable units:
+    // - Run overage: $10 per 100 runs = $0.10/run = 10 units/run @ $0.01/unit
+    // - System model token cost on overage runs: 1.05x markup, converted to $0.01 units
+    let totalBillableUnits = 0;
+    let overageSystemCost = 0;
+
+    if (overageRuns > 0) {
+      const runOverageUnits = overageRuns * 10;
+
+      // Get system model token cost for runs beyond the included quota
+      overageSystemCost = await getOverageSystemModelCost(
+        workspace.id,
+        includedRuns,
+        aiPeriodStart,
+        aiPeriodEnd,
+      );
+      const tokenMarkupUnits = Math.round(overageSystemCost * 1.05 * 100);
+
+      totalBillableUnits = runOverageUnits + tokenMarkupUnits;
+    }
+
+    // Delta calculation: only report the increase since last worker run
     // Reset tracking when billing period changes (prevents negative delta after period rollover)
     const previousUsage = workspace.currentUsage as any;
     const prevPeriodStart = previousUsage?.ai?.lastReportedPeriodStart ?? null;
     const currentPeriodStart = workspace.billingPeriodStart?.toISOString() ?? null;
-    const lastReportedCost =
-      prevPeriodStart === currentPeriodStart ? (previousUsage?.ai?.lastReportedCostUsd ?? 0) : 0;
-    const deltaCost = billableCost - lastReportedCost;
+    const lastReportedUnits =
+      prevPeriodStart === currentPeriodStart
+        ? (previousUsage?.ai?.lastReportedUnits ?? 0)
+        : 0;
+    const deltaUnits = totalBillableUnits - lastReportedUnits;
+
     console.log(
-      `[Billing] AI metering: systemCost=$${systemCost.toFixed(4)}, billable=$${billableCost.toFixed(4)}, lastReported=$${lastReportedCost.toFixed(4)}, delta=$${deltaCost.toFixed(4)}`,
+      `[Billing] AI run metering: runsUsed=${runsUsed}, included=${includedRuns}, overage=${overageRuns}, ` +
+        `overageSystemCost=$${overageSystemCost.toFixed(4)}, totalUnits=${totalBillableUnits}, ` +
+        `lastReported=${lastReportedUnits}, delta=${deltaUnits}`,
     );
 
-    if (deltaCost > 0) {
-      const reported = await reportAIUsageToStripe(
+    if (deltaUnits > 0) {
+      const reported = await reportAiRunOverageToStripe(
         workspace.id,
         workspace.billingCustomerId!,
-        deltaCost,
+        deltaUnits,
         ctx.stripeClient,
       );
       if (reported) {
-        // Track what we've reported so we don't double-report
-        (updateData.currentUsage as any).ai.lastReportedCostUsd = billableCost;
+        (updateData.currentUsage as any).ai.lastReportedUnits = totalBillableUnits;
         (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
       }
     } else {
-      // Preserve last reported value (and period start for reset detection)
-      (updateData.currentUsage as any).ai.lastReportedCostUsd = lastReportedCost;
+      // Preserve last reported values
+      (updateData.currentUsage as any).ai.lastReportedUnits = lastReportedUnits;
       (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
     }
   }
 
-  // 5. Update database (after Stripe so lastReportedCostUsd is accurate)
+  // =========================================================================
+  // 6. Write to database
+  // =========================================================================
   await prisma.workspace.update({
     where: { id: workspace.id },
     data: updateData,
   });
 
   console.log(
-    `[Billing] Workspace ${workspace.id} (${workspace.billingPlan}): ${usage.traces} traces, ${usage.spans} spans | system: ${systemAgg._count.id} msgs (${systemAgg._sum.inputTokens ?? 0} in / ${systemAgg._sum.outputTokens ?? 0} out, $${systemCost.toFixed(4)}) | byok: ${byokAgg._count.id} msgs (all-time, ${byokAgg._sum.inputTokens ?? 0} in / ${byokAgg._sum.outputTokens ?? 0} out)`,
+    `[Billing] Workspace ${workspace.id} (${workspace.billingPlan}): ` +
+      `${usage.traces} traces, ${usage.spans} spans | ` +
+      `AI runs: ${runsUsed} | ` +
+      `system: ${systemAgg._count.id} msgs ($${systemCost.toFixed(4)}) | ` +
+      `byok: ${byokAgg._count.id} msgs (all-time)`,
   );
+}
+
+/**
+ * Get the total system model token cost for AI runs beyond the included quota.
+ * Orders all assistant messages by time, skips the first `includedRuns`,
+ * then sums the cost of system model (non-BYOK) messages in the remainder.
+ */
+async function getOverageSystemModelCost(
+  workspaceId: string,
+  includedRuns: number,
+  start: Date,
+  end: Date,
+): Promise<number> {
+  const overageMessages = await prisma.aIMessage.findMany({
+    where: {
+      role: "assistant",
+      session: { workspaceId },
+      createTime: { gte: start, lt: end },
+    },
+    orderBy: { createTime: "asc" },
+    skip: includedRuns,
+    select: { isByok: true, cost: true },
+  });
+
+  return overageMessages
+    .filter((m) => m.isByok === false)
+    .reduce((sum, m) => sum + Number(m.cost ?? 0), 0);
 }
 
 async function updateStripeQuantity(
@@ -331,36 +421,36 @@ async function updateStripeQuantity(
 }
 
 /**
- * Report AI token usage cost to Stripe via meter events.
- * Converts cost to cents (units at $0.01 each).
- * Only reports system model usage — BYOK is not billed.
+ * Report AI run overage to Stripe via meter events.
+ * Units are at $0.01 each. The unit count includes both:
+ * - Run overage fee: $10/100 runs = 10 units per overage run
+ * - System model token markup: 1.05x of token cost on overage runs
  * Returns true if successfully reported.
  */
-async function reportAIUsageToStripe(
+async function reportAiRunOverageToStripe(
   workspaceId: string,
   customerId: string,
-  cost: number,
+  units: number,
   stripeClient: Stripe,
 ): Promise<boolean> {
-  const costCents = Math.round(cost * 100);
-  if (costCents <= 0) return false;
+  if (units <= 0) return false;
 
   try {
     await stripeClient.billing.meterEvents.create({
       event_name: "ai_token_usage",
       payload: {
         stripe_customer_id: customerId,
-        value: String(costCents),
+        value: String(units),
       },
       timestamp: Math.floor(Date.now() / 1000),
     });
     console.log(
-      `[Billing] Reported AI usage to Stripe: workspace=${workspaceId}, delta=$${cost.toFixed(2)} (${costCents} units @ $0.01)`,
+      `[Billing] Reported AI run overage to Stripe: workspace=${workspaceId}, delta=${units} units ($${(units * 0.01).toFixed(2)})`,
     );
     return true;
   } catch (error) {
     console.error(
-      `[Billing] Failed to report AI usage to Stripe for workspace ${workspaceId}:`,
+      `[Billing] Failed to report AI run overage to Stripe for workspace ${workspaceId}:`,
       error,
     );
     return false;
