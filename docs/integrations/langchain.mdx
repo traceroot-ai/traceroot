@@ -59,18 +59,3 @@ result = chain.invoke({"input": "Hello!"})
 | Graph structure | Parent-child relationships between steps |
 | Token usage | Aggregated across all LLM calls |
 | Cost | Total cost for the full chain/graph execution |
-
-## Combining with `@observe`
-
-Wrap your top-level function with `@observe` to create a parent span that captures the full LangGraph execution:
-
-```python
-from traceroot import observe
-
-@observe(name="research_agent", type="agent")
-def run_research(query: str):
-    result = agent.invoke({
-        "messages": [{"role": "user", "content": query}]
-    })
-    return result
-```

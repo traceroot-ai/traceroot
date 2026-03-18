@@ -1,0 +1,29 @@
+---
+title: Tags
+description: Label traces with string tags for filtering and categorization
+---
+
+Tags are string labels on traces for filtering and categorization — by environment, experiment, feature, or any dimension you care about.
+
+## Using the decorator
+
+Pass static tags directly to `@observe`:
+
+```python
+from traceroot import observe
+
+@observe(name="run_agent", type="agent", tags=["production", "v2"])
+def run_agent(query: str):
+    return process(query)
+```
+
+## Using context manager
+
+Use `using_attributes` to propagate tags to all traces within a block:
+
+```python
+from traceroot import using_attributes
+
+with using_attributes(tags=["staging", "experiment-a"]):
+    agent.run(query)
+```

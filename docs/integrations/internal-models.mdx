@@ -1,9 +1,9 @@
 ---
 title: Supported Models
-description: All LLM models available natively in Traceroot Cloud
+description: All LLM models available natively in TraceRoot Cloud
 ---
 
-Traceroot Cloud provides access to the following models out of the box — no API key required. These are the system models available when using the AI agent without [BYOK](/ai-agent/byok).
+TraceRoot Cloud provides the following models out of the box — no API key required.
 
 ## Anthropic
 
@@ -11,6 +11,7 @@ Traceroot Cloud provides access to the following models out of the box — no AP
 |-------|-------------|
 | `claude-opus-4-6` | Most capable model for complex reasoning and debugging |
 | `claude-sonnet-4-6` | Balanced performance and speed |
+| `claude-opus-4-5` | Previous Opus generation |
 | `claude-sonnet-4-5` | Previous Sonnet generation |
 | `claude-haiku-4-5` | Fast and lightweight |
 
@@ -20,11 +21,14 @@ Traceroot Cloud provides access to the following models out of the box — no AP
 |-------|-------------|
 | `gpt-5` | OpenAI's most capable model |
 | `gpt-5-mini` | Fast and cost-efficient GPT-5 variant |
+| `gpt-5.3-codex` | Code-optimized model via Responses API |
 | `o3` | Advanced reasoning model |
 | `o4-mini` | Lightweight reasoning model |
 
----
+## Bring Your Own Key (BYOK)
 
-<Note>
-Want to use a model not listed here? Set up [BYOK](/ai-agent/byok) to bring your own API key and unlock any provider — including Azure OpenAI, Google Gemini, Amazon Bedrock, DeepSeek, and OpenRouter.
-</Note>
+Need a model not listed here? With [BYOK](/ai-agent/byok) you can bring your own API key and use any supported provider — including Azure OpenAI, Google (Gemini), Amazon Bedrock, xAI, DeepSeek, OpenRouter, Kimi, and GLM.
+
+<Card title="Set up BYOK" icon="key" href="/ai-agent/byok">
+  Use your own API keys to control which model powers the AI agent.
+</Card>
