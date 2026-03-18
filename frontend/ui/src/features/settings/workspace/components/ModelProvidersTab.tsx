@@ -249,7 +249,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   // Upgrade prompt if BYOK is not enabled
   if (data && !data.byokEnabled) {
     return (
-      <div className="max-w-3xl space-y-6">
+      <div className="space-y-6">
         <div>
           <h2 className="text-xl font-semibold">Model Providers</h2>
           <p className="text-sm text-muted-foreground">Configure your own LLM API keys</p>
@@ -295,7 +295,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       : !!(apiKey || editProvider));
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold">Model Providers</h2>
