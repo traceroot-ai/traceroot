@@ -11,19 +11,22 @@ Here's everything you can attach in one place:
 
 ```python
 import traceroot
-from traceroot import Integration, observe, using_attributes, update_current_span
+from traceroot import Integration, observe, using_attributes
+from openai import OpenAI
 
 traceroot.initialize(integrations=[Integration.OPENAI])
 
+client = OpenAI()
+
 @observe(name="run_agent", type="agent", metadata={"version": "v2"})
-def run_agent(query: str, user_id: str, session_id: str) -> str:
+def run_agent(query: str) -> str:
     response = client.chat.completions.create(...)  # tokens + cost tracked automatically
     return response.choices[0].message.content
 
-# Or use a context manager to propagate context across multiple calls
+# Use a context manager to propagate user/session context across multiple calls
 with using_attributes(user_id="user-42", session_id="chat-abc", tags=["production"]):
-    run_agent("What's the weather?", ...)
-    run_agent("What about tomorrow?", ...)
+    run_agent("What's the weather?")
+    run_agent("What about tomorrow?")
 ```
 
 ## Quick Reference
