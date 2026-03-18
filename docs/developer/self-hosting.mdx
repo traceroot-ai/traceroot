@@ -1,21 +1,22 @@
 ---
 title: Self-Hosting
-description: Run Traceroot locally or self-hosted with Docker
+description: Run TraceRoot on your own infrastructure
 ---
 
-Traceroot can be run locally for development or self-hosted in production.
+<Note>
+  Prefer a managed solution? [TraceRoot Cloud](https://app.traceroot.ai) is maintained by the TraceRoot team — no setup required.
+</Note>
 
-<Warning>
-Production self-hosting is experimental and not yet fully documented. For production use, we recommend the hosted version at [app.traceroot.ai](https://app.traceroot.ai).
-</Warning>
+TraceRoot is open source and supports self-hosting. Run it on your own infrastructure for full control over your data and deployment. Some features require an enterprise license key.
 
-## Prerequisites
+## Deployment Options
 
-- Docker and Docker Compose
-- Make
-- Git
 
-## Local Development
+### Local Developer Deployment
+
+Best for: contributing to TraceRoot, local development, and debugging.
+
+Starts PostgreSQL, ClickHouse, MinIO, and Redis in Docker, then runs the API, UI, and workers locally via a tmux session.
 
 ```bash
 git clone https://github.com/traceroot-ai/traceroot.git
@@ -23,50 +24,30 @@ cd traceroot
 make dev
 ```
 
-`make dev` starts all infrastructure services and application processes in a tmux session:
+See the [README](https://github.com/traceroot-ai/traceroot/blob/main/README.md) and [CONTRIBUTING.md](https://github.com/traceroot-ai/traceroot/blob/main/CONTRIBUTING.md) for details.
 
-| Service | Port | Description |
-|---------|------|-------------|
-| REST API | 8000 | FastAPI backend |
-| UI | 3000 | Next.js dashboard |
-| PostgreSQL | 5432 | User data, projects, settings |
-| ClickHouse | 8123, 9000 | Trace and span storage |
-| MinIO (S3 API) | 9090 | Object storage for trace staging |
-| MinIO (Console) | 9091 | MinIO web UI |
-| Redis | 6379 | Task queue and caching |
 
-## Production Self-Host
+### Local Docker Deployment
+
+Best for: trying TraceRoot locally, integration testing, or running a full stack without local dependencies.
+
+Runs the entire stack in containers using Docker Compose — no need to install Python, Node, or other runtimes locally.
 
 ```bash
+git clone https://github.com/traceroot-ai/traceroot.git
+cd traceroot
 make prod
 ```
 
-This runs all services in containers using `docker-compose.prod.yml` via the tmux launcher in production mode.
+See the [README](https://github.com/traceroot-ai/traceroot/blob/main/README.md) for details.
 
-<Note>
-Production self-hosting is experimental. Expect rough edges around configuration, upgrades, and migration tooling.
-</Note>
 
-## Configuration
+### Production Deployment
 
-All services share a single `.env` file at the repository root. Copy `.env.example` to `.env` and configure your settings:
+Best for: production workloads on AWS.
 
-```bash
-cp .env.example .env
-# Edit .env with your configuration
-```
+Deploy TraceRoot on Kubernetes using Helm charts and Terraform. Configuration lives in the [`deploy`](https://github.com/traceroot-ai/traceroot/tree/main/deploy) directory.
 
-Key variables to set:
-- `TRACEROOT_API_KEY` — for SDK authentication
-- Database credentials (PostgreSQL, ClickHouse)
-- Object storage configuration (MinIO/S3)
-
-## Reset
-
-If something goes wrong:
-
-```bash
-make dev-reset
-```
-
-This kills the tmux session, tears down all Docker containers and volumes, and removes installed dependencies. A clean slate.
+<Warning>
+  Terraform deployment is currently experimental. We recommend testing thoroughly before production use.
+</Warning>
