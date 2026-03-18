@@ -1,0 +1,76 @@
+---
+title: Anthropic
+description: Auto-instrument Anthropic API calls
+---
+
+Automatically capture all Anthropic Messages API calls.
+
+## Setup
+
+```python
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.ANTHROPIC])
+```
+
+## Usage
+
+Once initialized, all Anthropic calls are captured automatically:
+
+```python
+import anthropic
+
+client = anthropic.Anthropic()
+
+# This call is automatically traced
+response = client.messages.create(
+    model="claude-sonnet-4-20250514",
+    max_tokens=1024,
+    messages=[
+        {"role": "user", "content": "What is the capital of France?"},
+    ],
+)
+
+print(response.content[0].text)
+```
+
+## Combining with `@observe`
+
+```python
+from traceroot import observe
+
+@observe(name="analyze_text", type="agent")
+def analyze_text(text: str) -> str:
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1024,
+        messages=[{"role": "user", "content": f"Analyze: {text}"}],
+    )
+    return response.content[0].text
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Model | `claude-sonnet-4-20250514`, `claude-haiku-4-5-20251001`, etc. |
+| Messages | Input messages array |
+| Response | Completion content |
+| Tokens | Input and output tokens |
+| Cost | Calculated from token usage and model pricing |
+| Latency | Request duration |
+
+## Async Support
+
+Async Anthropic calls are also captured:
+
+```python
+client = anthropic.AsyncAnthropic()
+
+response = await client.messages.create(
+    model="claude-sonnet-4-20250514",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello!"}],
+)
+```

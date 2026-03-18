@@ -1,0 +1,65 @@
+---
+title: Metadata & Git Context
+description: Attach custom metadata and source code context to your traces
+---
+
+## Custom Metadata
+
+Attach arbitrary key-value metadata to spans and traces:
+
+```python
+from traceroot import observe, update_current_span, update_current_trace
+
+@observe(metadata={"version": "v2", "tier": "premium"})
+def process(query: str):
+    update_current_span(metadata={"latency_bucket": "fast"})
+    update_current_trace(tags=["production", "v2"])
+    return result
+```
+
+Metadata is searchable in the dashboard and available to the AI agent for analysis.
+
+## Tags
+
+Tags are string labels attached to traces for categorization and filtering:
+
+```python
+from traceroot import update_current_trace
+
+update_current_trace(tags=["production", "experiment-a", "high-priority"])
+```
+
+## Git Context
+
+Traceroot automatically detects your git repository and current commit:
+
+- `git_repo` — repository in `owner/repo` format
+- `git_ref` — commit SHA, tag, or branch name
+
+These are auto-detected from your working directory. Override them via environment variables or at initialization:
+
+```bash
+TRACEROOT_GIT_REPO=myorg/myrepo
+TRACEROOT_GIT_REF=abc123
+```
+
+```python
+traceroot.initialize(
+    git_repo="myorg/myrepo",
+    git_ref="abc123",
+)
+```
+
+## Source Code Correlation
+
+The SDK also captures source file, line number, and function name for each span. This enables the AI agent to jump directly from a trace to the exact line of code that produced it.
+
+Span attributes captured automatically by `@observe`:
+
+| Attribute | Description |
+|-----------|-------------|
+| `traceroot.git.source_file` | File path of the decorated function |
+| `traceroot.git.source_line` | Line number |
+| `traceroot.git.source_function` | Function name |
+
+These attributes power the **Show Code** feature in the trace viewer and enable the AI agent to correlate trace errors with your source code for [root cause analysis](/ai-agent/root-cause-analysis).

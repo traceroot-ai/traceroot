@@ -1,0 +1,47 @@
+---
+title: Tracing Overview
+description: "Understand traces, spans, and how Traceroot captures your agent's execution"
+---
+
+Traceroot uses [OpenTelemetry](https://opentelemetry.io/) to capture the full execution flow of your AI agents.
+
+## Traces
+
+A **trace** represents a complete execution of your agent — from the initial user input to the final output. Each trace has a unique ID and contains one or more spans.
+
+## Spans
+
+A **span** represents a single operation within a trace. Spans are nested to form a tree that shows the full call hierarchy.
+
+### Span Kinds
+
+| Kind | Description |
+|------|-------------|
+| `agent` | A high-level agent step or decision |
+| `llm` | A call to a language model |
+| `tool` | A tool or function invocation |
+| `span` | A general-purpose span (default) |
+
+<Note>
+If you're using OpenInference conventions, `CHAIN` is automatically mapped to `span`.
+</Note>
+
+## Span Hierarchy
+
+Spans form a parent-child tree. For example, an agent span might contain an LLM span and a tool span:
+
+Each span captures:
+- **Input/Output** — the data flowing through the operation
+- **Timing** — start time, end time, duration
+- **Token usage** — prompt tokens, completion tokens, total
+- **Cost** — calculated from token usage and model pricing
+- **Status** — OK or ERROR
+- **Git context** — source file, line number, and function name (when configured)
+
+## Data Flow
+
+1. Your application sends trace data to the Traceroot REST API via the SDK
+2. Data is staged in object storage (S3/MinIO)
+3. A background worker processes and transforms the data
+4. Traces and spans are stored in ClickHouse for fast querying
+5. The dashboard reads from ClickHouse to display your traces

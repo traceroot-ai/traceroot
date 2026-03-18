@@ -1,0 +1,76 @@
+---
+title: LangChain / LangGraph
+description: Auto-instrument LangChain and LangGraph agent frameworks
+---
+
+Automatically capture agent steps, tool calls, and LLM invocations within LangChain chains and LangGraph graphs.
+
+## Setup
+
+```python
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.LANGCHAIN])
+```
+
+## Usage with LangGraph
+
+```python
+from langchain_openai import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
+
+llm = ChatOpenAI(model="gpt-4o")
+
+tools = [search_tool, calculator_tool]
+agent = create_react_agent(llm, tools=tools)
+
+# All agent steps are automatically traced
+result = agent.invoke({
+    "messages": [{"role": "user", "content": "What is 2 + 2?"}]
+})
+```
+
+## Usage with LangChain
+
+```python
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+
+llm = ChatOpenAI(model="gpt-4o")
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a helpful assistant."),
+    ("user", "{input}"),
+])
+
+chain = prompt | llm
+
+# Chain execution is automatically traced
+result = chain.invoke({"input": "Hello!"})
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Agent steps | Each agent iteration as a span |
+| Tool calls | Each tool invocation with input/output |
+| LLM calls | All LLM calls within the chain/graph |
+| Graph structure | Parent-child relationships between steps |
+| Token usage | Aggregated across all LLM calls |
+| Cost | Total cost for the full chain/graph execution |
+
+## Combining with `@observe`
+
+Wrap your top-level function with `@observe` to create a parent span that captures the full LangGraph execution:
+
+```python
+from traceroot import observe
+
+@observe(name="research_agent", type="agent")
+def run_research(query: str):
+    result = agent.invoke({
+        "messages": [{"role": "user", "content": query}]
+    })
+    return result
+```

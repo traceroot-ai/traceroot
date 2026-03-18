@@ -1,0 +1,197 @@
+---
+title: Python SDK
+description: Installation, initialization, and full API reference for the Traceroot Python SDK
+---
+
+The Traceroot Python SDK provides automatic and manual instrumentation for AI agents using OpenTelemetry.
+
+## Installation
+
+<CodeGroup>
+```bash pip
+pip install traceroot
+```
+
+```bash uv
+uv add traceroot
+```
+
+```bash poetry
+poetry add traceroot
+```
+</CodeGroup>
+
+## Initialization
+
+```python
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(
+    integrations=[
+        Integration.OPENAI,
+        Integration.ANTHROPIC,
+        Integration.LANGCHAIN,
+    ],
+)
+```
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `api_key` | `str` | `TRACEROOT_API_KEY` env var | API key for authentication |
+| `host_url` | `str` | `https://api.traceroot.ai` | API endpoint URL |
+| `flush_interval` | `float` | `5.0` | Seconds between automatic flushes |
+| `batch_size` | `int` | `100` | Max batch size before flush |
+| `timeout` | `float` | `30.0` | HTTP request timeout in seconds |
+| `enabled` | `bool` | `True` | Enable/disable tracing |
+| `integrations` | `list[Integration]` | `None` | Libraries to auto-instrument |
+| `git_repo` | `str` | auto-detected | Repository in `owner/repo` format |
+| `git_ref` | `str` | auto-detected | Git commit SHA, tag, or branch |
+
+## The `@observe` Decorator
+
+Wrap any function to create a span:
+
+```python
+from traceroot import observe
+
+@observe(name="my_function", type="tool")
+def my_function(query: str) -> str:
+    return do_work(query)
+```
+
+Works with both sync and async functions:
+
+```python
+@observe(name="async_agent", type="agent")
+async def async_agent(query: str) -> str:
+    return await process(query)
+```
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | `str` | function name | Span name |
+| `type` | `SpanKind \| str` | `"span"` | Span kind: `"llm"`, `"agent"`, `"tool"`, or `"span"` (accepts both `SpanKind` enum and string values) |
+| `metadata` | `dict` | `None` | Static metadata to attach |
+| `tags` | `list[str]` | `None` | Tags to attach |
+| `capture_input` | `bool` | `True` | Capture function arguments |
+| `capture_output` | `bool` | `True` | Capture return value |
+
+## Setting Trace Context
+
+Use `using_attributes` to set user and session context:
+
+```python
+from traceroot import using_attributes
+
+with using_attributes(user_id="user-123", session_id="sess-456"):
+    result = run_agent("What is the weather?")
+```
+
+All traces created within the block inherit the `user_id` and `session_id`.
+
+## Updating Spans and Traces
+
+Update the current span or trace programmatically:
+
+```python
+from traceroot import update_current_span, update_current_trace
+
+# Update the current span
+update_current_span(
+    name="custom_name",
+    input={"query": "hello"},
+    output={"response": "world"},
+    metadata={"custom_key": "custom_value"},
+    # LLM-specific attributes (useful for custom/unsupported providers)
+    model="gpt-4o",
+    model_parameters={"temperature": 0.7, "max_tokens": 1024},
+    usage={"input_tokens": 100, "output_tokens": 50},
+    prompt=[{"role": "user", "content": "hello"}],
+)
+
+# Update the current trace
+update_current_trace(
+    user_id="user-123",
+    session_id="sess-456",
+    tags=["production", "v2"],
+)
+```
+
+### `update_current_span` Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | `str` | Update the span name |
+| `input` | `Any` | Input data |
+| `output` | `Any` | Output data |
+| `metadata` | `dict` | Custom metadata key-value pairs |
+| `model` | `str` | LLM model name (e.g., `"gpt-4o"`) |
+| `model_parameters` | `dict` | Model parameters (e.g., temperature, max_tokens) |
+| `usage` | `dict` | Token usage (e.g., `{"input_tokens": 100, "output_tokens": 50}`) |
+| `prompt` | `Any` | Prompt/messages sent to the LLM |
+
+### `update_current_trace` Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `user_id` | `str` | User who initiated the trace |
+| `session_id` | `str` | Session identifier for grouping traces |
+| `metadata` | `dict` | Trace-level metadata |
+| `tags` | `list[str]` | Tags to categorize the trace |
+
+## Context Utilities
+
+```python
+from traceroot import get_current_trace_id, get_current_span_id
+
+trace_id = get_current_trace_id()  # hex string or None
+span_id = get_current_span_id()    # hex string or None
+```
+
+## Flush and Shutdown
+
+```python
+traceroot.flush()     # Force flush all pending traces
+traceroot.shutdown()  # Graceful shutdown (also called automatically at exit)
+```
+
+<Tip>
+`shutdown()` is registered via `atexit`, so it runs automatically when your program exits. You only need to call it explicitly in long-running applications or when you want to ensure all traces are sent before a specific point.
+</Tip>
+
+## Environment Variables
+
+All parameters can be set via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TRACEROOT_API_KEY` | (required) | API key |
+| `TRACEROOT_HOST_URL` | `https://api.traceroot.ai` | API endpoint |
+| `TRACEROOT_SERVICE_NAME` | `unknown_service` | Service name |
+| `TRACEROOT_ENABLED` | `true` | Enable/disable tracing |
+| `TRACEROOT_DEBUG` | `false` | Enable debug logging |
+| `TRACEROOT_ENVIRONMENT` | `default` | Deployment environment |
+| `TRACEROOT_RELEASE` | (optional) | Release version |
+| `TRACEROOT_FLUSH_INTERVAL` | `5.0` | Flush interval in seconds |
+| `TRACEROOT_FLUSH_AT` | `100` | Batch size before flush |
+| `TRACEROOT_TIMEOUT` | `30.0` | HTTP timeout in seconds |
+| `TRACEROOT_GIT_REPO` | auto-detected | Git repository (`owner/repo`) |
+| `TRACEROOT_GIT_REF` | auto-detected | Git reference |
+
+## Community & Support
+
+Have questions, found a bug, or want to request a feature?
+
+<CardGroup cols={2}>
+  <Card title="GitHub Discussions" icon="github" href="https://github.com/traceroot-ai/traceroot/discussions">
+    Ask questions, share feedback, and discuss the SDK with the community.
+  </Card>
+  <Card title="GitHub Issues" icon="circle-exclamation" href="https://github.com/traceroot-ai/traceroot/issues">
+    Report bugs or request new features.
+  </Card>
+</CardGroup>
