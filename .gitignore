@@ -246,3 +246,4 @@ references/**/node_modules/
 *.tfstate
 *.tfstate.backup
 .terraform.lock.hcl
+.worktrees/
