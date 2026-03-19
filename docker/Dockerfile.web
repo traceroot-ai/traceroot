@@ -45,11 +45,12 @@ RUN cd packages/core && npx prisma generate \
     && cp -rL /app/node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client /tmp/prisma-engines/.prisma/client
 
 # Build the Next.js app
-# Next.js middleware (Edge Runtime) inlines env vars at build time, so
-# NEXTAUTH_SECRET must match the runtime value. Pass it via docker-compose
-# build args or it defaults to the .env value.
-ARG NEXTAUTH_SECRET=build-time-placeholder-replaced-at-runtime
-ENV NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+# better-auth validates BETTER_AUTH_SECRET at startup; pass a placeholder at
+# build time so Next.js page-data collection succeeds. Real value injected at runtime.
+ARG BETTER_AUTH_SECRET=build-time-placeholder-replaced-at-runtime
+ENV BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
+ARG BETTER_AUTH_URL=http://localhost:3000
+ENV BETTER_AUTH_URL=${BETTER_AUTH_URL}
 ARG NEXT_PUBLIC_API_URL=/api/v1
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 # Build-time dummy for server env vars validated by Zod at page collection time.

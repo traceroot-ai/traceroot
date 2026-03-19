@@ -24,6 +24,13 @@ export const auth = betterAuth({
     },
   },
 
+  account: {
+    accountLinking: {
+      enabled: true,
+      trustedProviders: ["google"],
+    },
+  },
+
   session: {
     expiresIn: 30 * 24 * 60 * 60, // 30 days
   },
