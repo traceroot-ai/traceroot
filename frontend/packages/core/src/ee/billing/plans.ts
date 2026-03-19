@@ -34,12 +34,24 @@ export const AI_RUN_QUOTAS: Record<PlanType, { included: number; overageLabel: s
 // Legacy compat — used by usageMetering and free-plan blocking
 export const USAGE_CONFIG = {
   includedUnits: 50_000, // free plan span cap
-  aiIncludedCost: 5, // $5 free AI usage per billing period (legacy, backend will migrate to run-based)
 } as const;
 
 export function isFreePlanBlocked(currentUsage: number): boolean {
   if (!isBillingEnabled()) return false;
   return currentUsage >= USAGE_CONFIG.includedUnits;
+}
+
+/**
+ * Check if AI runs should be blocked for a given plan and usage.
+ * Free plan: hard cap at included runs (30).
+ * Paid plans: never blocked (overage is billed via Stripe).
+ */
+export function isAiRunBlocked(plan: PlanType, runsUsed: number): boolean {
+  if (!isBillingEnabled()) return false;
+  if (plan === PlanType.FREE) {
+    return runsUsed >= AI_RUN_QUOTAS[plan].included;
+  }
+  return false; // paid plans: overage is billed via Stripe, never hard-blocked
 }
 
 // =============================================================================
