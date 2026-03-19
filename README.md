@@ -16,12 +16,15 @@
 
 ## Features
 
+<div align="center">
+  <kbd><img src="docs/images/rca_v1.png" alt="Agentic Debugging - Root Cause Analysis"></kbd>
+</div>
+
+
 | Feature | Description |
 | ------- | ----------- |
 | Tracing | Capture LLM calls, agent actions, and tool usage via OpenTelemetry-compatible SDK |
 | Agentic Debugging | AI-native root cause analysis with GitHub integration and BYOK support |
-
-![RCA](docs/images/rca_v1.png)
 
 ## Why TraceRoot?
 
