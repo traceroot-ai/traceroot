@@ -68,7 +68,7 @@ if __name__ == "__main__":
     my_agent("What's the weather in SF?")
 ```
 
-See the [Quickstart Guide](https://docs.traceroot.ai/quickstart) for more examples.
+See the [Quickstart Guide](https://traceroot.ai/docs/quickstart) for more examples.
 
 ## Getting Started
 
@@ -111,7 +111,7 @@ The fastest way to get started. Ample storages and LLM tokens for testing, no cr
 
 ## Documentation
 
-Full documentation available at [docs.traceroot.ai](https://docs.traceroot.ai).
+Full documentation available at [traceroot.ai/docs](https://traceroot.ai/docs).
 
 ## Security & Privacy
 
@@ -141,7 +141,7 @@ This project is licensed under [Apache 2.0](LICENSE) with additional [Enterprise
 [license-image]: https://img.shields.io/badge/License-Apache%202.0-blue.svg
 [license-url]: https://opensource.org/licenses/Apache-2.0
 [docs-image]: https://img.shields.io/badge/docs-traceroot.ai-0dbf43
-[docs-url]: https://docs.traceroot.ai
+[docs-url]: https://traceroot.ai/docs
 [pypi-sdk-downloads-image]: https://static.pepy.tech/badge/traceroot
 [pypi-sdk-downloads-url]: https://pypi.python.org/pypi/traceroot
 [y-combinator-image]: https://img.shields.io/badge/Combinator-S25-orange?logo=ycombinator&labelColor=white
