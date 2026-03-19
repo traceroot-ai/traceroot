@@ -28,6 +28,9 @@ export {
   getSeatLimit,
   canAddSeat,
   requireSeatAvailable,
+  // Billing gate
+  isBillingEnabled,
   // Free plan blocking
   isFreePlanBlocked,
+  isAiRunBlocked,
 } from "./plans";
