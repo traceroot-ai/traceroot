@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { signIn } from "next-auth/react";
+import { authClient } from "@/lib/auth-client";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -43,14 +43,12 @@ function SignInContent() {
     setError(null);
 
     try {
-      const result = await signIn("credentials", {
+      const { error } = await authClient.signIn.email({
         email: data.email,
         password: data.password,
-        redirect: false,
       });
-
-      if (result?.error) {
-        setError(result.error);
+      if (error) {
+        setError(error.message || "Invalid credentials");
       } else {
         router.push(callbackUrl);
         router.refresh();
@@ -62,9 +60,12 @@ function SignInContent() {
     }
   }
 
-  function handleGoogleSignIn() {
+  async function handleGoogleSignIn() {
     setIsGoogleLoading(true);
-    signIn("google", { callbackUrl });
+    await authClient.signIn.social({
+      provider: "google",
+      callbackURL: callbackUrl,
+    });
   }
 
   return (

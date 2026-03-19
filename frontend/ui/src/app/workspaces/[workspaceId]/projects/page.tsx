@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { authClient } from "@/lib/auth-client";
 import { FolderKanban } from "lucide-react";
 import { WorkspaceBreadcrumb } from "@/features/workspaces/components";
 import { CreateProjectDialog, ProjectCard } from "@/features/projects/components";
@@ -12,7 +12,7 @@ export default function ProjectsPage() {
   const router = useRouter();
   const params = useParams();
   const workspaceId = params.workspaceId as string;
-  const { data: session, status } = useSession();
+  const { data: session, isPending } = authClient.useSession();
   const user = session?.user;
 
   useEffect(() => {
@@ -22,7 +22,7 @@ export default function ProjectsPage() {
   }, [user, router]);
 
   // Get workspace with projects
-  const { data: workspace, isLoading } = useWorkspace(workspaceId, status === "authenticated");
+  const { data: workspace, isLoading } = useWorkspace(workspaceId, !!session);
 
   if (!user) {
     return null;
