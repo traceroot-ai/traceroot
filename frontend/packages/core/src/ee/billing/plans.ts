@@ -168,7 +168,7 @@ export const PLANS: Record<
     name: "Enterprise",
     description: "For scaling organizations",
     price: null, // custom pricing
-    billingPriceId: process.env.STRIPE_PRICE_ID_STARTUPS || "", // env var will be renamed in backend migration
+    billingPriceId: "",
     highlighted: false,
     badge: null,
     features: ["Everything in Pro", "Custom retention", "Slack + SLA support"],
