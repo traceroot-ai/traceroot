@@ -21,6 +21,8 @@
 | Tracing | Capture LLM calls, agent actions, and tool usage via OpenTelemetry-compatible SDK |
 | Agentic Debugging | AI-native root cause analysis with GitHub integration and BYOK support |
 
+![RCA](docs/images/rca_v1.png)
+
 ## Why TraceRoot?
 
 - **Traces alone don't scale.**
@@ -33,46 +35,11 @@
 
 - **Fully open source, no vendor lock-in.**
 
-  Both the observability platform and the AI debugging layer are open source. BYOK support for any model provider — OpenAI, Anthropic, Gemini, DeepSeek, and more.
+  Both the observability platform and the AI debugging layer are open source. BYOK support for any model provider — OpenAI, Anthropic, Gemini, xAI, DeepSeek, OpenRouter, Kimi, GLM and more.
 
 ## Documentation
 
 Full documentation available at [traceroot.ai/docs](https://traceroot.ai/docs).
-
-## Quickstart
-
-```bash
-pip install traceroot openai
-```
-
-```bash
-# Add these in the `.env` file in root directory
-TRACEROOT_API_KEY="tr-0f29d..."
-TRACEROOT_HOST_URL="https://app.traceroot.ai"  # cloud (default)
-# TRACEROOT_HOST_URL=http://localhost:8000   # local development mode
-```
-
-```python
-import traceroot
-from traceroot import Integration, observe
-from openai import OpenAI
-
-traceroot.initialize(integrations=[Integration.OPENAI])
-client = OpenAI()
-
-@observe(name="my_agent", type="llm")
-def my_agent(query: str) -> str:
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": query}],
-    )
-    return response.choices[0].message.content
-
-if __name__ == "__main__":
-    my_agent("What's the weather in SF?")
-```
-
-See the [Quickstart Guide](https://traceroot.ai/docs/quickstart) for more examples.
 
 ## Getting Started
 
@@ -112,6 +79,38 @@ The fastest way to get started. Ample storages and LLM tokens for testing, no cr
 | Language | Repository |
 | -------- | ---------- |
 | Python | [traceroot-py](https://github.com/traceroot-ai/traceroot-py) |
+
+## Python SDK Quickstart
+
+```bash
+pip install traceroot openai
+```
+
+```bash
+# Add these in the `.env` file in root directory
+TRACEROOT_API_KEY="tr-0f29d..."
+TRACEROOT_HOST_URL="https://app.traceroot.ai"  # cloud (default)
+```
+
+```python
+import traceroot
+from traceroot import Integration, observe
+from openai import OpenAI
+
+traceroot.initialize(integrations=[Integration.OPENAI])
+client = OpenAI()
+
+@observe(name="my_agent", type="agent")
+def my_agent(query: str) -> str:
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": query}],
+    )
+    return response.choices[0].message.content
+
+if __name__ == "__main__":
+    my_agent("What's the weather in SF?")
+```
 
 ## Security & Privacy
 
