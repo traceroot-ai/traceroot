@@ -41,13 +41,13 @@ export async function GET(request: NextRequest) {
       // No OAuth connection exists yet — redirect to OAuth flow first
       const returnTo = request.cookies.get(GITHUB_RETURN_TO_COOKIE)?.value || "/";
       return NextResponse.redirect(
-        new URL(`/api/github/login?returnTo=${encodeURIComponent(returnTo)}`, env.NEXTAUTH_URL),
+        new URL(`/api/github/login?returnTo=${encodeURIComponent(returnTo)}`, env.BETTER_AUTH_URL),
       );
     }
 
     // Redirect to return URL
     const returnTo = request.cookies.get(GITHUB_RETURN_TO_COOKIE)?.value || "/";
-    const response = NextResponse.redirect(new URL(returnTo, env.NEXTAUTH_URL));
+    const response = NextResponse.redirect(new URL(returnTo, env.BETTER_AUTH_URL));
 
     // Clear state cookies
     response.cookies.set(GITHUB_INSTALL_STATE_COOKIE, "", {

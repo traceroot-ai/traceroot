@@ -133,42 +133,78 @@ model Project {
 // Users - Authentication and identity
 model User {
   id            String            @id @default(cuid()) @db.VarChar
-  email         String?           @unique @db.VarChar
-  emailVerified DateTime?         @map("email_verified")
+  email         String            @unique @db.VarChar
+  emailVerified Boolean           @default(false) @map("email_verified")
   name          String?           @db.VarChar
   image         String?           @db.VarChar
   password      String?           @db.VarChar
-  createTime    DateTime          @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime    DateTime          @default(now()) @map("update_time") @db.Timestamp(6)
+  role          String?           @db.VarChar
+  banned        Boolean?
+  banReason     String?           @map("ban_reason") @db.VarChar
+  banExpires    DateTime?         @map("ban_expires") @db.Timestamp(6)
+  createdAt     DateTime          @default(now()) @db.Timestamp(6)
+  updatedAt     DateTime          @updatedAt @db.Timestamp(6)
   invites       Invite[]
   memberships   WorkspaceMember[]
-  accounts         Account[]
+  accounts      Account[]
+  sessions      Session[]
   githubConnection GitHubConnection?
 
   @@map("users")
 }
 
-// Accounts - OAuth provider accounts (NextAuth)
+// Accounts - OAuth provider accounts (better-auth)
 model Account {
-  id                String   @id @default(cuid())
-  userId            String   @map("user_id")
-  type              String
-  provider          String
-  providerAccountId String   @map("provider_account_id")
-  refresh_token     String?  @db.Text
-  access_token      String?  @db.Text
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String?  @db.Text
-  session_state     String?
-  createTime        DateTime @default(now()) @map("create_time")
-  updateTime        DateTime @updatedAt @map("update_time")
+  id                    String    @id @default(cuid()) @db.VarChar
+  userId                String    @map("user_id") @db.VarChar
+  accountId             String    @map("account_id") @db.VarChar
+  providerId            String    @map("provider_id") @db.VarChar
+  accessToken           String?   @map("access_token") @db.Text
+  refreshToken          String?   @map("refresh_token") @db.Text
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at") @db.Timestamp(6)
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at") @db.Timestamp(6)
+  scope                 String?   @db.VarChar
+  idToken               String?   @map("id_token") @db.Text
+  password              String?   @db.Text
+  createdAt             DateTime  @default(now()) @db.Timestamp(6)
+  updatedAt             DateTime  @updatedAt @db.Timestamp(6)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([provider, providerAccountId])
+  @@index([userId], map: "ix_account_user_id")
+  @@unique([accountId, providerId], map: "uq_account_provider")
   @@map("accounts")
+}
+
+// Sessions - better-auth session management
+model Session {
+  id             String    @id @default(cuid()) @db.VarChar
+  userId         String    @map("user_id") @db.VarChar
+  token          String    @unique @db.VarChar
+  expiresAt      DateTime  @map("expires_at") @db.Timestamp(6)
+  ipAddress      String?   @map("ip_address") @db.VarChar
+  userAgent      String?   @map("user_agent") @db.VarChar
+  impersonatedBy String?   @map("impersonated_by") @db.VarChar
+  createdAt      DateTime  @default(now()) @db.Timestamp(6)
+  updatedAt      DateTime  @updatedAt @db.Timestamp(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "ix_session_user_id")
+  @@map("sessions")
+}
+
+// Verifications - better-auth email/OTP verification tokens
+model Verification {
+  id         String   @id @default(cuid()) @db.VarChar
+  identifier String   @db.VarChar
+  value      String   @db.VarChar
+  expiresAt  DateTime @map("expires_at") @db.Timestamp(6)
+  createdAt  DateTime @default(now()) @db.Timestamp(6)
+  updatedAt  DateTime @updatedAt @db.Timestamp(6)
+
+  @@index([identifier], map: "ix_verification_identifier")
+  @@map("verifications")
 }
 
 // GitHub App Connections - Links GitHub accounts and app installations to users

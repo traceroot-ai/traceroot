@@ -12,7 +12,6 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\""
   },
   "dependencies": {
-    "@auth/prisma-adapter": "^2.11.1",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-dialog": "^1.1.0",
     "@radix-ui/react-dropdown-menu": "^2.1.0",
@@ -23,12 +22,12 @@
     "@traceroot/core": "workspace:*",
     "@traceroot/github": "workspace:*",
     "bcryptjs": "^3.0.3",
+    "better-auth": "^1.5.5",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.468.0",
     "next": "15.1.0",
-    "next-auth": "^4.24.13",
     "next-themes": "^0.4.6",
     "nodemailer": "^7.0.13",
     "react": "19.0.0",

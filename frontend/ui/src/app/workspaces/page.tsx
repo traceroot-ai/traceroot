@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { authClient } from "@/lib/auth-client";
 import { Building2 } from "lucide-react";
 import { useLayout } from "@/components/layout/app-layout";
 import { CreateWorkspaceDialog, WorkspaceCard } from "@/features/workspaces/components";
@@ -10,7 +10,7 @@ import { useWorkspaces } from "@/features/workspaces/hooks";
 
 export default function WorkspacesPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const { data: session, isPending } = authClient.useSession();
   const user = session?.user;
   const { setHeaderContent } = useLayout();
 
@@ -27,7 +27,7 @@ export default function WorkspacesPage() {
   }, [setHeaderContent]);
 
   // Get all workspaces
-  const { data: workspaces, isLoading } = useWorkspaces(status === "authenticated");
+  const { data: workspaces, isLoading } = useWorkspaces(!!session);
 
   if (!user) {
     return null;

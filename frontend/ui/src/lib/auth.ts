@@ -1,92 +1,38 @@
-import { NextAuthOptions } from "next-auth";
-import { PrismaAdapter } from "@auth/prisma-adapter";
-import CredentialsProvider from "next-auth/providers/credentials";
-import GoogleProvider from "next-auth/providers/google";
+import { betterAuth } from "better-auth";
+import { prismaAdapter } from "better-auth/adapters/prisma";
+import { admin } from "better-auth/plugins";
 import { prisma } from "@traceroot/core";
-import { compare } from "bcryptjs";
-import { Adapter } from "next-auth/adapters";
 import { env } from "@/env";
 
-export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma) as Adapter,
+export const auth = betterAuth({
+  database: prismaAdapter(prisma, {
+    provider: "postgresql",
+  }),
 
-  session: {
-    strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+  secret: env.BETTER_AUTH_SECRET,
+  baseURL: env.BETTER_AUTH_URL,
+
+  emailAndPassword: {
+    enabled: true,
+    minPasswordLength: 8,
   },
 
-  providers: [
-    GoogleProvider({
+  socialProviders: {
+    google: {
       clientId: env.AUTH_GOOGLE_CLIENT_ID,
       clientSecret: env.AUTH_GOOGLE_CLIENT_SECRET,
-      allowDangerousEmailAccountLinking: true,
-    }),
+    },
+  },
 
-    CredentialsProvider({
-      name: "credentials",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
-          throw new Error("Email and password are required");
-        }
+  session: {
+    expiresIn: 30 * 24 * 60 * 60, // 30 days
+  },
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email.toLowerCase() },
-        });
-
-        if (!user) {
-          throw new Error("Invalid credentials");
-        }
-
-        if (!user.password) {
-          throw new Error("Please sign in with Google (the provider linked to your account)");
-        }
-
-        const isValidPassword = await compare(credentials.password, user.password);
-
-        if (!isValidPassword) {
-          throw new Error("Invalid credentials");
-        }
-
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-        };
-      },
+  plugins: [
+    admin({
+      impersonationSessionDuration: 60 * 60 * 24, // 1 day
     }),
   ],
+});
 
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-      }
-      return token;
-    },
-
-    async session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.id as string;
-      }
-      return session;
-    },
-
-    async signIn({ user }) {
-      if (!user.email) {
-        return false;
-      }
-      return true;
-    },
-  },
-
-  pages: {
-    signIn: "/auth/sign-in",
-    error: "/auth/error",
-  },
-
-  secret: env.NEXTAUTH_SECRET,
-};
+export type Session = typeof auth.$Infer.Session;

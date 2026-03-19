@@ -2,25 +2,25 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { authClient } from "@/lib/auth-client";
 import { useQuery } from "@tanstack/react-query";
 import { getWorkspaces } from "@/lib/api";
 
 export default function Home() {
   const router = useRouter();
-  const { status } = useSession();
+  const { data: session, isPending } = authClient.useSession();
 
   const { data: workspaces } = useQuery({
     queryKey: ["workspaces"],
     queryFn: getWorkspaces,
-    enabled: status === "authenticated",
+    enabled: !!session,
   });
 
   useEffect(() => {
-    if (status === "unauthenticated") {
+    if (!session && !isPending) {
       router.push("/auth/sign-in");
     }
-  }, [status, router]);
+  }, [session, isPending, router]);
 
   useEffect(() => {
     if (workspaces !== undefined) {

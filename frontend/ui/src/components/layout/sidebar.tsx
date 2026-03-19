@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { signOut, useSession } from "next-auth/react";
+import { authClient } from "@/lib/auth-client";
 import { useTheme } from "next-themes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -15,6 +15,7 @@ import {
   Monitor,
   Workflow,
   Settings,
+  UserRoundSearch,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Logo } from "@/components/Logo";
@@ -52,7 +53,8 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed = false }: SidebarProps) {
   const pathname = usePathname();
-  const { data: session } = useSession();
+  const { data: sessionData } = authClient.useSession();
+  const isImpersonating = !!sessionData?.session?.impersonatedBy;
   const { theme, setTheme } = useTheme();
 
   // Don't show sidebar on auth pages
@@ -60,7 +62,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
     return null;
   }
 
-  const user = session?.user;
+  const user = sessionData?.user;
   const initials = getInitials(user?.name, user?.email);
   const displayName = user?.name || user?.email?.split("@")[0] || "User";
 
@@ -75,6 +77,42 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
           collapsed ? "w-14" : "w-40",
         )}
       >
+        {isImpersonating && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className={cn(
+                  "flex items-center gap-2 border-b border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/30",
+                  collapsed ? "justify-center px-2 py-2" : "px-3 py-2",
+                )}
+              >
+                <UserRoundSearch className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                {!collapsed && (
+                  <>
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-amber-800 dark:text-amber-300">
+                      {user?.email ?? user?.name}
+                    </span>
+                    <button
+                      className="shrink-0 rounded-md border border-amber-300 bg-white px-1.5 py-0.5 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-700 dark:bg-transparent dark:text-amber-400 dark:hover:bg-amber-900/50"
+                      onClick={async () => {
+                        await authClient.admin.stopImpersonating();
+                        window.location.reload();
+                      }}
+                    >
+                      Stop
+                    </button>
+                  </>
+                )}
+              </div>
+            </TooltipTrigger>
+            {collapsed && (
+              <TooltipContent side="right" sideOffset={16}>
+                <p className="font-medium">Impersonating</p>
+                <p className="text-xs text-muted-foreground">{user?.email ?? user?.name}</p>
+              </TooltipContent>
+            )}
+          </Tooltip>
+        )}
         {/* Header with logo */}
         <div
           className={cn(
@@ -298,7 +336,10 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 {/* Sign out */}
                 <button
                   className="flex w-full items-center justify-center rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
-                  onClick={() => signOut({ callbackUrl: "/auth/sign-in" })}
+                  onClick={async () => {
+                    await authClient.signOut();
+                    window.location.href = "/auth/sign-in";
+                  }}
                 >
                   Log Out
                 </button>
