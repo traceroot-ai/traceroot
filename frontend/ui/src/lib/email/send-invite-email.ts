@@ -29,14 +29,14 @@ interface SendInviteEmailParams {
  * Required env vars:
  * - TRACEROOT_SMTP_URL: SMTP connection string (e.g., smtp://user:pass@host:port)
  * - TRACEROOT_SMTP_MAIL_FROM: Sender email address
- * - NEXTAUTH_URL: Base URL for the app
+ * - BETTER_AUTH_URL: Base URL for the app
  */
 export async function sendInviteEmail(params: SendInviteEmailParams): Promise<void> {
   const { to, inviterName, inviterEmail, workspaceName, inviteId, role } = params;
 
   const smtpUrl = env.TRACEROOT_SMTP_URL;
   const mailFrom = env.TRACEROOT_SMTP_MAIL_FROM;
-  const baseUrl = env.NEXTAUTH_URL;
+  const baseUrl = env.BETTER_AUTH_URL;
 
   if (!smtpUrl || !mailFrom) {
     console.warn(

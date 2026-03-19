@@ -1,28 +1,27 @@
-import { withAuth } from "next-auth/middleware";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export default withAuth(
-  function middleware(req) {
+export function middleware(req: NextRequest) {
+  const token = req.cookies.get("better-auth.session_token");
+
+  // Allow auth pages without token
+  if (req.nextUrl.pathname.startsWith("/auth/")) {
     return NextResponse.next();
-  },
-  {
-    callbacks: {
-      authorized: ({ token, req }) => {
-        // Allow auth pages without token
-        if (req.nextUrl.pathname.startsWith("/auth/")) {
-          return true;
-        }
-        // Require token for all other pages
-        return !!token;
-      },
-    },
-  },
-);
+  }
+
+  // No token → redirect to sign-in
+  if (!token) {
+    const signInUrl = new URL("/auth/sign-in", req.url);
+    signInUrl.searchParams.set("callbackUrl", req.nextUrl.pathname);
+    return NextResponse.redirect(signInUrl);
+  }
+
+  return NextResponse.next();
+}
 
 export const config = {
   matcher: [
     // Protect all routes except:
-    // - api/auth (NextAuth routes)
+    // - api/auth (auth routes)
     // - api/internal (internal API for Python backend, uses X-Internal-Secret)
     // - api/billing/webhook (Stripe webhook, uses signature verification)
     // - auth/* (sign-in, sign-up pages)

@@ -1,13 +1,14 @@
 import { z } from "zod";
 
 const serverSchema = z.object({
-  NEXTAUTH_SECRET: z.string().min(1),
-  NEXTAUTH_URL: z.string().default("http://localhost:3000"),
+  BETTER_AUTH_SECRET: z.string().min(1),
+  BETTER_AUTH_URL: z.string().default("http://localhost:3000"),
   INTERNAL_API_SECRET: z.string().min(1),
   AUTH_GOOGLE_CLIENT_ID: z.string().default(""),
   AUTH_GOOGLE_CLIENT_SECRET: z.string().default(""),
   TRACEROOT_SMTP_URL: z.string().optional(),
   TRACEROOT_SMTP_MAIL_FROM: z.string().optional(),
+  NEXT_PUBLIC_APP_URL: z.string().default("http://localhost:3000"),
   NEXT_PUBLIC_LOGO_URL: z.string().optional(),
   // Billing toggle — set to "false" for self-hosted deployments to unlock all features
   ENABLE_BILLING: z.string().default("true"),

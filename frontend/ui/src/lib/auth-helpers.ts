@@ -1,6 +1,6 @@
-import { getServerSession } from "next-auth";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 import { NextResponse } from "next/server";
-import { authOptions } from "@/lib/auth";
 import { prisma, type Role, hasMinRole } from "@traceroot/core";
 import { env } from "@/env";
 export type { Role } from "@traceroot/core";
@@ -22,7 +22,9 @@ export interface WorkspaceMembership {
  * Returns null if not authenticated.
  */
 export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
-  const session = await getServerSession(authOptions);
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
   if (!session?.user?.id) {
     return null;
   }

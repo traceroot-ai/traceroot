@@ -1,7 +1,7 @@
 /**
  * Base API client utilities for Traceroot
  */
-import { getSession } from "next-auth/react";
+import { authClient } from "@/lib/auth-client";
 import { clientEnv } from "@/env.client";
 
 // Python backend URL for trace APIs only
@@ -35,7 +35,7 @@ export async function fetchNextApi<T>(endpoint: string, options: RequestInit = {
  * Fetch from Python backend (for traces - needs user headers)
  */
 export async function fetchTraceApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const session = await getSession();
+  const { data: session } = await authClient.getSession();
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

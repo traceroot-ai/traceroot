@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { auth } from "@/lib/auth";
+import { headers } from "next/headers";
 import { prisma, getStripeOrThrow } from "@traceroot/core";
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth.api.getSession({ headers: await headers() });
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
 
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: workspace.billingCustomerId,
-      return_url: `${process.env.NEXTAUTH_URL}/workspaces/${workspaceId}/settings/billing`,
+      return_url: `${process.env.BETTER_AUTH_URL}/workspaces/${workspaceId}/settings/billing`,
     });
 
     return NextResponse.json({ url: portalSession.url });

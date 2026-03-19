@@ -131,10 +131,13 @@ export async function GET(request: NextRequest) {
     // If we already have installation_id (from direct GitHub install), redirect to returnTo.
     // Otherwise, redirect to the installation flow.
     const redirectUrl = resolvedInstallationId
-      ? new URL(returnTo, env.NEXTAUTH_URL)
-      : new URL(`/api/github/install?returnTo=${encodeURIComponent(returnTo)}`, env.NEXTAUTH_URL);
+      ? new URL(returnTo, env.BETTER_AUTH_URL)
+      : new URL(
+          `/api/github/install?returnTo=${encodeURIComponent(returnTo)}`,
+          env.BETTER_AUTH_URL,
+        );
 
-    // Use NEXTAUTH_URL as base — request.url inside Docker resolves to 0.0.0.0
+    // Use BETTER_AUTH_URL as base — request.url inside Docker resolves to 0.0.0.0
     // which loses the session cookie (set on localhost).
     const response = NextResponse.redirect(redirectUrl);
 
