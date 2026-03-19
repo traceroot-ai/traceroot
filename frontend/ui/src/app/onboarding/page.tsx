@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { authClient } from "@/lib/auth-client";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod/v3";
@@ -48,7 +48,7 @@ function OnboardingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const { data: session, status } = useSession();
+  const { data: session, isPending } = authClient.useSession();
   const { setHeaderContent } = useLayout();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -126,7 +126,7 @@ function OnboardingContent() {
     }
   }
 
-  if (status === "loading") {
+  if (isPending) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-[13px] text-muted-foreground">Loading...</p>
@@ -134,7 +134,7 @@ function OnboardingContent() {
     );
   }
 
-  if (status === "unauthenticated") {
+  if (!session && !isPending) {
     router.push("/auth/sign-in");
     return (
       <div className="flex h-full items-center justify-center">

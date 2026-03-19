@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { signIn } from "next-auth/react";
+import { authClient } from "@/lib/auth-client";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -49,31 +49,13 @@ export default function SignUpPage() {
     setError(null);
 
     try {
-      const response = await fetch("/api/auth/sign-up", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: data.name,
-          email: data.email,
-          password: data.password,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        setError(result.error);
-        return;
-      }
-
-      const signInResult = await signIn("credentials", {
+      const { error } = await authClient.signUp.email({
+        name: data.name,
         email: data.email,
         password: data.password,
-        redirect: false,
       });
-
-      if (signInResult?.error) {
-        router.push("/auth/sign-in");
+      if (error) {
+        setError(error.message || "Failed to create account");
       } else {
         router.push("/onboarding");
         router.refresh();
@@ -85,9 +67,12 @@ export default function SignUpPage() {
     }
   }
 
-  function handleGoogleSignUp() {
+  async function handleGoogleSignUp() {
     setIsGoogleLoading(true);
-    signIn("google", { callbackUrl: "/onboarding" });
+    await authClient.signIn.social({
+      provider: "google",
+      callbackURL: "/onboarding",
+    });
   }
 
   return (

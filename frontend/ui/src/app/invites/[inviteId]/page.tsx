@@ -2,22 +2,22 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { authClient } from "@/lib/auth-client";
 import { acceptInvite } from "@/lib/api";
 
 export default function AcceptInvitePage() {
   const params = useParams();
   const router = useRouter();
-  const { status } = useSession();
+  const { data: session, isPending } = authClient.useSession();
   const inviteId = params.inviteId as string;
 
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (status === "loading") return;
+    if (isPending) return;
 
     // Not logged in → redirect to login with callback
-    if (status === "unauthenticated") {
+    if (!session && !isPending) {
       router.push(`/auth/sign-in?callbackUrl=/invites/${inviteId}`);
       return;
     }
@@ -33,7 +33,7 @@ export default function AcceptInvitePage() {
     };
 
     accept();
-  }, [status, inviteId, router]);
+  }, [session, isPending, inviteId, router]);
 
   if (error) {
     return (
