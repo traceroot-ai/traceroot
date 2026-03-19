@@ -154,11 +154,6 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.stripe.existingSecret }}
                   key: {{ .Values.stripe.keys.priceIdPro }}
-            - name: STRIPE_PRICE_ID_STARTUPS
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.stripe.existingSecret }}
-                  key: {{ .Values.stripe.keys.priceIdStartups }}
             - name: STRIPE_PRICE_ID_AI_USAGE
               valueFrom:
                 secretKeyRef:
