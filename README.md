@@ -20,6 +20,7 @@
   <kbd><img src="docs/images/rca_v1.png" alt="Agentic Debugging - Root Cause Analysis"></kbd>
 </div>
 
+<br>
 
 | Feature | Description |
 | ------- | ----------- |
