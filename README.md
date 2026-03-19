@@ -35,6 +35,10 @@
 
   Both the observability platform and the AI debugging layer are open source. BYOK support for any model provider — OpenAI, Anthropic, Gemini, DeepSeek, and more.
 
+## Documentation
+
+Full documentation available at [traceroot.ai/docs](https://traceroot.ai/docs).
+
 ## Quickstart
 
 ```bash
@@ -108,10 +112,6 @@ The fastest way to get started. Ample storages and LLM tokens for testing, no cr
 | Language | Repository |
 | -------- | ---------- |
 | Python | [traceroot-py](https://github.com/traceroot-ai/traceroot-py) |
-
-## Documentation
-
-Full documentation available at [traceroot.ai/docs](https://traceroot.ai/docs).
 
 ## Security & Privacy
 
