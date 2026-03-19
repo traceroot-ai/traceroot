@@ -271,7 +271,7 @@ export function BillingTab({
           {/* System Models */}
           <div>
             <div className="flex items-baseline justify-between">
-              <p className="text-sm font-medium">TR AI Token Cost</p>
+              <p className="text-sm font-medium">Internal Models</p>
               <span className="text-sm font-medium">
                 {formatCost(aiUsage?.systemUsage.cost ?? 0)}
               </span>
