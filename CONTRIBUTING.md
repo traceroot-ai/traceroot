@@ -27,6 +27,8 @@ make dev              # Start development environment
 
 All commands handle deps, Docker containers, migrations, and launch services in tmux (one window per service).
 
+![Local dev mode](docs/images/local_dev_mode_v1.png)
+
 ## License
 
 This project is licensed under [Apache 2.0](LICENSE) with additional [Enterprise features](./ee/LICENSE).
