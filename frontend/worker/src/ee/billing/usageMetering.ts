@@ -16,7 +16,14 @@
  */
 
 import Stripe from "stripe";
-import { prisma, USAGE_CONFIG, PlanType, isAiRunBlocked, AI_RUN_QUOTAS } from "@traceroot/core";
+import {
+  prisma,
+  USAGE_CONFIG,
+  PlanType,
+  isAiRunBlocked,
+  AI_RUN_QUOTAS,
+  EVENT_QUOTAS,
+} from "@traceroot/core";
 import { getWorkspaceUsageDetails } from "./clickhouse";
 
 let stripe: Stripe | null = null;
@@ -286,21 +293,38 @@ async function processWorkspace(
     workspace.billingCustomerId &&
     ctx.stripeClient
   ) {
-    // 5a. Update Stripe subscription quantity for event usage
-    await updateStripeQuantity(workspace.billingSubscriptionId, totalEvents, ctx.stripeClient);
+    // 5a. Update Stripe subscription quantity for event blocks (base + overage combined).
+    // Enterprise is contact-sales only — no Stripe subscription, skip.
+    // Reports total 50k blocks, minimum = included blocks (e.g. 3 for starter = 150k).
+    // Stripe tiered graduated price handles the math:
+    //   Tier 1: 0-3 blocks → $30 flat fee (base plan cost)
+    //   Tier 2: 4+ blocks  → $3/unit     (overage at $3 per 50k block)
+    if (plan !== PlanType.ENTERPRISE) {
+      const includedEvents = EVENT_QUOTAS[plan].included;
+      const includedBlocks = includedEvents / 50_000;
+      const totalEventBlocks = Math.max(includedBlocks, Math.ceil(totalEvents / 50_000));
+      await updateStripeQuantity(
+        workspace.billingSubscriptionId,
+        totalEventBlocks,
+        ctx.stripeClient,
+      );
+    }
 
     // 5b. Report AI run overage to Stripe
     const includedRuns = AI_RUN_QUOTAS[plan].included;
     const overageRuns = Math.max(0, runsUsed - includedRuns);
 
     // Calculate total billable units:
-    // - Run overage: $10 per 100 runs = $0.10/run = 10 units/run @ $0.01/unit
-    // - System model token cost on overage runs: 1.05x markup, converted to $0.01 units
+    // - Run overage: $10 per 100 runs, charged in blocks of 100 (rounded up)
+    //   e.g. 5 overage runs = 1 block = $10; 105 overage runs = 2 blocks = $20
+    //   1 block = $10 = 1000 units @ $0.01/unit
+    // - System model token cost on overage runs: 1.05x markup, converted to $0.01 units (granular)
     let totalBillableUnits = 0;
     let overageSystemCost = 0;
 
     if (overageRuns > 0) {
-      const runOverageUnits = overageRuns * 10;
+      const overageBlocks = Math.ceil(overageRuns / 100);
+      const runOverageUnits = overageBlocks * 1000;
 
       // Get system model token cost for runs beyond the included quota
       overageSystemCost = await getOverageSystemModelCost(
@@ -438,8 +462,8 @@ async function updateStripeQuantity(
 /**
  * Report AI run overage to Stripe via meter events.
  * Units are at $0.01 each. The unit count includes both:
- * - Run overage fee: $10/100 runs = 10 units per overage run
- * - System model token markup: 1.05x of token cost on overage runs
+ * - Run overage fee: $10 per 100-run block (rounded up), 1 block = 1000 units
+ * - System model token markup: 1.05x of token cost on overage runs (granular)
  * Returns true if successfully reported.
  */
 async function reportAiRunOverageToStripe(
