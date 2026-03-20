@@ -30,13 +30,15 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.postgresql.existingSecret }}
                   key: {{ .Values.postgresql.secretKeys.databaseUrl }}
-            - name: NEXTAUTH_URL
-              value: {{ .Values.nextauth.url | quote }}
-            - name: NEXTAUTH_SECRET
+            - name: BETTER_AUTH_URL
+              value: {{ .Values.betterAuth.url | quote }}
+            - name: NEXT_PUBLIC_APP_URL
+              value: {{ .Values.betterAuth.url | quote }}
+            - name: BETTER_AUTH_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.existingSecret }}
-                  key: {{ .Values.secrets.keys.nextauthSecret }}
+                  key: {{ .Values.secrets.keys.betterAuthSecret }}
             - name: INTERNAL_API_SECRET
               valueFrom:
                 secretKeyRef:

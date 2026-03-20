@@ -5,7 +5,7 @@ global:
   security:
     allowInsecureImages: true
 
-imagePullPolicy: Always
+imagePullPolicy: IfNotPresent
 
 serviceAccount:
   create: true
@@ -147,7 +147,7 @@ migrations:
 secrets:
   existingSecret: "traceroot"
   keys:
-    nextauthSecret: "nextauth-secret"
+    betterAuthSecret: "better-auth-secret"
     internalApiSecret: "internal-api-secret"
     encryptionKey: "encryption-key"
 
@@ -168,7 +168,7 @@ llmKeys:
     openaiApiKey: "openai-api-key"
     daytonaApiKey: "daytona-api-key"
 
-nextauth:
+betterAuth:
   url: ""
 
 # --- Feature flags ---
@@ -193,7 +193,6 @@ stripe:
     webhookSigningSecret: "stripe-webhook-signing-secret"
     priceIdStarter: "stripe-price-id-starter"
     priceIdPro: "stripe-price-id-pro"
-    priceIdStartups: "stripe-price-id-startups"
     priceIdAiUsage: "stripe-price-id-ai-usage"
 
 # --- Google OAuth (optional — set existingSecret to enable) ---

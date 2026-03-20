@@ -126,7 +126,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.web
       args:
-        NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-local-dev-secret-change-in-production}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-dev-secret-change-in-production}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
     ports:
       - "3000:3000"
@@ -136,8 +136,9 @@ services:
       AGENT_SERVICE_URL: http://agent:8100
       TRACEROOT_UI_URL: http://web:3000
       # --- Auth ---
-      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
-      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-local-dev-secret-change-in-production}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-dev-secret-change-in-production}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       AUTH_GOOGLE_CLIENT_ID: ${AUTH_GOOGLE_CLIENT_ID:-}
       AUTH_GOOGLE_CLIENT_SECRET: ${AUTH_GOOGLE_CLIENT_SECRET:-}
       # --- API ---

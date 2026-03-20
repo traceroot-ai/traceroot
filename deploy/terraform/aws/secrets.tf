@@ -3,7 +3,7 @@
 # Environment is controlled by var.environment (e.g. "staging", "production").
 # Use Terraform workspaces to maintain separate state per environment.
 
-resource "random_password" "nextauth_secret" {
+resource "random_password" "better_auth_secret" {
   length  = 64
   special = false
 }
@@ -38,7 +38,7 @@ resource "kubernetes_secret" "app" {
   data = {
     "postgres-password"   = random_password.postgres.result
     "redis-password"      = random_password.redis.result
-    "nextauth-secret"     = random_password.nextauth_secret.result
+    "better-auth-secret"  = random_password.better_auth_secret.result
     "internal-api-secret" = random_password.internal_api_secret.result
     "clickhouse-password" = random_password.clickhouse.result
     "database-url"        = "postgresql://traceroot:${random_password.postgres.result}@${aws_rds_cluster.postgres.endpoint}:5432/${local.database_name}"
@@ -102,7 +102,6 @@ resource "kubernetes_secret" "stripe" {
     "stripe-webhook-signing-secret" = var.stripe_webhook_signing_secret
     "stripe-price-id-starter"       = var.stripe_price_id_starter
     "stripe-price-id-pro"           = var.stripe_price_id_pro
-    "stripe-price-id-startups"      = var.stripe_price_id_startups
     "stripe-price-id-ai-usage"      = var.stripe_price_id_ai_usage
   }
 

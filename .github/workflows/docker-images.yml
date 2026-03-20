@@ -5,9 +5,9 @@
 name: Build & Push Docker Images
 
 on:
-  schedule:
-    # Daily at 3am
-    - cron: "0 3 * * *"
+  # schedule:
+  #   # Daily at 3am — disabled until we have a use for it
+  #   - cron: "0 3 * * *"
   workflow_dispatch:
 
 concurrency:
