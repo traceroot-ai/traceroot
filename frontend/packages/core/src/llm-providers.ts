@@ -29,9 +29,9 @@ export const ADAPTER_TO_PI_AI: Record<string, string> = {
   "amazon-bedrock": "amazon-bedrock",
   deepseek: "openai", // OpenAI-compatible
   openrouter: "openrouter",
-  xai: "openai",       // OpenAI-compatible
-  moonshot: "openai",   // OpenAI-compatible
-  zai: "openai",        // OpenAI-compatible
+  xai: "openai", // OpenAI-compatible
+  moonshot: "openai", // OpenAI-compatible
+  zai: "openai", // OpenAI-compatible
 };
 
 // Default base URLs for adapters
