@@ -14,6 +14,8 @@ export function PostHogIdentifier() {
         email: session.user.email,
         name: session.user.name,
       });
+    } else if (!session?.user && posthog) {
+      posthog.reset();
     }
   }, [session, posthog]);
 
