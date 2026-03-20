@@ -380,11 +380,12 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                 </SelectTrigger>
                 <SelectContent>
                   {Object.entries(ADAPTER_CONFIG).map(([key, cfg]) => (
-                    <SelectItem key={key} value={key}>
-                      <span className="flex items-center gap-2">
-                        <ProviderIcon adapter={key} className="h-4 w-4 shrink-0" />
-                        {cfg.label}
-                      </span>
+                    <SelectItem
+                      key={key}
+                      value={key}
+                      icon={<ProviderIcon adapter={key} className="h-4 w-4" />}
+                    >
+                      {cfg.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
