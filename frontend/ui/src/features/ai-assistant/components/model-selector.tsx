@@ -8,6 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { SYSTEM_MODELS } from "@traceroot/core";
 import { getAvailableLLMModels, type AvailableLLMModel } from "@/lib/api";
+import { ProviderIcon } from "@/components/icons/provider-icons";
 
 export interface ModelSelection {
   model: string;
@@ -23,7 +24,7 @@ interface ModelSelectorProps {
 
 // Flatten all system models into a single list with provider info attached
 const FALLBACK_MODELS = SYSTEM_MODELS.flatMap((s) =>
-  s.models.map((m) => ({ ...m, provider: s.provider, source: "system" as const })),
+  s.models.map((m) => ({ ...m, provider: s.provider, source: "system" as const, adapter: s.piAIProvider })),
 );
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
@@ -40,13 +41,13 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
   });
 
   // Build flat model list: BYOK models first, then system models. No deduplication.
-  const models: (AvailableLLMModel & { provider: string; source: "system" | "byok" })[] = (() => {
+  const models: (AvailableLLMModel & { provider: string; source: "system" | "byok"; adapter: string })[] = (() => {
     if (!data) return FALLBACK_MODELS;
     const systemList = data.systemModels.flatMap((g) =>
-      g.models.map((m) => ({ ...m, provider: g.provider, source: "system" as const })),
+      g.models.map((m) => ({ ...m, provider: g.provider, source: "system" as const, adapter: g.provider.toLowerCase() })),
     );
     const byokList = data.byokProviders.flatMap((g) =>
-      g.models.map((m) => ({ ...m, provider: g.provider, source: "byok" as const })),
+      g.models.map((m) => ({ ...m, provider: g.provider, source: "byok" as const, adapter: g.adapter })),
     );
     return [...byokList, ...systemList];
   })();
@@ -92,6 +93,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
               >
                 <span className="flex items-center gap-1.5">
                   {isSelected && <span className="text-[11px]">&#10003;</span>}
+                  <ProviderIcon adapter={m.adapter} className="h-3.5 w-3.5 shrink-0" />
                   {m.label}
                 </span>
                 {showProvider && (
