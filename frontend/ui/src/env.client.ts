@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 const clientSchema = z.object({
+  NEXT_PUBLIC_POSTHOG_KEY: z.string().optional(),
+  NEXT_PUBLIC_POSTHOG_HOST: z.string().optional(),
   NEXT_PUBLIC_API_URL: z.string().default("/api/v1"),
   NEXT_PUBLIC_DOCS_URL: z.string().default("https://docs.traceroot.ai"),
   NEXT_PUBLIC_GITHUB_REPO_URL: z.string().default("https://github.com/traceroot-ai/traceroot"),
@@ -12,6 +14,8 @@ const clientSchema = z.object({
 });
 
 export const clientEnv = clientSchema.parse({
+  NEXT_PUBLIC_POSTHOG_KEY: process.env.NEXT_PUBLIC_POSTHOG_KEY,
+  NEXT_PUBLIC_POSTHOG_HOST: process.env.NEXT_PUBLIC_POSTHOG_HOST,
   NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
   NEXT_PUBLIC_DOCS_URL: process.env.NEXT_PUBLIC_DOCS_URL,
   NEXT_PUBLIC_GITHUB_REPO_URL: process.env.NEXT_PUBLIC_GITHUB_REPO_URL,
