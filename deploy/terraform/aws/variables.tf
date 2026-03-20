@@ -18,9 +18,8 @@ variable "environment" {
 }
 
 variable "image_tag" {
-  description = "Docker image tag for all services. Use git SHA for traceability (e.g. sha-abc1234). Defaults to 'latest'."
+  description = "Docker image tag for all services. Must be a git SHA (e.g. sha-abc1234). Never use 'latest' — the daily CI build overwrites it."
   type        = string
-  default     = "latest"
 }
 
 variable "aws_region" {
@@ -181,12 +180,6 @@ variable "stripe_price_id_starter" {
 
 variable "stripe_price_id_pro" {
   description = "Stripe price ID for Pro plan"
-  type        = string
-  default     = ""
-}
-
-variable "stripe_price_id_startups" {
-  description = "Stripe price ID for Startups plan"
   type        = string
   default     = ""
 }

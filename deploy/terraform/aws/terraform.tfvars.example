@@ -15,8 +15,10 @@
 # Controls namespace (traceroot-{environment}) and database name (traceroot_{environment})
 environment = "staging"
 
-# Docker image tag — use git SHA for traceability (e.g. "sha-abc1234")
-# image_tag = "latest"
+# Docker image tag — always use a git SHA for staging/production (e.g. "sha-abc1234").
+# Never use "latest": the daily CI build overwrites it and a pod restart would
+# silently pick up unintended code.
+# image_tag = "sha-abc1234"
 
 # Name prefix for all AWS resources — must be unique per environment in the same account.
 # Examples: "traceroot-staging", "traceroot-prod"
@@ -63,7 +65,6 @@ cache_node_type = "cache.t4g.micro"
 # stripe_webhook_signing_secret = "whsec_..."
 # stripe_price_id_starter       = "price_..."
 # stripe_price_id_pro           = "price_..."
-# stripe_price_id_startups      = "price_..."
 # stripe_price_id_ai_usage      = "price_..."
 
 # Email / SMTP
@@ -72,6 +73,15 @@ cache_node_type = "cache.t4g.micro"
 
 # Enterprise License
 # enterprise_license_key = "traceroot_ee_..."
+
+# PostHog Analytics (optional — leave unset for staging, set for production)
+# These are baked into the web Docker image at build time (NEXT_PUBLIC_* vars).
+# Pass them as --build-arg when building the web image:
+#   docker build --build-arg NEXT_PUBLIC_POSTHOG_KEY=phc_... \
+#                --build-arg NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com \
+#                -f docker/Dockerfile.web ...
+# posthog_key  = "phc_..."
+# posthog_host = "https://us.i.posthog.com"
 
 # Feature Flags
 # enable_billing = "true"  # Set "false" for self-hosted to unlock all features
