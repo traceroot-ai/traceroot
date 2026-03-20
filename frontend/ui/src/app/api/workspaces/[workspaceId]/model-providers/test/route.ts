@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { Role, LLMAdapter, prisma, decryptKey } from "@traceroot/core";
+import { Role, LLMAdapter, ADAPTER_DEFAULT_BASE_URL, prisma, decryptKey } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -184,8 +184,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "deepseek": {
-        const deepseekBase = baseUrl || "https://api.deepseek.com";
-        const res = await fetch(`${deepseekBase.replace(/\/$/, "")}/v1/models`, {
+        const deepseekBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.deepseek;
+        const res = await fetch(`${deepseekBase.replace(/\/$/, "")}/models`, {
           headers: { Authorization: `Bearer ${apiKey}` },
         });
         if (!res.ok) {
@@ -214,8 +214,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "xai": {
-        const xaiBase = baseUrl || "https://api.x.ai";
-        const res = await fetch(`${xaiBase.replace(/\/$/, "")}/v1/models`, {
+        const xaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.xai;
+        const res = await fetch(`${xaiBase.replace(/\/$/, "")}/models`, {
           headers: { Authorization: `Bearer ${apiKey}` },
         });
         if (!res.ok) {
@@ -231,8 +231,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "moonshot": {
-        const moonshotBase = baseUrl || "https://api.moonshot.ai";
-        const res = await fetch(`${moonshotBase.replace(/\/$/, "")}/v1/models`, {
+        const moonshotBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.moonshot;
+        const res = await fetch(`${moonshotBase.replace(/\/$/, "")}/models`, {
           headers: { Authorization: `Bearer ${apiKey}` },
         });
         if (!res.ok) {
@@ -248,7 +248,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "zai": {
-        const zaiBase = baseUrl || "https://open.bigmodel.cn/api/paas/v4";
+        const zaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.zai;
         const res = await fetch(`${zaiBase.replace(/\/$/, "")}/models`, {
           headers: { Authorization: `Bearer ${apiKey}` },
         });
