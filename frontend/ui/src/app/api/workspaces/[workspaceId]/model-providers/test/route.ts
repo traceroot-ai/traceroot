@@ -249,24 +249,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       case "zai": {
         const zaiBase = baseUrl || "https://open.bigmodel.cn/api/paas/v4";
-        const res = await fetch(`${zaiBase.replace(/\/$/, "")}/chat/completions`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "glm-4-flash",
-            max_tokens: 1,
-            messages: [{ role: "user", content: "hi" }],
-          }),
+        const res = await fetch(`${zaiBase.replace(/\/$/, "")}/models`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          const errObj = err as Record<string, Record<string, unknown>>;
           return successResponse({
             success: false,
-            error: errObj.error?.message ? String(errObj.error.message) : `HTTP ${res.status}`,
+            error: (err as Record<string, Record<string, unknown>>).error?.message
+              ? String((err as Record<string, Record<string, unknown>>).error.message)
+              : `HTTP ${res.status}`,
           });
         }
         break;
