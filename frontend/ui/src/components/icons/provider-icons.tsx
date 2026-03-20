@@ -86,11 +86,7 @@ export const AWSIcon: FC<IconProps> = ({ className }) => (
 );
 
 export const DeepSeekIcon: FC<IconProps> = ({ className }) => (
-  <svg
-    viewBox="0 0 24 24"
-    className={cn("h-4 w-4", className)}
-    xmlns="http://www.w3.org/2000/svg"
-  >
+  <svg viewBox="0 0 24 24" className={cn("h-4 w-4", className)} xmlns="http://www.w3.org/2000/svg">
     <circle cx="12" cy="12" r="12" fill="#4D6BFE" />
     <text
       x="12"
@@ -107,11 +103,7 @@ export const DeepSeekIcon: FC<IconProps> = ({ className }) => (
 );
 
 export const OpenRouterIcon: FC<IconProps> = ({ className }) => (
-  <svg
-    viewBox="0 0 24 24"
-    className={cn("h-4 w-4", className)}
-    xmlns="http://www.w3.org/2000/svg"
-  >
+  <svg viewBox="0 0 24 24" className={cn("h-4 w-4", className)} xmlns="http://www.w3.org/2000/svg">
     <circle cx="12" cy="12" r="12" fill="#6366F1" />
     <text
       x="12"
@@ -150,11 +142,7 @@ export const MoonshotIcon: FC<IconProps> = ({ className }) => (
 );
 
 export const ZAIIcon: FC<IconProps> = ({ className }) => (
-  <svg
-    viewBox="0 0 24 24"
-    className={cn("h-4 w-4", className)}
-    xmlns="http://www.w3.org/2000/svg"
-  >
+  <svg viewBox="0 0 24 24" className={cn("h-4 w-4", className)} xmlns="http://www.w3.org/2000/svg">
     <circle cx="12" cy="12" r="12" fill="#2563EB" />
     <text
       x="12"
