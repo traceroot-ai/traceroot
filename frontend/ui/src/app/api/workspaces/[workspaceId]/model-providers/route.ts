@@ -25,6 +25,9 @@ const ADAPTER_VALUES = [
   LLMAdapter.AMAZON_BEDROCK,
   LLMAdapter.DEEPSEEK,
   LLMAdapter.OPENROUTER,
+  LLMAdapter.XAI,
+  LLMAdapter.MOONSHOT,
+  LLMAdapter.ZAI,
 ] as const;
 
 const createSchema = z.object({
