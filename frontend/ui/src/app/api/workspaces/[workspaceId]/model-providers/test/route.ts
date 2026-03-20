@@ -261,12 +261,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             messages: [{ role: "user", content: "hi" }],
           }),
         });
-        if (!res.ok && res.status === 401) {
+        if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           const errObj = err as Record<string, Record<string, unknown>>;
           return successResponse({
             success: false,
-            error: errObj.error?.message ? String(errObj.error.message) : "Invalid API key",
+            error: errObj.error?.message ? String(errObj.error.message) : `HTTP ${res.status}`,
           });
         }
         break;
