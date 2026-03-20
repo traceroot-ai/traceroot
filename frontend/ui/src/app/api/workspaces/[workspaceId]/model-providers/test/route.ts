@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { Role, LLMAdapter, prisma, decryptKey } from "@traceroot/core";
+import { Role, LLMAdapter, ADAPTER_DEFAULT_BASE_URL, prisma, decryptKey } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -16,6 +16,9 @@ const ADAPTER_VALUES = [
   LLMAdapter.AMAZON_BEDROCK,
   LLMAdapter.DEEPSEEK,
   LLMAdapter.OPENROUTER,
+  LLMAdapter.XAI,
+  LLMAdapter.MOONSHOT,
+  LLMAdapter.ZAI,
 ] as const;
 
 const testSchema = z.object({
@@ -181,8 +184,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "deepseek": {
-        const deepseekBase = baseUrl || "https://api.deepseek.com";
-        const res = await fetch(`${deepseekBase.replace(/\/$/, "")}/v1/models`, {
+        const deepseekBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.deepseek;
+        const res = await fetch(`${deepseekBase.replace(/\/$/, "")}/models`, {
           headers: { Authorization: `Bearer ${apiKey}` },
         });
         if (!res.ok) {
@@ -205,6 +208,57 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           return successResponse({
             success: false,
             error: `HTTP ${res.status}: ${res.statusText}`,
+          });
+        }
+        break;
+      }
+
+      case "xai": {
+        const xaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.xai;
+        const res = await fetch(`${xaiBase.replace(/\/$/, "")}/models`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          return successResponse({
+            success: false,
+            error: (err as Record<string, Record<string, unknown>>).error?.message
+              ? String((err as Record<string, Record<string, unknown>>).error.message)
+              : `HTTP ${res.status}`,
+          });
+        }
+        break;
+      }
+
+      case "moonshot": {
+        const moonshotBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.moonshot;
+        const res = await fetch(`${moonshotBase.replace(/\/$/, "")}/models`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          return successResponse({
+            success: false,
+            error: (err as Record<string, Record<string, unknown>>).error?.message
+              ? String((err as Record<string, Record<string, unknown>>).error.message)
+              : `HTTP ${res.status}`,
+          });
+        }
+        break;
+      }
+
+      case "zai": {
+        const zaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.zai;
+        const res = await fetch(`${zaiBase.replace(/\/$/, "")}/models`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          return successResponse({
+            success: false,
+            error: (err as Record<string, Record<string, unknown>>).error?.message
+              ? String((err as Record<string, Record<string, unknown>>).error.message)
+              : `HTTP ${res.status}`,
           });
         }
         break;

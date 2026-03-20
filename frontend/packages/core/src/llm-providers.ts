@@ -14,6 +14,9 @@ export const LLMAdapter = {
   AMAZON_BEDROCK: "amazon-bedrock",
   DEEPSEEK: "deepseek",
   OPENROUTER: "openrouter",
+  XAI: "xai",
+  MOONSHOT: "moonshot",
+  ZAI: "zai",
 } as const;
 export type LLMAdapter = (typeof LLMAdapter)[keyof typeof LLMAdapter];
 
@@ -26,6 +29,9 @@ export const ADAPTER_TO_PI_AI: Record<string, string> = {
   "amazon-bedrock": "amazon-bedrock",
   deepseek: "openai", // OpenAI-compatible
   openrouter: "openrouter",
+  xai: "openai", // OpenAI-compatible
+  moonshot: "openai", // OpenAI-compatible
+  zai: "openai", // OpenAI-compatible
 };
 
 // Default base URLs for adapters
@@ -35,6 +41,9 @@ export const ADAPTER_DEFAULT_BASE_URL: Record<string, string> = {
   google: "https://generativelanguage.googleapis.com/v1alpha",
   deepseek: "https://api.deepseek.com/v1",
   openrouter: "https://openrouter.ai/api/v1",
+  xai: "https://api.x.ai/v1",
+  moonshot: "https://api.moonshot.ai/v1",
+  zai: "https://open.bigmodel.cn/api/paas/v4",
 };
 
 // API protocol per adapter — used to build fallback model objects for BYOK models
@@ -47,6 +56,9 @@ export const ADAPTER_API_PROTOCOL: Record<string, string> = {
   "amazon-bedrock": "bedrock-converse-stream",
   deepseek: "openai-completions",
   openrouter: "openai-completions",
+  xai: "openai-completions",
+  moonshot: "openai-completions",
+  zai: "openai-completions",
 };
 
 export interface LLMModelDef {
@@ -118,6 +130,9 @@ export const ADAPTER_AVAILABLE_PROTOCOLS: Record<string, { value: string; label:
     { value: "openai-completions", label: "Chat Completions" },
     { value: "openai-responses", label: "Responses API" },
   ],
+  xai: [{ value: "openai-completions", label: "Chat Completions" }],
+  moonshot: [{ value: "openai-completions", label: "Chat Completions" }],
+  zai: [{ value: "openai-completions", label: "Chat Completions" }],
 };
 
 // Adapter UI metadata
@@ -170,6 +185,24 @@ export const ADAPTER_CONFIG: Record<
     label: "OpenRouter",
     requiresBaseUrl: false,
     requiresCustomModels: true,
+    credentialType: "api-key",
+  },
+  xai: {
+    label: "xAI",
+    requiresBaseUrl: false,
+    requiresCustomModels: false,
+    credentialType: "api-key",
+  },
+  moonshot: {
+    label: "Moonshot (Kimi)",
+    requiresBaseUrl: false,
+    requiresCustomModels: false,
+    credentialType: "api-key",
+  },
+  zai: {
+    label: "Z.AI (GLM)",
+    requiresBaseUrl: false,
+    requiresCustomModels: false,
     credentialType: "api-key",
   },
 };

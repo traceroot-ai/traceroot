@@ -94,7 +94,7 @@ model Workspace {
 model ModelProvider {
   id                String    @id @default(cuid()) @db.VarChar
   workspaceId       String    @map("workspace_id") @db.VarChar
-  adapter           String    @db.VarChar        // "openai"|"anthropic"|"azure"|"google"|"amazon-bedrock"|"deepseek"|"openrouter"
+  adapter           String    @db.VarChar        // "openai"|"anthropic"|"azure"|"google"|"amazon-bedrock"|"deepseek"|"openrouter"|"xai"|"moonshot"|"zai"
   provider          String    @db.VarChar        // user-defined label: "My OpenAI", "DeepSeek", etc.
   keyCipher         String    @map("key_cipher") @db.Text
   keyPreview        String    @map("key_preview") @db.VarChar  // "xxxx...xxxx"
