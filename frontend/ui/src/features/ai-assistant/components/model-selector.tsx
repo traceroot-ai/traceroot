@@ -57,7 +57,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
         ...m,
         provider: g.provider,
         source: "system" as const,
-        adapter: g.provider.toLowerCase(),
+        adapter: g.adapter,
       })),
     );
     const byokList = data.byokProviders.flatMap((g) =>

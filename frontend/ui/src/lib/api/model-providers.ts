@@ -25,6 +25,7 @@ export interface AvailableLLMModel {
 
 export interface SystemModelGroup {
   provider: string;
+  adapter: string;
   source: "system";
   models: AvailableLLMModel[];
 }
