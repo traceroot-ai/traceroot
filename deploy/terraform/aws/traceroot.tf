@@ -13,7 +13,7 @@ serviceAccount:
   annotations:
     eks.amazonaws.com/role-arn: ${aws_iam_role.traceroot_irsa.arn}
 
-imagePullPolicy: Always
+imagePullPolicy: IfNotPresent
 
 web:
   image:
@@ -93,7 +93,7 @@ migrations:
       repository: ${aws_ecr_repository.services["migrate-clickhouse"].repository_url}
       tag: ${var.image_tag}
 
-nextauth:
+betterAuth:
   url: "${local.app_url}"
 
 postgresql:
@@ -135,7 +135,7 @@ clickhouse:
 secrets:
   existingSecret: "traceroot"
   keys:
-    nextauthSecret: "nextauth-secret"
+    betterAuthSecret: "better-auth-secret"
     internalApiSecret: "internal-api-secret"
     encryptionKey: "encryption-key"
 EOT

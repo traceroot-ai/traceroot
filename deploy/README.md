@@ -191,15 +191,13 @@ terraform apply -var-file=staging.tfvars
 # If you changed app code — rebuild with git SHA tag
 export TAG=sha-$(git rev-parse --short HEAD)
 
-docker build --platform linux/amd64 -f docker/Dockerfile.web -t $REGISTRY/traceroot-web:$TAG .
-docker push $REGISTRY/traceroot-web:$TAG
+for svc in web rest worker billing agent migrate-postgres migrate-clickhouse; do
+  docker build --platform linux/amd64 -f docker/Dockerfile.$svc -t $REGISTRY/traceroot-$svc:$TAG .
+  docker push $REGISTRY/traceroot-$svc:$TAG
+done
 
-# Update the image tag in Helm (via terraform)
-# Edit staging.tfvars: image_tag = "sha-abc1234"
+# Edit staging.tfvars: image_tag = "sha-<TAG>"
 terraform apply -var-file=staging.tfvars
-
-# Or quick restart if using image_tag = "latest"
-kubectl rollout restart deployment/traceroot-web -n traceroot-staging
 ```
 
 Once CI/CD is set up, the build/push/apply is automated on git push.
@@ -210,21 +208,31 @@ Once CI/CD is set up, the build/push/apply is automated on git push.
 # List workspaces
 terraform workspace list
 
-# Switch
-terraform workspace select staging
-terraform workspace select production
-
 # Always use the matching tfvars file!
-terraform workspace select production
-terraform apply -var-file=production.tfvars  # NOT staging.tfvars
+terraform workspace select staging  && terraform apply -var-file=staging.tfvars
+terraform workspace select production && terraform apply -var-file=production.tfvars
 ```
 
 ## Tear Down
 
 ```bash
 terraform workspace select staging  # or: production
+
+# 1. Destroy everything (including Route53 zone)
 terraform destroy -var-file=staging.tfvars
+
+# --- rebuild images, update image_tag in tfvars (see Subsequent Deploys above) ---
+
+# 2. Full apply — creates a new Route53 zone with new nameservers
+terraform apply -var-file=staging.tfvars
 ```
 
-**Warning:** This deletes everything including the database. Back up first.
+> **Production:** replace `staging.tfvars` accordingly.
+
+**Warning:** Destroying recreates the Route53 zone with new nameservers. After apply,
+update your DNS registrar (e.g. Cloudflare) with the new nameservers shown in the
+`nameservers` output. The `terraform import` approach to preserve nameservers does NOT
+work reliably because the kubernetes/helm providers need a known EKS endpoint at plan
+time (empty state = unknown values).
+
 Each workspace is independent — destroying staging does not affect production.

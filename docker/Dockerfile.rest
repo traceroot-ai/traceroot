@@ -12,6 +12,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy application code
 COPY backend ./backend
+COPY ee ./ee
 
 FROM python:3.12-slim AS runner
 
@@ -20,9 +21,10 @@ WORKDIR /app
 # Copy installed environment from builder
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/backend ./backend
+COPY --from=builder /app/ee ./ee
 
 ENV PATH="/app/.venv/bin:$PATH"
-ENV PYTHONPATH="/app/backend"
+ENV PYTHONPATH="/app/backend:/app"
 
 WORKDIR /app/backend
 

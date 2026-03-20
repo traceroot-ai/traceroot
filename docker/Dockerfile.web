@@ -53,6 +53,12 @@ ARG BETTER_AUTH_URL=http://localhost:3000
 ENV BETTER_AUTH_URL=${BETTER_AUTH_URL}
 ARG NEXT_PUBLIC_API_URL=/api/v1
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ARG NEXT_PUBLIC_APP_URL=http://localhost:3000
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+ARG NEXT_PUBLIC_POSTHOG_KEY=""
+ENV NEXT_PUBLIC_POSTHOG_KEY=${NEXT_PUBLIC_POSTHOG_KEY}
+ARG NEXT_PUBLIC_POSTHOG_HOST="https://us.i.posthog.com"
+ENV NEXT_PUBLIC_POSTHOG_HOST=${NEXT_PUBLIC_POSTHOG_HOST}
 # Build-time dummy for server env vars validated by Zod at page collection time.
 # Real values are injected at runtime via container environment.
 ENV INTERNAL_API_SECRET=build-time-placeholder
