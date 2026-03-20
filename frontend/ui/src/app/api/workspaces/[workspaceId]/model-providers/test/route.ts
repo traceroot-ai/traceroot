@@ -16,6 +16,9 @@ const ADAPTER_VALUES = [
   LLMAdapter.AMAZON_BEDROCK,
   LLMAdapter.DEEPSEEK,
   LLMAdapter.OPENROUTER,
+  LLMAdapter.XAI,
+  LLMAdapter.MOONSHOT,
+  LLMAdapter.ZAI,
 ] as const;
 
 const testSchema = z.object({
@@ -205,6 +208,65 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           return successResponse({
             success: false,
             error: `HTTP ${res.status}: ${res.statusText}`,
+          });
+        }
+        break;
+      }
+
+      case "xai": {
+        const xaiBase = baseUrl || "https://api.x.ai";
+        const res = await fetch(`${xaiBase.replace(/\/$/, "")}/v1/models`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          return successResponse({
+            success: false,
+            error: (err as Record<string, Record<string, unknown>>).error?.message
+              ? String((err as Record<string, Record<string, unknown>>).error.message)
+              : `HTTP ${res.status}`,
+          });
+        }
+        break;
+      }
+
+      case "moonshot": {
+        const moonshotBase = baseUrl || "https://api.moonshot.ai";
+        const res = await fetch(`${moonshotBase.replace(/\/$/, "")}/v1/models`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          return successResponse({
+            success: false,
+            error: (err as Record<string, Record<string, unknown>>).error?.message
+              ? String((err as Record<string, Record<string, unknown>>).error.message)
+              : `HTTP ${res.status}`,
+          });
+        }
+        break;
+      }
+
+      case "zai": {
+        const zaiBase = baseUrl || "https://open.bigmodel.cn/api/paas/v4";
+        const res = await fetch(`${zaiBase.replace(/\/$/, "")}/chat/completions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "glm-4-flash",
+            max_tokens: 1,
+            messages: [{ role: "user", content: "hi" }],
+          }),
+        });
+        if (!res.ok && res.status === 401) {
+          const err = await res.json().catch(() => ({}));
+          const errObj = err as Record<string, Record<string, unknown>>;
+          return successResponse({
+            success: false,
+            error: errObj.error?.message ? String(errObj.error.message) : "Invalid API key",
           });
         }
         break;
