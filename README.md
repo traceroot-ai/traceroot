@@ -35,7 +35,7 @@
 
 - **Debugging ai agent system is painful.**
 
-  Root-causing failures across agent hallucinations, tool call instabilities, and version changes is hard. TraceRoot's AI connects to a sandbox running your production source code, identifies the exact failing line, and cross-references your GitHub history — commits, PRs, open issues — to tell you not just *what* broke but *when* it was introduced and *why*.
+  Root-causing failures across agent hallucinations, tool call instabilities, and version changes is hard. TraceRoot's AI connects to a sandbox running your production source code, identifies the exact failing line, and cross-references your GitHub history — commits, PRs, open issues and creates PR to fix it.
 
 - **Fully open source, no vendor lock-in.**
 
