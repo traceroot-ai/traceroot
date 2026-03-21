@@ -3,7 +3,7 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-[TraceRoot]("https://traceroot.ai/") is an open-source observability platform for AI agents — Capturess traces, debug with AI that sees your source code and github history.
+[TraceRoot]("https://traceroot.ai/") is an open-source observability platform for AI agents — Captures traces, debug with AI that sees your source code and Github history.
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
