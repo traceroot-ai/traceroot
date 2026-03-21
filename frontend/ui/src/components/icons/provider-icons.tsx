@@ -206,11 +206,14 @@ export const ZAIIcon: FC<IconProps> = ({ className }) => (
     viewBox="0 0 24 24"
     className={cn("h-4 w-4", className)}
     xmlns="http://www.w3.org/2000/svg"
-    fill="currentColor"
     fillRule="evenodd"
     aria-hidden="true"
   >
-    <path d="M12.105 2L9.927 4.953H.653L2.83 2h9.276zM23.254 19.048L21.078 22h-9.242l2.174-2.952h9.244zM24 2L9.264 22H0L14.736 2H24z" />
+    <rect width="24" height="24" rx="4" fill="#1A1A2E" />
+    <path
+      d="M11.105 4L8.927 6.953H3.653L5.83 4h5.276zM19.254 17.048L17.078 20h-5.242l2.174-2.952h5.244zM20 4L9.264 20H4L14.736 4H20z"
+      fill="white"
+    />
   </svg>
 );
 
