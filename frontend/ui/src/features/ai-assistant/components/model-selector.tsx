@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { ChevronDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -51,10 +51,11 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
     return [...byokList, ...systemList];
   })();
 
-  // Auto-select the best available model if current selection isn't in the list
-  const hasAutoSelected = useRef(false);
+  // Auto-select the best available model if current selection is not in the list.
+  // This handles: initial empty state, provider becoming unavailable, and the
+  // transition from FALLBACK_MODELS to real API data.
   useEffect(() => {
-    if (hasAutoSelected.current || models.length === 0) return;
+    if (models.length === 0) return;
     const currentExists = models.some(
       (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
     );
@@ -70,7 +71,6 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
         onChange({ model: best.id, provider: best.provider, source: best.source });
       }
     }
-    hasAutoSelected.current = true;
   }, [models, value, onChange]);
 
   const selectedKey = modelKey({ id: value.model, source: value.source, provider: value.provider });
