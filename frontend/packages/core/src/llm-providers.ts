@@ -116,17 +116,17 @@ export const SYSTEM_MODELS: {
 // Used by both the frontend ModelSelector (matches all providers including BYOK)
 // and the backend getDefaultSystemModel() (only matches SYSTEM_MODELS entries;
 // entries without a matching system provider are silently skipped server-side).
-export const PROVIDER_PRIORITY: string[] = [
-  "anthropic",
-  "openai",
-  "deepseek",
-  "xai",
-  "moonshot",
-  "zai",
-  "google",
-  "openrouter",
-  "azure",
-  "amazon-bedrock",
+export const PROVIDER_PRIORITY: LLMAdapter[] = [
+  LLMAdapter.ANTHROPIC,
+  LLMAdapter.OPENAI,
+  LLMAdapter.DEEPSEEK,
+  LLMAdapter.XAI,
+  LLMAdapter.MOONSHOT,
+  LLMAdapter.ZAI,
+  LLMAdapter.GOOGLE,
+  LLMAdapter.OPENROUTER,
+  LLMAdapter.AZURE,
+  LLMAdapter.AMAZON_BEDROCK,
 ];
 
 // Default models per adapter (for BYOK providers)
