@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ChevronDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { SYSTEM_MODELS } from "@traceroot/core";
+import { SYSTEM_MODELS, PROVIDER_PRIORITY } from "@traceroot/core";
 import { getAvailableLLMModels, type AvailableLLMModel } from "@/lib/api";
 
 export interface ModelSelection {
@@ -50,6 +50,28 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
     );
     return [...byokList, ...systemList];
   })();
+
+  // Auto-select the best available model if current selection isn't in the list
+  const hasAutoSelected = useRef(false);
+  useEffect(() => {
+    if (hasAutoSelected.current || models.length === 0) return;
+    const currentExists = models.some(
+      (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
+    );
+    if (!currentExists) {
+      // Pick the first model from the highest-priority provider
+      const sorted = [...models].sort((a, b) => {
+        const aIdx = PROVIDER_PRIORITY.indexOf(a.provider.toLowerCase());
+        const bIdx = PROVIDER_PRIORITY.indexOf(b.provider.toLowerCase());
+        return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+      });
+      const best = sorted[0];
+      if (best) {
+        onChange({ model: best.id, provider: best.provider, source: best.source });
+      }
+    }
+    hasAutoSelected.current = true;
+  }, [models, value, onChange]);
 
   const selectedKey = modelKey({ id: value.model, source: value.source, provider: value.provider });
   const selectedModel = models.find((m) => modelKey(m) === selectedKey);

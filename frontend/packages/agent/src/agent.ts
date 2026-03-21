@@ -9,6 +9,7 @@ import {
   prisma,
   decryptKey,
   SYSTEM_MODELS,
+  PROVIDER_PRIORITY,
   ADAPTER_TO_PI_AI,
   ADAPTER_DEFAULT_BASE_URL,
   ADAPTER_API_PROTOCOL,
@@ -174,8 +175,31 @@ function buildFallbackModel(modelId: string, apiProtocol: string, provider: stri
   };
 }
 
+/** Pick the first available system model by provider priority */
+function getDefaultSystemModel(): {
+  modelId: string;
+  piAIProvider: string;
+  apiProtocol: string;
+} | null {
+  for (const adapter of PROVIDER_PRIORITY) {
+    const sys = SYSTEM_MODELS.find((s) => s.piAIProvider === adapter && process.env[s.envVar]);
+    if (sys && sys.models.length > 0) {
+      return {
+        modelId: sys.models[0].id,
+        piAIProvider: sys.piAIProvider,
+        apiProtocol: sys.models[0].apiProtocol || sys.apiProtocol,
+      };
+    }
+  }
+  return null;
+}
+
 function resolveModel(modelId?: string, providerConfig?: ProviderConfig | null) {
-  const effectiveModelId = modelId || "claude-sonnet-4-5";
+  let effectiveModelId = modelId;
+  if (!effectiveModelId) {
+    const defaultModel = getDefaultSystemModel();
+    effectiveModelId = defaultModel?.modelId || "claude-sonnet-4-5";
+  }
 
   // 1. BYOK: always build model from adapter config (don't trust pi-ai registry —
   //    it may assign a wrong API protocol for custom/BYOK models)
@@ -205,7 +229,15 @@ function resolveModel(modelId?: string, providerConfig?: ProviderConfig | null) 
     return buildFallbackModel(effectiveModelId, sysInfo.apiProtocol, sysInfo.piAIProvider);
   }
 
-  // 3. Default
+  // 3. Default — pick best available system model by priority
+  const defaultModel = getDefaultSystemModel();
+  if (defaultModel) {
+    return buildFallbackModel(
+      defaultModel.modelId,
+      defaultModel.apiProtocol,
+      defaultModel.piAIProvider,
+    );
+  }
   return getModel("anthropic", "claude-sonnet-4-5");
 }
 

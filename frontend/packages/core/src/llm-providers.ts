@@ -112,6 +112,21 @@ export const SYSTEM_MODELS: {
   },
 ];
 
+// Provider priority for default model selection (highest first).
+// When no specific model is chosen, pick the first available provider's first model.
+export const PROVIDER_PRIORITY: string[] = [
+  "anthropic",
+  "openai",
+  "deepseek",
+  "xai",
+  "moonshot",
+  "zai",
+  "google",
+  "openrouter",
+  "azure",
+  "amazon-bedrock",
+];
+
 // Default models per adapter (for BYOK providers)
 
 // Available API protocols per adapter — shown in provider settings UI
