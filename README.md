@@ -3,7 +3,7 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-[TraceRoot]("https://traceroot.ai/") is an open-source observability platform for AI agents — Captures traces, debug with AI that sees your source code and Github history.
+[TraceRoot]("https://traceroot.ai/") is an open-source observability platform for AI agents — Capture traces, debug with AI that sees your source code and Github history.
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -33,7 +33,7 @@
 
   As AI agent systems grow more complex, manually sifting through every trace is unsustainable. TraceRoot selectively screens your traces — filtering noise and surfacing only the ones that actually need attention, so you spend time fixing problems, not hunting for them.
 
-- **Debugging ai agent system is painful.**
+- **Debugging AI agent systems is painful.**
 
   Root-causing failures across agent hallucinations, tool call instabilities, and version changes is hard. TraceRoot's AI connects to a sandbox running your production source code, identifies the exact failing line, and cross-references your GitHub history — commits, PRs, open issues and creates PR to fix it.
 
