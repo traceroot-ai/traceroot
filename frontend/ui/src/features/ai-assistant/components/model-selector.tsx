@@ -60,15 +60,21 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
       (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
     );
     if (!currentExists) {
-      // Pick the first model from the highest-priority provider
-      const sorted = [...models].sort((a, b) => {
-        const aIdx = PROVIDER_PRIORITY.indexOf(a.provider.toLowerCase());
-        const bIdx = PROVIDER_PRIORITY.indexOf(b.provider.toLowerCase());
-        return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
-      });
-      const best = sorted[0];
-      if (best) {
-        onChange({ model: best.id, provider: best.provider, source: best.source });
+      // Pick the first model from the highest-priority provider.
+      // Walk the priority list and return the first model we find.
+      for (const adapter of PROVIDER_PRIORITY) {
+        const match = models.find((m) => m.provider.toLowerCase() === adapter);
+        if (match) {
+          onChange({ model: match.id, provider: match.provider, source: match.source });
+          break;
+        }
+      }
+      // If no priority match, fall back to the first model in the list
+      if (!models.find((m) => PROVIDER_PRIORITY.includes(m.provider.toLowerCase()))) {
+        const first = models[0];
+        if (first) {
+          onChange({ model: first.id, provider: first.provider, source: first.source });
+        }
       }
     }
   }, [models, value, onChange]);
