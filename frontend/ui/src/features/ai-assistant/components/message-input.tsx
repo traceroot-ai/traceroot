@@ -13,8 +13,8 @@ interface MessageInputProps {
 export function MessageInput({ onSend, disabled, workspaceId, actions }: MessageInputProps) {
   const [input, setInput] = useState("");
   const [modelSelection, setModelSelection] = useState<ModelSelection>({
-    model: "claude-sonnet-4-5",
-    provider: "Anthropic",
+    model: "",
+    provider: "",
     source: "system",
   });
 
