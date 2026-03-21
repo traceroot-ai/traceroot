@@ -13,14 +13,16 @@ interface MessageInputProps {
 export function MessageInput({ onSend, disabled, workspaceId, actions }: MessageInputProps) {
   const [input, setInput] = useState("");
   const [modelSelection, setModelSelection] = useState<ModelSelection>({
-    model: "claude-sonnet-4-5",
-    provider: "Anthropic",
+    model: "",
+    provider: "",
     source: "system",
   });
 
+  const noModelSelected = !modelSelection.model;
+
   const handleSend = () => {
     const trimmed = input.trim();
-    if (!trimmed || disabled) return;
+    if (!trimmed || disabled || noModelSelected) return;
     onSend(trimmed, modelSelection);
     setInput("");
   };
@@ -39,7 +41,7 @@ export function MessageInput({ onSend, disabled, workspaceId, actions }: Message
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="Ask me about your traces, errors, or performance."
-        disabled={disabled}
+        disabled={disabled || noModelSelected}
         rows={3}
         className="w-full resize-none rounded-none border border-input bg-transparent px-3 py-2 text-[13px] shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
       />
