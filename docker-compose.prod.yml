@@ -127,6 +127,7 @@ services:
       dockerfile: docker/Dockerfile.web
       args:
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-dev-secret-change-in-production}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
     ports:
       - "3000:3000"
