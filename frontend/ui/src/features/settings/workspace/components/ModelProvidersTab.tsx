@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Loader2, CheckCircle2, XCircle, ArrowUpRight, X } from "lucide-react";
+import { ProviderIcon } from "@/components/icons/provider-icons";
 import { Button } from "@/components/ui/button";
 import { AddButton } from "@/components/ui/add-button";
 import { DeleteIconButton } from "@/components/ui/delete-button";
@@ -329,7 +330,12 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                 return (
                   <tr key={p.id} className="border-b last:border-b-0 hover:bg-muted/20">
                     <td className="px-4 py-2">{p.provider}</td>
-                    <td className="px-4 py-2 text-muted-foreground">{cfg?.label ?? p.adapter}</td>
+                    <td className="px-4 py-2 text-muted-foreground">
+                      <span className="flex items-center gap-2">
+                        <ProviderIcon adapter={p.adapter} className="h-4 w-4 shrink-0" />
+                        {cfg?.label ?? p.adapter}
+                      </span>
+                    </td>
                     <td className="px-4 py-2 text-muted-foreground">{p.keyPreview}</td>
                     <td className="px-4 py-2">
                       <span className={p.enabled ? "text-green-600" : "text-yellow-600"}>
@@ -374,7 +380,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                 </SelectTrigger>
                 <SelectContent>
                   {Object.entries(ADAPTER_CONFIG).map(([key, cfg]) => (
-                    <SelectItem key={key} value={key}>
+                    <SelectItem
+                      key={key}
+                      value={key}
+                      icon={<ProviderIcon adapter={key} className="h-4 w-4" />}
+                    >
                       {cfg.label}
                     </SelectItem>
                   ))}

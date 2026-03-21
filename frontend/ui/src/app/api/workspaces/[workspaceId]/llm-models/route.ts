@@ -21,6 +21,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   );
   const systemModels = SYSTEM_MODELS.filter((s) => !!process.env[s.envVar]).map((s) => ({
     provider: s.provider,
+    adapter: s.piAIProvider,
     source: ModelSource.SYSTEM,
     models: s.models,
   }));
