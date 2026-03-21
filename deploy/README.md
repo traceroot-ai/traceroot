@@ -204,19 +204,23 @@ terraform workspace select staging  # or: production
 terraform apply -var-file=staging.tfvars
 
 # If you changed app code — rebuild with git SHA tag
+export REGION=us-east-1
+export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+export REGISTRY=$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
+export NAME=traceroot-staging   # or: traceroot-production
 export TAG=sha-$(git rev-parse --short HEAD)
 
 for svc in rest worker billing agent migrate-postgres migrate-clickhouse; do
-  docker build --platform linux/amd64 -f docker/Dockerfile.$svc -t $REGISTRY/traceroot-$svc:$TAG .
-  docker push $REGISTRY/traceroot-$svc:$TAG
+  docker build --platform linux/amd64 -f docker/Dockerfile.$svc -t $REGISTRY/traceroot-$NAME-$svc:$TAG .
+  docker push $REGISTRY/traceroot-$NAME-$svc:$TAG
 done
 
 # Web requires NEXT_PUBLIC_* vars baked in at build time
 docker build --platform linux/amd64 -f docker/Dockerfile.web \
   --build-arg NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL} \
   --build-arg NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-/api/v1} \
-  -t $REGISTRY/traceroot-web:$TAG .
-docker push $REGISTRY/traceroot-web:$TAG
+  -t $REGISTRY/traceroot-$NAME-web:$TAG .
+docker push $REGISTRY/traceroot-$NAME-web:$TAG
 
 # Edit staging.tfvars: image_tag = "sha-<TAG>"
 terraform apply -var-file=staging.tfvars
