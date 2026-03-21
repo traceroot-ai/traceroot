@@ -62,19 +62,18 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
     if (!currentExists) {
       // Pick the first model from the highest-priority provider.
       // Walk the priority list and return the first model we find.
+      let found = false;
       for (const adapter of PROVIDER_PRIORITY) {
         const match = models.find((m) => m.provider.toLowerCase() === adapter);
         if (match) {
           onChange({ model: match.id, provider: match.provider, source: match.source });
+          found = true;
           break;
         }
       }
       // If no priority match, fall back to the first model in the list
-      if (!models.find((m) => PROVIDER_PRIORITY.includes(m.provider.toLowerCase()))) {
-        const first = models[0];
-        if (first) {
-          onChange({ model: first.id, provider: first.provider, source: first.source });
-        }
+      if (!found && models[0]) {
+        onChange({ model: models[0].id, provider: models[0].provider, source: models[0].source });
       }
     }
   }, [models, value, onChange]);
