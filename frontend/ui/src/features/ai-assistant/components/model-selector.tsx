@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ChevronDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { SYSTEM_MODELS } from "@traceroot/core";
+import { SYSTEM_MODELS, PROVIDER_PRIORITY } from "@traceroot/core";
 import { getAvailableLLMModels, type AvailableLLMModel } from "@/lib/api";
 
 export interface ModelSelection {
@@ -50,6 +50,33 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
     );
     return [...byokList, ...systemList];
   })();
+
+  // Auto-select the best available model if current selection is not in the list.
+  // This handles: initial empty state, provider becoming unavailable, and the
+  // transition from FALLBACK_MODELS to real API data.
+  useEffect(() => {
+    if (models.length === 0) return;
+    const currentExists = models.some(
+      (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
+    );
+    if (!currentExists) {
+      // Pick the first model from the highest-priority provider.
+      // Walk the priority list and return the first model we find.
+      let found = false;
+      for (const adapter of PROVIDER_PRIORITY) {
+        const match = models.find((m) => m.provider.toLowerCase() === adapter);
+        if (match) {
+          onChange({ model: match.id, provider: match.provider, source: match.source });
+          found = true;
+          break;
+        }
+      }
+      // If no priority match, fall back to the first model in the list
+      if (!found && models[0]) {
+        onChange({ model: models[0].id, provider: models[0].provider, source: models[0].source });
+      }
+    }
+  }, [models, value, onChange]);
 
   const selectedKey = modelKey({ id: value.model, source: value.source, provider: value.provider });
   const selectedModel = models.find((m) => modelKey(m) === selectedKey);

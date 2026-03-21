@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { X, Plus, History, Square } from "lucide-react";
+import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -10,7 +10,7 @@ import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
 import { useAiChat } from "../hooks/use-ai-chat";
 import { usePanelResize } from "../hooks/use-panel-resize";
-import { getProject } from "@/lib/api";
+import { getProject, getAvailableLLMModels } from "@/lib/api";
 
 interface AiAssistantPanelProps {
   open: boolean;
@@ -31,6 +31,17 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
 
   // workspaceId from URL (workspace pages) or from project (project pages)
   const workspaceId = workspaceIdFromUrl || project?.workspace_id;
+
+  // Check if any models are available (system or BYOK)
+  const { data: llmModels } = useQuery({
+    queryKey: ["llm-models", workspaceId],
+    queryFn: () => getAvailableLLMModels(workspaceId!),
+    enabled: !!workspaceId,
+  });
+  const hasModels =
+    !llmModels ||
+    llmModels.systemModels.some((g) => g.models.length > 0) ||
+    llmModels.byokProviders.some((g) => g.models.length > 0);
 
   const {
     messages,
@@ -103,6 +114,21 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
         <div className="flex flex-1 items-center justify-center px-6 text-center text-[13px] text-muted-foreground">
           Open a project to start using the AI assistant.
         </div>
+      ) : !hasModels ? (
+        <div className="flex flex-1 items-center justify-center px-6">
+          <div className="flex max-w-[280px] flex-col items-center gap-3 text-center">
+            <AlertTriangle className="h-8 w-8 text-yellow-500" />
+            <p className="text-[13px] font-medium">No LLM models available</p>
+            <p className="text-[12px] text-muted-foreground">
+              To use the AI assistant, configure a system API key (e.g. Anthropic, OpenAI) in your
+              environment, or add a BYOK provider in{" "}
+              <span className="font-medium text-foreground">
+                Workspace Settings &rarr; Model Providers
+              </span>
+              .
+            </p>
+          </div>
+        </div>
       ) : (
         <MessageList messages={messages} sessionStreaming={isStreaming} />
       )}
@@ -110,7 +136,7 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
       {/* Input */}
       <MessageInput
         onSend={handleSend}
-        disabled={!projectId}
+        disabled={!projectId || !hasModels}
         workspaceId={workspaceId}
         actions={
           isStreaming && (
