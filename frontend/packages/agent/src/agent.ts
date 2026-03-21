@@ -195,11 +195,8 @@ function getDefaultSystemModel(): {
 }
 
 function resolveModel(modelId?: string, providerConfig?: ProviderConfig | null) {
-  let effectiveModelId = modelId;
-  if (!effectiveModelId) {
-    const defaultModel = getDefaultSystemModel();
-    effectiveModelId = defaultModel?.modelId || "claude-sonnet-4-5";
-  }
+  const defaultSystemModel = !modelId ? getDefaultSystemModel() : null;
+  const effectiveModelId = modelId || defaultSystemModel?.modelId || "claude-sonnet-4-5";
 
   // 1. BYOK: always build model from adapter config (don't trust pi-ai registry —
   //    it may assign a wrong API protocol for custom/BYOK models)
@@ -229,13 +226,12 @@ function resolveModel(modelId?: string, providerConfig?: ProviderConfig | null) 
     return buildFallbackModel(effectiveModelId, sysInfo.apiProtocol, sysInfo.piAIProvider);
   }
 
-  // 3. Default — pick best available system model by priority
-  const defaultModel = getDefaultSystemModel();
-  if (defaultModel) {
+  // 3. Unknown model — fall back to the best available system model
+  if (defaultSystemModel) {
     return buildFallbackModel(
-      defaultModel.modelId,
-      defaultModel.apiProtocol,
-      defaultModel.piAIProvider,
+      defaultSystemModel.modelId,
+      defaultSystemModel.apiProtocol,
+      defaultSystemModel.piAIProvider,
     );
   }
   return getModel("anthropic", "claude-sonnet-4-5");
