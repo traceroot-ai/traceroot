@@ -18,9 +18,11 @@ export function MessageInput({ onSend, disabled, workspaceId, actions }: Message
     source: "system",
   });
 
+  const noModelSelected = !modelSelection.model;
+
   const handleSend = () => {
     const trimmed = input.trim();
-    if (!trimmed || disabled) return;
+    if (!trimmed || disabled || noModelSelected) return;
     onSend(trimmed, modelSelection);
     setInput("");
   };
@@ -38,8 +40,12 @@ export function MessageInput({ onSend, disabled, workspaceId, actions }: Message
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Ask me about your traces, errors, or performance."
-        disabled={disabled}
+        placeholder={
+          noModelSelected
+            ? "No models available. Configure a system API key or add a BYOK provider."
+            : "Ask me about your traces, errors, or performance."
+        }
+        disabled={disabled || noModelSelected}
         rows={3}
         className="w-full resize-none rounded-none border border-input bg-transparent px-3 py-2 text-[13px] shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
       />
