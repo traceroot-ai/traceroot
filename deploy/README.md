@@ -114,21 +114,36 @@ terraform apply -var-file=staging.tfvars --target aws_ecr_repository.services
 export REGION=us-east-1
 export ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 export REGISTRY=$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
-export TAG=$(git rev-parse --short HEAD)
+export TAG=sha-$(git rev-parse --short HEAD)
+export NAME=traceroot-staging   # or: traceroot-production
 
 # Login to ECR
 aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $REGISTRY
 
 # From repo root — build & push all images (linux/amd64 for Fargate)
-for svc in web rest worker billing agent; do
-  docker build --platform linux/amd64 -f docker/Dockerfile.$svc -t $REGISTRY/traceroot-$svc:$TAG .
-  docker push $REGISTRY/traceroot-$svc:$TAG
+# For staging: no extra build args needed
+# For production: set PostHog key (NEXT_PUBLIC_* vars are baked at build time, not runtime)
+export NEXT_PUBLIC_APP_URL=https://app.traceroot.ai          # production
+# export NEXT_PUBLIC_APP_URL=https://staging.traceroot.ai   # staging
+export NEXT_PUBLIC_POSTHOG_KEY=phc_...                       # production only, leave unset for staging
+export NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com     # production only
+
+docker build --platform linux/amd64 \
+  --build-arg NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL \
+  --build-arg NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY \
+  --build-arg NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST \
+  -f docker/Dockerfile.web -t $REGISTRY/traceroot-$NAME-web:$TAG .
+docker push $REGISTRY/traceroot-$NAME-web:$TAG
+
+for svc in rest worker billing agent; do
+  docker build --platform linux/amd64 -f docker/Dockerfile.$svc -t $REGISTRY/traceroot-$NAME-$svc:$TAG .
+  docker push $REGISTRY/traceroot-$NAME-$svc:$TAG
 done
 
 # Migration images
 for svc in migrate-postgres migrate-clickhouse; do
-  docker build --platform linux/amd64 -f docker/Dockerfile.$svc -t $REGISTRY/traceroot-$svc:$TAG .
-  docker push $REGISTRY/traceroot-$svc:$TAG
+  docker build --platform linux/amd64 -f docker/Dockerfile.$svc -t $REGISTRY/traceroot-$NAME-$svc:$TAG .
+  docker push $REGISTRY/traceroot-$NAME-$svc:$TAG
 done
 ```
 
@@ -191,10 +206,17 @@ terraform apply -var-file=staging.tfvars
 # If you changed app code — rebuild with git SHA tag
 export TAG=sha-$(git rev-parse --short HEAD)
 
-for svc in web rest worker billing agent migrate-postgres migrate-clickhouse; do
+for svc in rest worker billing agent migrate-postgres migrate-clickhouse; do
   docker build --platform linux/amd64 -f docker/Dockerfile.$svc -t $REGISTRY/traceroot-$svc:$TAG .
   docker push $REGISTRY/traceroot-$svc:$TAG
 done
+
+# Web requires NEXT_PUBLIC_* vars baked in at build time
+docker build --platform linux/amd64 -f docker/Dockerfile.web \
+  --build-arg NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL} \
+  --build-arg NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-/api/v1} \
+  -t $REGISTRY/traceroot-web:$TAG .
+docker push $REGISTRY/traceroot-web:$TAG
 
 # Edit staging.tfvars: image_tag = "sha-<TAG>"
 terraform apply -var-file=staging.tfvars

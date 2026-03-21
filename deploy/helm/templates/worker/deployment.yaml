@@ -23,6 +23,11 @@ spec:
           image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
           imagePullPolicy: {{ .Values.imagePullPolicy }}
           env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.existingSecret }}
+                  key: {{ .Values.postgresql.secretKeys.databaseUrl }}
             - name: CLICKHOUSE_HOST
               value: {{ include "traceroot.clickhouse.hostname" . | quote }}
             - name: CLICKHOUSE_PORT
