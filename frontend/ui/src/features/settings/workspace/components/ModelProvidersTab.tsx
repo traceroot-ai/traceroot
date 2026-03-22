@@ -518,6 +518,9 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                             "amazon-bedrock": "e.g. anthropic.claude-v2",
                             deepseek: "e.g. deepseek-chat, deepseek-reasoner",
                             openrouter: "e.g. openai/gpt-4o",
+                            xai: "e.g. grok-2, grok-beta",
+                            zai: "e.g. glm-4, glm-3-turbo",
+                            moonshot: "e.g. moonshot-v1-8k, moonshot-v1-32k",
                           }[adapter] || "Model ID"
                         }
                         className="flex-1"
