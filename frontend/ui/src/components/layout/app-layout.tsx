@@ -76,7 +76,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </header>
           <main className="flex-1 overflow-hidden">{children}</main>
         </div>
-        {isProjectPage && <AiAssistantPanel open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} />}
+        {isProjectPage && (
+          <AiAssistantPanel open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} />
+        )}
       </div>
     </LayoutContext.Provider>
   );
