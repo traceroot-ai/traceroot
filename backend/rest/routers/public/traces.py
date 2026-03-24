@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from google.protobuf.json_format import MessageToDict
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
@@ -146,6 +146,7 @@ class IngestResponse(BaseModel):
 @limiter.limit(settings.rate_limit.ingestion, key_func=key_by_api_key)
 async def ingest_traces(
     request: Request,
+    response: Response,
     auth: Auth,
 ):
     """Ingest OTLP trace data.

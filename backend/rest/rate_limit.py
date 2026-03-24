@@ -28,8 +28,9 @@ In a router module::
     async def my_endpoint(request: Request, ...):
         ...
 
-Note: the endpoint **must** declare ``request: Request`` for slowapi to inject
-the limit headers and identify the request object.
+Note: the endpoint **must** declare ``request: Request`` and ``response: Response``
+(Starlette/FastAPI) so slowapi can attach ``X-RateLimit-*`` headers when the
+handler returns a Pydantic model instead of a ``Response`` instance.
 """
 
 import hashlib
