@@ -50,7 +50,13 @@ interface SettingsLayoutProps {
   crossLink?: CrossLink;
 }
 
-export function SettingsLayout({ tabs, activeTab, basePath, children, crossLink }: SettingsLayoutProps) {
+export function SettingsLayout({
+  tabs,
+  activeTab,
+  basePath,
+  children,
+  crossLink,
+}: SettingsLayoutProps) {
   const [resolvedCrossLink, setResolvedCrossLink] = useState<CrossLink | undefined>(crossLink);
 
   useEffect(() => {
@@ -66,16 +72,14 @@ export function SettingsLayout({ tabs, activeTab, basePath, children, crossLink 
     if (isWorkspacePage && crossLink) {
       const lastProjectHref = sessionStorage.getItem(LAST_PROJECT_KEY);
       setResolvedCrossLink(
-        lastProjectHref
-          ? { label: "Project Settings", href: lastProjectHref }
-          : crossLink,
+        lastProjectHref ? { label: "Project Settings", href: lastProjectHref } : crossLink,
       );
     }
   }, [basePath, crossLink]);
 
   return (
     <>
-      <nav className="w-40 border-r flex flex-col">
+      <nav className="flex w-40 flex-col border-r">
         <ul className="flex-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -100,7 +104,7 @@ export function SettingsLayout({ tabs, activeTab, basePath, children, crossLink 
           <div className="border-t p-2">
             <Link
               href={resolvedCrossLink.href}
-              className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground rounded-sm"
+              className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-[13px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
             >
               <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
               <span className="truncate">{resolvedCrossLink.label}</span>
