@@ -111,6 +111,8 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
 
   const roleOptions: Role[] = [Role.ADMIN, Role.MEMBER, Role.VIEWER];
   const canManageMembers = workspace?.role === Role.ADMIN;
+  const adminCount = members.filter((m: Member) => m.role === Role.ADMIN).length;
+  const isLastAdmin = workspace?.role === Role.ADMIN && adminCount <= 1;
 
   return (
     <div className="space-y-6">
@@ -293,7 +295,7 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
                   </td>
                   {canManageMembers && (
                     <td className="px-4 py-2">
-                      {member.user_id !== session?.user?.id && (
+                      {(member.user_id !== session?.user?.id || !isLastAdmin) && (
                         <DeleteIconButton
                           onClick={() => removeMemberMutation.mutate(member.user_id)}
                           disabled={removeMemberMutation.isPending}
