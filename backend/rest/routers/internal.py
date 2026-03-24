@@ -3,14 +3,18 @@
 These endpoints are protected by X-Internal-Secret header and not exposed publicly.
 """
 
-from datetime import datetime
+import logging
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from db.clickhouse.client import get_clickhouse_client
+from rest.services.s3 import get_s3_service
 from shared.config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -147,3 +151,130 @@ async def get_usage_details(
     spans = int(spans_result.result_rows[0][0]) if spans_result.result_rows else 0
 
     return UsageDetailsResponse(traces=traces, spans=spans)
+
+
+# =============================================================================
+# Data Retention Endpoints
+# =============================================================================
+
+
+class RetentionCleanupRequest(BaseModel):
+    project_ids: list[str] = Field(..., min_length=1)
+    ttl_days: int = Field(..., gt=0)
+
+
+class RetentionCleanupResponse(BaseModel):
+    status: str
+    project_ids: list[str]
+    ttl_days: int
+    cutoff_date: str
+    s3_objects_deleted: int
+
+
+def _cleanup_clickhouse(project_ids: list[str], cutoff: datetime) -> None:
+    """Submit ALTER TABLE DELETE mutations for traces and spans older than cutoff."""
+    ch = get_clickhouse_client()
+    cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
+
+    ch.command(
+        "ALTER TABLE traces DELETE WHERE project_id IN {project_ids:Array(String)}"
+        " AND trace_start_time < {cutoff:String}",
+        parameters={"project_ids": project_ids, "cutoff": cutoff_str},
+    )
+    ch.command(
+        "ALTER TABLE spans DELETE WHERE project_id IN {project_ids:Array(String)}"
+        " AND span_start_time < {cutoff:String}",
+        parameters={"project_ids": project_ids, "cutoff": cutoff_str},
+    )
+
+
+def _cleanup_s3(project_ids: list[str], cutoff: datetime) -> int:
+    """Delete S3 objects for the given projects that are older than cutoff.
+
+    Object key format: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json
+    Objects are matched by parsing the date components from their key.
+    Returns the total number of deleted objects.
+    """
+    s3 = get_s3_service()
+    client = s3._get_client()
+    cutoff_date = cutoff.date()
+    total_deleted = 0
+
+    for project_id in project_ids:
+        prefix = f"events/otel/{project_id}/"
+        to_delete: list[dict] = []
+
+        paginator = client.get_paginator("list_objects_v2")
+        try:
+            for page in paginator.paginate(Bucket=s3._bucket_name, Prefix=prefix):
+                for obj in page.get("Contents", []):
+                    key: str = obj["Key"]
+                    # Parse: events/otel/{project_id}/{yyyy}/{mm}/{dd}/...
+                    parts = key.split("/")
+                    if len(parts) >= 6:
+                        try:
+                            obj_date_str = f"{parts[3]}-{parts[4]}-{parts[5]}"
+                            obj_date = date.fromisoformat(obj_date_str)
+                            if obj_date < cutoff_date:
+                                to_delete.append({"Key": key})
+                        except (ValueError, IndexError):
+                            pass
+
+            for i in range(0, len(to_delete), 1000):
+                batch = to_delete[i : i + 1000]
+                client.delete_objects(
+                    Bucket=s3._bucket_name,
+                    Delete={"Objects": batch, "Quiet": True},
+                )
+                total_deleted += len(batch)
+
+        except Exception as exc:
+            logger.warning("S3 cleanup failed for project %s: %s", project_id, exc, exc_info=True)
+
+    return total_deleted
+
+
+@router.post(
+    "/retention/cleanup",
+    response_model=RetentionCleanupResponse,
+    dependencies=[Depends(verify_internal_secret)],
+)
+async def retention_cleanup(
+    request: RetentionCleanupRequest,
+) -> RetentionCleanupResponse:
+    """Delete traces, spans, and raw S3 objects older than ttl_days for the given projects.
+
+    ClickHouse deletions are submitted as asynchronous mutations (ALTER TABLE DELETE)
+    and processed by ClickHouse in the background.  S3 object deletions are performed
+    synchronously and the count is returned in the response.
+    """
+    project_ids = [p.strip() for p in request.project_ids if p.strip()]
+    if not project_ids:
+        raise HTTPException(status_code=422, detail="No valid project IDs provided")
+
+    cutoff = datetime.now(UTC) - timedelta(days=request.ttl_days)
+
+    logger.info(
+        "Data retention cleanup: %d project(s), ttl=%d days, cutoff=%s",
+        len(project_ids),
+        request.ttl_days,
+        cutoff.isoformat(),
+    )
+
+    _cleanup_clickhouse(project_ids, cutoff)
+
+    s3_deleted = _cleanup_s3(project_ids, cutoff)
+
+    logger.info(
+        "Data retention cleanup complete: %d S3 objects deleted for %d project(s)",
+        s3_deleted,
+        len(project_ids),
+    )
+
+    return RetentionCleanupResponse(
+        status="ok",
+        project_ids=project_ids,
+        ttl_days=request.ttl_days,
+        cutoff_date=cutoff.isoformat(),
+        s3_objects_deleted=s3_deleted,
+    )
