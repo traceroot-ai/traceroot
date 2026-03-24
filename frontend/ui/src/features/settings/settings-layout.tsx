@@ -64,6 +64,8 @@ export function SettingsLayout({
     const projectMatch = basePath.match(/\/projects\/([^/]+)/);
     if (projectMatch) {
       sessionStorage.setItem(LAST_PROJECT_KEY, `/projects/${projectMatch[1]}/settings/general`);
+      // Sync state when crossLink arrives asynchronously (useProject resolves after mount).
+      setResolvedCrossLink(crossLink);
     }
 
     // On workspace settings pages — if the user previously visited a project settings page,
