@@ -28,6 +28,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 from pydantic import BaseModel
 
 from ee.license import is_billing_enabled
+from rest.rate_limit import key_by_api_key, limiter
 from rest.services.s3 import get_s3_service
 from shared.config import settings
 from worker.ingest_tasks import process_s3_traces
@@ -142,6 +143,7 @@ class IngestResponse(BaseModel):
 
 
 @router.post("", response_model=IngestResponse)
+@limiter.limit(settings.rate_limit.ingestion, key_func=key_by_api_key)
 async def ingest_traces(
     request: Request,
     auth: Auth,

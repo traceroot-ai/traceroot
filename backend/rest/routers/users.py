@@ -3,11 +3,13 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 
+from rest.rate_limit import key_by_user_id, limiter
 from rest.routers.deps import ProjectAccess
 from rest.schemas.users import UserListResponse
 from rest.services.trace_reader import get_trace_reader_service
+from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +17,9 @@ router = APIRouter(prefix="/projects/{project_id}/users", tags=["Users"])
 
 
 @router.get("", response_model=UserListResponse)
+@limiter.limit(settings.rate_limit.api, key_func=key_by_user_id)
 async def list_users(
+    request: Request,
     project_id: str,
     _access: ProjectAccess,  # Validates user has access to project
     page: int = Query(0, ge=0, description="Page number (0-indexed)"),
