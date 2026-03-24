@@ -199,7 +199,15 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!keyToDelete} onOpenChange={(open) => !open && setKeyToDelete(null)}>
+      <Dialog
+        open={!!keyToDelete}
+        onOpenChange={(open) => {
+          if (!open) {
+            setKeyToDelete(null);
+            setDeleteConfirmText("");
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete API Key</DialogTitle>
