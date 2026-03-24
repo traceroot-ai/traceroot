@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, createContext, useContext, ReactNode } from "react";
+import { useState, createContext, useContext, ReactNode, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const pathname = usePathname();
   const isProjectPage = /^\/projects\/[^/]/.test(pathname);
+
+  useEffect(() => {
+    if (!isProjectPage) {
+      setAiPanelOpen(false);
+    }
+  }, [isProjectPage]);
 
   // Don't show layout on auth pages
   if (pathname.startsWith("/auth/")) {
