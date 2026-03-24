@@ -35,6 +35,7 @@ handler returns a Pydantic model instead of a ``Response`` instance.
 
 import hashlib
 import logging
+from math import ceil
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -89,8 +90,17 @@ def rate_limit_exceeded_handler(
     request: StarletteRequest,
     exc: RateLimitExceeded,
 ) -> JSONResponse:
-    """Return a JSON 429 response consistent with the rest of the API error format."""
-    retry_after = getattr(exc, "retry_after", 60)
+    """Return a JSON 429 response consistent with the rest of the API error format.
+
+    ``exc.limit`` is slowapi's ``Limit`` wrapper; ``exc.limit.limit`` is the
+    underlying ``limits.RateLimitItem`` whose ``get_expiry()`` returns the
+    window duration in seconds (e.g. 60 for "100/minute", 1 for "10/second").
+    """
+    retry_after: int = 60  # safe default if introspection fails
+    try:
+        retry_after = ceil(exc.limit.limit.get_expiry())
+    except Exception:
+        pass
     return JSONResponse(
         status_code=429,
         content={
@@ -117,6 +127,7 @@ def _build_limiter() -> Limiter:
     logger.info("Initialising rate limiter (storage: %s)", storage_uri)
     return Limiter(
         key_func=get_remote_address,  # default; each endpoint overrides via key_func=
+        enabled=settings.rate_limit.enabled,
         storage_uri=storage_uri,
         headers_enabled=True,  # X-RateLimit-* response headers
         in_memory_fallback_enabled=True,  # survive Redis outages
