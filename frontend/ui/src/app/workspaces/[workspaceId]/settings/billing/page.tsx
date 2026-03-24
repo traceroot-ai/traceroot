@@ -25,6 +25,7 @@ export default function WorkspaceSettingsBillingPage() {
         tabs={WORKSPACE_SETTINGS_TABS}
         activeTab="billing"
         basePath={`/workspaces/${workspaceId}/settings`}
+        crossLink={{ label: "Project Settings", href: `/workspaces/${workspaceId}/projects` }}
       >
         {isLoading ? (
           <div className="text-sm text-muted-foreground">Loading...</div>

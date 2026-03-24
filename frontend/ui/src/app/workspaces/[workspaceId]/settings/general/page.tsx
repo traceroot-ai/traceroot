@@ -17,6 +17,7 @@ export default function WorkspaceSettingsGeneralPage() {
         tabs={WORKSPACE_SETTINGS_TABS}
         activeTab="general"
         basePath={`/workspaces/${workspaceId}/settings`}
+        crossLink={{ label: "Project Settings", href: `/workspaces/${workspaceId}/projects` }}
       >
         <GeneralTab workspaceId={workspaceId} />
       </SettingsLayout>

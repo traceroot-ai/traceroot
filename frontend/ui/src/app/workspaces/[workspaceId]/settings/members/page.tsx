@@ -17,6 +17,7 @@ export default function WorkspaceSettingsMembersPage() {
         tabs={WORKSPACE_SETTINGS_TABS}
         activeTab="members"
         basePath={`/workspaces/${workspaceId}/settings`}
+        crossLink={{ label: "Project Settings", href: `/workspaces/${workspaceId}/projects` }}
       >
         <MembersTab workspaceId={workspaceId} />
       </SettingsLayout>
