@@ -33,6 +33,7 @@ import {
   type Member,
   type Invite,
 } from "@/lib/api";
+import { useSession } from "@/lib/auth-client";
 
 interface MembersTabProps {
   workspaceId: string;
@@ -40,6 +41,7 @@ interface MembersTabProps {
 
 export function MembersTab({ workspaceId }: MembersTabProps) {
   const queryClient = useQueryClient();
+  const { data: session } = useSession();
 
   const [showInviteMember, setShowInviteMember] = useState(false);
   const [newMemberEmail, setNewMemberEmail] = useState("");
@@ -291,10 +293,12 @@ export function MembersTab({ workspaceId }: MembersTabProps) {
                   </td>
                   {canManageMembers && (
                     <td className="px-4 py-2">
-                      <DeleteIconButton
-                        onClick={() => removeMemberMutation.mutate(member.user_id)}
-                        disabled={removeMemberMutation.isPending}
-                      />
+                      {member.user_id !== session?.user?.id && (
+                        <DeleteIconButton
+                          onClick={() => removeMemberMutation.mutate(member.user_id)}
+                          disabled={removeMemberMutation.isPending}
+                        />
+                      )}
                     </td>
                   )}
                 </tr>
