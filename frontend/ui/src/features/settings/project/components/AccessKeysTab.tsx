@@ -78,6 +78,8 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     mutationFn: (keyId: string) => deleteAccessKey(projectId, keyId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["access-keys", projectId] });
+      setKeyToDelete(null);
+      setDeleteConfirmText("");
     },
   });
 
@@ -233,8 +235,6 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               onClick={() => {
                 if (keyToDelete) {
                   deleteMutation.mutate(keyToDelete.id);
-                  setKeyToDelete(null);
-                  setDeleteConfirmText("");
                 }
               }}
               disabled={
