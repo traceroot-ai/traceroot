@@ -21,7 +21,10 @@ export default function ProjectSettingsAccessKeysPage() {
         basePath={`/projects/${projectId}/settings`}
         crossLink={
           project?.workspace_id
-            ? { label: "Org Settings", href: `/workspaces/${project.workspace_id}/settings/general` }
+            ? {
+                label: "Org Settings",
+                href: `/workspaces/${project.workspace_id}/settings/general`,
+              }
             : undefined
         }
       >
