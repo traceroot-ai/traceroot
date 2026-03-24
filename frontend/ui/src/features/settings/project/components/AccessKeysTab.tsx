@@ -196,19 +196,25 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
+
       <Dialog open={!!keyToDelete} onOpenChange={(open) => !open && setKeyToDelete(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete API Key</DialogTitle>
             <DialogDescription>
               This action cannot be undone. This will permanently delete the API key &quot;
-              <span className="font-semibold">{keyToDelete?.name || formatKeyHint(keyToDelete?.key_hint || "")}</span>&quot;.
+              <span className="font-semibold">
+                {keyToDelete?.name || formatKeyHint(keyToDelete?.key_hint || "")}
+              </span>
+              &quot;.
             </DialogDescription>
           </DialogHeader>
           <div className="py-2">
             <p className="mb-2 text-sm text-muted-foreground">
-              Type <span className="font-mono font-semibold text-foreground">{keyToDelete?.name || "delete"}</span>{" "}
+              Type{" "}
+              <span className="font-mono font-semibold text-foreground">
+                {keyToDelete?.name || "delete"}
+              </span>{" "}
               to confirm:
             </p>
             <Input
@@ -231,7 +237,9 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                   setDeleteConfirmText("");
                 }
               }}
-              disabled={deleteConfirmText !== (keyToDelete?.name || "delete") || deleteMutation.isPending}
+              disabled={
+                deleteConfirmText !== (keyToDelete?.name || "delete") || deleteMutation.isPending
+              }
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete API Key"}
             </Button>
