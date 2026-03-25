@@ -11,3 +11,4 @@ export default defineConfig({
     }
   }
 })
+// Basic testing config for vitest

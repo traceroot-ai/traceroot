@@ -145,8 +145,14 @@ describe("POST /api/github/callback (direct install confirmation)", () => {
       const res = await POST(req);
       expect(res.status).toBe(200);
       const body = await res.json();
-      // Route returns { sucess: true, redirectUrl: "..." } (note: typo in route.ts is intentional)
+      expect(body).toHaveProperty("success", true);
       expect(body).toHaveProperty("redirectUrl");
+      // Verify the install state cookie is cleared after successful flow
+      expect(res.cookies.set).toHaveBeenCalledWith(
+        "github_install_state",
+        "",
+        expect.objectContaining({ maxAge: 0 })
+      );
     });
 
     it("returns 500 when GitHub token exchange fails", async () => {
