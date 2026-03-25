@@ -30,6 +30,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [headerContent, setHeaderContent] = useState<ReactNode>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const pathname = usePathname();
+  const isProjectPage = pathname?.includes("/projects/");
 
   // Don't show layout on auth pages
   if (pathname.startsWith("/auth/")) {
@@ -60,15 +61,17 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </Button>
             {headerContent}
             <div className="ml-auto">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 shrink-0"
-                onClick={() => setAiPanelOpen(!aiPanelOpen)}
-                title="AI Assistant"
-              >
-                <BotMessageSquare className="h-4 w-4" />
-              </Button>
+              {isProjectPage && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0"
+                  onClick={() => setAiPanelOpen(!aiPanelOpen)}
+                  title="AI Assistant"
+                >
+                  <BotMessageSquare className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           </header>
           <main className="flex-1 overflow-hidden">{children}</main>
