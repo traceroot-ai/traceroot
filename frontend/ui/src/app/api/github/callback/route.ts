@@ -184,7 +184,7 @@ async function processGitHubCallback(
     // which loses the session cookie (set on localhost).
 
     // Returns JSON for POST requests, Redirect for GET requests.
-    const response = request.method == "POST" ? NextResponse.json({sucess: true, redirectUrl: redirectUrl.toString()})
+    const response = request.method == "POST" ? NextResponse.json({success: true, redirectUrl: redirectUrl.toString()})
     : NextResponse.redirect(redirectUrl);
 
     // Clear OAuth state cookie
@@ -197,6 +197,14 @@ async function processGitHubCallback(
 
     // Clear return-to cookie
     response.cookies.set(GITHUB_RETURN_TO_COOKIE, "", {
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 0,
+      path: "/",
+    });
+
+    // Clear install state cookie
+    response.cookies.set(GITHUB_INSTALL_STATE_COOKIE, "", {
       httpOnly: true,
       sameSite: "lax",
       maxAge: 0,
