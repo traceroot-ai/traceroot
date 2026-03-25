@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     }
     // Direct Github install flow, do not process yet
     if (validation.isDirectGitHubInstall && code) {
-      const confirmUrl = new URL("auth/github/confirm", env.BETTER_AUTH_URL);
+      const confirmUrl = new URL("/auth/github/confirm", env.BETTER_AUTH_URL);
       confirmUrl.searchParams.set("code", code);
       if (installationId) {
         confirmUrl.searchParams.set("installation_id", installationId);
