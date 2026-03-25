@@ -27,7 +27,11 @@ function ConfirmContent() {
             <p className="text-[13px] text-muted-foreground">
               This confirmation link is missing required parameters or has expired.
             </p>
-            <Button variant="outline" className="w-full h-8 text-[13px]" onClick={() => router.push("/")}>
+            <Button
+              variant="outline"
+              className="h-8 w-full text-[13px]"
+              onClick={() => router.push("/")}
+            >
               Return to Dashboard
             </Button>
           </CardContent>
@@ -76,8 +80,9 @@ function ConfirmContent() {
           <CardTitle className="text-lg font-semibold">Confirm Account Link</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
-           <p className="text-center text-[13px] text-muted-foreground">
-            You are about to link a GitHub account provided by a direct installation to your Traceroot account. Do you want to proceed?
+          <p className="text-center text-[13px] text-muted-foreground">
+            You are about to link a GitHub account provided by a direct installation to your
+            Traceroot account. Do you want to proceed?
           </p>
 
           {error && (
@@ -87,7 +92,12 @@ function ConfirmContent() {
           )}
 
           <div className="flex flex-col gap-3 pt-2">
-            <Button size="sm" className="h-8 w-full text-[13px]" onClick={handleConfirm} disabled={isLoading}>
+            <Button
+              size="sm"
+              className="h-8 w-full text-[13px]"
+              onClick={handleConfirm}
+              disabled={isLoading}
+            >
               {isLoading ? "Linking Account..." : "Confirm & Link"}
             </Button>
             <Button

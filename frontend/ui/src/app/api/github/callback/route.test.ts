@@ -49,7 +49,7 @@ import { POST } from "./route";
 function makeRequest(
   origin: string | null,
   body: object | null = { code: "good-code", installationId: "789" },
-  cookies: Record<string, string> = {}
+  cookies: Record<string, string> = {},
 ) {
   return {
     method: "POST",
@@ -58,8 +58,7 @@ function makeRequest(
     },
     json: async () => body,
     cookies: {
-      get: (key: string) =>
-        cookies[key] ? { value: cookies[key] } : undefined,
+      get: (key: string) => (cookies[key] ? { value: cookies[key] } : undefined),
     },
   } as any;
 }
@@ -85,10 +84,9 @@ function stubFetch({
       callCount++;
       if (callCount === 1)
         return { ok: tokenOk, json: async () => ({ access_token: accessToken }) };
-      if (callCount === 2)
-        return { ok: userOk, json: async () => ({ id: userId, login }) };
+      if (callCount === 2) return { ok: userOk, json: async () => ({ id: userId, login }) };
       return { ok: installOk, json: async () => ({ installations }) };
-    })
+    }),
   );
 }
 
@@ -140,7 +138,7 @@ describe("POST /api/github/callback (direct install confirmation)", () => {
       const req = makeRequest(
         "http://localhost:3000",
         { code: "valid-code", installationId: "789" },
-        { "github-return-to": "/" }
+        { "github-return-to": "/" },
       );
       const res = await POST(req);
       expect(res.status).toBe(200);
@@ -151,7 +149,7 @@ describe("POST /api/github/callback (direct install confirmation)", () => {
       expect(res.cookies.set).toHaveBeenCalledWith(
         "github_install_state",
         "",
-        expect.objectContaining({ maxAge: 0 })
+        expect.objectContaining({ maxAge: 0 }),
       );
     });
 
@@ -160,7 +158,7 @@ describe("POST /api/github/callback (direct install confirmation)", () => {
       const req = makeRequest(
         "http://localhost:3000",
         { code: "bad-code", installationId: "789" },
-        {}
+        {},
       );
       const res = await POST(req);
       expect(res.status).toBe(500);
