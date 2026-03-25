@@ -61,11 +61,13 @@ function ConfirmContent() {
           const redirectUrl = new URL(data.redirectUrl);
           if (redirectUrl.origin !== window.location.origin) {
             console.error("Unexpected redirect origin, falling back to home.");
+            setIsLoading(false);
             router.push("/");
           } else {
             window.location.href = data.redirectUrl;
           }
         } catch {
+          setIsLoading(false);
           router.push("/");
         }
       } else {
