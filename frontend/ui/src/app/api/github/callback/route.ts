@@ -4,6 +4,7 @@ import { prisma } from "@traceroot/core";
 import { requireAuth } from "@/lib/auth-helpers";
 import {
   GITHUB_AUTH_STATE_COOKIE,
+  GITHUB_INSTALL_STATE_COOKIE,
   GITHUB_RETURN_TO_COOKIE,
   validateCallbackParams,
   verifyInstallationId,
@@ -15,7 +16,13 @@ export async function GET(request: NextRequest) {
     const state = request.nextUrl.searchParams.get("state");
     const installationId = request.nextUrl.searchParams.get("installation_id");
     const setupAction = request.nextUrl.searchParams.get("setup_action");
-    const storedState = request.cookies.get(GITHUB_AUTH_STATE_COOKIE)?.value ?? null;
+    const authState = request.cookies.get(GITHUB_AUTH_STATE_COOKIE)?.value ?? null;
+    const installState = request.cookies.get(GITHUB_INSTALL_STATE_COOKIE)?.value ?? null;
+    // Match against the URL state to avoid false-positive CSRF errors when both cookies exist.
+    // GitHub echoes back the exact state we sent, so the matching cookie is always the right one.
+    const storedState = (state === authState) ? authState
+                      : (state === installState) ? installState
+                      : null;
 
     // Validate callback parameters (handles both normal OAuth and direct GitHub install flows)
     const validation = validateCallbackParams({
@@ -30,8 +37,44 @@ export async function GET(request: NextRequest) {
       const status = validation.error === "Missing code or state parameter" ? 400 : 403;
       return NextResponse.json({ error: validation.error }, { status });
     }
+    // Direct Github install flow, do not process yet
+    if (validation.isDirectGitHubInstall && code) {
+      const confirmUrl= new URL("auth/github/confirm", env.BETTER_AUTH_URL);
+      confirmUrl.searchParams.set("code", code);
+      if (installationId) {
+        confirmUrl.searchParams.set("installation_id", installationId);
 
-    // Exchange code for access token
+      }
+      if (setupAction) {
+        confirmUrl.searchParams.set("setup_action", setupAction);
+      }
+      return NextResponse.redirect(confirmUrl);
+    }
+    // Normal Oauth Flow
+      if (!code) {
+        return NextResponse.json({ error: "Missing code parameter" }, { status: 400 });
+      }
+
+      return await processGitHubCallback(request, code, installationId);
+
+
+  } catch (error) {
+    console.error("GitHub callback error:", error);
+    return NextResponse.json(
+      { error: "Failed to complete GitHub authentication" },
+      { status: 500 },
+    );
+  }
+}
+
+//helper function to validate callback parameters
+
+async function processGitHubCallback(
+  request: NextRequest,
+   code: string,
+    installationId: string | null
+  ){
+        // Exchange code for access token
     const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
       method: "POST",
       headers: {
@@ -139,7 +182,10 @@ export async function GET(request: NextRequest) {
 
     // Use BETTER_AUTH_URL as base — request.url inside Docker resolves to 0.0.0.0
     // which loses the session cookie (set on localhost).
-    const response = NextResponse.redirect(redirectUrl);
+
+    // Returns JSON for POST requests, Redirect for GET requests.
+    const response = request.method == "POST" ? NextResponse.json({sucess: true, redirectUrl: redirectUrl.toString()})
+    : NextResponse.redirect(redirectUrl);
 
     // Clear OAuth state cookie
     response.cookies.set(GITHUB_AUTH_STATE_COOKIE, "", {
@@ -158,6 +204,29 @@ export async function GET(request: NextRequest) {
     });
 
     return response;
+  }
+
+export async function POST(request: NextRequest) {
+  try {
+    // This endpoint is exclusively used by the direct GitHub install flow (confirm/page.tsx).
+    // In that flow, the user arrived from GitHub's UI directly and no state cookie was ever set by us,
+    // so validateCallbackParams is intentionally NOT called here (the state check would always fail
+    // because storedState is null by design). Security is enforced by:
+    //   1. Origin header check (same-origin enforcement below)
+    //   2. GitHub validating the OAuth code on exchange (one-time use, short TTL)
+    //   3. requireAuth() — user must have an active Traceroot session
+    //   4. verifyInstallationId() — installation_id must belong to the authenticated GitHub user
+    const origin = request.headers.get("origin");
+    if (!origin || new URL(origin).origin !== new URL(env.BETTER_AUTH_URL).origin) {
+      return NextResponse.json({error: "Invalid origin"}, {status: 403});
+    }
+    const body = await request.json();
+    const { code, installationId} = body;
+
+    if (!code) {
+      return NextResponse.json({error: "Missing code parameter"}, {status: 400});
+    }
+    return await processGitHubCallback(request,code, installationId);
   } catch (error) {
     console.error("GitHub callback error:", error);
     return NextResponse.json(
