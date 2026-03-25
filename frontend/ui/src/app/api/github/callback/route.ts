@@ -164,8 +164,11 @@ async function processGitHubCallback(
     },
   });
 
-  // Get the return URL from cookie (will be used after installation completes)
-  const returnTo = request.cookies.get(GITHUB_RETURN_TO_COOKIE)?.value || "/";
+  // Get the return URL from cookie (will be used after installation completes).
+  // Guard against open redirect: only accept relative paths. new URL(absolute, base)
+  // ignores the base entirely, so an absolute URL in the cookie would escape the origin.
+  const rawReturnTo = request.cookies.get(GITHUB_RETURN_TO_COOKIE)?.value || "/";
+  const returnTo = rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//") ? rawReturnTo : "/";
 
   // If we already have installation_id (from direct GitHub install), redirect to returnTo.
   // Otherwise, redirect to the installation flow.
@@ -178,7 +181,7 @@ async function processGitHubCallback(
 
   // Returns JSON for POST requests, Redirect for GET requests.
   const response =
-    request.method == "POST"
+    request.method === "POST"
       ? NextResponse.json({ success: true, redirectUrl: redirectUrl.toString() })
       : NextResponse.redirect(redirectUrl);
 
