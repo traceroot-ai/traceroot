@@ -33,8 +33,8 @@ export interface ValidationResult {
 export function validateCallbackParams(params: CallbackParams): ValidationResult {
   const { code, state, installationId, setupAction, storedState } = params;
 
-  // Both code and state are always required from GitHub
-  if (!code || !state) {
+  // code is always required
+  if (!code) {
     return {
       valid: false,
       error: "Missing code or state parameter",
@@ -47,10 +47,28 @@ export function validateCallbackParams(params: CallbackParams): ValidationResult
   // - setupAction is "install"
   // - installationId is present
   // - No state cookie was set (because we didn't initiate the flow)
+  // - state may be absent (GitHub doesn't send it for direct installs)
   const isDirectGitHubInstall = setupAction === "install" && !!installationId && !storedState;
 
-  // If not a direct install, validate state matches
-  if (!isDirectGitHubInstall && (!storedState || storedState !== state)) {
+  // For direct GitHub installs, skip the state check — GitHub doesn't include
+  // a state parameter when the user installs from GitHub's UI directly.
+  if (isDirectGitHubInstall) {
+    return {
+      valid: true,
+      isDirectGitHubInstall: true,
+    };
+  }
+
+  // For normal OAuth flow: state is required and must match the stored cookie
+  if (!state) {
+    return {
+      valid: false,
+      error: "Missing code or state parameter",
+      isDirectGitHubInstall: false,
+    };
+  }
+
+  if (!storedState || storedState !== state) {
     return {
       valid: false,
       error: "Invalid state parameter",
@@ -60,7 +78,7 @@ export function validateCallbackParams(params: CallbackParams): ValidationResult
 
   return {
     valid: true,
-    isDirectGitHubInstall,
+    isDirectGitHubInstall: false,
   };
 }
 

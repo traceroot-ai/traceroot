@@ -138,7 +138,7 @@ describe("POST /api/github/callback (direct install confirmation)", () => {
       const req = makeRequest(
         "http://localhost:3000",
         { code: "valid-code", installationId: "789" },
-        { "github-return-to": "/" },
+        { github_return_to: "/" },
       );
       const res = await POST(req);
       expect(res.status).toBe(200);
@@ -151,6 +151,19 @@ describe("POST /api/github/callback (direct install confirmation)", () => {
         "",
         expect.objectContaining({ maxAge: 0 }),
       );
+    });
+
+    it("uses the return-to cookie value in the redirectUrl", async () => {
+      stubFetch();
+      const req = makeRequest(
+        "http://localhost:3000",
+        { code: "valid-code", installationId: "789" },
+        { github_return_to: "/dashboard/settings" },
+      );
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.redirectUrl).toContain("/dashboard/settings");
     });
 
     it("returns 500 when GitHub token exchange fails", async () => {
