@@ -47,6 +47,8 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const [newKeyName, setNewKeyName] = useState("");
   const [newKeyData, setNewKeyData] = useState<{ key: string; keyHint: string } | null>(null);
   const [editingKey, setEditingKey] = useState<{ id: string; name: string } | null>(null);
+  const [keyToDelete, setKeyToDelete] = useState<AccessKey | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["access-keys", projectId],
@@ -76,6 +78,8 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     mutationFn: (keyId: string) => deleteAccessKey(projectId, keyId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["access-keys", projectId] });
+      setKeyToDelete(null);
+      setDeleteConfirmText("");
     },
   });
 
@@ -195,6 +199,62 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={!!keyToDelete}
+        onOpenChange={(open) => {
+          if (!open) {
+            setKeyToDelete(null);
+            setDeleteConfirmText("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete API Key</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. This will permanently delete the API key &quot;
+              <span className="font-semibold">
+                {keyToDelete?.name || formatKeyHint(keyToDelete?.key_hint || "")}
+              </span>
+              &quot;.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="mb-2 text-sm text-muted-foreground">
+              Type{" "}
+              <span className="font-mono font-semibold text-foreground">
+                {keyToDelete?.name || "delete"}
+              </span>{" "}
+              to confirm:
+            </p>
+            <Input
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder={keyToDelete?.name ? "API key name" : "Type 'delete'"}
+              className="h-8 text-[13px]"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setKeyToDelete(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (keyToDelete) {
+                  deleteMutation.mutate(keyToDelete.id);
+                }
+              }}
+              disabled={
+                deleteConfirmText !== (keyToDelete?.name || "delete") || deleteMutation.isPending
+              }
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete API Key"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="border">
         {isLoading ? (
           <div className="px-3 py-3 text-[13px] text-muted-foreground">Loading API keys...</div>
@@ -240,7 +300,10 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                   <td className="px-3 py-2">
                     <DeleteIconButton
                       className="h-6 w-6"
-                      onClick={() => deleteMutation.mutate(key.id)}
+                      onClick={() => {
+                        setKeyToDelete(key);
+                        setDeleteConfirmText("");
+                      }}
                       disabled={deleteMutation.isPending}
                     />
                   </td>
