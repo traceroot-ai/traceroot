@@ -56,7 +56,7 @@ function ConfirmContent() {
       }
 
       if (data.redirectUrl) {
-        // Guard against open-redirect: only follow URLs on the same origin.
+        // Guard against open redirects, we should only redirect to the same origin
         try {
           const redirectUrl = new URL(data.redirectUrl);
           if (redirectUrl.origin !== window.location.origin) {
