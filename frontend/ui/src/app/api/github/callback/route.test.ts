@@ -118,6 +118,20 @@ describe("POST /api/github/callback (direct install confirmation)", () => {
       expect(res.status).toBe(403);
       expect(await res.json()).toEqual({ error: "Invalid origin" });
     });
+
+    it("returns 403 (not 500) when Origin is a malformed URL", async () => {
+      const req = makeRequest("not-a-url");
+      const res = await POST(req);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: "Invalid origin" });
+    });
+
+    it("returns 403 (not 500) when Origin is a protocol-relative URL", async () => {
+      const req = makeRequest("//evil.com");
+      const res = await POST(req);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: "Invalid origin" });
+    });
   });
 
   // Request body validation

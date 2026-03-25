@@ -220,7 +220,13 @@ export async function POST(request: NextRequest) {
     //   3. requireAuth() — user must have an active Traceroot session
     //   4. verifyInstallationId() — installation_id must belong to the authenticated GitHub user
     const origin = request.headers.get("origin");
-    if (!origin || new URL(origin).origin !== new URL(env.BETTER_AUTH_URL).origin) {
+    let parsedOrigin: string;
+    try {
+      parsedOrigin = origin ? new URL(origin).origin : "";
+    } catch {
+      return NextResponse.json({ error: "Invalid origin" }, { status: 403 });
+    }
+    if (parsedOrigin !== new URL(env.BETTER_AUTH_URL).origin) {
       return NextResponse.json({ error: "Invalid origin" }, { status: 403 });
     }
     const body = await request.json();
