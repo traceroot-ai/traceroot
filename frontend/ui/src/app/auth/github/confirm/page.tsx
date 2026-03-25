@@ -56,7 +56,18 @@ function ConfirmContent() {
       }
 
       if (data.redirectUrl) {
-        window.location.href = data.redirectUrl;
+        // Guard against open-redirect: only follow URLs on the same origin.
+        try {
+          const redirectUrl = new URL(data.redirectUrl);
+          if (redirectUrl.origin !== window.location.origin) {
+            console.error("Unexpected redirect origin, falling back to home.");
+            router.push("/");
+          } else {
+            window.location.href = data.redirectUrl;
+          }
+        } catch {
+          router.push("/");
+        }
       } else {
         router.push("/");
       }
