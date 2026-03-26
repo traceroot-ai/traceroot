@@ -10,6 +10,11 @@ on:
         description: "Git branch, tag, or SHA to build images from"
         required: true
         type: string
+      environment:
+        description: "Environment prefix for ECR repos (e.g. traceroot-production)"
+        required: false
+        default: "traceroot-production"
+        type: string
 
 permissions:
   contents: read
@@ -71,7 +76,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.ECR_REGISTRY }}/traceroot-${{ matrix.service }}
+          images: ${{ env.ECR_REGISTRY }}/${{ inputs.environment }}-${{ matrix.service }}
           tags: |
             type=raw,value=latest,enable=${{ inputs.branch_ref == 'main' }}
             type=sha,prefix=sha-
@@ -85,6 +90,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            NEXT_PUBLIC_APP_URL=${{ secrets.NEXT_PUBLIC_APP_URL }}
+            NEXT_PUBLIC_POSTHOG_KEY=${{ secrets.NEXT_PUBLIC_POSTHOG_KEY }}
+            NEXT_PUBLIC_POSTHOG_HOST=${{ secrets.NEXT_PUBLIC_POSTHOG_HOST }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64

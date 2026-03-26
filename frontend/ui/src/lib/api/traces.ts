@@ -1,13 +1,14 @@
 /**
  * Trace API functions (Python backend - ClickHouse)
  */
-import { fetchTraceApi } from "./client";
+import { fetchTraceApi, type TraceApiUser } from "./client";
 import type { TraceDetail, TraceListResponse, TraceQueryOptions } from "@/types/api";
 
 export async function getTraces(
   projectId: string,
   _apiKey: string,
   options: TraceQueryOptions = {},
+  user?: TraceApiUser,
 ): Promise<TraceListResponse> {
   const params = new URLSearchParams();
   if (options.page !== undefined) params.set("page", String(options.page));
@@ -23,13 +24,14 @@ export async function getTraces(
   const query = params.toString();
   const endpoint = `/projects/${projectId}/traces${query ? `?${query}` : ""}`;
 
-  return fetchTraceApi<TraceListResponse>(endpoint);
+  return fetchTraceApi<TraceListResponse>(endpoint, {}, user);
 }
 
 export async function getTrace(
   projectId: string,
   traceId: string,
   _apiKey: string,
+  user?: TraceApiUser,
 ): Promise<TraceDetail> {
-  return fetchTraceApi<TraceDetail>(`/projects/${projectId}/traces/${traceId}`);
+  return fetchTraceApi<TraceDetail>(`/projects/${projectId}/traces/${traceId}`, {}, user);
 }
