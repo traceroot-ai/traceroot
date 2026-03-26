@@ -64,6 +64,16 @@ async def get_project_access(
 
     data = response.json()
 
+    import logging
+
+    _logger = logging.getLogger(__name__)
+    _logger.info(
+        "validate-project-access: userId=%s projectId=%s hasAccess=%s",
+        x_user_id,
+        project_id,
+        data.get("hasAccess"),
+    )
+
     if not data.get("hasAccess"):
         error = data.get("error", "No access to this project")
         status_code = (
