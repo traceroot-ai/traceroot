@@ -2,11 +2,12 @@
  * Sessions API functions (Python backend - ClickHouse)
  */
 import type { SessionDetailResponse, SessionListResponse, SessionQueryOptions } from "@/types/api";
-import { fetchTraceApi } from "./client";
+import { fetchTraceApi, type TraceApiUser } from "./client";
 
 export async function getSessions(
   projectId: string,
   options: SessionQueryOptions = {},
+  user?: TraceApiUser,
 ): Promise<SessionListResponse> {
   const params = new URLSearchParams();
   if (options.page !== undefined) params.set("page", String(options.page));
@@ -18,7 +19,7 @@ export async function getSessions(
   const query = params.toString();
   const endpoint = `/projects/${projectId}/sessions${query ? `?${query}` : ""}`;
 
-  return fetchTraceApi<SessionListResponse>(endpoint);
+  return fetchTraceApi<SessionListResponse>(endpoint, {}, user);
 }
 
 export interface SessionDetailOptions {
@@ -30,6 +31,7 @@ export async function getSession(
   projectId: string,
   sessionId: string,
   options: SessionDetailOptions = {},
+  user?: TraceApiUser,
 ): Promise<SessionDetailResponse> {
   const params = new URLSearchParams();
   if (options.start_after) params.set("start_after", options.start_after);
@@ -38,5 +40,5 @@ export async function getSession(
   const query = params.toString();
   const endpoint = `/projects/${projectId}/sessions/${encodeURIComponent(sessionId)}${query ? `?${query}` : ""}`;
 
-  return fetchTraceApi<SessionDetailResponse>(endpoint);
+  return fetchTraceApi<SessionDetailResponse>(endpoint, {}, user);
 }

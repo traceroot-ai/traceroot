@@ -2,10 +2,12 @@
  * Trace feature hooks
  */
 import { useQuery } from "@tanstack/react-query";
+import { useSession as useAuthSession } from "@/lib/auth-client";
 import { getTraces, getTrace } from "@/lib/api";
 import { getSessions, getSession, type SessionDetailOptions } from "@/lib/api/sessions";
 import { getUsers, type UserQueryOptions } from "@/lib/api/users";
 import type { SessionQueryOptions, TraceQueryOptions } from "@/types/api";
+import type { TraceApiUser } from "@/lib/api/client";
 
 // Individual state hooks (for fine-grained control)
 export { usePagination } from "./use-pagination";
@@ -23,6 +25,11 @@ export { useListPageState } from "./use-list-page-state";
  * Hook for fetching paginated traces list
  */
 export function useTraces(projectId: string, options: TraceQueryOptions = {}) {
+  const { data: authSession, isPending } = useAuthSession();
+  const sessionReady = !isPending && !!authSession?.user;
+  const user: TraceApiUser | undefined = authSession?.user
+    ? { id: authSession.user.id, email: authSession.user.email }
+    : undefined;
   return useQuery({
     queryKey: [
       "traces",
@@ -35,7 +42,8 @@ export function useTraces(projectId: string, options: TraceQueryOptions = {}) {
       options.user_id,
       options.session_id,
     ],
-    queryFn: () => getTraces(projectId, "", options),
+    queryFn: () => getTraces(projectId, "", options, user),
+    enabled: sessionReady && !!projectId,
   });
 }
 
@@ -43,10 +51,15 @@ export function useTraces(projectId: string, options: TraceQueryOptions = {}) {
  * Hook for fetching a single trace with its spans
  */
 export function useTrace(projectId: string, traceId: string, enabled: boolean = true) {
+  const { data: authSession, isPending } = useAuthSession();
+  const sessionReady = !isPending && !!authSession?.user;
+  const user: TraceApiUser | undefined = authSession?.user
+    ? { id: authSession.user.id, email: authSession.user.email }
+    : undefined;
   return useQuery({
     queryKey: ["trace", projectId, traceId],
-    queryFn: () => getTrace(projectId, traceId, ""),
-    enabled,
+    queryFn: () => getTrace(projectId, traceId, "", user),
+    enabled: sessionReady && enabled,
   });
 }
 
@@ -54,6 +67,11 @@ export function useTrace(projectId: string, traceId: string, enabled: boolean = 
  * Hook for fetching paginated users list
  */
 export function useUsers(projectId: string, options: UserQueryOptions = {}) {
+  const { data: authSession, isPending } = useAuthSession();
+  const sessionReady = !isPending && !!authSession?.user;
+  const user: TraceApiUser | undefined = authSession?.user
+    ? { id: authSession.user.id, email: authSession.user.email }
+    : undefined;
   return useQuery({
     queryKey: [
       "users",
@@ -64,7 +82,8 @@ export function useUsers(projectId: string, options: UserQueryOptions = {}) {
       options.start_after,
       options.end_before,
     ],
-    queryFn: () => getUsers(projectId, options),
+    queryFn: () => getUsers(projectId, options, user),
+    enabled: sessionReady && !!projectId,
   });
 }
 
@@ -72,6 +91,11 @@ export function useUsers(projectId: string, options: UserQueryOptions = {}) {
  * Hook for fetching paginated sessions list
  */
 export function useSessions(projectId: string, options: SessionQueryOptions = {}) {
+  const { data: authSession, isPending } = useAuthSession();
+  const sessionReady = !isPending && !!authSession?.user;
+  const user: TraceApiUser | undefined = authSession?.user
+    ? { id: authSession.user.id, email: authSession.user.email }
+    : undefined;
   return useQuery({
     queryKey: [
       "sessions",
@@ -82,7 +106,8 @@ export function useSessions(projectId: string, options: SessionQueryOptions = {}
       options.start_after,
       options.end_before,
     ],
-    queryFn: () => getSessions(projectId, options),
+    queryFn: () => getSessions(projectId, options, user),
+    enabled: sessionReady && !!projectId,
   });
 }
 
@@ -95,9 +120,14 @@ export function useSession(
   options: SessionDetailOptions = {},
   enabled: boolean = true,
 ) {
+  const { data: authSession, isPending } = useAuthSession();
+  const sessionReady = !isPending && !!authSession?.user;
+  const user: TraceApiUser | undefined = authSession?.user
+    ? { id: authSession.user.id, email: authSession.user.email }
+    : undefined;
   return useQuery({
     queryKey: ["session", projectId, sessionId, options.start_after, options.end_before],
-    queryFn: () => getSession(projectId, sessionId, options),
-    enabled,
+    queryFn: () => getSession(projectId, sessionId, options, user),
+    enabled: sessionReady && enabled,
   });
 }
