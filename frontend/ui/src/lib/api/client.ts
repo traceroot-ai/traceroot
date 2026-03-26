@@ -31,7 +31,7 @@ export async function fetchNextApi<T>(endpoint: string, options: RequestInit = {
   return response.json();
 }
 
-export type TraceApiUser = { id: string; email?: string | null; name?: string | null };
+export type TraceApiUser = { id: string; email?: string | null };
 
 /**
  * Fetch from Python backend (for traces - needs user headers).
@@ -49,14 +49,15 @@ export async function fetchTraceApi<T>(
   if (user?.id) {
     headers["x-user-id"] = user.id;
     if (user.email) headers["x-user-email"] = user.email;
-    if (user.name) headers["x-user-name"] = user.name;
+    // x-user-name intentionally omitted: HTTP headers must be ASCII and the
+    // backend does not use it. Non-ASCII names (e.g. Chinese characters) would
+    // cause a TypeError in the browser's fetch API.
   } else {
     // Fallback: fetch session imperatively (for non-hook callers)
     const { data: session } = await authClient.getSession();
     if (session?.user) {
       headers["x-user-id"] = session.user.id;
       if (session.user.email) headers["x-user-email"] = session.user.email;
-      if (session.user.name) headers["x-user-name"] = session.user.name;
     }
   }
 

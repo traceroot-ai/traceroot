@@ -28,7 +28,7 @@ export function useTraces(projectId: string, options: TraceQueryOptions = {}) {
   const { data: authSession, isPending } = useAuthSession();
   const sessionReady = !isPending && !!authSession?.user;
   const user: TraceApiUser | undefined = authSession?.user
-    ? { id: authSession.user.id, email: authSession.user.email, name: authSession.user.name }
+    ? { id: authSession.user.id, email: authSession.user.email }
     : undefined;
   return useQuery({
     queryKey: [
@@ -54,7 +54,7 @@ export function useTrace(projectId: string, traceId: string, enabled: boolean = 
   const { data: authSession, isPending } = useAuthSession();
   const sessionReady = !isPending && !!authSession?.user;
   const user: TraceApiUser | undefined = authSession?.user
-    ? { id: authSession.user.id, email: authSession.user.email, name: authSession.user.name }
+    ? { id: authSession.user.id, email: authSession.user.email }
     : undefined;
   return useQuery({
     queryKey: ["trace", projectId, traceId],
@@ -70,7 +70,7 @@ export function useUsers(projectId: string, options: UserQueryOptions = {}) {
   const { data: authSession, isPending } = useAuthSession();
   const sessionReady = !isPending && !!authSession?.user;
   const user: TraceApiUser | undefined = authSession?.user
-    ? { id: authSession.user.id, email: authSession.user.email, name: authSession.user.name }
+    ? { id: authSession.user.id, email: authSession.user.email }
     : undefined;
   return useQuery({
     queryKey: [
@@ -94,7 +94,7 @@ export function useSessions(projectId: string, options: SessionQueryOptions = {}
   const { data: authSession, isPending } = useAuthSession();
   const sessionReady = !isPending && !!authSession?.user;
   const user: TraceApiUser | undefined = authSession?.user
-    ? { id: authSession.user.id, email: authSession.user.email, name: authSession.user.name }
+    ? { id: authSession.user.id, email: authSession.user.email }
     : undefined;
   return useQuery({
     queryKey: [
@@ -123,7 +123,7 @@ export function useSession(
   const { data: authSession, isPending } = useAuthSession();
   const sessionReady = !isPending && !!authSession?.user;
   const user: TraceApiUser | undefined = authSession?.user
-    ? { id: authSession.user.id, email: authSession.user.email, name: authSession.user.name }
+    ? { id: authSession.user.id, email: authSession.user.email }
     : undefined;
   return useQuery({
     queryKey: ["session", projectId, sessionId, options.start_after, options.end_before],
