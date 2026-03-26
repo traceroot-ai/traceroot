@@ -31,20 +31,33 @@ export async function fetchNextApi<T>(endpoint: string, options: RequestInit = {
   return response.json();
 }
 
-/**
- * Fetch from Python backend (for traces - needs user headers)
- */
-export async function fetchTraceApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const { data: session } = await authClient.getSession();
+export type TraceApiUser = { id: string; email?: string | null; name?: string | null };
 
+/**
+ * Fetch from Python backend (for traces - needs user headers).
+ * Pass `user` from a React hook's session to avoid a redundant getSession() call.
+ */
+export async function fetchTraceApi<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  user?: TraceApiUser,
+): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
 
-  if (session?.user) {
-    headers["x-user-id"] = session.user.id;
-    if (session.user.email) headers["x-user-email"] = session.user.email;
-    if (session.user.name) headers["x-user-name"] = session.user.name;
+  if (user?.id) {
+    headers["x-user-id"] = user.id;
+    if (user.email) headers["x-user-email"] = user.email;
+    if (user.name) headers["x-user-name"] = user.name;
+  } else {
+    // Fallback: fetch session imperatively (for non-hook callers)
+    const { data: session } = await authClient.getSession();
+    if (session?.user) {
+      headers["x-user-id"] = session.user.id;
+      if (session.user.email) headers["x-user-email"] = session.user.email;
+      if (session.user.name) headers["x-user-name"] = session.user.name;
+    }
   }
 
   const response = await fetch(`${TRACE_API_BASE}${endpoint}`, {
