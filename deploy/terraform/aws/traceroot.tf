@@ -131,6 +131,16 @@ clickhouse:
     enabled: true
     size: ${var.clickhouse_storage_size}
     storageClass: "efs"
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+  extraEnvVars:
+    - name: MALLOC_CONF
+      value: "background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:1000"
 
 secrets:
   existingSecret: "traceroot"
