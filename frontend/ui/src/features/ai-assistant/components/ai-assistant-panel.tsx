@@ -20,17 +20,16 @@ interface AiAssistantPanelProps {
 export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
   const { width, onMouseDown } = usePanelResize();
   const params = useParams();
-  const projectId = params?.projectId as string | undefined;
-  const workspaceIdFromUrl = params?.workspaceId as string | undefined;
+  const projectId = params.projectId as string;
 
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
-    queryFn: () => getProject(projectId!),
+    queryFn: () => getProject(projectId),
     enabled: !!projectId,
   });
 
-  // workspaceId from URL (workspace pages) or from project (project pages)
-  const workspaceId = workspaceIdFromUrl || project?.workspace_id;
+  // workspaceId derived from project (always available in project context)
+  const workspaceId = project?.workspace_id || "";
 
   // Check if any models are available (system or BYOK)
   const { data: llmModels } = useQuery({
