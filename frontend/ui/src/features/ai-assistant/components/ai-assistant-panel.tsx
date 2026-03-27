@@ -96,7 +96,7 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
             <SessionHistory
               sessions={sessions}
               currentSessionId={currentSessionId}
-              projectId={projectId || ""}
+              projectId={projectId}
               onSelect={handleSelectSession}
               onDelete={handleDeleteSession}
             />
@@ -109,11 +109,7 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
       </div>
 
       {/* Messages */}
-      {!projectId ? (
-        <div className="flex flex-1 items-center justify-center px-6 text-center text-[13px] text-muted-foreground">
-          Open a project to start using the AI assistant.
-        </div>
-      ) : !hasModels ? (
+      {!hasModels ? (
         <div className="flex flex-1 items-center justify-center px-6">
           <div className="flex max-w-[280px] flex-col items-center gap-3 text-center">
             <AlertTriangle className="h-8 w-8 text-yellow-500" />
