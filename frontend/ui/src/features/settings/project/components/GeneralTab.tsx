@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { updateProject, deleteProject } from "@/lib/api";
-import { useProject } from "../hooks";
+import { useProject } from "@/features/projects/hooks";
 
 interface GeneralTabProps {
   projectId: string;
