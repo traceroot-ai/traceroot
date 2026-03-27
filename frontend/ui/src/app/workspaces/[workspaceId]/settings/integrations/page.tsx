@@ -17,7 +17,6 @@ export default function WorkspaceSettingsIntegrationsPage() {
         tabs={WORKSPACE_SETTINGS_TABS}
         activeTab="integrations"
         basePath={`/workspaces/${workspaceId}/settings`}
-        crossLink={{ label: "Project Settings", href: `/workspaces/${workspaceId}/projects` }}
       >
         <IntegrationsTab workspaceId={workspaceId} />
       </SettingsLayout>
