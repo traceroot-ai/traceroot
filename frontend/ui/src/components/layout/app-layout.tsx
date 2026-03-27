@@ -31,7 +31,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const pathname = usePathname();
   const isProjectPage = /^\/projects\/[^/]+/.test(pathname);
-  const isProjectSettingsPage = /^\/projects\/[^/]+\/settings/.test(pathname);
+  const isProjectSettingsPage = /^\/projects\/[^/]+\/settings(\/|$)/.test(pathname);
   const showAiButton = isProjectPage && !isProjectSettingsPage;
 
   // Don't show layout on auth pages
