@@ -4,13 +4,21 @@ import { useRef, useState, useCallback } from "react";
 import { useAIStream } from "./use-ai-stream";
 import type { AISession, AIMessage } from "../types";
 import type { ModelSelection } from "../components/model-selector";
+ 
+interface RawApiMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createTime: string;
+}
 
 interface UseAiChatOptions {
   projectId: string | undefined;
   traceId?: string;
+  sessionId?: string;
 }
 
-export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
+export function useAiChat({ projectId, traceId, sessionId }: UseAiChatOptions) {
   const { messages, isStreaming, sendMessage, abort, setMessages } = useAIStream();
   const sessionIdRef = useRef<string | null>(null);
   const [sessions, setSessions] = useState<AISession[]>([]);
@@ -45,22 +53,23 @@ export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
       if (!projectId) return;
       setIsSending(true);
       try {
-        const sessionId = await ensureSession();
-        if (!sessionId) return;
+        const aiSessionId = await ensureSession();
+        if (!aiSessionId) return;
         sendMessage({
-          sessionId,
+          sessionId: aiSessionId,
           message,
           projectId,
           model: modelSelection.model,
           providerName: modelSelection.provider,
           source: modelSelection.source,
           traceId,
+          traceRootSessionId: sessionId,
         });
       } finally {
         setIsSending(false);
       }
     },
-    [projectId, traceId, ensureSession, sendMessage],
+    [projectId, traceId, sessionId, ensureSession, sendMessage],
   );
 
   const handleNewSession = useCallback(() => {
@@ -91,9 +100,9 @@ export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
         const res = await fetch(`/api/projects/${projectId}/ai/sessions/${session.id}/messages`);
         if (res.ok) {
           const data = await res.json();
-          const loaded = (data.messages || []).map((m: any) => ({
+          const loaded = (data.messages || []).map((m: RawApiMessage) => ({
             id: m.id,
-            role: m.role as "user" | "assistant",
+            role: m.role,
             content: m.content,
             timestamp: m.createTime,
           }));
@@ -108,7 +117,7 @@ export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
 
   const handleDeleteSession = useCallback(
     (sessionId: string) => {
-      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      setSessions((prev: AISession[]) => prev.filter((s) => s.id !== sessionId));
       if (sessionIdRef.current === sessionId) {
         sessionIdRef.current = null;
         setMessages([]);
@@ -120,7 +129,7 @@ export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
   return {
     // State
     messages,
-    isStreaming: isSending || isStreaming || messages.some((m) => m.isStreaming),
+    isStreaming: isSending || isStreaming || messages.some((m: AIMessage) => m.isStreaming),
     sessions,
     historyOpen,
     currentSessionId: sessionIdRef.current,

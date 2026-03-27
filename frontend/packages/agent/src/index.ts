@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { prisma, calculateCost, syncStandardPrices, ModelSource } from "@traceroot/core";
 import {
@@ -25,7 +25,7 @@ const PORT = parseInt(new URL(AGENT_SERVICE_URL).port || "8100", 10);
 const sessionExecutors = new Map<string, Executor>();
 
 // Health check
-app.get("/health", (c) => {
+app.get("/", (c: Context) => {
   return c.json({ status: "ok", service: "traceroot-agent" });
 });
 
@@ -61,7 +61,7 @@ app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   return c.json(session, 201);
 });
 
-app.get("/api/v1/projects/:projectId/sessions", async (c) => {
+app.get("/api/v1/projects/:projectId/sessions", async (c: Context) => {
   const projectId = c.req.param("projectId");
   const userId = c.req.header("x-user-id") || "";
   if (!userId) {
@@ -104,7 +104,7 @@ app.delete("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
 });
 
 // Message route — SSE streaming via agent runner
-app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) => {
+app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c: Context) => {
   const projectId = c.req.param("projectId");
   const sessionId = c.req.param("sessionId");
   const userId = c.req.header("x-user-id") || "";
@@ -113,11 +113,16 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     message: string;
     model?: string;
     traceId?: string;
+    sessionId?: string;
     providerName?: string;
     source?: ModelSource;
   }>();
 
-  const systemPrompt = getSystemPrompt({ projectId, traceId: body.traceId });
+  const systemPrompt = getSystemPrompt({
+    projectId,
+    traceId: body.traceId,
+    sessionId: body.sessionId,
+  });
 
   // Get or create executor for this session (lazy — not initialized until tool use)
   let executor = sessionExecutors.get(sessionId);

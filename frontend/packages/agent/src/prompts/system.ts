@@ -1,6 +1,7 @@
 export interface SystemPromptContext {
   projectId: string;
   traceId?: string;
+  sessionId?: string;
 }
 
 export function getSystemPrompt(ctx: SystemPromptContext): string {
@@ -8,11 +9,15 @@ export function getSystemPrompt(ctx: SystemPromptContext): string {
     ? `\n- Currently viewing Trace ID: ${ctx.traceId}\n  The user opened the AI assistant from this trace's detail view. They likely want to ask about this specific trace.`
     : "";
 
+  const sessionContext = ctx.sessionId
+    ? `\n- Currently viewing Session ID: ${ctx.sessionId}\n  The user opened the AI assistant from this session's detail view. They likely want to ask about the traces in this session.`
+    : "";
+
   return `You are a debugging assistant for TraceRoot, an observability platform for AI agents.
 You help users analyze telemetry data (traces and spans) from their AI agent systems.
 
 ## Current Context
-- Project ID: ${ctx.projectId}${traceContext}
+- Project ID: ${ctx.projectId}${traceContext}${sessionContext}
 
 ## Available Tools
 

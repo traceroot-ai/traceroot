@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -12,11 +12,13 @@ import {
   Users,
   Clock,
   ChevronRight,
+  BotMessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ExpandableSection } from "@/components/ui/expandable-section";
 import { useSession } from "@/features/traces/hooks";
 import { ContentRenderer } from "./ContentRenderer";
+import { AiChatOverlay } from "@/features/ai-assistant/components/ai-chat-overlay";
 import { formatDuration, cn, buildUrlWithFilters } from "@/lib/utils";
 import { toTimestampBounds } from "@/lib/date-filter";
 import type { SessionTraceItem } from "@/types/api";
@@ -91,6 +93,7 @@ export function SessionDetailPanel({
   customEndDate,
 }: SessionDetailPanelProps) {
   const router = useRouter();
+  const [aiChatOpen, setAiChatOpen] = useState(false);
 
   // Compute timestamps from date filter props
   const sessionQueryOptions = useMemo(() => {
@@ -160,6 +163,16 @@ export function SessionDetailPanel({
                 <span className="font-medium">{formatDuration(data.duration_ms)}</span>
               </div>
             )}
+            <div className="flex-1" />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 px-2.5 text-xs"
+              onClick={() => setAiChatOpen(!aiChatOpen)}
+            >
+              <BotMessageSquare className="h-3.5 w-3.5" />
+              Agent
+            </Button>
           </div>
           {data.user_ids.length > 0 && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -223,6 +236,17 @@ export function SessionDetailPanel({
           </div>
         )}
       </div>
+
+      {/* AI Chat overlay */}
+      {aiChatOpen && (
+        <div className="absolute inset-y-0 right-0 z-50 flex h-full shadow-2xl">
+          <AiChatOverlay
+            projectId={projectId}
+            sessionId={sessionId}
+            onClose={() => setAiChatOpen(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }

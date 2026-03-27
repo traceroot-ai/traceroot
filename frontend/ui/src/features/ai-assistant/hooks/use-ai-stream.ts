@@ -37,6 +37,7 @@ export function useAIStream() {
       providerName?: string;
       source?: "system" | "byok";
       traceId?: string;
+      traceRootSessionId?: string;
     }) => {
       const userMsg: AIMessage = {
         id: generateId(),
@@ -44,7 +45,7 @@ export function useAIStream() {
         content: params.message,
         timestamp: new Date().toISOString(),
       };
-      setMessages((prev) => [...prev, userMsg]);
+      setMessages((prev: AIMessage[]) => [...prev, userMsg]);
 
       setIsStreaming(true);
       currentTextIdRef.current = null;
@@ -55,7 +56,7 @@ export function useAIStream() {
       const openTextBubble = (): string => {
         const id = generateId();
         currentTextIdRef.current = id;
-        setMessages((prev) => [
+        setMessages((prev: AIMessage[]) => [
           ...prev,
           {
             id,
@@ -74,7 +75,7 @@ export function useAIStream() {
         const frozenId = currentTextIdRef.current;
         lastFrozenIdRef.current = frozenId;
         currentTextIdRef.current = null;
-        setMessages((prev) =>
+        setMessages((prev: AIMessage[]) =>
           prev.map((m) => (m.id === frozenId ? { ...m, isStreaming: false } : m)),
         );
       };
@@ -82,7 +83,7 @@ export function useAIStream() {
       // Helper: show an error in the current bubble or open a new one.
       const showError = (errorMessage: string) => {
         const targetId = currentTextIdRef.current ?? openTextBubble();
-        setMessages((prev) =>
+        setMessages((prev: AIMessage[]) =>
           prev.map((m) =>
             m.id === targetId ? { ...m, content: `Error: ${errorMessage}`, isStreaming: false } : m,
           ),
@@ -105,6 +106,7 @@ export function useAIStream() {
             providerName: params.providerName,
             source: params.source,
             traceId: params.traceId,
+            sessionId: params.traceRootSessionId,
           }),
           signal: abortController.signal,
         });
