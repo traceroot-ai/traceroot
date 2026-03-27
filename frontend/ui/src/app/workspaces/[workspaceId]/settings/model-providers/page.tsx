@@ -17,7 +17,6 @@ export default function WorkspaceSettingsModelProvidersPage() {
         tabs={WORKSPACE_SETTINGS_TABS}
         activeTab="model-providers"
         basePath={`/workspaces/${workspaceId}/settings`}
-        crossLink={{ label: "Project Settings", href: `/workspaces/${workspaceId}/projects` }}
       >
         <ModelProvidersTab workspaceId={workspaceId} />
       </SettingsLayout>

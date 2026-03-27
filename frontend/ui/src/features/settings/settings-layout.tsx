@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode } from "react";
 import Link from "next/link";
 import {
   type LucideIcon,
@@ -13,8 +13,6 @@ import {
   ArrowLeftRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const LAST_PROJECT_KEY = "traceroot:lastProjectSettings";
 
 interface SettingsTab {
   id: string;
@@ -46,7 +44,7 @@ interface SettingsLayoutProps {
   activeTab: string;
   basePath: string;
   children: ReactNode;
-  /** Optional link at the bottom of the sidebar to navigate to the other settings context. */
+  /** Optional link to navigate to a related settings context (e.g. Org Settings from project). */
   crossLink?: CrossLink;
 }
 
@@ -57,28 +55,6 @@ export function SettingsLayout({
   children,
   crossLink,
 }: SettingsLayoutProps) {
-  const [resolvedCrossLink, setResolvedCrossLink] = useState<CrossLink | undefined>(crossLink);
-
-  useEffect(() => {
-    // On project settings pages — save this projectId so workspace settings can link back directly.
-    const projectMatch = basePath.match(/\/projects\/([^/]+)/);
-    if (projectMatch) {
-      sessionStorage.setItem(LAST_PROJECT_KEY, `/projects/${projectMatch[1]}/settings/general`);
-      // Sync state when crossLink arrives asynchronously (useProject resolves after mount).
-      setResolvedCrossLink(crossLink);
-    }
-
-    // On workspace settings pages — if the user previously visited a project settings page,
-    // override the generic "projects list" crossLink with a direct link back to that project.
-    const isWorkspacePage = /\/workspaces\//.test(basePath);
-    if (isWorkspacePage && crossLink) {
-      const lastProjectHref = sessionStorage.getItem(LAST_PROJECT_KEY);
-      setResolvedCrossLink(
-        lastProjectHref ? { label: "Project Settings", href: lastProjectHref } : crossLink,
-      );
-    }
-  }, [basePath, crossLink]);
-
   return (
     <>
       <nav className="flex w-40 flex-col border-r">
@@ -100,19 +76,19 @@ export function SettingsLayout({
               </li>
             );
           })}
-        </ul>
 
-        {resolvedCrossLink && (
-          <div className="border-t p-2">
-            <Link
-              href={resolvedCrossLink.href}
-              className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-[13px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-            >
-              <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{resolvedCrossLink.label}</span>
-            </Link>
-          </div>
-        )}
+          {crossLink && (
+            <li>
+              <Link
+                href={crossLink.href}
+                className="flex w-full items-center gap-2 px-3 py-2 text-[13px] transition-colors hover:bg-muted/50"
+              >
+                <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{crossLink.label}</span>
+              </Link>
+            </li>
+          )}
+        </ul>
       </nav>
 
       <div className="flex-1 overflow-auto p-6">{children}</div>

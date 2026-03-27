@@ -3,7 +3,7 @@
 import { useParams } from "next/navigation";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { AccessKeysTab } from "@/features/settings/project";
-import { useProject } from "@/features/settings/project/hooks";
+import { useProject } from "@/features/projects/hooks";
 import { SettingsLayout, PROJECT_SETTINGS_TABS } from "@/features/settings/settings-layout";
 
 export default function ProjectSettingsAccessKeysPage() {
