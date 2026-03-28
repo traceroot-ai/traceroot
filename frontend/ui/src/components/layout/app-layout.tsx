@@ -30,6 +30,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [headerContent, setHeaderContent] = useState<ReactNode>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const pathname = usePathname();
+  const isProjectPage = /^\/projects\/[^/]+/.test(pathname);
+  const isProjectSettingsPage = /^\/projects\/[^/]+\/settings(\/|$)/.test(pathname);
+  const showAiButton = isProjectPage && !isProjectSettingsPage;
 
   // Don't show layout on auth pages
   if (pathname.startsWith("/auth/")) {
@@ -59,21 +62,25 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <PanelLeft className="h-4 w-4" />
             </Button>
             {headerContent}
-            <div className="ml-auto">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 shrink-0"
-                onClick={() => setAiPanelOpen(!aiPanelOpen)}
-                title="AI Assistant"
-              >
-                <BotMessageSquare className="h-4 w-4" />
-              </Button>
-            </div>
+            {showAiButton && (
+              <div className="ml-auto">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0"
+                  onClick={() => setAiPanelOpen(!aiPanelOpen)}
+                  title="AI Assistant"
+                >
+                  <BotMessageSquare className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </header>
           <main className="flex-1 overflow-hidden">{children}</main>
         </div>
-        <AiAssistantPanel open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} />
+        {showAiButton && (
+          <AiAssistantPanel open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} />
+        )}
       </div>
     </LayoutContext.Provider>
   );

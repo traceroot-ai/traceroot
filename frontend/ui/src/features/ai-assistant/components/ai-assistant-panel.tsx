@@ -20,17 +20,16 @@ interface AiAssistantPanelProps {
 export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
   const { width, onMouseDown } = usePanelResize();
   const params = useParams();
-  const projectId = params?.projectId as string | undefined;
-  const workspaceIdFromUrl = params?.workspaceId as string | undefined;
+  const projectId = params?.projectId as string;
 
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
-    queryFn: () => getProject(projectId!),
+    queryFn: () => getProject(projectId),
     enabled: !!projectId,
   });
 
-  // workspaceId from URL (workspace pages) or from project (project pages)
-  const workspaceId = workspaceIdFromUrl || project?.workspace_id;
+  // workspaceId from project (only available on project pages)
+  const workspaceId = project?.workspace_id;
 
   // Check if any models are available (system or BYOK)
   const { data: llmModels } = useQuery({
@@ -97,7 +96,7 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
             <SessionHistory
               sessions={sessions}
               currentSessionId={currentSessionId}
-              projectId={projectId || ""}
+              projectId={projectId}
               onSelect={handleSelectSession}
               onDelete={handleDeleteSession}
             />
@@ -110,11 +109,7 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
       </div>
 
       {/* Messages */}
-      {!projectId ? (
-        <div className="flex flex-1 items-center justify-center px-6 text-center text-[13px] text-muted-foreground">
-          Open a project to start using the AI assistant.
-        </div>
-      ) : !hasModels ? (
+      {!hasModels ? (
         <div className="flex flex-1 items-center justify-center px-6">
           <div className="flex max-w-[280px] flex-col items-center gap-3 text-center">
             <AlertTriangle className="h-8 w-8 text-yellow-500" />
