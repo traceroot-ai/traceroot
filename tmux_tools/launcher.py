@@ -12,14 +12,17 @@ Usage:
 import argparse
 import os
 import shutil
-import subprocess
+import socket
 
+from backend.db.clickhouse.migrate import run_goose
 from tmux_tools import schema
+from tmux_tools.process import run_command
 
 REST_PORT = 8000
 FRONTEND_PORT = 3000
 AGENT_PORT = 8100
-PROD_COMPOSE = "docker compose -f docker-compose.prod.yml"
+PROD_COMPOSE = ["docker", "compose", "-f", "docker-compose.prod.yml"]
+TOOLS_INSTALL_SCRIPT = "python scripts/install_tools.py"
 
 
 # ---------------------------------------------------------------------------
@@ -39,59 +42,45 @@ def ensure_env_file():
 
 def ensure_infra():
     """Start docker containers if not already running."""
-    result = subprocess.run(
-        ["docker", "compose", "ps", "--status", "running", "-q"],
-        capture_output=True,
-        text=True,
+    print("Ensuring infrastructure is running (PostgreSQL, ClickHouse, MinIO, Redis)...")
+    run_command(["docker", "compose", "up", "-d", "postgres", "clickhouse", "minio", "redis"])
+    print("Waiting for containers to be healthy...")
+    run_command(
+        ["docker", "compose", "up", "-d", "--wait", "postgres", "clickhouse", "minio", "redis"],
     )
-    if not result.stdout.strip():
-        print("Starting infrastructure (PostgreSQL, ClickHouse, MinIO, Redis)...")
-        subprocess.run(["docker", "compose", "up", "-d"], check=True)
-        print("Waiting for containers to be healthy...")
-        # Wait for the main services (not minio-init which is a one-shot container)
-        subprocess.run(
-            ["docker", "compose", "up", "-d", "--wait", "postgres", "clickhouse", "minio", "redis"],
-            check=True,
-        )
-    else:
-        print("Infrastructure already running.")
+    # minio-init is a one-shot container — start it after MinIO is healthy.
+    run_command(["docker", "compose", "up", "-d", "minio-init"])
 
 
 def ensure_python_deps():
     """Install Python deps if .venv doesn't exist or is stale."""
     print("Syncing Python dependencies...")
-    subprocess.run(["uv", "sync"], check=True)
+    run_command(["uv", "sync"])
 
 
 def ensure_frontend_deps():
     """Install frontend deps if node_modules missing."""
     if not os.path.exists("frontend/node_modules"):
         print("Installing frontend dependencies...")
-        subprocess.run(["pnpm", "install"], cwd="frontend", check=True)
+        run_command(["pnpm", "install"], cwd="frontend")
     else:
         print("Frontend dependencies already installed.")
     print("Generating Prisma client...")
-    subprocess.run(
+    run_command(
         ["pnpm", "db:generate"],
         cwd="frontend/packages/core",
-        check=True,
     )
 
 
 def ensure_migrations():
     """Run pending migrations for both Postgres and ClickHouse."""
     print("Running PostgreSQL migrations (Prisma)...")
-    subprocess.run(
+    run_command(
         ["pnpm", "db:migrate"],
         cwd="frontend/packages/core",
-        check=True,
     )
     print("Running ClickHouse migrations (goose)...")
-    subprocess.run(
-        ["./migrate.sh", "up"],
-        cwd="backend/db/clickhouse",
-        check=True,
-    )
+    run_goose("up", docker_fallback=True)
 
 
 def run_setup():
@@ -109,39 +98,21 @@ def run_prod_setup():
     ensure_env_file()
 
     print("Building Docker images (cached if unchanged)...")
-    subprocess.run(
-        f"{PROD_COMPOSE} build".split(),
-        check=True,
-    )
+    run_command([*PROD_COMPOSE, "build"])
 
     print("Starting infrastructure (PostgreSQL, ClickHouse, MinIO, Redis)...")
-    subprocess.run(
-        f"{PROD_COMPOSE} up -d --wait postgres clickhouse minio redis".split(),
-        check=True,
-    )
+    run_command([*PROD_COMPOSE, "up", "-d", "--wait", "postgres", "clickhouse", "minio", "redis"])
     # minio-init is a one-shot container — start it separately (--wait fails on exit-0 containers)
-    subprocess.run(
-        f"{PROD_COMPOSE} up -d minio-init".split(),
-        check=True,
-    )
+    run_command([*PROD_COMPOSE, "up", "-d", "minio-init"])
 
     print("Running database migrations (PostgreSQL)...")
-    subprocess.run(
-        f"{PROD_COMPOSE} run --rm migrate".split(),
-        check=True,
-    )
+    run_command([*PROD_COMPOSE, "run", "--rm", "migrate"])
 
     print("Running database migrations (ClickHouse)...")
-    subprocess.run(
-        f"{PROD_COMPOSE} run --rm migrate-clickhouse".split(),
-        check=True,
-    )
+    run_command([*PROD_COMPOSE, "run", "--rm", "migrate-clickhouse"])
 
     print("Starting application services (web, rest, worker, billing, agent)...")
-    subprocess.run(
-        f"{PROD_COMPOSE} up -d web rest worker billing agent".split(),
-        check=True,
-    )
+    run_command([*PROD_COMPOSE, "up", "-d", "web", "rest", "worker", "billing", "agent"])
 
     print("\nAll containers started. Launching log viewer...\n")
 
@@ -156,41 +127,65 @@ def tool_prerequisites():
     return [
         schema.Prerequisite(
             name="docker is installed and running",
-            command="docker ps",
-            instructions="Install Docker: https://docs.docker.com/get-docker/",
+            command=["docker", "ps"],
+            instructions=(
+                "Install Docker, then verify the full toolchain with:\n"
+                f"    {TOOLS_INSTALL_SCRIPT} --check"
+            ),
         ),
         schema.Prerequisite(
             name="uv is installed",
-            command="uv --version",
-            instructions="Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh",
+            command=["uv", "--version"],
+            instructions=(
+                "Install uv, or bootstrap the required tooling with:\n"
+                f"    {TOOLS_INSTALL_SCRIPT} uv"
+            ),
         ),
         schema.Prerequisite(
             name="pnpm is installed",
-            command="pnpm --version",
-            instructions="Install pnpm: npm install -g pnpm",
-        ),
-        schema.Prerequisite(
-            name="goose is installed",
-            command="goose --version",
+            command=["pnpm", "--version"],
             instructions=(
-                "Install goose:\n"
-                "    Mac:   brew install goose\n"
-                "    Other: go install github.com/pressly/goose/v3/cmd/goose@latest"
+                "Install pnpm, or bootstrap the required tooling with:\n"
+                f"    {TOOLS_INSTALL_SCRIPT} pnpm"
             ),
         ),
     ]
+
+
+def _port_instructions(port):
+    if os.name == "nt":
+        return (
+            f"Port {port} is in use. Find and stop the process with:\n"
+            f"    Get-NetTCPConnection -LocalPort {port} | Select-Object LocalAddress, LocalPort, OwningProcess\n"
+            "    Stop-Process -Id <PID>"
+        )
+    return (
+        f"Port {port} is in use. Find and kill the process:\n"
+        f"    lsof -nP -iTCP:{port} -sTCP:LISTEN\n"
+        "    kill <PID>"
+    )
+
+
+def _check_port_available(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError as exc:
+            return schema.CheckResult(
+                False,
+                f"Port {port} is in use or unavailable.\n"
+                f"System error: {exc}\n"
+                f"{_port_instructions(port)}",
+            )
+    return schema.CheckResult(True, "")
 
 
 def port_available(port):
     """Check that a port is not in use."""
     return schema.Prerequisite(
         name=f"port {port} is available",
-        command=f'bash -c "! lsof -nP -iTCP:{port} -sTCP:LISTEN"',
-        instructions=(
-            f"Port {port} is in use. Find and kill the process:\n"
-            f"    lsof -nP -iTCP:{port} -sTCP:LISTEN\n"
-            f"    kill <PID>"
-        ),
+        check_fn=lambda: _check_port_available(port),
+        instructions=_port_instructions(port),
     )
 
 
@@ -292,22 +287,22 @@ def prod_infra_services():
     return [
         schema.Service(
             title="PostgreSQL",
-            command=f"{PROD_COMPOSE} logs -f --tail=50 postgres",
+            command="docker compose -f docker-compose.prod.yml logs -f --tail=50 postgres",
             web_urls=[],
         ),
         schema.Service(
             title="ClickHouse",
-            command=f"{PROD_COMPOSE} logs -f --tail=50 clickhouse",
+            command="docker compose -f docker-compose.prod.yml logs -f --tail=50 clickhouse",
             web_urls=[],
         ),
         schema.Service(
             title="Redis",
-            command=f"{PROD_COMPOSE} logs -f --tail=50 redis",
+            command="docker compose -f docker-compose.prod.yml logs -f --tail=50 redis",
             web_urls=[],
         ),
         schema.Service(
             title="MinIO",
-            command=f"{PROD_COMPOSE} logs -f --tail=50 minio",
+            command="docker compose -f docker-compose.prod.yml logs -f --tail=50 minio",
             web_urls=[
                 ("MinIO Console", "http://localhost:9091"),
             ],
@@ -324,31 +319,31 @@ def make_prod_driver():
         services=[
             schema.Service(
                 title="Web",
-                command=f"{PROD_COMPOSE} logs -f --tail=50 web",
+                command="docker compose -f docker-compose.prod.yml logs -f --tail=50 web",
                 web_urls=[
                     ("Traceroot UI", f"http://localhost:{FRONTEND_PORT}"),
                 ],
             ),
             schema.Service(
                 title="REST API",
-                command=f"{PROD_COMPOSE} logs -f --tail=50 rest",
+                command="docker compose -f docker-compose.prod.yml logs -f --tail=50 rest",
                 web_urls=[
                     ("REST API docs", f"http://localhost:{REST_PORT}/docs"),
                 ],
             ),
             schema.Service(
                 title="Celery Worker",
-                command=f"{PROD_COMPOSE} logs -f --tail=50 worker",
+                command="docker compose -f docker-compose.prod.yml logs -f --tail=50 worker",
                 web_urls=[],
             ),
             schema.Service(
                 title="Billing Worker",
-                command=f"{PROD_COMPOSE} logs -f --tail=50 billing",
+                command="docker compose -f docker-compose.prod.yml logs -f --tail=50 billing",
                 web_urls=[],
             ),
             schema.Service(
                 title="Agent",
-                command=f"{PROD_COMPOSE} logs -f --tail=50 agent",
+                command="docker compose -f docker-compose.prod.yml logs -f --tail=50 agent",
                 web_urls=[
                     ("Agent API", f"http://localhost:{AGENT_PORT}"),
                 ],
@@ -358,8 +353,11 @@ def make_prod_driver():
         prerequisites=[
             schema.Prerequisite(
                 name="docker is installed and running",
-                command="docker ps",
-                instructions="Install Docker: https://docs.docker.com/get-docker/",
+                command=["docker", "ps"],
+                instructions=(
+                    "Install Docker, then verify the full toolchain with:\n"
+                    f"    {TOOLS_INSTALL_SCRIPT} --check"
+                ),
             ),
         ],
     )
