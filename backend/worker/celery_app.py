@@ -6,19 +6,20 @@ Runs ClickHouse migrations on worker startup.
 
 import logging
 import os
-import subprocess
-from pathlib import Path
+from importlib import import_module
 
 from celery import Celery
 from celery.signals import worker_ready
 from dotenv import load_dotenv
+
+from db.clickhouse.migrate import run_goose
 
 logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv()
 
-from shared.config import settings
+settings = import_module("shared.config").settings
 
 # Configure logging for worker tasks
 logging.basicConfig(
@@ -61,13 +62,10 @@ def on_worker_ready(**kwargs):
     logger.info("Running ClickHouse migrations on worker startup...")
     try:
         ch = settings.clickhouse
-        result = subprocess.run(
-            [
-                str(Path(__file__).resolve().parent.parent / "db" / "clickhouse" / "migrate.sh"),
-                "up",
-            ],
+        result = run_goose(
+            "up",
             capture_output=True,
-            text=True,
+            check=False,
             env={
                 **os.environ,
                 "CLICKHOUSE_HOST": ch.host,
