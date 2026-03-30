@@ -16,7 +16,11 @@ def test_prepare_command_wraps_windows_cmd_shims(monkeypatch):
 def test_prepare_command_wraps_windows_powershell_scripts(monkeypatch):
     monkeypatch.setattr(process, "IS_WINDOWS", True)
     monkeypatch.setattr(process.shutil, "which", lambda cmd: r"C:\Users\dev\bin\custom.ps1")
-    monkeypatch.setattr(process, "_find_powershell", lambda: r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")
+    monkeypatch.setattr(
+        process,
+        "_find_powershell",
+        lambda: r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+    )
 
     command = process.prepare_command(["custom-tool", "--check"])
 
@@ -66,7 +70,9 @@ def test_launch_keeps_welcome_window_non_interactive(monkeypatch):
 
     session.launch(
         SessionLayout(
-            welcome=Window(name="Instructions", command="printf '%s\\n' 'hello'; tail -f /dev/null"),
+            welcome=Window(
+                name="Instructions", command="printf '%s\\n' 'hello'; tail -f /dev/null"
+            ),
             windows=[],
             on_exit=None,
         )
