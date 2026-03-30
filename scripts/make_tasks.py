@@ -74,7 +74,9 @@ def prod_reset() -> None:
     print("Resetting production environment...")
     _kill_tmux_session("traceroot-prod")
     _remove_sandbox_containers()
-    run_command(["docker", "compose", "-f", "docker-compose.prod.yml", "down", "-v", "--rmi", "local"])
+    run_command(
+        ["docker", "compose", "-f", "docker-compose.prod.yml", "down", "-v", "--rmi", "local"]
+    )
     print("Done. Run 'make prod' to start fresh.")
 
 

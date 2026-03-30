@@ -55,7 +55,10 @@ def _resolve_tmux_shell() -> str:
         shell_executable = shutil.which(shell_name)
         if shell_executable:
             shell_path = Path(shell_executable)
-            if shell_path.name.lower() == "bash.exe" and "system32" in shell_path.as_posix().lower():
+            if (
+                shell_path.name.lower() == "bash.exe"
+                and "system32" in shell_path.as_posix().lower()
+            ):
                 continue
             return str(shell_path)
 
