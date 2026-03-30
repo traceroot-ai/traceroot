@@ -8,7 +8,14 @@ Thanks for your interest in contributing! This guide will help you get started.
 - uv: Python package manager
 - pnpm: Node.js package manager
 - tmux: terminal multiplexer
-- goose: ClickHouse migration tool
+- goose: ClickHouse migration tool (optional for `make`; Docker fallback is built in)
+
+On a new machine, verify or install the required tools with:
+
+```bash
+python scripts/install_tools.py --check
+python scripts/install_tools.py
+```
 
 ## Quick Start
 
