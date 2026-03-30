@@ -14,6 +14,7 @@ import { getProject } from "@/lib/api";
 interface AiChatOverlayProps {
   projectId: string;
   traceId?: string;
+  traceSessionId?: string;
   onClose: () => void;
 }
 
@@ -21,7 +22,7 @@ interface AiChatOverlayProps {
  * AI chat panel for use inside trace detail viewer.
  * traceId is passed through to the agent so it knows which trace the user is viewing.
  */
-export function AiChatOverlay({ projectId, traceId, onClose }: AiChatOverlayProps) {
+export function AiChatOverlay({ projectId, traceId, traceSessionId, onClose }: AiChatOverlayProps) {
   const { width, onMouseDown } = usePanelResize();
 
   const { data: project } = useQuery({
@@ -44,7 +45,7 @@ export function AiChatOverlay({ projectId, traceId, onClose }: AiChatOverlayProp
     handleOpenHistory,
     handleSelectSession,
     handleDeleteSession,
-  } = useAiChat({ projectId, traceId });
+  } = useAiChat({ projectId, traceId, traceSessionId });
 
   return (
     <div className="relative flex h-full flex-col border-l bg-background" style={{ width }}>

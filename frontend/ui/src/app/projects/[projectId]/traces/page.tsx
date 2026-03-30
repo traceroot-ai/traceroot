@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
+import { useLayout } from "@/components/layout/app-layout";
 import { ChevronLeft, ChevronRight, ChevronDown, Workflow, Users, Layers, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -26,6 +27,7 @@ export default function TracesPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const projectId = params.projectId as string;
+  const { aiPanelOpen, setAiPanelOpen } = useLayout();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
 
@@ -176,7 +178,10 @@ export default function TracesPage() {
                     {traces.map((trace: TraceListItem) => (
                       <tr
                         key={trace.trace_id}
-                        onClick={() => setSelectedTraceId(trace.trace_id)}
+                        onClick={() => {
+                          setSelectedTraceId(trace.trace_id);
+                          if (aiPanelOpen) setAiPanelOpen(false);
+                        }}
                         className={cn(
                           "cursor-pointer border-b border-border/50 transition-colors last:border-0",
                           selectedTraceId === trace.trace_id ? "bg-muted" : "hover:bg-muted/50",
