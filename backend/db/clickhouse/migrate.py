@@ -8,8 +8,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from tmux_tools.process import run_command
-
 DEFAULTS = {
     "CLICKHOUSE_HOST": "localhost",
     "CLICKHOUSE_PORT": "9000",
@@ -23,6 +21,67 @@ PRESSLY_GOOSE_MARKERS = (
     "Usage: goose DRIVER DBSTRING [OPTIONS] COMMAND",
 )
 DOCKER_GOOSE_ACTIONS = {"up", "down", "status"}
+IS_WINDOWS = os.name == "nt"
+
+
+def _find_powershell() -> str:
+    for candidate in ("pwsh", "powershell"):
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+
+    fallback = Path(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")
+    if fallback.exists():
+        return str(fallback)
+
+    raise FileNotFoundError("PowerShell was not found on this system.")
+
+
+def _prepare_command(command: list[str]) -> list[str]:
+    prepared = list(command)
+    if not prepared or not IS_WINDOWS:
+        return prepared
+
+    executable = shutil.which(prepared[0])
+    if not executable:
+        return prepared
+
+    suffix = Path(executable).suffix.lower()
+    if suffix in {".cmd", ".bat"}:
+        return ["cmd", "/c", *prepared]
+    if suffix == ".ps1":
+        return [
+            _find_powershell(),
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "ByPass",
+            "-File",
+            executable,
+            *prepared[1:],
+        ]
+    return prepared
+
+
+def _run_command(
+    command: list[str],
+    *,
+    check: bool = True,
+    capture_output: bool = False,
+    text: bool = True,
+    cwd: str | Path | None = None,
+    env: dict[str, str] | None = None,
+    timeout: int | None = None,
+) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        _prepare_command(command),
+        check=check,
+        capture_output=capture_output,
+        text=text,
+        cwd=cwd,
+        env=env,
+        timeout=timeout,
+    )
 
 
 def migrations_dir() -> Path:
@@ -30,7 +89,7 @@ def migrations_dir() -> Path:
 
 
 def goose_executable_name() -> str:
-    return "goose.exe" if os.name == "nt" else "goose"
+    return "goose.exe" if IS_WINDOWS else "goose"
 
 
 def goose_dbstring(env: dict[str, str] | None = None) -> str:
@@ -80,12 +139,16 @@ def is_pressly_goose(executable: str | Path, env: dict[str, str] | None = None) 
     if not candidate.exists():
         return False
 
-    result = run_command(
-        [str(candidate), "--help"],
-        check=False,
-        capture_output=True,
-        env={**os.environ, **(env or {})},
-    )
+    try:
+        result = _run_command(
+            [str(candidate), "--help"],
+            check=False,
+            capture_output=True,
+            env={**os.environ, **(env or {})},
+        )
+    except OSError:
+        return False
+
     output = "\n".join(part for part in (result.stdout, result.stderr) if part)
     return result.returncode == 0 and any(marker in output for marker in PRESSLY_GOOSE_MARKERS)
 
@@ -151,7 +214,7 @@ def run_goose(
     executable = resolve_pressly_goose(merged_env)
 
     if executable:
-        return run_command(
+        return _run_command(
             goose_command(action, name=name, env=merged_env, executable=executable),
             check=check,
             capture_output=capture_output,
@@ -159,7 +222,7 @@ def run_goose(
         )
 
     if docker_fallback:
-        return run_command(
+        return _run_command(
             docker_goose_command(action),
             check=check,
             capture_output=capture_output,

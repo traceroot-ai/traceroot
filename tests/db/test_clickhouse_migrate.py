@@ -47,7 +47,7 @@ def test_resolve_pressly_goose_prefers_valid_binary(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         migrate,
-        "run_command",
+        "_run_command",
         lambda command, **kwargs: CompletedProcess(
             command,
             0,
@@ -57,6 +57,18 @@ def test_resolve_pressly_goose_prefers_valid_binary(monkeypatch, tmp_path):
     )
 
     assert migrate.resolve_pressly_goose() == str(valid)
+
+
+def test_is_pressly_goose_returns_false_for_non_executable_candidate(monkeypatch, tmp_path):
+    invalid = tmp_path / ("goose.exe" if migrate.os.name == "nt" else "goose")
+    invalid.write_text("stub", encoding="utf-8")
+
+    def raise_permission_error(command, **kwargs):
+        raise PermissionError(f"cannot execute {command[0]}")
+
+    monkeypatch.setattr(migrate, "_run_command", raise_permission_error)
+
+    assert migrate.is_pressly_goose(invalid) is False
 
 
 def test_docker_goose_command_supports_up():

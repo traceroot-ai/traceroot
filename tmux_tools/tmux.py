@@ -15,6 +15,8 @@ from tmux_tools.process import run_command
 # Shell helpers (private)
 # ---------------------------------------------------------------------------
 
+IS_WINDOWS = os.name == "nt"
+
 
 def _format_error(cmd: str, cmd_output: subprocess.CompletedProcess) -> str:
     result: list[str] = []
@@ -66,7 +68,7 @@ def _resolve_tmux_shell() -> str:
 
 
 def _shell_command_path(path: str) -> str:
-    if os.name != "nt":
+    if not IS_WINDOWS:
         return path
 
     posix_path = Path(path).as_posix()
@@ -147,7 +149,7 @@ class TmuxSession:
         self.exec(f'set-hook -g "session-closed" {quote(run_cmd)}')
 
     def launch(self, layout: SessionLayout) -> None:
-        command = f"{quote(self.shell)} -lc {quote(layout.welcome.command)}"
+        command = f"{quote(self.shell)} -c {quote(layout.welcome.command)}"
         self.exec(
             f"-f {quote(self.config.config_file)} "
             f"new-session -d -s {quote(self.config.session_name)} "

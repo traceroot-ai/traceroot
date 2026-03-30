@@ -602,7 +602,7 @@ def _msys2_candidates() -> list[Path]:
         Path("C:/tools/msys64"),
     ]
     # Also check Scoop's MSYS2 location
-    scoop_root = Path(os.environ.get("SCOOP", "")) or Path.home() / "scoop"
+    scoop_root = Path(os.environ["SCOOP"]) if os.environ.get("SCOOP") else Path.home() / "scoop"
     candidates.append(scoop_root / "apps" / "msys2" / "current")
     candidates.append(scoop_root / "apps" / "msys2" / "2024")
     return candidates

@@ -47,7 +47,7 @@ def test_port_check_reports_in_use():
 
 
 def test_shell_command_path_converts_windows_paths(monkeypatch):
-    monkeypatch.setattr(tmux.os, "name", "nt")
+    monkeypatch.setattr(tmux, "IS_WINDOWS", True)
 
     assert tmux._shell_command_path(r"C:\msys64\usr\bin\bash.exe") == "/c/msys64/usr/bin/bash.exe"
 
@@ -79,5 +79,7 @@ def test_launch_keeps_welcome_window_non_interactive(monkeypatch):
     )
 
     assert len(commands) == 1
+    assert " -c " in commands[0]
+    assert " -lc " not in commands[0]
     assert "exec /usr/bin/bash" not in commands[0]
     assert "tail -f /dev/null" in commands[0]
