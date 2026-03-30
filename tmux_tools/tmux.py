@@ -1,6 +1,7 @@
 """Tmux session management: create, attach, and control tmux sessions."""
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -71,9 +72,12 @@ def _shell_command_path(path: str) -> str:
     if not IS_WINDOWS:
         return path
 
-    posix_path = Path(path).as_posix()
-    if len(posix_path) >= 3 and posix_path[1:3] == ":/":
-        return f"/{posix_path[0].lower()}/{posix_path[3:]}"
+    posix_path = path.replace("\\", "/")
+    match = re.match(r"^([a-zA-Z]):/(.*)$", posix_path)
+    if match:
+        drive = match.group(1).lower()
+        rest = match.group(2)
+        return f"/{drive}/{rest}"
     return posix_path
 
 
