@@ -113,11 +113,16 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     message: string;
     model?: string;
     traceId?: string;
+    traceSessionId?: string;
     providerName?: string;
     source?: ModelSource;
   }>();
 
-  const systemPrompt = getSystemPrompt({ projectId, traceId: body.traceId });
+  const systemPrompt = getSystemPrompt({
+    projectId,
+    traceId: body.traceId,
+    traceSessionId: body.traceSessionId,
+  });
 
   // Get or create executor for this session (lazy — not initialized until tool use)
   let executor = sessionExecutors.get(sessionId);

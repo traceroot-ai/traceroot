@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
+import { useLayout } from "@/components/layout/app-layout";
 import { Workflow, Users, Layers, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -23,6 +24,7 @@ export default function SessionsPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const projectId = params.projectId as string;
+  const { aiPanelOpen, setAiPanelOpen } = useLayout();
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
   const sessionIdFromUrl = searchParams.get("sessionId");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(sessionIdFromUrl);
@@ -149,7 +151,10 @@ export default function SessionsPage() {
                     {sessions.map((session: SessionListItem) => (
                       <tr
                         key={session.session_id}
-                        onClick={() => setSelectedSessionId(session.session_id)}
+                        onClick={() => {
+                          setSelectedSessionId(session.session_id);
+                          if (aiPanelOpen) setAiPanelOpen(false);
+                        }}
                         className={cn(
                           "cursor-pointer border-b border-border/50 transition-colors last:border-0",
                           selectedSessionId === session.session_id

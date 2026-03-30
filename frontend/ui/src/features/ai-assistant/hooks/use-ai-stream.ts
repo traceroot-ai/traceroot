@@ -37,6 +37,7 @@ export function useAIStream() {
       providerName?: string;
       source?: "system" | "byok";
       traceId?: string;
+      traceSessionId?: string;
     }) => {
       const userMsg: AIMessage = {
         id: generateId(),
@@ -105,6 +106,7 @@ export function useAIStream() {
             providerName: params.providerName,
             source: params.source,
             traceId: params.traceId,
+            traceSessionId: params.traceSessionId,
           }),
           signal: abortController.signal,
         });

@@ -1,17 +1,22 @@
 "use client";
 
-import { useState, createContext, useContext, ReactNode } from "react";
+import { useState, useEffect, createContext, useContext, ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Button } from "@/components/ui/button";
 import { PanelLeft, BotMessageSquare } from "lucide-react";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
+import type { AiTraceContext } from "@/features/ai-assistant/types";
 
 interface LayoutContextType {
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (collapsed: boolean) => void;
   headerContent: ReactNode;
   setHeaderContent: (content: ReactNode) => void;
+  aiPanelOpen: boolean;
+  setAiPanelOpen: (open: boolean) => void;
+  aiContext: AiTraceContext | null;
+  setAiContext: (context: AiTraceContext | null) => void;
 }
 
 const LayoutContext = createContext<LayoutContextType>({
@@ -19,6 +24,10 @@ const LayoutContext = createContext<LayoutContextType>({
   setSidebarCollapsed: () => {},
   headerContent: null,
   setHeaderContent: () => {},
+  aiPanelOpen: false,
+  setAiPanelOpen: () => {},
+  aiContext: null,
+  setAiContext: () => {},
 });
 
 export function useLayout() {
@@ -29,10 +38,20 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [headerContent, setHeaderContent] = useState<ReactNode>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiContext, setAiContext] = useState<AiTraceContext | null>(null);
   const pathname = usePathname();
+
+  // Close the global AI panel whenever the user navigates to a different page.
+  useEffect(() => {
+    setAiPanelOpen(false);
+    setAiContext(null);
+  }, [pathname]);
+
   const isProjectPage = /^\/projects\/[^/]+/.test(pathname);
   const isProjectSettingsPage = /^\/projects\/[^/]+\/settings(\/|$)/.test(pathname);
   const showAiButton = isProjectPage && !isProjectSettingsPage;
+  const projectIdMatch = pathname.match(/^\/projects\/([^/]+)/);
+  const projectId = projectIdMatch?.[1];
 
   // Don't show layout on auth pages
   if (pathname.startsWith("/auth/")) {
@@ -46,6 +65,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         setSidebarCollapsed,
         headerContent,
         setHeaderContent,
+        aiPanelOpen,
+        setAiPanelOpen,
+        aiContext,
+        setAiContext,
       }}
     >
       <div className="flex h-screen">
@@ -68,7 +91,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 shrink-0"
-                  onClick={() => setAiPanelOpen(!aiPanelOpen)}
+                  onClick={() => {
+                    if (aiPanelOpen) setAiContext(null);
+                    setAiPanelOpen(!aiPanelOpen);
+                  }}
                   title="AI Assistant"
                 >
                   <BotMessageSquare className="h-4 w-4" />
@@ -78,9 +104,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </header>
           <main className="flex-1 overflow-hidden">{children}</main>
         </div>
-        {showAiButton && (
-          <AiAssistantPanel open={aiPanelOpen} onClose={() => setAiPanelOpen(false)} />
-        )}
+        <AiAssistantPanel
+          projectId={projectId}
+          open={aiPanelOpen}
+          initialContext={aiContext}
+          onClose={() => {
+            setAiPanelOpen(false);
+            setAiContext(null);
+          }}
+        />
       </div>
     </LayoutContext.Provider>
   );
