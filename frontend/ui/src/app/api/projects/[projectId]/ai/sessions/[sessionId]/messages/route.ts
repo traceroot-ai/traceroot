@@ -91,6 +91,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         providerName: body.providerName,
         source: body.source,
         traceId: body.traceId,
+        traceSessionId: body.traceSessionId,
       }),
     },
   );

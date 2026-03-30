@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useEffect } from "react";
 import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -11,21 +11,27 @@ import { SessionHistory } from "./session-history";
 import { useAiChat } from "../hooks/use-ai-chat";
 import { usePanelResize } from "../hooks/use-panel-resize";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
+import type { AiTraceContext } from "../types";
 
 interface AiAssistantPanelProps {
+  projectId?: string;
   open: boolean;
   onClose: () => void;
+  initialContext?: AiTraceContext | null;
 }
 
-export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
+export function AiAssistantPanel({
+  projectId,
+  open,
+  onClose,
+  initialContext,
+}: AiAssistantPanelProps) {
   const { width, onMouseDown } = usePanelResize();
-  const params = useParams();
-  const projectId = params?.projectId as string;
 
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
-    queryFn: () => getProject(projectId),
-    enabled: !!projectId,
+    queryFn: () => getProject(projectId!),
+    enabled: open && !!projectId,
   });
 
   // workspaceId from project (only available on project pages)
@@ -35,7 +41,7 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
   const { data: llmModels } = useQuery({
     queryKey: ["llm-models", workspaceId],
     queryFn: () => getAvailableLLMModels(workspaceId!),
-    enabled: !!workspaceId,
+    enabled: open && !!workspaceId,
   });
   const hasModels =
     !llmModels ||
@@ -55,13 +61,22 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
     handleOpenHistory,
     handleSelectSession,
     handleDeleteSession,
-  } = useAiChat({ projectId });
+  } = useAiChat({
+    projectId,
+    traceId: initialContext?.traceId,
+    traceSessionId: initialContext?.traceSessionId,
+  });
+
+  // Reset to a blank session whenever the panel is closed so re-opening starts fresh.
+  useEffect(() => {
+    if (!open) handleNewSession();
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null;
 
   return (
     <div
-      className="relative flex h-screen shrink-0 flex-col border-l bg-background"
+      className="relative z-[60] flex h-screen shrink-0 flex-col border-l bg-background"
       style={{ width }}
     >
       {/* Left resize handle */}
@@ -92,11 +107,16 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
               <History className="h-4 w-4" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent side="bottom" align="start" className="w-[300px] p-1" sideOffset={4}>
+          <PopoverContent
+            side="bottom"
+            align="start"
+            className="z-[70] w-[300px] p-1"
+            sideOffset={4}
+          >
             <SessionHistory
               sessions={sessions}
               currentSessionId={currentSessionId}
-              projectId={projectId}
+              projectId={projectId ?? ""}
               onSelect={handleSelectSession}
               onDelete={handleDeleteSession}
             />
