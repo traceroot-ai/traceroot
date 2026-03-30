@@ -29,3 +29,8 @@ export interface AISession {
   status: string;
   createTime: string;
 }
+
+export interface AiTraceContext {
+  traceId?: string;
+  traceSessionId?: string;
+}

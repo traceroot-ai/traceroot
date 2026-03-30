@@ -1,7 +1,9 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { Executor } from "../executors/interface.js";
 import { createQueryTracesTool } from "./query-traces.js";
-import { createDownloadTraceTool } from "./download-trace.js";
+import { createQuerySessionsTool } from "./query-sessions.js";
+import { createDownloadTracesTool } from "./download-traces.js";
+import { createDownloadSessionTool } from "./download-session.js";
 import { createBashTool, createReadTool, createWriteTool } from "./sandbox.js";
 import { createCheckGitHubAccessTool } from "./github-access.js";
 import { createGitCloneTool } from "./git-clone.js";
@@ -9,11 +11,11 @@ import { createGitCloneTool } from "./git-clone.js";
 const UI_BASE_URL = process.env.TRACEROOT_UI_URL || "http://localhost:3000";
 
 /**
- * Create all tools for the agent. Follows Mom's createMomTools() pattern.
+ * Create all tools for the agent.
  *
  * Two types:
- * - Host-side tools (query_traces, download_trace): run on host, call FastAPI directly
- * - Sandbox-side tools (bash, read, write): run inside sandbox via executor
+ * - Host-side tools: run on host, call FastAPI directly
+ * - Sandbox-side tools: run inside Docker container via executor
  */
 export function createTools(params: {
   projectId: string;
@@ -24,7 +26,9 @@ export function createTools(params: {
 
   // Host-side tools (run on host, call FastAPI directly)
   tools.push(createQueryTracesTool(params.projectId, params.userId));
-  tools.push(createDownloadTraceTool(params.projectId, params.userId, params.executor));
+  tools.push(createQuerySessionsTool(params.projectId, params.userId));
+  tools.push(createDownloadTracesTool(params.projectId, params.userId, params.executor));
+  tools.push(createDownloadSessionTool(params.projectId, params.userId, params.executor));
 
   // GitHub tools (host-side, need auth tokens)
   tools.push(createCheckGitHubAccessTool(params.userId, UI_BASE_URL));

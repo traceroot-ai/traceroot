@@ -1,16 +1,15 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { useAIStream } from "./use-ai-stream";
-import type { AISession, AIMessage } from "../types";
+import type { AISession, AIMessage, AiTraceContext } from "../types";
 import type { ModelSelection } from "../components/model-selector";
 
-interface UseAiChatOptions {
+interface UseAiChatOptions extends AiTraceContext {
   projectId: string | undefined;
-  traceId?: string;
 }
 
-export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
+export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptions) {
   const { messages, isStreaming, sendMessage, abort, setMessages } = useAIStream();
   const sessionIdRef = useRef<string | null>(null);
   const [sessions, setSessions] = useState<AISession[]>([]);
@@ -20,6 +19,12 @@ export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
   // setIsStreaming(true) and setIsStreaming(false) into a single frame, hiding the button.
   const [isSending, setIsSending] = useState(false);
 
+  // Reset session when traceSessionId changes (panel reopened for a different session)
+  useEffect(() => {
+    sessionIdRef.current = null;
+    setMessages([]);
+  }, [traceSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Lazy session creation — only when first message is sent
   const ensureSession = useCallback(async (): Promise<string | null> => {
     if (sessionIdRef.current) return sessionIdRef.current;
@@ -28,7 +33,7 @@ export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
       const res = await fetch(`/api/projects/${projectId}/ai/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ traceId }),
+        body: JSON.stringify({ traceId, traceSessionId }),
       });
       if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
       const data = await res.json();
@@ -38,7 +43,7 @@ export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
       console.error(err);
       return null;
     }
-  }, [projectId, traceId]);
+  }, [projectId, traceId, traceSessionId]);
 
   const handleSend = useCallback(
     async (message: string, modelSelection: ModelSelection) => {
@@ -55,12 +60,13 @@ export function useAiChat({ projectId, traceId }: UseAiChatOptions) {
           providerName: modelSelection.provider,
           source: modelSelection.source,
           traceId,
+          traceSessionId,
         });
       } finally {
         setIsSending(false);
       }
     },
-    [projectId, traceId, ensureSession, sendMessage],
+    [projectId, traceId, traceSessionId, ensureSession, sendMessage],
   );
 
   const handleNewSession = useCallback(() => {
