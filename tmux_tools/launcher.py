@@ -43,7 +43,6 @@ def ensure_env_file():
 def ensure_infra():
     """Start docker containers if not already running."""
     print("Ensuring infrastructure is running (PostgreSQL, ClickHouse, MinIO, Redis)...")
-    run_command(["docker", "compose", "up", "-d", "postgres", "clickhouse", "minio", "redis"])
     print("Waiting for containers to be healthy...")
     run_command(
         ["docker", "compose", "up", "-d", "--wait", "postgres", "clickhouse", "minio", "redis"],
