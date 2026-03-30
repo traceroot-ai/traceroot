@@ -51,6 +51,8 @@ export async function POST(req: NextRequest) {
         const priceId = subscription.items.data[0]?.price.id;
         const plan = mapPriceIdToPlan(priceId);
 
+        const isPaidPlan = plan !== PlanType.FREE;
+
         await prisma.workspace.update({
           where: { id: workspaceId },
           data: {
@@ -62,11 +64,13 @@ export async function POST(req: NextRequest) {
             // Store current billing period dates (updated each month when subscription renews)
             billingPeriodStart: new Date(subscription.current_period_start * 1000),
             billingPeriodEnd: new Date(subscription.current_period_end * 1000),
+            // Immediately unblock paid plans (don't wait for hourly billing worker)
+            ...(isPaidPlan && { aiBlocked: false, ingestionBlocked: false }),
           },
         });
 
         console.log(
-          `Subscription ${event.type} for workspace ${workspaceId}, plan: ${plan}, status: ${subscription.status}, period: ${subscription.current_period_start} - ${subscription.current_period_end}`,
+          `Subscription ${event.type} for workspace ${workspaceId}, plan: ${plan}, status: ${subscription.status}, period: ${subscription.current_period_start} - ${subscription.current_period_end}${isPaidPlan ? ", unblocked AI + ingestion" : ""}`,
         );
         break;
       }
