@@ -30,7 +30,7 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
             type="button"
             onClick={() => setTab("ai")}
             className={cn(
-              "flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-medium transition-colors",
+              "flex items-center gap-1.5 rounded-none px-3 py-1.5 text-xs font-medium transition-colors",
               tab === "ai"
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",
@@ -43,7 +43,7 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
             type="button"
             onClick={() => setTab("manual")}
             className={cn(
-              "flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-medium transition-colors",
+              "flex items-center gap-1.5 rounded-none px-3 py-1.5 text-xs font-medium transition-colors",
               tab === "manual"
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",

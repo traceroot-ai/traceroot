@@ -30,12 +30,7 @@ function CopyPromptButton({ value }: { value: string }) {
   };
 
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      className="ml-4 h-7 shrink-0 text-[11px]"
-      onClick={handleCopy}
-    >
+    <Button variant="outline" size="sm" className="ml-4 h-7 shrink-0 text-xs" onClick={handleCopy}>
       {copied ? (
         <>
           <Check className="mr-1 h-3 w-3 text-green-600" />

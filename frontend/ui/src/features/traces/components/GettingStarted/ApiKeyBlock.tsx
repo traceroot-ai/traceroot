@@ -38,7 +38,7 @@ export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
           <span className="flex-1 truncate text-foreground">&quot;{generatedKey}&quot;</span>
           <CopyButton value={`TRACEROOT_API_KEY="${generatedKey}"`} className="h-6 w-6 shrink-0" />
         </div>
-        <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+        <p className="flex items-center gap-1 text-xs text-muted-foreground">
           <Check className="h-3 w-3 text-green-600" />
           Copy this key — you won&apos;t see it again.
         </p>
@@ -55,14 +55,14 @@ export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
         </div>
         <Button
           size="sm"
-          className="h-9 shrink-0 px-4 text-[12px]"
+          className="h-9 shrink-0 px-4 text-xs"
           onClick={() => createMutation.mutate()}
           disabled={createMutation.isPending}
         >
           {createMutation.isPending ? "Generating..." : "Generate"}
         </Button>
       </div>
-      {error && <p className="text-[11px] text-destructive">{error}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }
