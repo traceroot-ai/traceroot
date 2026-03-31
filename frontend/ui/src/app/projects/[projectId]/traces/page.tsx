@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
@@ -27,6 +28,7 @@ export default function TracesPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const projectId = params.projectId as string;
+  const queryClient = useQueryClient();
   const { aiPanelOpen, setAiPanelOpen } = useLayout();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
@@ -70,6 +72,9 @@ export default function TracesPage() {
     },
   );
   const hasEverTraced = (anyTracesData?.data?.length ?? 0) > 0;
+  useEffect(() => {
+    if (hasEverTraced) queryClient.invalidateQueries({ queryKey: ["traces", projectId] });
+  }, [hasEverTraced, projectId, queryClient]);
 
   const traces = data?.data || [];
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
