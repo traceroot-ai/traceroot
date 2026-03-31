@@ -55,6 +55,7 @@ export default function TracesPage() {
   const traces = data?.data || [];
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
   const totalPages = Math.ceil(meta.total / meta.limit);
+  const showGettingStarted = !isLoading && !error && traces.length === 0;
 
   const buildUrl = (path: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(path, {
@@ -70,57 +71,61 @@ export default function TracesPage() {
 
       {/* Main content */}
       <div className="flex flex-1 flex-col">
-        {/* Tab navigation */}
-        <div className="border-b border-border bg-background">
-          <div className="flex">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = tab.id === "traces";
-              return (
-                <Link
-                  key={tab.id}
-                  href={buildUrl(`/projects/${projectId}/${tab.href}`)}
-                  className={cn(
-                    "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
-                    isActive
-                      ? "border-foreground bg-muted text-foreground"
-                      : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {tab.label}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Filters bar */}
-        <SearchFilterBar
-          searchValue={state.keyword}
-          onSearchChange={updateKeyword}
-          searchPlaceholder="Search..."
-          dateFilter={state.dateFilter}
-          customStartDate={state.customStartDate}
-          customEndDate={state.customEndDate}
-          onDateFilterChange={updateDateFilter}
-          onCustomRangeChange={updateCustomRange}
-        >
-          {userId && (
-            <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 py-1 pl-2.5 pr-1.5">
-              <Users className="h-3 w-3 text-muted-foreground" />
-              <span className="text-[12px] text-muted-foreground">User:</span>
-              <span className="text-[12px] font-medium text-foreground">{userId}</span>
-              <button
-                type="button"
-                onClick={() => router.push(buildUrl(`/projects/${projectId}/traces`))}
-                className="ml-1 rounded p-0.5 transition-colors hover:bg-muted"
-              >
-                <X className="h-3 w-3 text-muted-foreground" />
-              </button>
+        {/* Tab navigation — hidden during onboarding */}
+        {!showGettingStarted && (
+          <div className="border-b border-border bg-background">
+            <div className="flex">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = tab.id === "traces";
+                return (
+                  <Link
+                    key={tab.id}
+                    href={buildUrl(`/projects/${projectId}/${tab.href}`)}
+                    className={cn(
+                      "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
+                      isActive
+                        ? "border-foreground bg-muted text-foreground"
+                        : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {tab.label}
+                  </Link>
+                );
+              })}
             </div>
-          )}
-        </SearchFilterBar>
+          </div>
+        )}
+
+        {/* Filters bar — hidden during onboarding */}
+        {!showGettingStarted && (
+          <SearchFilterBar
+            searchValue={state.keyword}
+            onSearchChange={updateKeyword}
+            searchPlaceholder="Search..."
+            dateFilter={state.dateFilter}
+            customStartDate={state.customStartDate}
+            customEndDate={state.customEndDate}
+            onDateFilterChange={updateDateFilter}
+            onCustomRangeChange={updateCustomRange}
+          >
+            {userId && (
+              <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 py-1 pl-2.5 pr-1.5">
+                <Users className="h-3 w-3 text-muted-foreground" />
+                <span className="text-[12px] text-muted-foreground">User:</span>
+                <span className="text-[12px] font-medium text-foreground">{userId}</span>
+                <button
+                  type="button"
+                  onClick={() => router.push(buildUrl(`/projects/${projectId}/traces`))}
+                  className="ml-1 rounded p-0.5 transition-colors hover:bg-muted"
+                >
+                  <X className="h-3 w-3 text-muted-foreground" />
+                </button>
+              </div>
+            )}
+          </SearchFilterBar>
+        )}
 
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background">

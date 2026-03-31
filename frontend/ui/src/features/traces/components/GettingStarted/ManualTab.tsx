@@ -11,21 +11,26 @@ type Lang = "python" | "typescript";
 function LangTabs({ lang, onChange }: { lang: Lang; onChange: (l: Lang) => void }) {
   return (
     <div className="flex border-b border-border">
-      {(["python", "typescript"] as Lang[]).map((l) => (
-        <button
-          key={l}
-          type="button"
-          onClick={() => onChange(l)}
-          className={cn(
-            "-mb-px border-b-2 px-3 py-1.5 text-xs font-medium transition-colors",
-            lang === l
-              ? "border-foreground text-foreground"
-              : "border-transparent text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {l === "python" ? "Python" : "TypeScript"}
-        </button>
-      ))}
+      {(["python", "typescript"] as Lang[]).map((l) => {
+        const isTs = l === "typescript";
+        return (
+          <button
+            key={l}
+            type="button"
+            onClick={() => !isTs && onChange(l)}
+            disabled={isTs}
+            className={cn(
+              "-mb-px border-b-2 px-3 py-1.5 text-xs font-medium transition-colors",
+              lang === l
+                ? "border-foreground text-foreground"
+                : "border-transparent text-muted-foreground",
+              isTs && "cursor-not-allowed opacity-40",
+            )}
+          >
+            {l === "python" ? "Python" : "TypeScript"}
+          </button>
+        );
+      })}
     </div>
   );
 }
