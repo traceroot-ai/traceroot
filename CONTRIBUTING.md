@@ -13,8 +13,8 @@ Thanks for your interest in contributing! This guide will help you get started.
 On a new machine, verify or install the required tools with:
 
 ```bash
-python scripts/install_tools.py --check
-python scripts/install_tools.py
+python scripts/bootstrap_dev_tools.py --check
+python scripts/bootstrap_dev_tools.py
 ```
 
 ## Quick Start
