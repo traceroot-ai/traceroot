@@ -16,7 +16,7 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
   const [tab, setTab] = useState<Tab>("ai");
 
   return (
-    <div className="flex flex-1 overflow-auto py-10">
+    <div className="w-full py-10">
       <div className="mx-auto w-full max-w-[600px] px-7">
         <h2 className="text-xl font-semibold tracking-tight text-foreground">
           Get started with Tracing
