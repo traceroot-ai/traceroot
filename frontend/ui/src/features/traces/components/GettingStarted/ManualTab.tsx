@@ -35,16 +35,6 @@ function LangTabs({ lang, onChange }: { lang: Lang; onChange: (l: Lang) => void 
   );
 }
 
-function ComingSoonOverlay() {
-  return (
-    <div className="absolute inset-0 flex items-center justify-center rounded-md border border-dashed border-border bg-background/80">
-      <span className="rounded-full border border-border bg-muted px-3 py-1 text-[11px] text-muted-foreground">
-        coming soon
-      </span>
-    </div>
-  );
-}
-
 interface ManualTabProps {
   projectId: string;
 }
@@ -55,31 +45,25 @@ export function ManualTab({ projectId }: ManualTabProps) {
 
   return (
     <div className="space-y-6">
-      {/* Step 1 */}
       <div className="space-y-2">
         <p className="text-sm font-medium text-foreground">1. Create an API key</p>
         <ApiKeyBlock projectId={projectId} />
       </div>
 
-      {/* Step 2 */}
       <div className="space-y-2">
         <p className="text-sm font-medium text-foreground">2. Install SDK</p>
         <LangTabs lang={installLang} onChange={setInstallLang} />
-        <div className="relative">
-          <div className="border border-border">
-            <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-              <span className="text-xs text-muted-foreground">bash</span>
-              <CopyButton value="pip install traceroot" className="h-6 w-6" />
-            </div>
-            <div className="bg-muted px-3 py-2.5 font-mono text-xs">
-              <span className="text-blue-600 dark:text-blue-400">pip</span> install traceroot
-            </div>
+        <div className="border border-border">
+          <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+            <span className="text-xs text-muted-foreground">bash</span>
+            <CopyButton value="pip install traceroot" className="h-6 w-6" />
           </div>
-          {installLang === "typescript" && <ComingSoonOverlay />}
+          <div className="bg-muted px-3 py-2.5 font-mono text-xs">
+            <span className="text-blue-600 dark:text-blue-400">pip</span> install traceroot
+          </div>
         </div>
       </div>
 
-      {/* Step 3 */}
       <div className="space-y-2">
         <p className="text-sm font-medium text-foreground">3. Select your integration</p>
         <div className="flex gap-2">
@@ -103,26 +87,22 @@ export function ManualTab({ projectId }: ManualTabProps) {
         </div>
       </div>
 
-      {/* Step 4 */}
       <div className="space-y-2">
         <p className="text-sm font-medium text-foreground">4. Initialize TraceRoot</p>
         <LangTabs lang={initLang} onChange={setInitLang} />
-        <div className="relative">
-          <div className="border border-border">
-            <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-              <span className="text-xs text-muted-foreground">python</span>
-              <CopyButton value={"import traceroot\ntraceroot.init()"} className="h-6 w-6" />
+        <div className="border border-border">
+          <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+            <span className="text-xs text-muted-foreground">python</span>
+            <CopyButton value={"import traceroot\ntraceroot.init()"} className="h-6 w-6" />
+          </div>
+          <div className="bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed">
+            <div>
+              <span className="text-blue-600 dark:text-blue-400">import</span> traceroot
             </div>
-            <div className="bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed">
-              <div>
-                <span className="text-blue-600 dark:text-blue-400">import</span> traceroot
-              </div>
-              <div>
-                traceroot.<span className="text-purple-600 dark:text-purple-400">init</span>()
-              </div>
+            <div>
+              traceroot.<span className="text-purple-600 dark:text-purple-400">init</span>()
             </div>
           </div>
-          {initLang === "typescript" && <ComingSoonOverlay />}
         </div>
       </div>
     </div>
