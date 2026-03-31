@@ -9,7 +9,6 @@ import {
   LayoutGrid,
   LifeBuoy,
   ChevronRight,
-  Github,
   Sun,
   Moon,
   Monitor,
@@ -20,7 +19,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
-import { clientEnv } from "@/env.client";
+import { GitHubStarWidget } from "@/components/layout/GitHubStarWidget";
 
 // Check if we're in a project context by looking at the path structure
 function getProjectContext(pathname: string): { isProject: boolean; projectId: string | null } {
@@ -179,28 +178,8 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
 
         {/* Bottom section */}
         <div>
-          {/* Star on GitHub */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <a
-                href={clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={cn(
-                  "flex w-full items-center gap-2 py-2 text-[13px] transition-colors hover:bg-muted/50",
-                  collapsed ? "justify-center px-2" : "px-3",
-                )}
-              >
-                <Github className="h-3.5 w-3.5 shrink-0" />
-                {!collapsed && <span className="flex-1">GitHub</span>}
-              </a>
-            </TooltipTrigger>
-            {collapsed && (
-              <TooltipContent side="right" sideOffset={16}>
-                GitHub
-              </TooltipContent>
-            )}
-          </Tooltip>
+          {/* Star widget */}
+          {!collapsed && <GitHubStarWidget />}
 
           {/* Settings - only show when in project context */}
           {isProject && projectId && (
