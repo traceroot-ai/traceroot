@@ -75,6 +75,7 @@ export function ManualTab({ projectId }: ManualTabProps) {
         <div className="flex gap-2">
           <div className="flex flex-col items-center gap-1.5 rounded-md border border-border bg-muted/30 px-5 py-3">
             <svg
+              aria-hidden="true"
               width="24"
               height="24"
               viewBox="0 0 24 24"
