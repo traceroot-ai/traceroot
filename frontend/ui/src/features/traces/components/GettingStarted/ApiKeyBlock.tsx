@@ -17,9 +17,9 @@ export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
   const [error, setError] = useState<string | null>(null);
 
   const createMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: () => createAccessKey(projectId),
+    onMutate: () => {
       setError(null);
-      return createAccessKey(projectId);
     },
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ["access-keys", projectId] });
