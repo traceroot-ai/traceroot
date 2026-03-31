@@ -62,13 +62,13 @@ export function GitHubStarWidget() {
         href={clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL}
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex rounded border border-border text-[11px] font-medium transition-colors hover:bg-muted/50"
+        className="flex w-full overflow-hidden rounded border border-border text-[11px] font-medium transition-colors hover:bg-muted/50"
       >
-        <span className="flex items-center gap-1.5 px-2.5 py-1.5">
+        <span className="flex items-center gap-1 px-1.5 py-1">
           <GitHubIcon className="h-3 w-3 shrink-0" />
           traceroot
         </span>
-        <span className="flex items-center gap-1 whitespace-nowrap border-l border-border px-2.5 py-1.5 text-muted-foreground">
+        <span className="flex shrink-0 items-center gap-1 border-l border-border px-1.5 py-1 text-muted-foreground">
           ★ {starCount !== null ? formatStarCount(starCount) : "—"}
         </span>
       </a>
