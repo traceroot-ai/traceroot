@@ -23,6 +23,7 @@ export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
     },
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ["access-keys", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["traces", projectId] });
       setGeneratedKey(response.data.key);
     },
     onError: () => {

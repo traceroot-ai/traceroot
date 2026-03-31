@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Sparkle, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { AiTab } from "./AiTab";
+import { AITab } from "./AITab";
 import { ManualTab } from "./ManualTab";
 
 type Tab = "ai" | "manual";
@@ -55,7 +55,7 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
         </div>
 
         <div className="mt-6">
-          {tab === "ai" ? <AiTab projectId={projectId} /> : <ManualTab projectId={projectId} />}
+          {tab === "ai" ? <AITab projectId={projectId} /> : <ManualTab projectId={projectId} />}
         </div>
       </div>
     </div>
