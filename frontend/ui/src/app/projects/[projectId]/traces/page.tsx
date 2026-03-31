@@ -146,8 +146,15 @@ export default function TracesPage() {
                 Make sure the API server is running and you have API keys configured.
               </p>
             </div>
-          ) : traces.length === 0 ? (
+          ) : showGettingStarted ? (
             <GettingStarted projectId={projectId} />
+          ) : traces.length === 0 ? (
+            <div className="flex h-64 flex-col items-center justify-center gap-3">
+              <p className="text-[13px] text-muted-foreground">No traces found</p>
+              <p className="text-[12px] text-muted-foreground">
+                Try adjusting your filters or date range.
+              </p>
+            </div>
           ) : (
             <div className="flex h-full flex-col">
               <div className="flex-1 overflow-auto">
