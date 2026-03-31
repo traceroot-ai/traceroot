@@ -80,8 +80,8 @@ export default function TracesPage() {
 
       {/* Main content */}
       <div className="flex flex-1 flex-col">
-        {/* Tab navigation — hidden during onboarding */}
-        {!showGettingStarted && (
+        {/* Tab navigation — hidden during onboarding or while checking */}
+        {!hasEverTracedLoading && !showGettingStarted && (
           <div className="border-b border-border bg-background">
             <div className="flex">
               {tabs.map((tab) => {
@@ -107,8 +107,8 @@ export default function TracesPage() {
           </div>
         )}
 
-        {/* Filters bar — hidden during onboarding */}
-        {!showGettingStarted && (
+        {/* Filters bar — hidden during onboarding or while checking */}
+        {!hasEverTracedLoading && !showGettingStarted && (
           <SearchFilterBar
             searchValue={state.keyword}
             onSearchChange={updateKeyword}
