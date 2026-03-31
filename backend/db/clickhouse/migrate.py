@@ -206,7 +206,7 @@ def run_goose(
         )
 
     raise FileNotFoundError(
-        "Could not find pressly/goose on PATH. Run `python scripts/install_tools.py goose` "
+        "Could not find pressly/goose on PATH. Run `python scripts/bootstrap_dev_tools.py goose` "
         "or use the Docker-backed migration flow."
     )
 

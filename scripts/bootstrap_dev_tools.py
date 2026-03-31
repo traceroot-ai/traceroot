@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-install_tools.py - Production-grade cross-platform dev-tools installer.
+bootstrap_dev_tools.py - Production-grade cross-platform dev-tools installer.
 
 Installs:
   * Docker - Docker Desktop (Mac/Win) or Docker Engine (Linux)
@@ -18,9 +18,9 @@ Platforms:
 Requires Python 3.7+ with zero external dependencies (stdlib only).
 
 Usage:
-  python install_tools.py              # check & install all tools
-  python install_tools.py --check      # status report, no changes
-  python install_tools.py docker tmux  # install specific tools only
+  python bootstrap_dev_tools.py              # check & install all tools
+  python bootstrap_dev_tools.py --check      # status report, no changes
+  python bootstrap_dev_tools.py docker tmux  # install specific tools only
 """
 
 from __future__ import annotations
@@ -595,35 +595,54 @@ def check_tmux() -> bool:
 
 
 def _msys2_candidates() -> list[Path]:
-    """Common MSYS2 installation directories on Windows."""
-    candidates = [
+    """Standard MSYS2 installation directories on Windows."""
+    return [
         Path("C:/msys64"),
         Path("C:/msys32"),
         Path("C:/tools/msys64"),
     ]
-    # Also check Scoop's MSYS2 location
-    scoop_root = Path(os.environ["SCOOP"]) if os.environ.get("SCOOP") else Path.home() / "scoop"
-    candidates.append(scoop_root / "apps" / "msys2" / "current")
-    candidates.append(scoop_root / "apps" / "msys2" / "2024")
-    return candidates
 
 
-def _tmux_via_existing_msys2() -> None:
-    """Install tmux via pacman if MSYS2 is already present."""
+def _find_msys2_root() -> Path | None:
+    """Return the first standard MSYS2 root that contains pacman.exe."""
     for root in _msys2_candidates():
-        pacman = root / "usr" / "bin" / "pacman.exe"
-        if pacman.exists():
-            step(f"Found MSYS2 at {root} — installing tmux via pacman")
-            run(str(pacman), "-Sy", "--noconfirm", "tmux")
-            tmux_bin = root / "usr" / "bin"
-            ok(f"tmux installed to {tmux_bin}")
-            win_add_to_user_path(str(tmux_bin))
-            return
-    raise RuntimeError("MSYS2 not found in any standard location.")
+        if (root / "usr" / "bin" / "pacman.exe").exists():
+            return root
+    return None
+
+
+def _tmux_via_existing_msys2(root: Path | None = None) -> None:
+    """Install tmux via pacman if MSYS2 is already present."""
+    msys2_root = root or _find_msys2_root()
+    if msys2_root is None:
+        raise RuntimeError("MSYS2 was not found in the standard installation locations.")
+
+    pacman = msys2_root / "usr" / "bin" / "pacman.exe"
+    step(f"Found MSYS2 at {msys2_root} — installing tmux via pacman")
+    run(str(pacman), "-Sy", "--noconfirm", "tmux")
+    tmux_bin = msys2_root / "usr" / "bin"
+    ok(f"tmux installed to {tmux_bin}")
+    win_add_to_user_path(str(tmux_bin))
+
+
+def _require_winget() -> None:
+    """Require winget for Windows tmux installation."""
+    if shutil.which("winget"):
+        return
+
+    result = run_ps("Get-Command winget", check=False, capture=True)
+    if result.returncode == 0:
+        return
+
+    raise RuntimeError(
+        "winget is required to install tmux on Windows. Install App Installer / winget "
+        "and try again: https://aka.ms/getwinget"
+    )
 
 
 def _tmux_via_winget_msys2() -> None:
     """Install MSYS2 via winget, then install tmux via pacman."""
+    _require_winget()
     step("Installing MSYS2 via winget…")
     run_ps(
         "winget install --id MSYS2.MSYS2 -e "
@@ -632,64 +651,6 @@ def _tmux_via_winget_msys2() -> None:
     # Give the installer a moment to finish
     time.sleep(5)
     _tmux_via_existing_msys2()
-
-
-def _tmux_via_scoop() -> None:
-    """Install MSYS2 via Scoop, then tmux via pacman."""
-    # Scoop shim is a .cmd file — must use PowerShell or cmd /c
-    step("Installing MSYS2 via Scoop…")
-    run_ps("scoop install msys2")
-    time.sleep(3)
-    _tmux_via_existing_msys2()
-
-
-def _tmux_via_scoop_direct() -> None:
-    """Some Scoop repos have a direct tmux package."""
-    step("Trying 'scoop install tmux' directly…")
-    run_ps("scoop bucket add extras; scoop install tmux")
-
-
-def _tmux_via_choco() -> None:
-    """Install tmux via Chocolatey."""
-    step("Installing tmux via Chocolatey…")
-    choco = shutil.which("choco")
-    if not choco:
-        raise RuntimeError("choco not found.")
-    # choco.exe is a real .exe, not a .cmd shim
-    run(choco, "install", "msys2", "-y")
-    time.sleep(3)
-    _tmux_via_existing_msys2()
-
-
-def _tmux_via_wsl() -> None:
-    """Install tmux inside WSL2 (uses the wsl.exe bridge)."""
-    wsl = shutil.which("wsl")
-    if not wsl:
-        raise RuntimeError("WSL (wsl.exe) not found.")
-    # Check if a default distro is set up
-    result = run(wsl, "--list", "--quiet", capture=True, check=False)
-    if result.returncode != 0:
-        raise RuntimeError("No WSL2 distro installed. Run 'wsl --install' first.")
-    step("Installing tmux inside WSL2…")
-    run(wsl, "sudo", "apt-get", "update", "-qq")
-    run(wsl, "sudo", "apt-get", "install", "-y", "tmux")
-    ok("tmux installed inside WSL2.")
-    info(
-        "Access tmux via WSL: open a WSL shell and run 'tmux'.\n"
-        "To launch from Windows Terminal, select your WSL distro profile."
-    )
-
-
-def _install_scoop_then_tmux() -> None:
-    """Bootstrap Scoop if absent, then install MSYS2+tmux."""
-    if not shutil.which("scoop") and run_ps("scoop --version", check=False).returncode != 0:
-        step("Scoop not found — installing Scoop first…")
-        run_ps(
-            "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; "
-            "iwr -useb https://get.scoop.sh | iex"
-        )
-        time.sleep(3)
-    _tmux_via_scoop()
 
 
 def install_tmux() -> None:
@@ -705,52 +666,14 @@ def install_tmux() -> None:
         ok("tmux installed.")
         return
 
-    # ── Windows: try a chain of strategies ───────────────────────────────────
-    # tmux has no native Win32 binary — it must run inside a POSIX layer
-    # (MSYS2/Cygwin) or WSL2.  We try the most likely paths first.
+    # Windows: tmux runs inside MSYS2. Reuse an existing standard MSYS2 install
+    # when available; otherwise require winget and bootstrap MSYS2 first.
+    msys2_root = _find_msys2_root()
+    if msys2_root is not None:
+        _tmux_via_existing_msys2(msys2_root)
+        return
 
-    success = try_strategies(
-        "tmux (Windows)",
-        [
-            ("MSYS2 already installed → pacman", _tmux_via_existing_msys2),
-            ("winget install MSYS2 → pacman", _tmux_via_winget_msys2),
-            ("Scoop install msys2 → pacman", _tmux_via_scoop),
-            ("Bootstrap Scoop → msys2 → pacman", _install_scoop_then_tmux),
-            ("Scoop extras → tmux direct", _tmux_via_scoop_direct),
-            ("Chocolatey install msys2 → pacman", _tmux_via_choco),
-            ("WSL2 apt install tmux", _tmux_via_wsl),
-        ],
-    )
-
-    if not success:
-        # None of the automated strategies worked — give clear manual guidance
-        warn(
-            "Automated tmux installation was not possible on this system.\n"
-            "\n"
-            "Manual options (choose one):\n"
-            "\n"
-            "  Option A - MSYS2 (recommended for Git Bash users):\n"
-            "    1. Download MSYS2: https://www.msys2.org/\n"
-            "    2. Run the installer → default path C:\\msys64\n"
-            "    3. Open 'MSYS2 UCRT64' shell and run:\n"
-            "         pacman -Sy --noconfirm tmux\n"
-            "    4. Add C:\\msys64\\usr\\bin to your system PATH.\n"
-            "\n"
-            "  Option B - WSL2 (Linux environment on Windows):\n"
-            "    1. In PowerShell (Admin): wsl --install\n"
-            "    2. Restart, then open Ubuntu from the Start menu.\n"
-            "    3. Inside Ubuntu:  sudo apt install tmux\n"
-            "\n"
-            "  Option C - Scoop:\n"
-            "    1. Open PowerShell and run:\n"
-            "         Set-ExecutionPolicy RemoteSigned -Scope CurrentUser\n"
-            "         iwr -useb https://get.scoop.sh | iex\n"
-            "    2. scoop install msys2\n"
-            "    3. Open MSYS2 shell → pacman -S tmux\n"
-        )
-        raise RuntimeError(
-            "tmux could not be installed automatically. See the manual instructions printed above."
-        )
+    _tmux_via_winget_msys2()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

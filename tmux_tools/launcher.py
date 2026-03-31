@@ -30,7 +30,7 @@ DOCKER_COMPOSE_SHELL = "docker compose"
 PROD_COMPOSE_FILE = "docker-compose.prod.yml"
 PROD_COMPOSE = [*DOCKER_COMPOSE, "-f", PROD_COMPOSE_FILE]
 PROD_COMPOSE_SHELL = f"{DOCKER_COMPOSE_SHELL} -f {PROD_COMPOSE_FILE}"
-TOOLS_INSTALL_SCRIPT = "python scripts/install_tools.py"
+TOOLS_INSTALL_SCRIPT = "python scripts/bootstrap_dev_tools.py"
 DEV_NODE_MODULES = [
     ROOT / "frontend" / "node_modules",
     ROOT / "frontend" / "ui" / "node_modules",
