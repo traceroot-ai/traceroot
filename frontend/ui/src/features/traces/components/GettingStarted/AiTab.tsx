@@ -56,20 +56,20 @@ export function AiTab({ projectId }: AiTabProps) {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <p className="text-[12px] font-medium text-foreground">1. Create an API key</p>
+        <p className="text-sm font-medium text-foreground">1. Create an API key</p>
         <ApiKeyBlock projectId={projectId} />
       </div>
 
       <div className="space-y-2">
-        <p className="text-[12px] font-medium text-foreground">
+        <p className="text-sm font-medium text-foreground">
           2. Paste a prompt to instrument your code
         </p>
-        <div className="flex items-start justify-between rounded-md border border-border bg-muted/30 px-4 py-3">
+        <div className="flex items-start justify-between rounded-sm border border-border bg-muted/30 px-4 py-3">
           <div>
-            <p className="text-[13px] font-medium text-foreground">
+            <p className="text-sm font-medium text-foreground">
               Install and instrument from scratch
             </p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               Best for new projects or repos without existing observability.
             </p>
           </div>

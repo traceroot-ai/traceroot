@@ -21,11 +21,11 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
         <h2 className="text-xl font-semibold tracking-tight text-foreground">
           Get started with Tracing
         </h2>
-        <p className="mt-1 text-[13px] text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground">
           You don&apos;t have any traces yet. Choose how you&apos;d like to set up.
         </p>
 
-        <div className="mt-6 inline-flex gap-0.5 rounded-md border border-border bg-muted p-0.5">
+        <div className="mt-6 inline-flex gap-0.5 rounded-sm border border-border bg-muted p-0.5">
           <button
             type="button"
             onClick={() => setTab("ai")}
