@@ -105,7 +105,7 @@ export function ManualTab({ projectId }: ManualTabProps) {
 
       {/* Step 4 */}
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">4. Initialize Traceroot</p>
+        <p className="text-sm font-medium text-foreground">4. Initialize TraceRoot</p>
         <LangTabs lang={initLang} onChange={setInitLang} />
         <div className="relative">
           <div className="border border-border">

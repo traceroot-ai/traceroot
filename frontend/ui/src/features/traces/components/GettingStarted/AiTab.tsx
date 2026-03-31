@@ -5,11 +5,11 @@ import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ApiKeyBlock } from "./ApiKeyBlock";
 
-const INSTRUMENT_PROMPT = `I want to add observability to my project using Traceroot.
+const INSTRUMENT_PROMPT = `I want to add observability to my project using TraceRoot.
 
 Please help me:
 1. Install the traceroot Python package (pip install traceroot)
-2. Initialize Traceroot at the entry point of my application:
+2. Initialize TraceRoot at the entry point of my application:
    import traceroot
    traceroot.init()
 3. Instrument all OpenAI and LangChain calls in my codebase.
