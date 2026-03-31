@@ -24,19 +24,6 @@ DOCKER_GOOSE_ACTIONS = {"up", "down", "status"}
 IS_WINDOWS = os.name == "nt"
 
 
-def _find_powershell() -> str:
-    for candidate in ("pwsh", "powershell"):
-        resolved = shutil.which(candidate)
-        if resolved:
-            return resolved
-
-    fallback = Path(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")
-    if fallback.exists():
-        return str(fallback)
-
-    raise FileNotFoundError("PowerShell was not found on this system.")
-
-
 def _prepare_command(command: list[str]) -> list[str]:
     prepared = list(command)
     if not prepared or not IS_WINDOWS:
@@ -49,17 +36,6 @@ def _prepare_command(command: list[str]) -> list[str]:
     suffix = Path(executable).suffix.lower()
     if suffix in {".cmd", ".bat"}:
         return ["cmd", "/c", *prepared]
-    if suffix == ".ps1":
-        return [
-            _find_powershell(),
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "ByPass",
-            "-File",
-            executable,
-            *prepared[1:],
-        ]
     return prepared
 
 
