@@ -61,11 +61,14 @@ export function ManualTab({ projectId }: ManualTabProps) {
         <p className="text-sm font-medium text-foreground">2. Install SDK</p>
         <LangTabs lang={installLang} onChange={setInstallLang} />
         <div className="relative">
-          <div className="flex items-center justify-between rounded-sm border border-border bg-muted px-3 py-2.5 font-mono text-xs">
-            <span>
+          <div className="border border-border">
+            <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+              <span className="text-xs text-muted-foreground">bash</span>
+              <CopyButton value="pip install traceroot" className="h-6 w-6" />
+            </div>
+            <div className="bg-muted px-3 py-2.5 font-mono text-xs">
               <span className="text-blue-600 dark:text-blue-400">pip</span> install traceroot
-            </span>
-            <CopyButton value="pip install traceroot" className="h-6 w-6" />
+            </div>
           </div>
           {installLang === "typescript" && <ComingSoonOverlay />}
         </div>
@@ -75,7 +78,7 @@ export function ManualTab({ projectId }: ManualTabProps) {
       <div className="space-y-2">
         <p className="text-sm font-medium text-foreground">3. Select your integration</p>
         <div className="flex gap-2">
-          <div className="flex flex-col items-center gap-1.5 rounded-sm border border-border bg-muted/30 px-5 py-3">
+          <div className="flex w-24 flex-col items-center gap-1.5 border border-border bg-muted/30 py-3">
             <svg
               aria-hidden="true"
               width="24"
@@ -88,7 +91,7 @@ export function ManualTab({ projectId }: ManualTabProps) {
             </svg>
             <span className="text-xs font-medium text-foreground">OpenAI</span>
           </div>
-          <div className="flex flex-col items-center gap-1.5 rounded-sm border border-border bg-muted/30 px-5 py-3">
+          <div className="flex w-24 flex-col items-center gap-1.5 border border-border bg-muted/30 py-3">
             <Link className="h-6 w-6 text-foreground" />
             <span className="text-xs font-medium text-foreground">LangChain</span>
           </div>
@@ -100,16 +103,18 @@ export function ManualTab({ projectId }: ManualTabProps) {
         <p className="text-sm font-medium text-foreground">4. Initialize Traceroot</p>
         <LangTabs lang={initLang} onChange={setInitLang} />
         <div className="relative">
-          <div className="relative rounded-sm border border-border bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed">
-            <CopyButton
-              value={"import traceroot\ntraceroot.init()"}
-              className="absolute right-2 top-2 h-6 w-6"
-            />
-            <div>
-              <span className="text-blue-600 dark:text-blue-400">import</span> traceroot
+          <div className="border border-border">
+            <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+              <span className="text-xs text-muted-foreground">python</span>
+              <CopyButton value={"import traceroot\ntraceroot.init()"} className="h-6 w-6" />
             </div>
-            <div>
-              traceroot.<span className="text-purple-600 dark:text-purple-400">init</span>()
+            <div className="bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed">
+              <div>
+                <span className="text-blue-600 dark:text-blue-400">import</span> traceroot
+              </div>
+              <div>
+                traceroot.<span className="text-purple-600 dark:text-purple-400">init</span>()
+              </div>
             </div>
           </div>
           {initLang === "typescript" && <ComingSoonOverlay />}

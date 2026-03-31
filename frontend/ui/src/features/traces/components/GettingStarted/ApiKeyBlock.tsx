@@ -54,6 +54,7 @@ export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
           <span className="text-muted-foreground/50">&quot;your_key_here&quot;</span>
         </div>
         <Button
+          variant="outline"
           size="sm"
           className="h-9 shrink-0 px-4 text-xs"
           onClick={() => createMutation.mutate()}
