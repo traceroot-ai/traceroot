@@ -14,12 +14,19 @@ interface ApiKeyBlockProps {
 export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
   const queryClient = useQueryClient();
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const createMutation = useMutation({
-    mutationFn: () => createAccessKey(projectId),
+    mutationFn: () => {
+      setError(null);
+      return createAccessKey(projectId);
+    },
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ["access-keys", projectId] });
       setGeneratedKey(response.data.key);
+    },
+    onError: () => {
+      setError("Failed to generate key. Please try again.");
     },
   });
 
@@ -40,19 +47,22 @@ export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
   }
 
   return (
-    <div className="flex gap-2">
-      <div className="flex flex-1 items-center rounded-md border border-border bg-muted/50 px-3 py-2 font-mono text-[12px]">
-        <span className="text-muted-foreground">TRACEROOT_API_KEY=</span>
-        <span className="text-muted-foreground/50">&quot;your_key_here&quot;</span>
+    <div className="space-y-1.5">
+      <div className="flex gap-2">
+        <div className="flex flex-1 items-center rounded-md border border-border bg-muted/50 px-3 py-2 font-mono text-[12px]">
+          <span className="text-muted-foreground">TRACEROOT_API_KEY=</span>
+          <span className="text-muted-foreground/50">&quot;your_key_here&quot;</span>
+        </div>
+        <Button
+          size="sm"
+          className="h-9 shrink-0 px-4 text-[12px]"
+          onClick={() => createMutation.mutate()}
+          disabled={createMutation.isPending}
+        >
+          {createMutation.isPending ? "Generating..." : "Generate"}
+        </Button>
       </div>
-      <Button
-        size="sm"
-        className="h-9 shrink-0 px-4 text-[12px]"
-        onClick={() => createMutation.mutate()}
-        disabled={createMutation.isPending}
-      >
-        {createMutation.isPending ? "Generating..." : "Generate"}
-      </Button>
+      {error && <p className="text-[11px] text-destructive">{error}</p>}
     </div>
   );
 }
