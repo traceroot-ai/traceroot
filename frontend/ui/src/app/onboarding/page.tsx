@@ -119,7 +119,7 @@ function OnboardingContent() {
 
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
 
-      router.push(`/projects/${project.id}/settings/accessKeys`);
+      router.push(`/projects/${project.id}/traces`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setIsLoading(false);
