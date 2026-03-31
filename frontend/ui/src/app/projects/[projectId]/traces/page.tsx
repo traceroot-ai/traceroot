@@ -52,10 +52,13 @@ export default function TracesPage() {
     user_id: userId || undefined,
   });
 
-  // Check if project has EVER sent traces (no date filter) — controls onboarding visibility
-  const { data: anyTracesData, isLoading: hasEverTracedLoading } = useTraces(projectId, {
-    limit: 1,
-  });
+  // Check if project has EVER sent traces (no date filter) — controls onboarding visibility.
+  // staleTime: Infinity because once a project has traces it always will (immutable fact).
+  const { data: anyTracesData, isLoading: hasEverTracedLoading } = useTraces(
+    projectId,
+    { limit: 1 },
+    { staleTime: Infinity },
+  );
   const hasEverTraced = (anyTracesData?.data?.length ?? 0) > 0;
 
   const traces = data?.data || [];
