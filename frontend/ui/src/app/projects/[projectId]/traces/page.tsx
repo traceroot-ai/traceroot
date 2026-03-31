@@ -52,10 +52,16 @@ export default function TracesPage() {
     user_id: userId || undefined,
   });
 
+  // Check if project has EVER sent traces (no date filter) — controls onboarding visibility
+  const { data: anyTracesData, isLoading: hasEverTracedLoading } = useTraces(projectId, {
+    limit: 1,
+  });
+  const hasEverTraced = (anyTracesData?.data?.length ?? 0) > 0;
+
   const traces = data?.data || [];
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
   const totalPages = Math.ceil(meta.total / meta.limit);
-  const showGettingStarted = !isLoading && !error && traces.length === 0;
+  const showGettingStarted = !hasEverTracedLoading && !hasEverTraced;
 
   const buildUrl = (path: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(path, {
@@ -129,7 +135,7 @@ export default function TracesPage() {
 
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background">
-          {isLoading ? (
+          {isLoading || hasEverTracedLoading ? (
             <div className="flex h-64 items-center justify-center">
               <p className="text-[13px] text-muted-foreground">Loading traces...</p>
             </div>
