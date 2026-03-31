@@ -41,7 +41,7 @@ export function GitHubStarWidget() {
   if (dismissed) return null;
 
   return (
-    <div className="mx-2 mb-1 rounded-md border p-2.5">
+    <div className="mx-1.5 mb-1 rounded-md border p-2">
       <div className="mb-1.5 flex items-center justify-between">
         <span className="text-xs font-semibold">Star traceroot</span>
         <button
