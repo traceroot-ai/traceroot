@@ -43,11 +43,11 @@ function CopyPromptButton({ value }: { value: string }) {
   );
 }
 
-interface AiTabProps {
+interface AITabProps {
   projectId: string;
 }
 
-export function AiTab({ projectId }: AiTabProps) {
+export function AITab({ projectId }: AITabProps) {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
