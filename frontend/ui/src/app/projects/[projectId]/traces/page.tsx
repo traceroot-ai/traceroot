@@ -12,7 +12,7 @@ import { ProjectBreadcrumb } from "@/features/projects/components";
 import { formatDuration, formatDate, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { TraceListItem } from "@/types/api";
 import { useTraces, useListPageState } from "@/features/traces/hooks";
-import { TraceViewerPanel } from "@/features/traces/components";
+import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
 import { formatContentPreview } from "@/features/traces/utils";
 
 // Tab definitions
@@ -136,12 +136,7 @@ export default function TracesPage() {
               </p>
             </div>
           ) : traces.length === 0 ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <p className="text-[13px] text-muted-foreground">No traces found</p>
-              <p className="text-[12px] text-muted-foreground">
-                Start sending traces using the SDK to see them here.
-              </p>
-            </div>
+            <GettingStarted projectId={projectId} />
           ) : (
             <div className="flex h-full flex-col">
               <div className="flex-1 overflow-auto">
