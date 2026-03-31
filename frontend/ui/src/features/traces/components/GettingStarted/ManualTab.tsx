@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Link2 } from "lucide-react";
+import { Link } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
 import { ApiKeyBlock } from "./ApiKeyBlock";
@@ -17,7 +17,7 @@ function LangTabs({ lang, onChange }: { lang: Lang; onChange: (l: Lang) => void 
           type="button"
           onClick={() => onChange(l)}
           className={cn(
-            "rounded px-2.5 py-1 text-[11px] font-medium transition-colors",
+            "rounded-sm px-2.5 py-1 text-[11px] font-medium transition-colors",
             lang === l ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
           )}
         >
@@ -50,16 +50,16 @@ export function ManualTab({ projectId }: ManualTabProps) {
     <div className="space-y-6">
       {/* Step 1 */}
       <div className="space-y-2">
-        <p className="text-[12px] font-medium text-foreground">1. Create an API key</p>
+        <p className="text-sm font-medium text-foreground">1. Create an API key</p>
         <ApiKeyBlock projectId={projectId} />
       </div>
 
       {/* Step 2 */}
       <div className="space-y-2">
-        <p className="text-[12px] font-medium text-foreground">2. Install SDK</p>
+        <p className="text-sm font-medium text-foreground">2. Install SDK</p>
         <LangTabs lang={installLang} onChange={setInstallLang} />
         <div className="relative">
-          <div className="flex items-center justify-between rounded-md border border-border bg-muted/50 px-3 py-2.5 font-mono text-[12px]">
+          <div className="flex items-center justify-between rounded-sm border border-border bg-muted px-3 py-2.5 font-mono text-[12px]">
             <span>
               <span className="text-blue-600 dark:text-blue-400">pip</span> install traceroot
             </span>
@@ -71,9 +71,9 @@ export function ManualTab({ projectId }: ManualTabProps) {
 
       {/* Step 3 */}
       <div className="space-y-2">
-        <p className="text-[12px] font-medium text-foreground">3. Select your integration</p>
+        <p className="text-sm font-medium text-foreground">3. Select your integration</p>
         <div className="flex gap-2">
-          <div className="flex flex-col items-center gap-1.5 rounded-md border border-border bg-muted/30 px-5 py-3">
+          <div className="flex flex-col items-center gap-1.5 rounded-sm border border-border bg-muted/30 px-5 py-3">
             <svg
               aria-hidden="true"
               width="24"
@@ -86,8 +86,8 @@ export function ManualTab({ projectId }: ManualTabProps) {
             </svg>
             <span className="text-[11px] font-medium text-foreground">OpenAI</span>
           </div>
-          <div className="flex flex-col items-center gap-1.5 rounded-md border border-border bg-muted/30 px-5 py-3">
-            <Link2 className="h-6 w-6 text-foreground" />
+          <div className="flex flex-col items-center gap-1.5 rounded-sm border border-border bg-muted/30 px-5 py-3">
+            <Link className="h-6 w-6 text-foreground" />
             <span className="text-[11px] font-medium text-foreground">LangChain</span>
           </div>
         </div>
@@ -95,10 +95,10 @@ export function ManualTab({ projectId }: ManualTabProps) {
 
       {/* Step 4 */}
       <div className="space-y-2">
-        <p className="text-[12px] font-medium text-foreground">4. Initialize Traceroot</p>
+        <p className="text-sm font-medium text-foreground">4. Initialize Traceroot</p>
         <LangTabs lang={initLang} onChange={setInitLang} />
         <div className="relative">
-          <div className="relative rounded-md border border-border bg-muted/50 px-3 py-2.5 font-mono text-[12px] leading-relaxed">
+          <div className="relative rounded-sm border border-border bg-muted px-3 py-2.5 font-mono text-[12px] leading-relaxed">
             <CopyButton
               value={"import traceroot\ntraceroot.init()"}
               className="absolute right-2 top-2 h-6 w-6"
