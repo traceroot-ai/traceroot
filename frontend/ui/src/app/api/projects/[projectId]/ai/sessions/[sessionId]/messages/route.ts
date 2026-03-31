@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma, ModelSource, isBillingEnabled } from "@traceroot/core";
+import { prisma, ModelSource, PlanType, isBillingEnabled } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
@@ -61,12 +61,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
   }
 
-  // Check if AI runs are blocked (free plan hard cap — applies to both system model and BYOK)
+  // Check if AI runs are blocked (free plan hard cap — paid plans are never blocked)
   const workspace = await prisma.workspace.findUnique({
     where: { id: accessResult.project.workspaceId },
-    select: { aiBlocked: true },
+    select: { aiBlocked: true, billingPlan: true },
   });
-  if (isBillingEnabled() && workspace?.aiBlocked) {
+  if (isBillingEnabled() && workspace?.aiBlocked && workspace.billingPlan === PlanType.FREE) {
     return new Response(
       JSON.stringify({
         error: "AI run limit reached. Upgrade your plan to continue.",

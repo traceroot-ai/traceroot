@@ -97,7 +97,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
         <PopoverContent
           side="top"
           align="start"
-          className="max-h-[320px] w-[280px] overflow-y-auto p-1"
+          className="z-[70] max-h-[320px] w-[280px] overflow-y-auto p-1"
           sideOffset={4}
         >
           {models.map((m) => {
