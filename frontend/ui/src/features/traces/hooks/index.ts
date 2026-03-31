@@ -27,7 +27,10 @@ export { useListPageState } from "./use-list-page-state";
 export function useTraces(
   projectId: string,
   options: TraceQueryOptions = {},
-  queryOptions: { staleTime?: number } = {},
+  queryOptions: {
+    staleTime?: number;
+    refetchInterval?: number | false | ((query: unknown) => number | false);
+  } = {},
 ) {
   const { data: authSession, isPending } = useAuthSession();
   const sessionReady = !isPending && !!authSession?.user;

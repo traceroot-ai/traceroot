@@ -54,10 +54,20 @@ export default function TracesPage() {
 
   // Check if project has EVER sent traces (no date filter) — controls onboarding visibility.
   // staleTime: Infinity because once a project has traces it always will (immutable fact).
+  // refetchInterval polls every 3s while onboarding is shown so the page auto-transitions
+  // when the first trace arrives, without requiring a manual refresh.
   const { data: anyTracesData, isLoading: hasEverTracedLoading } = useTraces(
     projectId,
     { limit: 1 },
-    { staleTime: Infinity },
+    {
+      staleTime: Infinity,
+      refetchInterval: (query: unknown) => {
+        const hasTraces =
+          ((query as { state?: { data?: { data?: unknown[] } } })?.state?.data?.data?.length ?? 0) >
+          0;
+        return hasTraces ? false : 3000;
+      },
+    },
   );
   const hasEverTraced = (anyTracesData?.data?.length ?? 0) > 0;
 
