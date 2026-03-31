@@ -6,23 +6,41 @@ Handles all setup automatically: deps, infra, migrations.
 Usage:
     python tmux_tools/launcher.py                # normal mode
     python tmux_tools/launcher.py --autoreload   # auto-reload backend on file changes
+    python tmux_tools/launcher.py --reset        # reset the development environment
     python tmux_tools/launcher.py --prod         # production mode (all services in Docker)
+    python tmux_tools/launcher.py --prod-reset   # reset the production environment
 """
 
 import argparse
 import os
 import shutil
 import socket
+from pathlib import Path
 
-from backend.db.clickhouse.migrate import run_goose
+from db.clickhouse.migrate import run_goose
 from tmux_tools import schema
 from tmux_tools.process import run_command
 
 REST_PORT = 8000
 FRONTEND_PORT = 3000
 AGENT_PORT = 8100
-PROD_COMPOSE = ["docker", "compose", "-f", "docker-compose.prod.yml"]
+ROOT = Path(__file__).resolve().parent.parent
+DOCKER_COMPOSE = ["docker", "compose"]
+DOCKER_COMPOSE_SHELL = "docker compose"
+PROD_COMPOSE_FILE = "docker-compose.prod.yml"
+PROD_COMPOSE = [*DOCKER_COMPOSE, "-f", PROD_COMPOSE_FILE]
+PROD_COMPOSE_SHELL = f"{DOCKER_COMPOSE_SHELL} -f {PROD_COMPOSE_FILE}"
 TOOLS_INSTALL_SCRIPT = "python scripts/install_tools.py"
+DEV_NODE_MODULES = [
+    ROOT / "frontend" / "node_modules",
+    ROOT / "frontend" / "ui" / "node_modules",
+    ROOT / "frontend" / "worker" / "node_modules",
+    ROOT / "frontend" / "packages" / "core" / "node_modules",
+]
+
+
+def _compose_logs_command(compose_command: str, service: str) -> str:
+    return f"{compose_command} logs -f --tail=50 {service}"
 
 
 # ---------------------------------------------------------------------------
@@ -45,10 +63,10 @@ def ensure_infra():
     print("Ensuring infrastructure is running (PostgreSQL, ClickHouse, MinIO, Redis)...")
     print("Waiting for containers to be healthy...")
     run_command(
-        ["docker", "compose", "up", "-d", "--wait", "postgres", "clickhouse", "minio", "redis"],
+        [*DOCKER_COMPOSE, "up", "-d", "--wait", "postgres", "clickhouse", "minio", "redis"],
     )
-    # minio-init is a one-shot container — start it after MinIO is healthy.
-    run_command(["docker", "compose", "up", "-d", "minio-init"])
+    # minio-init is a one-shot, idempotent setup container — start it after MinIO is healthy.
+    run_command([*DOCKER_COMPOSE, "up", "-d", "minio-init"])
 
 
 def ensure_python_deps():
@@ -114,6 +132,53 @@ def run_prod_setup():
     run_command([*PROD_COMPOSE, "up", "-d", "web", "rest", "worker", "billing", "agent"])
 
     print("\nAll containers started. Launching log viewer...\n")
+
+
+def _remove_path(path: Path) -> None:
+    if not path.exists():
+        return
+    if path.is_file() or path.is_symlink():
+        path.unlink()
+        return
+    shutil.rmtree(path)
+
+
+def _kill_tmux_session(session_name: str) -> None:
+    run_command(
+        ["tmux", "-L", "development", "kill-session", "-t", session_name],
+        check=False,
+        capture_output=True,
+    )
+
+
+def _remove_sandbox_containers() -> None:
+    result = run_command(
+        ["docker", "ps", "-aq", "--filter", "name=traceroot-sandbox-"],
+        check=False,
+        capture_output=True,
+    )
+    container_ids = result.stdout.split()
+    if container_ids:
+        run_command(["docker", "rm", "-f", *container_ids], check=False, capture_output=True)
+
+
+def reset_dev_environment() -> None:
+    print("Resetting everything...")
+    _kill_tmux_session("traceroot")
+    _remove_sandbox_containers()
+    run_command([*DOCKER_COMPOSE, "down", "-v"])
+    for path in DEV_NODE_MODULES:
+        _remove_path(path)
+    _remove_path(ROOT / ".venv")
+    print("Done. Run 'make dev' to start fresh.")
+
+
+def reset_prod_environment() -> None:
+    print("Resetting production environment...")
+    _kill_tmux_session("traceroot-prod")
+    _remove_sandbox_containers()
+    run_command([*PROD_COMPOSE, "down", "-v", "--rmi", "local"])
+    print("Done. Run 'make prod' to start fresh.")
 
 
 # ---------------------------------------------------------------------------
@@ -198,22 +263,22 @@ def infra_services():
     return [
         schema.Service(
             title="PostgreSQL",
-            command="docker compose logs -f --tail=50 postgres",
+            command=_compose_logs_command(DOCKER_COMPOSE_SHELL, "postgres"),
             web_urls=[],
         ),
         schema.Service(
             title="ClickHouse",
-            command="docker compose logs -f --tail=50 clickhouse",
+            command=_compose_logs_command(DOCKER_COMPOSE_SHELL, "clickhouse"),
             web_urls=[],
         ),
         schema.Service(
             title="Redis",
-            command="docker compose logs -f --tail=50 redis",
+            command=_compose_logs_command(DOCKER_COMPOSE_SHELL, "redis"),
             web_urls=[],
         ),
         schema.Service(
             title="MinIO",
-            command="docker compose logs -f --tail=50 minio",
+            command=_compose_logs_command(DOCKER_COMPOSE_SHELL, "minio"),
             web_urls=[
                 ("MinIO Console", "http://localhost:9091"),
             ],
@@ -286,22 +351,22 @@ def prod_infra_services():
     return [
         schema.Service(
             title="PostgreSQL",
-            command="docker compose -f docker-compose.prod.yml logs -f --tail=50 postgres",
+            command=_compose_logs_command(PROD_COMPOSE_SHELL, "postgres"),
             web_urls=[],
         ),
         schema.Service(
             title="ClickHouse",
-            command="docker compose -f docker-compose.prod.yml logs -f --tail=50 clickhouse",
+            command=_compose_logs_command(PROD_COMPOSE_SHELL, "clickhouse"),
             web_urls=[],
         ),
         schema.Service(
             title="Redis",
-            command="docker compose -f docker-compose.prod.yml logs -f --tail=50 redis",
+            command=_compose_logs_command(PROD_COMPOSE_SHELL, "redis"),
             web_urls=[],
         ),
         schema.Service(
             title="MinIO",
-            command="docker compose -f docker-compose.prod.yml logs -f --tail=50 minio",
+            command=_compose_logs_command(PROD_COMPOSE_SHELL, "minio"),
             web_urls=[
                 ("MinIO Console", "http://localhost:9091"),
             ],
@@ -318,31 +383,31 @@ def make_prod_driver():
         services=[
             schema.Service(
                 title="Web",
-                command="docker compose -f docker-compose.prod.yml logs -f --tail=50 web",
+                command=_compose_logs_command(PROD_COMPOSE_SHELL, "web"),
                 web_urls=[
                     ("Traceroot UI", f"http://localhost:{FRONTEND_PORT}"),
                 ],
             ),
             schema.Service(
                 title="REST API",
-                command="docker compose -f docker-compose.prod.yml logs -f --tail=50 rest",
+                command=_compose_logs_command(PROD_COMPOSE_SHELL, "rest"),
                 web_urls=[
                     ("REST API docs", f"http://localhost:{REST_PORT}/docs"),
                 ],
             ),
             schema.Service(
                 title="Celery Worker",
-                command="docker compose -f docker-compose.prod.yml logs -f --tail=50 worker",
+                command=_compose_logs_command(PROD_COMPOSE_SHELL, "worker"),
                 web_urls=[],
             ),
             schema.Service(
                 title="Billing Worker",
-                command="docker compose -f docker-compose.prod.yml logs -f --tail=50 billing",
+                command=_compose_logs_command(PROD_COMPOSE_SHELL, "billing"),
                 web_urls=[],
             ),
             schema.Service(
                 title="Agent",
-                command="docker compose -f docker-compose.prod.yml logs -f --tail=50 agent",
+                command=_compose_logs_command(PROD_COMPOSE_SHELL, "agent"),
                 web_urls=[
                     ("Agent API", f"http://localhost:{AGENT_PORT}"),
                 ],
@@ -362,22 +427,45 @@ def make_prod_driver():
     )
 
 
-if __name__ == "__main__":
+def main() -> None:
     parser = argparse.ArgumentParser(description="Launch Traceroot dev environment")
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--autoreload",
         action="store_true",
         help="Enable auto-reload for backend services on file changes",
     )
-    parser.add_argument(
+    mode.add_argument(
         "--prod",
         action="store_true",
         help="Launch production mode (all services in Docker)",
     )
+    mode.add_argument(
+        "--reset",
+        action="store_true",
+        help="Reset the development environment and exit",
+    )
+    mode.add_argument(
+        "--prod-reset",
+        action="store_true",
+        help="Reset the production environment and exit",
+    )
     args = parser.parse_args()
 
+    os.chdir(ROOT)
+
+    if args.reset:
+        reset_dev_environment()
+        return
+    if args.prod_reset:
+        reset_prod_environment()
+        return
     if args.prod:
         driver = make_prod_driver()
     else:
         driver = make_driver(autoreload=args.autoreload)
     driver.run()
+
+
+if __name__ == "__main__":
+    main()

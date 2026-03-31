@@ -6,7 +6,6 @@ Runs ClickHouse migrations on worker startup.
 
 import logging
 import os
-from importlib import import_module
 
 from celery import Celery
 from celery.signals import worker_ready
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Load environment variables from .env file
 load_dotenv()
 
-settings = import_module("shared.config").settings
+from shared.config import settings
 
 # Configure logging for worker tasks
 logging.basicConfig(

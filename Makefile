@@ -7,15 +7,15 @@
 ## Start developing. Handles everything: deps, infra, migrations, tmux launch.
 ## Idempotent — safe to run repeatedly. Reattaches if already running.
 dev:
-	uv run python scripts/make_tasks.py dev
+	uv run python tmux_tools/launcher.py
 
 ## Same as dev, but with auto-reload for backend services (REST API + Celery).
 dev-autoreload:
-	uv run python scripts/make_tasks.py dev-autoreload
+	uv run python tmux_tools/launcher.py --autoreload
 
 ## Nuclear reset: kill tmux, destroy all containers/volumes/deps. Run `make dev` to start again.
 dev-reset:
-	uv run python scripts/make_tasks.py dev-reset
+	uv run python tmux_tools/launcher.py --reset
 
 # --- Production (Docker) ---------------------------------------------------
 
@@ -25,8 +25,8 @@ PROD_COMPOSE := docker compose -f docker-compose.prod.yml
 
 ## Start all services in Docker with tmux log viewer (builds on first run).
 prod:
-	uv run python scripts/make_tasks.py prod
+	uv run python tmux_tools/launcher.py --prod
 
 ## Nuclear reset: stop containers, remove volumes, built images, and orphaned sandboxes.
 prod-reset:
-	uv run python scripts/make_tasks.py prod-reset
+	uv run python tmux_tools/launcher.py --prod-reset
