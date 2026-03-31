@@ -64,7 +64,7 @@ export function GitHubStarWidget() {
         rel="noopener noreferrer"
         className="flex overflow-hidden rounded border border-border text-[11px] font-medium transition-colors hover:bg-muted/50"
       >
-        <span className="flex flex-1 items-center gap-1.5 px-2 py-1.5">
+        <span className="flex items-center gap-1.5 px-2 py-1.5">
           <GitHubIcon className="h-3 w-3 shrink-0" />
           traceroot
         </span>
