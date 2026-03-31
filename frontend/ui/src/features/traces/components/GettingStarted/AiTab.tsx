@@ -61,11 +61,9 @@ export function AiTab({ projectId }: AiTabProps) {
         </p>
         <div className="flex items-start justify-between rounded-sm border border-border bg-muted/30 px-4 py-3">
           <div>
-            <p className="text-sm font-medium text-foreground">
-              Install and instrument from scratch
-            </p>
+            <p className="text-sm font-medium text-foreground">Auto-instrument your codebase</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Best for new projects or repos without existing observability.
+              Paste this prompt into your AI coding assistant to add tracing automatically.
             </p>
           </div>
           <CopyPromptButton value={INSTRUMENT_PROMPT} />
