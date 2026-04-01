@@ -76,7 +76,7 @@ export function GitHubStarWidget() {
       >
         <span className="flex items-center gap-1 px-1.5 py-1">
           <Github className="h-3 w-3 shrink-0" />
-          TraceRoot
+          traceroot
         </span>
         <span className="flex flex-1 items-center justify-center gap-1 border-l border-border py-1 text-muted-foreground">
           ★ {starCount !== null ? formatStarCount(starCount) : "—"}
