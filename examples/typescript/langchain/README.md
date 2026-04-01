@@ -1,6 +1,6 @@
 # LangChain Code Agent
 
-Multi-agent code generator using LangGraph, instrumented with [Traceroot](https://traceroot.ai).
+Multi-agent code generator using LangGraph, instrumented with [TraceRoot](https://traceroot.ai).
 
 Orchestrates a pipeline with automatic retry on failure:
 
@@ -48,7 +48,7 @@ The agent uses a LangGraph state machine:
 4. **Retry Logic**: If execution fails, goes back to coder with error context
 5. **Summarizer**: Creates a human-readable summary of the results
 
-All steps are traced in Traceroot with:
+All steps are traced in TraceRoot with:
 - Full LLM call details (prompts, completions, tokens)
 - State transitions between nodes
 - Code execution results

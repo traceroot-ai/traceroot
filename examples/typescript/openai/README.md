@@ -1,6 +1,6 @@
 # OpenAI Tool Agent
 
-ReAct-style agent with OpenAI tool calling, instrumented with [Traceroot](https://traceroot.ai).
+ReAct-style agent with OpenAI tool calling, instrumented with [TraceRoot](https://traceroot.ai).
 
 ## Features
 
@@ -39,7 +39,7 @@ The agent uses a ReAct loop:
 3. Executes tools and feeds results back to the model
 4. Generates a final response
 
-All steps are automatically traced in Traceroot, showing:
+All steps are automatically traced in TraceRoot, showing:
 - LLM calls with prompts, completions, and token usage
 - Tool executions with inputs and outputs
 - Full conversation flow with timing

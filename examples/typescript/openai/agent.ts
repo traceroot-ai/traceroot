@@ -1,5 +1,5 @@
 /**
- * OpenAI ReAct Agent — Traceroot Observability
+ * OpenAI ReAct Agent — TraceRoot Observability
  *
  * Uses @traceroot/sdk's TraceRoot.initialize() with instrumentModules to
  * auto-instrument all OpenAI calls, plus observe() for explicit span hierarchy.
@@ -14,13 +14,13 @@ import 'dotenv/config';
 import OpenAI from 'openai';
 import { TraceRoot, observe } from '@traceroot/sdk';
 
-// ── Traceroot setup ───────────────────────────────────────────────────────────
+// ── TraceRoot setup ───────────────────────────────────────────────────────────
 TraceRoot.initialize({
   instrumentModules: { openAI: OpenAI },
 });
 
 const openai = new OpenAI();
-console.log('[Observability: Traceroot]');
+console.log('[Observability: TraceRoot]');
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
 type ToolResult = Record<string, unknown>;
@@ -212,7 +212,7 @@ async function main() {
   try {
     await observe({ name: 'demo_session' }, async () => {
       console.log('='.repeat(60));
-      console.log('OpenAI ReAct Agent — Demo (Traceroot)');
+      console.log('OpenAI ReAct Agent — Demo (TraceRoot)');
       console.log('='.repeat(60));
 
       for (let i = 0; i < DEMO_QUERIES.length; i++) {

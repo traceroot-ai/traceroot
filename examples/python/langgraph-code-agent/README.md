@@ -1,6 +1,6 @@
 # LangGraph Code Agent
 
-Multi-agent code generator using LangGraph, instrumented with [Traceroot](https://traceroot.ai).
+Multi-agent code generator using LangGraph, instrumented with [TraceRoot](https://traceroot.ai).
 
 Orchestrates 4 agents in a pipeline with automatic retry on failure:
 
