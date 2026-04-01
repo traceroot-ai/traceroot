@@ -12,7 +12,7 @@
 
 import 'dotenv/config';
 import OpenAI from 'openai';
-import { TraceRoot, observe } from '@traceroot/sdk';
+import { TraceRoot, observe } from '@traceroot-ai/traceroot';
 
 // ── TraceRoot setup ───────────────────────────────────────────────────────────
 TraceRoot.initialize({
