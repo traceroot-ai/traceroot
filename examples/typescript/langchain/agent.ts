@@ -25,7 +25,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import * as lcCallbackManager from '@langchain/core/callbacks/manager';
-import { TraceRoot, observe } from '@traceroot/sdk';
+import { TraceRoot, observe } from '@traceroot-ai/traceroot';
 
 // ── TraceRoot setup ───────────────────────────────────────────────────────────
 // langchain: patches the LangChain callback manager to trace chain/node/LLM spans.
