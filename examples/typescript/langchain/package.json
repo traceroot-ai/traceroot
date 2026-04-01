@@ -7,12 +7,11 @@
     "demo": "tsx agent.ts"
   },
   "dependencies": {
-    "@traceroot-ai/traceroot": "workspace:*",
+    "@traceroot-ai/traceroot": "0.1.0-alpha.3",
     "@langchain/core": "^0.3.0",
     "@langchain/langgraph": "^1.0.0",
     "@langchain/openai": "^0.3.0",
-    "dotenv": "^16.4.5",
-    "openai": "^4.77.0"
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
