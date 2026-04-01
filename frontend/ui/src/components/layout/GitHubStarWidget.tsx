@@ -66,7 +66,8 @@ export function GitHubStarWidget() {
         </button>
       </div>
       <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
-        Open source and shipping fast. Made with ❤️ by contributors.
+        Open source and shipping fast. <br />
+        Made with ❤️ by contributors.
       </p>
       <a
         href={clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL}
