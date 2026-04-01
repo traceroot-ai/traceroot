@@ -66,7 +66,7 @@ export function GitHubStarWidget() {
         </button>
       </div>
       <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
-        If TraceRoot helps, a star goes a long way.
+        Open source and shipping fast. Made with ❤️ by contributors.
       </p>
       <a
         href={clientEnv.NEXT_PUBLIC_GITHUB_REPO_URL}
