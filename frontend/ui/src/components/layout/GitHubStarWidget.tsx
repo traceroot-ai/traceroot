@@ -53,7 +53,7 @@ export function GitHubStarWidget() {
   return (
     <div className="mx-1.5 mb-1 rounded-md border p-2">
       <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-xs font-semibold">Star traceroot</span>
+        <span className="text-xs font-semibold">Star TraceRoot</span>
         <button
           className="flex h-4 w-4 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
           onClick={() => {
@@ -77,9 +77,9 @@ export function GitHubStarWidget() {
       >
         <span className="flex items-center gap-1 px-1.5 py-1">
           <Github className="h-3 w-3 shrink-0" />
-          traceroot
+          TraceRoot
         </span>
-        <span className="flex shrink-0 items-center gap-1 border-l border-border py-1 pl-1.5 pr-2.5 text-muted-foreground">
+        <span className="flex flex-1 items-center justify-center gap-1 border-l border-border py-1 text-muted-foreground">
           ★ {starCount !== null ? formatStarCount(starCount) : "—"}
         </span>
       </a>
