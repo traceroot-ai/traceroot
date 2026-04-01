@@ -1,6 +1,6 @@
 # OpenAI Tool Agent
 
-ReAct-style agent with OpenAI streaming and tool use, instrumented with [Traceroot](https://traceroot.ai).
+ReAct-style agent with OpenAI streaming and tool use, instrumented with [TraceRoot](https://traceroot.ai).
 
 ## Setup
 

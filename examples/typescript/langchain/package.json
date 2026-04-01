@@ -1,0 +1,22 @@
+{
+  "name": "@traceroot/example-langchain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "tsx agent.ts"
+  },
+  "dependencies": {
+    "@traceroot-ai/traceroot": "workspace:*",
+    "@langchain/core": "^0.3.0",
+    "@langchain/langgraph": "^1.0.0",
+    "@langchain/openai": "^0.3.0",
+    "dotenv": "^16.4.5",
+    "openai": "^4.77.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}

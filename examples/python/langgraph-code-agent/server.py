@@ -1,5 +1,5 @@
 """
-Multi-agent code generator with Traceroot observability.
+Multi-agent code generator with TraceRoot observability.
 
 Usage:
     cp env.example .env
@@ -21,7 +21,7 @@ if dotenv_path:
 else:
     print("No .env file found (find_dotenv returned None).\nUsing process environment variables.")
 
-# Initialize Traceroot BEFORE importing LangChain so instrumentation hooks in
+# Initialize TraceRoot BEFORE importing LangChain so instrumentation hooks in
 import traceroot
 from traceroot import Integration, observe, using_attributes
 
