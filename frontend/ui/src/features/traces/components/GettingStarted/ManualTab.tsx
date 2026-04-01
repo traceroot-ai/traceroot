@@ -93,14 +93,24 @@ export function ManualTab({ projectId }: ManualTabProps) {
         <div className="border border-border">
           <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
             <span className="text-xs text-muted-foreground">python</span>
-            <CopyButton value={"import traceroot\ntraceroot.init()"} className="h-6 w-6" />
+            <CopyButton
+              value={
+                "import traceroot\nfrom traceroot import Integration\n\ntraceroot.initialize(integrations=[Integration.OPENAI])"
+              }
+              className="h-6 w-6"
+            />
           </div>
           <div className="bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed">
             <div>
               <span className="text-blue-600 dark:text-blue-400">import</span> traceroot
             </div>
             <div>
-              traceroot.<span className="text-purple-600 dark:text-purple-400">init</span>()
+              <span className="text-blue-600 dark:text-blue-400">from</span> traceroot{" "}
+              <span className="text-blue-600 dark:text-blue-400">import</span> Integration
+            </div>
+            <div className="mt-1">
+              traceroot.<span className="text-purple-600 dark:text-purple-400">initialize</span>
+              (integrations=[Integration.OPENAI])
             </div>
           </div>
         </div>

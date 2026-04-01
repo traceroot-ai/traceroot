@@ -11,7 +11,8 @@ Please help me:
 1. Install the traceroot Python package (pip install traceroot)
 2. Initialize TraceRoot at the entry point of my application:
    import traceroot
-   traceroot.init()
+   from traceroot import Integration
+   traceroot.initialize(integrations=[Integration.OPENAI])  # or Integration.LANGCHAIN
 3. Instrument all OpenAI and LangChain calls in my codebase.
 
 The TRACEROOT_API_KEY environment variable is already set in my .env file.`;
