@@ -1,4 +1,4 @@
 anthropic>=0.40.0
 python-dotenv>=1.0.0
-traceroot>=0.1.0
+traceroot==0.1.0
 openinference-instrumentation-anthropic>=1.0.0
