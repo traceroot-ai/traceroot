@@ -24,7 +24,14 @@ export { useListPageState } from "./use-list-page-state";
 /**
  * Hook for fetching paginated traces list
  */
-export function useTraces(projectId: string, options: TraceQueryOptions = {}) {
+export function useTraces(
+  projectId: string,
+  options: TraceQueryOptions = {},
+  queryOptions: {
+    staleTime?: number;
+    refetchInterval?: number | false | ((query: unknown) => number | false);
+  } = {},
+) {
   const { data: authSession, isPending } = useAuthSession();
   const sessionReady = !isPending && !!authSession?.user;
   const user: TraceApiUser | undefined = authSession?.user
@@ -44,6 +51,7 @@ export function useTraces(projectId: string, options: TraceQueryOptions = {}) {
     ],
     queryFn: () => getTraces(projectId, "", options, user),
     enabled: sessionReady && !!projectId,
+    ...queryOptions,
   });
 }
 

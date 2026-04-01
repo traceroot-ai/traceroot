@@ -20,6 +20,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
+import { GitHubStarWidget } from "@/components/layout/GitHubStarWidget";
 import { clientEnv } from "@/env.client";
 
 // Check if we're in a project context by looking at the path structure
@@ -179,7 +180,10 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
 
         {/* Bottom section */}
         <div>
-          {/* Star on GitHub */}
+          {/* Star widget */}
+          {!collapsed && <GitHubStarWidget />}
+
+          {/* GitHub link */}
           <Tooltip>
             <TooltipTrigger asChild>
               <a
