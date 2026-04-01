@@ -1,44 +1,22 @@
-# Anthropic ReAct Agent with Traceroot Observability
+# Anthropic Tool Agent
 
-A ReAct-style agent using Anthropic's tool_use API with full Traceroot tracing.
+ReAct-style agent with Anthropic tool use, instrumented with [TraceRoot](https://traceroot.ai).
 
 ## Setup
 
 ```bash
-cp env.example .env
-# Fill in TRACEROOT_API_KEY, TRACEROOT_HOST_URL, ANTHROPIC_API_KEY
-pip install -r requirements.txt
+cp .env.example .env  # fill in your API keys
 ```
 
-## Run
-
+With `uv` (recommended):
 ```bash
-python main.py
+uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py
 ```
 
-## Trace Structure
+## What it does
 
-```
-demo_session (agent)
-  └── agent_turn (agent)
-        ├── Anthropic messages.create (auto-instrumented)
-        ├── execute_tool (span)
-        │     └── get_weather (tool)
-        ├── Anthropic messages.create (auto-instrumented)
-        └── final response
-```
+Runs two demo queries that exercise tool use:
+1. Weather comparison (San Francisco vs Tokyo)
+2. Stock price lookup + calculation (NVDA +10%)
 
-### Nested Structure
-
-- **`@observe` decorator** provides the agent/tool hierarchy
-- **`Integration.ANTHROPIC`** auto-instruments `client.messages.create()` calls
-- Combined, you get full nested traces with LLM calls inside agent turns
-
-## Tools
-
-| Tool | Description |
-|------|-------------|
-| `get_weather` | Simulated weather data for cities |
-| `get_stock_price` | Simulated stock prices |
-| `calculate` | Safe math expression evaluator |
-| `get_current_time` | Current date and time |
+Tools: `get_weather`, `get_stock_price`, `calculate`, `get_current_time`
