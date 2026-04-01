@@ -1,8 +1,8 @@
 /**
- * LangGraph Code Agent — Traceroot Observability
+ * LangGraph Code Agent — TraceRoot Observability
  *
  * A LangGraph-powered agent that plans, writes, and executes Python code
- * to answer user queries. Instrumented with Traceroot via TraceRoot.initialize().
+ * to answer user queries. Instrumented with TraceRoot via TraceRoot.initialize().
  *
  * langchain: patches the LangChain callback manager to trace all chain/node/LLM spans.
  *
@@ -27,14 +27,14 @@ import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import * as lcCallbackManager from '@langchain/core/callbacks/manager';
 import { TraceRoot, observe } from '@traceroot/sdk';
 
-// ── Traceroot setup ───────────────────────────────────────────────────────────
+// ── TraceRoot setup ───────────────────────────────────────────────────────────
 // langchain: patches the LangChain callback manager to trace chain/node/LLM spans.
 // Do NOT pass openAI here — LangChain instrumentation already captures LLM spans;
 // adding the raw OpenAI instrumentation creates duplicate spans.
 TraceRoot.initialize({
   instrumentModules: { langchain: lcCallbackManager },
 });
-console.log('[Observability: Traceroot]');
+console.log('[Observability: TraceRoot]');
 
 // ── LLM ───────────────────────────────────────────────────────────────────────
 const llm = new ChatOpenAI({ model: 'gpt-4o-mini', temperature: 0 });
@@ -172,7 +172,7 @@ async function main() {
   try {
     await observe({ name: 'demo_session' }, async () => {
       console.log('='.repeat(60));
-      console.log('LangGraph Code Agent — Demo (Traceroot)');
+      console.log('LangGraph Code Agent — Demo (TraceRoot)');
       console.log('='.repeat(60));
 
       for (let i = 0; i < DEMO_QUERIES.length; i++) {
