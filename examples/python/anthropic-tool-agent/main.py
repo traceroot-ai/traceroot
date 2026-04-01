@@ -121,7 +121,9 @@ TOOL_SCHEMAS = [
         "description": "Get current stock price for a ticker symbol",
         "input_schema": {
             "type": "object",
-            "properties": {"symbol": {"type": "string", "description": "Stock ticker symbol (e.g., AAPL)"}},
+            "properties": {
+                "symbol": {"type": "string", "description": "Stock ticker symbol (e.g., AAPL)"}
+            },
             "required": ["symbol"],
         },
     },
@@ -130,7 +132,12 @@ TOOL_SCHEMAS = [
         "description": "Evaluate a mathematical expression",
         "input_schema": {
             "type": "object",
-            "properties": {"expression": {"type": "string", "description": "Math expression (e.g., '2 + 2 * 3')"}},
+            "properties": {
+                "expression": {
+                    "type": "string",
+                    "description": "Math expression (e.g., '2 + 2 * 3')",
+                }
+            },
             "required": ["expression"],
         },
     },
@@ -139,7 +146,9 @@ TOOL_SCHEMAS = [
         "description": "Get the current date and time",
         "input_schema": {
             "type": "object",
-            "properties": {"timezone": {"type": "string", "description": "Timezone (default: UTC)"}},
+            "properties": {
+                "timezone": {"type": "string", "description": "Timezone (default: UTC)"}
+            },
         },
     },
 ]
@@ -194,11 +203,13 @@ class ReActAgent:
                         logger.info(f"Tool call: {block.name}({block.input})")
                         result = self._execute_tool(block.name, block.input)
                         logger.info(f"Tool result: {result}")
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result,
-                        })
+                        tool_results.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": result,
+                            }
+                        )
 
                 self.messages.append({"role": "user", "content": tool_results})
             else:
