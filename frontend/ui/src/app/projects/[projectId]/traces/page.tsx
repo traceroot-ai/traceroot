@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
@@ -12,7 +13,7 @@ import { ProjectBreadcrumb } from "@/features/projects/components";
 import { formatDuration, formatDate, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { TraceListItem } from "@/types/api";
 import { useTraces, useListPageState } from "@/features/traces/hooks";
-import { TraceViewerPanel } from "@/features/traces/components";
+import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
 import { formatContentPreview } from "@/features/traces/utils";
 
 // Tab definitions
@@ -27,6 +28,7 @@ export default function TracesPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const projectId = params.projectId as string;
+  const queryClient = useQueryClient();
   const { aiPanelOpen, setAiPanelOpen } = useLayout();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
@@ -52,9 +54,32 @@ export default function TracesPage() {
     user_id: userId || undefined,
   });
 
+  // Check if project has EVER sent traces (no date filter) — controls onboarding visibility.
+  // staleTime: Infinity because once a project has traces it always will (immutable fact).
+  // refetchInterval polls every 3s while onboarding is shown so the page auto-transitions
+  // when the first trace arrives, without requiring a manual refresh.
+  const { data: anyTracesData, isLoading: hasEverTracedLoading } = useTraces(
+    projectId,
+    { limit: 1 },
+    {
+      staleTime: Infinity,
+      refetchInterval: (query: unknown) => {
+        const hasTraces =
+          ((query as { state?: { data?: { data?: unknown[] } } })?.state?.data?.data?.length ?? 0) >
+          0;
+        return hasTraces ? false : 3000;
+      },
+    },
+  );
+  const hasEverTraced = (anyTracesData?.data?.length ?? 0) > 0;
+  useEffect(() => {
+    if (hasEverTraced) queryClient.invalidateQueries({ queryKey: ["traces", projectId] });
+  }, [hasEverTraced, projectId, queryClient]);
+
   const traces = data?.data || [];
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
   const totalPages = Math.ceil(meta.total / meta.limit);
+  const showGettingStarted = !hasEverTracedLoading && !hasEverTraced;
 
   const buildUrl = (path: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(path, {
@@ -70,61 +95,65 @@ export default function TracesPage() {
 
       {/* Main content */}
       <div className="flex flex-1 flex-col">
-        {/* Tab navigation */}
-        <div className="border-b border-border bg-background">
-          <div className="flex">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = tab.id === "traces";
-              return (
-                <Link
-                  key={tab.id}
-                  href={buildUrl(`/projects/${projectId}/${tab.href}`)}
-                  className={cn(
-                    "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
-                    isActive
-                      ? "border-foreground bg-muted text-foreground"
-                      : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {tab.label}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Filters bar */}
-        <SearchFilterBar
-          searchValue={state.keyword}
-          onSearchChange={updateKeyword}
-          searchPlaceholder="Search..."
-          dateFilter={state.dateFilter}
-          customStartDate={state.customStartDate}
-          customEndDate={state.customEndDate}
-          onDateFilterChange={updateDateFilter}
-          onCustomRangeChange={updateCustomRange}
-        >
-          {userId && (
-            <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 py-1 pl-2.5 pr-1.5">
-              <Users className="h-3 w-3 text-muted-foreground" />
-              <span className="text-[12px] text-muted-foreground">User:</span>
-              <span className="text-[12px] font-medium text-foreground">{userId}</span>
-              <button
-                type="button"
-                onClick={() => router.push(buildUrl(`/projects/${projectId}/traces`))}
-                className="ml-1 rounded p-0.5 transition-colors hover:bg-muted"
-              >
-                <X className="h-3 w-3 text-muted-foreground" />
-              </button>
+        {/* Tab navigation — hidden during onboarding or while checking */}
+        {!hasEverTracedLoading && !showGettingStarted && (
+          <div className="border-b border-border bg-background">
+            <div className="flex">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = tab.id === "traces";
+                return (
+                  <Link
+                    key={tab.id}
+                    href={buildUrl(`/projects/${projectId}/${tab.href}`)}
+                    className={cn(
+                      "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
+                      isActive
+                        ? "border-foreground bg-muted text-foreground"
+                        : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {tab.label}
+                  </Link>
+                );
+              })}
             </div>
-          )}
-        </SearchFilterBar>
+          </div>
+        )}
+
+        {/* Filters bar — hidden during onboarding or while checking */}
+        {!hasEverTracedLoading && !showGettingStarted && (
+          <SearchFilterBar
+            searchValue={state.keyword}
+            onSearchChange={updateKeyword}
+            searchPlaceholder="Search..."
+            dateFilter={state.dateFilter}
+            customStartDate={state.customStartDate}
+            customEndDate={state.customEndDate}
+            onDateFilterChange={updateDateFilter}
+            onCustomRangeChange={updateCustomRange}
+          >
+            {userId && (
+              <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 py-1 pl-2.5 pr-1.5">
+                <Users className="h-3 w-3 text-muted-foreground" />
+                <span className="text-[12px] text-muted-foreground">User:</span>
+                <span className="text-[12px] font-medium text-foreground">{userId}</span>
+                <button
+                  type="button"
+                  onClick={() => router.push(buildUrl(`/projects/${projectId}/traces`))}
+                  className="ml-1 rounded p-0.5 transition-colors hover:bg-muted"
+                >
+                  <X className="h-3 w-3 text-muted-foreground" />
+                </button>
+              </div>
+            )}
+          </SearchFilterBar>
+        )}
 
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background">
-          {isLoading ? (
+          {isLoading || hasEverTracedLoading ? (
             <div className="flex h-64 items-center justify-center">
               <p className="text-[13px] text-muted-foreground">Loading traces...</p>
             </div>
@@ -135,11 +164,13 @@ export default function TracesPage() {
                 Make sure the API server is running and you have API keys configured.
               </p>
             </div>
+          ) : showGettingStarted ? (
+            <GettingStarted projectId={projectId} />
           ) : traces.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-muted-foreground">No traces found</p>
               <p className="text-[12px] text-muted-foreground">
-                Start sending traces using the SDK to see them here.
+                Try adjusting your filters or date range.
               </p>
             </div>
           ) : (

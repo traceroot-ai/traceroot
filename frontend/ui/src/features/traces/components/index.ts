@@ -10,3 +10,4 @@ export { ContentRenderer } from "./ContentRenderer";
 export { SpanInfoPanel } from "./SpanInfoPanel";
 export { TraceViewerPanel } from "./TraceViewerPanel";
 export { SessionDetailPanel } from "./SessionDetailPanel";
+export { GettingStarted } from "./GettingStarted";
