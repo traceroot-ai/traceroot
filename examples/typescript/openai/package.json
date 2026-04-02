@@ -6,7 +6,7 @@
     "demo": "tsx agent.ts"
   },
   "dependencies": {
-    "@traceroot-ai/traceroot": "0.1.0-alpha.3",
+    "@traceroot-ai/traceroot": "0.1.0",
     "dotenv": "^16.4.5",
     "openai": "^6.7.0"
   },
