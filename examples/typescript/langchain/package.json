@@ -7,7 +7,7 @@
     "demo": "tsx agent.ts"
   },
   "dependencies": {
-    "@traceroot-ai/traceroot": "0.1.0-alpha.3",
+    "@traceroot-ai/traceroot": "0.1.0",
     "@langchain/core": "^0.3.0",
     "@langchain/langgraph": "^1.0.0",
     "@langchain/openai": "^0.3.0",

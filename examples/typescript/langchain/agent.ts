@@ -25,7 +25,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import * as lcCallbackManager from '@langchain/core/callbacks/manager';
-import { TraceRoot, observe } from '@traceroot-ai/traceroot';
+import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 
 // ── TraceRoot setup ───────────────────────────────────────────────────────────
 // langchain: patches the LangChain callback manager to trace chain/node/LLM spans.
@@ -170,21 +170,29 @@ const DEMO_QUERIES = [
 
 async function main() {
   try {
-    await observe({ name: 'demo_session' }, async () => {
-      console.log('='.repeat(60));
-      console.log('LangGraph Code Agent — Demo (TraceRoot)');
-      console.log('='.repeat(60));
-
-      for (let i = 0; i < DEMO_QUERIES.length; i++) {
-        const query = DEMO_QUERIES[i];
-        console.log(`\n${'='.repeat(60)}`);
-        console.log(`Query ${i + 1}: ${query}`);
+    await usingAttributes(
+      {
+        sessionId: 'langchain-demo-session',
+        userId: 'demo-user',
+        tags: ['demo', 'langchain', 'langgraph'],
+        metadata: { example: 'langchain-code-agent', sdkFeature: 'usingAttributes' },
+      },
+      () => observe({ name: 'demo_session' }, async () => {
         console.log('='.repeat(60));
-        const summary = await runAgent(query);
-        console.log('\nAgent: ' + summary);
-        console.log();
-      }
-    });
+        console.log('LangGraph Code Agent — Demo (TraceRoot)');
+        console.log('='.repeat(60));
+
+        for (let i = 0; i < DEMO_QUERIES.length; i++) {
+          const query = DEMO_QUERIES[i];
+          console.log(`\n${'='.repeat(60)}`);
+          console.log(`Query ${i + 1}: ${query}`);
+          console.log('='.repeat(60));
+          const summary = await runAgent(query);
+          console.log('\nAgent: ' + summary);
+          console.log();
+        }
+      }),
+    );
   } finally {
     await TraceRoot.shutdown();
     console.log('[Traces exported]');
