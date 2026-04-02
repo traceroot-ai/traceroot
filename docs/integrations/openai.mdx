@@ -7,33 +7,71 @@ Automatically capture all OpenAI Chat Completions and Responses API calls.
 
 ## Setup
 
-```python
-import traceroot
-from traceroot import Integration
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
 
-traceroot.initialize(integrations=[Integration.OPENAI])
-```
+    traceroot.initialize(integrations=[Integration.OPENAI])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openAI: OpenAI },
+    });
+
+    const openai = new OpenAI();
+    ```
+  </Tab>
+</Tabs>
 
 ## Usage
 
-Once initialized, all OpenAI calls are captured automatically:
+<Tabs>
+  <Tab title="Python">
+    Once initialized, all OpenAI calls are captured automatically:
 
-```python
-import openai
+    ```python
+    import openai
 
-client = openai.OpenAI()
+    client = openai.OpenAI()
 
-# This call is automatically traced
-response = client.chat.completions.create(
-    model="gpt-4o",
-    messages=[
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "What is the capital of France?"},
-    ],
-)
+    # This call is automatically traced
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What is the capital of France?"},
+        ],
+    )
 
-print(response.choices[0].message.content)
-```
+    print(response.choices[0].message.content)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+
+    const openai = new OpenAI();
+
+    // This call is automatically traced
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant.' },
+        { role: 'user', content: 'What is the capital of France?' },
+      ],
+    });
+
+    console.log(response.choices[0].message.content);
+    ```
+  </Tab>
+</Tabs>
 
 ## What Gets Captured
 
