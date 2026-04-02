@@ -9,19 +9,18 @@ Create API Keys either with [TraceRoot Cloud](https://app.traceroot.ai) or [Self
 
 ## 2. Install the SDK
 
-<CodeGroup>
-```bash pip
-pip install traceroot
-```
-
-```bash uv
-uv add traceroot
-```
-
-```bash poetry
-poetry add traceroot
-```
-</CodeGroup>
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot
+    ```
+  </Tab>
+</Tabs>
 
 ## 3. Set Environment Variables
 
@@ -32,20 +31,39 @@ TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
 
 ## 4. Instrument Your Code
 
-Add a single line at the start of your application to instrument all OpenAI API calls.
+<Tabs>
+  <Tab title="Python">
+    Add a single line at the start of your application to instrument all OpenAI API calls.
 
-```python
-import traceroot
-from traceroot import Integration
-from openai import OpenAI
+    ```python
+    import traceroot
+    from traceroot import Integration
+    from openai import OpenAI
 
-# This single line instruments all OpenAI API calls
-traceroot.initialize(integrations=[Integration.OPENAI])
+    # This single line instruments all OpenAI API calls
+    traceroot.initialize(integrations=[Integration.OPENAI])
 
-client = OpenAI()
-```
+    client = OpenAI()
+    ```
 
-For full SDK details, see the [Python SDK](/tracing/python-sdk).
+    For full SDK details, see the [Python SDK](/tracing/python-sdk).
+  </Tab>
+  <Tab title="TypeScript">
+    Add a single line at the start of your application to instrument all OpenAI API calls.
+
+    ```typescript
+    import OpenAI from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    // This single line instruments all OpenAI API calls
+    TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+
+    const openai = new OpenAI();
+    ```
+
+    For full SDK details, see the [TypeScript SDK](/tracing/typescript-sdk).
+  </Tab>
+</Tabs>
 
 ## 5. View Your Traces
 
@@ -56,8 +74,11 @@ Open [TraceRoot Cloud](https://app.traceroot.ai) (or your self-hosted dashboard)
 ## What's Next?
 
 <CardGroup cols={2}>
-  <Card title="Python SDK" icon="code" href="/tracing/python-sdk">
-    Full API reference for decorators, spans, and configuration.
+  <Card title="Python SDK" icon="python" href="/tracing/python-sdk">
+    Full API reference for the Python SDK.
+  </Card>
+  <Card title="TypeScript SDK" icon="js" href="/tracing/typescript-sdk">
+    Full API reference for the TypeScript SDK.
   </Card>
   <Card title="AI Agent" icon="brain" href="/ai-agent/overview">
     Auto-debug failing traces with the built-in AI agent.
