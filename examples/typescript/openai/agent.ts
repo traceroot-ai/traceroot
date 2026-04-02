@@ -12,7 +12,7 @@
 
 import 'dotenv/config';
 import OpenAI from 'openai';
-import { TraceRoot, observe } from '@traceroot-ai/traceroot';
+import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 
 // ── TraceRoot setup ───────────────────────────────────────────────────────────
 TraceRoot.initialize({
@@ -210,23 +210,31 @@ const DEMO_QUERIES = [
 
 async function main() {
   try {
-    await observe({ name: 'demo_session' }, async () => {
-      console.log('='.repeat(60));
-      console.log('OpenAI ReAct Agent — Demo (TraceRoot)');
-      console.log('='.repeat(60));
-
-      for (let i = 0; i < DEMO_QUERIES.length; i++) {
-        const query = DEMO_QUERIES[i];
-        const agent = new ReActAgent();
-        console.log(`\n${'='.repeat(60)}`);
-        console.log(`Query ${i + 1}: ${query}`);
+    await usingAttributes(
+      {
+        sessionId: 'openai-demo-session',
+        userId: 'demo-user',
+        tags: ['demo', 'openai', 'react-agent'],
+        metadata: { example: 'openai-react-agent', sdkFeature: 'usingAttributes' },
+      },
+      () => observe({ name: 'demo_session' }, async () => {
         console.log('='.repeat(60));
-        process.stdout.write('\nAgent: ');
-        const response = await agent.runTurn(query);
-        console.log(response);
-        console.log();
-      }
-    });
+        console.log('OpenAI ReAct Agent — Demo (TraceRoot)');
+        console.log('='.repeat(60));
+
+        for (let i = 0; i < DEMO_QUERIES.length; i++) {
+          const query = DEMO_QUERIES[i];
+          const agent = new ReActAgent();
+          console.log(`\n${'='.repeat(60)}`);
+          console.log(`Query ${i + 1}: ${query}`);
+          console.log('='.repeat(60));
+          process.stdout.write('\nAgent: ');
+          const response = await agent.runTurn(query);
+          console.log(response);
+          console.log();
+        }
+      }),
+    );
   } finally {
     await TraceRoot.shutdown();
     console.log('[Traces exported]');
