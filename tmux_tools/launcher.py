@@ -15,11 +15,11 @@ import argparse
 import os
 import shutil
 import socket
+import subprocess
 from pathlib import Path
 
 from db.clickhouse.migrate import run_goose
 from tmux_tools import schema
-from tmux_tools.process import run_command
 
 REST_PORT = 8000
 FRONTEND_PORT = 3000
@@ -30,7 +30,6 @@ DOCKER_COMPOSE_SHELL = "docker compose"
 PROD_COMPOSE_FILE = "docker-compose.prod.yml"
 PROD_COMPOSE = [*DOCKER_COMPOSE, "-f", PROD_COMPOSE_FILE]
 PROD_COMPOSE_SHELL = f"{DOCKER_COMPOSE_SHELL} -f {PROD_COMPOSE_FILE}"
-TOOLS_INSTALL_SCRIPT = "python scripts/bootstrap_dev_tools.py"
 DEV_NODE_MODULES = [
     ROOT / "frontend" / "node_modules",
     ROOT / "frontend" / "ui" / "node_modules",
@@ -41,6 +40,22 @@ DEV_NODE_MODULES = [
 
 def _compose_logs_command(compose_command: str, service: str) -> str:
     return f"{compose_command} logs -f --tail=50 {service}"
+
+
+def _run(
+    command: list[str],
+    *,
+    check: bool = True,
+    capture_output: bool = False,
+    cwd: str | Path | None = None,
+) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        command,
+        check=check,
+        capture_output=capture_output,
+        text=True,
+        cwd=cwd,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -62,28 +77,28 @@ def ensure_infra():
     """Start docker containers if not already running."""
     print("Ensuring infrastructure is running (PostgreSQL, ClickHouse, MinIO, Redis)...")
     print("Waiting for containers to be healthy...")
-    run_command(
+    _run(
         [*DOCKER_COMPOSE, "up", "-d", "--wait", "postgres", "clickhouse", "minio", "redis"],
     )
     # minio-init is a one-shot, idempotent setup container — start it after MinIO is healthy.
-    run_command([*DOCKER_COMPOSE, "up", "-d", "minio-init"])
+    _run([*DOCKER_COMPOSE, "up", "-d", "minio-init"])
 
 
 def ensure_python_deps():
     """Install Python deps if .venv doesn't exist or is stale."""
     print("Syncing Python dependencies...")
-    run_command(["uv", "sync"])
+    _run(["uv", "sync"])
 
 
 def ensure_frontend_deps():
     """Install frontend deps if node_modules missing."""
     if not os.path.exists("frontend/node_modules"):
         print("Installing frontend dependencies...")
-        run_command(["pnpm", "install"], cwd="frontend")
+        _run(["pnpm", "install"], cwd="frontend")
     else:
         print("Frontend dependencies already installed.")
     print("Generating Prisma client...")
-    run_command(
+    _run(
         ["pnpm", "db:generate"],
         cwd="frontend/packages/core",
     )
@@ -92,7 +107,7 @@ def ensure_frontend_deps():
 def ensure_migrations():
     """Run pending migrations for both Postgres and ClickHouse."""
     print("Running PostgreSQL migrations (Prisma)...")
-    run_command(
+    _run(
         ["pnpm", "db:migrate"],
         cwd="frontend/packages/core",
     )
@@ -115,21 +130,21 @@ def run_prod_setup():
     ensure_env_file()
 
     print("Building Docker images (cached if unchanged)...")
-    run_command([*PROD_COMPOSE, "build"])
+    _run([*PROD_COMPOSE, "build"])
 
     print("Starting infrastructure (PostgreSQL, ClickHouse, MinIO, Redis)...")
-    run_command([*PROD_COMPOSE, "up", "-d", "--wait", "postgres", "clickhouse", "minio", "redis"])
+    _run([*PROD_COMPOSE, "up", "-d", "--wait", "postgres", "clickhouse", "minio", "redis"])
     # minio-init is a one-shot container — start it separately (--wait fails on exit-0 containers)
-    run_command([*PROD_COMPOSE, "up", "-d", "minio-init"])
+    _run([*PROD_COMPOSE, "up", "-d", "minio-init"])
 
     print("Running database migrations (PostgreSQL)...")
-    run_command([*PROD_COMPOSE, "run", "--rm", "migrate"])
+    _run([*PROD_COMPOSE, "run", "--rm", "migrate"])
 
     print("Running database migrations (ClickHouse)...")
-    run_command([*PROD_COMPOSE, "run", "--rm", "migrate-clickhouse"])
+    _run([*PROD_COMPOSE, "run", "--rm", "migrate-clickhouse"])
 
     print("Starting application services (web, rest, worker, billing, agent)...")
-    run_command([*PROD_COMPOSE, "up", "-d", "web", "rest", "worker", "billing", "agent"])
+    _run([*PROD_COMPOSE, "up", "-d", "web", "rest", "worker", "billing", "agent"])
 
     print("\nAll containers started. Launching log viewer...\n")
 
@@ -144,29 +159,32 @@ def _remove_path(path: Path) -> None:
 
 
 def _kill_tmux_session(session_name: str) -> None:
-    run_command(
-        ["tmux", "-L", "development", "kill-session", "-t", session_name],
-        check=False,
-        capture_output=True,
-    )
+    try:
+        _run(
+            ["tmux", "-L", "development", "kill-session", "-t", session_name],
+            check=False,
+            capture_output=True,
+        )
+    except FileNotFoundError:
+        return
 
 
 def _remove_sandbox_containers() -> None:
-    result = run_command(
+    result = _run(
         ["docker", "ps", "-aq", "--filter", "name=traceroot-sandbox-"],
         check=False,
         capture_output=True,
     )
     container_ids = result.stdout.split()
     if container_ids:
-        run_command(["docker", "rm", "-f", *container_ids], check=False, capture_output=True)
+        _run(["docker", "rm", "-f", *container_ids], check=False, capture_output=True)
 
 
 def reset_dev_environment() -> None:
     print("Resetting everything...")
     _kill_tmux_session("traceroot")
     _remove_sandbox_containers()
-    run_command([*DOCKER_COMPOSE, "down", "-v"])
+    _run([*DOCKER_COMPOSE, "down", "-v"])
     for path in DEV_NODE_MODULES:
         _remove_path(path)
     _remove_path(ROOT / ".venv")
@@ -177,7 +195,7 @@ def reset_prod_environment() -> None:
     print("Resetting production environment...")
     _kill_tmux_session("traceroot-prod")
     _remove_sandbox_containers()
-    run_command([*PROD_COMPOSE, "down", "-v", "--rmi", "local"])
+    _run([*PROD_COMPOSE, "down", "-v", "--rmi", "local"])
     print("Done. Run 'make prod' to start fresh.")
 
 
@@ -191,27 +209,18 @@ def tool_prerequisites():
     return [
         schema.Prerequisite(
             name="docker is installed and running",
-            command=["docker", "ps"],
-            instructions=(
-                "Install Docker, then verify the full toolchain with:\n"
-                f"    {TOOLS_INSTALL_SCRIPT} --check"
-            ),
+            command="docker ps",
+            instructions="Install Docker: https://docs.docker.com/get-docker/",
         ),
         schema.Prerequisite(
             name="uv is installed",
-            command=["uv", "--version"],
-            instructions=(
-                "Install uv, or bootstrap the required tooling with:\n"
-                f"    {TOOLS_INSTALL_SCRIPT} uv"
-            ),
+            command="uv --version",
+            instructions="Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh",
         ),
         schema.Prerequisite(
             name="pnpm is installed",
-            command=["pnpm", "--version"],
-            instructions=(
-                "Install pnpm, or bootstrap the required tooling with:\n"
-                f"    {TOOLS_INSTALL_SCRIPT} pnpm"
-            ),
+            command="pnpm --version",
+            instructions="Install pnpm: npm install -g pnpm",
         ),
     ]
 
@@ -417,11 +426,8 @@ def make_prod_driver():
         prerequisites=[
             schema.Prerequisite(
                 name="docker is installed and running",
-                command=["docker", "ps"],
-                instructions=(
-                    "Install Docker, then verify the full toolchain with:\n"
-                    f"    {TOOLS_INSTALL_SCRIPT} --check"
-                ),
+                command="docker ps",
+                instructions="Install Docker: https://docs.docker.com/get-docker/",
             ),
         ],
     )

@@ -2,7 +2,7 @@
 
 import os
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from shlex import quote
@@ -20,7 +20,7 @@ class CheckResult:
 @dataclass
 class Prerequisite:
     name: str
-    command: str | Sequence[str] | None = None
+    command: str | None = None
     instructions: str = ""
     expected_output: str | None = None
     check_fn: Callable[[], CheckResult] | None = None
@@ -32,13 +32,6 @@ class Prerequisite:
             is not None
         )
 
-    def _command_display(self) -> str:
-        if self.command is None:
-            return "<custom check>"
-        if isinstance(self.command, str):
-            return self.command
-        return " ".join(self.command)
-
     def check(self) -> CheckResult:
         if self.check_fn is not None:
             return self.check_fn()
@@ -48,17 +41,18 @@ class Prerequisite:
 
         message: list[str] = []
         try:
-            cmd_output = tmux._shell(self.command)
+            bash_cmd = f"bash -c {quote(self.command)}"
+            cmd_output = tmux._shell(bash_cmd)
             if self._check_cmd_output(cmd_output):
                 return CheckResult(True, "")
             message.append(f"Failed to check: {self.name}")
-            message.append(tmux._format_error(self._command_display(), cmd_output))
+            message.append(tmux._format_error(self.command, cmd_output))
         except FileNotFoundError:
             message.append(f"Failed to check: {self.name}")
             name = tmux._parse_cmd_name(self.command)
             message.append(
                 f"Could not find program `{name}` on the system path "
-                f"when running command: {self._command_display()}"
+                f"when running command: {self.command}"
             )
 
         message.append(self.instructions)
@@ -165,7 +159,7 @@ class Driver:
         welcome_text = self.build_welcome().render_text()
         welcome = tmux.Window(
             name="Instructions",
-            command=f"printf '%s\n' {quote(welcome_text)}; tail -f /dev/null",
+            command=f"echo {quote(welcome_text)}",
         )
 
         # Service windows
