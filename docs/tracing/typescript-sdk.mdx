@@ -28,7 +28,7 @@ Wrap any async function to create a span:
 import { observe } from '@traceroot-ai/traceroot';
 
 const result = await observe({ name: 'my_function', type: 'tool' }, async () => {
-  return doWork(query);
+  return doWork('your input here');
 });
 ```
 
@@ -37,7 +37,7 @@ const result = await observe({ name: 'my_function', type: 'tool' }, async () => 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `name` | `string` | function name | Span name |
-| `type` | `'span' \| 'agent' \| 'tool' \| 'llm'` | `'span'` | Span kind: `'llm'`, `'agent'`, `'tool'`, or `'span'` |
+| `type` | `'span' \| 'agent' \| 'tool' \| 'llm'` | `'span'` | Span kind — `'agent'` for multi-step agents, `'tool'` for function calls, `'llm'` for model inference, `'span'` for generic |
 | `metadata` | `Record<string, unknown>` | — | Static metadata to attach |
 | `tags` | `string[]` | — | Tags to attach |
 
@@ -57,7 +57,7 @@ await usingAttributes(
   },
   async () => {
     // All spans here inherit the attributes above
-    await runAgent(userMessage);
+    await runAgent('What is the weather?');
   },
 );
 ```
