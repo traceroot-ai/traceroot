@@ -1,22 +1,14 @@
 """Tmux session management: create, attach, and control tmux sessions."""
 
-import os
-import re
 import shlex
-import shutil
 import subprocess
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from shlex import quote
-
-from tmux_tools.process import run_command
 
 # ---------------------------------------------------------------------------
 # Shell helpers (private)
 # ---------------------------------------------------------------------------
-
-IS_WINDOWS = os.name == "nt"
 
 
 def _format_error(cmd: str, cmd_output: subprocess.CompletedProcess) -> str:
@@ -31,54 +23,18 @@ def _format_error(cmd: str, cmd_output: subprocess.CompletedProcess) -> str:
     return "\n".join(result)
 
 
-def _shell(cmd: str | list[str]) -> subprocess.CompletedProcess:
-    parts = shlex.split(cmd) if isinstance(cmd, str) else list(cmd)
-    return run_command(parts, check=False, capture_output=True)
+def _shell(cmd: str) -> subprocess.CompletedProcess:
+    parts = shlex.split(cmd)
+    return subprocess.run(
+        parts,
+        capture_output=True,
+        text=True,
+    )
 
 
-def _parse_cmd_name(cmd: str | list[str]) -> str:
-    parts = shlex.split(cmd) if isinstance(cmd, str) else list(cmd)
+def _parse_cmd_name(cmd: str) -> str:
+    parts = shlex.split(cmd)
     return parts[0]
-
-
-def _resolve_tmux_shell() -> str:
-    tmux_executable = shutil.which("tmux")
-    if tmux_executable:
-        tmux_path = Path(tmux_executable)
-        for candidate in (
-            tmux_path.with_name("bash.exe"),
-            tmux_path.with_name("bash"),
-            tmux_path.with_name("sh.exe"),
-            tmux_path.with_name("sh"),
-        ):
-            if candidate.exists():
-                return str(candidate)
-
-    for shell_name in ("sh", "bash"):
-        shell_executable = shutil.which(shell_name)
-        if shell_executable:
-            shell_path = Path(shell_executable)
-            if (
-                shell_path.name.lower() == "bash.exe"
-                and "system32" in shell_path.as_posix().lower()
-            ):
-                continue
-            return str(shell_path)
-
-    return "sh"
-
-
-def _shell_command_path(path: str) -> str:
-    if not IS_WINDOWS:
-        return path
-
-    posix_path = path.replace("\\", "/")
-    match = re.match(r"^([a-zA-Z]):/(.*)$", posix_path)
-    if match:
-        drive = match.group(1).lower()
-        rest = match.group(2)
-        return f"/{drive}/{rest}"
-    return posix_path
 
 
 def _shell_checked(cmd: str):
@@ -129,7 +85,6 @@ class SessionLayout:
 class TmuxSession:
     def __init__(self, config: SessionConfig) -> None:
         self.config = config
-        self.shell = _shell_command_path(_resolve_tmux_shell())
 
     def reattach_existing(self) -> bool:
         if not self.is_running():
@@ -153,14 +108,15 @@ class TmuxSession:
         self.exec(f'set-hook -g "session-closed" {quote(run_cmd)}')
 
     def launch(self, layout: SessionLayout) -> None:
-        command = f"{quote(self.shell)} -c {quote(layout.welcome.command)}"
+        welcome_command = f"{layout.welcome.command};bash"
+        command = f"bash -c {quote(welcome_command)}"
         self.exec(
             f"-f {quote(self.config.config_file)} "
             f"new-session -d -s {quote(self.config.session_name)} "
             f"-n {quote(layout.welcome.name)} {quote(command)}"
         )
         for window in layout.windows:
-            self.tmux_cmd("new-window", f"-n {quote(window.name)} {quote(self.shell)}")
+            self.tmux_cmd("new-window", f"-n {quote(window.name)} bash")
             self.send_keys(window.name, window.command)
         if layout.on_exit:
             self.set_exit_hook(layout.on_exit)

@@ -21,11 +21,16 @@ dev-reset:
 
 PROD_COMPOSE := docker compose -f docker-compose.prod.yml
 
-.PHONY: prod prod-reset
+.PHONY: prod prod-lite prod-reset
 
 ## Start all services in Docker with tmux log viewer (builds on first run).
 prod:
 	uv run python tmux_tools/launcher.py --prod
+
+## Self-hosting on any platform (Windows, CI, no tmux). Docker Desktop only.
+prod-lite:
+	@echo "Starting Traceroot at http://localhost:3000 - Ctrl+C to stop"
+	$(PROD_COMPOSE) up --build
 
 ## Nuclear reset: stop containers, remove volumes, built images, and orphaned sandboxes.
 prod-reset:
