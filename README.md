@@ -83,17 +83,12 @@ The fastest way to get started. Ample storages and LLM tokens for testing, no cr
 | Language | Repository |
 | -------- | ---------- |
 | Python | [traceroot-py](https://github.com/traceroot-ai/traceroot-py) |
+| TypeScript | [traceroot-ts](https://github.com/traceroot-ai/traceroot-ts) |
 
 ## Python SDK Quickstart
 
 ```bash
 pip install traceroot openai
-```
-
-```bash
-# Add these in the `.env` file in root directory
-TRACEROOT_API_KEY="tr-0f29d..."
-TRACEROOT_HOST_URL="https://app.traceroot.ai"  # cloud (default)
 ```
 
 ```python
@@ -107,13 +102,45 @@ client = OpenAI()
 @observe(name="my_agent", type="agent")
 def my_agent(query: str) -> str:
     response = client.chat.completions.create(
-        model="gpt-4",
+        model="gpt-4o",
         messages=[{"role": "user", "content": query}],
     )
     return response.choices[0].message.content
 
 if __name__ == "__main__":
     my_agent("What's the weather in SF?")
+```
+
+## TypeScript SDK Quickstart
+
+```sh
+npm install @traceroot-ai/traceroot openai
+```
+
+```typescript
+import OpenAI from 'openai';
+import { TraceRoot, observe } from '@traceroot-ai/traceroot';
+
+TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+const openai = new OpenAI();
+
+const myAgent = observe({ name: 'my_agent', type: 'agent' }, async (query: string) => {
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: query }],
+  });
+  return response.choices[0].message.content;
+});
+
+async function main() {
+  try {
+    await myAgent("What's the weather in SF?");
+  } finally {
+    await TraceRoot.shutdown();
+  }
+}
+
+main().catch(console.error);
 ```
 
 ## Security & Privacy
