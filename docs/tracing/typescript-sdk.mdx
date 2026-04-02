@@ -1,0 +1,120 @@
+---
+title: TypeScript SDK
+description: Full API reference for the TraceRoot TypeScript SDK
+---
+
+The TraceRoot TypeScript SDK provides automatic and manual instrumentation for AI agents using OpenTelemetry.
+
+## Instrumentation
+
+Pass module instances to `initialize()` to instrument all calls automatically:
+
+```typescript
+import OpenAI from 'openai';
+import { TraceRoot } from '@traceroot-ai/traceroot';
+
+TraceRoot.initialize({
+  instrumentModules: { openAI: OpenAI },
+});
+
+const openai = new OpenAI();
+```
+
+## The Observe Wrapper
+
+Wrap any async function to create a span:
+
+```typescript
+import { observe } from '@traceroot-ai/traceroot';
+
+const result = await observe({ name: 'my_function', type: 'tool' }, async () => {
+  return doWork('your input here');
+});
+```
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | `string` | function name | Span name |
+| `type` | `'span' \| 'agent' \| 'tool' \| 'llm'` | `'span'` | Span kind — `'agent'` for multi-step agents, `'tool'` for function calls, `'llm'` for model inference, `'span'` for generic |
+| `metadata` | `Record<string, unknown>` | — | Static metadata to attach |
+| `tags` | `string[]` | — | Tags to attach |
+
+## Setting Trace Context
+
+Use `usingAttributes()` to set user and session context for all spans created within a block:
+
+```typescript
+import { usingAttributes } from '@traceroot-ai/traceroot';
+
+await usingAttributes(
+  {
+    sessionId: 'conv-123',
+    userId: 'user-456',
+    tags: ['production', 'v2'],
+    metadata: { feature: 'chat' },
+  },
+  async () => {
+    // All spans here inherit the attributes above
+    await runAgent('What is the weather?');
+  },
+);
+```
+
+### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `sessionId` | `string` | Session / conversation ID |
+| `userId` | `string` | User identifier |
+| `tags` | `string[]` | Tags to attach to all spans |
+| `metadata` | `Record<string, unknown>` | Arbitrary metadata |
+
+## Updating Spans and Traces
+
+Update the current span or trace programmatically:
+
+```typescript
+import { updateCurrentSpan, updateCurrentTrace } from '@traceroot-ai/traceroot';
+
+await observe({ name: 'my_agent', type: 'agent' }, async () => {
+  updateCurrentSpan({
+    input: { query: userInput },
+    output: { response: agentOutput },
+    metadata: { model: 'gpt-4o' },
+  });
+
+  updateCurrentTrace({
+    userId: 'user-123',
+    sessionId: 'sess-456',
+    tags: ['prod'],
+  });
+});
+```
+
+### `updateCurrentSpan` Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `input` | `unknown` | Input data |
+| `output` | `unknown` | Output data |
+| `metadata` | `Record<string, unknown>` | Custom metadata |
+
+### `updateCurrentTrace` Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `userId` | `string` | User identifier |
+| `sessionId` | `string` | Session identifier |
+| `tags` | `string[]` | Tags for the trace |
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TRACEROOT_API_KEY` | (required) | API key |
+| `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | API endpoint |
+| `TRACEROOT_ENABLED` | `true` | Enable/disable tracing |
+| `TRACEROOT_GIT_REPO` | auto-detected | Git repository (`owner/repo`) |
+| `TRACEROOT_GIT_REF` | auto-detected | Git reference |

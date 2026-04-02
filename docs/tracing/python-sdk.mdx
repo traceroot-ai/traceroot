@@ -47,16 +47,28 @@ async def async_agent(query: str) -> str:
 
 ## Setting Trace Context
 
-Use `using_attributes` to set user and session context:
+Use `using_attributes` to set user and session context for all spans created within a block:
 
 ```python
 from traceroot import using_attributes
 
-with using_attributes(user_id="user-123", session_id="sess-456"):
+with using_attributes(
+    user_id="user-123",
+    session_id="sess-456",
+    tags=["production", "v2"],
+    metadata={"feature": "chat"},
+):
     result = run_agent("What is the weather?")
 ```
 
-All traces created within the block inherit the `user_id` and `session_id`.
+### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `user_id` | `str` | User identifier |
+| `session_id` | `str` | Session / conversation ID |
+| `tags` | `list[str]` | Tags to attach to all spans |
+| `metadata` | `dict` | Arbitrary metadata |
 
 ## Updating Spans and Traces
 
