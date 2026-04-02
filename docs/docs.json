@@ -76,7 +76,8 @@
               {
                 "group": "SDKs",
                 "pages": [
-                  "tracing/python-sdk"
+                  "tracing/python-sdk",
+                  "tracing/typescript-sdk"
                 ]
               },
               {
@@ -129,7 +130,8 @@
           {
             "group": "SDK",
             "pages": [
-              "tracing/python-sdk"
+              "tracing/python-sdk",
+              "tracing/typescript-sdk"
             ]
           },
           {

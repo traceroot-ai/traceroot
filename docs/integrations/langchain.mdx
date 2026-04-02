@@ -7,47 +7,113 @@ Automatically capture agent steps, tool calls, and LLM invocations within LangCh
 
 ## Setup
 
-```python
-import traceroot
-from traceroot import Integration
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
 
-traceroot.initialize(integrations=[Integration.LANGCHAIN])
-```
+    traceroot.initialize(integrations=[Integration.LANGCHAIN])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import * as lcCallbackManager from '@langchain/core/callbacks/manager';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { langchain: lcCallbackManager },
+    });
+    ```
+  </Tab>
+</Tabs>
 
 ## Usage with LangGraph
 
-```python
-from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from langchain_openai import ChatOpenAI
+    from langgraph.prebuilt import create_react_agent
 
-llm = ChatOpenAI(model="gpt-4o")
+    llm = ChatOpenAI(model="gpt-4o")
 
-tools = [search_tool, calculator_tool]
-agent = create_react_agent(llm, tools=tools)
+    tools = [search_tool, calculator_tool]
+    agent = create_react_agent(llm, tools=tools)
 
-# All agent steps are automatically traced
-result = agent.invoke({
-    "messages": [{"role": "user", "content": "What is 2 + 2?"}]
-})
-```
+    # All agent steps are automatically traced
+    result = agent.invoke({
+        "messages": [{"role": "user", "content": "What is 2 + 2?"}]
+    })
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { ChatOpenAI } from '@langchain/openai';
+    import { HumanMessage } from '@langchain/core/messages';
+    import { END, START, StateGraph, Annotation } from '@langchain/langgraph';
+
+    const llm = new ChatOpenAI({ model: 'gpt-4o', temperature: 0 });
+
+    const AgentState = Annotation.Root({
+      query: Annotation<string>({ reducer: (_, v) => v, default: () => '' }),
+      answer: Annotation<string>({ reducer: (_, v) => v, default: () => '' }),
+    });
+
+    // Build graph — all nodes are automatically traced
+    const app = new StateGraph(AgentState)
+      .addNode('answer', async (state) => {
+        const response = await llm.invoke([new HumanMessage(state.query)]);
+        return { answer: response.content as string };
+      })
+      .addEdge(START, 'answer')
+      .addEdge('answer', END)
+      .compile();
+
+    const result = await app.invoke({ query: 'What is 2 + 2?' });
+    console.log(result.answer);
+    ```
+  </Tab>
+</Tabs>
 
 ## Usage with LangChain
 
-```python
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from langchain_openai import ChatOpenAI
+    from langchain_core.prompts import ChatPromptTemplate
 
-llm = ChatOpenAI(model="gpt-4o")
-prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a helpful assistant."),
-    ("user", "{input}"),
-])
+    llm = ChatOpenAI(model="gpt-4o")
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are a helpful assistant."),
+        ("user", "{input}"),
+    ])
 
-chain = prompt | llm
+    chain = prompt | llm
 
-# Chain execution is automatically traced
-result = chain.invoke({"input": "Hello!"})
-```
+    # Chain execution is automatically traced
+    result = chain.invoke({"input": "Hello!"})
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { ChatOpenAI } from '@langchain/openai';
+    import { ChatPromptTemplate } from '@langchain/core/prompts';
+
+    const llm = new ChatOpenAI({ model: 'gpt-4o' });
+    const prompt = ChatPromptTemplate.fromMessages([
+      ['system', 'You are a helpful assistant.'],
+      ['user', '{input}'],
+    ]);
+
+    const chain = prompt.pipe(llm);
+
+    // Chain execution is automatically traced
+    const result = await chain.invoke({ input: 'Hello!' });
+    ```
+  </Tab>
+</Tabs>
 
 ## What Gets Captured
 
