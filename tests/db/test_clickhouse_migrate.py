@@ -37,7 +37,7 @@ def test_goose_command_rejects_name_for_non_create():
 
 
 def test_resolve_pressly_goose_prefers_valid_binary(monkeypatch, tmp_path):
-    valid = tmp_path / ("goose.exe" if migrate.os.name == "nt" else "goose")
+    valid = tmp_path / "goose"
     valid.write_text("stub", encoding="utf-8")
 
     monkeypatch.setattr(
@@ -60,7 +60,7 @@ def test_resolve_pressly_goose_prefers_valid_binary(monkeypatch, tmp_path):
 
 
 def test_is_pressly_goose_returns_false_for_non_executable_candidate(monkeypatch, tmp_path):
-    invalid = tmp_path / ("goose.exe" if migrate.os.name == "nt" else "goose")
+    invalid = tmp_path / "goose"
     invalid.write_text("stub", encoding="utf-8")
 
     def raise_permission_error(command, **kwargs):
@@ -77,7 +77,6 @@ def test_docker_goose_command_supports_up():
         "compose",
         "run",
         "--rm",
-        "--build",
         "--no-deps",
         "migrate-clickhouse",
         "up",

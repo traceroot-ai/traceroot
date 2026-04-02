@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import os
+import shlex
 import shutil
 import socket
 import subprocess
@@ -25,11 +26,8 @@ REST_PORT = 8000
 FRONTEND_PORT = 3000
 AGENT_PORT = 8100
 ROOT = Path(__file__).resolve().parent.parent
-DOCKER_COMPOSE = ["docker", "compose"]
-DOCKER_COMPOSE_SHELL = "docker compose"
-PROD_COMPOSE_FILE = "docker-compose.prod.yml"
-PROD_COMPOSE = [*DOCKER_COMPOSE, "-f", PROD_COMPOSE_FILE]
-PROD_COMPOSE_SHELL = f"{DOCKER_COMPOSE_SHELL} -f {PROD_COMPOSE_FILE}"
+DOCKER_COMPOSE = "docker compose"
+PROD_COMPOSE = "docker compose -f docker-compose.prod.yml"
 DEV_NODE_MODULES = [
     ROOT / "frontend" / "node_modules",
     ROOT / "frontend" / "ui" / "node_modules",
@@ -38,19 +36,16 @@ DEV_NODE_MODULES = [
 ]
 
 
-def _compose_logs_command(compose_command: str, service: str) -> str:
-    return f"{compose_command} logs -f --tail=50 {service}"
-
-
 def _run(
-    command: list[str],
+    command: str | list[str],
     *,
     check: bool = True,
     capture_output: bool = False,
     cwd: str | Path | None = None,
 ) -> subprocess.CompletedProcess:
+    args = shlex.split(command) if isinstance(command, str) else command
     return subprocess.run(
-        command,
+        args,
         check=check,
         capture_output=capture_output,
         text=True,
@@ -78,10 +73,10 @@ def ensure_infra():
     print("Ensuring infrastructure is running (PostgreSQL, ClickHouse, MinIO, Redis)...")
     print("Waiting for containers to be healthy...")
     _run(
-        [*DOCKER_COMPOSE, "up", "-d", "--wait", "postgres", "clickhouse", "minio", "redis"],
+        f"{DOCKER_COMPOSE} up -d --wait postgres clickhouse minio redis",
     )
     # minio-init is a one-shot, idempotent setup container — start it after MinIO is healthy.
-    _run([*DOCKER_COMPOSE, "up", "-d", "minio-init"])
+    _run(f"{DOCKER_COMPOSE} up -d minio-init")
 
 
 def ensure_python_deps():
@@ -130,21 +125,21 @@ def run_prod_setup():
     ensure_env_file()
 
     print("Building Docker images (cached if unchanged)...")
-    _run([*PROD_COMPOSE, "build"])
+    _run(f"{PROD_COMPOSE} build")
 
     print("Starting infrastructure (PostgreSQL, ClickHouse, MinIO, Redis)...")
-    _run([*PROD_COMPOSE, "up", "-d", "--wait", "postgres", "clickhouse", "minio", "redis"])
+    _run(f"{PROD_COMPOSE} up -d --wait postgres clickhouse minio redis")
     # minio-init is a one-shot container — start it separately (--wait fails on exit-0 containers)
-    _run([*PROD_COMPOSE, "up", "-d", "minio-init"])
+    _run(f"{PROD_COMPOSE} up -d minio-init")
 
     print("Running database migrations (PostgreSQL)...")
-    _run([*PROD_COMPOSE, "run", "--rm", "migrate"])
+    _run(f"{PROD_COMPOSE} run --rm migrate")
 
     print("Running database migrations (ClickHouse)...")
-    _run([*PROD_COMPOSE, "run", "--rm", "migrate-clickhouse"])
+    _run(f"{PROD_COMPOSE} run --rm migrate-clickhouse")
 
     print("Starting application services (web, rest, worker, billing, agent)...")
-    _run([*PROD_COMPOSE, "up", "-d", "web", "rest", "worker", "billing", "agent"])
+    _run(f"{PROD_COMPOSE} up -d web rest worker billing agent")
 
     print("\nAll containers started. Launching log viewer...\n")
 
@@ -184,7 +179,7 @@ def reset_dev_environment() -> None:
     print("Resetting everything...")
     _kill_tmux_session("traceroot")
     _remove_sandbox_containers()
-    _run([*DOCKER_COMPOSE, "down", "-v"])
+    _run(f"{DOCKER_COMPOSE} down -v")
     for path in DEV_NODE_MODULES:
         _remove_path(path)
     _remove_path(ROOT / ".venv")
@@ -195,7 +190,7 @@ def reset_prod_environment() -> None:
     print("Resetting production environment...")
     _kill_tmux_session("traceroot-prod")
     _remove_sandbox_containers()
-    _run([*PROD_COMPOSE, "down", "-v", "--rmi", "local"])
+    _run(f"{PROD_COMPOSE} down -v --rmi local")
     print("Done. Run 'make prod' to start fresh.")
 
 
@@ -272,22 +267,22 @@ def infra_services():
     return [
         schema.Service(
             title="PostgreSQL",
-            command=_compose_logs_command(DOCKER_COMPOSE_SHELL, "postgres"),
+            command=f"{DOCKER_COMPOSE} logs -f --tail=50 postgres",
             web_urls=[],
         ),
         schema.Service(
             title="ClickHouse",
-            command=_compose_logs_command(DOCKER_COMPOSE_SHELL, "clickhouse"),
+            command=f"{DOCKER_COMPOSE} logs -f --tail=50 clickhouse",
             web_urls=[],
         ),
         schema.Service(
             title="Redis",
-            command=_compose_logs_command(DOCKER_COMPOSE_SHELL, "redis"),
+            command=f"{DOCKER_COMPOSE} logs -f --tail=50 redis",
             web_urls=[],
         ),
         schema.Service(
             title="MinIO",
-            command=_compose_logs_command(DOCKER_COMPOSE_SHELL, "minio"),
+            command=f"{DOCKER_COMPOSE} logs -f --tail=50 minio",
             web_urls=[
                 ("MinIO Console", "http://localhost:9091"),
             ],
@@ -360,22 +355,22 @@ def prod_infra_services():
     return [
         schema.Service(
             title="PostgreSQL",
-            command=_compose_logs_command(PROD_COMPOSE_SHELL, "postgres"),
+            command=f"{PROD_COMPOSE} logs -f --tail=50 postgres",
             web_urls=[],
         ),
         schema.Service(
             title="ClickHouse",
-            command=_compose_logs_command(PROD_COMPOSE_SHELL, "clickhouse"),
+            command=f"{PROD_COMPOSE} logs -f --tail=50 clickhouse",
             web_urls=[],
         ),
         schema.Service(
             title="Redis",
-            command=_compose_logs_command(PROD_COMPOSE_SHELL, "redis"),
+            command=f"{PROD_COMPOSE} logs -f --tail=50 redis",
             web_urls=[],
         ),
         schema.Service(
             title="MinIO",
-            command=_compose_logs_command(PROD_COMPOSE_SHELL, "minio"),
+            command=f"{PROD_COMPOSE} logs -f --tail=50 minio",
             web_urls=[
                 ("MinIO Console", "http://localhost:9091"),
             ],
@@ -392,31 +387,31 @@ def make_prod_driver():
         services=[
             schema.Service(
                 title="Web",
-                command=_compose_logs_command(PROD_COMPOSE_SHELL, "web"),
+                command=f"{PROD_COMPOSE} logs -f --tail=50 web",
                 web_urls=[
                     ("Traceroot UI", f"http://localhost:{FRONTEND_PORT}"),
                 ],
             ),
             schema.Service(
                 title="REST API",
-                command=_compose_logs_command(PROD_COMPOSE_SHELL, "rest"),
+                command=f"{PROD_COMPOSE} logs -f --tail=50 rest",
                 web_urls=[
                     ("REST API docs", f"http://localhost:{REST_PORT}/docs"),
                 ],
             ),
             schema.Service(
                 title="Celery Worker",
-                command=_compose_logs_command(PROD_COMPOSE_SHELL, "worker"),
+                command=f"{PROD_COMPOSE} logs -f --tail=50 worker",
                 web_urls=[],
             ),
             schema.Service(
                 title="Billing Worker",
-                command=_compose_logs_command(PROD_COMPOSE_SHELL, "billing"),
+                command=f"{PROD_COMPOSE} logs -f --tail=50 billing",
                 web_urls=[],
             ),
             schema.Service(
                 title="Agent",
-                command=_compose_logs_command(PROD_COMPOSE_SHELL, "agent"),
+                command=f"{PROD_COMPOSE} logs -f --tail=50 agent",
                 web_urls=[
                     ("Agent API", f"http://localhost:{AGENT_PORT}"),
                 ],

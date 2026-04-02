@@ -1,4 +1,4 @@
-"""Cross-platform ClickHouse migration helpers."""
+"""ClickHouse migration helpers."""
 
 from __future__ import annotations
 
@@ -21,22 +21,6 @@ PRESSLY_GOOSE_MARKERS = (
     "Usage: goose DRIVER DBSTRING [OPTIONS] COMMAND",
 )
 DOCKER_GOOSE_ACTIONS = {"up", "down", "status"}
-IS_WINDOWS = os.name == "nt"
-
-
-def _prepare_command(command: list[str]) -> list[str]:
-    prepared = list(command)
-    if not prepared or not IS_WINDOWS:
-        return prepared
-
-    executable = shutil.which(prepared[0])
-    if not executable:
-        return prepared
-
-    suffix = Path(executable).suffix.lower()
-    if suffix in {".cmd", ".bat"}:
-        return ["cmd", "/c", *prepared]
-    return prepared
 
 
 def _run_command(
@@ -50,7 +34,7 @@ def _run_command(
     timeout: int | None = None,
 ) -> subprocess.CompletedProcess:
     return subprocess.run(
-        _prepare_command(command),
+        command,
         check=check,
         capture_output=capture_output,
         text=text,
@@ -62,10 +46,6 @@ def _run_command(
 
 def migrations_dir() -> Path:
     return Path(__file__).resolve().parent / "migrations"
-
-
-def goose_executable_name() -> str:
-    return "goose.exe" if IS_WINDOWS else "goose"
 
 
 def goose_dbstring(env: dict[str, str] | None = None) -> str:
@@ -81,19 +61,10 @@ def goose_dbstring(env: dict[str, str] | None = None) -> str:
 
 def _goose_candidates(env: dict[str, str] | None = None) -> list[Path]:
     merged_env = {**os.environ, **(env or {})}
-    executable_name = goose_executable_name()
-    candidates: list[Path] = []
-
-    explicit = merged_env.get("TRACEROOT_GOOSE_BIN")
-    if explicit:
-        candidates.append(Path(explicit))
-
-    candidates.extend(
-        [
-            Path.home() / "bin" / executable_name,
-            Path.home() / "go" / "bin" / executable_name,
-        ]
-    )
+    candidates = [
+        Path.home() / "bin" / "goose",
+        Path.home() / "go" / "bin" / "goose",
+    ]
 
     resolved = shutil.which("goose", path=merged_env.get("PATH"))
     if resolved:
@@ -170,7 +141,6 @@ def docker_goose_command(action: str) -> list[str]:
         "compose",
         "run",
         "--rm",
-        "--build",
         "--no-deps",
         "migrate-clickhouse",
         action,
