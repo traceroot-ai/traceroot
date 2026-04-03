@@ -20,9 +20,10 @@ class CheckResult:
 @dataclass
 class Prerequisite:
     name: str
-    command: str
-    instructions: str
+    command: str | None = None
+    instructions: str = ""
     expected_output: str | None = None
+    check_fn: Callable[[], CheckResult] | None = None
 
     def _check_cmd_output(self, cmd_output: CompletedProcess) -> bool:
         return (
@@ -32,6 +33,12 @@ class Prerequisite:
         )
 
     def check(self) -> CheckResult:
+        if self.check_fn is not None:
+            return self.check_fn()
+
+        if self.command is None:
+            raise ValueError(f"Prerequisite '{self.name}' must define a command or check_fn.")
+
         message: list[str] = []
         try:
             bash_cmd = f"bash -c {quote(self.command)}"

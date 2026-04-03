@@ -92,6 +92,22 @@ services:
       timeout: 3s
       retries: 10
 
+  migrate-clickhouse:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.migrate-clickhouse
+    entrypoint:
+      - goose
+      - -dir
+      - /migrations
+      - clickhouse
+      - clickhouse://${CLICKHOUSE_USER:-clickhouse}:${CLICKHOUSE_PASSWORD:-clickhouse}@clickhouse:9000/${CLICKHOUSE_DATABASE:-default}
+    command: ["up"]
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: "no"
+
 volumes:
   postgres_data:
     driver: local

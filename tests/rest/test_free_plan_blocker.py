@@ -31,6 +31,7 @@ class TestFreePlanBlocker:
 
     def test_blocked_when_ingestion_blocked_true(self, monkeypatch):
         """User should get 402 when ingestion_blocked is true."""
+        monkeypatch.setattr("rest.routers.public.traces.is_billing_enabled", lambda: True)
         app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result(
             billing_plan="free",
             ingestion_blocked=True,
@@ -44,6 +45,7 @@ class TestFreePlanBlocker:
 
     def test_allowed_when_ingestion_blocked_false(self, monkeypatch):
         """User should be allowed when ingestion_blocked is false."""
+        monkeypatch.setattr("rest.routers.public.traces.is_billing_enabled", lambda: True)
         app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result(
             billing_plan="free",
             ingestion_blocked=False,
@@ -65,6 +67,7 @@ class TestFreePlanBlocker:
 
     def test_paid_plan_not_blocked(self, monkeypatch):
         """Paid plan user should never be blocked."""
+        monkeypatch.setattr("rest.routers.public.traces.is_billing_enabled", lambda: True)
         app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result(
             billing_plan="pro",
             ingestion_blocked=False,
@@ -86,6 +89,7 @@ class TestFreePlanBlocker:
 
     def test_starter_plan_not_blocked(self, monkeypatch):
         """Starter plan should not be blocked."""
+        monkeypatch.setattr("rest.routers.public.traces.is_billing_enabled", lambda: True)
         app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result(
             billing_plan="starter",
             ingestion_blocked=False,
