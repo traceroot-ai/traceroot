@@ -17,7 +17,7 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
 
   return (
     <div className="w-full py-10">
-      <div className="mx-auto w-full max-w-[600px] px-7">
+      <div className="mx-auto w-full max-w-[600px] px-7 lg:max-w-3xl xl:max-w-4xl">
         <h2 className="text-xl font-semibold tracking-tight text-foreground">
           Get started with Tracing
         </h2>
