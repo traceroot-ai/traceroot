@@ -6,20 +6,51 @@ Handles all setup automatically: deps, infra, migrations.
 Usage:
     python tmux_tools/launcher.py                # normal mode
     python tmux_tools/launcher.py --autoreload   # auto-reload backend on file changes
+    python tmux_tools/launcher.py --reset        # reset the development environment
     python tmux_tools/launcher.py --prod         # production mode (all services in Docker)
+    python tmux_tools/launcher.py --prod-reset   # reset the production environment
 """
 
 import argparse
 import os
+import shlex
 import shutil
+import socket
 import subprocess
+from pathlib import Path
 
+from db.clickhouse.migrate import run_goose
 from tmux_tools import schema
 
 REST_PORT = 8000
 FRONTEND_PORT = 3000
 AGENT_PORT = 8100
+ROOT = Path(__file__).resolve().parent.parent
+DOCKER_COMPOSE = "docker compose"
 PROD_COMPOSE = "docker compose -f docker-compose.prod.yml"
+DEV_NODE_MODULES = [
+    ROOT / "frontend" / "node_modules",
+    ROOT / "frontend" / "ui" / "node_modules",
+    ROOT / "frontend" / "worker" / "node_modules",
+    ROOT / "frontend" / "packages" / "core" / "node_modules",
+]
+
+
+def _run(
+    command: str | list[str],
+    *,
+    check: bool = True,
+    capture_output: bool = False,
+    cwd: str | Path | None = None,
+) -> subprocess.CompletedProcess:
+    args = shlex.split(command) if isinstance(command, str) else command
+    return subprocess.run(
+        args,
+        check=check,
+        capture_output=capture_output,
+        text=True,
+        cwd=cwd,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -39,59 +70,44 @@ def ensure_env_file():
 
 def ensure_infra():
     """Start docker containers if not already running."""
-    result = subprocess.run(
-        ["docker", "compose", "ps", "--status", "running", "-q"],
-        capture_output=True,
-        text=True,
+    print("Ensuring infrastructure is running (PostgreSQL, ClickHouse, MinIO, Redis)...")
+    print("Waiting for containers to be healthy...")
+    _run(
+        f"{DOCKER_COMPOSE} up -d --wait postgres clickhouse minio redis",
     )
-    if not result.stdout.strip():
-        print("Starting infrastructure (PostgreSQL, ClickHouse, MinIO, Redis)...")
-        subprocess.run(["docker", "compose", "up", "-d"], check=True)
-        print("Waiting for containers to be healthy...")
-        # Wait for the main services (not minio-init which is a one-shot container)
-        subprocess.run(
-            ["docker", "compose", "up", "-d", "--wait", "postgres", "clickhouse", "minio", "redis"],
-            check=True,
-        )
-    else:
-        print("Infrastructure already running.")
+    # minio-init is a one-shot, idempotent setup container — start it after MinIO is healthy.
+    _run(f"{DOCKER_COMPOSE} up -d minio-init")
 
 
 def ensure_python_deps():
     """Install Python deps if .venv doesn't exist or is stale."""
     print("Syncing Python dependencies...")
-    subprocess.run(["uv", "sync"], check=True)
+    _run(["uv", "sync"])
 
 
 def ensure_frontend_deps():
     """Install frontend deps if node_modules missing."""
     if not os.path.exists("frontend/node_modules"):
         print("Installing frontend dependencies...")
-        subprocess.run(["pnpm", "install"], cwd="frontend", check=True)
+        _run(["pnpm", "install"], cwd="frontend")
     else:
         print("Frontend dependencies already installed.")
     print("Generating Prisma client...")
-    subprocess.run(
+    _run(
         ["pnpm", "db:generate"],
         cwd="frontend/packages/core",
-        check=True,
     )
 
 
 def ensure_migrations():
     """Run pending migrations for both Postgres and ClickHouse."""
     print("Running PostgreSQL migrations (Prisma)...")
-    subprocess.run(
+    _run(
         ["pnpm", "db:migrate"],
         cwd="frontend/packages/core",
-        check=True,
     )
     print("Running ClickHouse migrations (goose)...")
-    subprocess.run(
-        ["./migrate.sh", "up"],
-        cwd="backend/db/clickhouse",
-        check=True,
-    )
+    run_goose("up", docker_fallback=True)
 
 
 def run_setup():
@@ -109,41 +125,73 @@ def run_prod_setup():
     ensure_env_file()
 
     print("Building Docker images (cached if unchanged)...")
-    subprocess.run(
-        f"{PROD_COMPOSE} build".split(),
-        check=True,
-    )
+    _run(f"{PROD_COMPOSE} build")
 
     print("Starting infrastructure (PostgreSQL, ClickHouse, MinIO, Redis)...")
-    subprocess.run(
-        f"{PROD_COMPOSE} up -d --wait postgres clickhouse minio redis".split(),
-        check=True,
-    )
+    _run(f"{PROD_COMPOSE} up -d --wait postgres clickhouse minio redis")
     # minio-init is a one-shot container — start it separately (--wait fails on exit-0 containers)
-    subprocess.run(
-        f"{PROD_COMPOSE} up -d minio-init".split(),
-        check=True,
-    )
+    _run(f"{PROD_COMPOSE} up -d minio-init")
 
     print("Running database migrations (PostgreSQL)...")
-    subprocess.run(
-        f"{PROD_COMPOSE} run --rm migrate".split(),
-        check=True,
-    )
+    _run(f"{PROD_COMPOSE} run --rm migrate")
 
     print("Running database migrations (ClickHouse)...")
-    subprocess.run(
-        f"{PROD_COMPOSE} run --rm migrate-clickhouse".split(),
-        check=True,
-    )
+    _run(f"{PROD_COMPOSE} run --rm migrate-clickhouse")
 
     print("Starting application services (web, rest, worker, billing, agent)...")
-    subprocess.run(
-        f"{PROD_COMPOSE} up -d web rest worker billing agent".split(),
-        check=True,
-    )
+    _run(f"{PROD_COMPOSE} up -d web rest worker billing agent")
 
     print("\nAll containers started. Launching log viewer...\n")
+
+
+def _remove_path(path: Path) -> None:
+    if not path.exists():
+        return
+    if path.is_file() or path.is_symlink():
+        path.unlink()
+        return
+    shutil.rmtree(path)
+
+
+def _kill_tmux_session(session_name: str) -> None:
+    try:
+        _run(
+            ["tmux", "-L", "development", "kill-session", "-t", session_name],
+            check=False,
+            capture_output=True,
+        )
+    except FileNotFoundError:
+        return
+
+
+def _remove_sandbox_containers() -> None:
+    result = _run(
+        ["docker", "ps", "-aq", "--filter", "name=traceroot-sandbox-"],
+        check=False,
+        capture_output=True,
+    )
+    container_ids = result.stdout.split()
+    if container_ids:
+        _run(["docker", "rm", "-f", *container_ids], check=False, capture_output=True)
+
+
+def reset_dev_environment() -> None:
+    print("Resetting everything...")
+    _kill_tmux_session("traceroot")
+    _remove_sandbox_containers()
+    _run(f"{DOCKER_COMPOSE} down -v")
+    for path in DEV_NODE_MODULES:
+        _remove_path(path)
+    _remove_path(ROOT / ".venv")
+    print("Done. Run 'make dev' to start fresh.")
+
+
+def reset_prod_environment() -> None:
+    print("Resetting production environment...")
+    _kill_tmux_session("traceroot-prod")
+    _remove_sandbox_containers()
+    _run(f"{PROD_COMPOSE} down -v --rmi local")
+    print("Done. Run 'make prod' to start fresh.")
 
 
 # ---------------------------------------------------------------------------
@@ -169,28 +217,43 @@ def tool_prerequisites():
             command="pnpm --version",
             instructions="Install pnpm: npm install -g pnpm",
         ),
-        schema.Prerequisite(
-            name="goose is installed",
-            command="goose --version",
-            instructions=(
-                "Install goose:\n"
-                "    Mac:   brew install goose\n"
-                "    Other: go install github.com/pressly/goose/v3/cmd/goose@latest"
-            ),
-        ),
     ]
+
+
+def _port_instructions(port):
+    if os.name == "nt":
+        return (
+            f"Port {port} is in use. Find and stop the process with:\n"
+            f"    Get-NetTCPConnection -LocalPort {port} | Select-Object LocalAddress, LocalPort, OwningProcess\n"
+            "    Stop-Process -Id <PID>"
+        )
+    return (
+        f"Port {port} is in use. Find and kill the process:\n"
+        f"    lsof -nP -iTCP:{port} -sTCP:LISTEN\n"
+        "    kill <PID>"
+    )
+
+
+def _check_port_available(port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError as exc:
+            return schema.CheckResult(
+                False,
+                f"Port {port} is in use or unavailable.\n"
+                f"System error: {exc}\n"
+                f"{_port_instructions(port)}",
+            )
+    return schema.CheckResult(True, "")
 
 
 def port_available(port):
     """Check that a port is not in use."""
     return schema.Prerequisite(
         name=f"port {port} is available",
-        command=f'bash -c "! lsof -nP -iTCP:{port} -sTCP:LISTEN"',
-        instructions=(
-            f"Port {port} is in use. Find and kill the process:\n"
-            f"    lsof -nP -iTCP:{port} -sTCP:LISTEN\n"
-            f"    kill <PID>"
-        ),
+        check_fn=lambda: _check_port_available(port),
+        instructions=_port_instructions(port),
     )
 
 
@@ -204,22 +267,22 @@ def infra_services():
     return [
         schema.Service(
             title="PostgreSQL",
-            command="docker compose logs -f --tail=50 postgres",
+            command=f"{DOCKER_COMPOSE} logs -f --tail=50 postgres",
             web_urls=[],
         ),
         schema.Service(
             title="ClickHouse",
-            command="docker compose logs -f --tail=50 clickhouse",
+            command=f"{DOCKER_COMPOSE} logs -f --tail=50 clickhouse",
             web_urls=[],
         ),
         schema.Service(
             title="Redis",
-            command="docker compose logs -f --tail=50 redis",
+            command=f"{DOCKER_COMPOSE} logs -f --tail=50 redis",
             web_urls=[],
         ),
         schema.Service(
             title="MinIO",
-            command="docker compose logs -f --tail=50 minio",
+            command=f"{DOCKER_COMPOSE} logs -f --tail=50 minio",
             web_urls=[
                 ("MinIO Console", "http://localhost:9091"),
             ],
@@ -365,22 +428,45 @@ def make_prod_driver():
     )
 
 
-if __name__ == "__main__":
+def main() -> None:
     parser = argparse.ArgumentParser(description="Launch Traceroot dev environment")
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--autoreload",
         action="store_true",
         help="Enable auto-reload for backend services on file changes",
     )
-    parser.add_argument(
+    mode.add_argument(
         "--prod",
         action="store_true",
         help="Launch production mode (all services in Docker)",
     )
+    mode.add_argument(
+        "--reset",
+        action="store_true",
+        help="Reset the development environment and exit",
+    )
+    mode.add_argument(
+        "--prod-reset",
+        action="store_true",
+        help="Reset the production environment and exit",
+    )
     args = parser.parse_args()
 
+    os.chdir(ROOT)
+
+    if args.reset:
+        reset_dev_environment()
+        return
+    if args.prod_reset:
+        reset_prod_environment()
+        return
     if args.prod:
         driver = make_prod_driver()
     else:
         driver = make_driver(autoreload=args.autoreload)
     driver.run()
+
+
+if __name__ == "__main__":
+    main()
