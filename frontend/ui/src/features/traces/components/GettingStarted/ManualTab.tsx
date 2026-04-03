@@ -11,26 +11,21 @@ type Lang = "python" | "typescript";
 function LangTabs({ lang, onChange }: { lang: Lang; onChange: (l: Lang) => void }) {
   return (
     <div className="flex border-b border-border">
-      {(["python", "typescript"] as Lang[]).map((l) => {
-        const isTs = l === "typescript";
-        return (
-          <button
-            key={l}
-            type="button"
-            onClick={() => !isTs && onChange(l)}
-            disabled={isTs}
-            className={cn(
-              "-mb-px border-b-2 px-3 py-1.5 text-xs font-medium transition-colors",
-              lang === l
-                ? "border-foreground text-foreground"
-                : "border-transparent text-muted-foreground",
-              isTs && "cursor-not-allowed opacity-40",
-            )}
-          >
-            {l === "python" ? "Python" : "TypeScript"}
-          </button>
-        );
-      })}
+      {(["python", "typescript"] as Lang[]).map((l) => (
+        <button
+          key={l}
+          type="button"
+          onClick={() => onChange(l)}
+          className={cn(
+            "-mb-px border-b-2 px-3 py-1.5 text-xs font-medium transition-colors",
+            lang === l
+              ? "border-foreground text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {l === "python" ? "Python" : "TypeScript"}
+        </button>
+      ))}
     </div>
   );
 }
@@ -53,15 +48,28 @@ export function ManualTab({ projectId }: ManualTabProps) {
       <div className="space-y-2">
         <p className="text-sm font-medium text-foreground">2. Install SDK</p>
         <LangTabs lang={installLang} onChange={setInstallLang} />
-        <div className="border border-border">
-          <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-            <span className="text-xs text-muted-foreground">bash</span>
-            <CopyButton value="pip install traceroot" className="h-6 w-6" />
+        {installLang === "python" ? (
+          <div className="border border-border">
+            <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+              <span className="text-xs text-muted-foreground">bash</span>
+              <CopyButton value="pip install traceroot" className="h-6 w-6" />
+            </div>
+            <div className="bg-muted px-3 py-2.5 font-mono text-xs">
+              <span className="text-blue-600 dark:text-blue-400">pip</span> install traceroot
+            </div>
           </div>
-          <div className="bg-muted px-3 py-2.5 font-mono text-xs">
-            <span className="text-blue-600 dark:text-blue-400">pip</span> install traceroot
+        ) : (
+          <div className="border border-border">
+            <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+              <span className="text-xs text-muted-foreground">bash</span>
+              <CopyButton value="npm install @traceroot-ai/traceroot" className="h-6 w-6" />
+            </div>
+            <div className="bg-muted px-3 py-2.5 font-mono text-xs">
+              <span className="text-blue-600 dark:text-blue-400">npm</span> install
+              @traceroot-ai/traceroot
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -94,36 +102,101 @@ export function ManualTab({ projectId }: ManualTabProps) {
             <LinkIcon className="h-6 w-6 text-foreground" />
             <span className="text-xs font-medium text-foreground">LangChain</span>
           </a>
+          <a
+            href="https://traceroot.ai/docs/integrations/anthropic"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex w-24 flex-col items-center gap-1.5 border border-border bg-muted/30 py-3 transition-colors hover:bg-muted/60"
+          >
+            <svg
+              aria-hidden="true"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              className="text-foreground"
+            >
+              <path d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z" />
+            </svg>
+            <span className="text-xs font-medium text-foreground">Anthropic</span>
+          </a>
         </div>
       </div>
 
       <div className="space-y-2">
         <p className="text-sm font-medium text-foreground">4. Initialize TraceRoot</p>
         <LangTabs lang={initLang} onChange={setInitLang} />
-        <div className="border border-border">
-          <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-            <span className="text-xs text-muted-foreground">python</span>
-            <CopyButton
-              value={
-                "import traceroot\nfrom traceroot import Integration\n\ntraceroot.initialize(integrations=[Integration.OPENAI])"
-              }
-              className="h-6 w-6"
-            />
+        {initLang === "python" ? (
+          <div className="border border-border">
+            <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+              <span className="text-xs text-muted-foreground">python</span>
+              <CopyButton
+                value={
+                  "from dotenv import load_dotenv\nload_dotenv()\n\nimport traceroot\nfrom traceroot import Integration\n\ntraceroot.initialize(integrations=[Integration.OPENAI])"
+                }
+                className="h-6 w-6"
+              />
+            </div>
+            <div className="bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed">
+              <div>
+                <span className="text-blue-600 dark:text-blue-400">from</span> dotenv{" "}
+                <span className="text-blue-600 dark:text-blue-400">import</span> load_dotenv
+              </div>
+              <div>load_dotenv()</div>
+              <div className="mt-1">
+                <span className="text-blue-600 dark:text-blue-400">import</span> traceroot
+              </div>
+              <div>
+                <span className="text-blue-600 dark:text-blue-400">from</span> traceroot{" "}
+                <span className="text-blue-600 dark:text-blue-400">import</span> Integration
+              </div>
+              <div className="mt-1">
+                traceroot.<span className="text-purple-600 dark:text-purple-400">initialize</span>
+                (integrations=[Integration.OPENAI])
+              </div>
+            </div>
           </div>
-          <div className="bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed">
-            <div>
-              <span className="text-blue-600 dark:text-blue-400">import</span> traceroot
+        ) : (
+          <div className="border border-border">
+            <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+              <span className="text-xs text-muted-foreground">typescript</span>
+              <CopyButton
+                value={
+                  "import 'dotenv/config';\nimport { TraceRoot } from '@traceroot-ai/traceroot';\nimport OpenAI from 'openai';\n\nTraceRoot.initialize({\n  instrumentModules: { openAI: OpenAI },\n});"
+                }
+                className="h-6 w-6"
+              />
             </div>
-            <div>
-              <span className="text-blue-600 dark:text-blue-400">from</span> traceroot{" "}
-              <span className="text-blue-600 dark:text-blue-400">import</span> Integration
-            </div>
-            <div className="mt-1">
-              traceroot.<span className="text-purple-600 dark:text-purple-400">initialize</span>
-              (integrations=[Integration.OPENAI])
+            <div className="bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed">
+              <div>
+                <span className="text-blue-600 dark:text-blue-400">import</span>{" "}
+                <span className="text-orange-600 dark:text-orange-400">
+                  &apos;dotenv/config&apos;
+                </span>
+                ;
+              </div>
+              <div>
+                <span className="text-blue-600 dark:text-blue-400">import</span> {"{ TraceRoot }"}{" "}
+                <span className="text-blue-600 dark:text-blue-400">from</span>{" "}
+                <span className="text-orange-600 dark:text-orange-400">
+                  &apos;@traceroot-ai/traceroot&apos;
+                </span>
+                ;
+              </div>
+              <div>
+                <span className="text-blue-600 dark:text-blue-400">import</span> OpenAI{" "}
+                <span className="text-blue-600 dark:text-blue-400">from</span>{" "}
+                <span className="text-orange-600 dark:text-orange-400">&apos;openai&apos;</span>;
+              </div>
+              <div className="mt-1">
+                TraceRoot.<span className="text-purple-600 dark:text-purple-400">initialize</span>(
+                {"{"}
+              </div>
+              <div className="pl-4">instrumentModules: {"{ openAI: OpenAI }"},</div>
+              <div>{"});"}</div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

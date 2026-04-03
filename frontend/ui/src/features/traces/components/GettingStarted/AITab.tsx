@@ -3,19 +3,75 @@
 import { useState } from "react";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { ApiKeyBlock } from "./ApiKeyBlock";
 
 const INSTRUMENT_PROMPT = `I want to add observability to my project using TraceRoot.
 
-Please help me:
-1. Install the traceroot Python package (pip install traceroot)
-2. Initialize TraceRoot at the entry point of my application:
+My project uses [Python / TypeScript/Node.js] — adjust the instructions to match my stack.
+
+**Python setup:**
+1. Install: pip install traceroot
+2. Initialize at the entry point, before any LLM imports:
+   from dotenv import load_dotenv
+   load_dotenv()
    import traceroot
    from traceroot import Integration
-   traceroot.initialize(integrations=[Integration.OPENAI])  # or Integration.LANGCHAIN
-3. Instrument all OpenAI and LangChain calls in my codebase.
+   traceroot.initialize(integrations=[
+       Integration.OPENAI,      # if using OpenAI
+       Integration.LANGCHAIN,   # if using LangChain/LangGraph
+       Integration.ANTHROPIC,   # if using Anthropic
+   ])
+3. Add @observe on agent entrypoints and tool functions:
+   from traceroot import observe
+   @observe(name="my_agent", type="agent")
+   def run(query): ...
+4. Wrap request handlers with using_attributes to attach user/session context:
+   from traceroot import using_attributes
+   with using_attributes(user_id="u-123", session_id="s-456"):
+       result = run(query)
+5. Call traceroot.flush() at the end of short-lived scripts.
+
+**TypeScript/Node.js setup:**
+1. Install: npm install @traceroot-ai/traceroot
+2. Initialize at the entry point, before any LLM imports:
+   import { TraceRoot } from '@traceroot-ai/traceroot';
+   import OpenAI from 'openai';
+   import Anthropic from '@anthropic-ai/sdk';
+   TraceRoot.initialize({
+     instrumentModules: {
+       openAI: OpenAI,       // if using OpenAI
+       anthropic: Anthropic, // if using Anthropic
+     },
+   });
+3. Wrap agent entrypoints and tool functions with observe():
+   import { observe } from '@traceroot-ai/traceroot';
+   const result = await observe({ name: 'my_agent', type: 'agent' }, async () => {
+     return await runPipeline(query);
+   });
+4. Wrap request handlers with usingAttributes to attach user/session context:
+   import { usingAttributes } from '@traceroot-ai/traceroot';
+   const result = await usingAttributes(
+     { userId: 'u-123', sessionId: 's-456' },
+     async () => await runAgent(query),
+   );
+5. Call await TraceRoot.flush() at the end of short-lived scripts.
 
 The TRACEROOT_API_KEY environment variable is already set in my .env file.`;
+
+const SKILLS = [
+  {
+    name: "Send your first trace",
+    description:
+      "Verify your API key and SDK are wired up correctly with a minimal working example.",
+    command: "npx skills add traceroot-ai/traceroot-skills --skill traceroot-quickstart",
+  },
+  {
+    name: "Instrument your project",
+    description: "Automatically add TraceRoot tracing to your LLM calls, agents, and tools.",
+    command: "npx skills add traceroot-ai/traceroot-skills --skill traceroot-instrument-repo",
+  },
+];
 
 function CopyPromptButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
@@ -68,6 +124,22 @@ export function AITab({ projectId }: AITabProps) {
             </p>
           </div>
           <CopyPromptButton value={INSTRUMENT_PROMPT} />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-foreground">3. Or install and run a skill</p>
+        <div className="space-y-2">
+          {SKILLS.map((skill) => (
+            <div key={skill.name} className="rounded-sm border border-border bg-muted/30 px-4 py-3">
+              <p className="text-xs font-medium text-primary">{skill.name}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{skill.description}</p>
+              <div className="mt-2 flex items-center justify-between border border-border bg-muted px-3 py-2">
+                <span className="font-mono text-xs text-foreground">{skill.command}</span>
+                <CopyButton value={skill.command} className="ml-3 h-6 w-6 shrink-0" />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
