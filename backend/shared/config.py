@@ -55,6 +55,32 @@ class RedisSettings(BaseSettings):
     result_url: str = "redis://localhost:6379/1"
 
 
+class RateLimitSettings(BaseSettings):
+    """Rate limiting settings for the REST API.
+
+    Env vars: RATE_LIMIT_ENABLED, RATE_LIMIT_INGESTION, RATE_LIMIT_API,
+    RATE_LIMIT_STORAGE_URI
+
+    Limits use the ``limits`` library format: "<count>/<period>"
+    where period is one of: second, minute, hour, day.
+
+    Examples: "100/minute", "1000/hour", "10/second"
+
+    The storage URI defaults to the main Redis URL (REDIS_URL).
+    Set RATE_LIMIT_STORAGE_URI to use a dedicated Redis instance or DB.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="RATE_LIMIT_")
+
+    enabled: bool = True
+    # Public SDK ingestion endpoint — rate-limited per API key
+    ingestion: str = "100/minute"
+    # Authenticated dashboard API — rate-limited per user ID
+    api: str = "300/minute"
+    # Override storage backend (defaults to REDIS_URL when unset)
+    storage_uri: str | None = None
+
+
 class Settings(BaseSettings):
     """Root settings for the Traceroot backend.
 
@@ -76,6 +102,7 @@ class Settings(BaseSettings):
     clickhouse: ClickHouseSettings = ClickHouseSettings()
     s3: S3Settings = S3Settings()
     redis: RedisSettings = RedisSettings()
+    rate_limit: RateLimitSettings = RateLimitSettings()
 
 
 settings = Settings()

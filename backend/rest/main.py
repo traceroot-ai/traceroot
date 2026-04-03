@@ -15,7 +15,10 @@ load_dotenv()
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
+from rest.rate_limit import limiter, rate_limit_exceeded_handler
 from rest.routers.internal import router as internal_router
 from rest.routers.public.traces import router as public_traces_router
 from rest.routers.sessions import router as sessions_router
@@ -29,6 +32,11 @@ app = FastAPI(
     description="Observability platform for LLM applications",
     version="0.1.0",
 )
+
+# Attach the limiter to app state so slowapi middleware can find it
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # CORS configuration
 app.add_middleware(

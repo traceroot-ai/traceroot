@@ -3,11 +3,13 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
+from rest.rate_limit import key_by_user_id, limiter
 from rest.routers.deps import ProjectAccess
 from rest.schemas.sessions import SessionDetailResponse, SessionListResponse
 from rest.services.trace_reader import get_trace_reader_service
+from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +17,10 @@ router = APIRouter(prefix="/projects/{project_id}/sessions", tags=["Sessions"])
 
 
 @router.get("", response_model=SessionListResponse)
+@limiter.limit(settings.rate_limit.api, key_func=key_by_user_id)
 async def list_sessions(
+    request: Request,
+    response: Response,
     project_id: str,
     _access: ProjectAccess,
     page: int = Query(0, ge=0, description="Page number (0-indexed)"),
@@ -45,7 +50,10 @@ async def list_sessions(
 
 
 @router.get("/{session_id}", response_model=SessionDetailResponse)
+@limiter.limit(settings.rate_limit.api, key_func=key_by_user_id)
 async def get_session(
+    request: Request,
+    response: Response,
     project_id: str,
     session_id: str,
     _access: ProjectAccess,
