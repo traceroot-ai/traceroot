@@ -161,7 +161,7 @@ class ReActAgent {
     return observe({ name: 'agent_turn', type: 'agent' }, async () => {
       this.messages.push({ role: 'user', content: query });
 
-      for (let step = 0; step < 5; step++) {
+      for (let step = 0; step < 6; step++) {
         const response = await this.client.messages.create({
           model: this.model,
           max_tokens: 4096,

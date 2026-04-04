@@ -9,7 +9,6 @@
   "dependencies": {
     "@traceroot-ai/traceroot": "0.1.0",
     "@anthropic-ai/sdk": "^0.40.0",
-    "openai": "^4.0.0",
     "dotenv": "^16.4.5"
   },
   "devDependencies": {
