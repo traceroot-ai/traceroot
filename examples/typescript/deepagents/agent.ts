@@ -9,7 +9,6 @@
  * capturing the full multi-agent hierarchy.
  *
  * Env vars required: ANTHROPIC_API_KEY, TRACEROOT_API_KEY
- * Optional: TAVILY_API_KEY (falls back to mock search if not set)
  *
  * Run:
  *   pnpm demo
@@ -31,15 +30,8 @@ import { HumanMessage } from '@langchain/core/messages';
 // ── LLM ──────────────────────────────────────────────────────────────────────
 const llm = new ChatAnthropic({ model: 'claude-sonnet-4-20250514', temperature: 0 });
 
-// ── Search tool (Tavily if key available, mock otherwise) ─────────────────────
+// ── Search tool ───────────────────────────────────────────────────────────────
 async function runSearch(query: string): Promise<string> {
-  const tavilyKey = process.env.TAVILY_API_KEY;
-  if (tavilyKey) {
-    const { TavilySearch } = await import('@langchain/tavily');
-    const tavily = new TavilySearch({ maxResults: 5, tavilyApiKey: tavilyKey });
-    return tavily._call({ query });
-  }
-  // Mock search — returns plausible research data for demo purposes
   return `[Mock search results for: "${query}"]
 
 1. LangGraph 0.4 (LangChain, 2025) — Stateful multi-agent orchestration with persistent checkpoints and streaming. Supports human-in-the-loop workflows.
