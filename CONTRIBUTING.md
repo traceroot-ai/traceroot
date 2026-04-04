@@ -22,8 +22,9 @@ make dev
 ## Before You Start
 
 - Check for an existing issue before starting larger work, or open one first so the change has clear scope.
-- If you do not have push access, fork the repo, create your branch from `main`, and open the PR from your fork.
-- Keep each pull request focused on one problem to make review easier.
+- If you do not have push access, fork the repo first, create your branch from `main`, push to your fork, and open the PR back to `traceroot-ai/traceroot`.
+- If you have push access, still create a branch from `main` and open a PR instead of working directly on `main`.
+- Keep each pull request focused on one problem and link the related issue when possible.
 
 ## Development Commands
 
