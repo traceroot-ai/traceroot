@@ -34,7 +34,8 @@ format:
 ## Run the core checks contributors should pass before opening a PR.
 ci-check:
 	$(UV_RUN) ruff check .
-	$(FRONTEND_PNPM) run lint
+ci-check:
+	$(MAKE) lint
 	$(UV_RUN) coverage run -m pytest tests/ --durations=10
 	$(UV_RUN) coverage report
 
