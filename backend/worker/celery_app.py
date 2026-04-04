@@ -11,13 +11,13 @@ from celery import Celery
 from celery.signals import worker_ready
 from dotenv import load_dotenv
 
-from db.clickhouse.migrate import run_goose
-
 logger = logging.getLogger(__name__)
 
-# Load environment variables from .env file
+# Load environment variables from .env file FIRST, before any local imports
+# that transitively import shared.config (which creates Settings() at module level).
 load_dotenv()
 
+from db.clickhouse.migrate import run_goose
 from shared.config import settings
 
 # Configure logging for worker tasks
