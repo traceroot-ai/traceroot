@@ -43,6 +43,12 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
     llmModels.systemModels.some((g) => g.models.length > 0) ||
     llmModels.byokProviders.some((g) => g.models.length > 0);
 
+  const unsupportedModels = llmModels
+    ? llmModels.byokProviders.flatMap((g) =>
+        g.models.filter((m) => !m.supported).map((m) => ({ id: m.id, provider: g.provider })),
+      )
+    : [];
+
   const {
     messages,
     isStreaming,
@@ -108,6 +114,30 @@ export function AiAssistantPanel({ open, onClose }: AiAssistantPanelProps) {
           <X className="h-4 w-4" />
         </Button>
       </div>
+
+      {/* Unsupported model warning */}
+      {unsupportedModels.length > 0 && (
+        <div className="mx-3 mt-2 flex items-start gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-[12px] dark:border-yellow-900 dark:bg-yellow-950">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-600" />
+          <div>
+            <p className="font-medium text-yellow-800 dark:text-yellow-200">
+              Unsupported model{unsupportedModels.length > 1 ? "s" : ""} detected
+            </p>
+            <p className="mt-0.5 text-yellow-700 dark:text-yellow-300">
+              {unsupportedModels.map((m) => m.id).join(", ")}{" "}
+              {unsupportedModels.length > 1 ? "are" : "is"} no longer in the supported model list.
+              Update in{" "}
+              <a
+                href={`/workspaces/${workspaceId}/settings/model-providers`}
+                className="font-medium underline"
+              >
+                Settings &rarr; Model Providers
+              </a>
+              .
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
       {!projectId ? (
