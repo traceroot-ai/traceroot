@@ -96,9 +96,9 @@ def calculate(expression: str) -> dict:
 
 
 @observe(name="get_current_time", type="tool")
-def get_current_time(timezone: str = "UTC") -> dict:
-    """Get current time."""
-    return {"timezone": timezone, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+def get_current_time() -> dict:
+    """Get current time in UTC."""
+    return {"time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "timezone": "UTC", }
 
 
 TOOLS = {
@@ -149,9 +149,6 @@ TOOL_SCHEMAS = [
         description="Get the current date and time",
         parameters=types.Schema(
             type="OBJECT",
-            properties={
-                "timezone": types.Schema(type="STRING", description="Timezone (default: UTC)")
-            },
         ),
     ),
 ]
@@ -169,7 +166,7 @@ SYSTEM_INSTRUCTION = (
 
 
 class ReActAgent:
-    """ReAct-style agent that reasons and acts in a loop with streaming."""
+    """ReAct-style agent that reasons and acts in a loop."""
 
     def __init__(self, model: str = "gemini-2.5-flash"):
         self.client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
@@ -187,7 +184,7 @@ class ReActAgent:
 
     @observe(name="llm_completion", type="span")
     def _get_completion(self) -> types.GenerateContentResponse:
-        """Get a competion from Gemini."""
+        """Get a completion from Gemini."""
         return self.client.models.generate_content(
             model=self.model,
             contents=self.contents,
@@ -204,6 +201,10 @@ class ReActAgent:
 
         for _ in range(5):
             response = self._get_completion()
+            
+            if not response.candidates:
+                return response.text or "No response generated."
+            
             candidate = response.candidates[0]
             content = candidate.content
 
