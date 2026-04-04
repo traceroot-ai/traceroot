@@ -2,7 +2,7 @@
 DeepAgents multi-agent research pipeline with Traceroot observability.
 
 A supervisor agent orchestrates two sub-agents:
-  - research-agent: fetches live web data via Tavily search
+  - research-agent: gathers information on the query topic
   - critique-agent: evaluates research quality and identifies gaps
 
 Usage:
@@ -25,7 +25,6 @@ from traceroot import Integration, observe, using_attributes
 
 traceroot.initialize(integrations=[Integration.LANGCHAIN])
 
-import os
 
 from deepagents import create_deep_agent
 
@@ -40,17 +39,6 @@ logger = logging.getLogger(__name__)
 
 def web_search(query: str) -> str:
     """Search the web for up-to-date information on a topic."""
-    tavily_key = os.environ.get("TAVILY_API_KEY")
-    if tavily_key:
-        from tavily import TavilyClient
-
-        results = TavilyClient(api_key=tavily_key).search(query=query, max_results=5)
-        snippets = [
-            f"[{r['title']}]({r['url']})\n{r['content']}" for r in results.get("results", [])
-        ]
-        return "\n\n".join(snippets) if snippets else "No results found."
-
-    # Mock search — returns plausible research data for demo purposes
     return f"""[Mock search results for: "{query}"]
 
 1. LangGraph 0.4 (LangChain, 2025) — Stateful multi-agent orchestration with persistent checkpoints and streaming.
