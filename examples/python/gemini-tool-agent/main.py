@@ -2,7 +2,7 @@
 Gemini ReAct agent with tool use, streaming, and TraceRoot observability.
 
 Usage:
-    cp env.example .env
+    cp .env.example .env
     pip install -r requirements.txt
     python main.py
 """
@@ -98,7 +98,10 @@ def calculate(expression: str) -> dict:
 @observe(name="get_current_time", type="tool")
 def get_current_time() -> dict:
     """Get current time in UTC."""
-    return {"time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "timezone": "UTC", }
+    return {
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "timezone": "UTC",
+    }
 
 
 TOOLS = {
@@ -201,10 +204,10 @@ class ReActAgent:
 
         for _ in range(5):
             response = self._get_completion()
-            
+
             if not response.candidates:
                 return response.text or "No response generated."
-            
+
             candidate = response.candidates[0]
             content = candidate.content
 
