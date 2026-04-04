@@ -1,33 +1,20 @@
 # Anthropic Tool Agent (TypeScript)
 
-ReAct-style agent with Anthropic tool use, instrumented with TraceRoot.
+ReAct-style agent with Anthropic tool use, instrumented with [TraceRoot](https://traceroot.ai).
 
 ## Setup
 
-Copy the root `.env.example` to `.env` and fill in your keys:
-
 ```bash
-cp .env.example .env
+cp .env.example .env  # fill in your API keys
+pnpm install
+pnpm demo
 ```
 
-Install dependencies and run:
-
-```bash
-pnpm install && pnpm demo
-```
-
-## Environment Variables
-
-| Variable | Description |
-|---|---|
-| `ANTHROPIC_API_KEY` | Your Anthropic API key |
-| `TRACEROOT_API_KEY` | Your TraceRoot API key |
-
-## What It Does
+## What it does
 
 Runs two demo queries through a ReAct agent backed by `claude-sonnet-4-5-20250929`:
 
-1. **Weather comparison** — fetches weather for San Francisco and Tokyo, then compares them.
-2. **Stock + math** — looks up NVDA's current price, then calculates what a 10% increase would be.
+1. Weather comparison (San Francisco vs Tokyo)
+2. Stock price lookup + calculation (NVDA +10%)
 
-The agent loops over Anthropic's `tool_use` stop reason, dispatching calls to four built-in tools (`get_weather`, `get_stock_price`, `calculate`, `get_current_time`) until the model returns a final text response. All spans are exported to TraceRoot.
+Tools: `get_weather`, `get_stock_price`, `calculate`, `get_current_time`
