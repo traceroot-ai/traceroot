@@ -157,7 +157,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     setSaveError(null);
     // Build config with per-model protocol overrides (only non-default ones)
     const defaultProtocol = ADAPTER_API_PROTOCOL[adapter] || "";
-    const trimmedModels = customModels.map((m) => m.trim()).filter(Boolean);
+    const trimmedModels = [...new Set(customModels.map((m) => m.trim()).filter(Boolean))];
     const filteredProtocols: Record<string, string> = {};
     for (const modelId of trimmedModels) {
       const proto = modelProtocols[modelId];
@@ -297,6 +297,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
         : !!apiKey;
   const hasRequiredBaseUrl = adapterConfig?.requiresBaseUrl ? !!baseUrl : true;
   const canSave = adapter && providerName && hasCredentials && hasRequiredBaseUrl;
+
+  const curatedModelsForAdapter = adapter ? ADAPTER_MODELS[adapter as LLMAdapter] : null;
+  const isAddModelDisabled = curatedModelsForAdapter
+    ? curatedModelsForAdapter.every((m) => customModels.includes(m.id))
+    : false;
 
   const canTest =
     adapter &&
@@ -502,7 +507,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-medium">Models</label>
-                  <Button type="button" variant="outline" size="sm" onClick={addCustomModel}>
+                  <Button type="button" variant="outline" size="sm" onClick={addCustomModel} disabled={isAddModelDisabled}>
                     <Plus className="mr-1 h-3 w-3" />
                     Add Model
                   </Button>
@@ -525,6 +530,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                             <SelectValue placeholder="Select a model" />
                           </SelectTrigger>
                           <SelectContent>
+                            {model && !curatedModels.some((m) => m.id === model) && (
+                              <SelectItem key={model} value={model} disabled>
+                                {model} (Unsupported)
+                              </SelectItem>
+                            )}
                             {curatedModels
                               .filter((m) => m.id === model || !customModels.includes(m.id))
                               .map((m) => (

@@ -47,7 +47,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       .map((id) => {
         const catalog = ADAPTER_MODELS[p.adapter as LLMAdapter];
         const match = catalog?.find((m) => m.id === id);
-        return { id, label: match?.label ?? id };
+        return { id, label: match?.label ?? id, supported: catalog ? !!match : true };
       }),
   }));
 
