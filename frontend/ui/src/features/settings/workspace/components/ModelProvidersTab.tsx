@@ -28,7 +28,9 @@ import {
   ADAPTER_API_PROTOCOL,
   ADAPTER_AVAILABLE_PROTOCOLS,
   ADAPTER_DEFAULT_BASE_URL,
+  ADAPTER_MODELS,
 } from "@traceroot/core";
+import type { LLMAdapter } from "@traceroot/core";
 import {
   getModelProviders,
   createModelProvider,
@@ -230,7 +232,14 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   }
 
   function addCustomModel() {
-    setCustomModels([...customModels, ""]);
+    const curatedModels = ADAPTER_MODELS[adapter as LLMAdapter];
+    if (curatedModels) {
+      const used = new Set(customModels);
+      const next = curatedModels.find((m) => !used.has(m.id));
+      setCustomModels([...customModels, next?.id ?? ""]);
+    } else {
+      setCustomModels([...customModels, ""]);
+    }
   }
 
   function removeCustomModel(index: number) {
@@ -503,28 +512,42 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                   const protocols = ADAPTER_AVAILABLE_PROTOCOLS[adapter];
                   const hasMultipleProtocols = protocols && protocols.length > 1;
                   const defaultProto = ADAPTER_API_PROTOCOL[adapter] || "";
+                  const curatedModels = ADAPTER_MODELS[adapter as LLMAdapter];
 
                   return customModels.map((model, i) => (
                     <div key={i} className="flex items-center gap-2">
-                      <Input
-                        value={model}
-                        onChange={(e) => updateCustomModel(i, e.target.value)}
-                        placeholder={
-                          {
-                            openai: "e.g. gpt-4o, gpt-5",
-                            anthropic: "e.g. claude-sonnet-4-5",
-                            azure: "e.g. my-gpt4-deployment",
-                            google: "e.g. gemini-2.5-flash",
-                            "amazon-bedrock": "e.g. anthropic.claude-v2",
-                            deepseek: "e.g. deepseek-chat, deepseek-reasoner",
-                            openrouter: "e.g. openai/gpt-4o",
-                            xai: "e.g. grok-4-1-fast-reasoning",
-                            zai: "e.g. glm-5, glm-4.7",
-                            moonshot: "e.g. kimi-k2.5, kimi-k2-thinking",
-                          }[adapter] || "Model ID"
-                        }
-                        className="flex-1"
-                      />
+                      {curatedModels ? (
+                        <Select
+                          value={model}
+                          onValueChange={(v) => updateCustomModel(i, v)}
+                        >
+                          <SelectTrigger className="flex-1">
+                            <SelectValue placeholder="Select a model" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {curatedModels
+                              .filter((m) => m.id === model || !customModels.includes(m.id))
+                              .map((m) => (
+                                <SelectItem key={m.id} value={m.id}>
+                                  {m.label}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          value={model}
+                          onChange={(e) => updateCustomModel(i, e.target.value)}
+                          placeholder={
+                            {
+                              azure: "e.g. my-gpt4-deployment",
+                              "amazon-bedrock": "e.g. anthropic.claude-v2",
+                              openrouter: "e.g. openai/gpt-4o",
+                            }[adapter] || "Model ID"
+                          }
+                          className="flex-1"
+                        />
+                      )}
                       {hasMultipleProtocols && (
                         <Select
                           value={modelProtocols[model] || defaultProto}
