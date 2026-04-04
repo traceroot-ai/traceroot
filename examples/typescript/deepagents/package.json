@@ -8,7 +8,6 @@
   },
   "dependencies": {
     "@traceroot-ai/traceroot": "0.1.0",
-    "openai": "^4.0.0",
     "deepagents": "^1.8.0",
     "@langchain/core": "^1.1.38",
     "@langchain/anthropic": "^1.3.26",
