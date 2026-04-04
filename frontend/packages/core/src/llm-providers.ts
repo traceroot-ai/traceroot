@@ -129,7 +129,52 @@ export const PROVIDER_PRIORITY: LLMAdapter[] = [
   LLMAdapter.AMAZON_BEDROCK,
 ];
 
-// Default models per adapter (for BYOK providers)
+// Curated model catalog per adapter — used for dropdown selection in BYOK provider settings.
+// Adapters NOT listed here (azure, amazon-bedrock, openrouter) use free-text input.
+export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
+  openai: [
+    { id: "gpt-5.4", label: "GPT-5.4" },
+    { id: "gpt-5.4-pro", label: "GPT-5.4 Pro" },
+    { id: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
+    { id: "gpt-5.4-nano", label: "GPT-5.4 Nano" },
+    { id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
+    { id: "gpt-5.2", label: "GPT-5.2" },
+    { id: "gpt-5", label: "GPT-5" },
+    { id: "gpt-5-mini", label: "GPT-5 Mini" },
+    { id: "o3", label: "o3" },
+    { id: "o4-mini", label: "o4-mini" },
+  ],
+  anthropic: [
+    { id: "claude-opus-4-6", label: "Claude Opus 4.6" },
+    { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+    { id: "claude-opus-4-5", label: "Claude Opus 4.5" },
+    { id: "claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
+    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+  ],
+  google: [
+    { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview" },
+    { id: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview" },
+    { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite Preview" },
+    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+  ],
+  deepseek: [
+    { id: "deepseek-v3.2", label: "DeepSeek V3.2" },
+  ],
+  xai: [
+    { id: "grok-4.20", label: "Grok 4.20" },
+    { id: "grok-4", label: "Grok 4" },
+  ],
+  moonshot: [
+    { id: "kimi-k2.5", label: "Kimi K2.5" },
+    { id: "kimi-k2-thinking", label: "Kimi K2 Thinking" },
+  ],
+  zai: [
+    { id: "glm-4.5", label: "GLM-4.5" },
+    { id: "glm-4.5-air", label: "GLM-4.5 Air" },
+    { id: "glm-4.5-flash", label: "GLM-4.5 Flash" },
+  ],
+};
 
 // Available API protocols per adapter — shown in provider settings UI
 // When multiple protocols are available, user can choose; otherwise the default is used.
@@ -158,68 +203,57 @@ export const ADAPTER_CONFIG: Record<
   {
     label: string;
     requiresBaseUrl: boolean;
-    requiresCustomModels: boolean;
     credentialType: "api-key" | "aws";
   }
 > = {
   openai: {
     label: "OpenAI",
     requiresBaseUrl: false,
-    requiresCustomModels: false,
     credentialType: "api-key",
   },
   anthropic: {
     label: "Anthropic",
     requiresBaseUrl: false,
-    requiresCustomModels: false,
     credentialType: "api-key",
   },
   azure: {
     label: "Azure OpenAI",
     requiresBaseUrl: true,
-    requiresCustomModels: true,
     credentialType: "api-key",
   },
   google: {
     label: "Google Gemini",
     requiresBaseUrl: false,
-    requiresCustomModels: false,
     credentialType: "api-key",
   },
   "amazon-bedrock": {
     label: "AWS Bedrock",
     requiresBaseUrl: false,
-    requiresCustomModels: true,
     credentialType: "aws",
   },
   deepseek: {
     label: "DeepSeek",
     requiresBaseUrl: false,
-    requiresCustomModels: false,
     credentialType: "api-key",
   },
   openrouter: {
     label: "OpenRouter",
     requiresBaseUrl: false,
-    requiresCustomModels: true,
     credentialType: "api-key",
   },
   xai: {
     label: "xAI",
     requiresBaseUrl: false,
-    requiresCustomModels: false,
     credentialType: "api-key",
   },
   moonshot: {
     label: "Moonshot (Kimi)",
     requiresBaseUrl: false,
-    requiresCustomModels: false,
     credentialType: "api-key",
   },
   zai: {
     label: "Z.AI (GLM)",
     requiresBaseUrl: false,
-    requiresCustomModels: false,
     credentialType: "api-key",
   },
 };

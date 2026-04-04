@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { prisma, SYSTEM_MODELS, ModelSource } from "@traceroot/core";
+import { prisma, SYSTEM_MODELS, ModelSource, ADAPTER_MODELS } from "@traceroot/core";
+import type { LLMAdapter } from "@traceroot/core";
 import { requireAuth, requireWorkspaceMembership, successResponse } from "@/lib/auth-helpers";
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
@@ -43,7 +44,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     models: (p.customModels || [])
       .map((id) => id.trim())
       .filter(Boolean)
-      .map((id) => ({ id, label: id })),
+      .map((id) => {
+        const catalog = ADAPTER_MODELS[p.adapter as LLMAdapter];
+        const match = catalog?.find((m) => m.id === id);
+        return { id, label: match?.label ?? id };
+      }),
   }));
 
   return successResponse({ systemModels, byokProviders });
