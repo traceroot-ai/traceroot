@@ -1,8 +1,8 @@
 """
-Gemini ReAct agent with tool use, streaming, and TraceRoot observability.
+Gemini ReAct agent with tool use and TraceRoot observability.
 
 Usage:
-    cp .env.example .env
+    cp env.example .env
     pip install -r requirements.txt
     python main.py
 """
@@ -26,7 +26,7 @@ from google.genai import types
 import traceroot
 from traceroot import Integration, observe, using_attributes
 
-traceroot.initialize(integrations=[Integration.GEMINI])
+traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
