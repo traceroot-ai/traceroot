@@ -7,9 +7,9 @@ Usage:
     python main.py
 """
 
-import os
 import json
 import logging
+import os
 from datetime import datetime
 
 from dotenv import find_dotenv, load_dotenv
@@ -123,7 +123,11 @@ TOOL_SCHEMAS = [
         description="Get current stock price for a ticker symbol",
         parameters=types.Schema(
             type="OBJECT",
-            properties={"symbol": types.Schema(type="STRING", description="Stock ticker symbol (e.g., AAPL)")},
+            properties={
+                "symbol": types.Schema(
+                    type="STRING", description="Stock ticker symbol (e.g., AAPL)"
+                )
+            },
             required=["symbol"],
         ),
     ),
@@ -132,7 +136,11 @@ TOOL_SCHEMAS = [
         description="Evaluate a mathematical expression",
         parameters=types.Schema(
             type="OBJECT",
-            properties={"expression": types.Schema(type="STRING", description="Math expression (e.g., '2 + 2 * 3')")},
+            properties={
+                "expression": types.Schema(
+                    type="STRING", description="Math expression (e.g., '2 + 2 * 3')"
+                )
+            },
             required=["expression"],
         ),
     ),
@@ -141,7 +149,9 @@ TOOL_SCHEMAS = [
         description="Get the current date and time",
         parameters=types.Schema(
             type="OBJECT",
-            properties={"timezone": types.Schema(type="STRING", description="Timezone (default: UTC)")},
+            properties={
+                "timezone": types.Schema(type="STRING", description="Timezone (default: UTC)")
+            },
         ),
     ),
 ]
@@ -190,15 +200,13 @@ class ReActAgent:
     @observe(name="agent_turn", type="agent")
     def run(self, query: str) -> str:
         # Append user message in Gemini's Content format
-        self.contents.append(
-            types.Content(role="user", parts=[types.Part(text=query)])
-        )
+        self.contents.append(types.Content(role="user", parts=[types.Part(text=query)]))
 
         for _ in range(5):
             response = self._get_completion()
             candidate = response.candidates[0]
             content = candidate.content
-            
+
             # Guard against None content
             if content is None or not content.parts:
                 return response.text or "No response generated."
@@ -236,9 +244,7 @@ class ReActAgent:
                 )
 
             # Append all tool results as a single user turn
-            self.contents.append(
-                types.Content(role="user", parts=tool_response_parts)
-            )
+            self.contents.append(types.Content(role="user", parts=tool_response_parts))
 
         return "I wasn't able to complete this task within the allowed steps."
 
