@@ -89,6 +89,7 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
     userId: 'user-123',
     sessionId: 'sess-456',
     tags: ['prod'],
+    metadata: { plan: 'pro' },
   });
 });
 ```
@@ -108,6 +109,7 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
 | `userId` | `string` | User identifier |
 | `sessionId` | `string` | Session identifier |
 | `tags` | `string[]` | Tags for the trace |
+| `metadata` | `Record<string, unknown>` | Trace-level metadata |
 
 ## Environment Variables
 
@@ -116,5 +118,6 @@ await observe({ name: 'my_agent', type: 'agent' }, async () => {
 | `TRACEROOT_API_KEY` | (required) | API key |
 | `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | API endpoint |
 | `TRACEROOT_ENABLED` | `true` | Enable/disable tracing |
+| `TRACEROOT_ENVIRONMENT` | — | Deployment environment tag (e.g. `production`, `staging`) |
 | `TRACEROOT_GIT_REPO` | auto-detected | Git repository (`owner/repo`) |
 | `TRACEROOT_GIT_REF` | auto-detected | Git reference |
