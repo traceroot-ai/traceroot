@@ -179,13 +179,19 @@ export default function TracesPage() {
                 <table className="w-full">
                   <thead className="sticky top-0 bg-background">
                     <tr className="border-b border-border bg-muted/50">
-                      <th className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th
+                        className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground"
+                      >
                         Timestamp
                       </th>
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th
+                        className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground"
+                      >
                         Name
                       </th>
-                      <th className="min-w-[280px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th
+                        className="min-w-[280px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground"
+                      >
                         Trace ID
                       </th>
                       <th className="w-[60px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
@@ -194,10 +200,14 @@ export default function TracesPage() {
                       <th className="w-[60px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Spans
                       </th>
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th
+                        className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground"
+                      >
                         Input
                       </th>
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th
+                        className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground"
+                      >
                         Output
                       </th>
                       <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
@@ -218,20 +228,24 @@ export default function TracesPage() {
                           selectedTraceId === trace.trace_id ? "bg-muted" : "hover:bg-muted/50",
                         )}
                       >
-                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                        <td
+                          className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground"
+                        >
                           {formatDate(trace.trace_start_time)}
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
                           {trace.name}
                         </td>
-                        <td className="min-w-[280px] border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-                          <span title={trace.trace_id}>
-                            {trace.trace_id}
-                          </span>
+                        <td
+                          className="min-w-[280px] border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground"
+                        >
+                          <span title={trace.trace_id}>{trace.trace_id}</span>
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5">
                           {trace.status === "error" ? (
-                            <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
+                            <span
+                              className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400"
+                            >
                               ERROR
                             </span>
                           ) : (
