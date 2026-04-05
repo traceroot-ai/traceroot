@@ -224,8 +224,8 @@ export default function TracesPage() {
                         <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
                           {trace.name}
                         </td>
-                        <td className="min-w-[280px] max-w-[400px] border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-                          <span className="block truncate" title={trace.trace_id}>
+                        <td className="min-w-[280px] border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
+                          <span title={trace.trace_id}>
                             {trace.trace_id}
                           </span>
                         </td>
