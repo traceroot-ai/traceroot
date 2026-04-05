@@ -7,7 +7,7 @@
     "demo": "tsx agent.ts"
   },
   "dependencies": {
-    "@traceroot-ai/traceroot": "0.1.0",
+    "@traceroot-ai/traceroot": "0.1.1",
     "@anthropic-ai/sdk": "^0.40.0",
     "dotenv": "^16.4.5"
   },
