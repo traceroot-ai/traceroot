@@ -3,41 +3,31 @@
 # =============================================================================
 
 UV_RUN := uv run
-FRONTEND_PNPM := pnpm --dir frontend
 PROD_COMPOSE := docker compose -f docker-compose.prod.yml
 
-.PHONY: dev dev-autoreload dev-reset lint format ci-check prod prod-lite prod-reset
+.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset
+
+## Install repository git hooks for contributors.
+install-hooks:
+	$(UV_RUN) pre-commit install
 
 ## Start developing. Handles everything: deps, infra, migrations, tmux launch.
 ## Idempotent - safe to run repeatedly. Reattaches if already running.
-dev:
+dev: install-hooks
 	$(UV_RUN) python tmux_tools/launcher.py
 
 ## Same as dev, but with auto-reload for backend services (REST API + Celery).
-dev-autoreload:
+dev-autoreload: install-hooks
 	$(UV_RUN) python tmux_tools/launcher.py --autoreload
+
+## Windows contributors: full dev env without tmux requirement.
+dev-lite: install-hooks
+	@echo "Starting Traceroot at http://localhost:3000 - Ctrl+C to stop"
+	$(PROD_COMPOSE) up --build
 
 ## Nuclear reset: kill tmux, destroy all containers/volumes/deps. Run `make dev` to start again.
 dev-reset:
 	$(UV_RUN) python tmux_tools/launcher.py --reset
-
-## Run local lint checks for Python and frontend code.
-lint:
-	$(UV_RUN) ruff check .
-	$(FRONTEND_PNPM) run lint
-
-## Auto-format Python and frontend code.
-format:
-	$(UV_RUN) ruff format .
-	$(FRONTEND_PNPM) run format
-
-## Run the core checks contributors should pass before opening a PR.
-ci-check:
-	$(UV_RUN) ruff check .
-ci-check:
-	$(MAKE) lint
-	$(UV_RUN) coverage run -m pytest tests/ --durations=10
-	$(UV_RUN) coverage report
 
 # --- Production (Docker) ---------------------------------------------------
 
