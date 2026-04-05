@@ -22,6 +22,12 @@ export default [
     },
   },
   {
-    ignores: ["node_modules/", "dist/", ".next/", "packages/core/src/generated/", "**/*.config.js"],
+    ignores: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.next/**",
+      "packages/core/src/generated/**",
+      "**/*.config.js",
+    ],
   },
 ];

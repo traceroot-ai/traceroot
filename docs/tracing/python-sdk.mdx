@@ -22,7 +22,7 @@ traceroot.initialize(
 
 ## The Observe Decorator
 
-Wrap any function to create a span, works with both sync and async functions.
+Wrap any function to create a span, works with sync functions, async functions, and generators.
 
 ```python
 from traceroot import observe
@@ -44,6 +44,10 @@ async def async_agent(query: str) -> str:
 | `type` | `SpanKind \| str` | `"span"` | Span kind: `"llm"`, `"agent"`, `"tool"`, or `"span"` (accepts both `SpanKind` enum and string values) |
 | `metadata` | `dict` | `None` | Static metadata to attach |
 | `tags` | `list[str]` | `None` | Tags to attach |
+| `capture_input` | `bool` | `True` | Whether to auto-capture function arguments as input |
+| `capture_output` | `bool` | `True` | Whether to auto-capture the return value as output |
+| `session_id` | `str` | `None` | Session identifier to attach to the trace |
+| `user_id` | `str` | `None` | User identifier to attach to the trace |
 
 ## Setting Trace Context
 
@@ -95,6 +99,7 @@ update_current_trace(
     user_id="user-123",
     session_id="sess-456",
     tags=["production", "v2"],
+    metadata={"plan": "pro", "region": "us-east-1"},
 )
 ```
 
@@ -130,6 +135,7 @@ All parameters can be set via environment variables:
 | `TRACEROOT_API_KEY` | (required) | API key |
 | `TRACEROOT_HOST_URL` | `https://app.traceroot.ai` | API endpoint |
 | `TRACEROOT_ENABLED` | `true` | Enable/disable tracing |
+| `TRACEROOT_ENVIRONMENT` | — | Deployment environment tag (e.g. `production`, `staging`) |
 | `TRACEROOT_FLUSH_INTERVAL` | `5.0` | Flush interval in seconds |
 | `TRACEROOT_FLUSH_AT` | `100` | Batch size before flush |
 | `TRACEROOT_TIMEOUT` | `30.0` | HTTP timeout in seconds |
