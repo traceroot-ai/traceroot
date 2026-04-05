@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "demo": "tsx agent.ts"
+    "demo": "tsx agent.ts",
+    "streaming": "tsx streaming-pipeline.ts"
   },
   "dependencies": {
-    "@traceroot-ai/traceroot": "0.1.0",
+    "@traceroot-ai/traceroot": "file:../../../../../.superset/worktrees/traceroot-ts/update-ts-vs-py-sdk-gaps-analysis-and-plan-improve/packages/traceroot",
     "dotenv": "^16.4.5",
     "openai": "^6.7.0"
   },
