@@ -7,7 +7,7 @@
     "streaming": "tsx streaming-pipeline.ts"
   },
   "dependencies": {
-    "@traceroot-ai/traceroot": "file:../../../../../.superset/worktrees/traceroot-ts/update-ts-vs-py-sdk-gaps-analysis-and-plan-improve/packages/traceroot",
+    "@traceroot-ai/traceroot": "0.1.1",
     "dotenv": "^16.4.5",
     "openai": "^6.7.0"
   },
