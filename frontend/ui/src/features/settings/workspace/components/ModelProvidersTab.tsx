@@ -231,12 +231,22 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     setModelProtocols({});
   }
 
+  function seedProtocolFromCatalog(modelId: string) {
+    const catalog = ADAPTER_MODELS[adapter as LLMAdapter];
+    if (!catalog) return;
+    const entry = catalog.find((m) => m.id === modelId);
+    if (entry?.apiProtocol) {
+      setModelProtocols((prev) => ({ ...prev, [modelId]: entry.apiProtocol! }));
+    }
+  }
+
   function addCustomModel() {
     const curatedModels = ADAPTER_MODELS[adapter as LLMAdapter];
     if (curatedModels) {
       const used = new Set(customModels);
       const next = curatedModels.find((m) => !used.has(m.id));
       setCustomModels([...customModels, next?.id ?? ""]);
+      if (next) seedProtocolFromCatalog(next.id);
     } else {
       setCustomModels([...customModels, ""]);
     }
@@ -250,6 +260,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     const updated = [...customModels];
     updated[index] = value;
     setCustomModels(updated);
+    seedProtocolFromCatalog(value);
   }
 
   if (isLoading) {
