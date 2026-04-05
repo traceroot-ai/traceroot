@@ -137,7 +137,7 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "gpt-5.4-pro", label: "GPT-5.4 Pro" },
     { id: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
     { id: "gpt-5.4-nano", label: "GPT-5.4 Nano" },
-    { id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
+    { id: "gpt-5.3-codex", label: "GPT-5.3 Codex", apiProtocol: "openai-responses" },
     { id: "gpt-5.2", label: "GPT-5.2" },
     { id: "gpt-5", label: "GPT-5" },
     { id: "gpt-5-mini", label: "GPT-5 Mini" },
