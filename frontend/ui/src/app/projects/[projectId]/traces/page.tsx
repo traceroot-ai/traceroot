@@ -65,8 +65,8 @@ export default function TracesPage() {
       staleTime: Infinity,
       refetchInterval: (query: unknown) => {
         const hasTraces =
-          ((query as { state?: { data?: { data?: unknown[] } } })?.state?.data?.data?.length ??
-            0) > 0;
+          ((query as { state?: { data?: { data?: unknown[] } } })?.state?.data?.data?.length ?? 0) >
+          0;
         return hasTraces ? false : 3000;
       },
     },
