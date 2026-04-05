@@ -19,6 +19,8 @@ cp .env.example .env
 make dev
 ```
 
+On Windows or in environments without tmux, use `make dev-lite` instead.
+
 ## Before You Start
 
 - Check for an existing issue before starting larger work, or open one first so the change has clear scope.
@@ -30,16 +32,16 @@ make dev
 
 | Command | Description |
 |---------|-------------|
-| `make dev` | Start dev environment. Idempotent — reattaches to existing tmux session if running. |
+| `make dev` | Start dev environment. Idempotent - reattaches to existing tmux session if running and installs the pre-commit hook. |
 | `make dev-autoreload` | Same as `make dev`, but services auto-restart on code changes. |
+| `make dev-lite` | Start the local Docker workflow without tmux and install the pre-commit hook. Helpful on Windows. |
 | `make dev-reset` | Nuclear reset: kills tmux, destroys containers/volumes/node_modules. Run `make dev` after. |
-| `make lint` | Run Python lint checks with Ruff and frontend lint checks with ESLint. |
-| `make format` | Apply Python formatting with Ruff and frontend formatting with Prettier. |
-| `make ci-check` | Run the local pre-PR checks: lint and backend tests. |
 | `make prod` | Start all services in Docker with tmux log viewer. |
 | `make prod-lite` | Run the Docker stack directly without tmux. Helpful on Windows and in environments without tmux. |
 
-All commands handle deps, Docker containers, migrations, and launch services in tmux (one window per service).
+`make dev`, `make dev-autoreload`, and `make dev-lite` install the pre-commit hook automatically on first run.
+
+The tmux-based commands handle deps, Docker containers, migrations, and launch services in tmux (one window per service).
 
 <div align="center">
   <kbd><img src="docs/images/local_dev_mode_v1.png" alt="Local dev mode"></kbd>
@@ -49,8 +51,9 @@ All commands handle deps, Docker containers, migrations, and launch services in 
 
 1. Create a branch from `main`.
 2. Make the smallest change that fully solves the issue.
-3. Run `make format` and `make ci-check` before pushing.
-4. Open a pull request and link the issue when applicable.
+3. Commit your changes and let the pre-commit hook run automatically.
+4. Run the relevant tests for your change before pushing.
+5. Open a pull request and link the issue when applicable.
 
 ## Commit Message Best Practices
 
@@ -76,7 +79,7 @@ Helpful defaults:
 - Update documentation for setup, command, or UX changes.
 - Add screenshots or recordings for UI changes.
 - Reference the issue in the PR body when relevant, for example `Closes #581`.
-- Make sure `make ci-check` passes before requesting review.
+- Make sure pre-commit and the relevant tests pass before requesting review.
 
 ## License
 
