@@ -4,9 +4,12 @@
 .vscode
 .claude
 node_modules
+**/node_modules
 __pycache__
 *.pyc
 .next
+**/.next
+**/dist
 .env
 .env.*
 *.md
