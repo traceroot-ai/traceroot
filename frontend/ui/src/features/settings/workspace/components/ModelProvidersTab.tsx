@@ -507,7 +507,13 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-medium">Models</label>
-                  <Button type="button" variant="outline" size="sm" onClick={addCustomModel} disabled={isAddModelDisabled}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addCustomModel}
+                    disabled={isAddModelDisabled}
+                  >
                     <Plus className="mr-1 h-3 w-3" />
                     Add Model
                   </Button>
@@ -522,10 +528,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                   return customModels.map((model, i) => (
                     <div key={i} className="flex items-center gap-2">
                       {curatedModels ? (
-                        <Select
-                          value={model}
-                          onValueChange={(v) => updateCustomModel(i, v)}
-                        >
+                        <Select value={model} onValueChange={(v) => updateCustomModel(i, v)}>
                           <SelectTrigger className="flex-1">
                             <SelectValue placeholder="Select a model" />
                           </SelectTrigger>
