@@ -16,10 +16,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   if (membershipResult.error) return membershipResult.error;
 
   // System models: include entries where env var is set
-  console.log(
-    "[llm-models] Env check:",
-    SYSTEM_MODELS.map((s) => `${s.envVar}=${!!process.env[s.envVar]}`).join(", "),
-  );
   const systemModels = SYSTEM_MODELS.filter((s) => !!process.env[s.envVar]).map((s) => ({
     provider: s.provider,
     adapter: s.piAIProvider,
