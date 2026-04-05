@@ -228,6 +228,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     if (config && (!providerName || providerName === prevConfig?.label)) {
       setProviderName(config.label);
     }
+    setCustomModels([]);
     setModelProtocols({});
   }
 
