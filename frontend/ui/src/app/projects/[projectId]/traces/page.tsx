@@ -65,8 +65,8 @@ export default function TracesPage() {
       staleTime: Infinity,
       refetchInterval: (query: unknown) => {
         const hasTraces =
-          ((query as { state?: { data?: { data?: unknown[] } } })?.state?.data?.data?.length ??
-            0) > 0;
+          ((query as { state?: { data?: { data?: unknown[] } } })?.state?.data?.data?.length ?? 0) >
+          0;
         return hasTraces ? false : 3000;
       },
     },
@@ -185,7 +185,7 @@ export default function TracesPage() {
                       <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Name
                       </th>
-                      <th className="min-w-[280px] max-w-[400px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="min-w-[280px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Trace ID
                       </th>
                       <th className="w-[60px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
@@ -225,7 +225,9 @@ export default function TracesPage() {
                           {trace.name}
                         </td>
                         <td className="min-w-[280px] max-w-[400px] border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-                          <span title={trace.trace_id}>{trace.trace_id}</span>
+                          <span className="block truncate" title={trace.trace_id}>
+                            {trace.trace_id}
+                          </span>
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5">
                           {trace.status === "error" ? (
