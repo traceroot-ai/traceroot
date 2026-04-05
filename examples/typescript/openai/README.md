@@ -12,7 +12,8 @@ pnpm install
 ## Usage
 
 ```bash
-pnpm demo
+pnpm demo        # tool-calling agent
+pnpm streaming   # streaming pipeline (generator support)
 ```
 
 ## What it does

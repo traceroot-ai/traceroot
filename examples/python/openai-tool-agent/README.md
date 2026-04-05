@@ -13,6 +13,14 @@ With `uv` (recommended):
 uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py
 ```
 
+## Streaming pipeline
+
+Demonstrates `@observe` on async generators — spans stay open until the last token, capturing real end-to-end latency.
+
+```bash
+uv run --no-project --python 3.13 --with-requirements requirements.txt python streaming-pipeline.py
+```
+
 ## What it does
 
 Runs two demo queries that exercise tool use:
