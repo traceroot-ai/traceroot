@@ -6,5 +6,4 @@ python-dotenv>=1.0.0
 fastapi==0.115.12
 uvicorn==0.34.3
 
-# When running from this repo, use the local SDK:
 traceroot==0.1.1
