@@ -43,7 +43,12 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
   const models: (AvailableLLMModel & { provider: string; source: "system" | "byok" })[] = (() => {
     if (!data) return FALLBACK_MODELS;
     const systemList = data.systemModels.flatMap((g) =>
-      g.models.map((m) => ({ ...m, provider: g.provider, source: "system" as const, supported: true })),
+      g.models.map((m) => ({
+        ...m,
+        provider: g.provider,
+        source: "system" as const,
+        supported: true,
+      })),
     );
     const byokList = data.byokProviders.flatMap((g) =>
       g.models.map((m) => ({ ...m, provider: g.provider, source: "byok" as const })),

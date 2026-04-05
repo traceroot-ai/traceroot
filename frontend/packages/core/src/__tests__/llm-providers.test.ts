@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  ADAPTER_MODELS,
-  SYSTEM_MODELS,
-  ADAPTER_API_PROTOCOL,
-  LLMAdapter,
-} from "../llm-providers";
+import { ADAPTER_MODELS, SYSTEM_MODELS, ADAPTER_API_PROTOCOL, LLMAdapter } from "../llm-providers";
 
 describe("ADAPTER_MODELS", () => {
   it("contains no duplicate model IDs within a single adapter", () => {
@@ -20,7 +15,10 @@ describe("ADAPTER_MODELS", () => {
     for (const [adapter, models] of Object.entries(ADAPTER_MODELS)) {
       if (!models) continue;
       for (const model of models) {
-        expect(model.label.trim().length, `adapter "${adapter}", model "${model.id}" has empty label`).toBeGreaterThan(0);
+        expect(
+          model.label.trim().length,
+          `adapter "${adapter}", model "${model.id}" has empty label`,
+        ).toBeGreaterThan(0);
       }
     }
   });
@@ -85,10 +83,9 @@ describe("ADAPTER_MODELS", () => {
       for (const [adapter, models] of Object.entries(ADAPTER_MODELS)) {
         if (!models) continue;
         for (const model of models) {
-          expect(
-            model.id,
-            `adapter "${adapter}" model "${model.id}" has whitespace`,
-          ).toBe(model.id.trim());
+          expect(model.id, `adapter "${adapter}" model "${model.id}" has whitespace`).toBe(
+            model.id.trim(),
+          );
         }
       }
     });
