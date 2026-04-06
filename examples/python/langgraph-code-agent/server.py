@@ -2,7 +2,7 @@
 Multi-agent code generator with TraceRoot observability.
 
 Usage:
-    cp env.example .env
+    cp .env.example .env
     pip install -r requirements.txt
     python server.py
 
