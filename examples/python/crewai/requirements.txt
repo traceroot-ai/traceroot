@@ -1,0 +1,3 @@
+crewai[litellm,anthropic,google-genai]>=1.14.0a3
+python-dotenv>=1.0.0
+traceroot==0.0.7
