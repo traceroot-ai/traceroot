@@ -28,7 +28,9 @@ import {
   ADAPTER_API_PROTOCOL,
   ADAPTER_AVAILABLE_PROTOCOLS,
   ADAPTER_DEFAULT_BASE_URL,
+  ADAPTER_MODELS,
 } from "@traceroot/core";
+import type { LLMAdapter } from "@traceroot/core";
 import {
   getModelProviders,
   createModelProvider,
@@ -155,7 +157,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     setSaveError(null);
     // Build config with per-model protocol overrides (only non-default ones)
     const defaultProtocol = ADAPTER_API_PROTOCOL[adapter] || "";
-    const trimmedModels = customModels.map((m) => m.trim()).filter(Boolean);
+    const trimmedModels = [...new Set(customModels.map((m) => m.trim()).filter(Boolean))];
     const filteredProtocols: Record<string, string> = {};
     for (const modelId of trimmedModels) {
       const proto = modelProtocols[modelId];
@@ -226,11 +228,29 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     if (config && (!providerName || providerName === prevConfig?.label)) {
       setProviderName(config.label);
     }
+    setCustomModels([]);
     setModelProtocols({});
   }
 
+  function seedProtocolFromCatalog(modelId: string) {
+    const catalog = ADAPTER_MODELS[adapter as LLMAdapter];
+    if (!catalog) return;
+    const entry = catalog.find((m) => m.id === modelId);
+    if (entry?.apiProtocol) {
+      setModelProtocols((prev) => ({ ...prev, [modelId]: entry.apiProtocol! }));
+    }
+  }
+
   function addCustomModel() {
-    setCustomModels([...customModels, ""]);
+    const curatedModels = ADAPTER_MODELS[adapter as LLMAdapter];
+    if (curatedModels) {
+      const used = new Set(customModels);
+      const next = curatedModels.find((m) => !used.has(m.id));
+      setCustomModels([...customModels, next?.id ?? ""]);
+      if (next) seedProtocolFromCatalog(next.id);
+    } else {
+      setCustomModels([...customModels, ""]);
+    }
   }
 
   function removeCustomModel(index: number) {
@@ -241,6 +261,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     const updated = [...customModels];
     updated[index] = value;
     setCustomModels(updated);
+    seedProtocolFromCatalog(value);
   }
 
   if (isLoading) {
@@ -288,6 +309,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
         : !!apiKey;
   const hasRequiredBaseUrl = adapterConfig?.requiresBaseUrl ? !!baseUrl : true;
   const canSave = adapter && providerName && hasCredentials && hasRequiredBaseUrl;
+
+  const curatedModelsForAdapter = adapter ? ADAPTER_MODELS[adapter as LLMAdapter] : null;
+  const isAddModelDisabled = curatedModelsForAdapter
+    ? curatedModelsForAdapter.every((m) => customModels.includes(m.id))
+    : false;
 
   const canTest =
     adapter &&
@@ -493,7 +519,13 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-medium">Models</label>
-                  <Button type="button" variant="outline" size="sm" onClick={addCustomModel}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addCustomModel}
+                    disabled={isAddModelDisabled}
+                  >
                     <Plus className="mr-1 h-3 w-3" />
                     Add Model
                   </Button>
@@ -503,28 +535,44 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                   const protocols = ADAPTER_AVAILABLE_PROTOCOLS[adapter];
                   const hasMultipleProtocols = protocols && protocols.length > 1;
                   const defaultProto = ADAPTER_API_PROTOCOL[adapter] || "";
+                  const curatedModels = ADAPTER_MODELS[adapter as LLMAdapter];
 
                   return customModels.map((model, i) => (
                     <div key={i} className="flex items-center gap-2">
-                      <Input
-                        value={model}
-                        onChange={(e) => updateCustomModel(i, e.target.value)}
-                        placeholder={
-                          {
-                            openai: "e.g. gpt-4o, gpt-5",
-                            anthropic: "e.g. claude-sonnet-4-5",
-                            azure: "e.g. my-gpt4-deployment",
-                            google: "e.g. gemini-2.5-flash",
-                            "amazon-bedrock": "e.g. anthropic.claude-v2",
-                            deepseek: "e.g. deepseek-chat, deepseek-reasoner",
-                            openrouter: "e.g. openai/gpt-4o",
-                            xai: "e.g. grok-4-1-fast-reasoning",
-                            zai: "e.g. glm-5, glm-4.7",
-                            moonshot: "e.g. kimi-k2.5, kimi-k2-thinking",
-                          }[adapter] || "Model ID"
-                        }
-                        className="flex-1"
-                      />
+                      {curatedModels ? (
+                        <Select value={model} onValueChange={(v) => updateCustomModel(i, v)}>
+                          <SelectTrigger className="flex-1">
+                            <SelectValue placeholder="Select a model" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {model && !curatedModels.some((m) => m.id === model) && (
+                              <SelectItem key={model} value={model} disabled>
+                                {model} (Unsupported)
+                              </SelectItem>
+                            )}
+                            {curatedModels
+                              .filter((m) => m.id === model || !customModels.includes(m.id))
+                              .map((m) => (
+                                <SelectItem key={m.id} value={m.id}>
+                                  {m.label}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          value={model}
+                          onChange={(e) => updateCustomModel(i, e.target.value)}
+                          placeholder={
+                            {
+                              azure: "e.g. my-gpt4-deployment",
+                              "amazon-bedrock": "e.g. anthropic.claude-v2",
+                              openrouter: "e.g. openai/gpt-4o",
+                            }[adapter] || "Model ID"
+                          }
+                          className="flex-1"
+                        />
+                      )}
                       {hasMultipleProtocols && (
                         <Select
                           value={modelProtocols[model] || defaultProto}

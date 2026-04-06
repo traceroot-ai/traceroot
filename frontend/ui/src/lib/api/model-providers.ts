@@ -21,6 +21,7 @@ export interface ModelProviderResponse {
 export interface AvailableLLMModel {
   id: string;
   label: string;
+  supported?: boolean;
 }
 
 export interface SystemModelGroup {
