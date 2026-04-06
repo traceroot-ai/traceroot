@@ -63,6 +63,7 @@ export const ADAPTER_API_PROTOCOL: Record<string, string> = {
 
 export interface LLMModelDef {
   id: string;
+  /** Display label — intentionally set equal to id so the UI shows the exact model ID sent to the API */
   label: string;
   /** Cost per 1M input tokens in USD */
   inputCostPer1M?: number;
@@ -89,11 +90,11 @@ export const SYSTEM_MODELS: {
     piAIProvider: "anthropic",
     apiProtocol: "anthropic-messages",
     models: [
-      { id: "claude-opus-4-6", label: "Claude Opus 4.6" },
-      { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-      { id: "claude-opus-4-5", label: "Claude Opus 4.5" },
-      { id: "claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
-      { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+      { id: "claude-opus-4-6", label: "claude-opus-4-6" },
+      { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
+      { id: "claude-opus-4-5", label: "claude-opus-4-5" },
+      { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
+      { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
     ],
   },
   {
@@ -102,12 +103,12 @@ export const SYSTEM_MODELS: {
     piAIProvider: "openai",
     apiProtocol: "openai-completions",
     models: [
-      { id: "gpt-5", label: "GPT-5" },
-      { id: "gpt-5-mini", label: "GPT-5 Mini" },
+      { id: "gpt-5", label: "gpt-5" },
+      { id: "gpt-5-mini", label: "gpt-5-mini" },
       { id: "o3", label: "o3" },
       { id: "o4-mini", label: "o4-mini" },
       // Codex models require the Responses API (not Chat Completions)
-      { id: "gpt-5.3-codex", label: "GPT-5.3 Codex", apiProtocol: "openai-responses" },
+      { id: "gpt-5.3-codex", label: "gpt-5.3-codex", apiProtocol: "openai-responses" },
     ],
   },
 ];
@@ -133,44 +134,44 @@ export const PROVIDER_PRIORITY: LLMAdapter[] = [
 // Adapters NOT listed here (azure, amazon-bedrock, openrouter) use free-text input.
 export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   openai: [
-    { id: "gpt-5.4", label: "GPT-5.4" },
-    { id: "gpt-5.4-pro", label: "GPT-5.4 Pro" },
-    { id: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
-    { id: "gpt-5.4-nano", label: "GPT-5.4 Nano" },
-    { id: "gpt-5.3-codex", label: "GPT-5.3 Codex", apiProtocol: "openai-responses" },
-    { id: "gpt-5.2", label: "GPT-5.2" },
-    { id: "gpt-5", label: "GPT-5" },
-    { id: "gpt-5-mini", label: "GPT-5 Mini" },
+    { id: "gpt-5.4", label: "gpt-5.4" },
+    { id: "gpt-5.4-pro", label: "gpt-5.4-pro" },
+    { id: "gpt-5.4-mini", label: "gpt-5.4-mini" },
+    { id: "gpt-5.4-nano", label: "gpt-5.4-nano" },
+    { id: "gpt-5.3-codex", label: "gpt-5.3-codex", apiProtocol: "openai-responses" },
+    { id: "gpt-5.2", label: "gpt-5.2" },
+    { id: "gpt-5", label: "gpt-5" },
+    { id: "gpt-5-mini", label: "gpt-5-mini" },
     { id: "o3", label: "o3" },
     { id: "o4-mini", label: "o4-mini" },
   ],
   anthropic: [
-    { id: "claude-opus-4-6", label: "Claude Opus 4.6" },
-    { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-    { id: "claude-opus-4-5", label: "Claude Opus 4.5" },
-    { id: "claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
-    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+    { id: "claude-opus-4-6", label: "claude-opus-4-6" },
+    { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
+    { id: "claude-opus-4-5", label: "claude-opus-4-5" },
+    { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
+    { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
   ],
   google: [
-    { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview" },
-    { id: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview" },
-    { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite Preview" },
-    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
-    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+    { id: "gemini-3.1-pro-preview", label: "gemini-3.1-pro-preview" },
+    { id: "gemini-3-flash-preview", label: "gemini-3-flash-preview" },
+    { id: "gemini-3.1-flash-lite-preview", label: "gemini-3.1-flash-lite-preview" },
+    { id: "gemini-2.5-flash", label: "gemini-2.5-flash" },
+    { id: "gemini-2.5-pro", label: "gemini-2.5-pro" },
   ],
-  deepseek: [{ id: "deepseek-chat", label: "DeepSeek Chat" }],
+  deepseek: [{ id: "deepseek-chat", label: "deepseek-chat" }],
   xai: [
-    { id: "grok-4.20", label: "Grok 4.20" },
-    { id: "grok-4", label: "Grok 4" },
+    { id: "grok-4.20", label: "grok-4.20" },
+    { id: "grok-4", label: "grok-4" },
   ],
   moonshot: [
-    { id: "kimi-k2.5", label: "Kimi K2.5" },
-    { id: "kimi-k2-thinking", label: "Kimi K2 Thinking" },
+    { id: "kimi-k2.5", label: "kimi-k2.5" },
+    { id: "kimi-k2-thinking", label: "kimi-k2-thinking" },
   ],
   zai: [
-    { id: "glm-4.5", label: "GLM-4.5" },
-    { id: "glm-4.5-air", label: "GLM-4.5 Air" },
-    { id: "glm-4.5-flash", label: "GLM-4.5 Flash" },
+    { id: "glm-4.5", label: "glm-4.5" },
+    { id: "glm-4.5-air", label: "glm-4.5-air" },
+    { id: "glm-4.5-flash", label: "glm-4.5-flash" },
   ],
 };
 

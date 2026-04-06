@@ -11,14 +11,23 @@ describe("ADAPTER_MODELS", () => {
     }
   });
 
-  it("has non-empty label for every model", () => {
+  it("label equals id for every model", () => {
     for (const [adapter, models] of Object.entries(ADAPTER_MODELS)) {
       if (!models) continue;
       for (const model of models) {
         expect(
-          model.label.trim().length,
-          `adapter "${adapter}", model "${model.id}" has empty label`,
-        ).toBeGreaterThan(0);
+          model.label,
+          `adapter "${adapter}", model "${model.id}" has label "${model.label}" — should equal id`,
+        ).toBe(model.id);
+      }
+    }
+
+    for (const system of SYSTEM_MODELS) {
+      for (const model of system.models) {
+        expect(
+          model.label,
+          `system provider "${system.provider}", model "${model.id}" has label "${model.label}" — should equal id`,
+        ).toBe(model.id);
       }
     }
   });
