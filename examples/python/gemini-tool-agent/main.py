@@ -194,7 +194,7 @@ class ReActAgent:
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_INSTRUCTION,
                 tools=[types.Tool(function_declarations=TOOL_SCHEMAS)],
-            )
+            ),
         )
 
     @observe(name="agent_turn", type="agent")
