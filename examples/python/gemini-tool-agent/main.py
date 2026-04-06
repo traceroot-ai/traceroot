@@ -10,7 +10,7 @@ Usage:
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -99,7 +99,7 @@ def calculate(expression: str) -> dict:
 def get_current_time() -> dict:
     """Get current time in UTC."""
     return {
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "time": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S"),
         "timezone": "UTC",
     }
 
