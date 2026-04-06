@@ -1,0 +1,75 @@
+---
+title: Google Gemini
+description: Auto-instrument Google Gemini API calls via the GenAI SDK
+---
+
+Automatically capture all Gemini model calls made through the `google-genai` SDK.
+
+## Setup
+
+```python
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])
+```
+
+## Usage
+
+Once initialized, all Gemini calls are captured automatically:
+
+```python
+import os
+from google import genai
+from google.genai import types
+
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+
+# This call is automatically traced
+response = client.models.generate_content(
+    model="gemini-2.5-flash",
+    contents="What is the capital of France?",
+)
+
+print(response.text)
+```
+
+## Usage with Tools
+
+Tool calls and multi-turn conversations are fully traced:
+
+```python
+import os
+from google import genai
+from google.genai import types
+
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+
+get_weather = types.FunctionDeclaration(
+    name="get_weather",
+    description="Get current weather for a city",
+    parameters=types.Schema(
+        type="OBJECT",
+        properties={"city": types.Schema(type="STRING", description="City name")},
+        required=["city"],
+    ),
+)
+
+# Tool calls are automatically traced as child spans
+response = client.models.generate_content(
+    model="gemini-2.5-flash",
+    contents="What's the weather in Tokyo?",
+    config=types.GenerateContentConfig(tools=[get_weather]),
+)
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Model | `gemini-2.5-flash`, `gemini-2.0-pro`, etc. |
+| Contents | Input messages and multi-turn history |
+| Response | Generated text and function calls |
+| Tokens | Input and output token counts |
+| Cost | Calculated from token usage and model pricing |
+| Latency | Request duration |
