@@ -1,0 +1,110 @@
+---
+title: LangChain DeepAgents
+description: Trace multi-agent research pipelines built with DeepAgents
+---
+
+Automatically capture the full multi-agent hierarchy of [DeepAgents](https://github.com/langchain-ai/deepagentsjs) pipelines. DeepAgents builds on LangChain, so TraceRoot instruments it via the LangChain callback manager.
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.LANGCHAIN])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import * as lcCallbackManager from '@langchain/core/callbacks/manager';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { langchain: lcCallbackManager },
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import observe, using_attributes
+    from deepagents import create_deep_agent
+
+    research_subagent = {
+        "name": "research-agent",
+        "description": "Searches the web to gather information on a topic.",
+        "system_prompt": "You are a thorough research agent. Cite sources and organise findings clearly.",
+        "tools": [web_search],
+    }
+
+    supervisor = create_deep_agent(
+        model="claude-sonnet-4-6",
+        system_prompt="You are a research supervisor. Delegate tasks to sub-agents and synthesise their outputs.",
+        subagents=[research_subagent],
+    )
+
+    @observe(name="research_session", type="agent")
+    def run_research(query: str) -> str:
+        result = supervisor.invoke({"messages": [{"role": "user", "content": query}]})
+        messages = result.get("messages", [])
+        return messages[-1].content if messages else ""
+
+    with using_attributes(user_id="demo-user", session_id="research-session"):
+        report = run_research("What are the latest AI agent frameworks in 2025?")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, usingAttributes } from '@traceroot-ai/traceroot';
+    import { createDeepAgent, type SubAgent } from 'deepagents';
+    import { ChatAnthropic } from '@langchain/anthropic';
+    import { HumanMessage } from '@langchain/core/messages';
+
+    const llm = new ChatAnthropic({ model: 'claude-sonnet-4-20250514', temperature: 0 });
+
+    const researchSubAgent: SubAgent = {
+      name: 'research-agent',
+      description: 'Researches a specific topic in depth.',
+      systemPrompt: 'You are a thorough research agent. Gather comprehensive, current information and cite sources.',
+      tools: [internetSearch],
+    };
+
+    const supervisor = createDeepAgent({
+      model: llm,
+      tools: [internetSearch],
+      systemPrompt: 'You are a research supervisor. Delegate tasks to sub-agents and synthesise their outputs.',
+      subagents: [researchSubAgent],
+    });
+
+    await usingAttributes(
+      { userId: 'demo-user', sessionId: 'research-session' },
+      () =>
+        observe({ name: 'research_session', type: 'agent' }, async () => {
+          const result = await supervisor.invoke(
+            { messages: [new HumanMessage('What are the latest AI agent frameworks in 2025?')] },
+            { recursionLimit: 100 },
+          );
+          const messages = result.messages ?? [];
+          console.log(messages[messages.length - 1]?.content);
+        }),
+    );
+    ```
+  </Tab>
+</Tabs>
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Supervisor steps | Each supervisor reasoning and delegation step |
+| Sub-agent calls | Each sub-agent invocation with its own span |
+| Tool calls | Tool inputs and outputs within sub-agents |
+| LLM calls | All LLM calls across the full agent hierarchy |
+| Token usage | Aggregated across all agents and LLM calls |
+| Cost | Total cost for the full multi-agent run |

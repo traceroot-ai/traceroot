@@ -3,32 +3,61 @@ title: Users
 description: Associate traces with specific users
 ---
 
-Set `user_id` on a trace to associate it with a specific user — enabling per-user filtering, cost tracking, and analytics in the dashboard.
+Set a **User ID** on a trace to associate it with a specific user — enabling per-user filtering, cost tracking, and analytics in the dashboard.
 
 <Frame>
   <img src="/images/user_v1.png" alt="TraceRoot dashboard showing traces filtered by user" />
 </Frame>
 
-## Using context manager
+## Using `using_attributes` / `usingAttributes`
 
-Use `using_attributes` to propagate `user_id` to all traces within a block:
+Propagate a User ID to all traces within a block:
 
-```python
-from traceroot import using_attributes
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import using_attributes
 
-with using_attributes(user_id="user-42"):
-    response = agent.run("What's the weather in SF?")
-```
+    with using_attributes(user_id="user-42"):
+        response = agent.run("What's the weather in SF?")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { usingAttributes } from '@traceroot-ai/traceroot';
 
-## Using decorator / inside a function
+    await usingAttributes({ userId: 'user-42' }, async () => {
+      await agent.run("What's the weather in SF?");
+    });
+    ```
+  </Tab>
+</Tabs>
 
-Call `update_current_trace` from within any observed function:
+## Using `observe` / inside a function
 
-```python
-from traceroot import observe, update_current_trace
+Call `update_current_trace` / `updateCurrentTrace` from within any observed function:
 
-@observe(name="handle_request", type="agent")
-def handle_request(query: str, user_id: str):
-    update_current_trace(user_id=user_id)
-    return process(query)
-```
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import observe, update_current_trace
+
+    @observe(name="handle_request", type="agent")
+    def handle_request(query: str, user_id: str):
+        update_current_trace(user_id=user_id)
+        return process(query)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, updateCurrentTrace } from '@traceroot-ai/traceroot';
+
+    async function handleRequest(query: string, userId: string) {
+      return observe({ name: 'handle_request', type: 'agent' }, async () => {
+        updateCurrentTrace({ userId });
+        return process(query);
+      });
+    }
+    ```
+  </Tab>
+</Tabs>
