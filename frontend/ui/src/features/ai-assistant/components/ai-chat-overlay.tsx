@@ -1,6 +1,6 @@
 "use client";
 
-import { X, Plus, History, Square } from "lucide-react";
+import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -9,7 +9,7 @@ import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
 import { useAiChat } from "../hooks/use-ai-chat";
 import { usePanelResize } from "../hooks/use-panel-resize";
-import { getProject } from "@/lib/api";
+import { getProject, getAvailableLLMModels } from "@/lib/api";
 
 interface AiChatOverlayProps {
   projectId: string;
@@ -31,6 +31,18 @@ export function AiChatOverlay({ projectId, traceId, traceSessionId, onClose }: A
     enabled: !!projectId,
   });
   const workspaceId = project?.workspace_id;
+
+  const { data: llmModels } = useQuery({
+    queryKey: ["llm-models", workspaceId],
+    queryFn: () => getAvailableLLMModels(workspaceId!),
+    enabled: !!workspaceId,
+  });
+
+  const unsupportedModels = llmModels
+    ? llmModels.byokProviders.flatMap((g) =>
+        g.models.filter((m) => !m.supported).map((m) => ({ id: m.id, provider: g.provider })),
+      )
+    : [];
 
   const {
     messages,
@@ -92,6 +104,30 @@ export function AiChatOverlay({ projectId, traceId, traceSessionId, onClose }: A
           <X className="h-3.5 w-3.5" />
         </Button>
       </div>
+
+      {/* Unsupported model warning */}
+      {unsupportedModels.length > 0 && (
+        <div className="mx-3 mt-2 flex items-start gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-[12px] dark:border-yellow-900 dark:bg-yellow-950">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-600" />
+          <div>
+            <p className="font-medium text-yellow-800 dark:text-yellow-200">
+              Unsupported model{unsupportedModels.length > 1 ? "s" : ""} detected
+            </p>
+            <p className="mt-0.5 text-yellow-700 dark:text-yellow-300">
+              {unsupportedModels.map((m) => m.id).join(", ")}{" "}
+              {unsupportedModels.length > 1 ? "are" : "is"} no longer in the supported model list.
+              Update in{" "}
+              <a
+                href={`/workspaces/${workspaceId}/settings/model-providers`}
+                className="font-medium underline"
+              >
+                Settings &rarr; Model Providers
+              </a>
+              .
+            </p>
+          </div>
+        </div>
+      )}
 
       <MessageList messages={messages} sessionStreaming={isStreaming} />
       <MessageInput

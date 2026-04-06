@@ -23,7 +23,13 @@ interface ModelSelectorProps {
 
 // Flatten all system models into a single list with provider info attached
 const FALLBACK_MODELS = SYSTEM_MODELS.flatMap((s) =>
-  s.models.map((m) => ({ ...m, provider: s.provider, source: "system" as const })),
+  s.models.map((m) => ({
+    ...m,
+    provider: s.provider,
+    adapter: s.piAIProvider,
+    source: "system" as const,
+    supported: true,
+  })),
 );
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
@@ -40,13 +46,28 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
   });
 
   // Build flat model list: BYOK models first, then system models. No deduplication.
-  const models: (AvailableLLMModel & { provider: string; source: "system" | "byok" })[] = (() => {
+  const models: (AvailableLLMModel & {
+    provider: string;
+    adapter: string;
+    source: "system" | "byok";
+  })[] = (() => {
     if (!data) return FALLBACK_MODELS;
     const systemList = data.systemModels.flatMap((g) =>
-      g.models.map((m) => ({ ...m, provider: g.provider, source: "system" as const })),
+      g.models.map((m) => ({
+        ...m,
+        provider: g.provider,
+        adapter: g.adapter,
+        source: "system" as const,
+        supported: true,
+      })),
     );
     const byokList = data.byokProviders.flatMap((g) =>
-      g.models.map((m) => ({ ...m, provider: g.provider, source: "byok" as const })),
+      g.models.map((m) => ({
+        ...m,
+        provider: g.provider,
+        adapter: g.adapter,
+        source: "byok" as const,
+      })),
     );
     return [...byokList, ...systemList];
   })();
@@ -64,7 +85,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
       // Walk the priority list and return the first model we find.
       let found = false;
       for (const adapter of PROVIDER_PRIORITY) {
-        const match = models.find((m) => m.provider.toLowerCase() === adapter);
+        const match = models.find((m) => m.adapter === adapter);
         if (match) {
           onChange({ model: match.id, provider: match.provider, source: match.source });
           found = true;
@@ -120,6 +141,9 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
                 <span className="flex items-center gap-1.5">
                   {isSelected && <span className="text-[11px]">&#10003;</span>}
                   {m.label}
+                  {m.source === "byok" && !m.supported && (
+                    <span className="text-[10px] text-yellow-600">(unsupported)</span>
+                  )}
                 </span>
                 {showProvider && (
                   <span className="shrink-0 text-[10px] text-muted-foreground">{m.provider}</span>

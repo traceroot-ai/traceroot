@@ -15,7 +15,9 @@
     "db:migrate": "dotenv -e ../../../.env -- prisma migrate dev",
     "db:push": "dotenv -e ../../../.env -- prisma db push",
     "build": "dotenv -e ../../../.env -- prisma generate && tsc",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -25,6 +27,7 @@
     "@types/node": "^22.19.9",
     "prisma": "^5.22.0",
     "stripe": "^14.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^3.2.4"
   }
 }

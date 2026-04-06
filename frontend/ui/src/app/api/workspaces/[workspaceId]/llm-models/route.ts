@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
-import { prisma, SYSTEM_MODELS, ModelSource } from "@traceroot/core";
+import { prisma, SYSTEM_MODELS, ModelSource, ADAPTER_MODELS } from "@traceroot/core";
+import type { LLMAdapter } from "@traceroot/core";
 import { requireAuth, requireWorkspaceMembership, successResponse } from "@/lib/auth-helpers";
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
@@ -15,10 +16,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   if (membershipResult.error) return membershipResult.error;
 
   // System models: include entries where env var is set
-  console.log(
-    "[llm-models] Env check:",
-    SYSTEM_MODELS.map((s) => `${s.envVar}=${!!process.env[s.envVar]}`).join(", "),
-  );
   const systemModels = SYSTEM_MODELS.filter((s) => !!process.env[s.envVar]).map((s) => ({
     provider: s.provider,
     adapter: s.piAIProvider,
@@ -43,7 +40,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     models: (p.customModels || [])
       .map((id) => id.trim())
       .filter(Boolean)
-      .map((id) => ({ id, label: id })),
+      .map((id) => {
+        const catalog = ADAPTER_MODELS[p.adapter as LLMAdapter];
+        const match = catalog?.find((m) => m.id === id);
+        return { id, label: match?.label ?? id, supported: catalog ? !!match : true };
+      }),
   }));
 
   return successResponse({ systemModels, byokProviders });
