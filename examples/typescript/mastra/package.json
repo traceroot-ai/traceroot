@@ -1,0 +1,22 @@
+{
+  "name": "@traceroot/example-mastra",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "tsx agent.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^2.0.74",
+    "@mastra/core": "^1.0.0",
+    "@mastra/observability": "^1.0.0",
+    "@traceroot-ai/mastra": "^0.1.0",
+    "dotenv": "^16.4.5",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}
