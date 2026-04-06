@@ -5,15 +5,30 @@ description: Automatic token counting and cost calculation for LLM calls
 
 When you use TraceRoot's auto-instrumentation for OpenAI, Anthropic, or LangChain, token usage and cost are tracked automatically — no extra code needed.
 
-```python
-import traceroot
-from traceroot import Integration
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
 
-traceroot.initialize(integrations=[Integration.OPENAI])
+    traceroot.initialize(integrations=[Integration.OPENAI])
 
-# All OpenAI calls are now automatically tracked — tokens, cost, model
-client.chat.completions.create(...)
-```
+    # All OpenAI calls are now automatically tracked — tokens, cost, model
+    client.chat.completions.create(...)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+
+    // All OpenAI calls are now automatically tracked — tokens, cost, model
+    await client.chat.completions.create({ ... });
+    ```
+  </Tab>
+</Tabs>
 
 ## How It Works
 
@@ -42,20 +57,45 @@ In the dashboard, costs are visible at both the span and trace level:
 
 For custom or unsupported providers, report token usage manually:
 
-```python
-from traceroot import observe, update_current_span
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import observe, update_current_span
 
-@observe(name="custom_llm", type="llm")
-def call_custom_llm(prompt: str):
-    response = my_llm.generate(prompt)
+    @observe(name="custom_llm", type="llm")
+    def call_custom_llm(prompt: str):
+        response = my_llm.generate(prompt)
 
-    update_current_span(
-        model="my-custom-model",
-        usage={
-            "input_tokens": response.input_token_count,
-            "output_tokens": response.output_token_count,
+        update_current_span(
+            model="my-custom-model",
+            usage={
+                "input_tokens": response.input_token_count,
+                "output_tokens": response.output_token_count,
+            },
+        )
+
+        return response.text
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, updateCurrentSpan } from '@traceroot-ai/traceroot';
+
+    const result = await observe({ name: 'custom_llm', type: 'llm' }, async () => {
+      const response = await myLlm.generate(prompt);
+
+      updateCurrentSpan({
+        metadata: {
+          model: 'my-custom-model',
+          usage: {
+            input_tokens: response.inputTokenCount,
+            output_tokens: response.outputTokenCount,
+          },
         },
-    )
+      });
 
-    return response.text
-```
+      return response.text;
+    });
+    ```
+  </Tab>
+</Tabs>

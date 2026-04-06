@@ -3,27 +3,54 @@ title: Metadata
 description: Attach arbitrary key-value pairs to traces and spans
 ---
 
-Metadata is key-value pairs attached to traces or spans — useful for model versions, request IDs, feature flags, or any structured context you want to search on.
+**Metadata** is key-value pairs attached to traces or spans — useful for model versions, request IDs, feature flags, or any structured context you want to search on.
 
-## Using the decorator
+## Using `observe`
 
-Pass static metadata to `@observe` for values known at definition time:
+Pass static metadata to `observe` for values known at definition time:
 
-```python
-from traceroot import observe
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import observe
 
-@observe(name="process", type="agent", metadata={"version": "v2", "tier": "premium"})
-def process(query: str):
-    return result
-```
+    @observe(name="process", type="agent", metadata={"version": "v2", "tier": "premium"})
+    def process(query: str):
+        return result
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe } from '@traceroot-ai/traceroot';
 
-## Using context manager
+    const result = await observe(
+      { name: 'process', type: 'agent', metadata: { version: 'v2', tier: 'premium' } },
+      async () => doWork(query),
+    );
+    ```
+  </Tab>
+</Tabs>
 
-Use `using_attributes` to propagate metadata to all traces and spans within a block:
+## Using `using_attributes` / `usingAttributes`
 
-```python
-from traceroot import using_attributes
+Propagate metadata to all traces and spans within a block:
 
-with using_attributes(metadata={"deploy": "canary", "region": "us-west-2"}):
-    agent.run(query)
-```
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import using_attributes
+
+    with using_attributes(metadata={"deploy": "canary", "region": "us-west-2"}):
+        agent.run(query)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { usingAttributes } from '@traceroot-ai/traceroot';
+
+    await usingAttributes({ metadata: { deploy: 'canary', region: 'us-west-2' } }, async () => {
+      await agent.run(query);
+    });
+    ```
+  </Tab>
+</Tabs>

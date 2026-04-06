@@ -3,27 +3,54 @@ title: Tags
 description: Label traces with string tags for filtering and categorization
 ---
 
-Tags are string labels on traces for filtering and categorization — by environment, experiment, feature, or any dimension you care about.
+**Tags** are string labels on traces for filtering and categorization — by environment, experiment, feature, or any dimension you care about.
 
-## Using the decorator
+## Using `observe`
 
-Pass static tags directly to `@observe`:
+Pass static tags directly to `observe`:
 
-```python
-from traceroot import observe
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import observe
 
-@observe(name="run_agent", type="agent", tags=["production", "v2"])
-def run_agent(query: str):
-    return process(query)
-```
+    @observe(name="run_agent", type="agent", tags=["production", "v2"])
+    def run_agent(query: str):
+        return process(query)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe } from '@traceroot-ai/traceroot';
 
-## Using context manager
+    const result = await observe(
+      { name: 'run_agent', type: 'agent', tags: ['production', 'v2'] },
+      async () => process(query),
+    );
+    ```
+  </Tab>
+</Tabs>
 
-Use `using_attributes` to propagate tags to all traces within a block:
+## Using `using_attributes` / `usingAttributes`
 
-```python
-from traceroot import using_attributes
+Propagate tags to all traces within a block:
 
-with using_attributes(tags=["staging", "experiment-a"]):
-    agent.run(query)
-```
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import using_attributes
+
+    with using_attributes(tags=["staging", "experiment-a"]):
+        agent.run(query)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { usingAttributes } from '@traceroot-ai/traceroot';
+
+    await usingAttributes({ tags: ['staging', 'experiment-a'] }, async () => {
+      await agent.run(query);
+    });
+    ```
+  </Tab>
+</Tabs>

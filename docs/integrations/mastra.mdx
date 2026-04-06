@@ -1,0 +1,93 @@
+---
+title: Mastra
+description: Export traces from Mastra agents to TraceRoot via the OTLP exporter
+---
+
+Export traces from [Mastra](https://mastra.ai) agents to TraceRoot using the `@traceroot-ai/mastra` exporter package. This integrates with Mastra's built-in OpenTelemetry observability system.
+
+## Setup
+
+Install the exporter alongside your Mastra dependencies:
+
+```bash
+npm install @traceroot-ai/mastra @mastra/core @mastra/observability
+```
+
+Configure TraceRoot as an exporter in your Mastra instance:
+
+```typescript
+import { Mastra } from '@mastra/core';
+import { Observability } from '@mastra/observability';
+import { TraceRootExporter } from '@traceroot-ai/mastra';
+
+const exporter = new TraceRootExporter({
+  apiKey: process.env.TRACEROOT_API_KEY,
+});
+
+const mastra = new Mastra({
+  agents: { /* your agents */ },
+  observability: new Observability({
+    configs: {
+      traceroot: {
+        serviceName: 'my-mastra-app',
+        exporters: [exporter],
+      },
+    },
+  }),
+});
+```
+
+## Usage
+
+Once configured, all agent calls are traced automatically:
+
+```typescript
+import { Agent } from '@mastra/core/agent';
+import { anthropic } from '@ai-sdk/anthropic';
+
+const weatherAgent = new Agent({
+  id: 'weatherAgent',
+  name: 'Weather Agent',
+  instructions: 'You are a helpful weather assistant.',
+  model: anthropic('claude-haiku-4-5-20251001'),
+  tools: { /* your tools */ },
+});
+
+const mastra = new Mastra({
+  agents: { weatherAgent },
+  observability: new Observability({
+    configs: {
+      traceroot: {
+        serviceName: 'mastra-weather-agent',
+        exporters: [exporter],
+      },
+    },
+  }),
+});
+
+const agent = mastra.getAgent('weatherAgent');
+
+// Pass a consistent threadId to group calls under the same session
+const result = await agent.generate("What's the weather in Tokyo?", {
+  threadId: 'session-123',
+  resourceId: 'user-456',
+});
+
+console.log(result.text);
+
+// Flush traces before process exit
+await exporter.flush();
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Agent name | The Mastra agent ID |
+| Model | Underlying LLM model name |
+| Messages | Input messages and conversation history |
+| Response | Generated text output |
+| Tool calls | Each tool invocation with input and output |
+| Tokens | Input and output token counts |
+| Cost | Calculated from token usage and model pricing |
+| Latency | Request duration per span |

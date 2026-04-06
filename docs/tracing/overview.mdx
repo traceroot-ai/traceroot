@@ -3,39 +3,67 @@ title: Overview
 description: Attach context to your traces — users, sessions, tags, metadata, and more
 ---
 
-Once you have initialized TraceRoot, LLM calls are traced automatically. To go further — tracing custom functions, identifying users, grouping sessions, or tracking cost — you can use `@observe` and attach rich context to every trace.
+Once you have initialized TraceRoot, LLM calls are traced automatically. To go further — tracing custom functions, identifying users, grouping sessions, or tracking cost — you can use `observe` and attach rich context to every trace.
 
 ## Quickstart
 
 Here's everything you can attach in one place:
 
-```python
-import traceroot
-from traceroot import Integration, observe, using_attributes
-from openai import OpenAI
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration, observe, using_attributes
+    from openai import OpenAI
 
-traceroot.initialize(integrations=[Integration.OPENAI])
+    traceroot.initialize(integrations=[Integration.OPENAI])
 
-client = OpenAI()
+    client = OpenAI()
 
-@observe(name="run_agent", type="agent", metadata={"version": "v2"})
-def run_agent(query: str) -> str:
-    response = client.chat.completions.create(...)  # tokens + cost tracked automatically
-    return response.choices[0].message.content
+    @observe(name="run_agent", type="agent", metadata={"version": "v2"})
+    def run_agent(query: str) -> str:
+        response = client.chat.completions.create(...)  # tokens + cost tracked automatically
+        return response.choices[0].message.content
 
-# Use a context manager to propagate user/session context across multiple calls
-with using_attributes(user_id="user-42", session_id="chat-abc", tags=["production"]):
-    run_agent("What's the weather?")
-    run_agent("What about tomorrow?")
-```
+    with using_attributes(user_id="user-42", session_id="chat-abc", tags=["production"]):
+        run_agent("What's the weather?")
+        run_agent("What about tomorrow?")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+    import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
+
+    const client = new OpenAI();
+
+    async function runAgent(query: string): Promise<string> {
+      return observe({ name: 'run_agent', type: 'agent', metadata: { version: 'v2' } }, async () => {
+        const response = await client.chat.completions.create({ ... }); // tokens + cost tracked automatically
+        return response.choices[0].message.content ?? '';
+      });
+    }
+
+    await usingAttributes(
+      { userId: 'user-42', sessionId: 'chat-abc', tags: ['production'] },
+      async () => {
+        await runAgent("What's the weather?");
+        await runAgent('What about tomorrow?');
+      },
+    );
+    ```
+  </Tab>
+</Tabs>
 
 ## Quick Reference
 
 | I want to... | Attribute | Guide |
 |---|---|---|
-| Identify which user triggered a trace | `user_id` | [Users](/tracing/users) |
-| Group traces from the same conversation | `session_id` | [Sessions](/tracing/sessions) |
-| Label traces for filtering | `tags` | [Tags](/tracing/tags) |
-| Attach structured key-value context | `metadata` | [Metadata](/tracing/metadata) |
+| Identify which user triggered a trace | User ID | [Users](/tracing/users) |
+| Group traces from the same conversation | Session ID | [Sessions](/tracing/sessions) |
+| Label traces for filtering | Tags | [Tags](/tracing/tags) |
+| Attach structured key-value context | Metadata | [Metadata](/tracing/metadata) |
 | Track token usage and LLM cost | auto via instrumentation | [Cost Tracking](/tracing/cost-tracking) |
-| Link traces back to source code + commit | auto via `@observe` | [Git Context](/tracing/git-context) |
+| Link traces back to source code + commit | auto via `observe` | [Git Context](/tracing/git-context) |

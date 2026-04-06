@@ -18,9 +18,10 @@ My project uses [Python / TypeScript/Node.js] — adjust the instructions to mat
    import traceroot
    from traceroot import Integration
    traceroot.initialize(integrations=[
-       Integration.OPENAI,      # if using OpenAI
-       Integration.LANGCHAIN,   # if using LangChain/LangGraph
-       Integration.ANTHROPIC,   # if using Anthropic
+       Integration.OPENAI,        # if using OpenAI
+       Integration.LANGCHAIN,     # if using LangChain/LangGraph/DeepAgents
+       Integration.ANTHROPIC,     # if using Anthropic
+       Integration.GOOGLE_GENAI,  # if using Google Gemini
    ])
 3. Add @observe on agent entrypoints and tool functions:
    from traceroot import observe
@@ -38,12 +39,20 @@ My project uses [Python / TypeScript/Node.js] — adjust the instructions to mat
    import { TraceRoot } from '@traceroot-ai/traceroot';
    import OpenAI from 'openai';
    import Anthropic from '@anthropic-ai/sdk';
+   import * as lcCallbackManager from '@langchain/core/callbacks/manager';
    TraceRoot.initialize({
      instrumentModules: {
-       openAI: OpenAI,       // if using OpenAI
-       anthropic: Anthropic, // if using Anthropic
+       openAI: OpenAI,                    // if using OpenAI
+       anthropic: Anthropic,              // if using Anthropic
+       langchain: lcCallbackManager,      // if using LangChain/LangGraph/DeepAgents
      },
    });
+
+   For Mastra, use the dedicated exporter instead:
+   npm install @traceroot-ai/mastra
+   import { TraceRootExporter } from '@traceroot-ai/mastra';
+   const exporter = new TraceRootExporter({ apiKey: process.env.TRACEROOT_API_KEY });
+   // Pass exporter to Mastra's Observability config (see docs/integrations/mastra)
 3. Wrap agent entrypoints and tool functions with observe():
    import { observe } from '@traceroot-ai/traceroot';
    const result = await observe({ name: 'my_agent', type: 'agent' }, async () => {

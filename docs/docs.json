@@ -137,14 +137,17 @@
           {
             "group": "Frameworks",
             "pages": [
-              "integrations/langchain"
+              "integrations/langchain",
+              "integrations/langchain-deepagents",
+              "integrations/mastra"
             ]
           },
           {
             "group": "Model Providers",
             "pages": [
               "integrations/openai",
-              "integrations/anthropic"
+              "integrations/anthropic",
+              "integrations/gemini"
             ]
           },
           {
