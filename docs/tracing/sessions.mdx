@@ -3,40 +3,78 @@ title: Sessions
 description: Group related traces into sessions for multi-turn conversations and workflows
 ---
 
-Set `session_id` to group traces together — all turns in a conversation, or all steps in a multi-agent workflow.
+Set a **Session ID** to group traces together — all turns in a conversation, or all steps in a multi-agent workflow.
 
 <Frame>
   <img src="/images/session_v1.png" alt="TraceRoot dashboard showing traces grouped by session" />
 </Frame>
 
-## Using context manager
+## Using `using_attributes` / `usingAttributes`
 
-Use `using_attributes` to propagate `session_id` to all traces within a block:
+Propagate a Session ID to all traces within a block:
 
-```python
-from traceroot import using_attributes
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import using_attributes
 
-with using_attributes(session_id="chat-abc-123"):
-    response_1 = agent.run("What's the weather in SF?")
-    response_2 = agent.run("What about tomorrow?")
-```
+    with using_attributes(session_id="chat-abc-123"):
+        response_1 = agent.run("What's the weather in SF?")
+        response_2 = agent.run("What about tomorrow?")
+    ```
 
-Combine with `user_id` to get full context on every trace:
+    Combine with a User ID to get full context on every trace:
 
-```python
-with using_attributes(session_id="chat-abc-123", user_id="user-42"):
-    agent.run(query)
-```
+    ```python
+    with using_attributes(session_id="chat-abc-123", user_id="user-42"):
+        agent.run(query)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { usingAttributes } from '@traceroot-ai/traceroot';
 
-## Using decorator / inside a function
+    await usingAttributes({ sessionId: 'chat-abc-123' }, async () => {
+      await agent.run("What's the weather in SF?");
+      await agent.run('What about tomorrow?');
+    });
+    ```
 
-Call `update_current_trace` from within any observed function:
+    Combine with a User ID to get full context on every trace:
 
-```python
-from traceroot import observe, update_current_trace
+    ```typescript
+    await usingAttributes({ sessionId: 'chat-abc-123', userId: 'user-42' }, async () => {
+      await agent.run(query);
+    });
+    ```
+  </Tab>
+</Tabs>
 
-@observe(name="handle_request", type="agent")
-def handle_request(query: str, session_id: str):
-    update_current_trace(session_id=session_id)
-    return process(query)
-```
+## Using `observe` / inside a function
+
+Call `update_current_trace` / `updateCurrentTrace` from within any observed function:
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import observe, update_current_trace
+
+    @observe(name="handle_request", type="agent")
+    def handle_request(query: str, session_id: str):
+        update_current_trace(session_id=session_id)
+        return process(query)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, updateCurrentTrace } from '@traceroot-ai/traceroot';
+
+    async function handleRequest(query: string, sessionId: string) {
+      return observe({ name: 'handle_request', type: 'agent' }, async () => {
+        updateCurrentTrace({ sessionId });
+        return process(query);
+      });
+    }
+    ```
+  </Tab>
+</Tabs>
