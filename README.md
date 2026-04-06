@@ -27,41 +27,6 @@
 | Tracing | Capture LLM calls, agent actions, and tool usage via OpenTelemetry-compatible SDK. Intelligently surfaces the traces that matter — noise filtered, signal prioritized. |
 | Agentic Debugging | AI that sees all your traces, connects to a sandbox with your production source code, identifies the exact failing line, and correlates the failure with your GitHub commits, PRs, and issues. BYOK support for any model provider. |
 
-## Integrations 🔌
-
-### Model Providers
-
-| Integration | Supports | Description |
-| ----------- | -------- | ----------- |
-| [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | Chat Completions and Responses API — auto-instrumented via drop-in SDK wrapper. |
-| [Anthropic](https://traceroot.ai/docs/integrations/anthropic) | Python | Messages API — auto-instrumented with zero code changes beyond initialization. |
-| [Google Gemini](https://traceroot.ai/docs/integrations/gemini) | Python | Gemini models via the Google GenAI SDK. |
-
-### Agent Frameworks
-
-| Integration | Supports | Description |
-| ----------- | -------- | ----------- |
-| [LangChain & LangGraph](https://traceroot.ai/docs/integrations/langchain) | Python, JS/TS | Auto-instrument agent steps, tool calls, and LLM invocations in LangChain and LangGraph pipelines. |
-| [Mastra](https://traceroot.ai/docs/integrations/mastra) | JS/TS | Export traces from Mastra agents via the TraceRoot OTLP exporter. |
-| [LangChain DeepAgents](https://traceroot.ai/docs/integrations/langchain-deepagents) | Python | Trace multi-agent research pipelines built with DeepAgents. |
-
-### BYOK — Bring Your Own Key
-
-TraceRoot's AI debugger supports any model provider via BYOK. Use your own API keys for trace analysis, root cause analysis, and automated fix PR generation.
-
-| Provider | Notes |
-| -------- | ----- |
-| OpenAI | GPT-4o, o3, and more |
-| Anthropic | Claude 3.5/4 |
-| Google Gemini | Gemini 2.0 Flash, Pro |
-| xAI | Grok models |
-| DeepSeek | DeepSeek-R1, V3 |
-| OpenRouter | 100+ models via unified API |
-| Kimi | Moonshot models |
-| GLM | Zhipu AI models |
-
-> Don't see your framework or provider? [Request an integration](https://github.com/traceroot-ai/traceroot/issues) or check our [full docs](https://traceroot.ai/docs/integrations).
-
 ## Why TraceRoot?
 
 - **Traces alone don't scale.**
@@ -112,6 +77,26 @@ The fastest way to get started. Ample storages and LLM tokens for testing, no cr
   ```
 
 - [Terraform (AWS)](./deploy/): Run TraceRoot on k8s with Helm and Terraform. This is for production hosting. Still in experimental stage.
+
+## Integrations 🔌
+
+### Model Providers
+
+| Integration | Supports | Description |
+| ----------- | -------- | ----------- |
+| [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | Automated instrumentation of Chat Completions and Responses API. |
+| [Anthropic](https://traceroot.ai/docs/integrations/anthropic) | Python | Automated instrumentation of the Messages API. |
+| [Google Gemini](https://traceroot.ai/docs/integrations/gemini) | Python | Automated instrumentation via the Google GenAI SDK. |
+
+### Agent Frameworks
+
+| Integration | Supports | Description |
+| ----------- | -------- | ----------- |
+| [LangChain & LangGraph](https://traceroot.ai/docs/integrations/langchain) | Python, JS/TS | Automated instrumentation of agent steps, tool calls, and LLM invocations. |
+| [Mastra](https://traceroot.ai/docs/integrations/mastra) | JS/TS | Automated instrumentation via the TraceRoot OTLP exporter. |
+| [LangChain DeepAgents](https://traceroot.ai/docs/integrations/langchain-deepagents) | Python | Automated instrumentation of multi-agent research pipelines. |
+
+> Don't see your framework or provider? [Request an integration](https://github.com/traceroot-ai/traceroot/issues) or check our [full docs](https://traceroot.ai/docs/integrations).
 
 ## SDK
 
