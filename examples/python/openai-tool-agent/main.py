@@ -2,7 +2,7 @@
 OpenAI ReAct agent with tool use, streaming, and TraceRoot observability.
 
 Usage:
-    cp env.example .env
+    cp .env.example .env
     pip install -r requirements.txt
     python main.py
 """
