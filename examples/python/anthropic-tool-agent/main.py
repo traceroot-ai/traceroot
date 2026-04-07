@@ -2,7 +2,7 @@
 Anthropic ReAct agent with tool use and Traceroot observability.
 
 Usage:
-    cp env.example .env
+    cp .env.example .env
     pip install -r requirements.txt
     python main.py
 """

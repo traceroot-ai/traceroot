@@ -19,7 +19,7 @@ Why this matters for observability:
   the full assembled output.
 
 Usage:
-    cp env.example .env          # set OPENAI_API_KEY and TRACEROOT_API_KEY
+    cp .env.example .env          # set OPENAI_API_KEY and TRACEROOT_API_KEY
     pip install -r requirements.txt
     python streaming-pipeline.py
 """
