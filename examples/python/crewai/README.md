@@ -72,23 +72,23 @@ The example uses mocked internal tools instead of live web/search APIs, so it on
 
 ## TraceRoot Instrumentation
 
-The example keeps the same overall instrumentation shape as the other Python examples in this repo:
+The example follows the same TraceRoot shape as the other Python examples in this repo:
 
 - dotenv is loaded before model/SDK setup
-- TraceRoot is initialized once near the top
-- the top-level CrewAI run is wrapped in `@observe`
-- mocked tool helpers are wrapped in `@observe(type="tool")`
-- shared session metadata is attached when the installed TraceRoot SDK supports it
+- CrewAI telemetry is disabled before `crewai` imports so it does not fight TraceRoot for the global tracer provider
+- TraceRoot is initialized once before importing CrewAI
+- the top-level session remains wrapped in `@observe`
+- the mocked internal tools are wrapped in `@observe(type="tool")`
+- shared session metadata is attached with `using_attributes`, `update_current_trace`, and `update_current_span`
+- traces are flushed in a `finally` block so failed runs still export captured spans
 
-The code supports both TraceRoot SDK generations:
+The current installable dependency set pins `traceroot==0.0.7`, because newer published TraceRoot releases do not yet resolve cleanly with stable CrewAI releases. The example keeps a compatibility layer so it still follows the same instrumentation style as the other Python examples:
 
-- Newer TraceRoot SDKs use the `Integration` + `observe` API and can enable provider auto-instrumentation for:
-  - `openai` or `openai-compatible` -> `Integration.OPENAI`
-  - `anthropic` -> `Integration.ANTHROPIC`
-  - `google` -> `Integration.GOOGLE_GENAI`
-- The current dependency set pins `traceroot==0.0.7`, which is the resolver-compatible version with CrewAI today. That path still captures the top-level crew span and tool spans, but it does not expose the newer provider auto-instrumentation helpers yet.
+- top-level CrewAI session span
+- explicit tool/helper spans for the mocked internal tools
+- attached session metadata and final output on the active trace/span
 
-For `litellm` or unsupported providers, the example remains manually traced even on newer TraceRoot SDKs.
+If a future compatible TraceRoot release adds modern provider integrations for this stack, the example code is already structured to use them when available.
 
 ## Gemini Notes
 
@@ -99,3 +99,13 @@ For Gemini, the example accepts keys in this order:
 3. `GEMINI_API_KEY`
 
 If Google returns `API key expired` or `API_KEY_INVALID`, the issue is with the credential Google received, not with CrewAI tool wiring. In that case, set a fresh key in the example-local `.env` using `MODEL_API_KEY=...` to ensure it overrides any stale environment variable.
+
+## Provider Auth Notes
+
+The example now rewrites common authentication failures into clearer runtime messages for:
+
+- OpenAI and OpenAI-compatible endpoints
+- Anthropic
+- Google Gemini
+
+That keeps provider-specific setup errors easier to diagnose without changing the underlying crew workflow.
