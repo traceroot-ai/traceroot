@@ -184,8 +184,7 @@ traceroot.db
 /prisma/db.sqlite
 /prisma/db.sqlite-journal
 
-# Prisma migrations
-frontend/packages/core/prisma/migrations
+# NOTE: Prisma migration SQL files are NOT ignored -- prisma migrate deploy requires them.
 
 # ===================
 # Testing / Coverage
