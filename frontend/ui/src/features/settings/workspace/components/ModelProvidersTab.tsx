@@ -246,8 +246,9 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     if (curatedModels) {
       const used = new Set(customModels);
       const next = curatedModels.find((m) => !used.has(m.id));
-      setCustomModels([...customModels, next?.id ?? ""]);
-      if (next) seedProtocolFromCatalog(next.id);
+      if (!next) return;
+      setCustomModels([...customModels, next.id]);
+      seedProtocolFromCatalog(next.id);
     } else {
       setCustomModels([...customModels, ""]);
     }
