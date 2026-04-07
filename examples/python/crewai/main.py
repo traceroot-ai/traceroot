@@ -25,54 +25,11 @@ if EXAMPLE_DOTENV.exists():
 else:
     print(f"No example .env found at {EXAMPLE_DOTENV}.\nUsing process environment variables.")
 
-# Keep CrewAI's own tracing layer disabled so TraceRoot is the only tracing path
-# demonstrated by this example.
-os.environ.setdefault("CREWAI_TRACING_ENABLED", "false")
-
-from crewai import LLM, Agent, Crew, Process, Task
-from crewai.tools import BaseTool
-from pydantic import BaseModel, Field
-
-import traceroot
-
-# Support both TraceRoot's newer Integration/observe API and the older SDK line
-# that currently resolves cleanly alongside CrewAI.
-try:
-    from traceroot import Integration, observe, using_attributes
-
-    TRACEROOT_LEGACY_MODE = False
-    try:
-        from traceroot import update_current_span, update_current_trace
-    except ImportError:
-        update_current_span = None
-        update_current_trace = None
-except ImportError:
-    from opentelemetry import trace as otel_trace
-
-    from traceroot import init as traceroot_init
-    from traceroot import shutdown as traceroot_shutdown
-    from traceroot import trace as traceroot_trace
-    from traceroot.tracer import TraceOptions
-
-    Integration = None
-    TRACEROOT_LEGACY_MODE = True
-    update_current_span = None
-    update_current_trace = None
-
-    def observe(name: str, type: str):
-        del type
-        return traceroot_trace(
-            TraceOptions(
-                span_name=name,
-                trace_params=True,
-                trace_return_value=True,
-            )
-        )
-
-    @contextmanager
-    def using_attributes(**_: Any):
-        yield
-
+# Keep CrewAI's product telemetry disabled so TraceRoot is the only tracing
+# path demonstrated by this example.
+os.environ["CREWAI_TRACING_ENABLED"] = "false"
+os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
+os.environ["CREWAI_DISABLE_TRACKING"] = "true"
 
 ProviderName = Literal[
     "openai",
@@ -191,28 +148,73 @@ class ExampleConfig:
 
 CONFIG = ExampleConfig.from_env()
 
+# isort: off
+import traceroot
 
-def initialize_traceroot(config: ExampleConfig) -> None:
-    if TRACEROOT_LEGACY_MODE:
-        traceroot_init()
-        return
+try:
+    from traceroot import (
+        Integration,
+        observe,
+        update_current_span,
+        update_current_trace,
+        using_attributes,
+    )
 
-    integrations = []
-    if config.model_provider in {"openai", "openai-compatible"}:
-        integrations = [Integration.OPENAI]
-    elif config.model_provider == "anthropic":
-        integrations = [Integration.ANTHROPIC]
-    elif config.model_provider == "google":
-        integrations = [Integration.GOOGLE_GENAI]
+    TRACEROOT_LEGACY_MODE = False
 
-    traceroot.initialize(integrations=integrations)
+    def resolve_traceroot_integrations(config: ExampleConfig) -> list[Integration]:
+        integrations: list[Integration] = []
+
+        # Match the currently supported provider integrations in the published
+        # TraceRoot SDK. Gemini and LiteLLM still rely on the manual spans
+        # defined below.
+        if config.model_provider in {"openai", "openai-compatible"}:
+            integrations.append(Integration.OPENAI)
+        elif config.model_provider == "anthropic":
+            integrations.append(Integration.ANTHROPIC)
+
+        return integrations
+
+    traceroot.initialize(integrations=resolve_traceroot_integrations(CONFIG))
+except ImportError:
+    from opentelemetry import trace as otel_trace
+
+    from traceroot import shutdown as traceroot_shutdown
+    from traceroot import trace as traceroot_trace
+    from traceroot.tracer import TraceOptions
+
+    Integration = None
+    TRACEROOT_LEGACY_MODE = True
+    update_current_span = None
+    update_current_trace = None
+
+    def observe(name: str, type: str):
+        del type
+        return traceroot_trace(
+            TraceOptions(
+                span_name=name,
+                trace_params=True,
+                trace_return_value=True,
+            )
+        )
+
+    @contextmanager
+    def using_attributes(**_: Any):
+        yield
+
+
+from crewai import Agent, Crew, LLM, Process, Task
+from crewai.tools import BaseTool
+from pydantic import BaseModel, Field
+# isort: on
 
 
 def flush_traceroot() -> None:
-    if hasattr(traceroot, "flush"):
-        traceroot.flush()
-    elif TRACEROOT_LEGACY_MODE:
+    if TRACEROOT_LEGACY_MODE:
         traceroot_shutdown()
+        return
+
+    traceroot.flush()
 
 
 def enrich_current_trace(
@@ -230,20 +232,20 @@ def enrich_current_trace(
             tags=tags,
         )
 
-    if update_current_span is not None:
-        span_payload: dict[str, Any] = {
-            "metadata": metadata,
+    span_payload: dict[str, Any] = {
+        "metadata": metadata,
+    }
+    if topic is not None:
+        span_payload["input"] = {"topic": topic}
+        span_payload["model"] = metadata["model"]
+        span_payload["model_parameters"] = {
+            "framework": metadata["framework"],
+            "process": metadata["process"],
+            "provider": metadata["provider"],
         }
-        if topic is not None:
-            span_payload["input"] = {"topic": topic}
-            span_payload["model"] = metadata["model"]
-            span_payload["model_parameters"] = {
-                "framework": metadata["framework"],
-                "process": metadata["process"],
-                "provider": metadata["provider"],
-            }
-        if final_report is not None:
-            span_payload["output"] = {"final_report": final_report}
+    if final_report is not None:
+        span_payload["output"] = {"final_report": final_report}
+    if update_current_span is not None:
         update_current_span(**span_payload)
         return
 
@@ -262,9 +264,6 @@ def enrich_current_trace(
         span.set_attribute("traceroot.input.topic", topic)
     if final_report is not None:
         span.set_attribute("traceroot.output.final_report", final_report)
-
-
-initialize_traceroot(CONFIG)
 
 
 class TopicInput(BaseModel):
@@ -376,13 +375,39 @@ def build_llm(config: ExampleConfig) -> LLM:
 def rewrite_runtime_error(error: Exception, config: ExampleConfig) -> Exception:
     error_text = str(error)
     lowered = error_text.lower()
+    source = config.model_api_key_source or "unknown source"
+
+    if config.model_provider in {"openai", "openai-compatible"} and (
+        "invalid_api_key" in lowered
+        or "incorrect api key provided" in lowered
+        or "authenticationerror" in lowered
+    ):
+        return RuntimeError(
+            "OpenAI-compatible authentication failed. The configured API key was rejected.\n\n"
+            f"Configured source: `{source}`\n"
+            f"Example env file: `{EXAMPLE_DOTENV}`\n\n"
+            "Set a valid `MODEL_API_KEY` or `OPENAI_API_KEY`. If you are using a custom "
+            "endpoint, also confirm `MODEL_BASE_URL` points at the provider's `/v1` API root."
+        )
+
+    if config.model_provider == "anthropic" and (
+        "authentication_error" in lowered
+        or "invalid x-api-key" in lowered
+        or "invalid api key" in lowered
+    ):
+        return RuntimeError(
+            "Anthropic authentication failed. The configured API key was rejected.\n\n"
+            f"Configured source: `{source}`\n"
+            f"Example env file: `{EXAMPLE_DOTENV}`\n\n"
+            "Set a valid `MODEL_API_KEY` or `ANTHROPIC_API_KEY` and rerun."
+        )
 
     if config.model_provider == "google" and (
         "api key expired" in lowered
         or "api_key_invalid" in lowered
         or "google gemini api error" in lowered
+        or "api key not valid" in lowered
     ):
-        source = config.model_api_key_source or "unknown source"
         message = (
             "Gemini authentication failed. Google rejected the configured API key.\n\n"
             f"Configured source: `{source}`\n"
@@ -546,18 +571,20 @@ DEMO_TOPIC = "AI support triage workflow for a mid-market B2B SaaS team"
 
 if __name__ == "__main__":
     print(f"Topic: {DEMO_TOPIC}\n")
-    with using_attributes(
-        user_id="example-user",
-        session_id=CONFIG.session_id,
-        tags=["example", "python", "crewai", CONFIG.model_provider],
-        metadata={
-            "framework": "crewai",
-            "process": "sequential",
-            "provider": CONFIG.model_provider,
-            "model": CONFIG.model_name,
-        },
-    ):
-        report = run_research_session(DEMO_TOPIC, CONFIG)
+    try:
+        with using_attributes(
+            user_id="example-user",
+            session_id=CONFIG.session_id,
+            tags=["example", "python", "crewai", CONFIG.model_provider],
+            metadata={
+                "framework": "crewai",
+                "process": "sequential",
+                "provider": CONFIG.model_provider,
+                "model": CONFIG.model_name,
+            },
+        ):
+            report = run_research_session(DEMO_TOPIC, CONFIG)
 
-    print(report)
-    flush_traceroot()
+        print(report)
+    finally:
+        flush_traceroot()
