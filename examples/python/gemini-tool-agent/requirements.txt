@@ -1,4 +1,4 @@
 google-genai>=1.0.0
 python-dotenv>=1.0.0
 
-traceroot==0.1.0
+traceroot==0.1.2
