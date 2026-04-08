@@ -77,7 +77,10 @@ const QUERIES = [
   "Compare the weather in New York and London — which one is warmer?",
 ];
 
+// A stable ID shared across all calls in this demo run.
+// Both traces will appear grouped under the same session in TraceRoot.
 const SESSION_ID = `demo-${Date.now()}`;
+const USER_ID = 'demo-user';
 
 async function main() {
   const agent = mastra.getAgent('weatherAgent');
@@ -85,8 +88,14 @@ async function main() {
   for (const query of QUERIES) {
     console.log(`\nQuery: ${query}`);
     const result = await agent.generate(query, {
-      threadId: SESSION_ID,
-      resourceId: 'demo-user',
+      // tracingOptions.metadata is what TraceRoot reads for session/user/custom fields.
+      // Note: threadId/resourceId are for Mastra memory only — not telemetry.
+      tracingOptions: {
+        metadata: {
+          sessionId: SESSION_ID,
+          userId: USER_ID,
+        },
+      },
     });
     console.log(`Answer: ${result.text}`);
   }
