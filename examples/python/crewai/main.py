@@ -100,11 +100,7 @@ class ExampleConfig:
         if direct_key:
             return direct_key, "MODEL_API_KEY"
 
-        provider_key = ExampleConfig._fallback_api_key(provider)
-        if provider_key:
-            return provider_key
-
-        return None, None
+        return ExampleConfig._fallback_api_key(provider)
 
     @staticmethod
     def _fallback_api_key(provider: str) -> tuple[str | None, str | None]:
