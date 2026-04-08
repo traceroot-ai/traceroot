@@ -6,6 +6,7 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { TraceRootExporter } from '@traceroot-ai/mastra';
+import { TraceRoot, observe, usingAttributes, getCurrentTraceId, getCurrentSpanId } from '@traceroot-ai/traceroot';
 
 // ---------------------------------------------------------------------------
 // Tools
@@ -35,6 +36,9 @@ const getWeatherTool = createTool({
     return weather;
   },
 });
+
+// Auto-detects git context (repo, branch, sha) and attaches it to every span.
+TraceRoot.initialize({ instrumentModules: {} });
 
 // ---------------------------------------------------------------------------
 // Mastra setup
@@ -67,9 +71,6 @@ const mastra = new Mastra({
 
 // ---------------------------------------------------------------------------
 // Demo
-// Note: in Mastra, each agent.generate() call is its own root trace.
-// We pass a consistent threadId so both calls are grouped under the same
-// session in TraceRoot's Sessions view.
 // ---------------------------------------------------------------------------
 
 const QUERIES = [
@@ -85,22 +86,32 @@ const USER_ID = 'demo-user';
 async function main() {
   const agent = mastra.getAgent('weatherAgent');
 
-  for (const query of QUERIES) {
-    console.log(`\nQuery: ${query}`);
-    const result = await agent.generate(query, {
-      // tracingOptions.metadata is what TraceRoot reads for session/user/custom fields.
-      // Note: threadId/resourceId are for Mastra memory only — not telemetry.
-      tracingOptions: {
-        metadata: {
-          sessionId: SESSION_ID,
-          userId: USER_ID,
-        },
-      },
-    });
-    console.log(`Answer: ${result.text}`);
-  }
+  try {
+    await usingAttributes({ sessionId: SESSION_ID, userId: USER_ID }, () =>
+      observe({ name: 'demo_session', type: 'agent' }, async () => {
+        const traceId = getCurrentTraceId();
+        const parentSpanId = getCurrentSpanId();
 
-  await exporter.flush();
+        for (const query of QUERIES) {
+          console.log(`\nQuery: ${query}`);
+          const result = await agent.generate(query, {
+            tracingOptions: {
+              traceId,
+              parentSpanId,
+              metadata: {
+                sessionId: SESSION_ID,
+                userId: USER_ID,
+              },
+            },
+          });
+          console.log(`Answer: ${result.text}`);
+        }
+      }),
+    );
+  } finally {
+    await exporter.flush();
+    await TraceRoot.shutdown();
+  }
 }
 
 main().catch(err => {
