@@ -97,9 +97,13 @@ async function runAgent(query: string): Promise<string> {
               if (!/^[\d\s+\-*/().]+$/.test(expression)) {
                 return { error: `Unsupported expression: ${expression}` };
               }
-              // eslint-disable-next-line no-new-func
-              const result = Function(`"use strict"; return (${expression})`)() as number;
-              return { expression, result };
+              try {
+                // eslint-disable-next-line no-new-func
+                const result = Function(`"use strict"; return (${expression})`)() as number;
+                return { expression, result };
+              } catch (error) {
+                return { error: `Invalid expression: ${expression}` };
+              }
             });
           },
         }),
