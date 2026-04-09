@@ -56,16 +56,16 @@ export default function SessionsPage() {
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
   const totalPages = Math.ceil(meta.total / meta.limit);
 
-  const getTotalTokenCount = (session: SessionListItem): number | null => {
-    const input = session.total_input_tokens ?? 0;
-    const output = session.total_output_tokens ?? 0;
-    const total = input + output;
-    return total > 0 ? total : null;
-  };
+function getTotalTokenCount(session: SessionListItem): number | null {
+  const input = session.total_input_tokens ?? 0;
+  const output = session.total_output_tokens ?? 0;
+  const total = input + output;
+  return total > 0 ? total : null;
+}
 
-  const getTotalCost = (session: SessionListItem): number | null => {
-    return session.total_cost_usd ?? session.total_cost ?? null;
-  };
+function getTotalCost(session: SessionListItem): number | null {
+  return session.total_cost_usd ?? session.total_cost ?? null;
+}
 
   const buildUrl = (path: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(path, {
