@@ -131,6 +131,7 @@ def run_demo():
             assistant,
             message=query,
             clear_history=True,
+            max_turns=10,
         )
 
 
