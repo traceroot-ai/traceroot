@@ -13,7 +13,7 @@ import os
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -31,115 +31,53 @@ os.environ["CREWAI_TRACING_ENABLED"] = "false"
 os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
 os.environ["CREWAI_DISABLE_TRACKING"] = "true"
 
-ProviderName = Literal[
-    "openai",
-    "anthropic",
-    "google",
-    "openai-compatible",
-    "litellm",
-]
-
 
 @dataclass(frozen=True)
 class ExampleConfig:
-    model_provider: ProviderName
     model_name: str
-    model_api_key: str | None
-    model_api_key_source: str | None
-    model_base_url: str | None
+    model_api_key: str
+    model_api_key_source: str
 
     @classmethod
     def from_env(cls) -> ExampleConfig:
-        provider = os.getenv("MODEL_PROVIDER", "openai").strip().lower()
-        allowed_providers = {
-            "openai",
-            "anthropic",
-            "google",
-            "openai-compatible",
-            "litellm",
-        }
-        if provider not in allowed_providers:
-            allowed = ", ".join(sorted(allowed_providers))
-            raise ValueError(
-                f"Unsupported MODEL_PROVIDER '{provider}'. Expected one of: {allowed}."
-            )
-
         model_name = os.getenv("MODEL_NAME", "gpt-4o-mini").strip()
         if not model_name:
             raise ValueError("MODEL_NAME must be set to a non-empty value.")
-
-        model_api_key, model_api_key_source = cls._resolve_api_key(provider)
-        model_base_url = os.getenv("MODEL_BASE_URL") or None
-
-        if provider in {"openai", "anthropic", "google"} and not model_api_key:
+        if model_name.lower().startswith("gemini"):
             raise ValueError(
-                "No model API key found. Set MODEL_API_KEY or the provider fallback key in .env."
+                "This CrewAI example is now OpenAI-only. Update MODEL_NAME in `.env` to "
+                "an OpenAI model such as `gpt-4o-mini`."
             )
 
-        if (
-            provider in {"openai-compatible", "litellm"}
-            and not model_api_key
-            and not model_base_url
-        ):
+        model_api_key, model_api_key_source = cls._resolve_api_key()
+        if not model_api_key or not model_api_key_source:
             raise ValueError(
-                "MODEL_PROVIDER requires either MODEL_API_KEY or MODEL_BASE_URL so CrewAI can "
-                "reach the target endpoint."
+                "No OpenAI API key found. Set MODEL_API_KEY or OPENAI_API_KEY in .env."
             )
 
         return cls(
-            model_provider=provider,
             model_name=model_name,
             model_api_key=model_api_key,
             model_api_key_source=model_api_key_source,
-            model_base_url=model_base_url,
         )
 
     @staticmethod
-    def _resolve_api_key(provider: str) -> tuple[str | None, str | None]:
+    def _resolve_api_key() -> tuple[str | None, str | None]:
         direct_key = os.getenv("MODEL_API_KEY")
         if direct_key:
             return direct_key, "MODEL_API_KEY"
 
-        return ExampleConfig._fallback_api_key(provider)
+        return ExampleConfig._fallback_api_key()
 
     @staticmethod
-    def _fallback_api_key(provider: str) -> tuple[str | None, str | None]:
-        if provider in {"openai", "openai-compatible"}:
-            if os.getenv("OPENAI_API_KEY"):
-                return os.getenv("OPENAI_API_KEY"), "OPENAI_API_KEY"
-            return None, None
-        if provider == "anthropic":
-            if os.getenv("ANTHROPIC_API_KEY"):
-                return os.getenv("ANTHROPIC_API_KEY"), "ANTHROPIC_API_KEY"
-            return None, None
-        if provider == "google":
-            if os.getenv("GOOGLE_API_KEY"):
-                return os.getenv("GOOGLE_API_KEY"), "GOOGLE_API_KEY"
-            if os.getenv("GEMINI_API_KEY"):
-                return os.getenv("GEMINI_API_KEY"), "GEMINI_API_KEY"
-            return None, None
-        if provider == "litellm":
-            for env_var in (
-                "OPENAI_API_KEY",
-                "ANTHROPIC_API_KEY",
-                "GOOGLE_API_KEY",
-                "GEMINI_API_KEY",
-            ):
-                if os.getenv(env_var):
-                    return os.getenv(env_var), env_var
-            return None, None
+    def _fallback_api_key() -> tuple[str | None, str | None]:
+        if os.getenv("OPENAI_API_KEY"):
+            return os.getenv("OPENAI_API_KEY"), "OPENAI_API_KEY"
         return None, None
 
     @property
-    def llm_provider(self) -> str:
-        if self.model_provider == "openai-compatible":
-            return "openai"
-        return self.model_provider
-
-    @property
     def session_id(self) -> str:
-        normalized = self.model_provider.replace("-", "_")
-        return f"crewai_py_{normalized}_session"
+        return "crewai_py_openai_session"
 
 
 CONFIG = ExampleConfig.from_env()
@@ -157,21 +95,7 @@ try:
     )
 
     TRACEROOT_LEGACY_MODE = False
-
-    def resolve_traceroot_integrations(config: ExampleConfig) -> list[Integration]:
-        integrations: list[Integration] = []
-
-        # Match the currently supported provider integrations in the published
-        # TraceRoot SDK. Gemini and LiteLLM still rely on the manual spans
-        # defined below.
-        if config.model_provider in {"openai", "openai-compatible"}:
-            integrations.append(Integration.OPENAI)
-        elif config.model_provider == "anthropic":
-            integrations.append(Integration.ANTHROPIC)
-
-        return integrations
-
-    traceroot.initialize(integrations=resolve_traceroot_integrations(CONFIG))
+    traceroot.initialize(integrations=[Integration.OPENAI])
 except ImportError:
     from opentelemetry import trace as otel_trace
 
@@ -179,7 +103,6 @@ except ImportError:
     from traceroot import trace as traceroot_trace
     from traceroot.tracer import TraceOptions
 
-    Integration = None
     TRACEROOT_LEGACY_MODE = True
     update_current_span = None
     update_current_trace = None
@@ -352,20 +275,11 @@ class RolloutMetricsTool(BaseTool):
 
 
 def build_llm(config: ExampleConfig) -> LLM:
-    llm_kwargs: dict[str, object] = {
-        "model": config.model_name,
-    }
-    if config.model_api_key:
-        llm_kwargs["api_key"] = config.model_api_key
-    if config.model_base_url:
-        llm_kwargs["base_url"] = config.model_base_url
-
-    if config.model_provider == "litellm":
-        llm_kwargs["is_litellm"] = True
-    else:
-        llm_kwargs["provider"] = config.llm_provider
-
-    return LLM(**llm_kwargs)
+    return LLM(
+        model=config.model_name,
+        api_key=config.model_api_key,
+        provider="openai",
+    )
 
 
 def rewrite_runtime_error(error: Exception, config: ExampleConfig) -> Exception:
@@ -373,47 +287,38 @@ def rewrite_runtime_error(error: Exception, config: ExampleConfig) -> Exception:
     lowered = error_text.lower()
     source = config.model_api_key_source or "unknown source"
 
-    if config.model_provider in {"openai", "openai-compatible"} and (
-        "invalid_api_key" in lowered
-        or "incorrect api key provided" in lowered
-        or "authenticationerror" in lowered
-    ):
+    if "rate limit" in lowered or "429" in lowered or "too many requests" in lowered:
         return RuntimeError(
-            "OpenAI-compatible authentication failed. The configured API key was rejected.\n\n"
+            "OpenAI is temporarily rate limiting this request.\n\n"
             f"Configured source: `{source}`\n"
             f"Example env file: `{EXAMPLE_DOTENV}`\n\n"
-            "Set a valid `MODEL_API_KEY` or `OPENAI_API_KEY`. If you are using a custom "
-            "endpoint, also confirm `MODEL_BASE_URL` points at the provider's `/v1` API root."
+            "Retry the example in a few minutes. If this persists, try a smaller model such "
+            "as `gpt-4o-mini` or lower the request frequency."
         )
 
-    if config.model_provider == "anthropic" and (
-        "authentication_error" in lowered
-        or "invalid x-api-key" in lowered
-        or "invalid api key" in lowered
-    ):
-        return RuntimeError(
-            "Anthropic authentication failed. The configured API key was rejected.\n\n"
-            f"Configured source: `{source}`\n"
-            f"Example env file: `{EXAMPLE_DOTENV}`\n\n"
-            "Set a valid `MODEL_API_KEY` or `ANTHROPIC_API_KEY` and rerun."
-        )
-
-    if config.model_provider == "google" and (
-        "api key expired" in lowered
+    if (
+        "incorrect api key" in lowered
+        or "invalid_api_key" in lowered
+        or "401" in lowered
+        or "authentication" in lowered
         or "api_key_invalid" in lowered
-        or "google gemini api error" in lowered
-        or "api key not valid" in lowered
     ):
         message = (
-            "Gemini authentication failed. Google rejected the configured API key.\n\n"
+            "OpenAI authentication failed. OpenAI rejected the configured API key.\n\n"
             f"Configured source: `{source}`\n"
             f"Example env file: `{EXAMPLE_DOTENV}`\n\n"
-            "This example now prefers the local example `.env` and supports both "
-            "`GOOGLE_API_KEY` and `GEMINI_API_KEY`, but it still cannot run with an "
-            "expired or invalid Google key. Set a fresh key in `MODEL_API_KEY`, "
-            "`GOOGLE_API_KEY`, or `GEMINI_API_KEY` and rerun."
+            "This example prefers the local example `.env`, but it still cannot run with an "
+            "invalid OpenAI key. Set a fresh key in `MODEL_API_KEY` or `OPENAI_API_KEY` "
+            "and rerun."
         )
         return RuntimeError(message)
+
+    if "model_not_found" in lowered or "does not exist" in lowered:
+        return RuntimeError(
+            "OpenAI rejected the configured model name.\n\n"
+            f"Example env file: `{EXAMPLE_DOTENV}`\n\n"
+            "Set `MODEL_NAME` to a valid OpenAI model such as `gpt-4o-mini` and rerun."
+        )
 
     return error
 
@@ -531,10 +436,10 @@ def run_research_session(topic: str, config: ExampleConfig) -> str:
     metadata = {
         "framework": "crewai",
         "process": "sequential",
-        "provider": config.model_provider,
+        "provider": "openai",
         "model": config.model_name,
     }
-    tags = ["example", "python", "crewai", config.model_provider]
+    tags = ["example", "python", "crewai", "openai"]
 
     enrich_current_trace(
         metadata=metadata,
@@ -571,11 +476,11 @@ if __name__ == "__main__":
         with using_attributes(
             user_id="example-user",
             session_id=CONFIG.session_id,
-            tags=["example", "python", "crewai", CONFIG.model_provider],
+            tags=["example", "python", "crewai", "openai"],
             metadata={
                 "framework": "crewai",
                 "process": "sequential",
-                "provider": CONFIG.model_provider,
+                "provider": "openai",
                 "model": CONFIG.model_name,
             },
         ):

@@ -1,63 +1,27 @@
-# CrewAI Sequential Research Crew (Python)
+# CrewAI Sequential Research Crew (Python, OpenAI)
 
-Provider-agnostic multi-agent research workflow using [CrewAI](https://crewai.com/), instrumented with [TraceRoot](https://traceroot.ai).
+Sequential multi-agent research workflow using [CrewAI](https://crewai.com/) with OpenAI and [TraceRoot](https://traceroot.ai).
 
 ## Setup
 
 ```bash
-cp .env.example .env  # fill in your API keys
+cp .env.example .env
 ```
 
-With `uv` (recommended):
-```bash
-uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py
-```
-
-The example prefers `examples/python/crewai/.env` when present and loads it with override enabled, so a local example key can replace stale shell or repo-wide environment variables.
-
-## Model Configuration
-
-The example is provider-agnostic at runtime.
-
-Default OpenAI-style setup:
+Fill in:
 
 ```env
-MODEL_PROVIDER=openai
+TRACEROOT_API_KEY=your_traceroot_api_key_here
 MODEL_NAME=gpt-4o-mini
 MODEL_API_KEY=your_openai_api_key_here
 ```
 
-Anthropic example:
+The example prefers `examples/python/crewai/.env` when present and loads it with override enabled, so a local example key can replace stale shell or repo-wide environment variables.
 
-```env
-MODEL_PROVIDER=anthropic
-MODEL_NAME=claude-sonnet-4-5
-MODEL_API_KEY=your_anthropic_api_key_here
-```
+Run it with `uv`:
 
-Gemini example:
-
-```env
-MODEL_PROVIDER=google
-MODEL_NAME=gemini-2.5-flash
-MODEL_API_KEY=your_gemini_api_key_here
-```
-
-OpenAI-compatible endpoint example:
-
-```env
-MODEL_PROVIDER=openai-compatible
-MODEL_NAME=gpt-4o-mini
-MODEL_API_KEY=your_api_key_here
-MODEL_BASE_URL=https://your-endpoint.example/v1
-```
-
-LiteLLM fallback example:
-
-```env
-MODEL_PROVIDER=litellm
-MODEL_NAME=openrouter/openai/gpt-4o-mini
-MODEL_API_KEY=your_router_api_key_here
+```bash
+uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py
 ```
 
 ## What It Does
@@ -68,44 +32,66 @@ Runs a sequential 3-agent CrewAI workflow:
 2. `Risk Reviewer` critiques the brief for missing controls and rollout gaps
 3. `Recommendation Writer` converts both into a final markdown memo
 
-The example uses mocked internal tools instead of live web/search APIs, so it only needs TraceRoot credentials plus one model credential.
+The example uses mocked internal tools instead of live web/search APIs, so it only needs TraceRoot credentials plus an OpenAI API key.
 
 ## TraceRoot Instrumentation
 
-The example follows the same TraceRoot shape as the other Python examples in this repo:
+The example follows the same overall TraceRoot shape as the other Python examples in this repo:
 
-- dotenv is loaded before model/SDK setup
-- CrewAI telemetry is disabled before `crewai` imports so it does not fight TraceRoot for the global tracer provider
-- TraceRoot is initialized once before importing CrewAI
-- the top-level session remains wrapped in `@observe`
-- the mocked internal tools are wrapped in `@observe(type="tool")`
-- shared session metadata is attached with `using_attributes`, `update_current_trace`, and `update_current_span`
+- dotenv is loaded before model and SDK setup
+- CrewAI telemetry is disabled before importing `crewai`
+- the top-level session is wrapped in `@observe`
+- the mocked helper tools are wrapped in `@observe(type="tool")`
+- session metadata is attached with `using_attributes`, `update_current_trace`, and `update_current_span`
 - traces are flushed in a `finally` block so failed runs still export captured spans
 
-The current installable dependency set pins `traceroot==0.0.7`, because newer published TraceRoot releases do not yet resolve cleanly with stable CrewAI releases. The example keeps a compatibility layer so it still follows the same instrumentation style as the other Python examples:
+The current installable dependency set pins `traceroot==0.0.7`, because newer published TraceRoot releases do not yet resolve cleanly with stable CrewAI releases. The example keeps a compatibility layer so the tracing flow still stays consistent with the other examples.
 
-- top-level CrewAI session span
-- explicit tool/helper spans for the mocked internal tools
-- attached session metadata and final output on the active trace/span
+## OpenAI Notes
 
-If a future compatible TraceRoot release adds modern provider integrations for this stack, the example code is already structured to use them when available.
-
-## Gemini Notes
-
-For Gemini, the example accepts keys in this order:
+The example accepts OpenAI keys in this order:
 
 1. `MODEL_API_KEY`
-2. `GOOGLE_API_KEY`
-3. `GEMINI_API_KEY`
+2. `OPENAI_API_KEY`
 
-If Google returns `API key expired` or `API_KEY_INVALID`, the issue is with the credential Google received, not with CrewAI tool wiring. In that case, set a fresh key in the example-local `.env` using `MODEL_API_KEY=...` to ensure it overrides any stale environment variable.
+If OpenAI returns an authentication error, the issue is with the credential OpenAI received, not with the CrewAI wiring. In that case, set a fresh key in the example-local `.env` using `MODEL_API_KEY=...` to ensure it overrides any stale environment variable.
 
-## Provider Auth Notes
+If OpenAI returns a temporary `429` or rate-limit error, retry the run after a few minutes or reduce the request frequency.
 
-The example now rewrites common authentication failures into clearer runtime messages for:
+## Adding a TraceRoot UI Screenshot
 
-- OpenAI and OpenAI-compatible endpoints
-- Anthropic
-- Google Gemini
+If you want to show proof in the PR that the CrewAI run was registered successfully in TraceRoot:
 
-That keeps provider-specific setup errors easier to diagnose without changing the underlying crew workflow.
+1. Add valid keys to `examples/python/crewai/.env`.
+2. Run the example:
+
+   ```bash
+   uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py
+   ```
+
+3. Open the TraceRoot UI and look for the latest run with:
+   - session id: `crewai_py_openai_session`
+   - tags: `example`, `python`, `crewai`, `openai`
+   - top-level span: `run_research_session`
+
+4. Open the trace details page and confirm you can see the CrewAI run plus the mocked tool spans.
+5. Take a screenshot that clearly shows:
+   - the trace/session name or session id
+   - the span tree or span list
+   - enough of the page to show it is the TraceRoot UI
+
+6. Save the screenshot in this folder as:
+
+   ```text
+   examples/python/crewai/traceroot-ui.png
+   ```
+
+7. Add it to the README with:
+
+   ```md
+   ## TraceRoot UI
+
+   ![TraceRoot UI showing the CrewAI run](./traceroot-ui.png)
+   ```
+
+8. Commit both the image and the README update so the screenshot renders in the PR and on GitHub.
