@@ -11,7 +11,7 @@ import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { SessionDetailPanel } from "@/features/traces/components/SessionDetailPanel";
 import { useSessions, useListPageState } from "@/features/traces/hooks";
-import { formatDate, cn, buildUrlWithFilters } from "@/lib/utils";
+import { formatDate, formatCost, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { SessionListItem, SessionQueryOptions } from "@/types/api";
 
 const tabs = [
@@ -55,6 +55,17 @@ export default function SessionsPage() {
   const sessions = data?.data || [];
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
   const totalPages = Math.ceil(meta.total / meta.limit);
+
+  const getTotalTokenCount = (session: SessionListItem): number | null => {
+    const input = session.total_input_tokens ?? 0;
+    const output = session.total_output_tokens ?? 0;
+    const total = input + output;
+    return total > 0 ? total : null;
+  };
+
+  const getTotalCost = (session: SessionListItem): number | null => {
+    return session.total_cost_usd ?? session.total_cost ?? null;
+  };
 
   const buildUrl = (path: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(path, {
@@ -142,6 +153,12 @@ export default function SessionsPage() {
                       <th className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         User ID
                       </th>
+                      <th className="w-[110px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                        Total Tokens
+                      </th>
+                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                        Cost
+                      </th>
                       <th className="w-[70px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Traces
                       </th>
@@ -170,6 +187,12 @@ export default function SessionsPage() {
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                           {session.user_ids.length > 0 ? session.user_ids.join(", ") : "-"}
+                        </td>
+                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                          {getTotalTokenCount(session)?.toLocaleString() ?? "-"}
+                        </td>
+                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                          {formatCost(getTotalCost(session))}
                         </td>
                         <td className="px-3 py-1.5 text-[12px] text-muted-foreground">
                           {session.trace_count}
