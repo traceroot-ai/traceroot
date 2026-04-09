@@ -24,6 +24,7 @@ pnpm demo
 
 ## Usage in your own project
 
+```typescript
 // No instrumentModules needed for Vercel AI SDK
 TraceRoot.initialize();
 
@@ -33,6 +34,7 @@ const result = await generateText({
   prompt: 'Hello!',
   experimental_telemetry: { isEnabled: true },  // ← activates tracing
 });
+```
 
 ## Environment variables
 
