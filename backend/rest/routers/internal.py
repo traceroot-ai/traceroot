@@ -188,25 +188,48 @@ def _cleanup_clickhouse(project_ids: list[str], cutoff: datetime) -> None:
     )
 
 
+_S3_DELETE_BATCH_MAX = 1000  # AWS DeleteObjects limit
+
+
+def _delete_s3_object_batch(client, bucket: str, batch: list[dict]) -> int:
+    """Delete up to 1000 objects; returns count actually deleted (excludes failures)."""
+    if not batch:
+        return 0
+    response = client.delete_objects(
+        Bucket=bucket,
+        Delete={"Objects": batch, "Quiet": True},
+    )
+    errors = response.get("Errors", [])
+    if errors:
+        failed_keys = [e.get("Key", "?") for e in errors]
+        logger.warning(
+            "S3 delete_objects reported %d failure(s) (sample keys): %s",
+            len(errors),
+            failed_keys[:3],
+        )
+    return len(batch) - len(errors)
+
+
 def _cleanup_s3(project_ids: list[str], cutoff: datetime) -> int:
     """Delete S3 objects for the given projects that are older than cutoff.
 
     Object key format: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json
     Objects are matched by parsing the date components from their key.
-    Returns the total number of deleted objects.
+    Returns the total number of successfully deleted objects.
     """
     s3 = get_s3_service()
     client = s3._get_client()
+    bucket = s3._bucket_name
     cutoff_date = cutoff.date()
     total_deleted = 0
 
     for project_id in project_ids:
         prefix = f"events/otel/{project_id}/"
-        to_delete: list[dict] = []
+        pending: list[dict] = []
 
         paginator = client.get_paginator("list_objects_v2")
         try:
-            for page in paginator.paginate(Bucket=s3._bucket_name, Prefix=prefix):
+            for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
                 for obj in page.get("Contents", []):
                     key: str = obj["Key"]
                     # Parse: events/otel/{project_id}/{yyyy}/{mm}/{dd}/...
@@ -216,17 +239,19 @@ def _cleanup_s3(project_ids: list[str], cutoff: datetime) -> int:
                             obj_date_str = f"{parts[3]}-{parts[4]}-{parts[5]}"
                             obj_date = date.fromisoformat(obj_date_str)
                             if obj_date < cutoff_date:
-                                to_delete.append({"Key": key})
+                                pending.append({"Key": key})
+                                if len(pending) >= _S3_DELETE_BATCH_MAX:
+                                    total_deleted += _delete_s3_object_batch(
+                                        client,
+                                        bucket,
+                                        pending[:_S3_DELETE_BATCH_MAX],
+                                    )
+                                    pending = pending[_S3_DELETE_BATCH_MAX:]
                         except (ValueError, IndexError):
                             pass
 
-            for i in range(0, len(to_delete), 1000):
-                batch = to_delete[i : i + 1000]
-                client.delete_objects(
-                    Bucket=s3._bucket_name,
-                    Delete={"Objects": batch, "Quiet": True},
-                )
-                total_deleted += len(batch)
+            if pending:
+                total_deleted += _delete_s3_object_batch(client, bucket, pending)
 
         except Exception as exc:
             logger.warning("S3 cleanup failed for project %s: %s", project_id, exc, exc_info=True)

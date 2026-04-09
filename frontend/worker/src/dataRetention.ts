@@ -14,6 +14,9 @@
 
 import { prisma, PlanType, getRetentionDays } from "@traceroot/core";
 
+/** Valid workspace.billingPlan values from DB; guards against null/unknown plans. */
+const VALID_PLAN_VALUES = new Set<string>(Object.values(PlanType));
+
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
 
@@ -74,7 +77,14 @@ export async function runDataRetentionJob(): Promise<void> {
   for (const workspace of workspaces) {
     if (workspace.projects.length === 0) continue;
 
-    const plan = workspace.billingPlan as PlanType;
+    const rawPlan = workspace.billingPlan;
+    if (rawPlan == null || !VALID_PLAN_VALUES.has(rawPlan)) {
+      console.warn(
+        `[Retention] Workspace ${workspace.id} has unknown billingPlan: ${String(rawPlan)}, skipping`,
+      );
+      continue;
+    }
+    const plan = rawPlan as PlanType;
 
     try {
       // Group projects by their effective TTL so we issue one API call per TTL value.
