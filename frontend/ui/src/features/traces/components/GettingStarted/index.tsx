@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Sparkle, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
 import { AITab } from "./AITab";
 import { ManualTab } from "./ManualTab";
 
@@ -24,6 +25,17 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
         <p className="mt-1 text-sm text-muted-foreground">
           You don&apos;t have any traces yet. Choose how you&apos;d like to set up.
         </p>
+
+        <div className="mt-6 rounded-sm border border-border bg-muted/30 px-4 py-3">
+          <p className="text-sm font-medium text-foreground">Connect GitHub</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Install the GitHub App so TraceRoot can link traces to your repositories and enable
+            code-level analysis.
+          </p>
+          <div className="mt-3">
+            <GitHubConnectButton />
+          </div>
+        </div>
 
         <div className="mt-6 inline-flex gap-0.5 rounded-sm border border-border bg-muted p-0.5">
           <button
