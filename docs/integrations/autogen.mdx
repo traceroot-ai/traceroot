@@ -60,8 +60,29 @@ user_proxy.initiate_chat(
 Function registrations and local tool executions are automatically traced as nested child spans within the executing agent's workflow:
 
 ```python
+import os
+import autogen
 from typing import Annotated
 from autogen import register_function
+
+# Define the LLM and Agents
+llm_config = {
+    "config_list": [{
+        "model": "gemini-2.5-flash", 
+        "api_key": os.environ["GEMINI_API_KEY"],
+        "api_type": "google"
+    }]
+}
+
+assistant = autogen.AssistantAgent(
+    name="assistant", 
+    llm_config=llm_config
+)
+user_proxy = autogen.UserProxyAgent(
+    name="user_proxy", 
+    human_input_mode="NEVER", 
+    max_consecutive_auto_reply=2
+)
 
 def get_weather(city: Annotated[str, "City name"]) -> str:
     """Get current weather for a city."""
@@ -95,4 +116,4 @@ user_proxy.initiate_chat(
 | LLM calls* | Raw completion requests to the provider |
 | Tokens & Cost* | Aggregated usage and pricing for the chat session |
 
-*Requires initializing the corresponding LLM integration (e.g., `Integration.GOOGLE_GENAI`) alongside `Integration.AUTOGEN`
+*\*Requires initializing the corresponding LLM integration (e.g., `Integration.GOOGLE_GENAI`) alongside `Integration.AUTOGEN`
