@@ -1,0 +1,119 @@
+---
+title: AutoGen (AG2)
+description: Auto-instrument AutoGen multi-agent conversations and tool calls
+---
+
+Automatically capture agent loops, message histories, and tool executions within the AutoGen framework. 
+
+*Note: This integration supports `ag2` (v0.11.5+), the community-maintained continuation of the classic AutoGen framework.*
+
+## Setup
+
+To capture the complete picture—including both the agent orchestrations and the underlying token costs—we highly recommend initializing **both** the AutoGen integration and your specific LLM provider (e.g., Google GenAI, OpenAI, Anthropic).
+
+```python
+import traceroot
+from traceroot import Integration
+
+# Initialize AutoGen alongside your LLM provider to capture tokens and costs
+traceroot.initialize(integrations=[
+    Integration.AUTOGEN,
+    Integration.GOOGLE_GENAI  # Or OPENAI, ANTHROPIC, etc.
+])
+```
+
+## Usage
+
+Once initialized, the standard `initiate_chat` loop and internal agent reasoning steps are captured automatically:
+
+```python
+import os
+import autogen
+
+llm_config = {
+    "config_list": [{
+        "model": "gemini-2.5-flash", 
+        "api_key": os.environ["GEMINI_API_KEY"],
+        "api_type": "google"
+    }]
+}
+
+assistant = autogen.AssistantAgent(
+    name="assistant", 
+    llm_config=llm_config
+)
+user_proxy = autogen.UserProxyAgent(
+    name="user_proxy", 
+    human_input_mode="NEVER", 
+    max_consecutive_auto_reply=2
+)
+
+# The entire conversation hierarchy is automatically traced
+user_proxy.initiate_chat(
+    assistant,
+    message="Explain the difference between Python lists and tuples.",
+)
+```
+
+## Usage with Tools
+
+Function registrations and local tool executions are automatically traced as nested child spans within the executing agent's workflow:
+
+```python
+import os
+import autogen
+from typing import Annotated
+from autogen import register_function
+
+# Define the LLM and Agents
+llm_config = {
+    "config_list": [{
+        "model": "gemini-2.5-flash", 
+        "api_key": os.environ["GEMINI_API_KEY"],
+        "api_type": "google"
+    }]
+}
+
+assistant = autogen.AssistantAgent(
+    name="assistant", 
+    llm_config=llm_config
+)
+user_proxy = autogen.UserProxyAgent(
+    name="user_proxy", 
+    human_input_mode="NEVER", 
+    max_consecutive_auto_reply=2
+)
+
+def get_weather(city: Annotated[str, "City name"]) -> str:
+    """Get current weather for a city."""
+    return f"The weather in {city} is 72 degrees and sunny."
+
+# Register the tool
+register_function(
+    get_weather,
+    caller=assistant,     # The agent that decides to use the tool
+    executor=user_proxy,  # The agent that actually runs the Python function
+    name="get_weather",
+    description="Get current weather for a city",
+)
+
+# Tool executions appear as 'tool' spans under the UserProxyAgent
+user_proxy.initiate_chat(
+    assistant,
+    message="What is the weather in Tokyo?",
+    max_turns=5,  # Add a guard to ensure an LLM response cap
+)
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Conversation Loop | The overarching `initiate_chat` session |
+| Agent Steps | Individual spans for each `AssistantAgent` or `UserProxyAgent` turn |
+| Messages | Full chat history, input messages, and agent replies |
+| Tool calls | Function names, input arguments, and execution outputs |
+| LLM calls* | Raw completion requests to the provider |
+| Tokens & Cost* | Aggregated usage and pricing for the chat session |
+
+*\*Requires initializing the corresponding LLM integration (e.g., `Integration.GOOGLE_GENAI`) alongside `Integration.AUTOGEN`
