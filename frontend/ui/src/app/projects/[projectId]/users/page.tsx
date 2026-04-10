@@ -107,7 +107,28 @@ export default function UsersPage() {
           customEndDate={state.customEndDate}
           onDateFilterChange={updateDateFilter}
           onCustomRangeChange={updateCustomRange}
-        />
+        >
+          <div className="ml-1 flex items-center gap-4 border-l border-border pl-4">
+            <div className="flex flex-col leading-tight">
+              <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Total Tokens
+              </span>
+              <span className="font-mono text-[12px] font-medium">
+                {(meta.total_input_tokens || 0).toLocaleString()}{" "}
+                <span className="text-muted-foreground/50">/</span>{" "}
+                {(meta.total_output_tokens || 0).toLocaleString()}
+              </span>
+            </div>
+            <div className="flex flex-col leading-tight">
+              <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Total Cost
+              </span>
+              <span className="font-mono text-[12px] font-medium text-emerald-600 dark:text-emerald-400">
+                ${(meta.total_cost || 0).toFixed(4)}
+              </span>
+            </div>
+          </div>
+        </SearchFilterBar>
 
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background">
@@ -142,7 +163,13 @@ export default function UsersPage() {
                       <th className="w-[120px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Traces
                       </th>
-                      <th className="w-[160px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="w-[120px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                        Tokens
+                      </th>
+                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                        Cost
+                      </th>
+                      <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Last Activity
                       </th>
                     </tr>
@@ -159,6 +186,13 @@ export default function UsersPage() {
                         </td>
                         <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
                           {user.trace_count}
+                        </td>
+                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+                          {(user.total_input_tokens || 0).toLocaleString()} /{" "}
+                          {(user.total_output_tokens || 0).toLocaleString()}
+                        </td>
+                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-2 font-mono text-[11px] text-emerald-600 dark:text-emerald-400">
+                          ${(user.total_cost || 0).toFixed(4)}
                         </td>
                         <td className="px-3 py-2 text-[12px] text-muted-foreground">
                           {formatDate(user.last_trace_time)}

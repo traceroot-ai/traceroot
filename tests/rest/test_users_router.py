@@ -40,9 +40,19 @@ class TestListUsers:
                     "user_id": "user-1",
                     "trace_count": 10,
                     "last_trace_time": datetime(2024, 1, 15, 12, 0, 0),
+                    "total_input_tokens": 100,
+                    "total_output_tokens": 50,
+                    "total_cost": 0.001,
                 },
             ],
-            "meta": {"page": 0, "limit": 50, "total": 1},
+            "meta": {
+                "page": 0,
+                "limit": 50,
+                "total": 1,
+                "total_input_tokens": 100,
+                "total_output_tokens": 50,
+                "total_cost": 0.001,
+            },
         }
         response = client.get("/api/v1/projects/test-project/users")
         assert response.status_code == 200
@@ -103,11 +113,39 @@ class TestListUsers:
     def test_multiple_users(self, client, mock_trace_reader):
         mock_trace_reader.list_users.return_value = {
             "data": [
-                {"user_id": "alice", "trace_count": 20, "last_trace_time": datetime(2024, 1, 15)},
-                {"user_id": "bob", "trace_count": 5, "last_trace_time": datetime(2024, 1, 10)},
-                {"user_id": "charlie", "trace_count": 1, "last_trace_time": datetime(2024, 1, 5)},
+                {
+                    "user_id": "alice",
+                    "trace_count": 20,
+                    "last_trace_time": datetime(2024, 1, 15),
+                    "total_input_tokens": 1000,
+                    "total_output_tokens": 2000,
+                    "total_cost": 0.05,
+                },
+                {
+                    "user_id": "bob",
+                    "trace_count": 5,
+                    "last_trace_time": datetime(2024, 1, 10),
+                    "total_input_tokens": 200,
+                    "total_output_tokens": 400,
+                    "total_cost": 0.01,
+                },
+                {
+                    "user_id": "charlie",
+                    "trace_count": 1,
+                    "last_trace_time": datetime(2024, 1, 5),
+                    "total_input_tokens": 50,
+                    "total_output_tokens": 100,
+                    "total_cost": 0.002,
+                },
             ],
-            "meta": {"page": 0, "limit": 50, "total": 3},
+            "meta": {
+                "page": 0,
+                "limit": 50,
+                "total": 3,
+                "total_input_tokens": 1250,
+                "total_output_tokens": 2500,
+                "total_cost": 0.062,
+            },
         }
         response = client.get("/api/v1/projects/test-project/users")
         assert response.status_code == 200

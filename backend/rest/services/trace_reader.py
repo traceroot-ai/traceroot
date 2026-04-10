@@ -84,7 +84,10 @@ class TraceReaderService:
                 ) as duration_ms,
                 if(countIf(s.status = 'ERROR') > 0, 'error', 'ok') as status,
                 t.input,
-                t.output
+                t.output,
+                sum(s.input_tokens) as input_tokens,
+                sum(s.output_tokens) as output_tokens,
+                sum(s.cost) as cost
             FROM traces AS t FINAL
             LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
             WHERE {where_clause}
@@ -96,14 +99,23 @@ class TraceReaderService:
         result = self._client.query(query, parameters=params)
         rows = result.result_rows
 
-        # Get total count
+        # Get total count and aggregate metrics
         count_query = f"""
-            SELECT count(DISTINCT t.trace_id)
+            SELECT
+                count(DISTINCT t.trace_id),
+                sum(s.input_tokens) as total_input_tokens,
+                sum(s.output_tokens) as total_output_tokens,
+                sum(s.cost) as total_cost
             FROM traces AS t FINAL
+            LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
             WHERE {where_clause}
         """
         count_result = self._client.query(count_query, parameters=params)
-        total = count_result.result_rows[0][0] if count_result.result_rows else 0
+        count_row = count_result.result_rows[0] if count_result.result_rows else (0, 0, 0, 0)
+        total = count_row[0]
+        total_input_tokens = int(count_row[1] or 0)
+        total_output_tokens = int(count_row[2] or 0)
+        total_cost = float(count_row[3] or 0)
 
         # Convert rows to dicts
         data = []
@@ -121,12 +133,22 @@ class TraceReaderService:
                     "status": row[8],
                     "input": row[9],
                     "output": row[10],
+                    "input_tokens": int(row[11] or 0),
+                    "output_tokens": int(row[12] or 0),
+                    "cost": float(row[13] or 0),
                 }
             )
 
         return {
             "data": data,
-            "meta": {"page": page, "limit": limit, "total": total},
+            "meta": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "total_input_tokens": total_input_tokens,
+                "total_output_tokens": total_output_tokens,
+                "total_cost": total_cost,
+            },
         }
 
     def get_trace(self, project_id: str, trace_id: str) -> dict | None:
@@ -254,6 +276,7 @@ class TraceReaderService:
                 sum(sub.trace_duration_ms) as duration_ms,
                 sum(sub.trace_input_tokens) as total_input_tokens,
                 sum(sub.trace_output_tokens) as total_output_tokens,
+                sum(sub.trace_cost) as total_cost,
                 argMin(sub.trace_input, sub.trace_start_time) as trace_input,
                 argMax(sub.trace_output, sub.trace_start_time) as trace_output
             FROM (
@@ -270,7 +293,8 @@ class TraceReaderService:
                         NULL
                     ) as trace_duration_ms,
                     sum(s.input_tokens) as trace_input_tokens,
-                    sum(s.output_tokens) as trace_output_tokens
+                    sum(s.output_tokens) as trace_output_tokens,
+                    sum(s.cost) as trace_cost
                 FROM traces AS t FINAL
                 LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
                 WHERE {where_clause}
@@ -283,22 +307,31 @@ class TraceReaderService:
 
         result = self._client.query(query, parameters=params)
 
-        # Get total count of distinct sessions
+        # Get total count and grand totals for filtered sessions
         count_query = f"""
-            SELECT count(DISTINCT t.session_id)
+            SELECT
+                count(DISTINCT t.session_id),
+                sum(s.input_tokens),
+                sum(s.output_tokens),
+                sum(s.cost)
             FROM traces AS t FINAL
+            LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
             WHERE {where_clause}
         """
         count_result = self._client.query(count_query, parameters=params)
-        total = count_result.result_rows[0][0] if count_result.result_rows else 0
+        count_row = count_result.result_rows[0] if count_result.result_rows else (0, 0, 0, 0)
+        total = count_row[0]
+        total_input_tokens = int(count_row[1] or 0)
+        total_output_tokens = int(count_row[2] or 0)
+        total_cost = float(count_row[3] or 0)
 
         data = []
         session_ids_needing_span_io: list[str] = []
         for row in result.result_rows:
             # Filter out empty strings from user_ids
             user_ids = [uid for uid in row[2] if uid]
-            trace_input = row[8] or None
-            trace_output = row[9] or None
+            trace_input = row[9] or None
+            trace_output = row[10] or None
             entry = {
                 "session_id": row[0],
                 "trace_count": row[1],
@@ -308,6 +341,7 @@ class TraceReaderService:
                 "duration_ms": float(row[5]) if row[5] is not None else None,
                 "total_input_tokens": int(row[6]) if row[6] is not None else None,
                 "total_output_tokens": int(row[7]) if row[7] is not None else None,
+                "total_cost": float(row[8]) if row[8] is not None else 0.0,
                 "input": trace_input,
                 "output": trace_output,
             }
@@ -347,7 +381,14 @@ class TraceReaderService:
 
         return {
             "data": data,
-            "meta": {"page": page, "limit": limit, "total": total},
+            "meta": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "total_input_tokens": total_input_tokens,
+                "total_output_tokens": total_output_tokens,
+                "total_cost": total_cost,
+            },
         }
 
     @staticmethod
@@ -471,7 +512,8 @@ class TraceReaderService:
         tokens_query = """
             SELECT
                 sum(input_tokens) as total_input_tokens,
-                sum(output_tokens) as total_output_tokens
+                sum(output_tokens) as total_output_tokens,
+                sum(cost) as total_cost
             FROM spans FINAL
             WHERE project_id = {project_id:String}
               AND trace_id IN ({trace_ids:Array(String)})
@@ -480,7 +522,9 @@ class TraceReaderService:
             tokens_query,
             parameters={**params, "trace_ids": trace_ids},
         )
-        token_row = tokens_result.result_rows[0] if tokens_result.result_rows else (None, None)
+        token_row = (
+            tokens_result.result_rows[0] if tokens_result.result_rows else (None, None, None)
+        )
 
         first_time = traces[0]["trace_start_time"] if traces else None
         last_time = traces[-1]["trace_start_time"] if traces else None
@@ -498,6 +542,7 @@ class TraceReaderService:
             "duration_ms": duration_ms,
             "total_input_tokens": int(token_row[0]) if token_row[0] is not None else None,
             "total_output_tokens": int(token_row[1]) if token_row[1] is not None else None,
+            "total_cost": float(token_row[2]) if token_row[2] is not None else 0.0,
         }
 
     def list_users(
@@ -526,22 +571,26 @@ class TraceReaderService:
             params["search_kw"] = f"%{search_query}%"
 
         # Date range filtering
-        if start_after:
+        if start_after is not None:
             conditions.append("trace_start_time >= {start_after:DateTime64(3)}")
             params["start_after"] = _to_utc_naive(start_after)
 
-        if end_before:
-            conditions.append("trace_start_time <= {end_before:DateTime64(3)}")
+        if end_before is not None:
+            conditions.append("trace_start_time < {end_before:DateTime64(3)}")
             params["end_before"] = _to_utc_naive(end_before)
 
         where_clause = " AND ".join(conditions)
 
         query = f"""
             SELECT
-                user_id,
-                count(DISTINCT trace_id) as trace_count,
-                max(trace_start_time) as last_trace_time
-            FROM traces FINAL
+                t.user_id,
+                count(DISTINCT t.trace_id) as trace_count,
+                max(t.trace_start_time) as last_trace_time,
+                sum(s.input_tokens) as total_input_tokens,
+                sum(s.output_tokens) as total_output_tokens,
+                sum(s.cost) as total_cost
+            FROM traces AS t FINAL
+            LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
             WHERE {where_clause}
             GROUP BY user_id
             ORDER BY last_trace_time DESC
@@ -550,14 +599,23 @@ class TraceReaderService:
 
         result = self._client.query(query, parameters=params)
 
-        # Get total count
+        # Get total count and grand totals for filtered users
         count_query = f"""
-            SELECT count(DISTINCT user_id)
-            FROM traces FINAL
+            SELECT
+                count(DISTINCT t.user_id),
+                sum(s.input_tokens),
+                sum(s.output_tokens),
+                sum(s.cost)
+            FROM traces AS t FINAL
+            LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
             WHERE {where_clause}
         """
         count_result = self._client.query(count_query, parameters=params)
-        total = count_result.result_rows[0][0] if count_result.result_rows else 0
+        count_row = count_result.result_rows[0] if count_result.result_rows else (0, 0, 0, 0)
+        total = count_row[0]
+        total_input_tokens = int(count_row[1] or 0)
+        total_output_tokens = int(count_row[2] or 0)
+        total_cost = float(count_row[3] or 0)
 
         data = []
         for row in result.result_rows:
@@ -566,12 +624,22 @@ class TraceReaderService:
                     "user_id": row[0],
                     "trace_count": row[1],
                     "last_trace_time": row[2],
+                    "total_input_tokens": int(row[3] or 0),
+                    "total_output_tokens": int(row[4] or 0),
+                    "total_cost": float(row[5] or 0.0),
                 }
             )
 
         return {
             "data": data,
-            "meta": {"page": page, "limit": limit, "total": total},
+            "meta": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "total_input_tokens": total_input_tokens,
+                "total_output_tokens": total_output_tokens,
+                "total_cost": total_cost,
+            },
         }
 
 

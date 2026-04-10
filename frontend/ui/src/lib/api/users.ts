@@ -7,6 +7,9 @@ export interface UserListItem {
   user_id: string;
   trace_count: number;
   last_trace_time: string;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost: number;
 }
 
 export interface UserListResponse {
@@ -15,6 +18,9 @@ export interface UserListResponse {
     page: number;
     limit: number;
     total: number;
+    total_input_tokens?: number;
+    total_output_tokens?: number;
+    total_cost?: number;
   };
 }
 

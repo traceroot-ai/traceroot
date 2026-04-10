@@ -99,6 +99,9 @@ export interface TraceListItem {
   status: TraceStatus;
   input: string | null;
   output: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost: number | null;
 }
 
 export interface Span {
@@ -147,6 +150,9 @@ export interface TraceListResponse {
     page: number;
     limit: number;
     total: number;
+    total_input_tokens?: number;
+    total_output_tokens?: number;
+    total_cost?: number;
   };
 }
 
@@ -174,13 +180,21 @@ export interface SessionListItem {
   duration_ms: number | null;
   total_input_tokens: number | null;
   total_output_tokens: number | null;
+  total_cost: number | null;
   input: string | null;
   output: string | null;
 }
 
 export interface SessionListResponse {
   data: SessionListItem[];
-  meta: { page: number; limit: number; total: number };
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    total_input_tokens?: number;
+    total_output_tokens?: number;
+    total_cost?: number;
+  };
 }
 
 export interface SessionTraceItem {
@@ -204,6 +218,7 @@ export interface SessionDetailResponse {
   duration_ms: number | null;
   total_input_tokens: number | null;
   total_output_tokens: number | null;
+  total_cost: number | null;
 }
 
 export interface SessionQueryOptions {

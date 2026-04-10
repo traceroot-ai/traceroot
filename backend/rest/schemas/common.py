@@ -10,8 +10,16 @@ class HealthResponse(BaseModel):
 
 
 class PaginationMeta(BaseModel):
-    """Pagination metadata for list responses."""
+    """Basic pagination metadata."""
 
     page: int
     limit: int
     total: int
+
+
+class AggregatedMetricsMeta(PaginationMeta):
+    """Pagination metadata plus aggregated token and cost totals."""
+
+    total_input_tokens: int | None = 0
+    total_output_tokens: int | None = 0
+    total_cost: float | None = 0.0

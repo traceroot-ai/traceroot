@@ -45,11 +45,19 @@ class TestListSessions:
                     "duration_ms": 300000.0,
                     "total_input_tokens": 500,
                     "total_output_tokens": 800,
+                    "total_cost": 0.015,
                     "input": "What is the weather?",
                     "output": "It is sunny and 72F.",
                 },
             ],
-            "meta": {"page": 0, "limit": 50, "total": 1},
+            "meta": {
+                "page": 0,
+                "limit": 50,
+                "total": 1,
+                "total_input_tokens": 500,
+                "total_output_tokens": 800,
+                "total_cost": 0.015,
+            },
         }
         response = client.get("/api/v1/projects/test-project/sessions")
         assert response.status_code == 200
@@ -122,6 +130,7 @@ class TestListSessions:
                     "duration_ms": 1800000.0,
                     "total_input_tokens": 1000,
                     "total_output_tokens": 2000,
+                    "total_cost": 0.05,
                     "input": "Hello",
                     "output": "Goodbye",
                 },
@@ -134,11 +143,19 @@ class TestListSessions:
                     "duration_ms": 300000.0,
                     "total_input_tokens": 200,
                     "total_output_tokens": 400,
+                    "total_cost": 0.01,
                     "input": None,
                     "output": None,
                 },
             ],
-            "meta": {"page": 0, "limit": 50, "total": 2},
+            "meta": {
+                "page": 0,
+                "limit": 50,
+                "total": 2,
+                "total_input_tokens": 1200,
+                "total_output_tokens": 2400,
+                "total_cost": 0.06,
+            },
         }
         response = client.get("/api/v1/projects/test-project/sessions")
         assert response.status_code == 200
@@ -181,6 +198,7 @@ class TestGetSession:
             "duration_ms": 60000.0,
             "total_input_tokens": 100,
             "total_output_tokens": 200,
+            "total_cost": 0.005,
         }
         response = client.get("/api/v1/projects/test-project/sessions/sess-1")
         assert response.status_code == 200
@@ -241,8 +259,9 @@ class TestGetSession:
             "first_trace_time": datetime(2024, 1, 15, 10, 0),
             "last_trace_time": datetime(2024, 1, 15, 10, 2),
             "duration_ms": 120000.0,
-            "total_input_tokens": None,
-            "total_output_tokens": None,
+            "total_input_tokens": 150,
+            "total_output_tokens": 300,
+            "total_cost": 0.008,
         }
         response = client.get("/api/v1/projects/test-project/sessions/sess-1")
         assert response.status_code == 200

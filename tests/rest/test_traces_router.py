@@ -24,6 +24,9 @@ TRACE_LIST_ITEM = {
     "status": "ok",
     "input": "hello",
     "output": "world",
+    "input_tokens": 10,
+    "output_tokens": 5,
+    "cost": 0.0001,
 }
 
 TRACE_DETAIL = {
@@ -91,7 +94,14 @@ class TestListTraces:
     def test_200(self, client, mock_trace_reader):
         mock_trace_reader.list_traces.return_value = {
             "data": [TRACE_LIST_ITEM],
-            "meta": {"page": 0, "limit": 50, "total": 1},
+            "meta": {
+                "page": 0,
+                "limit": 50,
+                "total": 1,
+                "total_input_tokens": 10,
+                "total_output_tokens": 5,
+                "total_cost": 0.0001,
+            },
         }
         response = client.get("/api/v1/projects/test-project/traces")
         assert response.status_code == 200

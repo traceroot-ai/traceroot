@@ -9,7 +9,7 @@ const clientSchema = z.object({
   NEXT_PUBLIC_GITHUB_ISSUES_URL: z
     .string()
     .default("https://github.com/traceroot-ai/traceroot/issues"),
-  NEXT_PUBLIC_DISCORD_INVITE_URL: z.string().default("https://discord.com/invite/tPyffEZvvJ"),
+  NEXT_PUBLIC_DISCORD_INVITE_URL: z.string().default("https://discord.gg/TM2m3CtKuC"),
   NEXT_PUBLIC_FOUNDERS_CAL_URL: z.string().default("https://cal.com/traceroot/30min"),
 });
 

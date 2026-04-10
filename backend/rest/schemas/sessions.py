@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from rest.schemas.common import PaginationMeta
+from rest.schemas.common import AggregatedMetricsMeta, PaginationMeta
 
 
 class SessionListItem(BaseModel):
@@ -18,6 +18,7 @@ class SessionListItem(BaseModel):
     duration_ms: float | None
     total_input_tokens: int | None
     total_output_tokens: int | None
+    total_cost: float | None
     input: str | None
     output: str | None
 
@@ -26,7 +27,7 @@ class SessionListResponse(BaseModel):
     """Paginated list of sessions."""
 
     data: list[SessionListItem]
-    meta: PaginationMeta
+    meta: AggregatedMetricsMeta
 
 
 class SessionTraceItem(BaseModel):
@@ -54,3 +55,4 @@ class SessionDetailResponse(BaseModel):
     duration_ms: float | None
     total_input_tokens: int | None
     total_output_tokens: int | None
+    total_cost: float | None

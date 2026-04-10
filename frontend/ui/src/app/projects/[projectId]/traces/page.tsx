@@ -77,8 +77,15 @@ export default function TracesPage() {
   }, [hasEverTraced, projectId, queryClient]);
 
   const traces = data?.data || [];
-  const meta = data?.meta || { page: 0, limit: 50, total: 0 };
-  const totalPages = Math.ceil(meta.total / meta.limit);
+  const meta = data?.meta || {
+    page: 0,
+    limit: 50,
+    total: 0,
+    total_input_tokens: 0,
+    total_output_tokens: 0,
+    total_cost: 0,
+  };
+  const totalPages = Math.ceil(meta.total / (meta.limit || 50));
   const showGettingStarted = !hasEverTracedLoading && !hasEverTraced;
 
   const buildUrl = (path: string, extraParams?: Record<string, string>) =>
@@ -148,6 +155,31 @@ export default function TracesPage() {
                 </button>
               </div>
             )}
+            <div className="ml-auto flex items-center gap-4 rounded-md border border-border/50 bg-muted/30 px-2 py-1">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Total Tokens
+                </span>
+                <span className="font-mono text-[12px] font-medium">
+                  {(meta.total_input_tokens || 0).toLocaleString()}{" "}
+                  <span className="text-muted-foreground/50">/</span>{" "}
+                  {(meta.total_output_tokens || 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="h-6 w-px bg-border/50" />
+              <div className="flex flex-col">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Total Cost
+                </span>
+                <span className="font-mono text-[12px] font-medium text-emerald-600 dark:text-emerald-400">
+                  $
+                  {(meta.total_cost || 0).toLocaleString(undefined, {
+                    minimumFractionDigits: 4,
+                    maximumFractionDigits: 4,
+                  })}
+                </span>
+              </div>
+            </div>
           </SearchFilterBar>
         )}
 
@@ -200,6 +232,12 @@ export default function TracesPage() {
                       <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Output
                       </th>
+                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                        Tokens
+                      </th>
+                      <th className="w-[80px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                        Cost
+                      </th>
                       <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Latency
                       </th>
@@ -248,6 +286,12 @@ export default function TracesPage() {
                           <span className="block truncate font-mono text-[11px] text-muted-foreground">
                             {formatContentPreview(trace.output)}
                           </span>
+                        </td>
+                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
+                          {trace.input_tokens || 0} / {trace.output_tokens || 0}
+                        </td>
+                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-emerald-600 dark:text-emerald-400">
+                          ${(trace.cost || 0).toFixed(4)}
                         </td>
                         <td className="whitespace-nowrap px-3 py-1.5 text-[12px] text-foreground">
                           {formatDuration(trace.duration_ms)}

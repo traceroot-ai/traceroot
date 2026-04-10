@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from rest.schemas.common import PaginationMeta
+from rest.schemas.common import AggregatedMetricsMeta, PaginationMeta
 
 
 class SpanResponse(BaseModel):
@@ -46,13 +46,16 @@ class TraceListItem(BaseModel):
     status: str  # "ok" or "error"
     input: str | None
     output: str | None
+    input_tokens: int | None
+    output_tokens: int | None
+    cost: float | None
 
 
 class TraceListResponse(BaseModel):
     """Paginated list of traces."""
 
     data: list[TraceListItem]
-    meta: PaginationMeta
+    meta: AggregatedMetricsMeta
 
 
 class TraceDetailResponse(BaseModel):
