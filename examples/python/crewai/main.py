@@ -43,7 +43,7 @@ class ExampleConfig:
             raise ValueError("MODEL_NAME must be set to a non-empty value.")
         if model_name.lower().startswith("gemini"):
             raise ValueError(
-                "This CrewAI example is now OpenAI-only. Update MODEL_NAME in `.env` to "
+                "This CrewAI example is OpenAI-only. Update MODEL_NAME in `.env` to "
                 "an OpenAI model such as `gpt-4o-mini`."
             )
 
@@ -65,12 +65,10 @@ class ExampleConfig:
         if direct_key:
             return direct_key, "MODEL_API_KEY"
 
-        return ExampleConfig._fallback_api_key()
+        fallback_key = os.getenv("OPENAI_API_KEY")
+        if fallback_key:
+            return fallback_key, "OPENAI_API_KEY"
 
-    @staticmethod
-    def _fallback_api_key() -> tuple[str | None, str | None]:
-        if os.getenv("OPENAI_API_KEY"):
-            return os.getenv("OPENAI_API_KEY"), "OPENAI_API_KEY"
         return None, None
 
     @property
@@ -81,46 +79,15 @@ class ExampleConfig:
 CONFIG = ExampleConfig.from_env()
 
 # isort: off
-from traceroot import shutdown as traceroot_shutdown
-from traceroot import trace as traceroot_trace
-from traceroot.tracer import TraceOptions, write_attributes_to_current_span
+import traceroot
+from traceroot import Integration, observe, update_current_span, using_attributes
+
+traceroot.initialize(integrations=[Integration.OPENAI])
+
 from crewai import Agent, Crew, LLM, Process, Task
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 # isort: on
-
-
-def observe(name: str, type: str):
-    del type
-    return traceroot_trace(
-        TraceOptions(
-            span_name=name,
-            trace_params=True,
-            trace_return_value=True,
-        )
-    )
-
-
-def write_run_attributes(
-    *,
-    metadata: dict[str, str],
-    session_id: str,
-    tags: list[str],
-    topic: str | None = None,
-    final_report: str | None = None,
-) -> None:
-    attributes = {
-        "traceroot.session_id": session_id,
-        "traceroot.tags": ",".join(tags),
-        "traceroot.user_id": "example-user",
-    }
-    for key, value in metadata.items():
-        attributes[f"traceroot.{key}"] = value
-    if topic is not None:
-        attributes["traceroot.input.topic"] = topic
-    if final_report is not None:
-        attributes["traceroot.output.final_report"] = final_report
-    write_attributes_to_current_span(attributes)
 
 
 class TopicInput(BaseModel):
@@ -129,7 +96,6 @@ class TopicInput(BaseModel):
 
 @observe(name="lookup_use_case_fit", type="tool")
 def lookup_use_case_fit(topic: str) -> str:
-    """Return a mocked benchmark for where a multi-agent workflow fits best."""
     payload = {
         "topic": topic,
         "best_fit": "Narrow, repeatable workflows with multiple review handoffs",
@@ -146,7 +112,6 @@ def lookup_use_case_fit(topic: str) -> str:
 
 @observe(name="lookup_operating_constraints", type="tool")
 def lookup_operating_constraints(topic: str) -> str:
-    """Return mocked delivery and governance constraints for the topic."""
     payload = {
         "topic": topic,
         "required_controls": [
@@ -168,7 +133,6 @@ def lookup_operating_constraints(topic: str) -> str:
 
 @observe(name="lookup_rollout_metrics", type="tool")
 def lookup_rollout_metrics(topic: str) -> str:
-    """Return mocked rollout guidance and KPI ideas for the topic."""
     payload = {
         "topic": topic,
         "leading_kpis": [
@@ -241,15 +205,12 @@ def rewrite_runtime_error(error: Exception, config: ExampleConfig) -> Exception:
         or "authentication" in lowered
         or "api_key_invalid" in lowered
     ):
-        message = (
+        return RuntimeError(
             "OpenAI authentication failed. OpenAI rejected the configured API key.\n\n"
             f"Configured source: `{source}`\n"
             f"Example env file: `{EXAMPLE_DOTENV}`\n\n"
-            "This example prefers the local example `.env`, but it still cannot run with an "
-            "invalid OpenAI key. Set a fresh key in `MODEL_API_KEY` or `OPENAI_API_KEY` "
-            "and rerun."
+            "Set a fresh key in `MODEL_API_KEY` or `OPENAI_API_KEY` and rerun."
         )
-        return RuntimeError(message)
 
     if "model_not_found" in lowered or "does not exist" in lowered:
         return RuntimeError(
@@ -271,7 +232,6 @@ def build_tools() -> list[BaseTool]:
 
 @observe(name="prepare_internal_dossier", type="span")
 def prepare_internal_dossier(topic: str, tools: list[BaseTool]) -> str:
-    """Preload deterministic internal notes from the mocked tools."""
     sections = []
     for tool in tools:
         sections.append(f"## {tool.name}\n{tool.run(topic=topic)}")
@@ -377,31 +337,29 @@ def run_research_session(topic: str, config: ExampleConfig) -> str:
         "provider": "openai",
         "model": config.model_name,
     }
-    tags = ["example", "python", "crewai", "openai"]
 
-    write_run_attributes(
+    update_current_span(
         metadata=metadata,
-        session_id=config.session_id,
-        tags=tags,
-        topic=topic,
+        input={"topic": topic},
+        model=config.model_name,
+        model_parameters={
+            "framework": metadata["framework"],
+            "process": metadata["process"],
+            "provider": metadata["provider"],
+        },
     )
 
     tools = build_tools()
     internal_dossier = prepare_internal_dossier(topic, tools)
     crew = build_crew(config, tools)
+
     try:
         output = crew.kickoff(inputs={"topic": topic, "internal_dossier": internal_dossier})
     except Exception as exc:
         raise rewrite_runtime_error(exc, config) from exc
+
     final_report = str(output).strip()
-
-    write_run_attributes(
-        metadata=metadata,
-        session_id=config.session_id,
-        tags=tags,
-        final_report=final_report,
-    )
-
+    update_current_span(output={"final_report": final_report})
     return final_report
 
 
@@ -410,6 +368,18 @@ DEMO_TOPIC = "AI support triage workflow for a mid-market B2B SaaS team"
 
 if __name__ == "__main__":
     print(f"Topic: {DEMO_TOPIC}\n")
-    report = run_research_session(DEMO_TOPIC, CONFIG)
+    with using_attributes(
+        user_id="example-user",
+        session_id=CONFIG.session_id,
+        tags=["example", "python", "crewai", "openai"],
+        metadata={
+            "framework": "crewai",
+            "process": "sequential",
+            "provider": "openai",
+            "model": CONFIG.model_name,
+        },
+    ):
+        report = run_research_session(DEMO_TOPIC, CONFIG)
+
     print(report)
-    traceroot_shutdown()
+    traceroot.flush()
