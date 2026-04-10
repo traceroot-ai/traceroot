@@ -183,7 +183,7 @@ branding:
   docsUrl: "https://traceroot.ai/docs"
   githubRepoUrl: "https://github.com/traceroot-ai/traceroot"
   githubIssuesUrl: "https://github.com/traceroot-ai/traceroot/issues"
-  discordInviteUrl: "https://discord.com/invite/tPyffEZvvJ"
+  discordInviteUrl: "https://discord.gg/TM2m3CtKuC"
 
 # --- Stripe (optional — set existingSecret to enable) ---
 stripe:
