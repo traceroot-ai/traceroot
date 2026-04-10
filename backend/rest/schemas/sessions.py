@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from rest.schemas.common import AggregatedMetricsMeta, PaginationMeta
+from rest.schemas.common import AggregatedMetricsMeta
 
 
 class SessionListItem(BaseModel):
