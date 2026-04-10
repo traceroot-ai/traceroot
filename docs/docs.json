@@ -139,6 +139,7 @@
             "pages": [
               "integrations/langchain",
               "integrations/langchain-deepagents",
+              "integrations/claude-agent-sdk",
               "integrations/mastra",
               "integrations/autogen"
             ]
