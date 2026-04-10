@@ -173,7 +173,7 @@ Special Thanks for [pi-mono](https://github.com/badlogic/pi-mono) project, which
 
 **Contributing** 🤝: If you're interested in contributing, you can check out our guide [here](/CONTRIBUTING.md). All types of help are appreciated :)
 
-**Support** 💬: If you need any type of support, we're typically most responsive on our [Discord channel](https://discord.gg/tPyffEZvvJ), but feel free to email us `founders@traceroot.ai` too!
+**Support** 💬: If you need any type of support, we're typically most responsive on our [Discord channel](https://discord.gg/TM2m3CtKuC), but feel free to email us `founders@traceroot.ai` too!
 
 ## License
 
@@ -187,7 +187,7 @@ This project is licensed under [Apache 2.0](LICENSE) with additional [Enterprise
 
 <!-- Links -->
 [discord-image]: https://img.shields.io/discord/1395844148568920114?logo=discord&labelColor=%235462eb&logoColor=%23f5f5f5&color=%235462eb
-[discord-url]: https://discord.gg/tPyffEZvvJ
+[discord-url]: https://discord.gg/TM2m3CtKuC
 [license-image]: https://img.shields.io/badge/License-Apache%202.0-blue.svg
 [license-url]: https://opensource.org/licenses/Apache-2.0
 [docs-image]: https://img.shields.io/badge/docs-traceroot.ai-0dbf43
