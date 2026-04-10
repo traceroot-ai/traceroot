@@ -12,25 +12,32 @@ Run:
 """
 
 import logging
+
 from dotenv import find_dotenv, load_dotenv
 
 dotenv_path = find_dotenv()
 if dotenv_path:
     load_dotenv(dotenv_path)
 else:
-    print("No .env file found. Using process environment variables.")
+    print("No .env file found (find_dotenv returned None).\nUsing process environment variables.")
 
-import traceroot
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from agno.tools.duckduckgo import DuckDuckGoTools
 from agno.tools.yfinance import YFinanceTools
+
+import traceroot
 from traceroot import Integration, observe, using_attributes
 
 traceroot.initialize(integrations=[Integration.AGNO])
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# ── Agent setup ───────────────────────────────────────────────────────────────
+
+# ---------------------------------------------------------------------------
+# Agent setup
+# ---------------------------------------------------------------------------
+
 
 agent = Agent(
     model=OpenAIChat(id="gpt-4o-mini"),
@@ -47,7 +54,11 @@ agent = Agent(
     markdown=True,
 )
 
-# ── Demo ──────────────────────────────────────────────────────────────────────
+
+# ---------------------------------------------------------------------------
+# Demo
+# ---------------------------------------------------------------------------
+
 
 DEMO_QUERIES = [
     "What is the current stock price of NVDA and what are its fundamentals?",
@@ -65,16 +76,11 @@ def run_demo() -> None:
         print(f"\n{'=' * 60}")
         print(f"Query {i}: {query}")
         print("=" * 60)
-
-        with observe(name="agent_run", type="agent"):
-            agent.print_response(query, stream=False)
+        agent.print_response(query, stream=False)
 
 
 if __name__ == "__main__":
-    with using_attributes(
-        user_id="example-user",
-        session_id="agno-python-session",
-    ):
+    with using_attributes(user_id="example-user", session_id="agno-python-session"):
         run_demo()
     traceroot.flush()
     print("\n[Traces exported]")
