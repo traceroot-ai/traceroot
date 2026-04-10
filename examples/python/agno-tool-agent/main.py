@@ -12,17 +12,23 @@ Run:
 """
 
 import logging
+from dotenv import find_dotenv, load_dotenv
+
+dotenv_path = find_dotenv()
+if dotenv_path:
+    load_dotenv(dotenv_path)
+else:
+    print("No .env file found. Using process environment variables.")
 
 import traceroot
+from agno.agent import Agent
+from agno.models.openai import OpenAIChat
+from agno.tools.duckduckgo import DuckDuckGoTools
+from agno.tools.yfinance import YFinanceTools
 from traceroot import Integration, observe, using_attributes
 
 traceroot.initialize(integrations=[Integration.AGNO])
 logging.basicConfig(level=logging.INFO)
-
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.yfinance import YFinanceTools
-from agno.tools.duckduckgo import DuckDuckGoTools
 
 # ── Agent setup ───────────────────────────────────────────────────────────────
 
@@ -72,4 +78,3 @@ if __name__ == "__main__":
         run_demo()
     traceroot.flush()
     print("\n[Traces exported]")
-    

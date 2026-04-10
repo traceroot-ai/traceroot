@@ -3,3 +3,4 @@ agno>=2.5.0
 openai
 yfinance
 duckduckgo-search
+python-dotenv
