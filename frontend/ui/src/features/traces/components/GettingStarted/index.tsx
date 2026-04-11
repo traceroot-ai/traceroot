@@ -59,14 +59,18 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
           {tab === "ai" ? <AITab projectId={projectId} /> : <ManualTab projectId={projectId} />}
         </div>
 
-        <div className="mt-6 rounded-sm border border-border bg-muted/30 px-4 py-3">
-          <p className="text-sm font-medium text-foreground">Connect GitHub</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Connect GitHub for enhanced codebase context and git activities during root cause
-            analysis.
+        <div className="mt-6 space-y-2">
+          <p className="text-sm font-medium text-foreground">
+            {tab === "ai" ? "4." : "5."} Optionally connect your GitHub repositories
           </p>
-          <div className="mt-3">
-            <GitHubConnectButton />
+          <div className="rounded-sm border border-border bg-muted/30 px-4 py-3">
+            <p className="text-xs text-muted-foreground">
+              Install the GitHub App for repository linking and code-level tracing during root cause
+              analysis.
+            </p>
+            <div className="mt-3">
+              <GitHubConnectButton />
+            </div>
           </div>
         </div>
       </div>
