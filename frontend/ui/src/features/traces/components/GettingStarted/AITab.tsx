@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
+import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
 import { ApiKeyBlock } from "./ApiKeyBlock";
 
 const INSTRUMENT_PROMPT = `I want to add observability to my project using TraceRoot.
@@ -149,6 +150,21 @@ export function AITab({ projectId }: AITabProps) {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-foreground">
+          4. Optionally connect your GitHub repositories
+        </p>
+        <div className="rounded-sm border border-border bg-muted/30 px-4 py-3">
+          <p className="text-xs text-muted-foreground">
+            Install the GitHub App for repository linking and code-level tracing during root cause
+            analysis.
+          </p>
+          <div className="mt-3">
+            <GitHubConnectButton />
+          </div>
         </div>
       </div>
     </div>
