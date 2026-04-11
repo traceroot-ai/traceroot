@@ -26,17 +26,6 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
           You don&apos;t have any traces yet. Choose how you&apos;d like to set up.
         </p>
 
-        <div className="mt-6 rounded-sm border border-border bg-muted/30 px-4 py-3">
-          <p className="text-sm font-medium text-foreground">Connect GitHub</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Install the GitHub App so TraceRoot can link traces to your repositories and enable
-            code-level analysis.
-          </p>
-          <div className="mt-3">
-            <GitHubConnectButton />
-          </div>
-        </div>
-
         <div className="mt-6 inline-flex gap-0.5 rounded-sm border border-border bg-muted p-0.5">
           <button
             type="button"
@@ -68,6 +57,17 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
 
         <div className="mt-6">
           {tab === "ai" ? <AITab projectId={projectId} /> : <ManualTab projectId={projectId} />}
+        </div>
+
+        <div className="mt-6 rounded-sm border border-border bg-muted/30 px-4 py-3">
+          <p className="text-sm font-medium text-foreground">Connect GitHub</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Connect GitHub for enhanced codebase context and git activities during root cause
+            analysis.
+          </p>
+          <div className="mt-3">
+            <GitHubConnectButton />
+          </div>
         </div>
       </div>
     </div>
