@@ -170,8 +170,8 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   ],
   zai: [
     { id: "glm-5.1", label: "glm-5.1" },
-    { id: "glm-5-turbo", label: "glm-5-turbo" },
     { id: "glm-5", label: "glm-5" },
+    { id: "glm-5-turbo", label: "glm-5-turbo" },
     { id: "glm-4.7", label: "glm-4.7" },
     { id: "glm-4.6", label: "glm-4.6" },
     { id: "glm-4.5", label: "glm-4.5" },
