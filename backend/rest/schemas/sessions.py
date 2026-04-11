@@ -18,6 +18,7 @@ class SessionListItem(BaseModel):
     duration_ms: float | None
     total_input_tokens: int | None
     total_output_tokens: int | None
+    total_cost: float | None = None
     input: str | None
     output: str | None
 
@@ -54,3 +55,4 @@ class SessionDetailResponse(BaseModel):
     duration_ms: float | None
     total_input_tokens: int | None
     total_output_tokens: int | None
+    total_cost: float | None = None

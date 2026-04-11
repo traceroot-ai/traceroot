@@ -254,6 +254,7 @@ class TraceReaderService:
                 sum(sub.trace_duration_ms) as duration_ms,
                 sum(sub.trace_input_tokens) as total_input_tokens,
                 sum(sub.trace_output_tokens) as total_output_tokens,
+                sum(sub.trace_cost) as total_cost,
                 argMin(sub.trace_input, sub.trace_start_time) as trace_input,
                 argMax(sub.trace_output, sub.trace_start_time) as trace_output
             FROM (
@@ -270,7 +271,8 @@ class TraceReaderService:
                         NULL
                     ) as trace_duration_ms,
                     sum(s.input_tokens) as trace_input_tokens,
-                    sum(s.output_tokens) as trace_output_tokens
+                    sum(s.output_tokens) as trace_output_tokens,
+                    sum(s.cost) as trace_cost
                 FROM traces AS t FINAL
                 LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
                 WHERE {where_clause}
@@ -297,8 +299,8 @@ class TraceReaderService:
         for row in result.result_rows:
             # Filter out empty strings from user_ids
             user_ids = [uid for uid in row[2] if uid]
-            trace_input = row[8] or None
-            trace_output = row[9] or None
+            trace_input = row[9] or None
+            trace_output = row[10] or None
             entry = {
                 "session_id": row[0],
                 "trace_count": row[1],
@@ -308,6 +310,7 @@ class TraceReaderService:
                 "duration_ms": float(row[5]) if row[5] is not None else None,
                 "total_input_tokens": int(row[6]) if row[6] is not None else None,
                 "total_output_tokens": int(row[7]) if row[7] is not None else None,
+                "total_cost": float(row[8]) if row[8] is not None else None,
                 "input": trace_input,
                 "output": trace_output,
             }
@@ -471,7 +474,8 @@ class TraceReaderService:
         tokens_query = """
             SELECT
                 sum(input_tokens) as total_input_tokens,
-                sum(output_tokens) as total_output_tokens
+                sum(output_tokens) as total_output_tokens,
+                sum(cost) as total_cost
             FROM spans FINAL
             WHERE project_id = {project_id:String}
               AND trace_id IN ({trace_ids:Array(String)})
@@ -498,6 +502,7 @@ class TraceReaderService:
             "duration_ms": duration_ms,
             "total_input_tokens": int(token_row[0]) if token_row[0] is not None else None,
             "total_output_tokens": int(token_row[1]) if token_row[1] is not None else None,
+            "total_cost": float(token_row[2]) if token_row[2] is not None else None,
         }
 
     def list_users(
