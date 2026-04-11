@@ -13,6 +13,8 @@ class UserItem(BaseModel):
     user_id: str
     trace_count: int
     last_trace_time: datetime | None
+    total_tokens: int | None = 0
+    total_cost: float | None = 0.0
 
 
 class UserListResponse(BaseModel):
