@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Sparkle, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
 import { AITab } from "./AITab";
 import { ManualTab } from "./ManualTab";
 
@@ -57,21 +56,6 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
 
         <div className="mt-6">
           {tab === "ai" ? <AITab projectId={projectId} /> : <ManualTab projectId={projectId} />}
-        </div>
-
-        <div className="mt-6 space-y-2">
-          <p className="text-sm font-medium text-foreground">
-            {tab === "ai" ? "4." : "5."} Optionally connect your GitHub repositories
-          </p>
-          <div className="rounded-sm border border-border bg-muted/30 px-4 py-3">
-            <p className="text-xs text-muted-foreground">
-              Install the GitHub App for repository linking and code-level tracing during root cause
-              analysis.
-            </p>
-            <div className="mt-3">
-              <GitHubConnectButton />
-            </div>
-          </div>
         </div>
       </div>
     </div>
