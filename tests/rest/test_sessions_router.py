@@ -45,6 +45,7 @@ class TestListSessions:
                     "duration_ms": 300000.0,
                     "total_input_tokens": 500,
                     "total_output_tokens": 800,
+                    "total_cost": 0.05,
                     "input": "What is the weather?",
                     "output": "It is sunny and 72F.",
                 },
@@ -60,6 +61,7 @@ class TestListSessions:
         assert data["data"][0]["user_ids"] == ["user-1"]
         assert data["data"][0]["input"] == "What is the weather?"
         assert data["data"][0]["output"] == "It is sunny and 72F."
+        assert data["data"][0]["total_cost"] == 0.05
 
     def test_pagination(self, client, mock_trace_reader):
         mock_trace_reader.list_sessions.return_value = {
@@ -122,6 +124,7 @@ class TestListSessions:
                     "duration_ms": 1800000.0,
                     "total_input_tokens": 1000,
                     "total_output_tokens": 2000,
+                    "total_cost": 0.15,
                     "input": "Hello",
                     "output": "Goodbye",
                 },
@@ -134,6 +137,7 @@ class TestListSessions:
                     "duration_ms": 300000.0,
                     "total_input_tokens": 200,
                     "total_output_tokens": 400,
+                    "total_cost": None,
                     "input": None,
                     "output": None,
                 },
@@ -181,6 +185,7 @@ class TestGetSession:
             "duration_ms": 60000.0,
             "total_input_tokens": 100,
             "total_output_tokens": 200,
+            "total_cost": 0.02,
         }
         response = client.get("/api/v1/projects/test-project/sessions/sess-1")
         assert response.status_code == 200
@@ -190,6 +195,7 @@ class TestGetSession:
         assert data["traces"][0]["input"] == "What is the weather?"
         assert data["traces"][1]["output"] == "It will rain."
         assert data["trace_count"] == 2
+        assert data["total_cost"] == 0.02
 
     def test_not_found(self, client, mock_trace_reader):
         mock_trace_reader.get_session.return_value = None

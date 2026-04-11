@@ -56,11 +56,11 @@ export default function SessionsPage() {
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
   const totalPages = Math.ceil(meta.total / meta.limit);
 
-  function getTotalTokenCount(session: SessionListItem): number | null {
+  function formatTokens(session: SessionListItem): string {
     const input = session.total_input_tokens ?? 0;
     const output = session.total_output_tokens ?? 0;
     const total = input + output;
-    return total > 0 ? total : null;
+    return total > 0 ? `${total.toLocaleString()} / ${output.toLocaleString()}` : "-";
   }
 
   function getTotalCost(session: SessionListItem): number | null {
@@ -154,7 +154,7 @@ export default function SessionsPage() {
                         User ID
                       </th>
                       <th className="w-[110px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Total Tokens
+                        Tokens
                       </th>
                       <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Cost
@@ -189,7 +189,7 @@ export default function SessionsPage() {
                           {session.user_ids.length > 0 ? session.user_ids.join(", ") : "-"}
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                          {getTotalTokenCount(session)?.toLocaleString() ?? "-"}
+                          {formatTokens(session)}
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                           {formatCost(getTotalCost(session))}
