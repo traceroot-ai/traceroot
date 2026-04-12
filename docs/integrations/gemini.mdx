@@ -26,7 +26,7 @@ from google.genai import types
 from dotenv import load_dotenv
 
 import traceroot
-from traceroot import Integration, observe
+from traceroot import Integration
 
 load_dotenv()
 
@@ -78,9 +78,11 @@ get_weather_schema = types.FunctionDeclaration(
 )
 weather_tool = types.Tool(function_declarations=[get_weather_schema])
 
-# # Use @observe(type="agent") to create a parent span that links the LLM and Tool calls together
+# Use @observe(type="agent") to create a parent span that links the LLM and Tool calls together
 @observe(name="weather_interaction", type="agent")
 def ask_about_weather(query: str):
+    
+    # Ask the LLM
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=query,
@@ -88,16 +90,39 @@ def ask_about_weather(query: str):
     )
 
     if response.function_calls:
+        function_responses = []
         for tool_call in response.function_calls:
             if tool_call.name == "get_weather":
+                # This execution triggers the TraceRoot child span
                 result = get_weather(**tool_call.args)
                 
-                return result 
-                
-    return "No tool needed."
+                # Format the result for Gemini
+                function_responses.append(
+                    types.Part.from_function_response(
+                        name=tool_call.name,
+                        response={"result": result},
+                    )
+                )
+        
+        # Send the tool results back to the LLM for a final answer
+        final_response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            # We must pass the conversation history so the LLM has context
+            contents=[
+                query, 
+                response.candidates[0].content, 
+                types.Content(role="user", parts=function_responses)
+            ],
+            config=types.GenerateContentConfig(tools=[weather_tool]),
+        )
+        return final_response.text
+
+    # Fallback if no tool was needed
+    return response.text
 
 if __name__ == "__main__":
-    ask_about_weather("What's the weather in Tokyo?")
+    answer = ask_about_weather("What's the weather in Tokyo?")
+    print(f"Final Answer: {answer}")
     traceroot.flush()
 ```
 
