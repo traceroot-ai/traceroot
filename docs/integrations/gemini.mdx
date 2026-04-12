@@ -11,6 +11,7 @@ Automatically capture all Gemini model calls made through the `google-genai` SDK
 import traceroot
 from traceroot import Integration
 
+# Initialize TraceRoot with the Google GENAI Integration
 traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])
 ```
 
@@ -22,6 +23,14 @@ Once initialized, all Gemini calls are captured automatically:
 import os
 from google import genai
 from google.genai import types
+from dotenv import load_dotenv
+
+import traceroot
+from traceroot import Integration, observe
+
+load_dotenv()
+
+traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])
 
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
@@ -42,10 +51,23 @@ Tool calls and multi-turn conversations are fully traced:
 import os
 from google import genai
 from google.genai import types
+from dotenv import load_dotenv
+
+import traceroot
+from traceroot import Integration, observe
+
+load_dotenv()
+
+traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])
 
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
-get_weather = types.FunctionDeclaration(
+# Use @observe(type="tool") to capture the actual execution as a child span
+@observe(name="get_weather", type="tool")
+def get_weather(city: str) -> str:
+    return f"The weather in {city} is sunny."
+
+get_weather_schema = types.FunctionDeclaration(
     name="get_weather",
     description="Get current weather for a city",
     parameters=types.Schema(
@@ -54,13 +76,29 @@ get_weather = types.FunctionDeclaration(
         required=["city"],
     ),
 )
+weather_tool = types.Tool(function_declarations=[get_weather_schema])
 
-# Tool calls are automatically traced as child spans
-response = client.models.generate_content(
-    model="gemini-2.5-flash",
-    contents="What's the weather in Tokyo?",
-    config=types.GenerateContentConfig(tools=[get_weather]),
-)
+# # Use @observe(type="agent") to create a parent span that links the LLM and Tool calls together
+@observe(name="weather_interaction", type="agent")
+def ask_about_weather(query: str):
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=query,
+        config=types.GenerateContentConfig(tools=[weather_tool]),
+    )
+
+    if response.function_calls:
+        for tool_call in response.function_calls:
+            if tool_call.name == "get_weather":
+                result = get_weather(**tool_call.args)
+                
+                return result 
+                
+    return "No tool needed."
+
+if __name__ == "__main__":
+    ask_about_weather("What's the weather in Tokyo?")
+    traceroot.flush()
 ```
 
 ## What Gets Captured
