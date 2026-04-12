@@ -3,9 +3,9 @@
   "name": "TraceRoot",
   "theme": "mint",
   "colors": {
-    "primary": "#000000",
-    "light": "#000000",
-    "dark": "#FFFFFF"
+    "primary": "#0f172a",
+    "light": "#FFFFFF",
+    "dark": "#000000"
   },
   "rounded": "default",
   "fonts": {
