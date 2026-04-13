@@ -114,10 +114,8 @@ export function SessionDetailPanel({
   const buildUrl = (basePath: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(basePath, { dateFilter, customStartDate, customEndDate, extraParams });
 
-  const totalTokenCount =
-    data && (data.total_input_tokens ?? 0) + (data.total_output_tokens ?? 0) > 0
-      ? (data.total_input_tokens ?? 0) + (data.total_output_tokens ?? 0)
-      : null;
+  const _rawTokens = data ? (data.total_input_tokens ?? 0) + (data.total_output_tokens ?? 0) : 0;
+  const totalTokenCount = _rawTokens > 0 ? _rawTokens : null;
 
   const totalCost = data ? (data.total_cost_usd ?? data.total_cost ?? null) : null;
   return (
