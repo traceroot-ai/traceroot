@@ -1,4 +1,4 @@
-# Deploying Traceroot to AWS
+# Deploying TraceRoot to AWS
 
 Single-command infrastructure provisioning using Terraform + Helm on EKS Fargate.
 

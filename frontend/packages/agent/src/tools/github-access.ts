@@ -46,7 +46,7 @@ export function createCheckGitHubAccessTool(
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/vnd.github.v3+json",
-          "User-Agent": "Traceroot-Agent",
+          "User-Agent": "TraceRoot-Agent",
         },
       });
 

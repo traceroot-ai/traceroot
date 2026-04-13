@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/vnd.github.v3+json",
-        "User-Agent": "Traceroot",
+        "User-Agent": "TraceRoot",
       },
     });
 
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           Accept: "application/vnd.github.v3+json",
-          "User-Agent": "Traceroot",
+          "User-Agent": "TraceRoot",
         },
       });
       if (installRes.ok) {

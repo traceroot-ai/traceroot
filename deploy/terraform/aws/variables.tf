@@ -70,7 +70,7 @@ variable "cache_node_type" {
 
 # --- Helm ---
 variable "traceroot_helm_chart_path" {
-  description = "Path to the Traceroot Helm chart"
+  description = "Path to the TraceRoot Helm chart"
   type        = string
   default     = "../../helm"
 }
@@ -272,7 +272,7 @@ variable "alb_scheme" {
 #     }},
 #   ]
 variable "additional_env" {
-  description = "Additional environment variables for all Traceroot pods"
+  description = "Additional environment variables for all TraceRoot pods"
   type = list(object({
     name  = string
     value = optional(string)
