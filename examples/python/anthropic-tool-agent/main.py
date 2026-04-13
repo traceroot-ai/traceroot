@@ -1,5 +1,5 @@
 """
-Anthropic ReAct agent with tool use and Traceroot observability.
+Anthropic ReAct agent with tool use and TraceRoot observability.
 
 Usage:
     cp .env.example .env

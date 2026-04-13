@@ -149,7 +149,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           <DialogHeader>
             <DialogTitle>Create API Key</DialogTitle>
             <DialogDescription>
-              Create a new API key to authenticate with the Traceroot SDK.
+              Create a new API key to authenticate with the TraceRoot SDK.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">

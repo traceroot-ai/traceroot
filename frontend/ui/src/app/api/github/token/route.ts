@@ -18,7 +18,7 @@ async function findInstallationForRepo(
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: "application/vnd.github.v3+json",
-      "User-Agent": "Traceroot",
+      "User-Agent": "TraceRoot",
     },
   });
 

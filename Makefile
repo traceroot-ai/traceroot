@@ -1,5 +1,5 @@
 # =============================================================================
-# Traceroot Development
+# TraceRoot Development
 # =============================================================================
 
 PROD_COMPOSE := docker compose -f docker-compose.prod.yml
@@ -21,7 +21,7 @@ dev-autoreload: install-hooks
 
 ## Windows contributors: full dev env without tmux requirement.
 dev-lite: install-hooks
-	@echo "Starting Traceroot at http://localhost:3000 - Ctrl+C to stop"
+	@echo "Starting TraceRoot at http://localhost:3000 - Ctrl+C to stop"
 	$(PROD_COMPOSE) up --build
 
 ## Nuclear reset: kill tmux, destroy all containers/volumes/deps. Run `make dev` to start again.
@@ -36,7 +36,7 @@ prod:
 
 ## Self-hosting on any platform (Windows, CI, no tmux). Docker Desktop only.
 prod-lite:
-	@echo "Starting Traceroot at http://localhost:3000 - Ctrl+C to stop"
+	@echo "Starting TraceRoot at http://localhost:3000 - Ctrl+C to stop"
 	$(PROD_COMPOSE) up --build
 
 ## Nuclear reset: stop containers, remove volumes, built images, and orphaned sandboxes.
