@@ -484,7 +484,9 @@ class TraceReaderService:
             tokens_query,
             parameters={**params, "trace_ids": trace_ids},
         )
-        token_row = tokens_result.result_rows[0] if tokens_result.result_rows else (None, None)
+        token_row = (
+            tokens_result.result_rows[0] if tokens_result.result_rows else (None, None, None)
+        )
 
         first_time = traces[0]["trace_start_time"] if traces else None
         last_time = traces[-1]["trace_start_time"] if traces else None

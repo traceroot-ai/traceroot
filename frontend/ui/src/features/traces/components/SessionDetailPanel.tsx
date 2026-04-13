@@ -117,7 +117,7 @@ export function SessionDetailPanel({
   const _rawTokens = data ? (data.total_input_tokens ?? 0) + (data.total_output_tokens ?? 0) : 0;
   const totalTokenCount = _rawTokens > 0 ? _rawTokens : null;
 
-  const totalCost = data ? (data.total_cost_usd ?? data.total_cost ?? null) : null;
+  const totalCost = data ? (data.total_cost ?? null) : null;
   return (
     <div className="flex h-full flex-col bg-background">
       {/* Header bar */}

@@ -174,7 +174,6 @@ export interface SessionListItem {
   duration_ms: number | null;
   total_input_tokens: number | null;
   total_output_tokens: number | null;
-  total_cost_usd?: number | null;
   total_cost?: number | null;
   input: string | null;
   output: string | null;
@@ -206,7 +205,6 @@ export interface SessionDetailResponse {
   duration_ms: number | null;
   total_input_tokens: number | null;
   total_output_tokens: number | null;
-  total_cost_usd?: number | null;
   total_cost?: number | null;
 }
 

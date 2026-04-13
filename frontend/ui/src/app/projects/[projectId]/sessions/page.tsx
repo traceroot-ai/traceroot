@@ -23,12 +23,11 @@ const tabs = [
 function formatTokens(session: SessionListItem): string {
   const input = session.total_input_tokens ?? 0;
   const output = session.total_output_tokens ?? 0;
-  const total = input + output;
-  return total > 0 ? `${total.toLocaleString()} / ${output.toLocaleString()}` : "-";
+  return input + output > 0 ? `${input.toLocaleString()} / ${output.toLocaleString()}` : "-";
 }
 
 function getTotalCost(session: SessionListItem): number | null {
-  return session.total_cost_usd ?? session.total_cost ?? null;
+  return session.total_cost ?? null;
 }
 
 export default function SessionsPage() {
