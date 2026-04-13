@@ -20,6 +20,17 @@ const tabs = [
   { id: "sessions", label: "Sessions", icon: Layers, href: "sessions" },
 ];
 
+function formatTokens(session: SessionListItem): string {
+  const input = session.total_input_tokens ?? 0;
+  const output = session.total_output_tokens ?? 0;
+  const total = input + output;
+  return total > 0 ? `${total.toLocaleString()} / ${output.toLocaleString()}` : "-";
+}
+
+function getTotalCost(session: SessionListItem): number | null {
+  return session.total_cost_usd ?? session.total_cost ?? null;
+}
+
 export default function SessionsPage() {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -55,17 +66,6 @@ export default function SessionsPage() {
   const sessions = data?.data || [];
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
   const totalPages = Math.ceil(meta.total / meta.limit);
-
-  function formatTokens(session: SessionListItem): string {
-    const input = session.total_input_tokens ?? 0;
-    const output = session.total_output_tokens ?? 0;
-    const total = input + output;
-    return total > 0 ? `${total.toLocaleString()} / ${output.toLocaleString()}` : "-";
-  }
-
-  function getTotalCost(session: SessionListItem): number | null {
-    return session.total_cost_usd ?? session.total_cost ?? null;
-  }
 
   const buildUrl = (path: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(path, {
