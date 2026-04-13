@@ -162,26 +162,6 @@ export function ManualTab({ projectId }: ManualTabProps) {
             </div>
             <span className="text-xs font-medium text-foreground">Mastra</span>
           </a>
-          <a
-            href="https://traceroot.ai/docs/integrations/langchain-deepagents"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex w-24 flex-col items-center gap-1.5 border border-border bg-muted/30 py-3 transition-colors hover:bg-muted/60"
-          >
-            {/* DeepAgents logo — exact paths from .github/images/logo-dark.svg, monochrome */}
-            <svg
-              aria-hidden="true"
-              width="24"
-              height="24"
-              viewBox="22 19 54 60"
-              fill="currentColor"
-              className="text-foreground"
-            >
-              <path d="M73.7371 42.5435V21.8158H52.3481L52.3482 22.3079C63.4288 22.5936 72.4574 31.6684 73.3601 42.5435H73.7371Z" />
-              <path d="M49.7646 21.816H24.729V64.0228C24.729 71.817 30.7399 76.6658 40.4175 76.6658H73.7482V45.8297H49.7646V21.816Z" />
-            </svg>
-            <span className="text-xs font-medium text-foreground">DeepAgents</span>
-          </a>
         </div>
       </div>
 

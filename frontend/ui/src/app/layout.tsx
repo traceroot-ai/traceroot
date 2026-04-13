@@ -11,7 +11,7 @@ import { Suspense } from "react";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Traceroot",
+  title: "TraceRoot",
   description: "AI Observability Platform",
   icons: {
     icon: "/images/favicon.ico",

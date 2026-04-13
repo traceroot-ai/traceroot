@@ -196,5 +196,5 @@ This project is licensed under [Apache 2.0](LICENSE) with additional [Enterprise
 [pypi-sdk-downloads-url]: https://pypi.python.org/pypi/traceroot
 [y-combinator-image]: https://img.shields.io/badge/Combinator-S25-orange?logo=ycombinator&labelColor=white
 [y-combinator-url]: https://www.ycombinator.com/companies/traceroot-ai
-[twitter-image]: https://img.shields.io/twitter/follow/TracerootAI
-[twitter-url]: https://x.com/TracerootAI
+[twitter-image]: https://img.shields.io/twitter/follow/TraceRootAI
+[twitter-url]: https://x.com/TraceRootAI
