@@ -25,7 +25,7 @@ else:
 import traceroot
 from traceroot import Integration, observe, using_attributes
 
-traceroot.initialize(integrations=[Integration.CREWAI])
+traceroot.initialize(integrations=[Integration.CREWAI, Integration.OPENAI])
 
 # =============================================================================
 # CREWAI AGENTS
