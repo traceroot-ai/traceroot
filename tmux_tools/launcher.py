@@ -132,13 +132,11 @@ def run_prod_setup():
     # minio-init is a one-shot container — start it separately (--wait fails on exit-0 containers)
     _run(f"{PROD_COMPOSE} up -d minio-init")
 
-    print("Running database migrations (PostgreSQL)...")
-    _run(f"{PROD_COMPOSE} run --rm migrate")
-
-    print("Running database migrations (ClickHouse)...")
-    _run(f"{PROD_COMPOSE} run --rm migrate-clickhouse")
-
-    print("Starting application services (web, rest, worker, billing, agent)...")
+    # Migrations run as a dependency of each app service via depends_on:
+    # service_completed_successfully in docker-compose.prod.yml. Starting the
+    # services here causes Compose to run migrate/migrate-clickhouse first and
+    # only bring up each app container after its migration dependency exits 0.
+    print("Starting application services (migrations run automatically before app services)...")
     _run(f"{PROD_COMPOSE} up -d web rest worker billing agent")
 
     print("\nAll containers started. Launching log viewer...\n")
