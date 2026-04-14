@@ -1,4 +1,4 @@
-"""Traceroot development environment launcher.
+"""TraceRoot development environment launcher.
 
 Launches all services in a tmux session with named windows.
 Handles all setup automatically: deps, infra, migrations.
@@ -132,13 +132,11 @@ def run_prod_setup():
     # minio-init is a one-shot container — start it separately (--wait fails on exit-0 containers)
     _run(f"{PROD_COMPOSE} up -d minio-init")
 
-    print("Running database migrations (PostgreSQL)...")
-    _run(f"{PROD_COMPOSE} run --rm migrate")
-
-    print("Running database migrations (ClickHouse)...")
-    _run(f"{PROD_COMPOSE} run --rm migrate-clickhouse")
-
-    print("Starting application services (web, rest, worker, billing, agent)...")
+    # Migrations run as a dependency of each app service via depends_on:
+    # service_completed_successfully in docker-compose.prod.yml. Starting the
+    # services here causes Compose to run migrate/migrate-clickhouse first and
+    # only bring up each app container after its migration dependency exits 0.
+    print("Starting application services (migrations run automatically before app services)...")
     _run(f"{PROD_COMPOSE} up -d web rest worker billing agent")
 
     print("\nAll containers started. Launching log viewer...\n")
@@ -314,7 +312,7 @@ def make_driver(autoreload=False):
                 title="Frontend",
                 command="cd frontend/ui && pnpm dev",
                 web_urls=[
-                    ("Traceroot UI", f"http://localhost:{FRONTEND_PORT}"),
+                    ("TraceRoot UI", f"http://localhost:{FRONTEND_PORT}"),
                 ],
             ),
             schema.Service(
@@ -389,7 +387,7 @@ def make_prod_driver():
                 title="Web",
                 command=f"{PROD_COMPOSE} logs -f --tail=50 web",
                 web_urls=[
-                    ("Traceroot UI", f"http://localhost:{FRONTEND_PORT}"),
+                    ("TraceRoot UI", f"http://localhost:{FRONTEND_PORT}"),
                 ],
             ),
             schema.Service(
@@ -429,7 +427,7 @@ def make_prod_driver():
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Launch Traceroot dev environment")
+    parser = argparse.ArgumentParser(description="Launch TraceRoot dev environment")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--autoreload",

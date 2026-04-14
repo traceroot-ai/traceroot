@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { ExpandableSection } from "@/components/ui/expandable-section";
 import { useSession } from "@/features/traces/hooks";
 import { ContentRenderer } from "./ContentRenderer";
-import { formatDuration, buildUrlWithFilters } from "@/lib/utils";
+import { formatDuration, formatCost, buildUrlWithFilters } from "@/lib/utils";
 import { toTimestampBounds } from "@/lib/date-filter";
 import { AiChatOverlay } from "@/features/ai-assistant/components/ai-chat-overlay";
 import type { SessionTraceItem } from "@/types/api";
@@ -114,6 +114,10 @@ export function SessionDetailPanel({
   const buildUrl = (basePath: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(basePath, { dateFilter, customStartDate, customEndDate, extraParams });
 
+  const _rawTokens = data ? (data.total_input_tokens ?? 0) + (data.total_output_tokens ?? 0) : 0;
+  const totalTokenCount = _rawTokens > 0 ? _rawTokens : null;
+
+  const totalCost = data ? (data.total_cost ?? null) : null;
   return (
     <div className="flex h-full flex-col bg-background">
       {/* Header bar */}
@@ -179,6 +183,14 @@ export function SessionDetailPanel({
                     <span className="font-medium">{formatDuration(data.duration_ms)}</span>
                   </div>
                 )}
+                <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                  <span className="text-muted-foreground">Total Tokens:</span>
+                  <span className="font-medium">{totalTokenCount?.toLocaleString() ?? "-"}</span>
+                </div>
+                <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                  <span className="text-muted-foreground">Cost:</span>
+                  <span className="font-medium">{formatCost(totalCost)}</span>
+                </div>
               </div>
               {data.user_ids.length > 0 && (
                 <div className="mt-2 flex flex-wrap items-center gap-2">

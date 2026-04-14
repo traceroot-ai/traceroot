@@ -1,4 +1,4 @@
-"""FastAPI REST API server for Traceroot.
+"""FastAPI REST API server for TraceRoot.
 
 This server handles:
 - OTEL trace ingestion (public API with API key auth)
@@ -25,7 +25,7 @@ from rest.schemas.common import HealthResponse
 from shared.config import settings
 
 app = FastAPI(
-    title="Traceroot API",
+    title="TraceRoot API",
     description="Observability platform for LLM applications",
     version="0.1.0",
 )
