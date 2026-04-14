@@ -122,7 +122,7 @@ export default function SessionsPage() {
             <div className="flex h-64 items-center justify-center">
               <p className="text-[13px] text-muted-foreground">Loading sessions...</p>
             </div>
-          ) : error ? (
+          ) : error && !data ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-destructive">Error loading sessions</p>
               <p className="text-[12px] text-muted-foreground">

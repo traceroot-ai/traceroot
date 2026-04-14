@@ -521,36 +521,40 @@ class TraceReaderService:
 
         # Build WHERE conditions
         conditions = [
-            "project_id = {project_id:String}",
-            "user_id IS NOT NULL",
-            "user_id != ''",
+            "t.project_id = {project_id:String}",
+            "t.user_id IS NOT NULL",
+            "t.user_id != ''",
         ]
         params: dict = {"project_id": project_id, "limit": limit, "offset": offset}
 
         # Search by user_id
         if search_query:
-            conditions.append("user_id ILIKE {search_kw:String}")
+            conditions.append("t.user_id ILIKE {search_kw:String}")
             params["search_kw"] = f"%{search_query}%"
 
         # Date range filtering
         if start_after:
-            conditions.append("trace_start_time >= {start_after:DateTime64(3)}")
+            conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
             params["start_after"] = _to_utc_naive(start_after)
 
         if end_before:
-            conditions.append("trace_start_time <= {end_before:DateTime64(3)}")
+            conditions.append("t.trace_start_time <= {end_before:DateTime64(3)}")
             params["end_before"] = _to_utc_naive(end_before)
 
         where_clause = " AND ".join(conditions)
 
         query = f"""
             SELECT
-                user_id,
-                count(DISTINCT trace_id) as trace_count,
-                max(trace_start_time) as last_trace_time
-            FROM traces FINAL
+                t.user_id,
+                count(DISTINCT t.trace_id) as trace_count,
+                max(t.trace_start_time) as last_trace_time,
+                sum(s.input_tokens) as total_input_tokens,
+                sum(s.output_tokens) as total_output_tokens,
+                sum(s.cost) as total_cost
+            FROM traces AS t FINAL
+            LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
             WHERE {where_clause}
-            GROUP BY user_id
+            GROUP BY t.user_id
             ORDER BY last_trace_time DESC
             LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
         """
@@ -559,8 +563,8 @@ class TraceReaderService:
 
         # Get total count
         count_query = f"""
-            SELECT count(DISTINCT user_id)
-            FROM traces FINAL
+            SELECT count(DISTINCT t.user_id)
+            FROM traces AS t FINAL
             WHERE {where_clause}
         """
         count_result = self._client.query(count_query, parameters=params)
@@ -573,6 +577,9 @@ class TraceReaderService:
                     "user_id": row[0],
                     "trace_count": row[1],
                     "last_trace_time": row[2],
+                    "total_input_tokens": int(row[3]) if row[3] is not None else None,
+                    "total_output_tokens": int(row[4]) if row[4] is not None else None,
+                    "total_cost": float(row[5]) if row[5] is not None else None,
                 }
             )
 
