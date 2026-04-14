@@ -47,7 +47,7 @@ function ConfirmContent() {
       const response = await fetch("/api/github/callback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, installationId, setupAction }),
+        body: JSON.stringify({ code, installationId }),
       });
 
       const data = await response.json();
@@ -95,7 +95,7 @@ function ConfirmContent() {
         <CardContent className="space-y-5">
           <p className="text-center text-[13px] text-muted-foreground">
             You are about to link a GitHub account provided by a direct installation to your
-            Traceroot account. Do you want to proceed?
+            TraceRoot account. Do you want to proceed?
           </p>
 
           {error && (
@@ -111,7 +111,7 @@ function ConfirmContent() {
               onClick={handleConfirm}
               disabled={isLoading}
             >
-              {isLoading ? "Linking Account..." : "Confirm & Link"}
+              {isLoading ? "Linking Account..." : "Confirm"}
             </Button>
             <Button
               variant="outline"

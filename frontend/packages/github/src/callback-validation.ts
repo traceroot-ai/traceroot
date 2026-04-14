@@ -91,23 +91,26 @@ export function verifyInstallationId(
   userInstallations: Array<{ id: number | string; app_id: number | string }>,
   appId: string,
 ): { verified: boolean; installationId?: string; error?: string } {
-  // Find the installation for our app
-  const installation = userInstallations.find((inst) => String(inst.app_id) === appId);
+  if (claimedInstallationId) {
+    // Verify the claimed installation belongs to this user AND is for our app.
+    // A user may have multiple installations of the same app (personal + org accounts),
+    // so we must match on both id and app_id — not just app_id.
+    const installation = userInstallations.find(
+      (inst) => String(inst.id) === claimedInstallationId && String(inst.app_id) === appId,
+    );
+    if (!installation) {
+      return {
+        verified: false,
+        error: `Installation ID ${claimedInstallationId} does not belong to authenticated user`,
+      };
+    }
+    return { verified: true, installationId: claimedInstallationId };
+  }
 
+  // No claimed installation_id — look up any existing installation for our app
+  const installation = userInstallations.find((inst) => String(inst.app_id) === appId);
   if (!installation) {
     return { verified: true, installationId: undefined }; // No installation yet, that's OK
   }
-
-  // If an installation ID was claimed in URL, verify it matches
-  if (claimedInstallationId && String(installation.id) !== claimedInstallationId) {
-    return {
-      verified: false,
-      error: `Installation ID mismatch: URL has ${claimedInstallationId}, user has ${installation.id}`,
-    };
-  }
-
-  return {
-    verified: true,
-    installationId: String(installation.id),
-  };
+  return { verified: true, installationId: String(installation.id) };
 }
