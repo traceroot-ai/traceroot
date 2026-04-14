@@ -548,7 +548,8 @@ class TraceReaderService:
                 t.user_id,
                 count(DISTINCT t.trace_id) as trace_count,
                 max(t.trace_start_time) as last_trace_time,
-                sum(s.total_tokens) as total_tokens,
+                sum(s.input_tokens) as total_input_tokens,
+                sum(s.output_tokens) as total_output_tokens,
                 sum(s.cost) as total_cost
             FROM traces AS t FINAL
             LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
@@ -576,8 +577,9 @@ class TraceReaderService:
                     "user_id": row[0],
                     "trace_count": row[1],
                     "last_trace_time": row[2],
-                    "total_tokens": int(row[3]) if row[3] is not None else 0,
-                    "total_cost": float(row[4]) if row[4] is not None else 0.0,
+                    "total_input_tokens": int(row[3]) if row[3] is not None else None,
+                    "total_output_tokens": int(row[4]) if row[4] is not None else None,
+                    "total_cost": float(row[5]) if row[5] is not None else None,
                 }
             )
 

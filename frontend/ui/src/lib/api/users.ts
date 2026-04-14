@@ -7,8 +7,9 @@ export interface UserListItem {
   user_id: string;
   trace_count: number;
   last_trace_time: string;
-  total_tokens?: number;
-  total_cost?: number;
+  total_input_tokens?: number | null;
+  total_output_tokens?: number | null;
+  total_cost?: number | null;
 }
 
 export interface UserListResponse {
