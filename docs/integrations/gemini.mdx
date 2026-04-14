@@ -11,119 +11,40 @@ Automatically capture all Gemini model calls made through the `google-genai` SDK
 import traceroot
 from traceroot import Integration
 
-# Initialize TraceRoot with the Google GENAI Integration
 traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])
 ```
 
 ## Usage
 
-Once initialized, all Gemini calls are captured automatically:
+Once initialized, all Gemini calls are captured automatically — including tool calls:
 
 ```python
 import os
 from google import genai
 from google.genai import types
-from dotenv import load_dotenv
-
-import traceroot
-from traceroot import Integration
-
-load_dotenv()
-
-traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])
 
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+
+weather_tool = types.Tool(function_declarations=[
+    types.FunctionDeclaration(
+        name="get_weather",
+        description="Get current weather for a city",
+        parameters=types.Schema(
+            type="OBJECT",
+            properties={"city": types.Schema(type="STRING", description="City name")},
+            required=["city"],
+        ),
+    )
+])
 
 # This call is automatically traced
 response = client.models.generate_content(
     model="gemini-2.5-flash",
-    contents="What is the capital of France?",
+    contents="What's the weather in Tokyo?",
+    config=types.GenerateContentConfig(tools=[weather_tool]),
 )
 
 print(response.text)
-```
-
-## Usage with Tools
-
-Tool calls and multi-turn conversations are fully traced:
-
-```python
-import os
-from google import genai
-from google.genai import types
-from dotenv import load_dotenv
-
-import traceroot
-from traceroot import Integration, observe
-
-load_dotenv()
-
-traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])
-
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-
-# Use @observe(type="tool") to capture the actual execution as a child span
-@observe(name="get_weather", type="tool")
-def get_weather(city: str) -> str:
-    return f"The weather in {city} is sunny."
-
-get_weather_schema = types.FunctionDeclaration(
-    name="get_weather",
-    description="Get current weather for a city",
-    parameters=types.Schema(
-        type="OBJECT",
-        properties={"city": types.Schema(type="STRING", description="City name")},
-        required=["city"],
-    ),
-)
-weather_tool = types.Tool(function_declarations=[get_weather_schema])
-
-# Use @observe(type="agent") to create a parent span that links the LLM and Tool calls together
-@observe(name="weather_interaction", type="agent")
-def ask_about_weather(query: str):
-    
-    # Ask the LLM
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=query,
-        config=types.GenerateContentConfig(tools=[weather_tool]),
-    )
-
-    if response.function_calls:
-        function_responses = []
-        for tool_call in response.function_calls:
-            if tool_call.name == "get_weather":
-                # This execution triggers the TraceRoot child span
-                result = get_weather(**tool_call.args)
-                
-                # Format the result for Gemini
-                function_responses.append(
-                    types.Part.from_function_response(
-                        name=tool_call.name,
-                        response={"result": result},
-                    )
-                )
-        
-        # Send the tool results back to the LLM for a final answer
-        final_response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            # We must pass the conversation history so the LLM has context
-            contents=[
-                query, 
-                response.candidates[0].content, 
-                types.Content(role="user", parts=function_responses)
-            ],
-            config=types.GenerateContentConfig(tools=[weather_tool]),
-        )
-        return final_response.text
-
-    # Fallback if no tool was needed
-    return response.text
-
-if __name__ == "__main__":
-    answer = ask_about_weather("What's the weather in Tokyo?")
-    print(f"Final Answer: {answer}")
-    traceroot.flush()
 ```
 
 ## What Gets Captured
@@ -131,7 +52,7 @@ if __name__ == "__main__":
 | Attribute | Description |
 |-----------|-------------|
 | Model | `gemini-2.5-flash`, `gemini-2.0-pro`, etc. |
-| Contents | Input messages and multi-turn history |
+| Contents | Input messages |
 | Response | Generated text and function calls |
 | Tokens | Input and output token counts |
 | Cost | Calculated from token usage and model pricing |
