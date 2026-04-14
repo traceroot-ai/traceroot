@@ -40,6 +40,9 @@ class TestListUsers:
                     "user_id": "user-1",
                     "trace_count": 10,
                     "last_trace_time": datetime(2024, 1, 15, 12, 0, 0),
+                    "total_input_tokens": 500,
+                    "total_output_tokens": 1000,
+                    "total_cost": 0.03,
                 },
             ],
             "meta": {"page": 0, "limit": 50, "total": 1},
@@ -50,6 +53,31 @@ class TestListUsers:
         assert len(data["data"]) == 1
         assert data["data"][0]["user_id"] == "user-1"
         assert data["data"][0]["trace_count"] == 10
+        assert data["data"][0]["total_input_tokens"] == 500
+        assert data["data"][0]["total_output_tokens"] == 1000
+        assert data["data"][0]["total_cost"] == 0.03
+
+    def test_input_output_tokens_and_cost_null(self, client, mock_trace_reader):
+        mock_trace_reader.list_users.return_value = {
+            "data": [
+                {
+                    "user_id": "user-no-spans",
+                    "trace_count": 2,
+                    "last_trace_time": datetime(2024, 1, 10, 8, 0, 0),
+                    "total_input_tokens": None,
+                    "total_output_tokens": None,
+                    "total_cost": None,
+                },
+            ],
+            "meta": {"page": 0, "limit": 50, "total": 1},
+        }
+        response = client.get("/api/v1/projects/test-project/users")
+        assert response.status_code == 200
+        item = response.json()["data"][0]
+        assert item["user_id"] == "user-no-spans"
+        assert item["total_input_tokens"] is None
+        assert item["total_output_tokens"] is None
+        assert item["total_cost"] is None
 
     def test_pagination(self, client, mock_trace_reader):
         mock_trace_reader.list_users.return_value = {
@@ -103,9 +131,30 @@ class TestListUsers:
     def test_multiple_users(self, client, mock_trace_reader):
         mock_trace_reader.list_users.return_value = {
             "data": [
-                {"user_id": "alice", "trace_count": 20, "last_trace_time": datetime(2024, 1, 15)},
-                {"user_id": "bob", "trace_count": 5, "last_trace_time": datetime(2024, 1, 10)},
-                {"user_id": "charlie", "trace_count": 1, "last_trace_time": datetime(2024, 1, 5)},
+                {
+                    "user_id": "alice",
+                    "trace_count": 20,
+                    "last_trace_time": datetime(2024, 1, 15),
+                    "total_input_tokens": 2000,
+                    "total_output_tokens": 3000,
+                    "total_cost": 0.10,
+                },
+                {
+                    "user_id": "bob",
+                    "trace_count": 5,
+                    "last_trace_time": datetime(2024, 1, 10),
+                    "total_input_tokens": 300,
+                    "total_output_tokens": 500,
+                    "total_cost": 0.02,
+                },
+                {
+                    "user_id": "charlie",
+                    "trace_count": 1,
+                    "last_trace_time": datetime(2024, 1, 5),
+                    "total_input_tokens": None,
+                    "total_output_tokens": None,
+                    "total_cost": None,
+                },
             ],
             "meta": {"page": 0, "limit": 50, "total": 3},
         }
@@ -114,4 +163,10 @@ class TestListUsers:
         data = response.json()["data"]
         assert len(data) == 3
         assert data[0]["user_id"] == "alice"
+        assert data[0]["total_input_tokens"] == 2000
+        assert data[0]["total_output_tokens"] == 3000
+        assert data[0]["total_cost"] == 0.10
         assert data[2]["trace_count"] == 1
+        assert data[2]["total_input_tokens"] is None
+        assert data[2]["total_output_tokens"] is None
+        assert data[2]["total_cost"] is None

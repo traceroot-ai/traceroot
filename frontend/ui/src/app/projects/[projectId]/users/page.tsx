@@ -9,7 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useUsers, useListPageState } from "@/features/traces/hooks";
-import { formatDate, cn, buildUrlWithFilters } from "@/lib/utils";
+import { formatDate, formatCost, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { UserListItem } from "@/lib/api/users";
 import type { UserQueryOptions } from "@/lib/api/users";
 
@@ -115,7 +115,7 @@ export default function UsersPage() {
             <div className="flex h-64 items-center justify-center">
               <p className="text-[13px] text-muted-foreground">Loading users...</p>
             </div>
-          ) : error ? (
+          ) : error && !data ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-destructive">Error loading users</p>
               <p className="text-[12px] text-muted-foreground">
@@ -139,8 +139,14 @@ export default function UsersPage() {
                       <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         User ID
                       </th>
-                      <th className="w-[120px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Traces
+                      </th>
+                      <th className="w-[110px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                        Tokens
+                      </th>
+                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                        Cost
                       </th>
                       <th className="w-[160px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Last Activity
@@ -159,6 +165,14 @@ export default function UsersPage() {
                         </td>
                         <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
                           {user.trace_count}
+                        </td>
+                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
+                          {(user.total_input_tokens ?? 0) + (user.total_output_tokens ?? 0) > 0
+                            ? `${(user.total_input_tokens ?? 0).toLocaleString()} / ${(user.total_output_tokens ?? 0).toLocaleString()}`
+                            : "-"}
+                        </td>
+                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
+                          {formatCost(user.total_cost)}
                         </td>
                         <td className="px-3 py-2 text-[12px] text-muted-foreground">
                           {formatDate(user.last_trace_time)}
