@@ -1,5 +1,4 @@
-crewai>=0.80.0
+crewai>=1.10.1
 python-dotenv>=1.0.0
 
-traceroot==0.1.2
-openinference-instrumentation-crewai>=0.1.0
+/Users/xinweihe/code/traceroot-py
