@@ -132,6 +132,54 @@
     }
   },
   {
+    "id": "tr-gpt-4.5-preview",
+    "modelName": "gpt-4.5-preview",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4\\.5-preview)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000075,
+      "output": 0.00015,
+      "cacheRead": 0.0000375,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-4.1",
+    "modelName": "gpt-4.1",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4\\.1)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000002,
+      "output": 0.000008,
+      "cacheRead": 0.0000005,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-4.1-mini",
+    "modelName": "gpt-4.1-mini",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4\\.1-mini)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000004,
+      "output": 0.0000016,
+      "cacheRead": 0.0000001,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-4.1-nano",
+    "modelName": "gpt-4.1-nano",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4\\.1-nano)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000001,
+      "output": 0.0000004,
+      "cacheRead": 0.000000025,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-gpt-4-turbo",
     "modelName": "gpt-4-turbo",
     "matchPattern": "(?i)^(openai\\/)?(gpt-4-turbo)(-[\\d-]+)?$",
