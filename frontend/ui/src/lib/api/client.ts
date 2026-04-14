@@ -1,5 +1,5 @@
 /**
- * Base API client utilities for Traceroot
+ * Base API client utilities for TraceRoot
  */
 import { authClient } from "@/lib/auth-client";
 import { clientEnv } from "@/env.client";

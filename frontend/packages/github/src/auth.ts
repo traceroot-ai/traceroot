@@ -14,7 +14,7 @@ export async function getInstallationToken(
       headers: {
         Authorization: `Bearer ${jwtToken}`,
         Accept: "application/vnd.github.v3+json",
-        "User-Agent": "Traceroot",
+        "User-Agent": "TraceRoot",
       },
     },
   );

@@ -2,7 +2,7 @@
 OpenAI streaming pipeline with @observe generator support.
 
 Demonstrates the pattern where @observe wraps a function that *yields*
-tokens rather than returning a complete response. Traceroot keeps the
+tokens rather than returning a complete response. TraceRoot keeps the
 span open until the full stream is consumed, so you see the real
 end-to-end latency in the trace — not just the time to first token.
 
@@ -72,7 +72,7 @@ async def stream_tokens(prompt: str):
 # Pattern 2: pipeline streaming
 #
 # transform_stream() wraps stream_tokens() and applies a transformation
-# to each token. Both functions are @observe generators, so Traceroot
+# to each token. Both functions are @observe generators, so TraceRoot
 # creates two spans: transform_stream as parent, stream_tokens as child.
 # The parent span closes only after all transformed tokens are consumed.
 # ---------------------------------------------------------------------------

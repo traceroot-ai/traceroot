@@ -1,6 +1,6 @@
 # deploy/terraform/aws/examples/quickstart/main.tf
 #
-# Minimal example to deploy Traceroot on AWS.
+# Minimal example to deploy TraceRoot on AWS.
 #
 # Usage:
 #   cd terraform/aws

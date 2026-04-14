@@ -184,8 +184,6 @@ traceroot.db
 /prisma/db.sqlite
 /prisma/db.sqlite-journal
 
-# Prisma migrations
-frontend/packages/core/prisma/migrations
 
 # ===================
 # Testing / Coverage

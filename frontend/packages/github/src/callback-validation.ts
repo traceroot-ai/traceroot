@@ -33,8 +33,8 @@ export interface ValidationResult {
 export function validateCallbackParams(params: CallbackParams): ValidationResult {
   const { code, state, installationId, setupAction, storedState } = params;
 
-  // Both code and state are always required from GitHub
-  if (!code || !state) {
+  // code is always required
+  if (!code) {
     return {
       valid: false,
       error: "Missing code or state parameter",
@@ -47,10 +47,32 @@ export function validateCallbackParams(params: CallbackParams): ValidationResult
   // - setupAction is "install"
   // - installationId is present
   // - No state cookie was set (because we didn't initiate the flow)
-  const isDirectGitHubInstall = setupAction === "install" && !!installationId && !storedState;
+  // - state may be absent (GitHub doesn't send it for direct installs)
+  // Also require !state: GitHub's direct install flow never sends a state param.
+  // Requiring its absence avoids mis-classifying a TraceRoot-initiated install
+  // with a stale/mismatched cookie as a direct install.
+  const isDirectGitHubInstall =
+    setupAction === "install" && !!installationId && !storedState && !state;
 
-  // If not a direct install, validate state matches
-  if (!isDirectGitHubInstall && (!storedState || storedState !== state)) {
+  // For direct GitHub installs, skip the state check — GitHub doesn't include
+  // a state parameter when the user installs from GitHub's UI directly.
+  if (isDirectGitHubInstall) {
+    return {
+      valid: true,
+      isDirectGitHubInstall: true,
+    };
+  }
+
+  // For normal OAuth flow: state is required and must match the stored cookie
+  if (!state) {
+    return {
+      valid: false,
+      error: "Missing code or state parameter",
+      isDirectGitHubInstall: false,
+    };
+  }
+
+  if (!storedState || storedState !== state) {
     return {
       valid: false,
       error: "Invalid state parameter",
@@ -60,7 +82,7 @@ export function validateCallbackParams(params: CallbackParams): ValidationResult
 
   return {
     valid: true,
-    isDirectGitHubInstall,
+    isDirectGitHubInstall: false,
   };
 }
 
@@ -73,23 +95,26 @@ export function verifyInstallationId(
   userInstallations: Array<{ id: number | string; app_id: number | string }>,
   appId: string,
 ): { verified: boolean; installationId?: string; error?: string } {
-  // Find the installation for our app
-  const installation = userInstallations.find((inst) => String(inst.app_id) === appId);
+  if (claimedInstallationId) {
+    // Verify the claimed installation belongs to this user AND is for our app.
+    // A user may have multiple installations of the same app (personal + org accounts),
+    // so we must match on both id and app_id — not just app_id.
+    const installation = userInstallations.find(
+      (inst) => String(inst.id) === claimedInstallationId && String(inst.app_id) === appId,
+    );
+    if (!installation) {
+      return {
+        verified: false,
+        error: `Installation ID ${claimedInstallationId} does not belong to authenticated user`,
+      };
+    }
+    return { verified: true, installationId: claimedInstallationId };
+  }
 
+  // No claimed installation_id — look up any existing installation for our app
+  const installation = userInstallations.find((inst) => String(inst.app_id) === appId);
   if (!installation) {
     return { verified: true, installationId: undefined }; // No installation yet, that's OK
   }
-
-  // If an installation ID was claimed in URL, verify it matches
-  if (claimedInstallationId && String(installation.id) !== claimedInstallationId) {
-    return {
-      verified: false,
-      error: `Installation ID mismatch: URL has ${claimedInstallationId}, user has ${installation.id}`,
-    };
-  }
-
-  return {
-    verified: true,
-    installationId: String(installation.id),
-  };
+  return { verified: true, installationId: String(installation.id) };
 }
