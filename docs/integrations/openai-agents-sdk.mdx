@@ -1,0 +1,174 @@
+---
+title: OpenAI Agents SDK
+description: Auto-instrument OpenAI Agents SDK agents, tools, and multi-turn conversations
+---
+
+Automatically capture agent loops, tool executions, and LLM calls within the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python).
+
+## Setup
+
+```python
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI_AGENTS])
+```
+
+> **Tip:** For the most complete trace—including underlying token costs—initialize both `Integration.OPENAI_AGENTS` and `Integration.OPENAI` together. The Agents SDK integration captures the agent orchestration layer, while the OpenAI integration captures the raw LLM calls beneath.
+
+## Usage
+
+Once initialized, all agent runs, tool calls, and multi-turn conversations are captured automatically:
+
+```python
+from agents import Agent, Runner, function_tool
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI_AGENTS, Integration.OPENAI])
+
+
+@function_tool
+def get_weather(city: str) -> str:
+    """Get current weather for a city."""
+    return f"The weather in {city} is 72°F and sunny."
+
+
+agent = Agent(
+    name="Weather Assistant",
+    instructions="You are a helpful weather assistant.",
+    model="gpt-4o",
+    tools=[get_weather],
+)
+
+# The entire agent run is automatically traced
+result = await Runner.run(agent, "What's the weather in Tokyo?")
+print(result.final_output)
+```
+
+## Usage with Multiple Tools
+
+Agents with multiple tools are fully traced—each tool invocation appears as a nested child span:
+
+```python
+from agents import Agent, Runner, function_tool
+import json
+from datetime import datetime
+
+
+@function_tool
+def get_weather(city: str) -> str:
+    """Get current weather for a city."""
+    return json.dumps({"city": city, "temp": 72, "condition": "sunny"})
+
+
+@function_tool
+def get_stock_price(symbol: str) -> str:
+    """Get stock price for a symbol."""
+    return json.dumps({"symbol": symbol, "price": 178.50, "change": "+1.3%"})
+
+
+@function_tool
+def calculate(expression: str) -> str:
+    """Evaluate a math expression."""
+    return json.dumps({"expression": expression, "result": eval(expression)})
+
+
+agent = Agent(
+    name="Assistant",
+    instructions=(
+        "You are a helpful AI assistant with access to tools. "
+        "Use available tools to gather information, then provide "
+        "a clear, comprehensive answer."
+    ),
+    model="gpt-4o-mini",
+    tools=[get_weather, get_stock_price, calculate],
+)
+
+result = await Runner.run(agent, "What's the weather in Tokyo and the price of AAPL?")
+```
+
+## Usage with `@observe` and `using_attributes`
+
+Wrap your demo session in `@observe` and attach user/session metadata for richer trace context:
+
+```python
+import asyncio
+import traceroot
+from traceroot import Integration, observe, using_attributes
+from agents import Agent, Runner
+
+traceroot.initialize(integrations=[Integration.OPENAI_AGENTS, Integration.OPENAI])
+
+agent = Agent(
+    name="Assistant",
+    instructions="You are a helpful assistant.",
+    model="gpt-4o-mini",
+)
+
+
+@observe(name="demo_session", type="agent")
+async def run_demo():
+    result = await Runner.run(agent, "Hello, world!")
+    print(result.final_output)
+
+
+if __name__ == "__main__":
+    with using_attributes(user_id="example-user", session_id="openai-agents-session"):
+        asyncio.run(run_demo())
+    traceroot.flush()
+```
+
+## Multi-Agent Handoffs
+
+Multi-agent patterns with handoffs are fully supported—each agent's turn and the handoff transitions are captured as distinct spans:
+
+```python
+from agents import Agent, Runner, handoff
+
+
+triage_agent = Agent(
+    name="Triage Agent",
+    instructions="Determine if the user needs weather or stock info.",
+    model="gpt-4o-mini",
+    handoffs=[handoff(weather_agent), handoff(stock_agent)],
+)
+
+# Handoff transitions are automatically traced
+result = await Runner.run(triage_agent, "What's the weather in Tokyo?")
+```
+
+## Streaming
+
+Streaming runs are also automatically traced—each streamed chunk contributes to the same span, and the final output is attached once complete:
+
+```python
+from agents import Agent, Runner
+
+agent = Agent(
+    name="Streaming Assistant",
+    instructions="You are a helpful assistant.",
+    model="gpt-4o",
+)
+
+result = Runner.run_streamed(agent, "Tell me a fun fact about Tokyo.")
+
+async for chunk in result.stream_events():
+    if chunk.type == "agent_response":
+        print(chunk.data, end="", flush=True)
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Agent runs | Each `Runner.run()` or `Runner.run_streamed()` invocation |
+| Agent steps | Individual turns within the agent loop |
+| Tool calls | Each tool invocation with name, input, and output |
+| LLM calls* | Raw completion requests to OpenAI |
+| Handoffs | Multi-agent transitions and handoff decisions |
+| Messages | Full conversation history per agent turn |
+| Tokens & Cost* | Aggregated token usage and pricing |
+| Latency | Duration per agent run and per span |
+
+*\*Requires initializing `Integration.OPENAI` alongside `Integration.OPENAI_AGENTS`
