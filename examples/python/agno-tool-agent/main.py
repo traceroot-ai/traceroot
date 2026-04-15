@@ -4,7 +4,7 @@ Agno Tool Agent — TraceRoot Observability
 A ReAct-style agent built with the Agno framework, instrumented
 with TraceRoot via traceroot.initialize(integrations=[Integration.AGNO]).
 
-Env vars required: OPENAI_API_KEY, TRACEROOT_API_KEY
+Env vars required: ANTHROPIC_API_KEY, TRACEROOT_API_KEY
 
 Run:
     pip install -r requirements.txt
@@ -22,7 +22,7 @@ else:
     print("No .env file found (find_dotenv returned None).\nUsing process environment variables.")
 
 from agno.agent import Agent
-from agno.models.openai import OpenAIChat
+from agno.models.anthropic import Claude
 from agno.tools.duckduckgo import DuckDuckGoTools
 from agno.tools.yfinance import YFinanceTools
 
@@ -40,9 +40,9 @@ logger = logging.getLogger(__name__)
 
 
 agent = Agent(
-    model=OpenAIChat(id="gpt-4o-mini"),
+    model=Claude(id="claude-sonnet-4-20250514"),
     tools=[
-        YFinanceTools(stock_price=True, stock_fundamentals=True),
+        YFinanceTools(),
         DuckDuckGoTools(),
     ],
     instructions=[
@@ -50,7 +50,6 @@ agent = Agent(
         "Use DuckDuckGo for general web searches.",
         "Always cite your sources.",
     ],
-    show_tool_calls=True,
     markdown=True,
 )
 
