@@ -176,7 +176,8 @@ When using a manager agent, the delegation hierarchy and coordination are automa
 
 ```python
 from crewai import Agent, Task, Crew, Process
-from crewai.agents.agent_builder.utilities.base_agent import BaseAgent
+from crewai import Agent, Task, Crew, Process
+from langchain_openai import ChatOpenAI
 from langchain_openai import ChatOpenAI
 
 llm = ChatOpenAI(model="gpt-4o")
