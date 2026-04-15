@@ -141,7 +141,8 @@
               "integrations/langchain-deepagents",
               "integrations/mastra",
               "integrations/autogen",
-              "integrations/llamaindex"
+              "integrations/llamaindex",
+              "integrations/crewai"
             ]
           },
           {
