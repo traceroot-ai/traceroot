@@ -1,33 +1,22 @@
-# Agno Tool Agent — TraceRoot Observability
+# Agno Tool Agent
 
-A ReAct-style tool-use agent built with the [Agno](https://docs.agno.com) framework,
-fully instrumented with TraceRoot.
-
-## What gets traced
-
-| Signal | Details |
-|---|---|
-| Agent runs | Each `agent.run()` / `agent.print_response()` call |
-| Tool calls | YFinance and DuckDuckGo invocations with input/output |
-| LLM calls | All model inference spans with token usage and latency |
-| Model name | Captured on every LLM span |
+ReAct-style agent with the [Agno](https://docs.agno.com) framework and tool use, instrumented with [TraceRoot](https://traceroot.ai).
 
 ## Setup
 
 ```bash
-cp .env.example .env
-# Fill in TRACEROOT_API_KEY and OPENAI_API_KEY
-pip install -r requirements.txt
-python main.py
+cp .env.example .env  # fill in your API keys
 ```
 
-## Usage in your own project
-
-```python
-import traceroot
-from traceroot import Integration
-
-traceroot.initialize(integrations=[Integration.AGNO])
+With `uv` (recommended):
+```bash
+uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py
 ```
 
-One line — all Agno agent runs, tool calls, and LLM calls are traced automatically.
+## What it does
+
+Runs two demo queries that exercise tool use:
+1. Stock price lookup (Apple)
+2. Web search (latest AI news)
+
+Tools: `YFinanceTools`, `DuckDuckGoTools`
