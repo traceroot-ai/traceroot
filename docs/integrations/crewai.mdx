@@ -9,222 +9,219 @@ Automatically capture agent roles, tasks, crew executions, and tool invocations 
 
 To capture the complete picture—including both the agent orchestrations and the underlying token costs—we highly recommend initializing **both** the CrewAI integration and your specific LLM provider (e.g., OpenAI, Anthropic, Google GenAI).
 
-```python
-import traceroot
-from traceroot import Integration
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
 
-# Initialize CrewAI alongside your LLM provider to capture tokens and costs
-traceroot.initialize(integrations=[
-    Integration.CREWAI,
-    Integration.OPENAI  # Or ANTHROPIC, GOOGLE_GENAI, etc.
-])
-```
+    # Initialize CrewAI alongside your LLM provider to capture tokens and costs
+    traceroot.initialize(integrations=[
+        Integration.CREWAI,
+        Integration.OPENAI  # Or ANTHROPIC, GOOGLE_GENAI, etc.
+    ])
+    ```
+  </Tab>
+</Tabs>
 
 ## Usage
 
 Once initialized, standard crew and agent executions are captured automatically:
 
-```python
-from crewai import Agent, Task, Crew
-from langchain_openai import ChatOpenAI
+<Tabs>
+  <Tab title="Basic Usage">
+    ```python
+    from crewai import Agent, Task, Crew
+    from langchain_openai import ChatOpenAI
 
-# Initialize the LLM
-llm = ChatOpenAI(model="gpt-4o")
+    # Initialize the LLM
+    llm = ChatOpenAI(model="gpt-4o")
 
-# Define your agents with roles and goals
-researcher = Agent(
-    role="Senior Research Analyst",
-    goal="Uncover cutting-edge insights about AI technologies",
-    backstory="""You are an expert at identifying emerging trends
-    and technologies in the AI space.""",
-    verbose=True,
-    allow_delegation=False,
-    llm=llm
-)
+    # Define your agents with roles and goals
+    researcher = Agent(
+        role="Senior Research Analyst",
+        goal="Uncover cutting-edge insights about AI technologies",
+        backstory="""You are an expert at identifying emerging trends
+        and technologies in the AI space.""",
+        verbose=True,
+        allow_delegation=False,
+        llm=llm
+    )
 
-writer = Agent(
-    role="Tech Content Strategist",
-    goal="Craft compelling content on tech advancements",
-    backstory="""You are a skilled writer who excels at transforming
-    complex technical concepts into engaging narratives.""",
-    verbose=True,
-    allow_delegation=False,
-    llm=llm
-)
+    writer = Agent(
+        role="Tech Content Strategist",
+        goal="Craft compelling content on tech advancements",
+        backstory="""You are a skilled writer who excels at transforming
+        complex technical concepts into engaging narratives.""",
+        verbose=True,
+        allow_delegation=False,
+        llm=llm
+    )
 
-# Define tasks
-research_task = Task(
-    description="""Analyze the latest developments in AI agent frameworks.
-    Identify key trends, challenges, and innovations.""",
-    expected_output="A comprehensive research summary",
-    agent=researcher
-)
+    # Define tasks
+    research_task = Task(
+        description="""Analyze the latest developments in AI agent frameworks.
+        Identify key trends, challenges, and innovations.""",
+        expected_output="A comprehensive research summary",
+        agent=researcher
+    )
 
-write_task = Task(
-    description="""Using the research insights, create a compelling
-    article about the future of AI agent frameworks.""",
-    expected_output="An engaging article about AI agent frameworks",
-    agent=writer,
-    context=[research_task]
-)
+    write_task = Task(
+        description="""Using the research insights, create a compelling
+        article about the future of AI agent frameworks.""",
+        expected_output="An engaging article about AI agent frameworks",
+        agent=writer,
+        context=[research_task]
+    )
 
-# Create and execute the crew
-crew = Crew(
-    agents=[researcher, writer],
-    tasks=[research_task, write_task],
-    verbose=True
-)
+    # Create and execute the crew
+    crew = Crew(
+        agents=[researcher, writer],
+        tasks=[research_task, write_task],
+        verbose=True
+    )
 
-# The entire crew execution is automatically traced
-result = crew.kickoff()
-```
+    # The entire crew execution is automatically traced
+    result = crew.kickoff()
+    ```
+  </Tab>
+  <Tab title="Usage with Tools">
+    ```python
+    from crewai import Agent, Task, Crew
+    from crewai_tools import SerperDevTool, ScrapeWebsiteTool
+    from langchain_openai import ChatOpenAI
 
-## Usage with Tools
+    # Initialize the LLM
+    llm = ChatOpenAI(model="gpt-4o")
 
-Tools are automatically traced as nested child spans within each agent's task execution:
+    # Initialize tools
+    search_tool = SerperDevTool()
+    scrape_tool = ScrapeWebsiteTool()
 
-```python
-from crewai import Agent, Task, Crew
-from crewai_tools import SerperDevTool, ScrapeWebsiteTool
-from langchain_openai import ChatOpenAI
+    # Define agent with tools
+    researcher = Agent(
+        role="Market Research Analyst",
+        goal="Provide detailed market analysis and insights",
+        backstory="""You are a seasoned analyst with expertise in
+        market research and competitive intelligence.""",
+        verbose=True,
+        tools=[search_tool, scrape_tool],
+        llm=llm
+    )
 
-# Initialize the LLM
-llm = ChatOpenAI(model="gpt-4o")
+    # Define task
+    analysis_task = Task(
+        description="""Research the current state of AI observability tools
+        and provide a comprehensive analysis.""",
+        expected_output="Detailed market analysis report",
+        agent=researcher
+    )
 
-# Initialize tools
-search_tool = SerperDevTool()
-scrape_tool = ScrapeWebsiteTool()
+    # Create and execute the crew
+    crew = Crew(
+        agents=[researcher],
+        tasks=[analysis_task],
+        verbose=True
+    )
 
-# Define agent with tools
-researcher = Agent(
-    role="Market Research Analyst",
-    goal="Provide detailed market analysis and insights",
-    backstory="""You are a seasoned analyst with expertise in
-    market research and competitive intelligence.""",
-    verbose=True,
-    tools=[search_tool, scrape_tool],
-    llm=llm
-)
+    result = crew.kickoff()
+    ```
+  </Tab>
+  <Tab title="Sequential and Hierarchical Processes">
+    ```python
+    from crewai import Agent, Task, Crew, Process
+    from langchain_openai import ChatOpenAI
 
-# Define task
-analysis_task = Task(
-    description="""Research the current state of AI observability tools
-    and provide a comprehensive analysis.""",
-    expected_output="Detailed market analysis report",
-    agent=researcher
-)
+    llm = ChatOpenAI(model="gpt-4o")
 
-# Create and execute the crew
-crew = Crew(
-    agents=[researcher],
-    tasks=[analysis_task],
-    verbose=True
-)
+    agent1 = Agent(
+        role="Data Analyst",
+        goal="Extract key insights from data",
+        llm=llm
+    )
 
-result = crew.kickoff()
-```
+    agent2 = Agent(
+        role="Report Writer",
+        goal="Create comprehensive reports",
+        llm=llm
+    )
 
-## Usage with Sequential and Hierarchical Processes
+    task1 = Task(
+        description="Analyze the dataset and identify key patterns",
+        expected_output="Key insights summary",
+        agent=agent1
+    )
 
-CrewAI's different process types are fully supported and automatically traced:
+    task2 = Task(
+        description="Write a detailed report based on the analysis",
+        expected_output="Comprehensive report",
+        agent=agent2,
+        context=[task1]
+    )
 
-```python
-from crewai import Agent, Task, Crew, Process
-from langchain_openai import ChatOpenAI
+    # Sequential execution - tasks run one after another
+    crew = Crew(
+        agents=[agent1, agent2],
+        tasks=[task1, task2],
+        process=Process.sequential,
+        verbose=True
+    )
 
-llm = ChatOpenAI(model="gpt-4o")
+    result = crew.kickoff()
+    ```
+  </Tab>
+  <Tab title="Manager Agent">
+    ```python
+    from crewai import Agent, Task, Crew, Process
+    from langchain_openai import ChatOpenAI
 
-agent1 = Agent(
-    role="Data Analyst",
-    goal="Extract key insights from data",
-    llm=llm
-)
+    llm = ChatOpenAI(model="gpt-4o")
 
-agent2 = Agent(
-    role="Report Writer",
-    goal="Create comprehensive reports",
-    llm=llm
-)
+    # Define specialized agents
+    coder = Agent(
+        role="Senior Python Developer",
+        goal="Write production-ready Python code",
+        backstory="""You are an expert Python developer with deep
+        experience in building scalable applications.""",
+        llm=llm
+    )
 
-task1 = Task(
-    description="Analyze the dataset and identify key patterns",
-    expected_output="Key insights summary",
-    agent=agent1
-)
+    reviewer = Agent(
+        role="Code Reviewer",
+        goal="Review and improve code quality",
+        backstory="""You are a meticulous code reviewer with expertise
+        in identifying bugs, optimizing performance, and ensuring
+        best practices.""",
+        llm=llm
+    )
 
-task2 = Task(
-    description="Write a detailed report based on the analysis",
-    expected_output="Comprehensive report",
-    agent=agent2,
-    context=[task1]
-)
+    # Define tasks
+    coding_task = Task(
+        description="Create a Python function that implements a binary search tree",
+        expected_output="Python code for binary search tree",
+        agent=coder
+    )
 
-# Sequential execution - tasks run one after another
-crew = Crew(
-    agents=[agent1, agent2],
-    tasks=[task1, task2],
-    process=Process.sequential,
-    verbose=True
-)
+    review_task = Task(
+        description="Review the code and suggest improvements",
+        expected_output="Code review with recommendations",
+        agent=reviewer,
+        context=[coding_task]
+    )
 
-result = crew.kickoff()
-```
+    # Crew with manager agent for coordination
+    crew = Crew(
+        agents=[coder, reviewer],
+        tasks=[coding_task, review_task],
+        process=Process.hierarchical,
+        manager_llm=llm,
+        verbose=True
+    )
 
-## Usage with Manager Agent
-
-When using a manager agent, the delegation hierarchy and coordination are automatically captured:
-
-```python
-from crewai import Agent, Task, Crew, Process
-from crewai import Agent, Task, Crew, Process
-from langchain_openai import ChatOpenAI
-from langchain_openai import ChatOpenAI
-
-llm = ChatOpenAI(model="gpt-4o")
-
-# Define specialized agents
-coder = Agent(
-    role="Senior Python Developer",
-    goal="Write production-ready Python code",
-    backstory="""You are an expert Python developer with deep
-    experience in building scalable applications.""",
-    llm=llm
-)
-
-reviewer = Agent(
-    role="Code Reviewer",
-    goal="Review and improve code quality",
-    backstory="""You are a meticulous code reviewer with expertise
-    in identifying bugs, optimizing performance, and ensuring
-    best practices.""",
-    llm=llm
-)
-
-# Define tasks
-coding_task = Task(
-    description="Create a Python function that implements a binary search tree",
-    expected_output="Python code for binary search tree",
-    agent=coder
-)
-
-review_task = Task(
-    description="Review the code and suggest improvements",
-    expected_output="Code review with recommendations",
-    agent=reviewer,
-    context=[coding_task]
-)
-
-# Crew with manager agent for coordination
-crew = Crew(
-    agents=[coder, reviewer],
-    tasks=[coding_task, review_task],
-    process=Process.hierarchical,
-    manager_llm=llm,
-    verbose=True
-)
-
-result = crew.kickoff()
-```
+    result = crew.kickoff()
+    ```
+  </Tab>
+</Tabs>
 
 ## What Gets Captured
 
@@ -240,13 +237,3 @@ result = crew.kickoff()
 | Tokens & Cost* | Aggregated usage and pricing for the crew execution |
 
 *\*Requires initializing the corresponding LLM integration (e.g., `Integration.OPENAI`) alongside `Integration.CREWAI`
-
-## Tips & Best Practices
-
-1. **Always initialize LLM provider integration**: CrewAI orchestrates agents but delegates to LLM providers. Initialize both to capture complete traces with token costs.
-
-2. **Use verbose mode**: Enable `verbose=True` in your agents and crews for richer debug output that complements the traces.
-
-3. **Add context to tasks**: Use the `context` parameter to create explicit dependencies between tasks, which are clearly visualized in the trace hierarchy.
-
-4. **Set max iterations**: For autonomous delegation, consider setting `max_iter` to prevent runaway executions.
