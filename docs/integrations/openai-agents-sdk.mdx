@@ -21,6 +21,8 @@ traceroot.initialize(integrations=[Integration.OPENAI_AGENTS])
 Once initialized, all agent runs, tool calls, and multi-turn conversations are captured automatically:
 
 ```python
+import asyncio
+
 from agents import Agent, Runner, function_tool
 import traceroot
 from traceroot import Integration
@@ -41,9 +43,16 @@ agent = Agent(
     tools=[get_weather],
 )
 
-# The entire agent run is automatically traced
-result = await Runner.run(agent, "What's the weather in Tokyo?")
-print(result.final_output)
+
+async def main():
+    # The entire agent run is automatically traced
+    result = await Runner.run(agent, "What's the weather in Tokyo?")
+    print(result.final_output)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+    traceroot.flush()
 ```
 
 ## Usage with Multiple Tools
@@ -51,9 +60,16 @@ print(result.final_output)
 Agents with multiple tools are fully traced—each tool invocation appears as a nested child span:
 
 ```python
-from agents import Agent, Runner, function_tool
+import asyncio
+import ast
 import json
-from datetime import datetime
+import operator
+
+from agents import Agent, Runner, function_tool
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI_AGENTS, Integration.OPENAI])
 
 
 @function_tool
@@ -68,10 +84,35 @@ def get_stock_price(symbol: str) -> str:
     return json.dumps({"symbol": symbol, "price": 178.50, "change": "+1.3%"})
 
 
+def safe_evaluate(expression: str) -> float:
+    allowed_ops = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+    }
+
+    def _eval(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        if isinstance(node, ast.BinOp) and type(node.op) in allowed_ops:
+            return allowed_ops[type(node.op)](_eval(node.left), _eval(node.right))
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            value = _eval(node.operand)
+            return value if isinstance(node.op, ast.UAdd) else -value
+        raise ValueError("Only simple arithmetic expressions are supported.")
+
+    return _eval(ast.parse(expression, mode="eval").body)
+
+
 @function_tool
 def calculate(expression: str) -> str:
-    """Evaluate a math expression."""
-    return json.dumps({"expression": expression, "result": eval(expression)})
+    """Evaluate a simple math expression safely."""
+    try:
+        result = safe_evaluate(expression)
+    except (SyntaxError, ValueError) as exc:
+        return json.dumps({"expression": expression, "error": str(exc)})
+    return json.dumps({"expression": expression, "result": result})
 
 
 agent = Agent(
@@ -85,7 +126,15 @@ agent = Agent(
     tools=[get_weather, get_stock_price, calculate],
 )
 
-result = await Runner.run(agent, "What's the weather in Tokyo and the price of AAPL?")
+
+async def main():
+    result = await Runner.run(agent, "What's the weather in Tokyo and the price of AAPL?")
+    print(result.final_output)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+    traceroot.flush()
 ```
 
 ## Usage with `@observe` and `using_attributes`
@@ -124,7 +173,27 @@ if __name__ == "__main__":
 Multi-agent patterns with handoffs are fully supported—each agent's turn and the handoff transitions are captured as distinct spans:
 
 ```python
+import asyncio
+
 from agents import Agent, Runner, handoff
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI_AGENTS, Integration.OPENAI])
+
+
+weather_agent = Agent(
+    name="Weather Agent",
+    instructions="Provide weather information for cities.",
+    model="gpt-4o-mini",
+)
+
+
+stock_agent = Agent(
+    name="Stock Agent",
+    instructions="Provide stock price information.",
+    model="gpt-4o-mini",
+)
 
 
 triage_agent = Agent(
@@ -134,8 +203,16 @@ triage_agent = Agent(
     handoffs=[handoff(weather_agent), handoff(stock_agent)],
 )
 
-# Handoff transitions are automatically traced
-result = await Runner.run(triage_agent, "What's the weather in Tokyo?")
+
+async def main():
+    # Handoff transitions are automatically traced
+    result = await Runner.run(triage_agent, "What's the weather in Tokyo?")
+    print(result.final_output)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+    traceroot.flush()
 ```
 
 ## Streaming
@@ -143,7 +220,13 @@ result = await Runner.run(triage_agent, "What's the weather in Tokyo?")
 Streaming runs are also automatically traced—each streamed chunk contributes to the same span, and the final output is attached once complete:
 
 ```python
+import asyncio
+
 from agents import Agent, Runner
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI_AGENTS, Integration.OPENAI])
 
 agent = Agent(
     name="Streaming Assistant",
@@ -151,11 +234,20 @@ agent = Agent(
     model="gpt-4o",
 )
 
-result = Runner.run_streamed(agent, "Tell me a fun fact about Tokyo.")
 
-async for chunk in result.stream_events():
-    if chunk.type == "agent_response":
-        print(chunk.data, end="", flush=True)
+async def main():
+    result = Runner.run_streamed(agent, "Tell me a fun fact about Tokyo.")
+
+    async for chunk in result.stream_events():
+        if chunk.type == "agent_response":
+            print(chunk.data, end="", flush=True)
+
+    print()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+    traceroot.flush()
 ```
 
 ## What Gets Captured
