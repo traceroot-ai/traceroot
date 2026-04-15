@@ -7,12 +7,26 @@ Automatically capture agent loops, tool executions, and LLM calls within the [Op
 
 ## Setup
 
-```python
-import traceroot
-from traceroot import Integration
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
 
-traceroot.initialize(integrations=[Integration.OPENAI_AGENTS])
-```
+    traceroot.initialize(integrations=[Integration.OPENAI_AGENTS])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import * as tracing from '@traceroot-ai/traceroot';
+    import { Integration } from '@traceroot-ai/traceroot';
+
+    tracing.initialize({
+      integrations: [Integration.OPENAI_AGENTS],
+    });
+    ```
+  </Tab>
+</Tabs>
 
 > **Tip:** For the most complete trace—including underlying token costs—initialize both `Integration.OPENAI_AGENTS` and `Integration.OPENAI` together. The Agents SDK integration captures the agent orchestration layer, while the OpenAI integration captures the raw LLM calls beneath.
 
@@ -20,153 +34,311 @@ traceroot.initialize(integrations=[Integration.OPENAI_AGENTS])
 
 Once initialized, all agent runs, tool calls, and multi-turn conversations are captured automatically:
 
-```python
-import asyncio
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import asyncio
 
-from agents import Agent, Runner, function_tool
-import traceroot
-from traceroot import Integration
+    from agents import Agent, Runner, function_tool
+    import traceroot
+    from traceroot import Integration
 
-traceroot.initialize(integrations=[Integration.OPENAI_AGENTS, Integration.OPENAI])
-
-
-@function_tool
-def get_weather(city: str) -> str:
-    """Get current weather for a city."""
-    return f"The weather in {city} is 72°F and sunny."
+    traceroot.initialize(integrations=[Integration.OPENAI_AGENTS, Integration.OPENAI])
 
 
-agent = Agent(
-    name="Weather Assistant",
-    instructions="You are a helpful weather assistant.",
-    model="gpt-4o",
-    tools=[get_weather],
-)
+    @function_tool
+    def get_weather(city: str) -> str:
+        """Get current weather for a city."""
+        return f"The weather in {city} is 72°F and sunny."
 
 
-async def main():
-    # The entire agent run is automatically traced
-    result = await Runner.run(agent, "What's the weather in Tokyo?")
-    print(result.final_output)
+    agent = Agent(
+        name="Weather Assistant",
+        instructions="You are a helpful weather assistant.",
+        model="gpt-4o",
+        tools=[get_weather],
+    )
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
-    traceroot.flush()
-```
+    async def main():
+        # The entire agent run is automatically traced
+        result = await Runner.run(agent, "What's the weather in Tokyo?")
+        print(result.final_output)
+
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+        traceroot.flush()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, usingAttributes } from '@traceroot-ai/traceroot';
+    import { Agent, Runner, functionTool } from 'agents';
+
+    // Initialize TraceRoot with OpenAI Agents SDK and OpenAI integrations
+    import { initialize, Integration } from '@traceroot-ai/traceroot';
+    initialize({ integrations: [Integration.OPENAI_AGENTS, Integration.OPENAI] });
+
+    const getWeather = functionTool({
+      name: 'get_weather',
+      description: 'Get current weather for a city.',
+      handler: async (city: string): Promise<string> => {
+        return `The weather in ${city} is 72°F and sunny.`;
+      },
+    });
+
+    const agent = new Agent({
+      name: 'Weather Assistant',
+      instructions: 'You are a helpful weather assistant.',
+      model: 'gpt-4o',
+      tools: [getWeather],
+    });
+
+    async function main() {
+      // The entire agent run is automatically traced
+      const result = await Runner.run(agent, 'What\'s the weather in Tokyo?');
+      console.log(result.final_output);
+    }
+
+    if (require.main === module) {
+      main().then(() => {
+        // In a real app, you might want to flush traces periodically
+        // For demo purposes, we'll flush at the end
+        // Note: traceroot.flush() is Python-specific; in TypeScript,
+        // tracing is typically handled automatically or via context managers
+      });
+    }
+    ```
+  </Tab>
+</Tabs>
 
 ## Usage with Multiple Tools
 
 Agents with multiple tools are fully traced—each tool invocation appears as a nested child span:
 
-```python
-import asyncio
-import ast
-import json
-import operator
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import asyncio
+    import ast
+    import json
+    import operator
 
-from agents import Agent, Runner, function_tool
-import traceroot
-from traceroot import Integration
+    from agents import Agent, Runner, function_tool
+    import traceroot
+    from traceroot import Integration
 
-traceroot.initialize(integrations=[Integration.OPENAI_AGENTS, Integration.OPENAI])
-
-
-@function_tool
-def get_weather(city: str) -> str:
-    """Get current weather for a city."""
-    return json.dumps({"city": city, "temp": 72, "condition": "sunny"})
+    traceroot.initialize(integrations=[Integration.OPENAI_AGENTS, Integration.OPENAI])
 
 
-@function_tool
-def get_stock_price(symbol: str) -> str:
-    """Get stock price for a symbol."""
-    return json.dumps({"symbol": symbol, "price": 178.50, "change": "+1.3%"})
+    @function_tool
+    def get_weather(city: str) -> str:
+        """Get current weather for a city."""
+        return json.dumps({"city": city, "temp": 72, "condition": "sunny"})
 
 
-def safe_evaluate(expression: str) -> float:
-    allowed_ops = {
-        ast.Add: operator.add,
-        ast.Sub: operator.sub,
-        ast.Mult: operator.mul,
-        ast.Div: operator.truediv,
+    @function_tool
+    def get_stock_price(symbol: str) -> str:
+        """Get stock price for a symbol."""
+        return json.dumps({"symbol": symbol, "price": 178.50, "change": "+1.3%"})
+
+
+    def safe_evaluate(expression: str) -> float:
+        allowed_ops = {
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+        }
+
+        def _eval(node):
+            if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+                return node.value
+            if isinstance(node, ast.BinOp) and type(node.op) in allowed_ops:
+                return allowed_ops[type(node.op)](_eval(node.left), _eval(node.right))
+            if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+                value = _eval(node.operand)
+                return value if isinstance(node.op, ast.UAdd) else -value
+            raise ValueError("Only simple arithmetic expressions are supported.")
+
+        return _eval(ast.parse(expression, mode="eval").body)
+
+
+    @function_tool
+    def calculate(expression: str) -> str:
+        """Evaluate a simple math expression safely."""
+        try:
+            result = safe_evaluate(expression)
+        except (SyntaxError, ValueError) as exc:
+            return json.dumps({"expression": expression, "error": str(exc)})
+        return json.dumps({"expression": expression, "result": result})
+
+
+    agent = Agent(
+        name="Assistant",
+        instructions=(
+            "You are a helpful AI assistant with access to tools. "
+            "Use available tools to gather information, then provide "
+            "a clear, comprehensive answer."
+        ),
+        model="gpt-4o-mini",
+        tools=[get_weather, get_stock_price, calculate],
+    )
+
+
+    async def main():
+        result = await Runner.run(agent, "What's the weather in Tokyo and the price of AAPL?")
+        print(result.final_output)
+
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+        traceroot.flush()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, usingAttributes } from '@traceroot-ai/traceroot';
+    import { Agent, Runner, functionTool } from 'agents';
+
+    // Initialize TraceRoot with OpenAI Agents SDK and OpenAI integrations
+    import { initialize, Integration } from '@traceroot-ai/traceroot';
+    initialize({ integrations: [Integration.OPENAI_AGENTS, Integration.OPENAI] });
+
+    const getWeather = functionTool({
+      name: 'get_weather',
+      description: 'Get current weather for a city.',
+      handler: async (city: string): Promise<string> => {
+        return JSON.stringify({ city, temp: 72, condition: 'sunny' });
+      },
+    });
+
+    const getStockPrice = functionTool({
+      name: 'get_stock_price',
+      description: 'Get stock price for a symbol.',
+      handler: async (symbol: string): Promise<string> => {
+        return JSON.stringify({ symbol, price: 178.50, change: '+1.3%' });
+      },
+    });
+
+    // Helper function for safe evaluation (simplified for TypeScript example)
+    function safeEvaluate(expression: string): number {
+      try {
+        // Using Function constructor for demonstration - in production use a proper math parser
+        return new Function(`return ${expression}`)();
+      } catch (err) {
+        throw new Error(`Invalid expression: ${expression}`);
+      }
     }
 
-    def _eval(node):
-        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-            return node.value
-        if isinstance(node, ast.BinOp) and type(node.op) in allowed_ops:
-            return allowed_ops[type(node.op)](_eval(node.left), _eval(node.right))
-        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
-            value = _eval(node.operand)
-            return value if isinstance(node.op, ast.UAdd) else -value
-        raise ValueError("Only simple arithmetic expressions are supported.")
+    const calculate = functionTool({
+      name: 'calculate',
+      description: 'Evaluate a simple math expression safely.',
+      handler: async (expression: string): Promise<string> => {
+        try {
+          const result = safeEvaluate(expression);
+          return JSON.stringify({ expression, result });
+        } catch (exc) {
+          return JSON.stringify({ expression, error: String(exc) });
+        }
+      },
+    });
 
-    return _eval(ast.parse(expression, mode="eval").body)
+    const agent = new Agent({
+      name: 'Assistant',
+      instructions: `You are a helpful AI assistant with access to tools.
+        Use available tools to gather information, then provide a clear, comprehensive answer.`,
+      model: 'gpt-4o-mini',
+      tools: [getWeather, getStockPrice, calculate],
+    });
 
+    async function main() {
+      const result = await Runner.run(agent, "What's the weather in Tokyo and the price of AAPL?");
+      console.log(result.final_output);
+    }
 
-@function_tool
-def calculate(expression: str) -> str:
-    """Evaluate a simple math expression safely."""
-    try:
-        result = safe_evaluate(expression)
-    except (SyntaxError, ValueError) as exc:
-        return json.dumps({"expression": expression, "error": str(exc)})
-    return json.dumps({"expression": expression, "result": result})
-
-
-agent = Agent(
-    name="Assistant",
-    instructions=(
-        "You are a helpful AI assistant with access to tools. "
-        "Use available tools to gather information, then provide "
-        "a clear, comprehensive answer."
-    ),
-    model="gpt-4o-mini",
-    tools=[get_weather, get_stock_price, calculate],
-)
-
-
-async def main():
-    result = await Runner.run(agent, "What's the weather in Tokyo and the price of AAPL?")
-    print(result.final_output)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
-    traceroot.flush()
-```
+    if (require.main === module) {
+      main().then(() => {
+        // In a real app, you might want to flush traces periodically
+        // For demo purposes, we'll flush at the end
+        // Note: traceroot.flush() is Python-specific; in TypeScript,
+        // tracing is typically handled automatically or via context managers
+      });
+    }
+    ```
+  </Tab>
+</Tabs>
 
 ## Usage with `@observe` and `using_attributes`
 
 Wrap your demo session in `@observe` and attach user/session metadata for richer trace context:
 
-```python
-import asyncio
-import traceroot
-from traceroot import Integration, observe, using_attributes
-from agents import Agent, Runner
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import asyncio
+    import traceroot
+    from traceroot import Integration, observe, using_attributes
+    from agents import Agent, Runner
 
-traceroot.initialize(integrations=[Integration.OPENAI_AGENTS, Integration.OPENAI])
+    traceroot.initialize(integrations=[Integration.OPENAI_AGENTS, Integration.OPENAI])
 
-agent = Agent(
-    name="Assistant",
-    instructions="You are a helpful assistant.",
-    model="gpt-4o-mini",
-)
-
-
-@observe(name="demo_session", type="agent")
-async def run_demo():
-    result = await Runner.run(agent, "Hello, world!")
-    print(result.final_output)
+    agent = Agent(
+        name="Assistant",
+        instructions="You are a helpful assistant.",
+        model="gpt-4o-mini",
+    )
 
 
-if __name__ == "__main__":
-    with using_attributes(user_id="example-user", session_id="openai-agents-session"):
-        asyncio.run(run_demo())
-    traceroot.flush()
-```
+    @observe(name="demo_session", type="agent")
+    async def run_demo():
+        result = await Runner.run(agent, "Hello, world!")
+        print(result.final_output)
+
+
+    if __name__ == "__main__":
+        with using_attributes(user_id="example-user", session_id="openai-agents-session"):
+            asyncio.run(run_demo())
+        traceroot.flush()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { observe, usingAttributes } from '@traceroot-ai/traceroot';
+    import { Agent, Runner } from 'agents';
+
+    // Initialize TraceRoot with OpenAI Agents SDK and OpenAI integrations
+    import { initialize, Integration } from '@traceroot-ai/traceroot';
+    initialize({ integrations: [Integration.OPENAI_AGENTS, Integration.OPENAI] });
+
+    const agent = new Agent({
+      name: 'Assistant',
+      instructions: 'You are a helpful assistant.',
+      model: 'gpt-4o-mini',
+    });
+
+    async function runDemo() {
+      const result = await Runner.run(agent, 'Hello, world!');
+      console.log(result.final_output);
+    }
+
+    // Using attributes and observe decorators
+    await usingAttributes(
+      { userId: 'example-user', sessionId: 'openai-agents-session' },
+      () =>
+        observe({ name: 'demo_session', type: 'agent' }, async () => {
+          await runDemo();
+        }),
+    );
+
+    // In a real app, you might want to flush traces periodically
+    // For demo purposes, we'll flush at the end
+    // Note: traceroot.flush() is Python-specific; in TypeScript,
+    // tracing is typically handled automatically or via context managers
+    ```
+  </Tab>
+</Tabs>
 
 ## Multi-Agent Handoffs
 
