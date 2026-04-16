@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link as LinkIcon } from "lucide-react";
 import { SiCrewai } from "react-icons/si";
 import { cn } from "@/lib/utils";
@@ -286,32 +286,15 @@ interface ManualTabProps {
 
 export function ManualTab({ projectId }: ManualTabProps) {
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("openai");
-  const [installLang, setInstallLang] = useState<Lang>("python");
-  const [initLang, setInitLang] = useState<Lang>("python");
+  const [lang, setLang] = useState<Lang>("python");
 
   const selectedIntegration =
     INTEGRATIONS.find((integration) => integration.id === selectedIntegrationId) ?? INTEGRATIONS[0];
-  const availableLangs = ALL_LANGS.filter((lang) => selectedIntegration.languages[lang]);
-  const resolvedInstallLang = availableLangs.includes(installLang)
-    ? installLang
-    : availableLangs[0];
-  const resolvedInitLang = availableLangs.includes(initLang) ? initLang : availableLangs[0];
-  const installConfig = selectedIntegration.languages[resolvedInstallLang];
-  const initConfig = selectedIntegration.languages[resolvedInitLang];
+  const availableLangs = ALL_LANGS.filter((l) => selectedIntegration.languages[l]);
+  const resolvedLang = availableLangs.includes(lang) ? lang : availableLangs[0];
+  const config = selectedIntegration.languages[resolvedLang];
 
-  useEffect(() => {
-    if (installLang !== resolvedInstallLang) {
-      setInstallLang(resolvedInstallLang);
-    }
-  }, [installLang, resolvedInstallLang]);
-
-  useEffect(() => {
-    if (initLang !== resolvedInitLang) {
-      setInitLang(resolvedInitLang);
-    }
-  }, [initLang, resolvedInitLang]);
-
-  if (!installConfig || !initConfig) {
+  if (!config) {
     return null;
   }
 
@@ -325,17 +308,17 @@ export function ManualTab({ projectId }: ManualTabProps) {
       <div className="space-y-2">
         <p className="text-sm font-medium text-foreground">2. Install SDK</p>
         <LangTabs
-          lang={resolvedInstallLang}
-          onChange={setInstallLang}
+          lang={resolvedLang}
+          onChange={setLang}
           availableLangs={availableLangs}
         />
         <div className="border border-border">
           <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
             <span className="text-xs text-muted-foreground">bash</span>
-            <CopyButton value={installConfig.installCommand} className="h-6 w-6" />
+            <CopyButton value={config.installCommand} className="h-6 w-6" />
           </div>
           <pre className="overflow-x-auto whitespace-pre-wrap bg-muted px-3 py-2.5 font-mono text-xs text-foreground">
-            {installConfig.installCommand}
+            {config.installCommand}
           </pre>
         </div>
       </div>
@@ -385,16 +368,16 @@ export function ManualTab({ projectId }: ManualTabProps) {
         <p className="text-sm font-medium text-foreground">
           4. Initialize TraceRoot for {selectedIntegration.name}
         </p>
-        <LangTabs lang={resolvedInitLang} onChange={setInitLang} availableLangs={availableLangs} />
+        <LangTabs lang={resolvedLang} onChange={setLang} availableLangs={availableLangs} />
         <div className="border border-border">
           <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
             <span className="text-xs text-muted-foreground">
-              {resolvedInitLang === "python" ? "python" : "typescript"}
+              {resolvedLang === "python" ? "python" : "typescript"}
             </span>
-            <CopyButton value={initConfig.initSnippet} className="h-6 w-6" />
+            <CopyButton value={config.initSnippet} className="h-6 w-6" />
           </div>
           <pre className="overflow-x-auto whitespace-pre-wrap bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed text-foreground">
-            {initConfig.initSnippet}
+            {config.initSnippet}
           </pre>
         </div>
       </div>
