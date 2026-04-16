@@ -307,11 +307,7 @@ export function ManualTab({ projectId }: ManualTabProps) {
 
       <div className="space-y-2">
         <p className="text-sm font-medium text-foreground">2. Install SDK</p>
-        <LangTabs
-          lang={resolvedLang}
-          onChange={setLang}
-          availableLangs={availableLangs}
-        />
+        <LangTabs lang={resolvedLang} onChange={setLang} availableLangs={availableLangs} />
         <div className="border border-border">
           <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
             <span className="text-xs text-muted-foreground">bash</span>
