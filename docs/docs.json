@@ -141,8 +141,12 @@
               "integrations/langchain-deepagents",
               "integrations/mastra",
               "integrations/autogen",
+<<<<<<< HEAD
               "integrations/llamaindex",
               "integrations/crewai"
+=======
+              "integrations/llamaindex"
+>>>>>>> c16abef (doc : fixed autogendoc formating)
             ]
           },
           {
