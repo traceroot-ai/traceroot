@@ -36,16 +36,24 @@ class SpanRecordBuilder:
 
     def __init__(self, project_id: str, token_calculator: TokenCalculator | None = None):
         self._project_id = project_id
-        self._token_calculator = token_calculator
+        self._pricing_calculator = token_calculator
+        self._estimation_calculator = token_calculator
 
     def _apply_usage(self, span_record: dict[str, Any], span_attrs: dict[str, Any]) -> None:
-        if TokenCalculator.extract_model_name(span_attrs) is None:
+        model_name = TokenCalculator.extract_model_name(span_attrs)
+        if model_name is None:
             return
 
-        if self._token_calculator is None:
-            self._token_calculator = TokenCalculator.from_runtime()
+        api_usage = TokenCalculator.extract_api_tokens(span_attrs)
+        if api_usage is not None:
+            if self._pricing_calculator is None:
+                self._pricing_calculator = TokenCalculator.from_pricing_runtime()
+            self._pricing_calculator.apply_api_usage(span_record, model_name, api_usage)
+            return
 
-        self._token_calculator.apply_usage(span_record, span_attrs)
+        if self._estimation_calculator is None:
+            self._estimation_calculator = TokenCalculator.from_estimation_runtime()
+        self._estimation_calculator.apply_estimated_usage(span_record, model_name)
 
     def build(self, otel_span: dict[str, Any]) -> SpanContext | None:
         trace_id = decode_otel_id(otel_span.get("traceId"))

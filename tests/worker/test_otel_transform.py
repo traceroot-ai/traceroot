@@ -383,6 +383,57 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["total_tokens"] == 150
         assert spans[0]["cost"] is not None
 
+    def test_api_tokens_do_not_initialize_estimation_fallback(self):
+        """API-reported usage should not initialize the estimation fallback loader."""
+        from unittest.mock import Mock, patch
+
+        from worker.otel_transform.tokens import TokenCalculator
+
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[
+                        make_attr("gen_ai.request.model", "gpt-4o"),
+                        make_attr("gen_ai.usage.input_tokens", 100),
+                        make_attr("gen_ai.usage.output_tokens", 50),
+                    ],
+                )
+            ]
+        )
+
+        pricing_calculator = Mock()
+
+        def apply_api_usage(span_record, model_name, api_usage):
+            span_record["model_name"] = model_name
+            span_record["input_tokens"] = api_usage.input_tokens
+            span_record["output_tokens"] = api_usage.output_tokens
+            span_record["total_tokens"] = api_usage.total_tokens
+
+        pricing_calculator.apply_api_usage.side_effect = apply_api_usage
+
+        with (
+            patch.object(
+                TokenCalculator, "from_pricing_runtime", return_value=pricing_calculator
+            ) as pricing_loader,
+            patch.object(
+                TokenCalculator,
+                "from_estimation_runtime",
+                side_effect=AssertionError("estimation fallback should not be initialized"),
+            ) as estimation_loader,
+        ):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        pricing_loader.assert_called_once()
+        estimation_loader.assert_not_called()
+        pricing_calculator.apply_api_usage.assert_called_once()
+        assert spans[0]["input_tokens"] == 100
+        assert spans[0]["output_tokens"] == 50
+        assert spans[0]["total_tokens"] == 150
+
     def test_text_estimation_fallback(self):
         """Falls back to text-based token estimation when no API counts."""
         from unittest.mock import patch
