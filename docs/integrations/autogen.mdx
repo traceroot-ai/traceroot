@@ -3,7 +3,7 @@ title: AutoGen (AG2)
 description: Auto-instrument AutoGen multi-agent conversations and tool calls
 ---
 
-Automatically capture agent loops, message histories, and tool executions within the AutoGen framework. 
+Automatically capture agent loops, message histories, and tool executions within the AutoGen framework.
 
 *Note: This integration supports `ag2` (v0.11.5+), the community-maintained continuation of the classic AutoGen framework.*
 
@@ -32,19 +32,19 @@ import autogen
 
 llm_config = {
     "config_list": [{
-        "model": "gemini-2.5-flash", 
+        "model": "gemini-2.5-flash",
         "api_key": os.environ["GEMINI_API_KEY"],
         "api_type": "google"
     }]
 }
 
 assistant = autogen.AssistantAgent(
-    name="assistant", 
+    name="assistant",
     llm_config=llm_config
 )
 user_proxy = autogen.UserProxyAgent(
-    name="user_proxy", 
-    human_input_mode="NEVER", 
+    name="user_proxy",
+    human_input_mode="NEVER",
     max_consecutive_auto_reply=2
 )
 
@@ -68,19 +68,19 @@ from autogen import register_function
 # Define the LLM and Agents
 llm_config = {
     "config_list": [{
-        "model": "gemini-2.5-flash", 
+        "model": "gemini-2.5-flash",
         "api_key": os.environ["GEMINI_API_KEY"],
         "api_type": "google"
     }]
 }
 
 assistant = autogen.AssistantAgent(
-    name="assistant", 
+    name="assistant",
     llm_config=llm_config
 )
 user_proxy = autogen.UserProxyAgent(
-    name="user_proxy", 
-    human_input_mode="NEVER", 
+    name="user_proxy",
+    human_input_mode="NEVER",
     max_consecutive_auto_reply=2
 )
 
@@ -116,4 +116,4 @@ user_proxy.initiate_chat(
 | LLM calls* | Raw completion requests to the provider |
 | Tokens & Cost* | Aggregated usage and pricing for the chat session |
 
-*\*Requires initializing the corresponding LLM integration (e.g., `Integration.GOOGLE_GENAI`) alongside `Integration.AUTOGEN`
+*\*Requires initializing the corresponding LLM integration (e.g., `Integration.GOOGLE_GENAI`) alongside `Integration.AUTOGEN`*
