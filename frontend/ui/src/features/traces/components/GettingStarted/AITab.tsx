@@ -23,6 +23,7 @@ My project uses [Python / TypeScript/Node.js] — adjust the instructions to mat
        Integration.LANGCHAIN,     # if using LangChain/LangGraph/DeepAgents
        Integration.ANTHROPIC,     # if using Anthropic
        Integration.GOOGLE_GENAI,  # if using Google Gemini
+       Integration.LLAMA_INDEX,   # if using LlamaIndex
    ])
 3. Add @observe on agent entrypoints and tool functions:
    from traceroot import observe

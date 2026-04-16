@@ -1,0 +1,58 @@
+---
+title: LlamaIndex
+description: Auto-instrument LlamaIndex RAG pipelines and query engines
+---
+
+Automatically capture document ingestion, embedding, retrieval, and LLM synthesis within LlamaIndex pipelines.
+
+## Setup
+
+```python
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.LLAMA_INDEX])
+```
+
+Tokens and cost are captured automatically for LLM calls made through LlamaIndex's wrappers (e.g., `llama_index.llms.openai.OpenAI`). If you also make direct API calls outside LlamaIndex, initialize the corresponding provider integration (e.g., `Integration.OPENAI`) alongside `Integration.LLAMA_INDEX` to trace those too.
+
+## Usage
+
+Once initialized, all LlamaIndex operations are captured automatically.
+
+*Note: The example below uses OpenAI for both the LLM and embeddings (LlamaIndex's default). It requires `pip install llama-index-llms-openai llama-index-embeddings-openai` and `OPENAI_API_KEY` in your environment. Swap in any other provider (Anthropic, Gemini, local models) as needed.*
+
+```python
+from llama_index.core import Document, Settings, VectorStoreIndex
+from llama_index.llms.openai import OpenAI
+
+Settings.llm = OpenAI(model="gpt-4o-mini")
+
+documents = [
+    Document(text="TraceRoot is an open-source observability platform for AI agents."),
+    Document(text="TraceRoot supports OpenTelemetry-compatible tracing via a Python SDK."),
+]
+
+# Index construction is automatically traced (SentenceSplitter, Embedding)
+index = VectorStoreIndex.from_documents(documents)
+query_engine = index.as_query_engine()
+
+# Each query is automatically traced (retrieval + LLM synthesis)
+response = query_engine.query("What is TraceRoot?")
+print(response)
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Document chunking | Each `SentenceSplitter` call as a span |
+| Embedding calls | Each batch embedding with text inputs and vector outputs |
+| Retrieval | Top-k retrieval with query and retrieved documents |
+| LLM synthesis | Response generation with context and final answer |
+| Tokens & Cost | Input/output tokens and calculated cost per LLM call |
+| Latency | Duration of each pipeline stage |
+
+## Full Example
+
+See [`examples/python/llamaindex-rag`](https://github.com/traceroot-ai/traceroot/tree/main/examples/python/llamaindex-rag) for a complete runnable RAG pipeline with multiple documents, demo queries, `@observe` decoration, and `using_attributes` session/user tracking.
