@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import { formatDuration, formatDate, cn, buildUrlWithFilters } from "@/lib/utils";
+import { formatDuration, formatDate, formatCost, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { TraceListItem } from "@/types/api";
 import { useTraces, useListPageState } from "@/features/traces/hooks";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
@@ -200,6 +200,12 @@ export default function TracesPage() {
                       <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Output
                       </th>
+                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                        Tokens
+                      </th>
+                      <th className="w-[80px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                        Cost
+                      </th>
                       <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Latency
                       </th>
@@ -248,6 +254,19 @@ export default function TracesPage() {
                           <span className="block truncate font-mono text-[11px] text-muted-foreground">
                             {formatContentPreview(trace.output)}
                           </span>
+                        </td>
+                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                          {trace.total_input_tokens !== undefined ? (
+                            <span>
+                              {trace.total_input_tokens.toLocaleString()} /{" "}
+                              {trace.total_output_tokens?.toLocaleString() || 0}
+                            </span>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
+                          {trace.total_cost !== undefined ? formatCost(trace.total_cost) : "-"}
                         </td>
                         <td className="whitespace-nowrap px-3 py-1.5 text-[12px] text-foreground">
                           {formatDuration(trace.duration_ms)}

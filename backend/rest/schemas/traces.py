@@ -46,6 +46,9 @@ class TraceListItem(BaseModel):
     status: str  # "ok" or "error"
     input: str | None
     output: str | None
+    total_input_tokens: int | None = 0
+    total_output_tokens: int | None = 0
+    total_cost: float | None = 0.0
 
 
 class TraceListResponse(BaseModel):
