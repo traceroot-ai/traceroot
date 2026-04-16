@@ -7,11 +7,17 @@ Automatically capture document ingestion, embedding, retrieval, and LLM synthesi
 
 ## Setup
 
+To capture the complete picture—including both the pipeline structure and the underlying token costs—we highly recommend initializing **both** the LlamaIndex integration and your specific LLM provider (e.g., OpenAI, Anthropic, Google GenAI).
+
 ```python
 import traceroot
 from traceroot import Integration
 
-traceroot.initialize(integrations=[Integration.LLAMA_INDEX])
+# Initialize LlamaIndex alongside your LLM provider to capture tokens and costs
+traceroot.initialize(integrations=[
+    Integration.LLAMA_INDEX,
+    Integration.OPENAI  # Or ANTHROPIC, GOOGLE_GENAI, etc.
+])
 ```
 
 ## Usage
@@ -46,6 +52,7 @@ print(response)
 | Embedding calls | Each batch embedding with text inputs and vector outputs |
 | Retrieval | Top-k retrieval with query and retrieved documents |
 | LLM synthesis | Response generation with context and final answer |
-| Token usage | Input and output tokens per LLM call |
-| Cost | Calculated from token usage and model pricing |
+| Tokens & Cost* | Input/output tokens and calculated cost per LLM call |
 | Latency | Duration of each pipeline stage |
+
+*\*Requires initializing the corresponding LLM integration (e.g., `Integration.OPENAI`) alongside `Integration.LLAMA_INDEX`
