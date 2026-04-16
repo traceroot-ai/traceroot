@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Link as LinkIcon } from "lucide-react";
+import { Link as LinkIcon, Database } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
 import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
@@ -161,6 +161,15 @@ export function ManualTab({ projectId }: ManualTabProps) {
               </svg>
             </div>
             <span className="text-xs font-medium text-foreground">Mastra</span>
+          </a>
+          <a
+            href="https://traceroot.ai/docs/integrations/llamaindex"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex w-24 flex-col items-center gap-1.5 border border-border bg-muted/30 py-3 transition-colors hover:bg-muted/60"
+          >
+            <Database className="h-6 w-6 text-foreground" />
+            <span className="text-xs font-medium text-foreground">LlamaIndex</span>
           </a>
         </div>
       </div>

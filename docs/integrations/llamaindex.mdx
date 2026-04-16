@@ -1,0 +1,51 @@
+---
+title: LlamaIndex
+description: Auto-instrument LlamaIndex RAG pipelines and query engines
+---
+
+Automatically capture document ingestion, embedding, retrieval, and LLM synthesis within LlamaIndex pipelines.
+
+## Setup
+
+```python
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.LLAMA_INDEX])
+```
+
+## Usage
+
+Once initialized, all LlamaIndex operations are captured automatically:
+
+```python
+from llama_index.core import Document, Settings, VectorStoreIndex
+from llama_index.llms.openai import OpenAI
+
+Settings.llm = OpenAI(model="gpt-4o-mini")
+
+documents = [
+    Document(text="TraceRoot is an open-source observability platform for AI agents."),
+    Document(text="TraceRoot supports OpenTelemetry-compatible tracing via a Python SDK."),
+]
+
+# Index construction is automatically traced (SentenceSplitter, Embedding)
+index = VectorStoreIndex.from_documents(documents)
+query_engine = index.as_query_engine()
+
+# Each query is automatically traced (retrieval + LLM synthesis)
+response = query_engine.query("What is TraceRoot?")
+print(response)
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Document chunking | Each `SentenceSplitter` call as a span |
+| Embedding calls | Each batch embedding with text inputs and vector outputs |
+| Retrieval | Top-k retrieval with query and retrieved documents |
+| LLM synthesis | Response generation with context and final answer |
+| Token usage | Input and output tokens per LLM call |
+| Cost | Calculated from token usage and model pricing |
+| Latency | Duration of each pipeline stage |
