@@ -84,7 +84,10 @@ class TraceReaderService:
                 ) as duration_ms,
                 if(countIf(s.status = 'ERROR') > 0, 'error', 'ok') as status,
                 t.input,
-                t.output
+                t.output,
+                sum(s.input_tokens) as total_input_tokens,
+                sum(s.output_tokens) as total_output_tokens,
+                sum(s.cost) as total_cost
             FROM traces AS t FINAL
             LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
             WHERE {where_clause}
@@ -121,6 +124,9 @@ class TraceReaderService:
                     "status": row[8],
                     "input": row[9],
                     "output": row[10],
+                    "total_input_tokens": int(row[11]) if row[11] is not None else 0,
+                    "total_output_tokens": int(row[12]) if row[12] is not None else 0,
+                    "total_cost": float(row[13]) if row[13] is not None else 0.0,
                 }
             )
 
