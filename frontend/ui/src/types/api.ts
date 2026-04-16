@@ -99,6 +99,9 @@ export interface TraceListItem {
   status: TraceStatus;
   input: string | null;
   output: string | null;
+  total_input_tokens?: number;
+  total_output_tokens?: number;
+  total_cost?: number;
 }
 
 export interface Span {
