@@ -256,7 +256,8 @@ export default function TracesPage() {
                           </span>
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                          {(trace.total_input_tokens ?? 0) + (trace.total_output_tokens ?? 0) > 0 ? (
+                          {(trace.total_input_tokens ?? 0) + (trace.total_output_tokens ?? 0) >
+                          0 ? (
                             <span>
                               {trace.total_input_tokens?.toLocaleString()} /{" "}
                               {trace.total_output_tokens?.toLocaleString() || 0}
@@ -266,7 +267,9 @@ export default function TracesPage() {
                           )}
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
-                          {trace.total_cost && trace.total_cost > 0 ? formatCost(trace.total_cost) : "-"}
+                          {trace.total_cost && trace.total_cost > 0
+                            ? formatCost(trace.total_cost)
+                            : "-"}
                         </td>
                         <td className="whitespace-nowrap px-3 py-1.5 text-[12px] text-foreground">
                           {formatDuration(trace.duration_ms)}
