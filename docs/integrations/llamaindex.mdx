@@ -22,7 +22,9 @@ traceroot.initialize(integrations=[
 
 ## Usage
 
-Once initialized, all LlamaIndex operations are captured automatically:
+Once initialized, all LlamaIndex operations are captured automatically.
+
+*Note: The example below uses OpenAI for both the LLM and embeddings (LlamaIndex's default). It requires `pip install llama-index-llms-openai llama-index-embeddings-openai` and `OPENAI_API_KEY` in your environment. Swap in any other provider (Anthropic, Gemini, local models) as needed.*
 
 ```python
 from llama_index.core import Document, Settings, VectorStoreIndex
