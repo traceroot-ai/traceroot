@@ -1,45 +1,24 @@
-# Vercel AI SDK Agent — TraceRoot Observability
+# Vercel AI SDK Agent
 
-A multi-step tool-use agent built with the [Vercel AI SDK](https://sdk.vercel.ai/) (`ai` package),
-fully instrumented with TraceRoot.
-
-## What gets traced
-
-| Signal | Details |
-|---|---|
-| LLM calls | `generateText`, `streamText`, `generateObject`, `streamObject` |
-| Tool calls | Each tool invocation as a child span with input/output |
-| Token usage | Prompt + completion tokens per call |
-| Model name | Captured on every LLM span |
-| Latency | End-to-end and per-step timing |
+Multi-step tool-use agent built with the [Vercel AI SDK](https://sdk.vercel.ai/), instrumented with [TraceRoot](https://traceroot.ai).
 
 ## Setup
 
 ```bash
-cp .env.example .env
-# Fill in TRACEROOT_API_KEY and OPENAI_API_KEY
+cp .env.example .env  # fill in your API keys
 pnpm install
+```
+
+## Usage
+
+```bash
 pnpm demo
 ```
 
-## Usage in your own project
+## What it does
 
-```typescript
-// No instrumentModules needed for Vercel AI SDK
-TraceRoot.initialize();
+Runs two demo queries that exercise multi-step tool use:
+1. Weather comparison (San Francisco vs Tokyo)
+2. Stock price lookup + calculation (NVDA +10%)
 
-// Add experimental_telemetry to each call
-const result = await generateText({
-  model: openai('gpt-4o-mini'),
-  prompt: 'Hello!',
-  experimental_telemetry: { isEnabled: true },  // ← activates tracing
-});
-```
-
-## Environment variables
-
-| Variable | Description |
-|---|---|
-| `TRACEROOT_API_KEY` | Your TraceRoot API key |
-| `TRACEROOT_HOST_URL` | TraceRoot endpoint (default: `https://app.traceroot.ai`) |
-| `OPENAI_API_KEY` | OpenAI API key (swap for any provider) |
+Tools: `getWeather`, `getStockPrice`, `calculate`
