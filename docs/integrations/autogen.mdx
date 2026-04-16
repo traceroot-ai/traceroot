@@ -113,7 +113,5 @@ user_proxy.initiate_chat(
 | Agent Steps | Individual spans for each `AssistantAgent` or `UserProxyAgent` turn |
 | Messages | Full chat history, input messages, and agent replies |
 | Tool calls | Function names, input arguments, and execution outputs |
-| LLM calls* | Raw completion requests to the provider |
-| Tokens & Cost* | Aggregated usage and pricing for the chat session |
-
-*\*Requires initializing the corresponding LLM integration (e.g., `Integration.GOOGLE_GENAI`) alongside `Integration.AUTOGEN`*
+| LLM calls | Raw completion requests to the provider |
+| Tokens & Cost | Aggregated usage and pricing for the chat session |
