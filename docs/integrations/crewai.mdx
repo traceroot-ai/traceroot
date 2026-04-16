@@ -1,0 +1,70 @@
+---
+title: CrewAI
+description: Auto-instrument CrewAI multi-agent collaborative workflows
+---
+
+Automatically capture agent roles, tasks, crew executions, and tool invocations within the CrewAI framework.
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.CREWAI, Integration.OPENAI])
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+Once initialized, crew and agent executions are captured automatically:
+
+```python
+from crewai import Agent, Task, Crew
+
+researcher = Agent(
+    role="Research Analyst",
+    goal="Uncover the latest developments in AI agent frameworks",
+    backstory="You are an expert at identifying emerging trends in AI.",
+)
+
+writer = Agent(
+    role="Tech Writer",
+    goal="Craft a compelling summary of AI agent framework trends",
+    backstory="You turn complex technical insights into engaging narratives.",
+)
+
+research_task = Task(
+    description="Analyze the latest AI agent frameworks and summarize key trends.",
+    expected_output="A concise research summary",
+    agent=researcher,
+)
+
+write_task = Task(
+    description="Write a short article based on the research summary.",
+    expected_output="A short article on AI agent framework trends",
+    agent=writer,
+    context=[research_task],
+)
+
+crew = Crew(agents=[researcher, writer], tasks=[research_task, write_task])
+
+# The entire crew execution is automatically traced
+result = crew.kickoff()
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Crew execution | The overarching `kickoff()` session |
+| Agent roles | Each agent's role, goal, and backstory as span metadata |
+| Task steps | Individual task executions with inputs and outputs |
+| Tool calls | Tool invocations with input arguments and results |
+| LLM calls | Raw completion requests to the provider |
+| Delegation hierarchy | Manager-agent relationships and task assignments |
+| Token usage | Aggregated across all LLM calls |
+| Cost | Total cost for the full crew execution |
