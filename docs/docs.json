@@ -140,7 +140,8 @@
               "integrations/langchain",
               "integrations/langchain-deepagents",
               "integrations/mastra",
-              "integrations/autogen"
+              "integrations/autogen",
+              "integrations/llamaindex"
             ]
           },
           {
