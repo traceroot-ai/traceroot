@@ -44,7 +44,9 @@ def extract_attribute_value(attr_value: dict[str, Any]) -> Any:
     if "doubleValue" in attr_value:
         return attr_value["doubleValue"]
     if "arrayValue" in attr_value:
-        return [extract_attribute_value(value) for value in attr_value["arrayValue"].get("values", [])]
+        return [
+            extract_attribute_value(value) for value in attr_value["arrayValue"].get("values", [])
+        ]
     if "kvlistValue" in attr_value:
         return {
             item["key"]: extract_attribute_value(item["value"])

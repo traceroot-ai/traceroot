@@ -46,7 +46,9 @@ def apply_metadata(span_record: dict[str, Any], span_attrs: dict[str, Any]) -> N
     explicit_metadata = span_attrs.get("traceroot.span.metadata")
     if explicit_metadata is not None:
         span_record["metadata"] = (
-            explicit_metadata if isinstance(explicit_metadata, str) else json.dumps(explicit_metadata)
+            explicit_metadata
+            if isinstance(explicit_metadata, str)
+            else json.dumps(explicit_metadata)
         )
         return
 

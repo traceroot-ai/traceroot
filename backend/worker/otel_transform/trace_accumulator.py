@@ -37,7 +37,9 @@ class TraceAccumulator:
             )
             return
 
-        self._trace_attrs[trace_id]["user_id"] = self._trace_attrs[trace_id]["user_id"] or span_user_id
+        self._trace_attrs[trace_id]["user_id"] = (
+            self._trace_attrs[trace_id]["user_id"] or span_user_id
+        )
         self._trace_attrs[trace_id]["session_id"] = (
             self._trace_attrs[trace_id]["session_id"] or span_session_id
         )
@@ -66,7 +68,9 @@ class TraceAccumulator:
         trace_metadata = context.span_attrs.get("traceroot.trace.metadata")
         if trace_metadata is not None:
             trace_record["metadata"] = (
-                json.dumps(trace_metadata) if not isinstance(trace_metadata, str) else trace_metadata
+                json.dumps(trace_metadata)
+                if not isinstance(trace_metadata, str)
+                else trace_metadata
             )
 
         serialized_input = serialize_io(context.span_input)
