@@ -17,8 +17,8 @@ interface LayoutContextType {
   setAiPanelOpen: (open: boolean) => void;
   aiContext: AiTraceContext | null;
   setAiContext: (context: AiTraceContext | null) => void;
-  hideAiButton?: boolean;
-  setHideAiButton?: (hide: boolean) => void;
+  hideAiButton: boolean;
+  setHideAiButton: (hide: boolean) => void;
 }
 
 const LayoutContext = createContext<LayoutContextType>({

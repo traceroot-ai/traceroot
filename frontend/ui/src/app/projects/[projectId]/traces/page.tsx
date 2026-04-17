@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useLayoutEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
@@ -89,7 +89,7 @@ export default function TracesPage() {
   // Hide AI button during loading AND when GettingStarted is shown
   const shouldHideAiButton = hasEverTracedLoading || showGettingStarted;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (setHideAiButton) {
       setHideAiButton(shouldHideAiButton);
     }
