@@ -281,6 +281,7 @@ def transform_otel_to_clickhouse(
                 span_name = otel_span.get("name", "unknown")
 
                 # Build span record
+                environment = span_attrs.get("traceroot.environment")
                 span_record = {
                     "span_id": span_id,
                     "trace_id": trace_id,
@@ -292,6 +293,8 @@ def transform_otel_to_clickhouse(
                     "span_kind": span_kind,
                     "status": SpanStatus.OK,
                 }
+                if environment is not None:
+                    span_record["environment"] = environment
 
                 # Extract git source fields for span
                 git_source_file = span_attrs.get("traceroot.git.source_file")
@@ -501,6 +504,8 @@ def transform_otel_to_clickhouse(
                         }
                     )
 
+                    if environment is not None:
+                        traces[trace_id]["environment"] = environment
                     if git_ref is not None:
                         traces[trace_id]["git_ref"] = git_ref
                     if git_repo is not None:

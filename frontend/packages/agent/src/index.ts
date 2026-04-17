@@ -48,14 +48,14 @@ app.post("/api/v1/cache/invalidate-provider", async (c) => {
 // Session CRUD routes
 app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   const projectId = c.req.param("projectId");
-  const userId = c.req.header("x-user-id") || "";
+  const userId = c.req.header("x-user-id") || undefined;
   const workspaceId = c.req.header("x-workspace-id") || "";
   const body = await c.req.json<{ title?: string }>();
 
   const session = await createSession({
     projectId,
     workspaceId,
-    userId,
+    userId, // undefined → stored as null for system/RCA sessions
     title: body.title,
   });
   return c.json(session, 201);

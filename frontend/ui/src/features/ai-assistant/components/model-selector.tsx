@@ -13,6 +13,7 @@ export interface ModelSelection {
   model: string;
   provider: string;
   source: "system" | "byok";
+  adapter: string; // e.g. "anthropic" | "openai" — needed for SDK routing
 }
 
 interface ModelSelectorProps {
@@ -87,14 +88,24 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
       for (const adapter of PROVIDER_PRIORITY) {
         const match = models.find((m) => m.adapter === adapter);
         if (match) {
-          onChange({ model: match.id, provider: match.provider, source: match.source });
+          onChange({
+            model: match.id,
+            provider: match.provider,
+            source: match.source,
+            adapter: match.adapter,
+          });
           found = true;
           break;
         }
       }
       // If no priority match, fall back to the first model in the list
       if (!found && models[0]) {
-        onChange({ model: models[0].id, provider: models[0].provider, source: models[0].source });
+        onChange({
+          model: models[0].id,
+          provider: models[0].provider,
+          source: models[0].source,
+          adapter: models[0].adapter,
+        });
       }
     }
   }, [models, value, onChange]);
@@ -134,7 +145,12 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
                   isSelected && "font-medium text-foreground",
                 )}
                 onClick={() => {
-                  onChange({ model: m.id, provider: m.provider, source: m.source });
+                  onChange({
+                    model: m.id,
+                    provider: m.provider,
+                    source: m.source,
+                    adapter: m.adapter,
+                  });
                   setOpen(false);
                 }}
               >
