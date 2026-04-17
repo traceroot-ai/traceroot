@@ -17,6 +17,8 @@ interface LayoutContextType {
   setAiPanelOpen: (open: boolean) => void;
   aiContext: AiTraceContext | null;
   setAiContext: (context: AiTraceContext | null) => void;
+  hideAiButton?: boolean;
+  setHideAiButton?: (hide: boolean) => void;
 }
 
 const LayoutContext = createContext<LayoutContextType>({
@@ -28,6 +30,8 @@ const LayoutContext = createContext<LayoutContextType>({
   setAiPanelOpen: () => {},
   aiContext: null,
   setAiContext: () => {},
+  hideAiButton: false,
+  setHideAiButton: () => {},
 });
 
 export function useLayout() {
@@ -39,6 +43,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [headerContent, setHeaderContent] = useState<ReactNode>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiContext, setAiContext] = useState<AiTraceContext | null>(null);
+  const [hideAiButton, setHideAiButton] = useState(false);
   const pathname = usePathname();
 
   // Close the global AI panel whenever the user navigates to a different page.
@@ -49,7 +54,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const isProjectPage = /^\/projects\/[^/]+/.test(pathname);
   const isProjectSettingsPage = /^\/projects\/[^/]+\/settings(\/|$)/.test(pathname);
-  const showAiButton = isProjectPage && !isProjectSettingsPage;
+  const showAiButton = isProjectPage && !isProjectSettingsPage && !hideAiButton;
   const projectIdMatch = pathname.match(/^\/projects\/([^/]+)/);
   const projectId = projectIdMatch?.[1];
 
@@ -69,6 +74,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         setAiPanelOpen,
         aiContext,
         setAiContext,
+        hideAiButton,
+        setHideAiButton,
       }}
     >
       <div className="flex h-screen">

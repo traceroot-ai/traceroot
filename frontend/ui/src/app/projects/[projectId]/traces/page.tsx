@@ -29,7 +29,7 @@ export default function TracesPage() {
   const router = useRouter();
   const projectId = params.projectId as string;
   const queryClient = useQueryClient();
-  const { aiPanelOpen, setAiPanelOpen } = useLayout();
+  const { aiPanelOpen, setAiPanelOpen, setHideAiButton } = useLayout();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
 
@@ -85,6 +85,18 @@ export default function TracesPage() {
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
   const totalPages = Math.ceil(meta.total / meta.limit);
   const showGettingStarted = !hasEverTracedLoading && !hasEverTraced;
+
+  // Hide AI button during loading AND when GettingStarted is shown
+  const shouldHideAiButton = hasEverTracedLoading || showGettingStarted;
+
+  useEffect(() => {
+    if (setHideAiButton) {
+      setHideAiButton(shouldHideAiButton);
+    }
+    return () => {
+      if (setHideAiButton) setHideAiButton(false);
+    };
+  }, [shouldHideAiButton, setHideAiButton]);
 
   const buildUrl = (path: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(path, {
