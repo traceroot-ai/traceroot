@@ -138,6 +138,16 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
                 ch_client.insert_spans_batch(spans)
                 logger.info(f"Inserted {len(spans)} spans into ClickHouse")
 
+        # Trigger detector runs for ingested traces (fire-and-forget, non-blocking)
+        if traces:
+            try:
+                from worker.detector_tasks import enqueue_detector_runs
+
+                trace_ids = [t["trace_id"] for t in traces]
+                enqueue_detector_runs(project_id, trace_ids)
+            except Exception as e:
+                logger.error(f"Failed to call detector tasks: {e}", exc_info=True)
+
         # 4. Publish to Redis for live trace streaming
         if spans:
             _publish_live_spans(spans, project_id)

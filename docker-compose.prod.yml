@@ -273,6 +273,42 @@ services:
       migrate-clickhouse:
         condition: service_completed_successfully
 
+  detector:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.detector
+    environment:
+      # --- Internal Docker networking (fixed) ---
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "8123"
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-default}
+      REDIS_URL: redis://redis:6379/0
+      REDIS_RESULT_URL: redis://redis:6379/1
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-minio}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-minio-password}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-traceroot}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      BACKEND_INTERNAL_URL: http://rest:8000
+      TRACEROOT_UI_URL: http://web:3000
+      # --- Secrets ---
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-internal-secret}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      # --- AI keys ---
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      migrate-clickhouse:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
   agent:
     build:
       context: .

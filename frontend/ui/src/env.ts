@@ -27,6 +27,10 @@ const serverSchema = z.object({
   GITHUB_APP_CLIENT_ID: z.string().default(""),
   GITHUB_APP_CLIENT_SECRET: z.string().default(""),
   GITHUB_OAUTH_REDIRECT_URI: z.string().default("http://localhost:3000/api/github/callback"),
+  // Slack OAuth
+  SLACK_CLIENT_ID: z.string().default(""),
+  SLACK_CLIENT_SECRET: z.string().default(""),
+  SLACK_REDIRECT_URI: z.string().default("http://localhost:3000/api/slack/oauth"),
 });
 
 export const env = serverSchema.parse(process.env);

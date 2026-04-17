@@ -16,6 +16,7 @@ import {
   Workflow,
   Settings,
   UserRoundSearch,
+  Eye,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Logo } from "@/components/Logo";
@@ -131,26 +132,48 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
         <nav className="flex-1">
           {isProject && projectId ? (
             // Project context navigation
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link
-                  href={`/projects/${projectId}/traces`}
-                  className={cn(
-                    "flex items-center gap-2 py-2 text-[13px] transition-colors",
-                    collapsed ? "justify-center px-2" : "px-3",
-                    pathname.includes("/traces") ? "bg-muted" : "hover:bg-muted/50",
-                  )}
-                >
-                  <Workflow className="h-3.5 w-3.5 shrink-0" />
-                  {!collapsed && "Tracing"}
-                </Link>
-              </TooltipTrigger>
-              {collapsed && (
-                <TooltipContent side="right" sideOffset={16}>
-                  Tracing
-                </TooltipContent>
-              )}
-            </Tooltip>
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/projects/${projectId}/traces`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.includes("/traces") ? "bg-muted" : "hover:bg-muted/50",
+                    )}
+                  >
+                    <Workflow className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && "Tracing"}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    Tracing
+                  </TooltipContent>
+                )}
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/projects/${projectId}/detectors`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.includes("/detectors") ? "bg-muted" : "hover:bg-muted/50",
+                    )}
+                  >
+                    <Eye className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && "Detectors"}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    Detectors
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </>
           ) : (
             // Default navigation (Workspaces)
             <Tooltip>
