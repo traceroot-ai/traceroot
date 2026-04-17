@@ -1,0 +1,96 @@
+---
+title: Claude Agent SDK
+description: Auto-instrument the Claude Agent SDK for agent and tool tracing
+---
+
+Automatically capture agent invocations, subagent delegations, tool calls, and token usage from the Claude Agent SDK (Claude Code as a library).
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.CLAUDE_AGENT_SDK])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import * as claudeAgentSDK from '@anthropic-ai/claude-agent-sdk';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { claudeAgentSDK },
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from claude_agent_sdk import query, ClaudeAgentOptions, AgentDefinition
+
+    # Define subagents
+    researcher = AgentDefinition(
+        description="Research specialist for gathering information.",
+        prompt="You are a research specialist. Use WebSearch to find info.",
+        tools=["WebSearch"],
+        model="haiku",
+    )
+
+    # Run the agent with subagents
+    async for message in query(
+        prompt="Research the latest trends in AI observability",
+        options=ClaudeAgentOptions(
+            allowed_tools=["Agent", "Bash", "Read", "Glob", "Grep"],
+            agents={"researcher": researcher},
+        ),
+    ):
+        if hasattr(message, "result"):
+            print(message.result)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { query, AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
+
+    const researcher: AgentDefinition = {
+      description: 'Research specialist for gathering information.',
+      prompt: 'You are a research specialist. Use WebSearch to find info.',
+      tools: ['WebSearch'],
+      model: 'haiku',
+    };
+
+    async function main() {
+      for await (const message of query({
+        prompt: 'Research the latest trends in AI observability',
+        options: {
+          allowedTools: ['Agent', 'Bash', 'Read', 'Glob', 'Grep'],
+          agents: { researcher },
+        },
+      })) {
+        if ('result' in message) {
+          console.log(message.result);
+        }
+      }
+    }
+    main().catch(console.error);
+    ```
+  </Tab>
+</Tabs>
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Agent queries | Each `query()` call as a top-level agent span |
+| Subagent invocations | Each subagent delegation via the Agent tool |
+| Tool calls | Built-in tools (Read, Write, Bash, Glob, Grep, WebSearch) |
+| Token usage | Aggregated input/output tokens per query |
+| Cost | Total cost for the full query execution |
+| Model name | The model used (e.g., claude-sonnet-4-6, claude-haiku-4-5) |
