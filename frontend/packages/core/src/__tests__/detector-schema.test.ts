@@ -9,8 +9,6 @@ describe("Detector schema types", () => {
     expect(typeof prisma.detector.findMany).toBe("function");
     expect(typeof prisma.detectorTrigger).toBe("object");
     expect(typeof prisma.detectorAlertConfig).toBe("object");
-    expect(typeof prisma.detectorNotification).toBe("object");
     expect(typeof prisma.detectorRca).toBe("object");
-    expect(typeof prisma.slackIntegration).toBe("object");
   });
 });

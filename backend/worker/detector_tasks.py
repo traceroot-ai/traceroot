@@ -67,19 +67,21 @@ def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dic
         return {}
 
     ch = get_clickhouse_client()
-    ids_str = ", ".join(f"'{tid}'" for tid in trace_ids)
 
-    result = ch.query(f"""
+    result = ch.query(
+        """
         SELECT
             trace_id,
             max(CASE WHEN parent_span_id IS NULL THEN 1 ELSE 0 END) AS root_span_finished,
             max(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END)       AS has_error,
             anyIf(environment, parent_span_id IS NULL)               AS environment
         FROM spans
-        WHERE project_id = '{project_id}'
-          AND trace_id IN ({ids_str})
+        WHERE project_id = {project_id:String}
+          AND trace_id IN {trace_ids:Array(String)}
         GROUP BY trace_id
-    """)
+        """,
+        parameters={"project_id": project_id, "trace_ids": trace_ids},
+    )
 
     summaries: dict[str, dict] = {}
     for row in result.result_rows:
