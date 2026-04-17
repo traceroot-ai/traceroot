@@ -289,9 +289,17 @@ async def list_detector_findings(
     offset: int = 0,
     since: str | None = None,
 ):
-    """List findings for a detector (joined through evals), newest first."""
-    since_clause = f"AND f.timestamp >= '{since}'" if since else ""
+    """List findings for a detector (joined through runs), newest first."""
     ch = get_clickhouse_client()
+    since_clause = "AND f.timestamp >= {since:String}" if since else ""
+    params: dict = {
+        "project_id": project_id,
+        "detector_id": detector_id,
+        "limit": limit,
+        "offset": offset,
+    }
+    if since:
+        params["since"] = since
     result = ch.query(
         f"""SELECT f.finding_id, f.project_id, f.trace_id, f.summary, f.payload, f.timestamp
             FROM detector_findings f
@@ -301,12 +309,7 @@ async def list_detector_findings(
             {since_clause}
             ORDER BY f.timestamp DESC
             LIMIT {{limit:Int32}} OFFSET {{offset:Int32}}""",
-        parameters={
-            "project_id": project_id,
-            "detector_id": detector_id,
-            "limit": limit,
-            "offset": offset,
-        },
+        parameters=params,
     )
     findings = []
     for row in result.result_rows:

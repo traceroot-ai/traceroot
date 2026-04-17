@@ -104,26 +104,27 @@ export async function createSession(params: {
 /**
  * Get a session by ID.
  * For user sessions: requires userId match.
- * For system sessions (userId=null): any project member can access by ID.
+ * For system sessions (userId=null): scoped to the same projectId so a user
+ * from another project cannot read RCA sessions they don't own.
  */
-export async function getSession(id: string, userId: string) {
+export async function getSession(id: string, userId: string, projectId?: string) {
   return prisma.aISession.findFirst({
     where: {
       id,
       OR: [
         { userId }, // user's own session
-        { userId: null }, // system/RCA session — accessible to all project members
+        { userId: null, projectId: projectId ?? undefined }, // system/RCA session — scoped to project
       ],
     },
     include: { messages: { orderBy: { createTime: "asc" } } },
   });
 }
 
-export async function getSessionMessages(sessionId: string, userId: string) {
+export async function getSessionMessages(sessionId: string, userId: string, projectId?: string) {
   const session = await prisma.aISession.findFirst({
     where: {
       id: sessionId,
-      OR: [{ userId }, { userId: null }],
+      OR: [{ userId }, { userId: null, projectId: projectId ?? undefined }],
     },
     include: { messages: { orderBy: { createTime: "asc" } } },
   });

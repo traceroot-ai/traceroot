@@ -62,8 +62,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     prompt,
     outputSchema,
     sampleRate,
+    enabled,
     triggerConditions,
     emailAddresses,
+    autoRca,
     detectionModel,
     detectionProvider,
     detectionAdapter,
@@ -76,6 +78,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (prompt !== undefined) detectorData.prompt = prompt;
   if (outputSchema !== undefined) detectorData.outputSchema = outputSchema;
   if (sampleRate !== undefined) detectorData.sampleRate = sampleRate;
+  if (enabled !== undefined) detectorData.enabled = Boolean(enabled);
   if (detectionModel !== undefined) detectorData.detectionModel = detectionModel || null;
   if (detectionProvider !== undefined) detectorData.detectionProvider = detectionProvider || null;
   if (detectionAdapter !== undefined) detectorData.detectionAdapter = detectionAdapter || null;
@@ -84,6 +87,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   const alertConfigData: Record<string, unknown> = {};
   if (emailAddresses !== undefined)
     alertConfigData.emailAddresses = Array.isArray(emailAddresses) ? emailAddresses : [];
+  if (autoRca !== undefined) alertConfigData.autoRca = Boolean(autoRca);
 
   const detector = await prisma.detector.update({
     where: { id: detectorId },
