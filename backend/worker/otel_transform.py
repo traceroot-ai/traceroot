@@ -444,14 +444,12 @@ def transform_otel_to_clickhouse(
                         trace_attrs[trace_id]["session_id"] or span_session_id
                     )
 
-                # Only create trace record when we find a root span (no parent)
-                # This prevents batches without root spans from creating trace
-                # records with incorrect names that would overwrite the correct one
-                if not parent_span_id:
-                    # Extract git context for trace
-                    git_ref = span_attrs.get("traceroot.git.ref")
-                    git_repo = span_attrs.get("traceroot.git.repo")
-
+                # Eager trace creation (Langfuse-style):
+                # Create a "shallow" trace record on the FIRST span we see for
+                # a trace_id, so it appears in the UI immediately. When the root
+                # span arrives later, upgrade to a "full" trace with rich metadata.
+                if trace_id not in traces:
+                    # Shallow trace — minimal record so the trace list shows it
                     traces[trace_id] = {
                         "trace_id": trace_id,
                         "project_id": project_id,
@@ -460,6 +458,20 @@ def transform_otel_to_clickhouse(
                         "user_id": trace_attrs[trace_id]["user_id"],
                         "session_id": trace_attrs[trace_id]["session_id"],
                     }
+
+                if not parent_span_id:
+                    # Root span arrived — upgrade to full trace with rich metadata
+                    git_ref = span_attrs.get("traceroot.git.ref")
+                    git_repo = span_attrs.get("traceroot.git.repo")
+
+                    traces[trace_id].update(
+                        {
+                            "trace_start_time": start_time,
+                            "name": span_name,
+                            "user_id": trace_attrs[trace_id]["user_id"],
+                            "session_id": trace_attrs[trace_id]["session_id"],
+                        }
+                    )
 
                     if git_ref is not None:
                         traces[trace_id]["git_ref"] = git_ref
