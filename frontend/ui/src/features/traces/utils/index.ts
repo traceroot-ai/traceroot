@@ -39,6 +39,8 @@ export function getTraceDuration(trace: TraceDetail): number | null {
  */
 export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
   const childrenByParent = new Map<string | null, Span[]>();
+  const spanIds = new Set(spans.map((s) => s.span_id));
+
   spans.forEach((span) => {
     const pid = span.parent_span_id;
     if (!childrenByParent.has(pid)) childrenByParent.set(pid, []);
@@ -57,10 +59,23 @@ export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
     });
   }
 
+  // Start with true root spans (parent_span_id === null)
   const roots = childrenByParent.get(null) || [];
   roots.forEach((root, idx) => {
     traverse(root, 0, idx === roots.length - 1, []);
   });
+
+  // Handle orphan spans whose parent hasn't arrived yet (live streaming).
+  // Spans whose parent_span_id is set but not present in the current span list
+  // are treated as temporary roots so they still appear in the tree.
+  if (roots.length === 0) {
+    const orphans = spans.filter(
+      (s) => s.parent_span_id !== null && !spanIds.has(s.parent_span_id),
+    );
+    orphans.forEach((orphan, idx) => {
+      traverse(orphan, 0, idx === orphans.length - 1, []);
+    });
+  }
 
   return rows;
 }
