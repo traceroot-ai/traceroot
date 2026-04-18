@@ -44,16 +44,16 @@ export function useTraceStream(
     const es = new EventSource(url);
     eventSourceRef.current = es;
 
-    es.onopen = () => {
-      setIsStreaming(true);
-    };
-
     es.addEventListener("spans", (event) => {
       try {
         const data = JSON.parse(event.data);
         const newSpans: Span[] = data.spans ?? [];
 
         if (newSpans.length === 0) return;
+
+        // Only show "Live" badge when actual real-time data arrives,
+        // not on connection open — avoids spurious badge on historical traces.
+        setIsStreaming(true);
 
         // Merge into React Query cache
         queryClient.setQueryData<TraceDetail>(
