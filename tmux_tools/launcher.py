@@ -293,7 +293,9 @@ def make_driver(autoreload=False):
 
     # macOS fork safety — Celery's prefork pool + Redis triggers an Objective-C
     # runtime crash (SIGABRT) unless this is set before the process starts.
-    objc_prefix = "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES " if os.uname().sysname == "Darwin" else ""
+    objc_prefix = (
+        "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES " if os.uname().sysname == "Darwin" else ""
+    )
 
     if autoreload:
         rest_command = (
