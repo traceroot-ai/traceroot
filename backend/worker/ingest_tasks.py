@@ -3,11 +3,60 @@
 This module defines the async tasks that process trace data from S3 to ClickHouse.
 """
 
+import json
 import logging
+from collections import defaultdict
+from datetime import datetime
 
 from worker.celery_app import app
 
 logger = logging.getLogger(__name__)
+
+
+def _json_serializer(obj: object) -> str:
+    """JSON serializer for datetime objects in span dicts."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+
+def _publish_live_spans(spans: list[dict], project_id: str) -> None:
+    """Publish spans to Redis for live trace streaming.
+
+    Groups spans by trace_id and publishes to per-trace channels.
+    Never raises — Redis failures must not break the ingest pipeline.
+    """
+    try:
+        from shared.redis import get_redis_client
+
+        redis_client = get_redis_client()
+
+        # Group spans by trace_id
+        by_trace: dict[str, list[dict]] = defaultdict(list)
+        for span in spans:
+            by_trace[span["trace_id"]].append(span)
+
+        for trace_id, trace_spans in by_trace.items():
+            channel = f"trace:live:{project_id}:{trace_id}"
+
+            # Publish spans
+            payload = json.dumps(
+                {"type": "spans", "spans": trace_spans},
+                default=_json_serializer,
+            )
+            redis_client.publish(channel, payload)
+
+            # Check if trace is complete (root span with end time)
+            for span in trace_spans:
+                if span.get("parent_span_id") is None and span.get("span_end_time") is not None:
+                    redis_client.publish(
+                        channel,
+                        json.dumps({"type": "trace_complete"}),
+                    )
+                    break
+
+    except Exception:
+        logger.warning("Failed to publish live spans to Redis", exc_info=True)
 
 
 @app.task(
@@ -60,6 +109,10 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
             if spans:
                 ch_client.insert_spans_batch(spans)
                 logger.info(f"Inserted {len(spans)} spans into ClickHouse")
+
+        # 4. Publish to Redis for live trace streaming
+        if spans:
+            _publish_live_spans(spans, project_id)
 
         return {
             "s3_key": s3_key,
