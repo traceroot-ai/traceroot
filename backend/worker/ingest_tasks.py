@@ -28,6 +28,7 @@ def _publish_live_spans(spans: list[dict], project_id: str) -> None:
     """
     try:
         import redis as redis_lib
+
         from shared.config import settings
 
         # Create a fresh Redis connection per call — do NOT use the singleton
