@@ -49,8 +49,10 @@ export function TraceViewerPanel({
     queryFn: () => getTrace(projectId, traceId, ""),
   });
 
-  // Live trace streaming — merges incoming spans into the React Query cache
-  const { isStreaming } = useTraceStream(projectId, traceId, true);
+  // Only stream if the trace has not yet completed (no root span with end time).
+  const isTraceComplete =
+    trace?.spans.some((s) => s.parent_span_id === null && s.span_end_time !== null) ?? false;
+  const { isStreaming } = useTraceStream(projectId, traceId, !isTraceComplete);
 
   // Reset selection when navigating to a different trace
   useEffect(() => {
