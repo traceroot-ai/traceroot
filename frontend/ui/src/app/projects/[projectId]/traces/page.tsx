@@ -13,7 +13,7 @@ import {
   Users,
   Layers,
   X,
-  RefreshCw,
+  Radio,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -155,8 +155,8 @@ export default function TracesPage() {
               className="h-7 gap-1.5 text-[12px]"
               title={autoRefresh ? "Auto-refresh on (every 5s)" : "Auto-refresh off"}
             >
-              <RefreshCw
-                className={cn("h-3 w-3", autoRefresh && "animate-spin")}
+              <Radio
+                className={cn("h-3 w-3", autoRefresh && "animate-pulse text-green-500")}
               />
               {autoRefresh ? "Live" : "Auto-refresh"}
             </Button>
