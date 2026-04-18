@@ -56,16 +56,13 @@ export function useTraceStream(
         setIsStreaming(true);
 
         // Merge into React Query cache
-        queryClient.setQueryData<TraceDetail>(
-          ["trace", projectId, traceId],
-          (prev) => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              spans: mergeSpans(prev.spans, newSpans),
-            };
-          },
-        );
+        queryClient.setQueryData<TraceDetail>(["trace", projectId, traceId], (prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            spans: mergeSpans(prev.spans, newSpans),
+          };
+        });
       } catch {
         // Ignore malformed events
       }
