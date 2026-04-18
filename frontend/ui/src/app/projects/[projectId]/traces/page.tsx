@@ -5,7 +5,16 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
-import { ChevronLeft, ChevronRight, ChevronDown, Workflow, Users, Layers, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  Workflow,
+  Users,
+  Layers,
+  X,
+  RefreshCw,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchFilterBar } from "@/components/search-filter-bar";
@@ -47,12 +56,17 @@ export default function TracesPage() {
   // UI state for popovers
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
+  const [autoRefresh, setAutoRefresh] = useState(false);
 
   // Fetch traces with combined query options + user filter from URL
-  const { data, isLoading, error } = useTraces(projectId, {
-    ...queryOptions,
-    user_id: userId || undefined,
-  });
+  const { data, isLoading, error } = useTraces(
+    projectId,
+    {
+      ...queryOptions,
+      user_id: userId || undefined,
+    },
+    { refetchInterval: autoRefresh ? 5000 : false },
+  );
 
   // Check if project has EVER sent traces (no date filter) — controls onboarding visibility.
   // staleTime: Infinity because once a project has traces it always will (immutable fact).
@@ -134,6 +148,18 @@ export default function TracesPage() {
             onDateFilterChange={updateDateFilter}
             onCustomRangeChange={updateCustomRange}
           >
+            <Button
+              variant={autoRefresh ? "default" : "outline"}
+              size="sm"
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              className="h-7 gap-1.5 text-[12px]"
+              title={autoRefresh ? "Auto-refresh on (every 5s)" : "Auto-refresh off"}
+            >
+              <RefreshCw
+                className={cn("h-3 w-3", autoRefresh && "animate-spin")}
+              />
+              {autoRefresh ? "Live" : "Auto-refresh"}
+            </Button>
             {userId && (
               <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 py-1 pl-2.5 pr-1.5">
                 <Users className="h-3 w-3 text-muted-foreground" />

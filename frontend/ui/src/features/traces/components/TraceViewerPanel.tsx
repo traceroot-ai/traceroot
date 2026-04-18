@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Workflow, X, ArrowUp, ArrowDown, BotMessageSquare } from "lucide-react";
+import { Workflow, X, ArrowUp, ArrowDown, BotMessageSquare, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getTrace } from "@/lib/api";
 import type { TraceSelection } from "../types";
 import { SpanTreeView } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
 import { AiChatOverlay } from "@/features/ai-assistant/components/ai-chat-overlay";
+import { useTraceStream } from "../hooks/use-trace-stream";
 
 interface TraceViewerPanelProps {
   projectId: string;
@@ -48,6 +49,9 @@ export function TraceViewerPanel({
     queryFn: () => getTrace(projectId, traceId, ""),
   });
 
+  // Live trace streaming — merges incoming spans into the React Query cache
+  const { isStreaming } = useTraceStream(projectId, traceId, true);
+
   // Reset selection when navigating to a different trace
   useEffect(() => {
     setSelection({ type: "trace" });
@@ -61,6 +65,12 @@ export function TraceViewerPanel({
           <Workflow className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">Trace</span>
           <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
+          {isStreaming && (
+            <span className="flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+              <Radio className="h-3 w-3 animate-pulse" />
+              Live
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           {/* Navigation buttons */}

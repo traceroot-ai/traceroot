@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from rest.routers.internal import router as internal_router
+from rest.routers.live import router as live_router
 from rest.routers.public.traces import router as public_traces_router
 from rest.routers.sessions import router as sessions_router
 from rest.routers.traces import router as traces_router
@@ -43,6 +44,9 @@ app.add_middleware(
 app.include_router(traces_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(sessions_router, prefix="/api/v1")
+
+# Live trace streaming (SSE, user auth)
+app.include_router(live_router, prefix="/api/v1")
 
 # Public API for SDK ingestion (API key auth)
 app.include_router(public_traces_router, prefix="/api/v1")
