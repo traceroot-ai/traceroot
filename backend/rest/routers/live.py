@@ -7,6 +7,7 @@ span updates to the client in real time.
 import asyncio
 import json
 import logging
+import time
 
 from fastapi import APIRouter, Request
 from starlette.responses import StreamingResponse
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/projects/{project_id}/traces/{trace_id}", tags=["Live"])
 
 HEARTBEAT_INTERVAL = 15  # seconds
+MAX_STREAM_SECONDS = 600  # 10 minutes — hard ceiling for idle connections
 
 
 @router.get("/live")
@@ -45,8 +47,9 @@ async def live_trace_stream(
         try:
             await pubsub.subscribe(channel)
             logger.info(f"SSE client subscribed to {channel}")
+            deadline = time.monotonic() + MAX_STREAM_SECONDS
 
-            while True:
+            while time.monotonic() < deadline:
                 # Check if client disconnected
                 if await request.is_disconnected():
                     break
@@ -68,6 +71,9 @@ async def live_trace_stream(
                 else:
                     # No message within timeout — send heartbeat
                     yield ": heartbeat\n\n"
+            else:
+                # Deadline reached — close the stream
+                yield "event: stream_timeout\ndata: {}\n\n"
 
         except asyncio.CancelledError:
             pass
