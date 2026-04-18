@@ -27,9 +27,13 @@ def _publish_live_spans(spans: list[dict], project_id: str) -> None:
     Never raises — Redis failures must not break the ingest pipeline.
     """
     try:
-        from shared.redis import get_redis_client
+        import redis as redis_lib
+        from shared.config import settings
 
-        redis_client = get_redis_client()
+        # Create a fresh Redis connection per call — do NOT use the singleton
+        # get_redis_client() here because Celery uses prefork and module-level
+        # singletons created before/across fork() crash on macOS (SIGABRT).
+        redis_client = redis_lib.from_url(settings.redis.url, decode_responses=True)
 
         # Group spans by trace_id
         by_trace: dict[str, list[dict]] = defaultdict(list)
@@ -54,6 +58,8 @@ def _publish_live_spans(spans: list[dict], project_id: str) -> None:
                         json.dumps({"type": "trace_complete"}),
                     )
                     break
+
+        redis_client.close()
 
     except Exception:
         logger.warning("Failed to publish live spans to Redis", exc_info=True)
