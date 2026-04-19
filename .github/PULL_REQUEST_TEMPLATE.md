@@ -1,3 +1,5 @@
+### Fixes #<issue-id>
+
 ## Summary
 
 ## Type of Change
@@ -27,5 +29,3 @@
 - [ ] I have added/updated tests where applicable
 - [ ] I have added screenshots or recordings for UI changes (if applicable)
 - [ ] I have updated documentation where necessary
-
-### Fixes #<issue-id>
