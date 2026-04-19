@@ -1,4 +1,4 @@
-### Fixes #<issue-id>
+Fixes #<issue-id>
 
 ## Summary
 
