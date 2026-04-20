@@ -3,9 +3,9 @@
   "name": "TraceRoot",
   "theme": "mint",
   "colors": {
-    "primary": "#0f172a",
-    "light": "#FFFFFF",
-    "dark": "#000000"
+    "primary": "#171717",
+    "light": "#171717",
+    "dark": "#F5F5F5"
   },
   "rounded": "default",
   "fonts": {
@@ -139,10 +139,9 @@
             "pages": [
               "integrations/langchain",
               "integrations/langchain-deepagents",
+              "integrations/openai-agents-sdk",
               "integrations/mastra",
-              "integrations/autogen",
-              "integrations/llamaindex",
-              "integrations/crewai"
+              "integrations/autogen"
             ]
           },
           {
