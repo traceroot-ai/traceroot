@@ -29,7 +29,11 @@ Once initialized, all agent runs and tool calls are captured automatically:
 
 ```python
 import asyncio
+import traceroot
+from traceroot import Integration
 from agents import Agent, Runner, function_tool
+
+traceroot.initialize(integrations=[Integration.OPENAI_AGENTS])
 
 
 @function_tool
