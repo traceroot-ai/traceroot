@@ -139,6 +139,7 @@
             "pages": [
               "integrations/langchain",
               "integrations/langchain-deepagents",
+              "integrations/openai-agents-sdk",
               "integrations/mastra",
               "integrations/autogen",
               "integrations/llamaindex",
