@@ -14,15 +14,6 @@ from traceroot import Integration
 traceroot.initialize(integrations=[Integration.OPENAI_AGENTS])
 ```
 
-To also capture the underlying LLM calls (tokens, cost), initialize both integrations:
-
-```python
-traceroot.initialize(integrations=[
-    Integration.OPENAI_AGENTS,
-    Integration.OPENAI,
-])
-```
-
 ## Usage
 
 Once initialized, all agent runs and tool calls are captured automatically:
@@ -69,11 +60,9 @@ if __name__ == "__main__":
 | Agent steps | Individual turns within the agent loop |
 | Tool calls | Each tool invocation with name, input, and output |
 | Handoffs | Multi-agent transitions and handoff decisions |
-| LLM calls* | Raw completion requests to OpenAI |
-| Tokens & Cost* | Aggregated token usage and pricing |
+| LLM calls | Raw completion requests to OpenAI |
+| Tokens & Cost | Aggregated token usage and pricing |
 | Latency | Duration per agent run and per span |
-
-_\* Requires initializing `Integration.OPENAI` alongside `Integration.OPENAI_AGENTS`_
 
 ## Full Example
 
