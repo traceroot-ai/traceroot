@@ -291,18 +291,25 @@ def infra_services():
 def make_driver(autoreload=False):
     """Full stack: Frontend + REST API + Celery Worker + Infra logs."""
 
+    # macOS fork safety — Celery's prefork pool + Redis triggers an Objective-C
+    # runtime crash (SIGABRT) unless this is set before the process starts.
+    objc_prefix = (
+        "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES " if os.uname().sysname == "Darwin" else ""
+    )
+
     if autoreload:
         rest_command = (
             "uv run uvicorn rest.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir backend"
         )
         celery_command = (
+            f"{objc_prefix}"
             "uv run watchfiles --filter python "
             "'celery -A worker.celery_app worker --loglevel=info' "
             "backend/worker"
         )
     else:
         rest_command = "uv run python backend/rest/main.py"
-        celery_command = "uv run celery -A worker.celery_app worker --loglevel=info"
+        celery_command = f"{objc_prefix}uv run celery -A worker.celery_app worker --loglevel=info"
 
     return schema.Driver(
         name="traceroot",

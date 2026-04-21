@@ -9,6 +9,7 @@ import type { TraceSelection } from "../types";
 import { SpanTreeView } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
 import { AiChatOverlay } from "@/features/ai-assistant/components/ai-chat-overlay";
+import { useTraceStream } from "../hooks/use-trace-stream";
 
 interface TraceViewerPanelProps {
   projectId: string;
@@ -47,6 +48,11 @@ export function TraceViewerPanel({
     queryKey: ["trace", projectId, traceId],
     queryFn: () => getTrace(projectId, traceId, ""),
   });
+
+  // Always stream — the backend is authoritative about when the trace is complete.
+  // live.py will immediately emit trace_complete for already-finished traces,
+  // so there is no cost to opening a connection for completed traces.
+  useTraceStream(projectId, traceId, true);
 
   // Reset selection when navigating to a different trace
   useEffect(() => {

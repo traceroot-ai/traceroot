@@ -47,12 +47,17 @@ export default function TracesPage() {
   // UI state for popovers
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
+  const [autoRefresh, setAutoRefresh] = useState(false);
 
   // Fetch traces with combined query options + user filter from URL
-  const { data, isLoading, error } = useTraces(projectId, {
-    ...queryOptions,
-    user_id: userId || undefined,
-  });
+  const { data, isLoading, error } = useTraces(
+    projectId,
+    {
+      ...queryOptions,
+      user_id: userId || undefined,
+    },
+    { refetchInterval: autoRefresh ? 5000 : false },
+  );
 
   // Check if project has EVER sent traces (no date filter) — controls onboarding visibility.
   // staleTime: Infinity because once a project has traces it always will (immutable fact).
@@ -134,6 +139,33 @@ export default function TracesPage() {
             onDateFilterChange={updateDateFilter}
             onCustomRangeChange={updateCustomRange}
           >
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoRefresh}
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              title={
+                autoRefresh
+                  ? "Live list refresh on (every 5s) — click to disable"
+                  : "Enable live list refresh"
+              }
+              className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1 text-[12px] text-foreground transition-colors hover:border-foreground/40 hover:bg-muted"
+            >
+              Live
+              <span
+                className={cn(
+                  "relative inline-flex h-4 w-7 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200",
+                  autoRefresh ? "bg-foreground" : "bg-input",
+                )}
+              >
+                <span
+                  className={cn(
+                    "block h-3 w-3 rounded-full bg-background shadow-sm transition-transform duration-200",
+                    autoRefresh ? "translate-x-3" : "translate-x-0",
+                  )}
+                />
+              </span>
+            </button>
             {userId && (
               <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 py-1 pl-2.5 pr-1.5">
                 <Users className="h-3 w-3 text-muted-foreground" />
