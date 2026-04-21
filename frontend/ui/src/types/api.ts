@@ -125,6 +125,7 @@ export interface Span {
   git_source_file: string | null;
   git_source_line: number | null;
   git_source_function: string | null;
+  pending?: boolean;
 }
 
 export interface TraceDetail {

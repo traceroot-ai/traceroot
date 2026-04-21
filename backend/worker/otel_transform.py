@@ -237,6 +237,11 @@ def transform_otel_to_clickhouse(
         str, dict[str, str | None]
     ] = {}  # trace_id -> {"user_id": ..., "session_id": ...}
 
+    # Best-known root name per trace: (ids_path_length, name).
+    # Shortest ids_path = closest to root. Used to correct eager trace names
+    # when the first span in a batch isn't the closest-to-root span for that trace.
+    _trace_name_candidates: dict[str, tuple[int, str]] = {}
+
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
 
@@ -444,14 +449,15 @@ def transform_otel_to_clickhouse(
                         trace_attrs[trace_id]["session_id"] or span_session_id
                     )
 
-                # Only create trace record when we find a root span (no parent)
-                # This prevents batches without root spans from creating trace
-                # records with incorrect names that would overwrite the correct one
-                if not parent_span_id:
-                    # Extract git context for trace
-                    git_ref = span_attrs.get("traceroot.git.ref")
-                    git_repo = span_attrs.get("traceroot.git.repo")
-
+                # Eager trace creation (Langfuse-style):
+                # Create a "shallow" trace record on the FIRST span we see for
+                # a trace_id, so it appears in the UI immediately. When the root
+                # span arrives later, upgrade to a "full" trace with rich metadata.
+                if trace_id not in traces:
+                    # Shallow trace — minimal placeholder so the trace appears in the
+                    # list immediately. The post-loop _trace_name_candidates correction
+                    # always overwrites "name" with the authoritative value, so there
+                    # is no need to compute path[0] here.
                     traces[trace_id] = {
                         "trace_id": trace_id,
                         "project_id": project_id,
@@ -460,6 +466,40 @@ def transform_otel_to_clickhouse(
                         "user_id": trace_attrs[trace_id]["user_id"],
                         "session_id": trace_attrs[trace_id]["session_id"],
                     }
+
+                # Track the best-known root name for this trace using the span
+                # closest to the root (shortest ids_path). Batches may contain
+                # spans out of depth order, so the first span processed might not
+                # be the shallowest one.
+                if not parent_span_id:
+                    # Actual root span — definitive, depth 0.
+                    _trace_name_candidates[trace_id] = (0, span_name)
+                else:
+                    span_path_c = span_attrs.get("traceroot.span.path")
+                    ids_path_c = span_attrs.get("traceroot.span.ids_path")
+                    candidate_name = (
+                        span_path_c[0]
+                        if isinstance(span_path_c, (list, tuple)) and span_path_c
+                        else span_name
+                    )
+                    depth = len(ids_path_c) if isinstance(ids_path_c, (list, tuple)) else 1
+                    existing = _trace_name_candidates.get(trace_id)
+                    if existing is None or depth < existing[0]:
+                        _trace_name_candidates[trace_id] = (depth, candidate_name)
+
+                if not parent_span_id:
+                    # Root span arrived — upgrade to full trace with rich metadata
+                    git_ref = span_attrs.get("traceroot.git.ref")
+                    git_repo = span_attrs.get("traceroot.git.repo")
+
+                    traces[trace_id].update(
+                        {
+                            "trace_start_time": start_time,
+                            "name": span_name,
+                            "user_id": trace_attrs[trace_id]["user_id"],
+                            "session_id": trace_attrs[trace_id]["session_id"],
+                        }
+                    )
 
                     if git_ref is not None:
                         traces[trace_id]["git_ref"] = git_ref
@@ -488,6 +528,12 @@ def transform_otel_to_clickhouse(
                             if not isinstance(span_output, str)
                             else span_output
                         )
+
+    # Correct eager trace names: the first span processed may not be the shallowest.
+    # Apply the best candidate (shortest ids_path) found across all spans in this batch.
+    for trace_id, (_, best_name) in _trace_name_candidates.items():
+        if trace_id in traces:
+            traces[trace_id]["name"] = best_name
 
     # Update trace records with user_id/session_id collected from child spans
     # (in case child spans with these attrs came after the root span was processed)

@@ -57,7 +57,19 @@ export function SpanInfoPanel({
   const timestamp = isTrace ? trace.trace_start_time : selection.span.span_start_time;
   const input = isTrace ? trace.input : selection.span.input;
   const output = isTrace ? trace.output : selection.span.output;
-  const metadata = isTrace ? trace.metadata : selection.span.metadata;
+  const rawMetadata = isTrace ? trace.metadata : selection.span.metadata;
+  const metadata = (() => {
+    if (!rawMetadata) return rawMetadata;
+    try {
+      const parsed = JSON.parse(rawMetadata);
+      const filtered = Object.fromEntries(
+        Object.entries(parsed).filter(([k]) => !k.startsWith("traceroot.span.")),
+      );
+      return JSON.stringify(filtered);
+    } catch {
+      return rawMetadata;
+    }
+  })();
 
   // Trace-level aggregates
   const traceTotalCost = isTrace ? getTraceTotalCost(trace) : null;
@@ -139,7 +151,7 @@ export function SpanInfoPanel({
               </span>
             </div>
           )}
-          {!isTrace && selection.span.cost != null && (
+          {!isTrace && selection.span.cost != null && Number.isFinite(selection.span.cost) && (
             <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
               <CircleDollarSign className="h-3 w-3 text-muted-foreground" />
               <span className="font-medium">{selection.span.cost.toFixed(6)}</span>

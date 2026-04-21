@@ -21,6 +21,9 @@ export { useTraceListState } from "./use-trace-list-state";
 // URL-synced version for shared date filter across pages
 export { useListPageState } from "./use-list-page-state";
 
+// Live trace streaming
+export { useTraceStream } from "./use-trace-stream";
+
 /**
  * Hook for fetching paginated traces list
  */
