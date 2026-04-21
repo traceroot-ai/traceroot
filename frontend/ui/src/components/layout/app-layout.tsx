@@ -43,18 +43,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [headerContent, setHeaderContent] = useState<ReactNode>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiContext, setAiContext] = useState<AiTraceContext | null>(null);
-  const [hideAiButton, setHideAiButton] = useState(false);
+  const [hideAiButton, setHideAiButton] = useState(true);
   const pathname = usePathname();
 
-  // Close the global AI panel whenever the user navigates to a different page.
+  // Close the global AI panel and reset button visibility whenever the user navigates.
   useEffect(() => {
     setAiPanelOpen(false);
     setAiContext(null);
+    setHideAiButton(true);
   }, [pathname]);
 
-  const isProjectPage = /^\/projects\/[^/]+/.test(pathname);
-  const isProjectSettingsPage = /^\/projects\/[^/]+\/settings(\/|$)/.test(pathname);
-  const showAiButton = isProjectPage && !isProjectSettingsPage && !hideAiButton;
+  const isTracesPage = /^\/projects\/[^/]+\/traces(\/|$)/.test(pathname);
+  const showAiButton = isTracesPage && !hideAiButton;
   const projectIdMatch = pathname.match(/^\/projects\/([^/]+)/);
   const projectId = projectIdMatch?.[1];
 

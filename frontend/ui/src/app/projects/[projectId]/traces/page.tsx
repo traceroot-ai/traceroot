@@ -90,12 +90,7 @@ export default function TracesPage() {
   const shouldHideAiButton = hasEverTracedLoading || showGettingStarted;
 
   useLayoutEffect(() => {
-    if (setHideAiButton) {
-      setHideAiButton(shouldHideAiButton);
-    }
-    return () => {
-      if (setHideAiButton) setHideAiButton(false);
-    };
+    setHideAiButton(shouldHideAiButton);
   }, [shouldHideAiButton, setHideAiButton]);
 
   const buildUrl = (path: string, extraParams?: Record<string, string>) =>
