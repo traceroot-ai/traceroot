@@ -238,8 +238,8 @@ def test_span_path_preserved_in_metadata():
     )
 
 
-def test_sdk_name_version_stripped_from_metadata():
-    """traceroot.sdk.* attributes ARE stripped — they're internal bookkeeping."""
+def test_sdk_name_version_preserved_in_metadata():
+    """traceroot.sdk.* attributes are preserved in metadata for visibility."""
     tid = _tid(0x05)
 
     span = _span(
@@ -257,6 +257,6 @@ def test_sdk_name_version_stripped_from_metadata():
     _, spans = transform_otel_to_clickhouse(_payload(span), project_id="proj-1")
 
     meta = json.loads(spans[0]["metadata"])
-    assert "traceroot.sdk.name" not in meta
-    assert "traceroot.sdk.version" not in meta
+    assert meta.get("traceroot.sdk.name") == "traceroot-py"
+    assert meta.get("traceroot.sdk.version") == "1.2.3"
     assert meta.get("my.custom.attr") == "keep-me"
