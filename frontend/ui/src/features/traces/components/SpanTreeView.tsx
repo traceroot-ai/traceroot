@@ -9,6 +9,7 @@ import type { TraceSelection } from "../types";
 import {
   buildSpanTree,
   buildChildrenMap,
+  enrichSpansWithPending,
   getSpanDuration,
   getTraceDuration,
   getTraceTotalCost,
@@ -30,7 +31,12 @@ interface SpanTreeViewProps {
 export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) {
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
-  const childrenByParent = buildChildrenMap(trace.spans);
+  // Enrich with placeholder spans for any missing ancestors — handles both
+  // live-streaming gaps (parent not yet arrived) and permanently dropped spans.
+  // Mirrors lmnr's approach of calling enrichSpansWithPending on every render.
+  const spans = enrichSpansWithPending(trace.spans);
+
+  const childrenByParent = buildChildrenMap(spans);
 
   const hasChildren = (spanId: string | null) => {
     const children = childrenByParent.get(spanId) || [];
@@ -55,13 +61,13 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
     let currentId = span.parent_span_id;
     while (currentId) {
       if (collapsedIds.has(currentId)) return false;
-      const parent = trace.spans.find((s) => s.span_id === currentId);
+      const parent = spans.find((s) => s.span_id === currentId);
       currentId = parent?.parent_span_id || null;
     }
     return true;
   };
 
-  const spanRows = buildSpanTree(trace.spans);
+  const spanRows = buildSpanTree(spans);
   const isTraceSelected = selection.type === "trace";
   const traceDuration = getTraceDuration(trace);
   const traceTotalCost = getTraceTotalCost(trace);
@@ -154,10 +160,19 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
               />
               <div className="flex min-w-0 flex-1 items-center gap-1.5">
                 <SpanKindIcon kind={span.span_kind} inTree />
-                <span className="truncate text-xs">{span.name}</span>
-                <span className="whitespace-nowrap font-mono text-[10px] text-muted-foreground">
-                  {formatDuration(getSpanDuration(span))}
+                <span
+                  className={cn(
+                    "truncate text-xs",
+                    span.pending && "italic text-muted-foreground/60",
+                  )}
+                >
+                  {span.name}
                 </span>
+                {!span.pending && (
+                  <span className="whitespace-nowrap font-mono text-[10px] text-muted-foreground">
+                    {formatDuration(getSpanDuration(span))}
+                  </span>
+                )}
                 {span.status === SpanStatus.ERROR && (
                   <span className="whitespace-nowrap rounded bg-red-100 px-1 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
                     ERROR
@@ -169,12 +184,14 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
                     {formatTokens(span.total_tokens)}
                   </span>
                 )}
-                {span.span_kind === SpanKind.LLM && span.cost != null && (
-                  <span className="inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
-                    <CircleDollarSign className="h-2.5 w-2.5" />
-                    {span.cost.toFixed(4)}
-                  </span>
-                )}
+                {span.span_kind === SpanKind.LLM &&
+                  span.cost != null &&
+                  Number.isFinite(span.cost) && (
+                    <span className="inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
+                      <CircleDollarSign className="h-2.5 w-2.5" />
+                      {span.cost.toFixed(4)}
+                    </span>
+                  )}
                 <div className="flex-1" />
                 {spanHasChildren && (
                   <button

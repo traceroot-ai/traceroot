@@ -1,9 +1,94 @@
 /**
  * Trace feature utilities
  */
-import { SpanStatus } from "@traceroot/core";
+import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { Span, TraceDetail } from "@/types/api";
 import type { SpanTreeRow } from "../types";
+
+function parseMetadata(metadata: string | null): Record<string, unknown> {
+  if (!metadata) return {};
+  try {
+    return JSON.parse(metadata) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * For every span that carries traceroot.span.ids_path (ancestor IDs, root→parent)
+ * and traceroot.span.path (root→current names) in its metadata, create lightweight
+ * placeholder spans for any missing ancestors.
+ *
+ * Works for both live SSE streaming AND completed traces loaded from ClickHouse,
+ * because both carry the same metadata JSON.
+ */
+export function enrichSpansWithPending(spans: Span[]): Span[] {
+  const existingSpanIds = new Set(spans.map((s) => s.span_id));
+  const pendingSpans = new Map<string, Span>();
+
+  for (const span of spans) {
+    if (span.pending) pendingSpans.set(span.span_id, span);
+  }
+
+  for (const span of spans) {
+    if (!span.parent_span_id) continue;
+
+    const meta = parseMetadata(span.metadata);
+    const idsPath = meta["traceroot.span.ids_path"] as string[] | undefined;
+    const namePath = meta["traceroot.span.path"] as string[] | undefined;
+
+    if (!idsPath || !namePath || idsPath.length === 0) continue;
+    const ancestorNames = namePath.slice(0, -1);
+    if (idsPath.length !== ancestorNames.length) continue;
+
+    for (let i = 0; i < idsPath.length; i++) {
+      const spanId = idsPath[i];
+      const spanName = ancestorNames[i];
+
+      if (existingSpanIds.has(spanId) && !pendingSpans.has(spanId)) continue;
+
+      if (pendingSpans.has(spanId)) {
+        const existing = pendingSpans.get(spanId)!;
+        const existStart = new Date(existing.span_start_time).getTime();
+        const curStart = new Date(span.span_start_time).getTime();
+        if (curStart < existStart) {
+          pendingSpans.set(spanId, { ...existing, span_start_time: span.span_start_time });
+        }
+        continue;
+      }
+
+      const parentId = i > 0 ? idsPath[i - 1] : null;
+      pendingSpans.set(spanId, {
+        span_id: spanId,
+        trace_id: span.trace_id,
+        parent_span_id: parentId,
+        name: spanName,
+        span_kind: SpanKind.SPAN,
+        span_start_time: span.span_start_time,
+        span_end_time: null,
+        status: SpanStatus.OK,
+        status_message: null,
+        model_name: null,
+        cost: null,
+        input_tokens: null,
+        output_tokens: null,
+        total_tokens: null,
+        input: null,
+        output: null,
+        metadata: null,
+        git_source_file: null,
+        git_source_line: null,
+        git_source_function: null,
+        pending: true,
+      });
+    }
+  }
+
+  const nonPendingSpans = spans.filter((s) => !s.pending);
+  const nonPendingIds = new Set(nonPendingSpans.map((s) => s.span_id));
+  const newPending = [...pendingSpans.values()].filter((s) => !nonPendingIds.has(s.span_id));
+  return [...nonPendingSpans, ...newPending];
+}
 
 // Layout constants for tree alignment
 export const TREE_LAYOUT = {
@@ -22,16 +107,26 @@ export function getSpanDuration(span: Span): number | null {
 }
 
 /**
- * Calculate trace duration from all spans
+ * Calculate trace duration from all spans.
+ * Langfuse-aligned: prefer root span's own start/end to avoid skew from
+ * child spans with bad timestamps (e.g. LangGraph task spans).
+ * Falls back to trace_start_time anchor + max real child end time.
  */
 export function getTraceDuration(trace: TraceDetail): number | null {
   if (!trace.spans.length) return null;
-  const startTimes = trace.spans.map((s) => new Date(s.span_start_time).getTime());
+  const rootSpan = trace.spans.find((s) => s.parent_span_id === null && !s.pending);
+  if (rootSpan?.span_end_time) {
+    return (
+      new Date(rootSpan.span_end_time).getTime() - new Date(rootSpan.span_start_time).getTime()
+    );
+  }
+  const anchorMs = new Date(trace.trace_start_time).getTime();
   const endTimes = trace.spans
-    .filter((s) => s.span_end_time)
-    .map((s) => new Date(s.span_end_time!).getTime());
+    .filter((s) => s.span_end_time && !s.pending)
+    .map((s) => new Date(s.span_end_time!).getTime())
+    .filter((t) => t > anchorMs);
   if (!endTimes.length) return null;
-  return Math.max(...endTimes) - Math.min(...startTimes);
+  return Math.max(...endTimes) - anchorMs;
 }
 
 /**
@@ -47,6 +142,14 @@ export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
     childrenByParent.get(pid)!.push(span);
   });
 
+  // Sort children within each parent by start_time so connector lines
+  // (isTerminal / parentLevels) are stable regardless of SSE arrival order.
+  for (const children of childrenByParent.values()) {
+    children.sort(
+      (a, b) => new Date(a.span_start_time).getTime() - new Date(b.span_start_time).getTime(),
+    );
+  }
+
   const rows: SpanTreeRow[] = [];
 
   function traverse(span: Span, level: number, isTerminal: boolean, parentLevels: number[]) {
@@ -59,23 +162,17 @@ export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
     });
   }
 
-  // Start with true root spans (parent_span_id === null)
-  const roots = childrenByParent.get(null) || [];
-  roots.forEach((root, idx) => {
-    traverse(root, 0, idx === roots.length - 1, []);
+  // Combine true roots with orphan spans (parent not yet arrived) into a single
+  // top-level list sorted by start_time. This ensures:
+  // 1. Connector lines are correct across all top-level items.
+  // 2. Orphans are always visible, not silently dropped when root exists.
+  const orphans = spans.filter((s) => s.parent_span_id !== null && !spanIds.has(s.parent_span_id));
+  const topLevel = [...(childrenByParent.get(null) ?? []), ...orphans].sort(
+    (a, b) => new Date(a.span_start_time).getTime() - new Date(b.span_start_time).getTime(),
+  );
+  topLevel.forEach((span, idx) => {
+    traverse(span, 0, idx === topLevel.length - 1, []);
   });
-
-  // Handle orphan spans whose parent hasn't arrived yet (live streaming).
-  // Spans whose parent_span_id is set but not present in the current span list
-  // are treated as temporary roots so they still appear in the tree.
-  if (roots.length === 0) {
-    const orphans = spans.filter(
-      (s) => s.parent_span_id !== null && !spanIds.has(s.parent_span_id),
-    );
-    orphans.forEach((orphan, idx) => {
-      traverse(orphan, 0, idx === orphans.length - 1, []);
-    });
-  }
 
   return rows;
 }
@@ -123,7 +220,9 @@ export function formatContentPreview(text: string | null): string {
  * Calculate total cost from all spans in a trace
  */
 export function getTraceTotalCost(trace: TraceDetail): number | null {
-  const costs = trace.spans.filter((s) => s.cost !== null).map((s) => s.cost!);
+  const costs = trace.spans
+    .filter((s) => s.cost != null && Number.isFinite(s.cost))
+    .map((s) => s.cost!);
   if (costs.length === 0) return null;
   return costs.reduce((sum, cost) => sum + cost, 0);
 }
