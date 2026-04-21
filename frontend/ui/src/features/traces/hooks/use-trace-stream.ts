@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Span, TraceDetail } from "@/types/api";
+import { enrichSpansWithPending } from "../utils";
 
 /**
  * Merge incoming spans into existing spans array.
- * Incoming spans replace existing ones with the same span_id (they may have updated fields
- * like span_end_time or output). New spans are appended.
+ * Incoming spans replace existing ones with the same span_id — real spans replace placeholders.
  */
 function mergeSpans(existing: Span[], incoming: Span[]): Span[] {
   const incomingIds = new Set(incoming.map((s) => s.span_id));
@@ -51,16 +51,14 @@ export function useTraceStream(
 
         if (newSpans.length === 0) return;
 
-        // Only show "Live" badge when actual real-time data arrives,
-        // not on connection open — avoids spurious badge on historical traces.
         setIsStreaming(true);
 
-        // Merge into React Query cache
         queryClient.setQueryData<TraceDetail>(["trace", projectId, traceId], (prev) => {
           if (!prev) return prev;
+          const merged = mergeSpans(prev.spans, newSpans);
           return {
             ...prev,
-            spans: mergeSpans(prev.spans, newSpans),
+            spans: enrichSpansWithPending(merged),
           };
         });
       } catch {
@@ -78,7 +76,6 @@ export function useTraceStream(
     });
 
     es.onerror = () => {
-      // EventSource auto-reconnects on error; just update UI state
       setIsStreaming(false);
     };
 

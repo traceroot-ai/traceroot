@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Workflow, X, ArrowUp, ArrowDown, BotMessageSquare, Radio } from "lucide-react";
+import { Workflow, X, ArrowUp, ArrowDown, BotMessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getTrace } from "@/lib/api";
 import type { TraceSelection } from "../types";
@@ -49,10 +49,10 @@ export function TraceViewerPanel({
     queryFn: () => getTrace(projectId, traceId, ""),
   });
 
-  // Only stream if the trace has not yet completed (no root span with end time).
-  const isTraceComplete =
-    trace?.spans.some((s) => s.parent_span_id === null && s.span_end_time !== null) ?? false;
-  const { isStreaming } = useTraceStream(projectId, traceId, !isTraceComplete);
+  // Always stream — the backend is authoritative about when the trace is complete.
+  // live.py will immediately emit trace_complete for already-finished traces,
+  // so there is no cost to opening a connection for completed traces.
+  useTraceStream(projectId, traceId, true);
 
   // Reset selection when navigating to a different trace
   useEffect(() => {
@@ -67,12 +67,6 @@ export function TraceViewerPanel({
           <Workflow className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">Trace</span>
           <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
-          {isStreaming && (
-            <span className="flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
-              <Radio className="h-3 w-3 animate-pulse" />
-              Live
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-1">
           {/* Navigation buttons */}

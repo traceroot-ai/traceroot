@@ -110,8 +110,29 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
             ch_client = get_clickhouse_client()
 
             if traces:
-                ch_client.insert_traces_batch(traces)
-                logger.info(f"Inserted {len(traces)} traces into ClickHouse")
+                # Only insert a trace record if this batch contains the root span
+                # OR the trace is genuinely new (no existing ClickHouse record).
+                # Intermediate batches without the root span must not overwrite a
+                # correctly-named trace record with a wrong name.
+                traces_with_root = {s["trace_id"] for s in spans if s.get("parent_span_id") is None}
+                traces_without_root = [t for t in traces if t["trace_id"] not in traces_with_root]
+                if traces_without_root:
+                    ids = [t["trace_id"] for t in traces_without_root]
+                    result = ch_client.query(
+                        "SELECT DISTINCT trace_id FROM traces FINAL"
+                        " WHERE trace_id IN {ids:Array(String)}",
+                        parameters={"ids": ids},
+                    )
+                    existing_ids = {row[0] for row in result.result_rows}
+                    traces = [
+                        t
+                        for t in traces
+                        if t["trace_id"] in traces_with_root or t["trace_id"] not in existing_ids
+                    ]
+
+                if traces:
+                    ch_client.insert_traces_batch(traces)
+                    logger.info(f"Inserted {len(traces)} traces into ClickHouse")
 
             if spans:
                 ch_client.insert_spans_batch(spans)

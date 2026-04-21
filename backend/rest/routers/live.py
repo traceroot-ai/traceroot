@@ -22,6 +22,24 @@ HEARTBEAT_INTERVAL = 15  # seconds
 MAX_STREAM_SECONDS = 600  # 10 minutes — hard ceiling for idle connections
 
 
+def _is_trace_complete_in_clickhouse(project_id: str, trace_id: str) -> bool:
+    """Return True if ClickHouse has a root span (no parent) with an end_time for this trace."""
+    from db.clickhouse.client import get_clickhouse_client
+
+    ch_client = get_clickhouse_client()
+    result = ch_client.query(
+        """
+        SELECT count() FROM spans FINAL
+        WHERE project_id = {project_id:String}
+          AND trace_id   = {trace_id:String}
+          AND isNull(parent_span_id)
+          AND isNotNull(span_end_time)
+        """,
+        parameters={"project_id": project_id, "trace_id": trace_id},
+    )
+    return result.result_rows[0][0] > 0
+
+
 @router.get("/live")
 async def live_trace_stream(
     request: Request,
@@ -35,6 +53,10 @@ async def live_trace_stream(
     - `event: spans` with span data as each batch is ingested
     - `event: trace_complete` when the root span finishes
     - Heartbeat comments every 15s to keep the connection alive
+
+    For traces that are already complete when the client connects, this
+    endpoint detects that via ClickHouse and emits trace_complete immediately,
+    after forwarding any span events that arrived on Redis concurrently.
     """
 
     async def event_generator():
@@ -45,16 +67,41 @@ async def live_trace_stream(
         channel = f"trace:live:{project_id}:{trace_id}"
 
         try:
+            # Subscribe BEFORE checking ClickHouse so we don't miss events from
+            # Celery tasks that publish between the check and the subscribe.
             await pubsub.subscribe(channel)
             logger.info(f"SSE client subscribed to {channel}")
+
+            # Check whether the trace is already done in ClickHouse.
+            already_complete = await asyncio.to_thread(
+                _is_trace_complete_in_clickhouse, project_id, trace_id
+            )
+
+            if already_complete:
+                # Forward any span events that were published to Redis while we
+                # were doing the ClickHouse check (concurrent Celery tasks).
+                # These spans are guaranteed to be in ClickHouse already because
+                # process_s3_traces always writes to ClickHouse before publishing
+                # to Redis.
+                while True:
+                    msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=0)
+                    if msg is None:
+                        break
+                    if msg["type"] == "message":
+                        data = json.loads(msg["data"])
+                        if data.get("type") == "spans":
+                            yield f"event: spans\ndata: {msg['data']}\n\n"
+
+                yield "event: trace_complete\ndata: {}\n\n"
+                return
+
+            # Live trace: stream normally until trace_complete or timeout.
             deadline = time.monotonic() + MAX_STREAM_SECONDS
 
             while time.monotonic() < deadline:
-                # Check if client disconnected
                 if await request.is_disconnected():
                     break
 
-                # Poll for messages with a timeout (enables heartbeat + disconnect check)
                 message = await pubsub.get_message(
                     ignore_subscribe_messages=True,
                     timeout=HEARTBEAT_INTERVAL,
@@ -69,10 +116,8 @@ async def live_trace_stream(
                     if event_type == "trace_complete":
                         break
                 else:
-                    # No message within timeout — send heartbeat
                     yield ": heartbeat\n\n"
             else:
-                # Deadline reached — close the stream
                 yield "event: stream_timeout\ndata: {}\n\n"
 
         except asyncio.CancelledError:

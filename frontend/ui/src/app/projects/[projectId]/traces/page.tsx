@@ -5,16 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
-import {
-  ChevronLeft,
-  ChevronRight,
-  ChevronDown,
-  Workflow,
-  Users,
-  Layers,
-  X,
-  Radio,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Workflow, Users, Layers, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchFilterBar } from "@/components/search-filter-bar";
@@ -148,16 +139,33 @@ export default function TracesPage() {
             onDateFilterChange={updateDateFilter}
             onCustomRangeChange={updateCustomRange}
           >
-            <Button
-              variant={autoRefresh ? "default" : "outline"}
-              size="sm"
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoRefresh}
               onClick={() => setAutoRefresh(!autoRefresh)}
-              className="h-7 gap-1.5 text-[12px]"
-              title={autoRefresh ? "Auto-refresh on (every 5s)" : "Auto-refresh off"}
+              title={
+                autoRefresh
+                  ? "Live list refresh on (every 5s) — click to disable"
+                  : "Enable live list refresh"
+              }
+              className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1 text-[12px] text-foreground transition-colors hover:border-foreground/40 hover:bg-muted"
             >
-              <Radio className={cn("h-3 w-3", autoRefresh && "animate-pulse text-green-500")} />
-              {autoRefresh ? "Live" : "Auto-refresh"}
-            </Button>
+              Live
+              <span
+                className={cn(
+                  "relative inline-flex h-4 w-7 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200",
+                  autoRefresh ? "bg-foreground" : "bg-input",
+                )}
+              >
+                <span
+                  className={cn(
+                    "block h-3 w-3 rounded-full bg-background shadow-sm transition-transform duration-200",
+                    autoRefresh ? "translate-x-3" : "translate-x-0",
+                  )}
+                />
+              </span>
+            </button>
             {userId && (
               <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 py-1 pl-2.5 pr-1.5">
                 <Users className="h-3 w-3 text-muted-foreground" />
