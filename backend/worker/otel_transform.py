@@ -48,7 +48,6 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
     "traceroot.span.type",
     "traceroot.span.metadata",
     "traceroot.span.tags",
-    "traceroot.sdk.",
     "traceroot.llm.",
     "traceroot.trace.",
     "traceroot.environment",
