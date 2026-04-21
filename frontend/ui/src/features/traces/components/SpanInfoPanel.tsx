@@ -57,7 +57,19 @@ export function SpanInfoPanel({
   const timestamp = isTrace ? trace.trace_start_time : selection.span.span_start_time;
   const input = isTrace ? trace.input : selection.span.input;
   const output = isTrace ? trace.output : selection.span.output;
-  const metadata = isTrace ? trace.metadata : selection.span.metadata;
+  const rawMetadata = isTrace ? trace.metadata : selection.span.metadata;
+  const metadata = (() => {
+    if (!rawMetadata) return rawMetadata;
+    try {
+      const parsed = JSON.parse(rawMetadata);
+      const filtered = Object.fromEntries(
+        Object.entries(parsed).filter(([k]) => !k.startsWith("traceroot.span.")),
+      );
+      return JSON.stringify(filtered);
+    } catch {
+      return rawMetadata;
+    }
+  })();
 
   // Trace-level aggregates
   const traceTotalCost = isTrace ? getTraceTotalCost(trace) : null;
