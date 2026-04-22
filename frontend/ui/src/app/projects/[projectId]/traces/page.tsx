@@ -253,7 +253,11 @@ export default function TracesPage() {
                         }}
                         className={cn(
                           "cursor-pointer border-b border-border/50 transition-colors last:border-0",
-                          selectedTraceId === trace.trace_id ? "bg-muted" : "hover:bg-muted/50",
+                          selectedTraceId === trace.trace_id
+                            ? "bg-muted"
+                            : trace.duration_ms === null
+                              ? "bg-muted/30 hover:bg-muted/50"
+                              : "hover:bg-muted/50",
                         )}
                       >
                         <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
