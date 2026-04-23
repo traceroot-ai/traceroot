@@ -6,9 +6,7 @@ import type { Span, TraceDetail } from "@/types/api";
 import type { SpanTreeRow } from "../types";
 
 /**
- * Parse a timestamp string to milliseconds.
- * Backend timestamps may include timezone offset (e.g. "-07:00")
- * or "Z" suffix. new Date() handles all ISO 8601 formats correctly.
+ * Parse an ISO 8601 timestamp string to milliseconds.
  */
 function parseTimestamp(ts: string): number {
   return new Date(ts).getTime();
