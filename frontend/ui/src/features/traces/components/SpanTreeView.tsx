@@ -90,7 +90,12 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
       >
         <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-2">
           <SpanKindIcon kind="trace" inTree />
-          <span className={cn("truncate text-xs", traceDuration === null && "text-muted-foreground/60")}>
+          <span
+            className={cn(
+              "truncate text-xs",
+              traceDuration === null && "text-muted-foreground/60",
+            )}
+          >
             {trace.name}
           </span>
           <span className="whitespace-nowrap font-mono text-[10px] text-muted-foreground">
@@ -166,7 +171,12 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
               />
               <div className="flex min-w-0 flex-1 items-center gap-1.5">
                 <SpanKindIcon kind={span.span_kind} inTree />
-                <span className={cn("truncate text-xs", span.pending && "text-muted-foreground/60")}>
+                <span
+                  className={cn(
+                    "truncate text-xs",
+                    span.pending && "text-muted-foreground/60",
+                  )}
+                >
                   {span.name}
                 </span>
                 {!span.pending && (
