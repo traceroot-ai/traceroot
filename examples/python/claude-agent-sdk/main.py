@@ -105,6 +105,9 @@ async def run_research(topic: str) -> str:
         options=ClaudeAgentOptions(
             allowed_tools=["Agent"],
             max_turns=15,
+            # WARNING: bypassPermissions auto-approves all tool calls (Bash, WebSearch)
+            # without user confirmation. Fine for demos, not for production.
+            permission_mode="bypassPermissions",
             agents={
                 "researcher": RESEARCHER,
                 "analyst": ANALYST,

@@ -1,4 +1,4 @@
 crewai>=1.10.1
 python-dotenv>=1.0.0
 
-traceroot==0.1.3
+traceroot==0.1.4
