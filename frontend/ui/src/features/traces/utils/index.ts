@@ -4,12 +4,10 @@
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { Span, TraceDetail } from "@/types/api";
 import type { SpanTreeRow } from "../types";
+import { parseAsUTC } from "@/lib/utils";
 
-/**
- * Parse an ISO 8601 timestamp string to milliseconds.
- */
 function parseTimestamp(ts: string): number {
-  return new Date(ts).getTime();
+  return parseAsUTC(ts).getTime();
 }
 
 function parseMetadata(metadata: string | null): Record<string, unknown> {
@@ -117,7 +115,8 @@ export function getSpanDuration(span: Span): number | null {
  * Calculate trace duration from all spans.
  * Langfuse-aligned: prefer root span's own start/end to avoid skew from
  * child spans with bad timestamps (e.g. LangGraph task spans).
- * Falls back to trace_start_time anchor + max real child end time.
+ * Falls back to min(span_start) .. max(span_end) across all real spans,
+ * matching the backend ClickHouse formula.
  */
 export function getTraceDuration(trace: TraceDetail): number | null {
   if (!trace.spans.length) return null;

@@ -86,7 +86,7 @@ export function formatTokens(count: number | null | undefined): string {
  * Parse a date string as UTC.
  * Backend sends timestamps without timezone marker, but they are UTC.
  */
-function parseAsUTC(date: string | Date): Date {
+export function parseAsUTC(date: string | Date): Date {
   if (date instanceof Date) return date;
 
   // If the string doesn't have timezone info, treat it as UTC
