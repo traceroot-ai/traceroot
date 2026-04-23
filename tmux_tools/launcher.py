@@ -465,6 +465,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Ensure the launcher process itself uses UTC, so inline steps like
+    # run_goose() and Prisma migrations produce consistent timestamps.
+    os.environ.setdefault("TZ", "UTC")
+
     os.chdir(ROOT)
 
     if args.reset:
