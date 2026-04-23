@@ -81,9 +81,7 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
       <div
         className={cn(
           "flex cursor-pointer items-center rounded-sm transition-colors",
-          isTraceSelected
-            ? "bg-muted"
-            : "hover:bg-muted/50",
+          isTraceSelected ? "bg-muted" : "hover:bg-muted/50",
         )}
         style={{ height: TREE_LAYOUT.ROW_HEIGHT, paddingLeft: TREE_LAYOUT.LEFT_PADDING }}
         onClick={() => onSelect({ type: "trace" })}
@@ -91,10 +89,7 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
         <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-2">
           <SpanKindIcon kind="trace" inTree />
           <span
-            className={cn(
-              "truncate text-xs",
-              traceDuration === null && "text-muted-foreground/60",
-            )}
+            className={cn("truncate text-xs", traceDuration === null && "text-muted-foreground/60")}
           >
             {trace.name}
           </span>
@@ -157,9 +152,7 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
               key={span.span_id}
               className={cn(
                 "flex cursor-pointer items-center rounded-r-sm pr-2 transition-colors",
-                isSelected
-                  ? "bg-muted"
-                  : "hover:bg-muted/50",
+                isSelected ? "bg-muted" : "hover:bg-muted/50",
               )}
               style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
               onClick={() => onSelect({ type: "span", span })}
@@ -172,10 +165,7 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
               <div className="flex min-w-0 flex-1 items-center gap-1.5">
                 <SpanKindIcon kind={span.span_kind} inTree />
                 <span
-                  className={cn(
-                    "truncate text-xs",
-                    span.pending && "text-muted-foreground/60",
-                  )}
+                  className={cn("truncate text-xs", span.pending && "text-muted-foreground/60")}
                 >
                   {span.name}
                 </span>
