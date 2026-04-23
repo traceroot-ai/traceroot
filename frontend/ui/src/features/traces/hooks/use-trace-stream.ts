@@ -71,12 +71,8 @@ export function useTraceStream(
       es.close();
       eventSourceRef.current = null;
 
-      // Delay slightly to allow ClickHouse merge, then refetch both
-      // detail and list caches to ensure consistent values.
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["trace", projectId, traceId] });
-        queryClient.invalidateQueries({ queryKey: ["traces", projectId] });
-      }, 1000);
+      // Refetch to get the final consistent state from ClickHouse
+      queryClient.invalidateQueries({ queryKey: ["trace", projectId, traceId] });
     });
 
     es.onerror = () => {

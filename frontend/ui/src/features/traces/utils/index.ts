@@ -5,6 +5,15 @@ import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { Span, TraceDetail } from "@/types/api";
 import type { SpanTreeRow } from "../types";
 
+/**
+ * Parse a timestamp string to milliseconds.
+ * Backend timestamps may include timezone offset (e.g. "-07:00")
+ * or "Z" suffix. new Date() handles all ISO 8601 formats correctly.
+ */
+function parseTimestamp(ts: string): number {
+  return new Date(ts).getTime();
+}
+
 function parseMetadata(metadata: string | null): Record<string, unknown> {
   if (!metadata) return {};
   try {
@@ -49,8 +58,8 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
 
       if (pendingSpans.has(spanId)) {
         const existing = pendingSpans.get(spanId)!;
-        const existStart = new Date(existing.span_start_time).getTime();
-        const curStart = new Date(span.span_start_time).getTime();
+        const existStart = parseTimestamp(existing.span_start_time);
+        const curStart = parseTimestamp(span.span_start_time);
         if (curStart < existStart) {
           pendingSpans.set(spanId, { ...existing, span_start_time: span.span_start_time });
         }
@@ -103,33 +112,28 @@ export const TREE_LAYOUT = {
  */
 export function getSpanDuration(span: Span): number | null {
   if (!span.span_start_time || !span.span_end_time) return null;
-  return new Date(span.span_end_time).getTime() - new Date(span.span_start_time).getTime();
+  return parseTimestamp(span.span_end_time) - parseTimestamp(span.span_start_time);
 }
 
 /**
  * Calculate trace duration from all spans.
- * Prefers root span's own start/end when available (completed trace).
- * During live streaming (root span not yet arrived), uses
- * min(span_start_time) .. max(span_end_time) across all real spans,
- * matching the backend ClickHouse query formula.
+ * Langfuse-aligned: prefer root span's own start/end to avoid skew from
+ * child spans with bad timestamps (e.g. LangGraph task spans).
+ * Falls back to trace_start_time anchor + max real child end time.
  */
 export function getTraceDuration(trace: TraceDetail): number | null {
   if (!trace.spans.length) return null;
   const rootSpan = trace.spans.find((s) => s.parent_span_id === null && !s.pending);
   if (rootSpan?.span_end_time) {
-    return (
-      new Date(rootSpan.span_end_time).getTime() - new Date(rootSpan.span_start_time).getTime()
-    );
+    return parseTimestamp(rootSpan.span_end_time) - parseTimestamp(rootSpan.span_start_time);
   }
   // Fallback for live streaming: use min(start) .. max(end) across all
-  // real (non-pending) spans. This matches the backend ClickHouse formula
-  // and avoids the bug where trace.trace_start_time from a shallow trace
-  // record uses a late-arriving child span's start_time as anchor.
+  // real (non-pending) spans, matching the backend ClickHouse formula.
   const realSpans = trace.spans.filter((s) => !s.pending);
-  const startTimes = realSpans.map((s) => new Date(s.span_start_time).getTime());
+  const startTimes = realSpans.map((s) => parseTimestamp(s.span_start_time));
   const endTimes = realSpans
     .filter((s) => s.span_end_time)
-    .map((s) => new Date(s.span_end_time!).getTime());
+    .map((s) => parseTimestamp(s.span_end_time!));
   if (!startTimes.length || !endTimes.length) return null;
   return Math.max(...endTimes) - Math.min(...startTimes);
 }
@@ -150,9 +154,7 @@ export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
   // Sort children within each parent by start_time so connector lines
   // (isTerminal / parentLevels) are stable regardless of SSE arrival order.
   for (const children of childrenByParent.values()) {
-    children.sort(
-      (a, b) => new Date(a.span_start_time).getTime() - new Date(b.span_start_time).getTime(),
-    );
+    children.sort((a, b) => parseTimestamp(a.span_start_time) - parseTimestamp(b.span_start_time));
   }
 
   const rows: SpanTreeRow[] = [];
@@ -173,7 +175,7 @@ export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
   // 2. Orphans are always visible, not silently dropped when root exists.
   const orphans = spans.filter((s) => s.parent_span_id !== null && !spanIds.has(s.parent_span_id));
   const topLevel = [...(childrenByParent.get(null) ?? []), ...orphans].sort(
-    (a, b) => new Date(a.span_start_time).getTime() - new Date(b.span_start_time).getTime(),
+    (a, b) => parseTimestamp(a.span_start_time) - parseTimestamp(b.span_start_time),
   );
   topLevel.forEach((span, idx) => {
     traverse(span, 0, idx === topLevel.length - 1, []);

@@ -16,6 +16,7 @@ Usage:
 
 import asyncio
 import logging
+import time
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -105,6 +106,7 @@ async def run_research(topic: str) -> str:
         options=ClaudeAgentOptions(
             allowed_tools=["Agent"],
             max_turns=15,
+            permission_mode="bypassPermissions",
             agents={
                 "researcher": RESEARCHER,
                 "analyst": ANALYST,
@@ -130,6 +132,7 @@ DEMO_TOPICS = [
 
 @observe(name="demo_session", type="agent")
 async def run_demo():
+    start = time.time()
     for i, topic in enumerate(DEMO_TOPICS, 1):
         print(f"\n{'=' * 60}")
         print(f"Research {i}: {topic}")
@@ -138,6 +141,9 @@ async def run_demo():
         if result:
             print(f"\n{result}")
         print()
+
+    elapsed = time.time() - start
+    print(f"[Elapsed time: {elapsed:.1f}s]")
 
 
 if __name__ == "__main__":
