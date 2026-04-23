@@ -70,12 +70,6 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
   const spanRows = buildSpanTree(spans);
   const isTraceSelected = selection.type === "trace";
   const traceDuration = getTraceDuration(trace);
-  const traceBgClass = isTraceSelected
-    ? "bg-muted"
-    : traceDuration === null
-      ? "bg-muted/30 hover:bg-muted/50"
-      : "hover:bg-muted/50";
-
   const traceTotalCost = getTraceTotalCost(trace);
   const traceTokenUsage = getTraceTokenUsage(trace);
   const traceHasChildren = hasChildren(null);
@@ -87,7 +81,11 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
       <div
         className={cn(
           "flex cursor-pointer items-center rounded-sm transition-colors",
-          traceBgClass,
+          isTraceSelected
+            ? "bg-muted"
+            : traceDuration === null
+              ? "bg-muted/30 hover:bg-muted/50"
+              : "hover:bg-muted/50",
         )}
         style={{ height: TREE_LAYOUT.ROW_HEIGHT, paddingLeft: TREE_LAYOUT.LEFT_PADDING }}
         onClick={() => onSelect({ type: "trace" })}
@@ -144,11 +142,6 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
           if (!isVisible(span)) return null;
 
           const isSelected = selection.type === "span" && selection.span.span_id === span.span_id;
-          const spanBgClass = isSelected
-            ? "bg-muted"
-            : span.pending
-              ? "bg-muted/30 hover:bg-muted/50"
-              : "hover:bg-muted/50";
           const adjustedLevel = level + 1;
           const adjustedParentLevels = parentLevels.map((l) => l + 1);
           const spanHasChildren = hasChildren(span.span_id);
@@ -159,7 +152,11 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
               key={span.span_id}
               className={cn(
                 "flex cursor-pointer items-center rounded-r-sm pr-2 transition-colors",
-                spanBgClass,
+                isSelected
+                  ? "bg-muted"
+                  : span.pending
+                    ? "bg-muted/30 hover:bg-muted/50"
+                    : "hover:bg-muted/50",
               )}
               style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
               onClick={() => onSelect({ type: "span", span })}
@@ -171,12 +168,7 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
               />
               <div className="flex min-w-0 flex-1 items-center gap-1.5">
                 <SpanKindIcon kind={span.span_kind} inTree />
-                <span
-                  className={cn(
-                    "truncate text-xs",
-                    span.pending && "italic text-muted-foreground/60",
-                  )}
-                >
+                <span className={cn("truncate text-xs", span.pending && "text-muted-foreground/60")}>
                   {span.name}
                 </span>
                 {!span.pending && (
