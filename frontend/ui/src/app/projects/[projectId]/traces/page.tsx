@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useLayoutEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
@@ -29,7 +29,7 @@ export default function TracesPage() {
   const router = useRouter();
   const projectId = params.projectId as string;
   const queryClient = useQueryClient();
-  const { aiPanelOpen, setAiPanelOpen } = useLayout();
+  const { aiPanelOpen, setAiPanelOpen, setHideAiButton } = useLayout();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
 
@@ -85,6 +85,13 @@ export default function TracesPage() {
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
   const totalPages = Math.ceil(meta.total / meta.limit);
   const showGettingStarted = !hasEverTracedLoading && !hasEverTraced;
+
+  // Hide AI button during loading AND when GettingStarted is shown
+  const shouldHideAiButton = hasEverTracedLoading || showGettingStarted;
+
+  useLayoutEffect(() => {
+    setHideAiButton(shouldHideAiButton);
+  }, [shouldHideAiButton, setHideAiButton]);
 
   const buildUrl = (path: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(path, {
