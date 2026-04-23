@@ -83,16 +83,16 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
           "flex cursor-pointer items-center rounded-sm transition-colors",
           isTraceSelected
             ? "bg-muted"
-            : traceDuration === null
-              ? "bg-muted/30 hover:bg-muted/50"
-              : "hover:bg-muted/50",
+            : "hover:bg-muted/50",
         )}
         style={{ height: TREE_LAYOUT.ROW_HEIGHT, paddingLeft: TREE_LAYOUT.LEFT_PADDING }}
         onClick={() => onSelect({ type: "trace" })}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-2">
           <SpanKindIcon kind="trace" inTree />
-          <span className="truncate text-xs">{trace.name}</span>
+          <span className={cn("truncate text-xs", traceDuration === null && "text-muted-foreground/60")}>
+            {trace.name}
+          </span>
           <span className="whitespace-nowrap font-mono text-[10px] text-muted-foreground">
             {formatDuration(traceDuration)}
           </span>
@@ -154,9 +154,7 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
                 "flex cursor-pointer items-center rounded-r-sm pr-2 transition-colors",
                 isSelected
                   ? "bg-muted"
-                  : span.pending
-                    ? "bg-muted/30 hover:bg-muted/50"
-                    : "hover:bg-muted/50",
+                  : "hover:bg-muted/50",
               )}
               style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
               onClick={() => onSelect({ type: "span", span })}
