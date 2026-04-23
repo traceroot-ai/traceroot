@@ -11,6 +11,7 @@ Usage:
 """
 
 import logging
+import time
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -119,12 +120,15 @@ def run_research(query: str) -> str:
 
 
 if __name__ == "__main__":
+    start = time.time()
     with using_attributes(user_id="demo-user", session_id="deepagents-py-session"):
         report = run_research(DEMO_QUERY)
+    elapsed = time.time() - start
 
     print("\n" + "=" * 60)
     print("Final Report")
     print("=" * 60)
     print(report)
+    print(f"\n[Real elapsed time: {elapsed:.1f}s]")
 
     traceroot.flush()

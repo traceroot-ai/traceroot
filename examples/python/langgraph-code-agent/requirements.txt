@@ -6,4 +6,4 @@ python-dotenv>=1.0.0
 fastapi==0.115.12
 uvicorn==0.34.3
 
-traceroot==0.1.2
+traceroot==0.1.4

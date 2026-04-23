@@ -291,6 +291,10 @@ def infra_services():
 def make_driver(autoreload=False):
     """Full stack: Frontend + REST API + Celery Worker + Infra logs."""
 
+    # TZ=UTC ensures all Python processes use UTC as local time, so
+    # naive datetimes from otel_transform and clickhouse-connect are consistent.
+    tz_prefix = "TZ=UTC "
+
     # macOS fork safety — Celery's prefork pool + Redis triggers an Objective-C
     # runtime crash (SIGABRT) unless this is set before the process starts.
     objc_prefix = (
@@ -299,17 +303,20 @@ def make_driver(autoreload=False):
 
     if autoreload:
         rest_command = (
+            f"{tz_prefix}"
             "uv run uvicorn rest.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir backend"
         )
         celery_command = (
-            f"{objc_prefix}"
+            f"{tz_prefix}{objc_prefix}"
             "uv run watchfiles --filter python "
             "'celery -A worker.celery_app worker --loglevel=info' "
             "backend/worker"
         )
     else:
-        rest_command = "uv run python backend/rest/main.py"
-        celery_command = f"{objc_prefix}uv run celery -A worker.celery_app worker --loglevel=info"
+        rest_command = f"{tz_prefix}uv run python backend/rest/main.py"
+        celery_command = (
+            f"{tz_prefix}{objc_prefix}uv run celery -A worker.celery_app worker --loglevel=info"
+        )
 
     return schema.Driver(
         name="traceroot",
