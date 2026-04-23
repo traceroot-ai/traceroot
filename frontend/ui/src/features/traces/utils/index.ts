@@ -108,9 +108,10 @@ export function getSpanDuration(span: Span): number | null {
 
 /**
  * Calculate trace duration from all spans.
- * Langfuse-aligned: prefer root span's own start/end to avoid skew from
- * child spans with bad timestamps (e.g. LangGraph task spans).
- * Falls back to trace_start_time anchor + max real child end time.
+ * Prefers root span's own start/end when available (completed trace).
+ * During live streaming (root span not yet arrived), uses
+ * min(span_start_time) .. max(span_end_time) across all real spans,
+ * matching the backend ClickHouse query formula.
  */
 export function getTraceDuration(trace: TraceDetail): number | null {
   if (!trace.spans.length) return null;
@@ -120,13 +121,17 @@ export function getTraceDuration(trace: TraceDetail): number | null {
       new Date(rootSpan.span_end_time).getTime() - new Date(rootSpan.span_start_time).getTime()
     );
   }
-  const anchorMs = new Date(trace.trace_start_time).getTime();
-  const endTimes = trace.spans
-    .filter((s) => s.span_end_time && !s.pending)
-    .map((s) => new Date(s.span_end_time!).getTime())
-    .filter((t) => t > anchorMs);
-  if (!endTimes.length) return null;
-  return Math.max(...endTimes) - anchorMs;
+  // Fallback for live streaming: use min(start) .. max(end) across all
+  // real (non-pending) spans. This matches the backend ClickHouse formula
+  // and avoids the bug where trace.trace_start_time from a shallow trace
+  // record uses a late-arriving child span's start_time as anchor.
+  const realSpans = trace.spans.filter((s) => !s.pending);
+  const startTimes = realSpans.map((s) => new Date(s.span_start_time).getTime());
+  const endTimes = realSpans
+    .filter((s) => s.span_end_time)
+    .map((s) => new Date(s.span_end_time!).getTime());
+  if (!startTimes.length || !endTimes.length) return null;
+  return Math.max(...endTimes) - Math.min(...startTimes);
 }
 
 /**
