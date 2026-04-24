@@ -11,7 +11,7 @@ import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { SessionDetailPanel } from "@/features/traces/components/SessionDetailPanel";
 import { useSessions, useListPageState } from "@/features/traces/hooks";
-import { formatDate, formatCost, cn, buildUrlWithFilters } from "@/lib/utils";
+import { formatDate, formatCost, formatTokens, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { SessionListItem, SessionQueryOptions } from "@/types/api";
 
 const tabs = [
@@ -19,12 +19,6 @@ const tabs = [
   { id: "users", label: "Users", icon: Users, href: "users" },
   { id: "sessions", label: "Sessions", icon: Layers, href: "sessions" },
 ];
-
-function formatTokens(session: SessionListItem): string {
-  const input = session.total_input_tokens ?? 0;
-  const output = session.total_output_tokens ?? 0;
-  return input + output > 0 ? `${input.toLocaleString()} / ${output.toLocaleString()}` : "-";
-}
 
 function getTotalCost(session: SessionListItem): number | null {
   return session.total_cost ?? null;
@@ -192,7 +186,17 @@ export default function SessionsPage() {
                           {session.user_ids.length > 0 ? session.user_ids.join(", ") : "-"}
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                          {formatTokens(session)}
+                          {(session.total_input_tokens ?? 0) + (session.total_output_tokens ?? 0) >
+                          0 ? (
+                            <span
+                              title={`${(session.total_input_tokens ?? 0).toLocaleString()} / ${(session.total_output_tokens ?? 0).toLocaleString()}`}
+                            >
+                              {formatTokens(session.total_input_tokens ?? 0)} /{" "}
+                              {formatTokens(session.total_output_tokens ?? 0)}
+                            </span>
+                          ) : (
+                            "-"
+                          )}
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                           {formatCost(getTotalCost(session))}
