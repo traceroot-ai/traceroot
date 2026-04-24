@@ -75,7 +75,7 @@ export function formatTokens(count: number | null | undefined): string {
     return String(count);
   }
 
-  if (count < 1000000) {
+  if (count < 999_950) {
     return `${(count / 1000).toFixed(1)}k`;
   }
 

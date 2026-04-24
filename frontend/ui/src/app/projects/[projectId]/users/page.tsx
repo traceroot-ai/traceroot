@@ -10,7 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useUsers, useListPageState } from "@/features/traces/hooks";
-import { formatDate, formatCost, cn, buildUrlWithFilters } from "@/lib/utils";
+import { formatDate, formatCost, formatTokens, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { UserListItem } from "@/lib/api/users";
 import type { UserQueryOptions } from "@/lib/api/users";
 
@@ -173,9 +173,16 @@ export default function UsersPage() {
                           {user.trace_count}
                         </td>
                         <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
-                          {(user.total_input_tokens ?? 0) + (user.total_output_tokens ?? 0) > 0
-                            ? `${(user.total_input_tokens ?? 0).toLocaleString()} / ${(user.total_output_tokens ?? 0).toLocaleString()}`
-                            : "-"}
+                          {(user.total_input_tokens ?? 0) + (user.total_output_tokens ?? 0) > 0 ? (
+                            <span
+                              title={`${(user.total_input_tokens ?? 0).toLocaleString()} / ${(user.total_output_tokens ?? 0).toLocaleString()}`}
+                            >
+                              {formatTokens(user.total_input_tokens ?? 0)} /{" "}
+                              {formatTokens(user.total_output_tokens ?? 0)}
+                            </span>
+                          ) : (
+                            "-"
+                          )}
                         </td>
                         <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
                           {formatCost(user.total_cost)}
