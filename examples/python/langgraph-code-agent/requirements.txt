@@ -1,6 +1,6 @@
 langchain==0.3.26
-langgraph==0.4.9
-langchain-openai==0.3.25
+langgraph==1.0.10rc1
+langchain-openai==1.1.14
 openai>=1.0.0
 python-dotenv>=1.0.0
 fastapi==0.115.12
