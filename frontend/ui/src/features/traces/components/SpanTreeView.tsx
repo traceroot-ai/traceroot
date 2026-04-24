@@ -161,10 +161,7 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
               <div className="flex min-w-0 flex-1 items-center gap-1.5">
                 <SpanKindIcon kind={span.span_kind} inTree />
                 <span
-                  className={cn(
-                    "truncate text-xs",
-                    span.pending && "italic text-muted-foreground/60",
-                  )}
+                  className={cn("truncate text-xs", span.pending && "text-muted-foreground/60")}
                 >
                   {span.name}
                 </span>
