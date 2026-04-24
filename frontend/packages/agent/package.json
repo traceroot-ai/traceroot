@@ -19,11 +19,11 @@
   },
   "dependencies": {
     "@daytonaio/sdk": "0.148.0",
-    "@hono/node-server": "^1.0.0",
+    "@hono/node-server": "^1.19.13",
     "@mariozechner/pi-agent-core": "0.57.1",
     "@mariozechner/pi-ai": "0.57.1",
     "@traceroot/core": "workspace:*",
-    "hono": "^4.0.0"
+    "hono": "^4.12.14"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
