@@ -91,6 +91,16 @@ export function TraceViewerPanel({
     setCollapsedIds(new Set());
   }, [traceId]);
 
+  useEffect(() => {
+    if (viewMode !== "timeline") return;
+
+    requestAnimationFrame(() => {
+      if (!treeScrollRef.current || !timelineScrollRef.current) return;
+
+      timelineScrollRef.current.scrollTop = treeScrollRef.current.scrollTop;
+    });
+  }, [viewMode]);
+
   const handleToggleCollapse = useCallback((id: string) => {
     setCollapsedIds((prev) => {
       const next = new Set(prev);
@@ -153,7 +163,8 @@ export function TraceViewerPanel({
 
   // Sync tree scroll → timeline
   const handleTreeScroll = useCallback(() => {
-    if (isSyncing.current || !timelineScrollRef.current || !treeScrollRef.current) return;
+    if (isSyncing.current || !treeScrollRef.current) return;
+    if (!timelineScrollRef.current) return;
     isSyncing.current = true;
     timelineScrollRef.current.scrollTop = treeScrollRef.current.scrollTop;
     requestAnimationFrame(() => {
@@ -265,11 +276,7 @@ export function TraceViewerPanel({
             >
               <span className="text-[11px] font-medium text-muted-foreground">Trace Tree</span>
             </div>
-            <div
-              ref={treeScrollRef}
-              className="flex-1 overflow-y-auto"
-              onScroll={viewMode === "timeline" ? handleTreeScroll : undefined}
-            >
+            <div ref={treeScrollRef} className="flex-1 overflow-y-auto" onScroll={handleTreeScroll}>
               <SpanTreeView
                 trace={trace}
                 selection={selection}
