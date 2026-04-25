@@ -14,7 +14,7 @@ import 'dotenv/config';
 import * as agents from '@openai/agents';
 import { Agent, run, tool } from '@openai/agents';
 import { TraceRoot } from '@traceroot-ai/traceroot';
-import { z } from 'zod/v4';
+import { z } from 'zod';
 
 // ── TraceRoot setup ───────────────────────────────────────────────────────────
 TraceRoot.initialize({
