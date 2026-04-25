@@ -161,7 +161,11 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "gemini-2.5-flash", label: "gemini-2.5-flash" },
     { id: "gemini-2.5-pro", label: "gemini-2.5-pro" },
   ],
-  deepseek: [{ id: "deepseek-chat", label: "deepseek-chat" }],
+  deepseek: [
+    { id: "deepseek-v4-pro", label: "deepseek-v4-pro" },
+    { id: "deepseek-v4-flash", label: "deepseek-v4-flash" },
+    { id: "deepseek-chat", label: "deepseek-chat" },
+  ],
   xai: [
     { id: "grok-4.20", label: "grok-4.20" },
     { id: "grok-4", label: "grok-4" },
