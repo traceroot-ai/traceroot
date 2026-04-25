@@ -26,6 +26,8 @@ Runs three demo queries that exercise tool use:
 
 Tools: `get_weather`, `get_stock_price`, `calculate`, `search_web`, `get_current_time`
 
+> All tools except `calculate` and `get_current_time` return hardcoded mock data — they exist to exercise tool-call instrumentation, not to demo real services. In particular, `search_web` does **not** hit a real search API; it returns canned strings.
+
 ## Models
 
 | Model | Notes |
