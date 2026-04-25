@@ -84,8 +84,9 @@ export function SpanTreeView({
       {/* Trace row */}
       <div
         className={cn(
-          "flex cursor-pointer items-center border-b border-border/5 transition-colors",
-          isTraceSelected ? "bg-muted/60" : "hover:bg-muted/50",
+          "flex cursor-pointer items-center border-b border-border/5 transition-colors hover:bg-muted/50",
+          hoveredSpanId === "trace" && "bg-muted/60",
+          isTraceSelected && "bg-muted/60",
         )}
         style={{ height: TREE_LAYOUT.ROW_HEIGHT, paddingLeft: TREE_LAYOUT.LEFT_PADDING }}
         onClick={() => onSelect({ type: "trace" })}
