@@ -16,7 +16,7 @@ Usage:
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from dotenv import find_dotenv, load_dotenv
@@ -103,8 +103,20 @@ def calculate(expression: str) -> dict:
 
 @observe(name="get_current_time", type="tool")
 def get_current_time(timezone: str = "UTC") -> dict:
-    """Get current time."""
-    return {"timezone": timezone, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    """Get current time in the requested IANA timezone (e.g. 'UTC', 'America/New_York')."""
+    import zoneinfo
+
+    try:
+        zone = zoneinfo.ZoneInfo(timezone)
+        now = datetime.now(tz=zone)
+        return {"timezone": timezone, "time": now.strftime("%Y-%m-%d %H:%M:%S")}
+    except zoneinfo.ZoneInfoNotFoundError:
+        now = datetime.now(tz=UTC)
+        return {
+            "timezone": "UTC",
+            "time": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "warning": f"Unknown timezone {timezone!r}; fell back to UTC.",
+        }
 
 
 TOOLS = {
