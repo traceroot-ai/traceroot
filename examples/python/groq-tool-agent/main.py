@@ -100,6 +100,7 @@ def calculate(expression: str) -> dict:
 def get_current_time(timezone: str = "UTC") -> dict:
     """Get current time in the specified timezone."""
     import zoneinfo
+
     try:
         zone = zoneinfo.ZoneInfo(timezone)
         current_time = datetime.now(zone).strftime("%Y-%m-%d %H:%M:%S")
@@ -229,11 +230,13 @@ class ReActAgent:
                     logger.info(f"Tool call: {tc.function.name}({args})")
                     result = self._execute_tool(tc.function.name, args)
                     logger.info(f"Tool result: {result}")
-                    self.messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": result,
-                    })
+                    self.messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": result,
+                        }
+                    )
             else:
                 self.messages.append({"role": "assistant", "content": msg.content})
                 return msg.content or ""
