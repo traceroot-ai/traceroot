@@ -63,6 +63,7 @@ const calculate = tool({
       return { expression, error: 'Invalid expression — only arithmetic allowed' };
     }
     try {
+      // Function() has no access to local scope; input is regex-restricted to arithmetic only.
       const result = Function(`"use strict"; return (${expression})`)();
       return { expression, result };
     } catch {
