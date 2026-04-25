@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { getTrace } from "@/lib/api";
+import type { Span } from "@/types/api";
 import type { TraceSelection } from "../types";
 import { SpanTreeView } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
@@ -111,6 +112,22 @@ export function TraceViewerPanel({
     el.scrollTop = Math.max(0, center);
   }, []);
 
+  const isSpanVisible = useCallback(
+    (span: Span, spans: Span[]) => {
+      let currentId = span.parent_span_id;
+
+      while (currentId) {
+        if (collapsedIds.has(currentId)) return false;
+
+        const parent = spans.find((s) => s.span_id === currentId);
+        currentId = parent?.parent_span_id ?? null;
+      }
+
+      return true;
+    },
+    [collapsedIds],
+  );
+
   /**
    * Called when the user clicks a bar in the timeline.
    * Switches to tree mode so the user lands on the full span details view.
@@ -123,7 +140,7 @@ export function TraceViewerPanel({
 
       if (sel.type === "span" && trace) {
         const spans = enrichSpansWithPending(trace.spans);
-        const rows = buildSpanTree(spans);
+        const rows = buildSpanTree(spans).filter((row) => isSpanVisible(row.span, spans));
         const rowIdx = rows.findIndex((r) => r.span.span_id === sel.span.span_id);
         if (rowIdx !== -1) {
           // +1 because row 0 in the tree is the trace root
@@ -131,7 +148,7 @@ export function TraceViewerPanel({
         }
       }
     },
-    [trace, scrollTreeToRow],
+    [trace, scrollTreeToRow, isSpanVisible],
   );
 
   // Sync tree scroll → timeline
