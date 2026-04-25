@@ -85,9 +85,15 @@ function calculate(expression: string): ToolResult {
 
     const parseNumber = (): number => {
       const start = pos;
-      while (pos < src.length && /[0-9.]/.test(src[pos])) pos++;
+      let hasDot = false;
+      while (pos < src.length && (/[0-9]/.test(src[pos]) || (src[pos] === '.' && !hasDot))) {
+        if (src[pos] === '.') hasDot = true;
+        pos++;
+      }
       if (start === pos) throw new Error(`Expected number at ${pos}`);
-      return Number(src.slice(start, pos));
+      const n = Number(src.slice(start, pos));
+      if (!Number.isFinite(n)) throw new Error(`Invalid number '${src.slice(start, pos)}'`);
+      return n;
     };
 
     const parseFactor = (): number => {
@@ -133,7 +139,17 @@ function calculate(expression: string): ToolResult {
 }
 
 function getCurrentTime(timezone = 'UTC'): ToolResult {
-  return { timezone, time: new Date().toISOString() };
+  // Use IANA timezone (e.g. 'UTC', 'America/New_York'). Fall back to UTC ISO on unknown zones.
+  try {
+    const time = new Date().toLocaleString('en-US', { timeZone: timezone, hour12: false });
+    return { timezone, time };
+  } catch {
+    return {
+      timezone: 'UTC',
+      time: new Date().toISOString(),
+      warning: `Unknown timezone '${timezone}'; fell back to UTC.`,
+    };
+  }
 }
 
 const TOOLS: Record<string, (a: Record<string, unknown>) => ToolResult | ToolResult[]> = {
