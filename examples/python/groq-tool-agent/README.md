@@ -19,6 +19,5 @@ python main.py
 
 Runs two demo queries that exercise tool use:
 1. Weather comparison (San Francisco vs Tokyo)
-2. Stock price lookup + calculation (NVDA +10%)
 
 Tools: `get_weather`, `get_stock_price`, `calculate`, `get_current_time`
