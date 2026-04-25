@@ -72,7 +72,7 @@ function SignInContent() {
     <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="flex justify-center mb-2">
+          <div className="mb-2 flex justify-center">
             <Logo size="lg" />
           </div>
           <CardTitle className="text-lg font-semibold">Sign in to product</CardTitle>
