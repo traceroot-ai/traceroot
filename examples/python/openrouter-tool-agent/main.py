@@ -102,8 +102,21 @@ def calculate(expression: str) -> dict:
 
 @observe(name="get_current_time", type="tool")
 def get_current_time(timezone: str = "UTC") -> dict:
-    """Get current time."""
-    return {"timezone": timezone, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    """Get current time in the requested IANA timezone (e.g. 'UTC', 'America/New_York')."""
+    import zoneinfo
+    from datetime import timezone as tz
+
+    try:
+        zone = zoneinfo.ZoneInfo(timezone)
+        now = datetime.now(tz=zone)
+        return {"timezone": timezone, "time": now.strftime("%Y-%m-%d %H:%M:%S")}
+    except zoneinfo.ZoneInfoNotFoundError:
+        now = datetime.now(tz=tz.utc)
+        return {
+            "timezone": "UTC",
+            "time": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "warning": f"Unknown timezone {timezone!r}; fell back to UTC.",
+        }
 
 
 TOOLS = {
