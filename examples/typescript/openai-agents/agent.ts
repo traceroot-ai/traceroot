@@ -98,7 +98,7 @@ async function main() {
   for (const query of DEMO_QUERIES) {
     console.log(`Query: ${query}`);
     const result = await run(agent, query);
-    console.log(`\nAgent: ${result.finalOutput}\n`);
+    console.log(`\nAgent: ${result.finalOutput ?? '(no output)'}\n`);
     console.log('------------------------------------------------------------\n');
   }
 
