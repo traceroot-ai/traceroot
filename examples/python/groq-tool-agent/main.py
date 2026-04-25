@@ -13,7 +13,7 @@ Run:
 
 import json
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -98,8 +98,15 @@ def calculate(expression: str) -> dict:
 
 @observe(name="get_current_time", type="tool")
 def get_current_time(timezone: str = "UTC") -> dict:
-    """Get current time."""
-    return {"timezone": timezone, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    """Get current time in the specified timezone."""
+    import zoneinfo
+    try:
+        zone = zoneinfo.ZoneInfo(timezone)
+        current_time = datetime.now(zone).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        current_time = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        timezone = "UTC"
+    return {"timezone": timezone, "time": current_time}
 
 
 TOOLS = {
