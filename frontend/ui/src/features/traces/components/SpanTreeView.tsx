@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { ChevronRight, ChevronDown, CircleStop, CircleDollarSign } from "lucide-react";
 import { cn, formatDuration, formatTokens } from "@/lib/utils";
 import { SpanKind, SpanStatus } from "@traceroot/core";
@@ -23,17 +22,30 @@ interface SpanTreeViewProps {
   trace: TraceDetail;
   selection: TraceSelection;
   onSelect: (selection: TraceSelection) => void;
+  collapsedIds: Set<string>;
+  onToggleCollapse: (id: string) => void;
+  compact?: boolean;
+  hoveredSpanId: string | null;
+  onHoverChange: (id: string | null) => void;
 }
 
 /**
- * Tree view component for displaying trace and span hierarchy
+ * Tree view component for displaying trace and span hierarchy.
+ * Collapse state is managed externally (lifted to TraceViewerPanel) so it can
+ * be shared with the timeline bars view for scroll-sync and row alignment.
  */
-export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) {
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
-
+export function SpanTreeView({
+  trace,
+  selection,
+  onSelect,
+  collapsedIds,
+  onToggleCollapse,
+  compact = false,
+  hoveredSpanId,
+  onHoverChange,
+}: SpanTreeViewProps) {
   // Enrich with placeholder spans for any missing ancestors — handles both
   // live-streaming gaps (parent not yet arrived) and permanently dropped spans.
-  // Mirrors lmnr's approach of calling enrichSpansWithPending on every render.
   const spans = enrichSpansWithPending(trace.spans);
 
   const childrenByParent = buildChildrenMap(spans);
@@ -45,15 +57,7 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
 
   const toggleCollapse = (spanId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setCollapsedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(spanId)) {
-        next.delete(spanId);
-      } else {
-        next.add(spanId);
-      }
-      return next;
-    });
+    onToggleCollapse(spanId);
   };
 
   // Check if a span should be visible (not hidden by collapsed ancestor)
@@ -76,29 +80,33 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
   const traceIsCollapsed = collapsedIds.has("trace");
 
   return (
-    <div>
+    <div className="relative">
       {/* Trace row */}
       <div
         className={cn(
-          "flex cursor-pointer items-center rounded-sm transition-colors",
-          isTraceSelected ? "bg-muted" : "hover:bg-muted/50",
+          "flex cursor-pointer items-center border-b border-border/5 transition-colors",
+          isTraceSelected ? "bg-muted/60" : "hover:bg-muted/50",
         )}
         style={{ height: TREE_LAYOUT.ROW_HEIGHT, paddingLeft: TREE_LAYOUT.LEFT_PADDING }}
         onClick={() => onSelect({ type: "trace" })}
+        onMouseEnter={() => onHoverChange("trace")}
+        onMouseLeave={() => onHoverChange(null)}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-2">
           <SpanKindIcon kind="trace" inTree />
-          <span className="truncate text-xs">{trace.name}</span>
-          <span className="whitespace-nowrap font-mono text-[10px] text-muted-foreground">
-            {formatDuration(traceDuration)}
-          </span>
-          {traceTokenUsage && (
+          <span className="truncate text-xs font-medium">{trace.name}</span>
+          {!compact && (
+            <span className="whitespace-nowrap font-mono text-[10px] text-muted-foreground">
+              {formatDuration(traceDuration)}
+            </span>
+          )}
+          {!compact && traceTokenUsage && (
             <span className="inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
               <CircleStop className="h-2.5 w-2.5" />
               {formatTokens(traceTokenUsage.totalTokens)}
             </span>
           )}
-          {traceTotalCost && (
+          {!compact && traceTotalCost && (
             <span className="inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
               <CircleDollarSign className="h-2.5 w-2.5" />
               {traceTotalCost.toFixed(4)}
@@ -107,18 +115,7 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
           <div className="flex-1" />
           {traceHasChildren && (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setCollapsedIds((prev) => {
-                  const next = new Set(prev);
-                  if (next.has("trace")) {
-                    next.delete("trace");
-                  } else {
-                    next.add("trace");
-                  }
-                  return next;
-                });
-              }}
+              onClick={(e) => toggleCollapse("trace", e)}
               className="flex-shrink-0 rounded p-0.5 transition-colors hover:bg-muted"
             >
               {traceIsCollapsed ? (
@@ -147,10 +144,19 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
             <div
               key={span.span_id}
               className={cn(
-                "flex cursor-pointer items-center rounded-r-sm pr-2 transition-colors",
-                isSelected ? "bg-muted" : "hover:bg-muted/50",
+                "group relative flex w-full cursor-pointer items-center border-b border-border/5 transition-colors",
+                hoveredSpanId === span.span_id ? "bg-muted/60" : "bg-transparent",
+                isSelected && "bg-muted/80",
               )}
               style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
+              onMouseEnter={(e) => {
+                e.stopPropagation();
+                onHoverChange(span.span_id);
+              }}
+              onMouseLeave={(e) => {
+                e.stopPropagation();
+                onHoverChange(null);
+              }}
               onClick={() => onSelect({ type: "span", span })}
             >
               <SpanTreeConnector
@@ -158,7 +164,7 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
                 isTerminal={isTerminal}
                 parentLevels={adjustedParentLevels}
               />
-              <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-2">
                 <SpanKindIcon kind={span.span_kind} inTree />
                 <span
                   className={cn(
@@ -168,7 +174,7 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
                 >
                   {span.name}
                 </span>
-                {!span.pending && (
+                {!compact && !span.pending && (
                   <span className="whitespace-nowrap font-mono text-[10px] text-muted-foreground">
                     {formatDuration(getSpanDuration(span))}
                   </span>
@@ -178,13 +184,14 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
                     ERROR
                   </span>
                 )}
-                {span.span_kind === SpanKind.LLM && span.total_tokens != null && (
+                {!compact && span.span_kind === SpanKind.LLM && span.total_tokens != null && (
                   <span className="inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
                     <CircleStop className="h-2.5 w-2.5" />
                     {formatTokens(span.total_tokens)}
                   </span>
                 )}
-                {span.span_kind === SpanKind.LLM &&
+                {!compact &&
+                  span.span_kind === SpanKind.LLM &&
                   span.cost != null &&
                   Number.isFinite(span.cost) && (
                     <span className="inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
