@@ -220,6 +220,16 @@ class TraceReaderService:
             )
 
         trace["spans"] = spans
+
+        span_starts = [s["span_start_time"] for s in spans if s["span_start_time"]]
+        span_ends = [s["span_end_time"] for s in spans if s["span_end_time"]]
+
+        trace["duration_ms"] = (
+            (max(span_ends) - min(span_starts)).total_seconds() * 1000
+            if span_starts and span_ends
+            else None
+        )
+
         return trace
 
     def list_sessions(

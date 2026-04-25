@@ -203,9 +203,12 @@ export function SpanTimelineView({
                   key="trace-root"
                   className={cn(
                     "group absolute left-0 top-0 z-10 flex w-full cursor-pointer items-center border-b border-border/5 transition-colors hover:bg-muted/50",
+                    hoveredSpanId === "trace" && "bg-muted/60",
                     isSelected && "bg-muted/60",
                   )}
                   style={rowStyle}
+                  onMouseEnter={() => onHoverChange("trace")}
+                  onMouseLeave={() => onHoverChange(null)}
                   onClick={() => onSelect({ type: "trace" })}
                 >
                   <span className="absolute left-2 z-20 whitespace-nowrap text-[10px] font-medium text-muted-foreground">
