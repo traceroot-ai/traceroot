@@ -95,15 +95,17 @@ async function main() {
   console.log('OpenAI Agents SDK — Demo (TraceRoot)');
   console.log('============================================================\n');
 
-  for (const query of DEMO_QUERIES) {
-    console.log(`Query: ${query}`);
-    const result = await run(agent, query);
-    console.log(`\nAgent: ${result.finalOutput ?? '(no output)'}\n`);
-    console.log('------------------------------------------------------------\n');
+  try {
+    for (const query of DEMO_QUERIES) {
+      console.log(`Query: ${query}`);
+      const result = await run(agent, query);
+      console.log(`\nAgent: ${result.finalOutput ?? '(no output)'}\n`);
+      console.log('------------------------------------------------------------\n');
+    }
+  } finally {
+    await TraceRoot.shutdown();
+    console.log('[Traces exported]');
   }
-
-  await TraceRoot.shutdown();
-  console.log('[Traces exported]');
 }
 
 main().catch(console.error);
