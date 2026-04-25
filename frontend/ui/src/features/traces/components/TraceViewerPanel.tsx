@@ -1,8 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Workflow, X, ArrowUp, ArrowDown, BotMessageSquare } from "lucide-react";
+import {
+  Workflow,
+  X,
+  ArrowUp,
+  ArrowDown,
+  BotMessageSquare,
+  ListTree,
+  SquareGanttChart,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { getTrace } from "@/lib/api";
 import type { TraceSelection } from "../types";
@@ -10,6 +19,8 @@ import { SpanTreeView } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
 import { AiChatOverlay } from "@/features/ai-assistant/components/ai-chat-overlay";
 import { useTraceStream } from "../hooks/use-trace-stream";
+import { SpanTimelineView } from "./SpanTimelineView";
+import { buildSpanTree, enrichSpansWithPending, TREE_LAYOUT } from "../utils";
 
 interface TraceViewerPanelProps {
   projectId: string;
@@ -24,7 +35,18 @@ interface TraceViewerPanelProps {
 }
 
 /**
- * Full-screen slide-in panel for viewing trace details
+ * Full-screen slide-in panel for viewing trace details.
+ *
+ * Layout — SpanTreeView is always on the left in both modes:
+ *
+ *   Tree mode:
+ *     [SpanTreeView 280px] | [SpanInfoPanel flex-1]
+ *
+ *   Timeline mode:
+ *     [SpanTreeView compact 280px] | [SpanTimelineView flex-1]
+ *     Clicking a timeline bar → switches back to tree mode with the span selected.
+ *
+ * Collapse state and scroll position are shared so the tree and bars stay aligned.
  */
 export function TraceViewerPanel({
   projectId,
@@ -39,6 +61,17 @@ export function TraceViewerPanel({
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   const [aiChatOpen, setAiChatOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"tree" | "timeline">("tree");
+
+  // Shared collapse state (SpanTreeView + SpanTimelineView stay in sync)
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+
+  // Scroll sync refs
+  const treeScrollRef = useRef<HTMLDivElement>(null);
+  const timelineScrollRef = useRef<HTMLDivElement>(null);
+  const isSyncing = useRef(false);
+
+  const [hoveredSpanId, setHoveredSpanId] = useState<string | null>(null);
 
   const {
     data: trace,
@@ -49,27 +82,88 @@ export function TraceViewerPanel({
     queryFn: () => getTrace(projectId, traceId, ""),
   });
 
-  // Always stream — the backend is authoritative about when the trace is complete.
-  // live.py will immediately emit trace_complete for already-finished traces,
-  // so there is no cost to opening a connection for completed traces.
   useTraceStream(projectId, traceId, true);
 
-  // Reset selection when navigating to a different trace
+  // Reset when navigating to a different trace
   useEffect(() => {
     setSelection({ type: "trace" });
+    setCollapsedIds(new Set());
   }, [traceId]);
+
+  const handleToggleCollapse = useCallback((id: string) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  // Scroll the tree panel to bring a row index into view (centered).
+  const scrollTreeToRow = useCallback((rowIndex: number) => {
+    const el = treeScrollRef.current;
+    if (!el) return;
+    const target = rowIndex * TREE_LAYOUT.ROW_HEIGHT;
+    const center = target - el.clientHeight / 2 + TREE_LAYOUT.ROW_HEIGHT / 2;
+    el.scrollTop = Math.max(0, center);
+  }, []);
+
+  /**
+   * Called when the user clicks a bar in the timeline.
+   * Switches to tree mode so the user lands on the full span details view.
+   * Also scrolls the tree to show the selected span.
+   */
+  const handleTimelineSelect = useCallback(
+    (sel: TraceSelection) => {
+      setSelection(sel);
+      setViewMode("tree");
+
+      if (sel.type === "span" && trace) {
+        const spans = enrichSpansWithPending(trace.spans);
+        const rows = buildSpanTree(spans);
+        const rowIdx = rows.findIndex((r) => r.span.span_id === sel.span.span_id);
+        if (rowIdx !== -1) {
+          // +1 because row 0 in the tree is the trace root
+          requestAnimationFrame(() => scrollTreeToRow(rowIdx + 1));
+        }
+      }
+    },
+    [trace, scrollTreeToRow],
+  );
+
+  // Sync tree scroll → timeline
+  const handleTreeScroll = useCallback(() => {
+    if (isSyncing.current || !timelineScrollRef.current || !treeScrollRef.current) return;
+    isSyncing.current = true;
+    timelineScrollRef.current.scrollTop = treeScrollRef.current.scrollTop;
+    requestAnimationFrame(() => {
+      isSyncing.current = false;
+    });
+  }, []);
+
+  // Sync timeline scroll → tree
+  const handleTimelineScroll = useCallback(() => {
+    if (isSyncing.current || !treeScrollRef.current || !timelineScrollRef.current) return;
+    isSyncing.current = true;
+    treeScrollRef.current.scrollTop = timelineScrollRef.current.scrollTop;
+    requestAnimationFrame(() => {
+      isSyncing.current = false;
+    });
+  }, []);
 
   return (
     <div className="flex h-full flex-col bg-background">
-      {/* Top header bar */}
-      <div className="flex h-10 items-center justify-between border-b border-border bg-muted/30 px-4">
+      {/* ── MAIN HEADER ── */}
+      <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
         <div className="flex min-w-0 items-center gap-2">
           <Workflow className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">Trace</span>
           <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
         </div>
         <div className="flex items-center gap-1">
-          {/* Navigation buttons */}
           <Button
             variant="outline"
             size="sm"
@@ -90,7 +184,7 @@ export function TraceViewerPanel({
           >
             <ArrowDown className="h-4 w-4" />
           </Button>
-          <div className="w-2" /> {/* Spacer */}
+          <div className="w-2" />
           <Button
             variant="outline"
             size="sm"
@@ -106,7 +200,37 @@ export function TraceViewerPanel({
         </div>
       </div>
 
-      {/* Content */}
+      {/* ── VIEW TOGGLE SUB-HEADER ── */}
+      <div className="flex h-10 items-center border-b border-border">
+        <div className="flex items-center rounded-lg px-2 py-1">
+          <button
+            onClick={() => setViewMode("tree")}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+              viewMode === "tree"
+                ? "bg-muted text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <ListTree className="h-3.5 w-3.5" />
+            Trace
+          </button>
+          <button
+            onClick={() => setViewMode("timeline")}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+              viewMode === "timeline"
+                ? "bg-muted text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <SquareGanttChart className="h-3.5 w-3.5" />
+            Timeline
+          </button>
+        </div>
+      </div>
+
+      {/* ── CONTENT AREA ── */}
       {isLoading ? (
         <div className="flex flex-1 items-center justify-center">
           <p className="text-sm text-muted-foreground">Loading trace...</p>
@@ -117,23 +241,58 @@ export function TraceViewerPanel({
         </div>
       ) : (
         <div className="flex flex-1 overflow-hidden">
-          {/* Left: Tree view */}
-          <div className="w-[320px] flex-shrink-0 overflow-y-auto border-r border-border bg-muted/30">
-            <SpanTreeView trace={trace} selection={selection} onSelect={setSelection} />
+          <div className="flex w-[280px] flex-shrink-0 flex-col border-r border-border bg-muted/30">
+            <div
+              className="flex flex-shrink-0 items-center border-b border-border bg-muted/10 px-3"
+              style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
+            >
+              <span className="text-[11px] font-medium text-muted-foreground">Trace Tree</span>
+            </div>
+            <div
+              ref={treeScrollRef}
+              className="flex-1 overflow-y-auto"
+              onScroll={viewMode === "timeline" ? handleTreeScroll : undefined}
+            >
+              <SpanTreeView
+                trace={trace}
+                selection={selection}
+                onSelect={viewMode === "tree" ? setSelection : handleTimelineSelect}
+                collapsedIds={collapsedIds}
+                onToggleCollapse={handleToggleCollapse}
+                compact={viewMode === "timeline"}
+                hoveredSpanId={hoveredSpanId}
+                onHoverChange={setHoveredSpanId}
+              />
+            </div>
           </div>
 
-          {/* Right: Detail panel */}
-          <div className="min-w-[280px] flex-1 overflow-hidden bg-background">
-            <SpanInfoPanel
-              projectId={projectId}
-              trace={trace}
-              selection={selection}
-              onClose={onClose}
-              dateFilter={dateFilter}
-              customStartDate={customStartDate}
-              customEndDate={customEndDate}
-            />
-          </div>
+          {/* RIGHT: details panel (tree mode) or Gantt bars (timeline mode) */}
+          {viewMode === "tree" ? (
+            <div className="min-w-[280px] flex-1 overflow-hidden bg-background">
+              <SpanInfoPanel
+                projectId={projectId}
+                trace={trace}
+                selection={selection}
+                onClose={onClose}
+                dateFilter={dateFilter}
+                customStartDate={customStartDate}
+                customEndDate={customEndDate}
+              />
+            </div>
+          ) : (
+            <div className="flex-1 overflow-hidden">
+              <SpanTimelineView
+                trace={trace}
+                selection={selection}
+                onSelect={handleTimelineSelect}
+                collapsedIds={collapsedIds}
+                scrollRef={timelineScrollRef}
+                onScroll={handleTimelineScroll}
+                hoveredSpanId={hoveredSpanId}
+                onHoverChange={setHoveredSpanId}
+              />
+            </div>
+          )}
 
           {/* AI Chat overlay */}
           {aiChatOpen && (
