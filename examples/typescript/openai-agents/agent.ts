@@ -58,8 +58,11 @@ const calculate = tool({
   description: 'Evaluate a math expression. Example: "178.5 * 1.1"',
   parameters: z.object({ expression: z.string() }),
   execute: async ({ expression }) => {
+    // Only allow digits, operators, parentheses, and whitespace
+    if (!/^[\d\s+\-*/().]+$/.test(expression)) {
+      return { expression, error: 'Invalid expression — only arithmetic allowed' };
+    }
     try {
-      // Safe eval for simple arithmetic
       const result = Function(`"use strict"; return (${expression})`)();
       return { expression, result };
     } catch {
