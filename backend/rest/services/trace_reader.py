@@ -173,7 +173,12 @@ class TraceReaderService:
         spans_query = """
             SELECT
                 span_id, trace_id, parent_span_id, name, span_kind,
-                span_start_time, span_end_time, status, status_message,
+                span_start_time, span_end_time,
+                if(
+                    span_end_time IS NOT NULL,
+                    dateDiff('millisecond', span_start_time, span_end_time),
+                    NULL
+                ) AS duration_ms, status, status_message,
                 model_name, cost, input_tokens, output_tokens, total_tokens,
                 input, output, metadata,
                 git_source_file, git_source_line, git_source_function
@@ -197,19 +202,20 @@ class TraceReaderService:
                     "span_kind": row[4],
                     "span_start_time": row[5],
                     "span_end_time": row[6],
-                    "status": row[7],
-                    "status_message": row[8],
-                    "model_name": row[9],
-                    "cost": float(row[10]) if row[10] is not None else None,
-                    "input_tokens": int(row[11]) if row[11] is not None else None,
-                    "output_tokens": int(row[12]) if row[12] is not None else None,
-                    "total_tokens": int(row[13]) if row[13] is not None else None,
-                    "input": row[14],
-                    "output": row[15],
-                    "metadata": row[16],
-                    "git_source_file": row[17],
-                    "git_source_line": int(row[18]) if row[18] is not None else None,
-                    "git_source_function": row[19],
+                    "duration_ms": float(row[7]) if row[7] is not None else None,
+                    "status": row[8],
+                    "status_message": row[9],
+                    "model_name": row[10],
+                    "cost": float(row[11]) if row[11] is not None else None,
+                    "input_tokens": int(row[12]) if row[12] is not None else None,
+                    "output_tokens": int(row[13]) if row[13] is not None else None,
+                    "total_tokens": int(row[14]) if row[14] is not None else None,
+                    "input": row[15],
+                    "output": row[16],
+                    "metadata": row[17],
+                    "git_source_file": row[18],
+                    "git_source_line": int(row[19]) if row[19] is not None else None,
+                    "git_source_function": row[20],
                 }
             )
 
