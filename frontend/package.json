@@ -16,6 +16,16 @@
       "prettier --write"
     ]
   },
+  "pnpm": {
+    "overrides": {
+      "protobufjs": ">=7.5.5",
+      "defu": ">=6.1.5",
+      "fast-xml-parser": ">=5.7.0",
+      "basic-ftp": ">=5.3.0",
+      "axios": ">=1.15.0",
+      "follow-redirects": ">=1.16.0"
+    }
+  },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "dotenv-cli": "^11.0.0",
