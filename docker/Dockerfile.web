@@ -1,5 +1,5 @@
 # docker/Dockerfile.web
-FROM node:20-alpine AS base
+FROM node:25-alpine AS base
 RUN apk add --no-cache openssl && \
     corepack enable && corepack prepare pnpm@latest --activate
 
@@ -73,7 +73,7 @@ COPY frontend/packages/core/prisma ./packages/core/prisma
 ENTRYPOINT ["./packages/core/node_modules/.bin/prisma", "migrate", "deploy", "--schema", "packages/core/prisma/schema.prisma"]
 
 # --- Runner stage ---
-FROM node:20-alpine AS runner
+FROM node:25-alpine AS runner
 WORKDIR /app
 
 RUN apk add --no-cache openssl && \
