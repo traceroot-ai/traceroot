@@ -22,7 +22,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
@@ -47,7 +47,7 @@ jobs:
     needs: [lint]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
@@ -80,7 +80,7 @@ jobs:
     if: needs.backend-tests.result == 'success'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download coverage artifact
         uses: actions/download-artifact@v4
