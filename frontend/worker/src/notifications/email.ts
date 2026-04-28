@@ -1,5 +1,13 @@
 import nodemailer from "nodemailer";
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 const SMTP_URL = process.env.TRACEROOT_SMTP_URL;
 const SMTP_FROM = process.env.TRACEROOT_SMTP_MAIL_FROM || "noreply@traceroot.ai";
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
@@ -49,9 +57,9 @@ export async function sendFindingEmail(params: {
       `View trace: ${traceUrl}`,
     ].join("\n"),
     html: `
-<p><strong>${params.detectorName}</strong> fired on project <strong>${params.projectName}</strong>.</p>
-<p style="color:#888;font-size:12px;font-family:monospace;">Trace: ${params.traceId}</p>
-<p>${params.summary}</p>
+<p><strong>${escapeHtml(params.detectorName)}</strong> fired on project <strong>${escapeHtml(params.projectName)}</strong>.</p>
+<p style="color:#888;font-size:12px;font-family:monospace;">Trace: ${escapeHtml(params.traceId)}</p>
+<p>${escapeHtml(params.summary)}</p>
 <p><a href="${traceUrl}">View trace in Traceroot &rarr;</a></p>
     `.trim(),
   });
@@ -94,7 +102,7 @@ export async function sendCombinedAlertEmail(params: {
   const htmlRcaSection = hasRca
     ? `
 <h3 style="margin-top:20px;font-size:14px;color:#333;">Root Cause Analysis</h3>
-<pre style="background:#f6f6f6;padding:12px;border-radius:4px;font-size:13px;white-space:pre-wrap">${params.rcaResult}</pre>`
+<pre style="background:#f6f6f6;padding:12px;border-radius:4px;font-size:13px;white-space:pre-wrap">${escapeHtml(params.rcaResult!)}</pre>`
     : `<p style="color:#888;font-size:13px;margin-top:16px;">Root cause analysis did not complete.</p>`;
 
   await transport.sendMail({
@@ -103,10 +111,10 @@ export async function sendCombinedAlertEmail(params: {
     subject: `[Traceroot Alert] Trace ${shortTraceId} — ${params.projectName}`,
     text: textParts.join("\n"),
     html: `
-<p><strong>${params.detectorName}</strong> fired on project <strong>${params.projectName}</strong>.</p>
-<p style="color:#888;font-size:12px;font-family:monospace;">Trace: ${params.traceId}</p>
+<p><strong>${escapeHtml(params.detectorName)}</strong> fired on project <strong>${escapeHtml(params.projectName)}</strong>.</p>
+<p style="color:#888;font-size:12px;font-family:monospace;">Trace: ${escapeHtml(params.traceId)}</p>
 <h3 style="margin-top:16px;font-size:14px;color:#333;">Finding</h3>
-<p>${params.summary}</p>
+<p>${escapeHtml(params.summary)}</p>
 ${htmlRcaSection}
 <p style="margin-top:16px;"><a href="${traceUrl}">View trace in Traceroot &rarr;</a></p>
     `.trim(),

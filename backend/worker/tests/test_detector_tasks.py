@@ -165,45 +165,44 @@ def test_passes_trigger_single_condition_passes():
 # ── Tests for _enqueue_to_bullmq ───────────────────────────────────
 
 
-def test_enqueue_to_bullmq_calls_lpush_with_correct_key():
-    """_enqueue_to_bullmq calls lpush with correct queue key."""
+def test_enqueue_to_bullmq_calls_rpush_with_correct_key():
+    """_enqueue_to_bullmq calls rpush with correct queue key and job_id."""
     redis_client = MagicMock()
     queue_name = "detector-eval"
-    job_id = "detector-1:trace-abc"
+    job_id = "detector-1--trace-abc"
     data = {"traceId": "trace-abc", "detectorId": "detector-1"}
 
     _enqueue_to_bullmq(redis_client, queue_name, job_id, data)
 
-    # Verify lpush was called
-    redis_client.lpush.assert_called_once()
-    call_args = redis_client.lpush.call_args
+    # Verify rpush was called with the queue key and job_id string
+    redis_client.rpush.assert_called_once()
+    call_args = redis_client.rpush.call_args
     assert call_args[0][0] == f"bull:{queue_name}:wait"
+    assert call_args[0][1] == job_id
 
 
 def test_enqueue_to_bullmq_payload_structure():
-    """_enqueue_to_bullmq creates valid JSON payload with correct structure."""
+    """_enqueue_to_bullmq stores job payload in a Redis hash with correct structure."""
     redis_client = MagicMock()
     queue_name = "detector-eval"
-    job_id = "detector-1:trace-abc"
+    job_id = "detector-1--trace-abc"
     data = {"traceId": "trace-abc", "detectorId": "detector-1", "projectId": "proj-1"}
 
     _enqueue_to_bullmq(redis_client, queue_name, job_id, data)
 
-    # Get the payload passed to lpush (second argument in the first call)
-    call_args = redis_client.lpush.call_args
-    payload_str = call_args[0][1]
+    # Verify hset was called with the correct hash key and mapping
+    redis_client.hset.assert_called_once()
+    hset_call = redis_client.hset.call_args
+    assert hset_call[0][0] == f"bull:{queue_name}:{job_id}"
+    mapping = hset_call[1]["mapping"]
 
-    # Verify it's valid JSON
-    payload = json.loads(payload_str)
-
-    # Verify structure
-    assert payload["id"] == job_id
-    assert payload["name"] == "detect"
-    assert payload["data"] == data
-    assert "opts" in payload
-    assert payload["opts"]["jobId"] == job_id
-    assert payload["opts"]["removeOnComplete"] == 100
-    assert payload["opts"]["removeOnFail"] == 50
+    # Verify the hash fields
+    assert mapping["name"] == "detect"
+    assert json.loads(mapping["data"]) == data
+    opts = json.loads(mapping["opts"])
+    assert opts["jobId"] == job_id
+    assert opts["removeOnComplete"] == 100
+    assert opts["removeOnFail"] == 50
 
 
 def test_enqueue_to_bullmq_multiple_queues():
@@ -215,8 +214,8 @@ def test_enqueue_to_bullmq_multiple_queues():
     _enqueue_to_bullmq(redis_client, queue_name_1, "job-1", {"data": "1"})
     _enqueue_to_bullmq(redis_client, queue_name_2, "job-2", {"data": "2"})
 
-    # Check both calls
-    calls = redis_client.lpush.call_args_list
+    # Check both rpush calls use the correct queue wait keys
+    calls = redis_client.rpush.call_args_list
     assert len(calls) == 2
     assert calls[0][0][0] == f"bull:{queue_name_1}:wait"
     assert calls[1][0][0] == f"bull:{queue_name_2}:wait"

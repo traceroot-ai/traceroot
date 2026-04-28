@@ -82,13 +82,16 @@ Output your findings in this format:
   let rcaResult = "";
   const reader = msgRes.body!.getReader();
   const decoder = new TextDecoder();
+  let remainder = "";
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    const chunk = decoder.decode(value, { stream: true });
-    for (const line of chunk.split("\n")) {
+    const text = remainder + decoder.decode(value, { stream: true });
+    const lines = text.split("\n");
+    remainder = lines.pop() ?? ""; // last element: incomplete or empty
+    for (const line of lines) {
       if (line.startsWith("data: ")) {
         try {
           const event = JSON.parse(line.slice(6));
@@ -126,7 +129,7 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
 
       await prisma.detectorRca.upsert({
         where: { findingId },
-        create: { findingId, status: "running" },
+        create: { findingId, projectId, status: "running" },
         update: { status: "running" },
       });
 

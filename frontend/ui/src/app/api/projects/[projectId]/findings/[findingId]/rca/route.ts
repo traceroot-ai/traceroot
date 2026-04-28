@@ -14,6 +14,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   const accessResult = await requireProjectAccess(authResult.user.id, projectId);
   if (accessResult.error) return accessResult.error;
 
-  const rca = await prisma.detectorRca.findUnique({ where: { findingId } });
+  const rca = await prisma.detectorRca.findFirst({
+    where: { findingId, projectId },
+  });
   return successResponse({ rca });
 }
