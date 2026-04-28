@@ -85,8 +85,12 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
   // Build alert config update data
   const alertConfigData: Record<string, unknown> = {};
-  if (emailAddresses !== undefined)
-    alertConfigData.emailAddresses = Array.isArray(emailAddresses) ? emailAddresses : [];
+  if (emailAddresses !== undefined) {
+    if (!Array.isArray(emailAddresses)) {
+      return errorResponse("emailAddresses must be an array", 400);
+    }
+    alertConfigData.emailAddresses = emailAddresses;
+  }
   if (autoRca !== undefined) alertConfigData.autoRca = Boolean(autoRca);
 
   const detector = await prisma.detector.update({

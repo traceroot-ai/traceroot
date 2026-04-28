@@ -340,6 +340,7 @@ model DetectorAlertConfig {
 model DetectorRca {
   id          String    @id @default(cuid()) @db.VarChar
   findingId   String    @unique @map("finding_id") @db.VarChar  // trace-level finding UUID (one per trace)
+  projectId   String?   @map("project_id") @db.VarChar
   sessionId   String?   @map("session_id") @db.VarChar  // AISession id for the system RCA session
   status      String    @db.VarChar  // "pending"|"running"|"done"|"failed"
   result      String?   @db.Text

@@ -214,7 +214,7 @@ def enqueue_detector_runs(project_id: str, trace_ids: list[str]) -> None:
                 if random.random() > sample_rate:
                     continue
 
-                job_id = f"{detector['id']}:{trace_id}"
+                job_id = f"{detector['id']}--{trace_id}"
                 _enqueue_to_bullmq(
                     redis_client,
                     DETECTOR_RUN_QUEUE,
