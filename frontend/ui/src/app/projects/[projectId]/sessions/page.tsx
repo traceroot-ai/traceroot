@@ -11,6 +11,7 @@ import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { SessionDetailPanel } from "@/features/traces/components/SessionDetailPanel";
 import { useSessions, useListPageState } from "@/features/traces/hooks";
+import { useSession as useAuthSession } from "@/lib/auth-client";
 import { formatDate, formatCost, formatTokens, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { SessionListItem, SessionQueryOptions } from "@/types/api";
 
@@ -29,6 +30,7 @@ export default function SessionsPage() {
   const searchParams = useSearchParams();
   const projectId = params.projectId as string;
   const { aiPanelOpen, setAiPanelOpen, setHideAiButton } = useLayout();
+  const { isPending: authPending } = useAuthSession();
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
   const sessionIdFromUrl = searchParams.get("sessionId");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(sessionIdFromUrl);
@@ -58,7 +60,11 @@ export default function SessionsPage() {
     setHideAiButton(false);
   }, [setHideAiButton]);
 
-  const { data, isLoading, error } = useSessions(projectId, sessionQueryOptions);
+  const { data, isPending: dataPending, error } = useSessions(projectId, sessionQueryOptions);
+  // Auth-gated React Query reports isLoading: false while disabled (TanStack v5).
+  // Use isPending OR'd with auth pending so the loading branch shows during the
+  // auth-resolution window instead of falling through to the empty state.
+  const checking = authPending || dataPending;
 
   const sessions = data?.data || [];
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
@@ -116,7 +122,7 @@ export default function SessionsPage() {
 
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background">
-          {isLoading ? (
+          {checking ? (
             <div className="flex h-64 items-center justify-center">
               <p className="text-[13px] text-muted-foreground">Loading sessions...</p>
             </div>
