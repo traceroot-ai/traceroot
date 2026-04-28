@@ -111,7 +111,11 @@ export function SessionDetailPanel({
     };
   }, [dateFilter, customStartDate, customEndDate]);
 
-  const { data, isPending: dataPending, error } = useSession(projectId, sessionId, sessionQueryOptions);
+  const {
+    data,
+    isPending: dataPending,
+    error,
+  } = useSession(projectId, sessionId, sessionQueryOptions);
   // Auth-gated React Query reports isLoading: false while disabled (TanStack v5).
   // Use isPending OR'd with auth pending so the loading branch shows during the
   // auth-resolution window instead of falling through to "Session not found".
