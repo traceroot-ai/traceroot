@@ -64,22 +64,15 @@ export function formatDuration(ms: number | null | undefined): string {
   return `${minutes}m ${seconds}s`;
 }
 
-/**
- * Format token count to human readable string.
- * e.g., 1500 -> "1.5k", 1500000 -> "1.5M"
- */
+const _compactTokenFormatter = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  compactDisplay: "short",
+  maximumFractionDigits: 1,
+});
+
 export function formatTokens(count: number | null | undefined): string {
   if (count === null || count === undefined) return "-";
-
-  if (count < 1000) {
-    return String(count);
-  }
-
-  if (count < 1000000) {
-    return `${(count / 1000).toFixed(1)}k`;
-  }
-
-  return `${(count / 1000000).toFixed(1)}M`;
+  return _compactTokenFormatter.format(count);
 }
 
 /**
