@@ -22,10 +22,10 @@ import dspy
 import traceroot
 from traceroot import Integration, observe, using_attributes
 
-traceroot.initialize(integrations=[Integration.DSPY])
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+traceroot.initialize(integrations=[Integration.DSPY])
 
 
 # ---------------------------------------------------------------------------
@@ -88,5 +88,7 @@ def run_demo():
 
 if __name__ == "__main__":
     with using_attributes(user_id="example-user", session_id="dspy-cot-session"):
-        run_demo()
-    traceroot.flush()
+        try:
+            run_demo()
+        finally:
+            traceroot.flush()
