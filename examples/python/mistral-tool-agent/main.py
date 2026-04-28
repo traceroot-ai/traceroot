@@ -25,7 +25,7 @@ if dotenv_path:
 else:
     print("No .env file found (find_dotenv returned None).\nUsing process environment variables.")
 
-from mistralai.client.sdk import Mistral
+from mistralai import Mistral
 
 import traceroot
 from traceroot import Integration, observe, using_attributes
@@ -248,7 +248,20 @@ class ReActAgent:
                 )
 
                 for tc in msg.tool_calls:
-                    args = json.loads(tc.function.arguments)
+                    try:
+                        args = json.loads(tc.function.arguments)
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.warning(
+                            "Failed to parse tool arguments for %s: %s", tc.function.name, e
+                        )
+                        self.messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc.id,
+                                "content": json.dumps({"error": "Invalid tool arguments"}),
+                            }
+                        )
+                        continue
                     logger.info(f"Tool call: {tc.function.name}({args})")
                     result = self._execute_tool(tc.function.name, args)
                     logger.info(f"Tool result: {result}")
