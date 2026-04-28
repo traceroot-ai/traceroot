@@ -65,7 +65,9 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.ECR_REGISTRY }}/traceroot-${{ matrix.service }}
+          images: |
+            ${{ env.ECR_REGISTRY }}/traceroot-staging-${{ matrix.service }}
+            ${{ env.ECR_REGISTRY }}/traceroot-production-${{ matrix.service }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-
