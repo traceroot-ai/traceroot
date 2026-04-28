@@ -46,15 +46,20 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [hideAiButton, setHideAiButton] = useState(true);
   const pathname = usePathname();
 
-  // Close the global AI panel and reset button visibility whenever the user navigates.
+  // Close the global AI panel whenever the user navigates.
+  // NOTE: do NOT reset hideAiButton here. TracesPage.useLayoutEffect is the sole
+  // owner of that flag. Resetting it here creates a race: useLayoutEffect (child,
+  // synchronous) fires before useEffect (parent, async), so this reset always
+  // overwrites the correct value set by TracesPage — hiding the button in prod
+  // (Strict Mode's double-invoke masked the bug locally). The isTracesPage guard
+  // in showAiButton already prevents the button from rendering on other pages.
   useEffect(() => {
     setAiPanelOpen(false);
     setAiContext(null);
-    setHideAiButton(true);
   }, [pathname]);
 
-  const isTracesPage = /^\/projects\/[^/]+\/traces(\/|$)/.test(pathname);
-  const showAiButton = isTracesPage && !hideAiButton;
+  const isObservabilityPage = /^\/projects\/[^/]+\/(traces|users|sessions)(\/|$)/.test(pathname);
+  const showAiButton = isObservabilityPage && !hideAiButton;
   const projectIdMatch = pathname.match(/^\/projects\/([^/]+)/);
   const projectId = projectIdMatch?.[1];
 

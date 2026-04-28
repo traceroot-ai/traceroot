@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useLayoutEffect } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { useLayout } from "@/components/layout/app-layout";
 import { Workflow, Users, Layers, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -23,7 +24,12 @@ export default function UsersPage() {
   const params = useParams();
   const router = useRouter();
   const projectId = params.projectId as string;
+  const { setHideAiButton } = useLayout();
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
+
+  useLayoutEffect(() => {
+    setHideAiButton(false);
+  }, [setHideAiButton]);
 
   // Use URL-synced state management (shares date filter with other pages)
   const {
