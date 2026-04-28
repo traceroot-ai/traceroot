@@ -22,10 +22,9 @@ import dspy
 import traceroot
 from traceroot import Integration, observe, using_attributes
 
+traceroot.initialize(integrations=[Integration.DSPY])
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-traceroot.initialize(integrations=[Integration.DSPY])
 
 
 # ---------------------------------------------------------------------------
