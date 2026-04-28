@@ -228,28 +228,36 @@ class ReActAgent:
             msg = response.choices[0].message
 
             if msg.tool_calls:
-                self.messages.append({"role": "assistant", "content": msg.content or "", "tool_calls": [
+                self.messages.append(
                     {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        },
+                        "role": "assistant",
+                        "content": msg.content or "",
+                        "tool_calls": [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.function.name,
+                                    "arguments": tc.function.arguments,
+                                },
+                            }
+                            for tc in msg.tool_calls
+                        ],
                     }
-                    for tc in msg.tool_calls
-                ]})
+                )
 
                 for tc in msg.tool_calls:
                     args = json.loads(tc.function.arguments)
                     logger.info(f"Tool call: {tc.function.name}({args})")
                     result = self._execute_tool(tc.function.name, args)
                     logger.info(f"Tool result: {result}")
-                    self.messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": result,
-                    })
+                    self.messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": result,
+                        }
+                    )
             else:
                 self.messages.append({"role": "assistant", "content": msg.content})
                 return msg.content or ""
