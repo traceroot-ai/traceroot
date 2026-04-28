@@ -11,6 +11,7 @@ Run:
     python main.py
 """
 
+import os
 import json
 import logging
 from datetime import UTC, datetime
@@ -191,7 +192,7 @@ class ReActAgent:
     """ReAct-style agent using Mistral's tool calling API."""
 
     def __init__(self, model: str = "mistral-large-latest"):
-        self.client = Mistral()
+        self.client = Mistral(api_key=os.environ.get("MISTRAL_API_KEY"))
         self.model = model
         self.messages: list[dict] = [
             {
