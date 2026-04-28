@@ -61,6 +61,8 @@ spec:
                   key: {{ .Values.secrets.keys.encryptionKey }}
             - name: AGENT_SERVICE_URL
               value: "http://{{ include "traceroot.fullname" . }}-agent:{{ .Values.agent.port }}"
+            - name: BACKEND_INTERNAL_URL
+              value: "http://{{ include "traceroot.fullname" . }}-rest:{{ .Values.rest.port }}"
             - name: NEXT_PUBLIC_API_URL
               value: "http://{{ include "traceroot.fullname" . }}-rest:{{ .Values.rest.port }}/api/v1"
             - name: HOSTNAME
