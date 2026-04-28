@@ -62,6 +62,7 @@ billing:
     tag: "latest"
   replicas: 1
   usageMeteringCron: "5 * * * *"
+  dataRetentionCron: "0 2 * * *"
   resources:
     requests:
       cpu: "128m"
