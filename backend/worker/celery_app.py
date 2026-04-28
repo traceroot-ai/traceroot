@@ -6,6 +6,7 @@ Runs ClickHouse migrations on worker startup.
 
 import logging
 import os
+import ssl
 
 from celery import Celery
 from celery.signals import worker_ready
@@ -28,10 +29,15 @@ logging.basicConfig(
 
 app = Celery("traceroot")
 
+_use_ssl = settings.redis.url.startswith("rediss://")
+_ssl_config = {"ssl_cert_reqs": ssl.CERT_REQUIRED} if _use_ssl else None
+
 app.conf.update(
     # Broker and backend
     broker_url=settings.redis.url,
     result_backend=settings.redis.result_url,
+    broker_use_ssl=_ssl_config,
+    redis_backend_use_ssl=_ssl_config,
     # Reliability settings
     task_acks_late=True,  # ACK after task completes (not before)
     task_reject_on_worker_lost=True,  # Requeue if worker dies mid-task
