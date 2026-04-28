@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useLayoutEffect } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
@@ -34,7 +34,7 @@ export default function SessionsPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const projectId = params.projectId as string;
-  const { aiPanelOpen, setAiPanelOpen } = useLayout();
+  const { aiPanelOpen, setAiPanelOpen, setHideAiButton } = useLayout();
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
   const sessionIdFromUrl = searchParams.get("sessionId");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(sessionIdFromUrl);
@@ -59,6 +59,10 @@ export default function SessionsPage() {
     }),
     [queryOptions],
   );
+
+  useLayoutEffect(() => {
+    setHideAiButton(false);
+  }, [setHideAiButton]);
 
   const { data, isLoading, error } = useSessions(projectId, sessionQueryOptions);
 
