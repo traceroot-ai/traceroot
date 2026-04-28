@@ -73,7 +73,25 @@ async function calculate(expression: string): Promise<ToolResult> {
 
 async function getCurrentTime(timezone = 'UTC'): Promise<ToolResult> {
   return observe({ name: 'get_current_time', type: 'tool' }, async () => {
-    return { timezone, time: new Date().toISOString().replace('T', ' ').slice(0, 19) };
+    try {
+      const formatted = new Intl.DateTimeFormat('sv-SE', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).format(new Date());
+      return { timezone, time: formatted.replace(' ', 'T') };
+    } catch {
+      return {
+        timezone: 'UTC',
+        time: new Date().toISOString().slice(0, 19),
+        warning: `Unknown timezone '${timezone}', returned UTC instead.`,
+      };
+    }
   });
 }
 
@@ -179,7 +197,12 @@ class ReActAgent {
         if (!msg) return 'No response from model.';
 
         if (msg.tool_calls && msg.tool_calls.length > 0) {
-          this.messages.push({ role: 'assistant', content: msg.content ?? '' });
+          // Preserve model tool-call metadata so tool result messages are correctly linked.
+          this.messages.push({
+            role: 'assistant',
+            content: msg.content,
+            tool_calls: msg.tool_calls,
+          });
           for (const tc of msg.tool_calls) {
             const args = JSON.parse(tc.function.arguments || '{}') as ToolArgs;
             console.log(`Tool call: ${tc.function.name}(${JSON.stringify(args)})`);
