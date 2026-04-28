@@ -22,7 +22,6 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.87.0",
-    "@slack/web-api": "^7.15.0",
     "@traceroot/core": "workspace:*",
     "bullmq": "^5.73.3",
     "ioredis": "^5.10.1",
