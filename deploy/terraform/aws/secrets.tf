@@ -42,7 +42,7 @@ resource "kubernetes_secret" "app" {
     "internal-api-secret" = random_password.internal_api_secret.result
     "clickhouse-password" = random_password.clickhouse.result
     "database-url"        = "postgresql://traceroot:${random_password.postgres.result}@${aws_rds_cluster.postgres.endpoint}:5432/${local.database_name}"
-    "redis-url"           = "rediss://:${random_password.redis.result}@${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379/0?ssl_cert_reqs=CERT_REQUIRED"
+    "redis-url"           = "rediss://:${random_password.redis.result}@${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379/0"
     "encryption-key"      = random_id.encryption_key.hex
   }
 
