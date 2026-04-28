@@ -10,6 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useUsers, useListPageState } from "@/features/traces/hooks";
+import { useSession as useAuthSession } from "@/lib/auth-client";
 import { formatDate, formatCost, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { UserListItem } from "@/lib/api/users";
 import type { UserQueryOptions } from "@/lib/api/users";
@@ -25,6 +26,7 @@ export default function UsersPage() {
   const router = useRouter();
   const projectId = params.projectId as string;
   const { setHideAiButton } = useLayout();
+  const { isPending: authPending } = useAuthSession();
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
 
   useLayoutEffect(() => {
@@ -54,7 +56,11 @@ export default function UsersPage() {
     [queryOptions],
   );
 
-  const { data, isLoading, error } = useUsers(projectId, userQueryOptions);
+  const { data, isPending: dataPending, error } = useUsers(projectId, userQueryOptions);
+  // Auth-gated React Query reports isLoading: false while disabled (TanStack v5).
+  // Use isPending OR'd with auth pending so the loading branch shows during the
+  // auth-resolution window instead of falling through to the empty state.
+  const checking = authPending || dataPending;
 
   const users = data?.data || [];
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
@@ -117,7 +123,7 @@ export default function UsersPage() {
 
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background">
-          {isLoading ? (
+          {checking ? (
             <div className="flex h-64 items-center justify-center">
               <p className="text-[13px] text-muted-foreground">Loading users...</p>
             </div>
