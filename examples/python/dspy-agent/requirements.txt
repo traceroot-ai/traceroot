@@ -2,4 +2,4 @@ python-dotenv>=1.0.0
 
 # `[dspy]` extra brings in dspy + openinference-instrumentation-dspy.
 # Bump to the first traceroot release that ships the DSPy integration.
-traceroot[dspy]==0.1.4
+traceroot[dspy]==0.1.5
