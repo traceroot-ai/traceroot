@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireAuth, requireProjectAccess } from "@/lib/auth-helpers";
 
-const TRACE_API_URL = process.env.TRACE_API_URL || "http://localhost:8000";
+const NEXT_PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
 type RouteParams = { params: Promise<{ projectId: string; traceId: string }> };
 
@@ -17,7 +17,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   if (accessResult.error) return accessResult.error;
 
   const backendRes = await fetch(
-    `${TRACE_API_URL}/api/v1/projects/${projectId}/traces/${traceId}/live`,
+    `${NEXT_PUBLIC_API_URL}/projects/${projectId}/traces/${traceId}/live`,
     {
       headers: { "x-user-id": user.id },
     },
