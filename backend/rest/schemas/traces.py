@@ -17,6 +17,7 @@ class SpanResponse(BaseModel):
     span_kind: str
     span_start_time: datetime
     span_end_time: datetime | None
+    duration_ms: float | None = None
     status: str
     status_message: str | None
     model_name: str | None
@@ -65,6 +66,7 @@ class TraceDetailResponse(BaseModel):
     project_id: str
     name: str
     trace_start_time: datetime
+    duration_ms: float | None = None
     user_id: str | None
     session_id: str | None
     git_ref: str | None
