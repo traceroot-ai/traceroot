@@ -107,7 +107,7 @@ export function SpanTreeView({
               {formatTokens(traceTokenUsage.totalTokens)}
             </span>
           )}
-          {!compact && traceTotalCost && (
+          {!compact && traceTotalCost != null && (
             <span className="inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
               <CircleDollarSign className="h-2.5 w-2.5" />
               {traceTotalCost.toFixed(4)}

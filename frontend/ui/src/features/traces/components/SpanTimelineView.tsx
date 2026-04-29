@@ -87,7 +87,7 @@ export function SpanTimelineView({
   }, [trace.spans, trace.duration_ms]);
 
   const ticks = useMemo(() => {
-    const durationSec = traceDurationMs / 1000;
+    const durationSec = traceDurationMs > 0 ? traceDurationMs / 1000 : 1;
     const maxTicks = Math.max(2, Math.floor(timelineWidth / 80));
     const stepSec = NICE_STEPS_SEC.find((s) => s >= durationSec / maxTicks) ?? 3600;
     const count = Math.ceil(durationSec / stepSec) + 1;
