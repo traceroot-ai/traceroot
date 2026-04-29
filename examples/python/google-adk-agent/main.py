@@ -36,6 +36,7 @@ from google.genai import types
 # Tools
 # ---------------------------------------------------------------------------
 
+
 def get_weather(city: str) -> dict:
     """Get current weather for a city."""
     weather_db = {
@@ -131,11 +132,19 @@ async def run_demo():
                 parts=[types.Part(text=query)],
             ),
         ):
-            if event.is_final_response():
+            if (
+                event.is_final_response()
+                and event.content
+                and event.content.parts
+                and event.content.parts[0].text
+            ):
                 print(f"\nAgent: {event.content.parts[0].text.strip()}\n")
 
 
 if __name__ == "__main__":
     with using_attributes(user_id="example-user", session_id="google-adk-agent-session"):
-        asyncio.run(run_demo())
+        try:
+            asyncio.run(run_demo())
+        finally:
+            traceroot.flush()
     traceroot.flush()
