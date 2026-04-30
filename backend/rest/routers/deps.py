@@ -1,5 +1,6 @@
 """FastAPI dependencies for authentication (via Next.js internal API)."""
 
+import hmac
 from typing import Annotated
 
 import httpx
@@ -37,7 +38,12 @@ async def get_project_access(
     not found.
     """
     # System bypass: agent service / worker calling on behalf of the system.
-    if x_internal_secret and x_internal_secret == settings.internal_api_secret:
+    # Constant-time compare to avoid leaking the secret via response timing.
+    if (
+        x_internal_secret
+        and settings.internal_api_secret
+        and hmac.compare_digest(x_internal_secret, settings.internal_api_secret)
+    ):
         return ProjectAccessInfo(
             project_id=project_id,
             user_id=x_user_id or "system",

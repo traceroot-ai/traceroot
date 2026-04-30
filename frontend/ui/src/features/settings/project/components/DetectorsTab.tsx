@@ -64,6 +64,8 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
   const isEmailsDirty =
     emailAddresses.length !== savedEmails.length ||
     emailAddresses.some((e, i) => e !== savedEmails[i]);
+  // Save is only meaningful once the project query has resolved.
+  const canSave = !!project;
 
   if (isLoading) {
     return <div className="text-[13px] text-muted-foreground">Loading...</div>;
@@ -93,7 +95,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             size="sm"
             className="mt-3 h-7 text-[12px]"
             onClick={() => modelMutation.mutate(agentModelSelection)}
-            disabled={modelMutation.isPending || !isModelDirty}
+            disabled={!canSave || modelMutation.isPending || !isModelDirty}
           >
             {modelMutation.isPending ? "Saving..." : "Save"}
           </Button>
@@ -121,7 +123,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             size="sm"
             className="mt-3 h-7 text-[12px]"
             onClick={() => emailsMutation.mutate(emailAddresses)}
-            disabled={emailsMutation.isPending || !isEmailsDirty}
+            disabled={!canSave || emailsMutation.isPending || !isEmailsDirty}
           >
             {emailsMutation.isPending ? "Saving..." : "Save"}
           </Button>

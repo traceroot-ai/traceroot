@@ -32,7 +32,12 @@ export default function NewDetectorPage() {
   const [nameEdited, setNameEdited] = useState(false);
   const [prompt, setPrompt] = useState(INITIAL_TEMPLATE.prompt);
   const [sampleRate, setSampleRate] = useState(100);
-  const [triggerConditions, setTriggerConditions] = useState<TriggerCondition[]>([]);
+  // Seeded from the template's defaultConditions so a user who picks
+  // "Failure" and clicks Create gets the trigger filters the template
+  // intends, not an unfiltered detector that fires on every trace.
+  const [triggerConditions, setTriggerConditions] = useState<TriggerCondition[]>(
+    INITIAL_TEMPLATE.defaultConditions as TriggerCondition[],
+  );
   const [modelSelection, setModelSelection] = useState<ModelSelection>({
     model: "",
     provider: "",
@@ -45,6 +50,7 @@ export default function NewDetectorPage() {
     if (template) {
       setSelectedTemplate(templateId);
       setPrompt(template.prompt);
+      setTriggerConditions(template.defaultConditions as TriggerCondition[]);
       if (!nameEdited) setName(templateId === "blank" ? "" : template.label + " Detector");
     }
   };
