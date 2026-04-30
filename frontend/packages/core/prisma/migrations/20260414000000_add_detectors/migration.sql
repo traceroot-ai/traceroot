@@ -46,7 +46,7 @@ CREATE TABLE "detector_alert_configs" (
 CREATE TABLE "detector_rcas" (
     "id" VARCHAR NOT NULL,
     "finding_id" VARCHAR NOT NULL,
-    "project_id" VARCHAR,
+    "project_id" VARCHAR NOT NULL,
     "session_id" VARCHAR,
     "status" VARCHAR NOT NULL,
     "result" TEXT,
@@ -68,6 +68,9 @@ CREATE UNIQUE INDEX "detector_alert_configs_project_id_key" ON "detector_alert_c
 -- CreateIndex
 CREATE UNIQUE INDEX "detector_rcas_finding_id_key" ON "detector_rcas"("finding_id");
 
+-- CreateIndex
+CREATE INDEX "ix_detector_rcas_project_id" ON "detector_rcas"("project_id");
+
 -- AddForeignKey
 ALTER TABLE "detectors" ADD CONSTRAINT "detectors_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "projects"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -76,6 +79,9 @@ ALTER TABLE "detector_triggers" ADD CONSTRAINT "detector_triggers_detector_id_fk
 
 -- AddForeignKey
 ALTER TABLE "detector_alert_configs" ADD CONSTRAINT "detector_alert_configs_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "projects"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "detector_rcas" ADD CONSTRAINT "detector_rcas_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "projects"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- Make ai_sessions.user_id nullable (system/RCA sessions have no user)
 ALTER TABLE "ai_sessions" ALTER COLUMN "user_id" DROP NOT NULL;
