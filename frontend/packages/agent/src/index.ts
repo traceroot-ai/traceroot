@@ -120,6 +120,15 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     source?: ModelSource;
   }>();
 
+  // Authorize first: caller must own the session (user-bound) or have
+  // projectId scope on a system session. Without this check, any caller
+  // who can reach the proxy could append messages and run the LLM in
+  // another user's session by guessing/known sessionIds.
+  const ownedSession = await getSession(sessionId, userId, projectId);
+  if (!ownedSession) {
+    return c.json({ error: "session not found" }, 404);
+  }
+
   const systemPrompt = getSystemPrompt({
     projectId,
     traceId: body.traceId,
@@ -156,9 +165,9 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   // Persist user message to DB via SessionManager
   await sessionManager.appendMessage("user", body.message);
 
-  // Auto-generate session title from first user message
-  const session = await getSession(sessionId, userId, projectId);
-  if (session && !session.title) {
+  // Auto-generate session title from first user message (we already have
+  // the session loaded above for the auth check — reuse it).
+  if (!ownedSession.title) {
     const title = body.message.slice(0, 80) + (body.message.length > 80 ? "..." : "");
     await updateSessionTitle(sessionId, title);
   }

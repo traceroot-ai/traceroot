@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, ChevronDown, Flag, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -64,6 +64,16 @@ export default function DetectorDetailPage() {
 
   const runs = runsData?.runs ?? [];
   const runsHasMore = runs.length === runsLimit;
+
+  // Clear `selectedFinding` if the row it points to is no longer in the
+  // current findings list (e.g. user paginated, refetched, or filtered).
+  // Without this the trace panel stays open showing a finding that's no
+  // longer visible in the table, and `handleNavigate` silently no-ops.
+  useEffect(() => {
+    if (selectedFinding && !findings.some((f) => f.finding_id === selectedFinding.finding_id)) {
+      setSelectedFinding(null);
+    }
+  }, [findings, selectedFinding]);
 
   const selectedIndex = selectedFinding
     ? findings.findIndex((f) => f.finding_id === selectedFinding.finding_id)
