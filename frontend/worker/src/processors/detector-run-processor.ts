@@ -1,5 +1,5 @@
 import { Worker, Queue, type Job } from "bullmq";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { prisma } from "@traceroot/core";
 import type {
   DetectorRunJob,
@@ -196,8 +196,17 @@ async function processTrace(
 
   if (triggered.length === 0) return;
 
-  // ONE finding per trace — aggregate all triggered detector summaries
-  const findingId = randomUUID();
+  // ONE finding per trace — aggregate all triggered detector summaries.
+  // findingId is a deterministic hash of (projectId, traceId) so a job retry
+  // (BullMQ attempts: 3) lands on the same finding/RCA row instead of creating
+  // a duplicate. ClickHouse-level dedup of finding rows is a follow-up
+  // (ReplacingMergeTree on finding_id), but Postgres DetectorRca + the RCA
+  // queue jobId are now both keyed by this stable id.
+  const findingId = createHash("sha256")
+    .update(`${projectId}:${traceId}`)
+    .digest("hex")
+    .slice(0, 32)
+    .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
   const combinedSummary = triggered.map((r) => `[${r.detectorName}] ${r.summary}`).join("\n");
   const payload = JSON.stringify(
     triggered.map((r) => ({

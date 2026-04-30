@@ -61,6 +61,30 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return errorResponse("name, template, and prompt are required", 400);
   }
 
+  // Validate sampleRate (integer 0-100). Fall back to 100 only when omitted.
+  let resolvedSampleRate = 100;
+  if (sampleRate !== undefined) {
+    if (
+      typeof sampleRate !== "number" ||
+      !Number.isInteger(sampleRate) ||
+      sampleRate < 0 ||
+      sampleRate > 100
+    ) {
+      return errorResponse("sampleRate must be an integer between 0 and 100", 400);
+    }
+    resolvedSampleRate = sampleRate;
+  }
+
+  // Validate triggerConditions and outputSchema are arrays when provided —
+  // a non-array object would otherwise silently produce an empty list and
+  // cause the detector to fire on every trace.
+  if (triggerConditions !== undefined && !Array.isArray(triggerConditions)) {
+    return errorResponse("triggerConditions must be an array", 400);
+  }
+  if (outputSchema !== undefined && !Array.isArray(outputSchema)) {
+    return errorResponse("outputSchema must be an array", 400);
+  }
+
   const detector = await prisma.detector.create({
     data: {
       projectId,
@@ -68,7 +92,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       template: template as string,
       prompt: prompt as string,
       outputSchema: (outputSchema as object) ?? [],
-      sampleRate: typeof sampleRate === "number" ? sampleRate : 100,
+      sampleRate: resolvedSampleRate,
       detectionModel: typeof detectionModel === "string" && detectionModel ? detectionModel : null,
       detectionProvider:
         typeof detectionProvider === "string" && detectionProvider ? detectionProvider : null,

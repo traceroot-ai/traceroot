@@ -171,12 +171,9 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
         update: { projectId, status: "running" },
       });
 
-      // Pull project-scoped rca_model and alert recipients in one read.
-      const project = await prisma.project.findUnique({
-        where: { id: projectId },
-        select: { rcaModel: true, alertConfig: { select: { emailAddresses: true } } },
-      });
-      const emailAddresses = project?.alertConfig?.emailAddresses ?? [];
+      // emailAddresses is captured inside the try below; declare here so the
+      // outer catch's fallback alert can still use it (defaults to []).
+      let emailAddresses: string[] = [];
 
       // Always send a combined alert (success: with RCA result; failure: null).
       // Detector findings should never fail silently on configured channels.
@@ -195,6 +192,15 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
       };
 
       try {
+        // Pull project-scoped rca_model and alert recipients in one read.
+        // Inside the try so a Prisma failure routes through the catch's
+        // failure-state + fallback-alert handling.
+        const project = await prisma.project.findUnique({
+          where: { id: projectId },
+          select: { rcaModel: true, alertConfig: { select: { emailAddresses: true } } },
+        });
+        emailAddresses = project?.alertConfig?.emailAddresses ?? [];
+
         // Find any workspace member with a GitHub connection for the GitHub tool.
         // TODO (PR 2): replace with project-level GitHubConnection lookup.
         const members = await prisma.workspaceMember.findMany({

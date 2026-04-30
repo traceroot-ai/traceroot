@@ -69,6 +69,29 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     detectionAdapter,
   } = body as Record<string, unknown>;
 
+  // Validate types up-front so invalid payloads return 400 instead of crashing
+  // Prisma later. `Boolean(enabled)` would coerce strings like "false" to true;
+  // require a strict boolean. sampleRate must be an integer 0-100.
+  if (enabled !== undefined && typeof enabled !== "boolean") {
+    return errorResponse("enabled must be a boolean", 400);
+  }
+  if (sampleRate !== undefined) {
+    if (
+      typeof sampleRate !== "number" ||
+      !Number.isInteger(sampleRate) ||
+      sampleRate < 0 ||
+      sampleRate > 100
+    ) {
+      return errorResponse("sampleRate must be an integer between 0 and 100", 400);
+    }
+  }
+  if (triggerConditions !== undefined && !Array.isArray(triggerConditions)) {
+    return errorResponse("triggerConditions must be an array", 400);
+  }
+  if (outputSchema !== undefined && !Array.isArray(outputSchema)) {
+    return errorResponse("outputSchema must be an array", 400);
+  }
+
   // Build detector update data (only include defined fields)
   // Note: template is not updatable - it's set at creation time and cannot be changed
   const detectorData: Record<string, unknown> = {};
@@ -76,7 +99,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (prompt !== undefined) detectorData.prompt = prompt;
   if (outputSchema !== undefined) detectorData.outputSchema = outputSchema;
   if (sampleRate !== undefined) detectorData.sampleRate = sampleRate;
-  if (enabled !== undefined) detectorData.enabled = Boolean(enabled);
+  if (enabled !== undefined) detectorData.enabled = enabled;
   if (detectionModel !== undefined) detectorData.detectionModel = detectionModel || null;
   if (detectionProvider !== undefined) detectorData.detectionProvider = detectionProvider || null;
   if (detectionAdapter !== undefined) detectorData.detectionAdapter = detectionAdapter || null;
