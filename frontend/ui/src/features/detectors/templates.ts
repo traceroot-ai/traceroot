@@ -105,19 +105,6 @@ Report identified=true only for clear, concrete safety violations.`,
     defaultConditions: [{ field: "root_span_finished", op: "=", value: true }],
   },
   {
-    id: "intent",
-    label: "Intent",
-    description: "Classify what the user was trying to do",
-    prompt: `Analyze this trace and classify the user's intent based on their initial message and the agent's behavior.
-
-This detector always fires (identified=true). Use it to tag and categorize traffic.`,
-    outputSchema: [
-      { name: "complexity", type: "string" },
-      { name: "intent_category", type: "string" },
-    ],
-    defaultConditions: [{ field: "root_span_finished", op: "=", value: true }],
-  },
-  {
     id: "blank",
     label: "Blank",
     description: "Write your own detector from scratch",

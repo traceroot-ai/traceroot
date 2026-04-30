@@ -197,35 +197,39 @@ def enqueue_detector_runs(project_id: str, trace_ids: list[str]) -> None:
         summaries = _get_trace_summaries(project_id, trace_ids)
         redis_client = _get_redis()
 
-        for detector in detectors:
-            conditions: list[dict] = detector["conditions"]
-            sample_rate = detector["sample_rate"] / 100.0
+        # Group triggered detectors per trace so we enqueue ONE job per trace
+        # carrying the complete detector set. The TS worker can then run all
+        # detector evals for a trace in parallel and produce exactly one finding.
+        for trace_id in trace_ids:
+            summary = summaries.get(trace_id, {})
 
-            for trace_id in trace_ids:
-                summary = summaries.get(trace_id, {})
+            # Hardcoded gate: never fire on incomplete traces (root span must exist)
+            if not summary.get("root_span_finished"):
+                continue
 
-                # Hardcoded gate: never fire on incomplete traces (root span must exist)
-                if not summary.get("root_span_finished"):
+            triggered_ids: list[str] = []
+            for detector in detectors:
+                if not _passes_trigger(summary, detector["conditions"]):
                     continue
-
-                if not _passes_trigger(summary, conditions):
+                if random.random() > detector["sample_rate"] / 100.0:
                     continue
+                triggered_ids.append(detector["id"])
 
-                if random.random() > sample_rate:
-                    continue
+            if not triggered_ids:
+                continue
 
-                job_id = f"{detector['id']}--{trace_id}"
-                _enqueue_to_bullmq(
-                    redis_client,
-                    DETECTOR_RUN_QUEUE,
-                    job_id,
-                    {
-                        "traceId": trace_id,
-                        "detectorId": detector["id"],
-                        "projectId": project_id,
-                    },
-                )
-                logger.debug(f"Enqueued detector run: detector={detector['id']} trace={trace_id}")
+            job_id = f"{project_id}--{trace_id}"
+            _enqueue_to_bullmq(
+                redis_client,
+                DETECTOR_RUN_QUEUE,
+                job_id,
+                {
+                    "traceId": trace_id,
+                    "detectorIds": triggered_ids,
+                    "projectId": project_id,
+                },
+            )
+            logger.debug(f"Enqueued detector run: trace={trace_id} detectors={triggered_ids}")
 
     except Exception as e:
         # Non-blocking: log and return, never raise

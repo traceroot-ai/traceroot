@@ -3,7 +3,7 @@ import IORedis from "ioredis";
 
 export interface DetectorRunJob {
   traceId: string;
-  detectorId: string;
+  detectorIds: string[];
   projectId: string;
 }
 
@@ -20,7 +20,6 @@ export interface DetectorRcaJob {
   workspaceId: string;
   projectName: string;
   findings: DetectorRcaFinding[];
-  emailAddresses: string[];
 }
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";

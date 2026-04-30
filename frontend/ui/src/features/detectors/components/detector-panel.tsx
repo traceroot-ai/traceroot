@@ -3,9 +3,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { Eye, X, Copy, Check, ArrowUp, ArrowDown } from "lucide-react";
 import { useDetectors, useUpdateDetector } from "../hooks/use-detectors";
+import { useProject } from "@/features/projects/hooks";
 import { TriggerEditor } from "./trigger-editor";
 import type { TriggerCondition } from "./trigger-editor";
-import { AlertChannelsEditor } from "./alert-channels-editor";
+import { AgentModelLink } from "./agent-model-link";
 import {
   ModelSelector,
   type ModelSelection,
@@ -34,6 +35,7 @@ export function DetectorPanel({
 }: DetectorPanelProps) {
   const { data: detectorsData } = useDetectors(projectId);
   const detector = detectorsData?.find((d) => d.id === detectorId);
+  const { data: project } = useProject(projectId);
 
   const [editName, setEditName] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
@@ -45,7 +47,6 @@ export function DetectorPanel({
     adapter: "",
   });
   const [editConditions, setEditConditions] = useState<TriggerCondition[]>([]);
-  const [editEmailAddresses, setEditEmailAddresses] = useState<string[]>([]);
 
   const populate = (d: typeof detector) => {
     if (!d) return;
@@ -59,7 +60,6 @@ export function DetectorPanel({
       adapter: d.detectionAdapter ?? "",
     });
     setEditConditions((d.trigger?.conditions ?? []) as TriggerCondition[]);
-    setEditEmailAddresses(d.alertConfig?.emailAddresses ?? []);
   };
 
   useEffect(() => {
@@ -85,7 +85,6 @@ export function DetectorPanel({
         prompt: editPrompt,
         sampleRate: editSampleRate,
         triggerConditions: editConditions,
-        emailAddresses: editEmailAddresses,
         detectionModel: editModelSelection.model || undefined,
         detectionProvider: editModelSelection.provider || undefined,
         detectionAdapter: editModelSelection.adapter || undefined,
@@ -161,17 +160,36 @@ export function DetectorPanel({
           </div>
         </div>
 
-        {/* Model */}
+        {/* Models */}
         <div className="border border-border">
           <div className="border-b border-border bg-muted/50 px-3 py-1.5">
             <span className="text-[12px] font-medium text-muted-foreground">Model</span>
           </div>
-          <div className="p-3">
-            <ModelSelector
-              value={editModelSelection}
-              onChange={setEditModelSelection}
-              workspaceId={workspaceId}
-            />
+          <div className="divide-y divide-border">
+            {/* Detector Model — per-detector, editable */}
+            <div className="p-3">
+              <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Detector Model</p>
+              <ModelSelector
+                value={editModelSelection}
+                onChange={setEditModelSelection}
+                workspaceId={workspaceId}
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Used to evaluate each trace for this detector.
+              </p>
+            </div>
+            {/* Agent Model — project-scoped, click to configure in settings */}
+            <div className="p-3">
+              <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">Agent Model</p>
+              <AgentModelLink
+                projectId={projectId}
+                rcaModel={project?.rca_model}
+                workspaceId={workspaceId}
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Used for deep analysis when findings are triggered. Shared across all detectors.
+              </p>
+            </div>
           </div>
         </div>
 
@@ -213,14 +231,6 @@ export function DetectorPanel({
               {editSampleRate}%
             </span>
           </div>
-        </div>
-
-        {/* Alerts */}
-        <div className="border border-border">
-          <AlertChannelsEditor
-            emailAddresses={editEmailAddresses}
-            onChange={setEditEmailAddresses}
-          />
         </div>
 
         {/* Save / Cancel */}

@@ -173,6 +173,9 @@ export default function DetectorDetailPage() {
                         <th className="w-[280px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                           Finding ID
                         </th>
+                        <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                          Summary
+                        </th>
                         <th className="w-[90px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                           Status
                         </th>
@@ -202,6 +205,15 @@ export default function DetectorDetailPage() {
                           </td>
                           <td className="border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
                             {e.finding_id ?? "—"}
+                          </td>
+                          <td className="max-w-[400px] border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
+                            {e.summary ? (
+                              <span className="block truncate" title={e.summary}>
+                                {e.summary.length > 100 ? e.summary.slice(0, 100) + "…" : e.summary}
+                              </span>
+                            ) : (
+                              <span className="font-mono text-[11px] text-muted-foreground">—</span>
+                            )}
                           </td>
                           <td className="px-3 py-1.5 text-[12px] text-muted-foreground">
                             {e.status}

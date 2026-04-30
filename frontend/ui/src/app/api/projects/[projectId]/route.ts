@@ -27,6 +27,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     },
     include: {
       _count: { select: { accessKeys: true } },
+      alertConfig: true,
     },
   });
 
@@ -39,6 +40,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     workspace_id: project.workspaceId,
     name: project.name,
     trace_ttl_days: project.traceTtlDays,
+    rca_model: project.rcaModel,
+    alert_emails: project.alertConfig?.emailAddresses ?? [],
     access_key_count: project._count.accessKeys,
     create_time: project.createTime,
     update_time: project.updateTime,

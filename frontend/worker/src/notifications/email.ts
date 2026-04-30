@@ -27,47 +27,8 @@ function createTransport() {
 }
 
 /**
- * Send an immediate finding alert email (used when autoRca is disabled).
- * Returns null if SMTP is not configured or recipient list is empty.
- */
-export async function sendFindingEmail(params: {
-  to: string[];
-  detectorName: string;
-  projectName: string;
-  summary: string;
-  traceId: string;
-  projectId: string;
-}): Promise<void> {
-  const transport = createTransport();
-  if (!transport || params.to.length === 0) return;
-
-  const traceUrl = `${APP_BASE_URL}/projects/${params.projectId}/traces?traceId=${params.traceId}`;
-  const shortTraceId = params.traceId.slice(0, 8);
-
-  await transport.sendMail({
-    from: SMTP_FROM,
-    to: params.to.join(", "),
-    subject: `[Traceroot Alert] Trace ${shortTraceId} — ${params.projectName}`,
-    text: [
-      `${params.detectorName} fired on project ${params.projectName}.`,
-      `Trace: ${params.traceId}`,
-      ``,
-      params.summary,
-      ``,
-      `View trace: ${traceUrl}`,
-    ].join("\n"),
-    html: `
-<p><strong>${escapeHtml(params.detectorName)}</strong> fired on project <strong>${escapeHtml(params.projectName)}</strong>.</p>
-<p style="color:#888;font-size:12px;font-family:monospace;">Trace: ${escapeHtml(params.traceId)}</p>
-<p>${escapeHtml(params.summary)}</p>
-<p><a href="${traceUrl}">View trace in Traceroot &rarr;</a></p>
-    `.trim(),
-  });
-}
-
-/**
  * Send a combined alert email with the finding summary + RCA result in one message.
- * Used when autoRca is enabled — sent after the RCA agent completes (or fails).
+ * Sent after the RCA agent completes (or fails).
  * If rcaResult is null, sends a finding-only email (RCA failed fallback — never silent).
  */
 export async function sendCombinedAlertEmail(params: {

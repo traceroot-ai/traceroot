@@ -1,10 +1,25 @@
 import { Worker, type Job } from "bullmq";
-import { prisma } from "@traceroot/core";
+import { prisma, SYSTEM_MODELS } from "@traceroot/core";
 import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
 import { DETECTOR_RCA_QUEUE, createRedisConnection } from "../queues/detector-run-queue.js";
 import { sendCombinedAlertEmail } from "../notifications/email.js";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
+
+// Resolve a project-configured rca_model id to the agent service body fields.
+// Returns null when the model is unset or unknown (caller should omit fields).
+function resolveSystemModel(
+  rcaModel: string | null | undefined,
+): { model: string; providerName: string; source: "system" } | null {
+  if (!rcaModel) return null;
+  for (const group of SYSTEM_MODELS) {
+    if (group.models.some((m) => m.id === rcaModel)) {
+      return { model: rcaModel, providerName: group.piAIProvider, source: "system" };
+    }
+  }
+  console.warn(`[detector-rca] Unknown rca_model "${rcaModel}", falling back to default`);
+  return null;
+}
 
 async function runRcaSession(params: {
   findingId: string;
@@ -14,6 +29,7 @@ async function runRcaSession(params: {
   findings: DetectorRcaJob["findings"];
   hasGitHub: boolean;
   githubUserId?: string;
+  rcaModel?: string | null;
 }): Promise<{ result: string; sessionId: string }> {
   const sessionRes = await fetch(
     `${AGENT_SERVICE_URL}/api/v1/projects/${params.projectId}/sessions`,
@@ -33,6 +49,21 @@ async function runRcaSession(params: {
     throw new Error(`Failed to create RCA session: HTTP ${sessionRes.status}`);
   }
   const session = await sessionRes.json();
+
+  // Persist sessionId immediately so the UI can open the RCA chat even if the
+  // agent run later fails — the user can read the prompt + partial output and
+  // continue the conversation in the same session. Upsert (not update) because
+  // the seed row from detector-run-processor is best-effort and may be missing.
+  await prisma.detectorRca.upsert({
+    where: { findingId: params.findingId },
+    create: {
+      findingId: params.findingId,
+      projectId: params.projectId,
+      status: "running",
+      sessionId: session.id,
+    },
+    update: { sessionId: session.id },
+  });
 
   const findingsList = params.findings
     .map((f, i) => `${i + 1}. Detector "${f.detectorName}" fired:\n   ${f.summary}`)
@@ -65,12 +96,26 @@ Output your findings in this format:
     msgHeaders["x-user-id"] = params.githubUserId;
   }
 
+  const resolved = resolveSystemModel(params.rcaModel);
+  const msgBody: {
+    message: string;
+    traceId: string;
+    model?: string;
+    providerName?: string;
+    source?: "system";
+  } = { message: prompt, traceId: params.traceId };
+  if (resolved) {
+    msgBody.model = resolved.model;
+    msgBody.providerName = resolved.providerName;
+    msgBody.source = resolved.source;
+  }
+
   const msgRes = await fetch(
     `${AGENT_SERVICE_URL}/api/v1/projects/${params.projectId}/sessions/${session.id}/messages`,
     {
       method: "POST",
       headers: msgHeaders,
-      body: JSON.stringify({ message: prompt, traceId: params.traceId }),
+      body: JSON.stringify(msgBody),
     },
   );
 
@@ -109,12 +154,6 @@ Output your findings in this format:
     }
   }
 
-  // Store session ID so the UI can open the RCA chat by finding_id
-  await prisma.detectorRca.update({
-    where: { findingId: params.findingId },
-    data: { sessionId: session.id },
-  });
-
   return { result: rcaResult, sessionId: session.id };
 }
 
@@ -124,14 +163,36 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
   const worker = new Worker<DetectorRcaJob>(
     DETECTOR_RCA_QUEUE,
     async (job: Job<DetectorRcaJob>) => {
-      const { findingId, projectId, traceId, workspaceId, projectName, findings, emailAddresses } =
-        job.data;
+      const { findingId, projectId, traceId, workspaceId, projectName, findings } = job.data;
 
       await prisma.detectorRca.upsert({
         where: { findingId },
         create: { findingId, projectId, status: "running" },
-        update: { status: "running" },
+        update: { projectId, status: "running" },
       });
+
+      // Pull project-scoped rca_model and alert recipients in one read.
+      const project = await prisma.project.findUnique({
+        where: { id: projectId },
+        select: { rcaModel: true, alertConfig: { select: { emailAddresses: true } } },
+      });
+      const emailAddresses = project?.alertConfig?.emailAddresses ?? [];
+
+      // Always send a combined alert (success: with RCA result; failure: null).
+      // Detector findings should never fail silently on configured channels.
+      const sendAlert = (rcaResult: string | null) => {
+        if (emailAddresses.length === 0) return Promise.resolve();
+        const summary = findings.map((f) => `[${f.detectorName}] ${f.summary}`).join("\n");
+        return sendCombinedAlertEmail({
+          to: emailAddresses,
+          detectorName: findings.map((f) => f.detectorName).join(", "),
+          projectName,
+          summary,
+          rcaResult,
+          traceId,
+          projectId,
+        }).catch((e) => console.error(`[RCA] Alert email failed for trace ${traceId}:`, e));
+      };
 
       try {
         // Find any workspace member with a GitHub connection for the GitHub tool.
@@ -151,6 +212,7 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
           findings,
           hasGitHub,
           githubUserId,
+          rcaModel: project?.rcaModel,
         });
 
         await prisma.detectorRca.update({
@@ -158,44 +220,13 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
           data: { status: "done", result: rcaResult, completedAt: new Date() },
         });
 
-        // Send combined alert email (all findings + RCA result in one message)
-        if (emailAddresses.length > 0) {
-          const summary = findings.map((f) => `[${f.detectorName}] ${f.summary}`).join("\n");
-          await sendCombinedAlertEmail({
-            to: emailAddresses,
-            detectorName: findings.map((f) => f.detectorName).join(", "),
-            projectName,
-            summary,
-            rcaResult,
-            traceId,
-            projectId,
-          }).catch((e) =>
-            console.error(`[RCA] Combined alert email failed for trace ${traceId}:`, e),
-          );
-        }
+        await sendAlert(rcaResult);
       } catch (e) {
         await prisma.detectorRca
-          .update({
-            where: { findingId },
-            data: { status: "failed" },
-          })
+          .update({ where: { findingId }, data: { status: "failed" } })
           .catch(() => {}); // best-effort
 
-        // Send fallback email — RCA failed but never stay silent
-        if (emailAddresses.length > 0) {
-          const summary = findings.map((f) => `[${f.detectorName}] ${f.summary}`).join("\n");
-          await sendCombinedAlertEmail({
-            to: emailAddresses,
-            detectorName: findings.map((f) => f.detectorName).join(", "),
-            projectName,
-            summary,
-            rcaResult: null,
-            traceId,
-            projectId,
-          }).catch((emailErr) =>
-            console.error(`[RCA] Fallback email failed for trace ${traceId}:`, emailErr),
-          );
-        }
+        await sendAlert(null);
 
         throw e; // re-throw so BullMQ marks job as failed
       }

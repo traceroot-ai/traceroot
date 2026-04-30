@@ -21,7 +21,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
   const detector = await prisma.detector.findFirst({
     where: { id: detectorId, projectId },
-    include: { trigger: true, alertConfig: true },
+    include: { trigger: true },
   });
 
   if (!detector) {
@@ -64,8 +64,6 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     sampleRate,
     enabled,
     triggerConditions,
-    emailAddresses,
-    autoRca,
     detectionModel,
     detectionProvider,
     detectionAdapter,
@@ -83,16 +81,6 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (detectionProvider !== undefined) detectorData.detectionProvider = detectionProvider || null;
   if (detectionAdapter !== undefined) detectorData.detectionAdapter = detectionAdapter || null;
 
-  // Build alert config update data
-  const alertConfigData: Record<string, unknown> = {};
-  if (emailAddresses !== undefined) {
-    if (!Array.isArray(emailAddresses)) {
-      return errorResponse("emailAddresses must be an array", 400);
-    }
-    alertConfigData.emailAddresses = emailAddresses;
-  }
-  if (autoRca !== undefined) alertConfigData.autoRca = Boolean(autoRca);
-
   const detector = await prisma.detector.update({
     where: { id: detectorId },
     data: {
@@ -107,18 +95,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
             },
           }
         : {}),
-      ...(Object.keys(alertConfigData).length > 0
-        ? {
-            alertConfig: {
-              upsert: {
-                create: { emailAddresses: [], ...alertConfigData },
-                update: alertConfigData,
-              },
-            },
-          }
-        : {}),
     },
-    include: { trigger: true, alertConfig: true },
+    include: { trigger: true },
   });
 
   return successResponse({ detector });

@@ -39,7 +39,11 @@ export async function downloadOneTrace(
 ): Promise<{ dir: string; spanCount: number; traceName: string }> {
   const url = `${FASTAPI_URL}/api/v1/projects/${projectId}/traces/${traceId}`;
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", "x-user-id": userId },
+    headers: {
+      "Content-Type": "application/json",
+      "x-user-id": userId,
+      "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
+    },
     signal,
   });
   if (!res.ok) {

@@ -13,7 +13,7 @@ import { useCreateDetector } from "@/features/detectors/hooks/use-detectors";
 import type { CreateDetectorInput } from "@/features/detectors/hooks/use-detectors";
 import { TriggerEditor } from "@/features/detectors/components/trigger-editor";
 import type { TriggerCondition } from "@/features/detectors/components/trigger-editor";
-import { AlertChannelsEditor } from "@/features/detectors/components/alert-channels-editor";
+import { AgentModelLink } from "@/features/detectors/components/agent-model-link";
 import { useProject } from "@/features/projects/hooks";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 
@@ -33,7 +33,6 @@ export default function NewDetectorPage() {
   const [prompt, setPrompt] = useState(INITIAL_TEMPLATE.prompt);
   const [sampleRate, setSampleRate] = useState(100);
   const [triggerConditions, setTriggerConditions] = useState<TriggerCondition[]>([]);
-  const [emailAddresses, setEmailAddresses] = useState<string[]>([]);
   const [modelSelection, setModelSelection] = useState<ModelSelection>({
     model: "",
     provider: "",
@@ -60,7 +59,6 @@ export default function NewDetectorPage() {
       outputSchema: template.outputSchema,
       sampleRate,
       triggerConditions,
-      emailAddresses,
       detectionModel: modelSelection.model || undefined,
       detectionProvider: modelSelection.provider || undefined,
       detectionAdapter: modelSelection.adapter || undefined,
@@ -134,12 +132,35 @@ export default function NewDetectorPage() {
               <div className="border-b border-border bg-muted/50 px-3 py-1.5">
                 <span className="text-[12px] font-medium text-muted-foreground">Model</span>
               </div>
-              <div className="p-3">
-                <ModelSelector
-                  value={modelSelection}
-                  onChange={setModelSelection}
-                  workspaceId={project?.workspace_id}
-                />
+              <div className="divide-y divide-border">
+                {/* Detector Model — per-detector, editable */}
+                <div className="p-3">
+                  <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">
+                    Detector Model
+                  </p>
+                  <ModelSelector
+                    value={modelSelection}
+                    onChange={setModelSelection}
+                    workspaceId={project?.workspace_id}
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Used to evaluate each trace for this detector.
+                  </p>
+                </div>
+                {/* Agent Model — project-scoped, click to configure in settings */}
+                <div className="p-3">
+                  <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">
+                    Agent Model
+                  </p>
+                  <AgentModelLink
+                    projectId={projectId}
+                    rcaModel={project?.rca_model}
+                    workspaceId={project?.workspace_id}
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Used for deep analysis when findings are triggered. Shared across all detectors.
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -187,11 +208,6 @@ export default function NewDetectorPage() {
                   {sampleRate}%
                 </span>
               </div>
-            </div>
-
-            {/* Alerts */}
-            <div className="border border-border">
-              <AlertChannelsEditor emailAddresses={emailAddresses} onChange={setEmailAddresses} />
             </div>
 
             {/* Footer */}

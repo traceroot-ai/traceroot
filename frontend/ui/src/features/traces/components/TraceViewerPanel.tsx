@@ -43,8 +43,8 @@ export function TraceViewerPanel({
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   const [aiChatOpen, setAiChatOpen] = useState(false);
-  // Tracks which session ID to load in the chat — undefined means fresh chat
-  const [chatInitialSessionId, setChatInitialSessionId] = useState<string | undefined>(undefined);
+  // "rca" = follow rcaSessionId once available; "fresh" = empty chat; null = closed
+  const [chatMode, setChatMode] = useState<"rca" | "fresh" | null>(null);
 
   const { data: traceFindingsData } = useTraceFindings(projectId, traceId);
   // One finding per trace — take the first (and only) one
@@ -55,12 +55,19 @@ export function TraceViewerPanel({
   const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
   const rcaSessionId = rcaData?.rca?.sessionId ?? undefined;
 
-  // Auto-open chat with RCA loaded when coming from the detector findings page
+  // The session id passed into the chat overlay. Decoupled from chatMode so the
+  // chat can open immediately on Alert click / autoOpenRca, even before useRca
+  // has resolved — and updates in place once the session id arrives.
+  const chatInitialSessionId = chatMode === "rca" ? rcaSessionId : undefined;
+
+  // Auto-open chat in RCA mode when coming from the detector findings page.
+  // Fires as soon as the panel mounts; rcaSessionId fills in via the prop above
+  // when it loads.
   useEffect(() => {
-    if (!autoOpenRca || !rcaSessionId) return;
-    setChatInitialSessionId(rcaSessionId);
+    if (!autoOpenRca) return;
+    setChatMode("rca");
     setAiChatOpen(true);
-  }, [autoOpenRca, rcaSessionId]);
+  }, [autoOpenRca]);
 
   const {
     data: trace,
@@ -96,7 +103,7 @@ export function TraceViewerPanel({
             <button
               type="button"
               onClick={() => {
-                setChatInitialSessionId(rcaSessionId);
+                setChatMode("rca");
                 setAiChatOpen(true);
               }}
               className="rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60"
@@ -109,7 +116,7 @@ export function TraceViewerPanel({
             variant="outline"
             size="sm"
             onClick={() => {
-              setChatInitialSessionId(undefined); // always fresh chat
+              setChatMode("fresh"); // always fresh chat
               setAiChatOpen((v) => !v);
             }}
             className="h-7 w-7 p-0"
@@ -174,13 +181,16 @@ export function TraceViewerPanel({
             />
           </div>
 
-          {/* AI Chat overlay — initialSessionId set only when opened via Alert */}
+          {/* AI Chat overlay — chatMode controls whether RCA session is loaded */}
           {aiChatOpen && (
             <AiChatOverlay
               projectId={projectId}
               traceId={traceId}
               initialSessionId={chatInitialSessionId}
-              onClose={() => setAiChatOpen(false)}
+              onClose={() => {
+                setAiChatOpen(false);
+                setChatMode(null);
+              }}
             />
           )}
         </div>

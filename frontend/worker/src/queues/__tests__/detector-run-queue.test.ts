@@ -20,11 +20,11 @@ describe("DetectorRunJob type shape", () => {
   it("accepts valid job shape", () => {
     const job: DetectorRunJob = {
       traceId: "trace-123",
-      detectorId: "det-456",
+      detectorIds: ["det-456", "det-457"],
       projectId: "proj-789",
     };
     expect(job.traceId).toBe("trace-123");
-    expect(job.detectorId).toBe("det-456");
+    expect(job.detectorIds).toEqual(["det-456", "det-457"]);
     expect(job.projectId).toBe("proj-789");
   });
 });
@@ -44,7 +44,6 @@ describe("DetectorRcaJob type shape", () => {
           summary: "Something bad happened",
         },
       ],
-      emailAddresses: ["user@example.com"],
     };
     expect(job.traceId).toBe("trace-abc");
     expect(job.findings[0].detectorId).toBe("det-456");
