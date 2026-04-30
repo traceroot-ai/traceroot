@@ -345,17 +345,16 @@ model DetectorAlertConfig {
 model DetectorRca {
   id          String    @id @default(cuid()) @db.VarChar
   findingId   String    @unique @map("finding_id") @db.VarChar  // trace-level finding UUID (one per trace)
-  projectId   String?   @map("project_id") @db.VarChar
+  projectId   String    @map("project_id") @db.VarChar
   sessionId   String?   @map("session_id") @db.VarChar  // AISession id for the system RCA session
   status      String    @db.VarChar  // "pending"|"running"|"done"|"failed"
   result      String?   @db.Text
   completedAt DateTime? @map("completed_at") @db.Timestamp(6)
   createTime  DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
 
-  // Optional relation to Project — projectId is nullable (legacy rows from
-  // before the column was added may have null). Cascade keeps RCA rows
-  // consistent with Detector / DetectorAlertConfig when a project is deleted.
-  project     Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // Cascade with Project — keeps RCA rows consistent with Detector /
+  // DetectorAlertConfig when a project is deleted.
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId], map: "ix_detector_rcas_project_id")
   @@map("detector_rcas")
