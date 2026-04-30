@@ -294,6 +294,12 @@ services:
       S3_REGION: ${S3_REGION:-us-east-1}
       BACKEND_INTERNAL_URL: http://rest:8000
       TRACEROOT_UI_URL: http://web:3000
+      # Step 2 RCA calls the agent service over the docker network — must
+      # override the localhost default the worker code falls back to.
+      AGENT_SERVICE_URL: http://agent:8100
+      # --- Email (combined alert per finding) ---
+      TRACEROOT_SMTP_URL: ${TRACEROOT_SMTP_URL:-}
+      TRACEROOT_SMTP_MAIL_FROM: ${TRACEROOT_SMTP_MAIL_FROM:-noreply@traceroot.ai}
       # --- Secrets ---
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-internal-secret}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}

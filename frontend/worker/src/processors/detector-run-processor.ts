@@ -1,5 +1,5 @@
 import { Worker, Queue, type Job } from "bullmq";
-import { createHash, randomUUID } from "crypto";
+import { createHash } from "crypto";
 import { prisma } from "@traceroot/core";
 import type {
   DetectorRunJob,
@@ -16,6 +16,20 @@ import { writeDetectorRun, writeDetectorFinding } from "../detection/clickhouse-
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
+
+/**
+ * Deterministic run id keyed on (projectId, traceId, detectorId).
+ * On a BullMQ retry, the same triple lands on the same runId — so re-writes
+ * collapse with detector_findings.findingId rather than producing duplicate
+ * run rows for the same (detector, trace).
+ */
+function deterministicRunId(projectId: string, traceId: string, detectorId: string): string {
+  return createHash("sha256")
+    .update(`${projectId}:${traceId}:${detectorId}`)
+    .digest("hex")
+    .slice(0, 32)
+    .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
+}
 
 let rcaQueue: Queue<DetectorRcaJob>;
 
@@ -60,7 +74,7 @@ async function runSingleDetector(params: {
   workspaceId: string;
 }): Promise<TriggeredResult | null> {
   const { detector, traceId, projectId, spansJsonl, workspaceId } = params;
-  const runId = randomUUID();
+  const runId = deterministicRunId(projectId, traceId, detector.id);
 
   let result: Awaited<ReturnType<typeof runDetectionForTrace>>;
   try {
@@ -137,7 +151,7 @@ async function processTrace(
     await Promise.allSettled(
       detectorIds.map((detectorId) =>
         writeDetectorRun({
-          runId: randomUUID(),
+          runId: deterministicRunId(projectId, traceId, detectorId),
           detectorId,
           projectId,
           traceId,
@@ -229,7 +243,7 @@ async function processTrace(
   await Promise.allSettled(
     triggered.map((r) =>
       writeDetectorRun({
-        runId: randomUUID(),
+        runId: deterministicRunId(projectId, traceId, r.detectorId),
         detectorId: r.detectorId,
         projectId,
         traceId,

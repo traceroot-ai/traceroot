@@ -92,6 +92,27 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     return errorResponse("outputSchema must be an array", 400);
   }
 
+  // String field type checks — reject invalid types up front instead of
+  // letting Prisma throw on the update. Detection fields accept "" / null
+  // as "unset"; required fields (name, prompt) must be non-empty strings.
+  for (const [key, val] of [
+    ["name", name],
+    ["prompt", prompt],
+    ["detectionModel", detectionModel],
+    ["detectionProvider", detectionProvider],
+    ["detectionAdapter", detectionAdapter],
+  ] as const) {
+    if (val !== undefined && val !== null && typeof val !== "string") {
+      return errorResponse(`${key} must be a string`, 400);
+    }
+  }
+  if (name !== undefined && (typeof name !== "string" || name.trim().length === 0)) {
+    return errorResponse("name must be a non-empty string", 400);
+  }
+  if (prompt !== undefined && (typeof prompt !== "string" || prompt.trim().length === 0)) {
+    return errorResponse("prompt must be a non-empty string", 400);
+  }
+
   // Build detector update data (only include defined fields)
   // Note: template is not updatable - it's set at creation time and cannot be changed
   const detectorData: Record<string, unknown> = {};

@@ -128,6 +128,7 @@ model Project {
   aiSessions   AISession[]
   detectors    Detector[]
   alertConfig  DetectorAlertConfig?
+  detectorRcas DetectorRca[]
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspaceId], map: "ix_project_workspace_id")
@@ -351,5 +352,11 @@ model DetectorRca {
   completedAt DateTime? @map("completed_at") @db.Timestamp(6)
   createTime  DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
 
+  // Optional relation to Project — projectId is nullable (legacy rows from
+  // before the column was added may have null). Cascade keeps RCA rows
+  // consistent with Detector / DetectorAlertConfig when a project is deleted.
+  project     Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId], map: "ix_detector_rcas_project_id")
   @@map("detector_rcas")
 }

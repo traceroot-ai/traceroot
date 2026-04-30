@@ -7,9 +7,9 @@ describe("buildSubmitResultTool", () => {
     expect(tool.name).toBe("submit_result");
   });
 
-  it("always includes identified, summary, data in required", () => {
+  it("always requires identified and summary (data only when identified=true)", () => {
     const tool = buildSubmitResultTool([]);
-    expect(tool.input_schema.required).toEqual(["identified", "summary", "data"]);
+    expect(tool.input_schema.required).toEqual(["identified", "summary"]);
   });
 
   it("identified property is boolean type", () => {

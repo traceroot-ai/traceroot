@@ -21,8 +21,14 @@ CREATE TABLE IF NOT EXISTS detector_findings
     payload     String,
     timestamp   DateTime64(3) DEFAULT now64(3)
 )
-ENGINE = MergeTree()
-ORDER BY (project_id, trace_id, timestamp);
+-- ReplacingMergeTree dedupes rows with identical sort-key tuples.
+-- Combined with the deterministic finding_id (sha256 of project:trace) we
+-- generate worker-side, a BullMQ retry that re-runs processTrace will write
+-- a duplicate row that ClickHouse later collapses to a single record per
+-- (project_id, trace_id, finding_id). `timestamp` is the version column —
+-- on collapse, the row with the larger timestamp wins.
+ENGINE = ReplacingMergeTree(timestamp)
+ORDER BY (project_id, trace_id, finding_id);
 
 ALTER TABLE spans  ADD COLUMN IF NOT EXISTS environment Nullable(String);
 ALTER TABLE traces ADD COLUMN IF NOT EXISTS environment Nullable(String);
