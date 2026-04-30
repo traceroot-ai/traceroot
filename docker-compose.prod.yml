@@ -134,6 +134,10 @@ services:
     environment:
       # --- Internal Docker networking (fixed) ---
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-postgres}
+      # Next.js proxy routes (e.g. /api/projects/.../traces/.../findings, /live)
+      # forward to the FastAPI rest service over the docker network. Without
+      # this they default to localhost:8000 and 500 inside the container.
+      BACKEND_INTERNAL_URL: http://rest:8000
       AGENT_SERVICE_URL: http://agent:8100
       TRACEROOT_UI_URL: http://web:3000
       # --- Auth ---
@@ -220,6 +224,10 @@ services:
     environment:
       TZ: UTC
       # --- Internal Docker networking (fixed) ---
+      # Celery worker now uses Postgres directly via psycopg2 in
+      # detector_tasks._get_active_detectors. Without DATABASE_URL the
+      # Python config falls back to localhost which doesn't exist in-container.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-postgres}
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: "8123"
       CLICKHOUSE_NATIVE_PORT: "9000"
