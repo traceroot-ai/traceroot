@@ -3,6 +3,7 @@
 These endpoints are protected by X-Internal-Secret header and not exposed publicly.
 """
 
+import hmac
 from datetime import datetime
 from typing import Annotated
 
@@ -18,12 +19,21 @@ router = APIRouter(prefix="/internal", tags=["internal"])
 def verify_internal_secret(
     x_internal_secret: Annotated[str | None, Header()] = None,
 ) -> None:
-    """Verify the internal API secret."""
-    if not settings.internal_api_secret:
-        # No secret configured, allow all (dev mode)
-        return
+    """Verify the internal API secret.
 
-    if x_internal_secret != settings.internal_api_secret:
+    Fails closed: a missing or empty server-side secret rejects all requests
+    rather than silently allowing them. (Previous behavior treated an empty
+    secret as "dev mode allow-all", which left the new detector write
+    endpoints open to anonymous writes whenever the env var was unset.)
+    """
+    if not settings.internal_api_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="INTERNAL_API_SECRET not configured on server",
+        )
+    if not x_internal_secret or not hmac.compare_digest(
+        x_internal_secret, settings.internal_api_secret
+    ):
         raise HTTPException(status_code=403, detail="Invalid internal secret")
 
 
