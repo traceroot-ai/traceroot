@@ -21,7 +21,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
   const detectors = await prisma.detector.findMany({
     where: { projectId },
-    include: { trigger: true, alertConfig: true },
+    include: { trigger: true },
     orderBy: { createTime: "asc" },
   });
 
@@ -52,7 +52,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     outputSchema,
     sampleRate = 100,
     triggerConditions,
-    emailAddresses,
     detectionModel,
     detectionProvider,
     detectionAdapter,
@@ -62,8 +61,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return errorResponse("name, template, and prompt are required", 400);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const detector = await (prisma.detector.create as any)({
+  const detector = await prisma.detector.create({
     data: {
       projectId,
       name: name as string,
@@ -84,13 +82,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           ],
         },
       },
-      alertConfig: {
-        create: {
-          emailAddresses: Array.isArray(emailAddresses) ? (emailAddresses as string[]) : [],
-        },
-      },
     },
-    include: { trigger: true, alertConfig: true },
+    include: { trigger: true },
   });
 
   return successResponse({ detector }, 201);

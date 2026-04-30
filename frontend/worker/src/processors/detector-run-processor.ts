@@ -13,17 +13,9 @@ import {
 } from "../queues/detector-run-queue.js";
 import { runDetectionForTrace } from "../detection/sandbox-eval.js";
 import { writeDetectorRun, writeDetectorFinding } from "../detection/clickhouse-writer.js";
-import { sendFindingEmail } from "../notifications/email.js";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
-
-const FLUSH_INTERVAL_MS = 3_000;
-
-// Buffer: key = `${traceId}:${projectId}`, value = array of detectorIds for that trace
-const buffer = new Map<string, string[]>();
-// Flush timers: key = `${traceId}:${projectId}`
-const flushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 let rcaQueue: Queue<DetectorRcaJob>;
 
@@ -43,15 +35,14 @@ interface TriggeredResult {
   detectorName: string;
   summary: string;
   data: unknown;
-  emailAddresses: string[];
-  autoRca: boolean;
 }
 
 /**
  * Run one detector against a trace. Writes the run record immediately for
  * non-triggered and failed cases (finding_id = null). For triggered cases,
- * returns the result WITHOUT writing anything — flushTrace handles the finding
- * write and the run write so all triggered runs share the same finding_id.
+ * returns the result WITHOUT writing anything — processTrace handles the
+ * finding write and the run write so all triggered runs share the same
+ * finding_id.
  */
 async function runSingleDetector(params: {
   detector: {
@@ -62,10 +53,6 @@ async function runSingleDetector(params: {
     detectionModel: string | null;
     detectionProvider: string | null;
     detectionAdapter: string | null;
-    alertConfig: {
-      emailAddresses: string[];
-      autoRca: boolean;
-    } | null;
   };
   traceId: string;
   projectId: string;
@@ -105,6 +92,11 @@ async function runSingleDetector(params: {
   }
 
   if (!result.identified) {
+    if (result.error) {
+      console.error(
+        `[Detector] Eval failed for detector ${detector.name} (${detector.id}) on trace ${traceId}: ${result.error}`,
+      );
+    }
     // Not triggered — write run immediately (no finding_id)
     await writeDetectorRun({
       runId,
@@ -127,12 +119,10 @@ async function runSingleDetector(params: {
     detectorName: detector.name,
     summary: result.summary,
     data: result.data,
-    emailAddresses: detector.alertConfig?.emailAddresses ?? [],
-    autoRca: detector.alertConfig?.autoRca ?? false,
   };
 }
 
-async function flushTrace(
+async function processTrace(
   traceId: string,
   projectId: string,
   detectorIds: string[],
@@ -162,9 +152,11 @@ async function flushTrace(
   const [detectors, project] = await Promise.all([
     prisma.detector.findMany({
       where: { id: { in: detectorIds }, enabled: true },
-      include: { alertConfig: true },
     }),
-    prisma.project.findUnique({ where: { id: projectId } }),
+    prisma.project.findUnique({
+      where: { id: projectId },
+      select: { name: true, workspaceId: true },
+    }),
   ]);
 
   const projectName = project?.name ?? "";
@@ -176,12 +168,6 @@ async function flushTrace(
       const outputSchema = Array.isArray(detector.outputSchema)
         ? (detector.outputSchema as Array<{ name: string; type: string }>)
         : [];
-      const alertConfig = detector.alertConfig
-        ? {
-            emailAddresses: detector.alertConfig.emailAddresses ?? [],
-            autoRca: detector.alertConfig.autoRca ?? false,
-          }
-        : null;
 
       return runSingleDetector({
         detector: {
@@ -192,7 +178,6 @@ async function flushTrace(
           detectionModel: detector.detectionModel,
           detectionProvider: detector.detectionProvider,
           detectionAdapter: detector.detectionAdapter,
-          alertConfig,
         },
         traceId,
         projectId,
@@ -249,55 +234,35 @@ async function flushTrace(
     `[Detector] Finding ${findingId} created for trace ${traceId} (${triggered.length} detector(s) triggered)`,
   );
 
-  // Detectors with autoRca=false → send immediate per-detector emails
-  for (const r of triggered.filter((t) => !t.autoRca)) {
-    if (r.emailAddresses.length === 0) continue;
-    sendFindingEmail({
-      to: r.emailAddresses,
-      detectorName: r.detectorName,
-      projectName,
-      summary: r.summary,
-      traceId,
+  // Always run RCA for any finding — one combined job per trace.
+  const rcaFindings: DetectorRcaFinding[] = triggered.map((r) => ({
+    detectorId: r.detectorId,
+    detectorName: r.detectorName,
+    summary: r.summary,
+  }));
+
+  await prisma.detectorRca
+    .upsert({
+      where: { findingId },
+      create: { findingId, projectId, status: "pending" },
+      update: { projectId, status: "pending" },
+    })
+    .catch((e) =>
+      console.error(`[Detector] Failed to seed DetectorRca for finding ${findingId}:`, e),
+    );
+
+  await rcaQueue.add(
+    `rca-${findingId}`,
+    {
+      findingId,
       projectId,
-    }).catch((e) =>
-      console.error(`[Detector] Immediate email failed for finding ${findingId}:`, e),
-    );
-  }
-
-  // Detectors with autoRca=true → ONE combined RCA job for the whole trace
-  const rcaTriggered = triggered.filter((r) => r.autoRca);
-  if (rcaTriggered.length > 0) {
-    const emailAddresses = [...new Set(rcaTriggered.flatMap((r) => r.emailAddresses))];
-    const rcaFindings: DetectorRcaFinding[] = rcaTriggered.map((r) => ({
-      detectorId: r.detectorId,
-      detectorName: r.detectorName,
-      summary: r.summary,
-    }));
-
-    await prisma.detectorRca
-      .upsert({
-        where: { findingId },
-        create: { findingId, status: "pending" },
-        update: { status: "pending" },
-      })
-      .catch((e) =>
-        console.error(`[Detector] Failed to seed DetectorRca for finding ${findingId}:`, e),
-      );
-
-    await rcaQueue.add(
-      `rca-${findingId}`,
-      {
-        findingId,
-        projectId,
-        traceId,
-        workspaceId,
-        projectName,
-        findings: rcaFindings,
-        emailAddresses,
-      },
-      { jobId: `rca-${findingId}`, removeOnComplete: 100, removeOnFail: 50 },
-    );
-  }
+      traceId,
+      workspaceId,
+      projectName,
+      findings: rcaFindings,
+    },
+    { jobId: `rca-${findingId}`, removeOnComplete: 100, removeOnFail: 50 },
+  );
 }
 
 export function startDetectorRunWorker(): Worker<DetectorRunJob> {
@@ -309,29 +274,9 @@ export function startDetectorRunWorker(): Worker<DetectorRunJob> {
   const worker = new Worker<DetectorRunJob>(
     DETECTOR_RUN_QUEUE,
     async (job: Job<DetectorRunJob>) => {
-      const { traceId, detectorId, projectId } = job.data;
-      const traceKey = `${traceId}:${projectId}`;
-
-      if (!buffer.has(traceKey)) buffer.set(traceKey, []);
-      buffer.get(traceKey)!.push(detectorId);
-
-      // Cancel existing timer and set a fresh window
-      const existing = flushTimers.get(traceKey);
-      if (existing) clearTimeout(existing);
-
-      const timer = setTimeout(() => {
-        const detectorIds = buffer.get(traceKey);
-        buffer.delete(traceKey);
-        flushTimers.delete(traceKey);
-
-        if (!detectorIds || detectorIds.length === 0) return;
-
-        flushTrace(traceId, projectId, detectorIds).catch((e) =>
-          console.error(`[Detector] flushTrace error for trace ${traceKey}:`, e),
-        );
-      }, FLUSH_INTERVAL_MS);
-
-      flushTimers.set(traceKey, timer);
+      const { traceId, detectorIds, projectId } = job.data;
+      if (!detectorIds || detectorIds.length === 0) return;
+      await processTrace(traceId, projectId, detectorIds);
     },
     { connection, concurrency: 10 },
   );

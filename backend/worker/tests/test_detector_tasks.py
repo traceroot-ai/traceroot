@@ -168,9 +168,9 @@ def test_passes_trigger_single_condition_passes():
 def test_enqueue_to_bullmq_calls_rpush_with_correct_key():
     """_enqueue_to_bullmq calls rpush with correct queue key and job_id."""
     redis_client = MagicMock()
-    queue_name = "detector-eval"
-    job_id = "detector-1--trace-abc"
-    data = {"traceId": "trace-abc", "detectorId": "detector-1"}
+    queue_name = "detector-run"
+    job_id = "proj-1--trace-abc"
+    data = {"traceId": "trace-abc", "detectorIds": ["detector-1"], "projectId": "proj-1"}
 
     _enqueue_to_bullmq(redis_client, queue_name, job_id, data)
 
@@ -184,9 +184,13 @@ def test_enqueue_to_bullmq_calls_rpush_with_correct_key():
 def test_enqueue_to_bullmq_payload_structure():
     """_enqueue_to_bullmq stores job payload in a Redis hash with correct structure."""
     redis_client = MagicMock()
-    queue_name = "detector-eval"
-    job_id = "detector-1--trace-abc"
-    data = {"traceId": "trace-abc", "detectorId": "detector-1", "projectId": "proj-1"}
+    queue_name = "detector-run"
+    job_id = "proj-1--trace-abc"
+    data = {
+        "traceId": "trace-abc",
+        "detectorIds": ["detector-1", "detector-2"],
+        "projectId": "proj-1",
+    }
 
     _enqueue_to_bullmq(redis_client, queue_name, job_id, data)
 

@@ -50,10 +50,7 @@ export function useAiChat({
             timestamp: m.createTime,
           }),
         );
-        // Strip leading user messages — those are system prompts sent by the RCA worker,
-        // not real user messages. Everything from the first assistant reply onwards is shown.
-        const firstAssistantIdx = all.findIndex((m: { role: string }) => m.role === "assistant");
-        setMessages(firstAssistantIdx >= 0 ? all.slice(firstAssistantIdx) : all);
+        setMessages(all);
       })
       .catch((err) => console.error("[AI Chat] Failed to load initial session:", err));
   }, [initialSessionId, projectId]); // eslint-disable-line react-hooks/exhaustive-deps

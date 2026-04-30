@@ -223,13 +223,39 @@ async def list_detector_runs(
     limit: int = 50,
     offset: int = 0,
 ):
-    """List runs for a detector, newest first."""
+    """List runs for a detector, newest first.
+
+    For triggered runs, JOIN with detector_findings to surface this detector's
+    per-detector summary string (the finding's `payload` is the combined
+    array of all triggered detectors for the trace; we filter to the entry
+    matching this run's detector_id).
+    """
     ch = get_clickhouse_client()
     result = ch.query(
-        """SELECT run_id, detector_id, project_id, trace_id, finding_id, status, timestamp
-           FROM detector_runs
-           WHERE project_id = {project_id:String} AND detector_id = {detector_id:String}
-           ORDER BY timestamp DESC
+        """SELECT
+             r.run_id      AS run_id,
+             r.detector_id AS detector_id,
+             r.project_id  AS project_id,
+             r.trace_id    AS trace_id,
+             r.finding_id  AS finding_id,
+             r.status      AS status,
+             r.timestamp   AS timestamp,
+             if(
+               r.finding_id IS NOT NULL,
+               JSONExtractString(
+                 arrayFirst(
+                   x -> JSONExtractString(x, 'detectorId') = r.detector_id,
+                   JSONExtractArrayRaw(f.payload)
+                 ),
+                 'summary'
+               ),
+               ''
+             ) AS summary
+           FROM detector_runs r
+           LEFT JOIN detector_findings f
+             ON r.finding_id = f.finding_id AND r.project_id = f.project_id
+           WHERE r.project_id = {project_id:String} AND r.detector_id = {detector_id:String}
+           ORDER BY r.timestamp DESC
            LIMIT {limit:Int32} OFFSET {offset:Int32}""",
         parameters={
             "project_id": project_id,

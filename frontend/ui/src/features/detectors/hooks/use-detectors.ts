@@ -14,10 +14,6 @@ export interface Detector {
   createTime: string;
   updateTime: string;
   trigger?: { conditions: Array<{ field: string; op: string; value: unknown }> } | null;
-  alertConfig?: {
-    autoRca: boolean;
-    emailAddresses: string[];
-  } | null;
 }
 
 export interface CreateDetectorInput {
@@ -27,7 +23,6 @@ export interface CreateDetectorInput {
   outputSchema: Array<{ name: string; type: string }>;
   sampleRate?: number;
   triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
-  emailAddresses?: string[];
   detectionModel?: string;
   detectionProvider?: string;
   detectionAdapter?: string;
@@ -56,7 +51,6 @@ export interface UpdateDetectorInput {
   prompt?: string;
   sampleRate?: number;
   triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
-  emailAddresses?: string[];
   detectionModel?: string;
   detectionProvider?: string;
   detectionAdapter?: string;

@@ -122,7 +122,8 @@ async function runDetectionWithOpenAI(params: {
       attempts++;
       const response = await client.chat.completions.create({
         model: params.model,
-        max_tokens: 1024,
+        // newer OpenAI reasoning/codex models reject `max_tokens`
+        max_completion_tokens: 1024,
         messages,
         tools: [tool],
         tool_choice: "required",

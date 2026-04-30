@@ -1,21 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 
-/** Camel-case frontend model (legacy, kept for backward compat) */
-export interface Finding {
-  id: string;
-  detectorId: string;
-  traceId: string;
-  projectId: string;
-  identified: boolean;
-  reasoning: string;
-  output: Record<string, unknown>;
-  createTime: string;
-}
-
 /** Snake-case shape returned by the backend */
 export interface BackendFinding {
   finding_id: string;
-  detector_id: string;
   trace_id: string;
   project_id: string;
   timestamp: string;
@@ -113,6 +100,8 @@ export interface BackendRun {
   finding_id: string | null;
   status: string;
   timestamp: string;
+  /** Per-detector summary from the finding payload. Empty string when not triggered. */
+  summary: string;
 }
 
 export interface RunsQuery {
