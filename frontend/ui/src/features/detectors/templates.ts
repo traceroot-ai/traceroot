@@ -21,10 +21,7 @@ export const DETECTOR_TEMPLATES: DetectorTemplate[] = [
 
 Report identified=true if any of these are present.`,
     outputSchema: [{ name: "category", type: "string" }],
-    defaultConditions: [
-      { field: "root_span_finished", op: "=", value: true },
-      { field: "total_tokens", op: ">", value: 500 },
-    ],
+    defaultConditions: [],
   },
   {
     id: "hallucination",
@@ -42,10 +39,7 @@ Report identified=true only if you find a specific factual claim in the output t
       { name: "type", type: "string" },
       { name: "hallucinated_claim", type: "string" },
     ],
-    defaultConditions: [
-      { field: "root_span_finished", op: "=", value: true },
-      { field: "total_tokens", op: ">", value: 2000 },
-    ],
+    defaultConditions: [],
   },
   {
     id: "logic",
@@ -62,10 +56,7 @@ Report identified=true only for clear, concrete logical failures — not stylist
       { name: "severity", type: "string" },
       { name: "error_description", type: "string" },
     ],
-    defaultConditions: [
-      { field: "root_span_finished", op: "=", value: true },
-      { field: "total_tokens", op: ">", value: 1000 },
-    ],
+    defaultConditions: [],
   },
   {
     id: "task",
@@ -83,10 +74,7 @@ identified=true means the task was NOT completed (partial or failed).`,
       { name: "success", type: "string" },
       { name: "what_was_missed", type: "string" },
     ],
-    defaultConditions: [
-      { field: "root_span_finished", op: "=", value: true },
-      { field: "total_tokens", op: ">", value: 500 },
-    ],
+    defaultConditions: [],
   },
   {
     id: "safety",
@@ -102,7 +90,7 @@ Report identified=true only for clear, concrete safety violations.`,
       { name: "risk_level", type: "string" },
       { name: "issue_type", type: "string" },
     ],
-    defaultConditions: [{ field: "root_span_finished", op: "=", value: true }],
+    defaultConditions: [],
   },
   {
     id: "blank",
@@ -110,10 +98,7 @@ Report identified=true only for clear, concrete safety violations.`,
     description: "Write your own detector from scratch",
     prompt: "",
     outputSchema: [],
-    defaultConditions: [
-      { field: "root_span_finished", op: "=", value: true },
-      { field: "total_tokens", op: ">", value: 1000 },
-    ],
+    defaultConditions: [],
   },
 ];
 
