@@ -43,7 +43,11 @@ export function buildSubmitResultTool(outputSchemaFields: Array<{ name: string; 
           properties: dataProperties,
         },
       },
-      required: ["identified", "summary", "data"],
+      // `data` is only required when identified=true (per the description).
+      // The system prompt also tells the LLM this. Marking it required at the
+      // schema level forced models to fabricate empty objects on clean traces,
+      // adding noise without value.
+      required: ["identified", "summary"],
     },
   };
 }

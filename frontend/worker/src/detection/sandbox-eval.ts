@@ -20,8 +20,15 @@ export interface EvalResult {
   error?: string;
 }
 
-const DEFAULT_DETECTION_MODEL = "claude-haiku-4-5-20251001";
-const DEFAULT_DETECTION_PROVIDER = "anthropic";
+// Adapter-aware defaults: a detector may set adapter without setting
+// model/provider. Anthropic defaults to claude-haiku; OpenAI defaults to
+// gpt-4o-mini. Without this split, an OpenAI detector with a blank model
+// would route to the OpenAI SDK with a Claude model name and fail.
+const DETECTION_DEFAULTS: Record<string, { model: string; provider: string }> = {
+  anthropic: { model: "claude-haiku-4-5-20251001", provider: "anthropic" },
+  openai: { model: "gpt-4o-mini", provider: "openai" },
+};
+const DEFAULT_ADAPTER = "anthropic";
 
 async function runDetectionWithAnthropic(params: {
   traceId: string;
@@ -174,9 +181,10 @@ export async function runDetectionForTrace(params: {
 }): Promise<EvalResult> {
   const { traceId, spansJsonl, detector, workspaceId } = params;
 
-  const model = detector.detectionModel || DEFAULT_DETECTION_MODEL;
-  const provider = detector.detectionProvider || DEFAULT_DETECTION_PROVIDER;
-  const adapter = detector.detectionAdapter || "anthropic";
+  const adapter = detector.detectionAdapter || DEFAULT_ADAPTER;
+  const adapterDefaults = DETECTION_DEFAULTS[adapter] ?? DETECTION_DEFAULTS[DEFAULT_ADAPTER];
+  const model = detector.detectionModel || adapterDefaults.model;
+  const provider = detector.detectionProvider || adapterDefaults.provider;
 
   // Resolve the API key for the chosen provider, falling back to env var
   const envVarFallback = adapter === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";

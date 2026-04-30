@@ -32,16 +32,22 @@ export function useAiChat({
     setMessages([]);
   }, [traceSessionId, initialSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When initialSessionId is provided, load that session's messages on mount / change
+  // When initialSessionId is provided, load that session's messages on mount / change.
+  // AbortController guards against stale fetches: if the user navigates between
+  // traces quickly, an older fetch resolving after a newer one would otherwise
+  // overwrite the current session's messages.
   useEffect(() => {
     if (!initialSessionId || !projectId) return;
     sessionIdRef.current = initialSessionId;
     setMessages([]);
 
-    fetch(`/api/projects/${projectId}/ai/sessions/${initialSessionId}/messages`)
+    const ac = new AbortController();
+    fetch(`/api/projects/${projectId}/ai/sessions/${initialSessionId}/messages`, {
+      signal: ac.signal,
+    })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (!data) return;
+        if (ac.signal.aborted || !data) return;
         const all = (data.messages || []).map(
           (m: { id: string; role: string; content: string; createTime: string }) => ({
             id: m.id,
@@ -52,7 +58,11 @@ export function useAiChat({
         );
         setMessages(all);
       })
-      .catch((err) => console.error("[AI Chat] Failed to load initial session:", err));
+      .catch((err) => {
+        if (err?.name !== "AbortError")
+          console.error("[AI Chat] Failed to load initial session:", err);
+      });
+    return () => ac.abort();
   }, [initialSessionId, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Lazy session creation — only when first message is sent

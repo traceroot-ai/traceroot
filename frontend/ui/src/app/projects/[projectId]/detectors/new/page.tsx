@@ -231,7 +231,7 @@ export default function NewDetectorPage() {
                 type="submit"
                 size="sm"
                 className="h-7 text-[12px]"
-                disabled={createMutation.isPending || !name || !prompt}
+                disabled={createMutation.isPending || !name.trim() || !prompt.trim()}
               >
                 {createMutation.isPending ? "Creating..." : "Create Detector"}
               </Button>
