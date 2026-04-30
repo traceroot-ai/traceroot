@@ -59,10 +59,14 @@ export function flattenAvailableModels(data: LLMModelsResponse | undefined): Res
 }
 
 export function pickDefaultModel(models: ResolvedModel[]): ResolvedModel | undefined {
-  if (models.length === 0) return undefined;
+  // Skip BYOK entries marked `supported: false` (model in the BYOK provider's
+  // catalog but flagged unsupported by us). Auto-selecting one would put the
+  // selector into an unrunnable state on first render.
+  const usable = models.filter((m) => m.supported !== false);
+  if (usable.length === 0) return undefined;
   for (const adapter of PROVIDER_PRIORITY) {
-    const match = models.find((m) => m.adapter === adapter);
+    const match = usable.find((m) => m.adapter === adapter);
     if (match) return match;
   }
-  return models[0];
+  return usable[0];
 }

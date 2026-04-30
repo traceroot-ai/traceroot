@@ -102,7 +102,7 @@ services:
       dockerfile: docker/Dockerfile.web
       target: migrate
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-postgres}
     depends_on:
       postgres:
         condition: service_healthy
@@ -133,7 +133,7 @@ services:
       - "3000:3000"
     environment:
       # --- Internal Docker networking (fixed) ---
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-postgres}
       AGENT_SERVICE_URL: http://agent:8100
       TRACEROOT_UI_URL: http://web:3000
       # --- Auth ---
@@ -187,7 +187,7 @@ services:
     environment:
       TZ: UTC
       # --- Internal Docker networking (fixed) ---
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-postgres}
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: "8123"
       CLICKHOUSE_NATIVE_PORT: "9000"
@@ -248,7 +248,7 @@ services:
       dockerfile: docker/Dockerfile.billing
     environment:
       # --- Internal Docker networking (fixed) ---
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-postgres}
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: "8123"
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
@@ -279,7 +279,7 @@ services:
       dockerfile: docker/Dockerfile.detector
     environment:
       # --- Internal Docker networking (fixed) ---
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-postgres}
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: "8123"
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
@@ -326,7 +326,7 @@ services:
     environment:
       TZ: UTC
       # --- Internal Docker networking (fixed) ---
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-postgres}
       AGENT_SERVICE_URL: http://agent:8100
       BACKEND_INTERNAL_URL: http://rest:8000
       TRACEROOT_UI_URL: http://web:3000

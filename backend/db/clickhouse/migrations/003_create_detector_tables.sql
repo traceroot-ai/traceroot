@@ -1,7 +1,7 @@
 -- +goose Up
 CREATE TABLE IF NOT EXISTS detector_runs
 (
-    run_id      UUID DEFAULT generateUUIDv4(),
+    run_id      String DEFAULT toString(generateUUIDv4()),
     detector_id String,
     project_id  String,
     trace_id    String,
@@ -9,8 +9,14 @@ CREATE TABLE IF NOT EXISTS detector_runs
     status      String DEFAULT 'completed',
     timestamp   DateTime64(3) DEFAULT now64(3)
 )
-ENGINE = MergeTree()
-ORDER BY (project_id, detector_id, timestamp);
+-- ReplacingMergeTree on (project_id, detector_id, run_id) collapses retry
+-- duplicates: the worker generates run_id = sha256(project:trace:detector),
+-- so a BullMQ retry on the same (detector, trace) lands on the same run_id
+-- and ClickHouse keeps only the row with the larger timestamp.
+-- Note: run_id changed from UUID to String so the deterministic SHA-derived
+-- id can be inserted as-is.
+ENGINE = ReplacingMergeTree(timestamp)
+ORDER BY (project_id, detector_id, run_id);
 
 CREATE TABLE IF NOT EXISTS detector_findings
 (

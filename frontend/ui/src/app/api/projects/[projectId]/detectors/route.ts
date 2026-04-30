@@ -45,6 +45,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return errorResponse("Invalid JSON", 400);
   }
 
+  // `null` is valid JSON but not destructure-friendly. Reject explicitly.
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return errorResponse("Body must be a JSON object", 400);
+  }
+
   const {
     name,
     template,
@@ -57,8 +62,15 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     detectionAdapter,
   } = body as Record<string, unknown>;
 
-  if (!name || !template || !prompt) {
-    return errorResponse("name, template, and prompt are required", 400);
+  // Required fields must be non-empty strings (trim catches whitespace-only).
+  if (typeof name !== "string" || name.trim().length === 0) {
+    return errorResponse("name must be a non-empty string", 400);
+  }
+  if (typeof template !== "string" || template.trim().length === 0) {
+    return errorResponse("template must be a non-empty string", 400);
+  }
+  if (typeof prompt !== "string" || prompt.trim().length === 0) {
+    return errorResponse("prompt must be a non-empty string", 400);
   }
 
   // Validate sampleRate (integer 0-100). Fall back to 100 only when omitted.
@@ -85,25 +97,41 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return errorResponse("outputSchema must be an array", 400);
   }
 
+  // Adapter-aware defaults: when an adapter is selected but model/provider
+  // are blank, fill in the canonical defaults for that adapter so worker-side
+  // sandbox-eval doesn't have to fall back through `DETECTION_DEFAULTS`
+  // (and won't accidentally route a Claude-default model through the OpenAI
+  // SDK). Keep in sync with `frontend/worker/src/detection/sandbox-eval.ts`.
+  const ADAPTER_DEFAULTS: Record<string, { model: string; provider: string }> = {
+    anthropic: { model: "claude-haiku-4-5-20251001", provider: "anthropic" },
+    openai: { model: "gpt-4o-mini", provider: "openai" },
+  };
+  const adapterStr =
+    typeof detectionAdapter === "string" && detectionAdapter ? detectionAdapter : null;
+  const adapterDefaults = adapterStr ? ADAPTER_DEFAULTS[adapterStr] : null;
+  const resolvedModel =
+    typeof detectionModel === "string" && detectionModel
+      ? detectionModel
+      : (adapterDefaults?.model ?? null);
+  const resolvedProvider =
+    typeof detectionProvider === "string" && detectionProvider
+      ? detectionProvider
+      : (adapterDefaults?.provider ?? null);
+
   const detector = await prisma.detector.create({
     data: {
       projectId,
-      name: name as string,
-      template: template as string,
-      prompt: prompt as string,
+      name,
+      template,
+      prompt,
       outputSchema: (outputSchema as object) ?? [],
       sampleRate: resolvedSampleRate,
-      detectionModel: typeof detectionModel === "string" && detectionModel ? detectionModel : null,
-      detectionProvider:
-        typeof detectionProvider === "string" && detectionProvider ? detectionProvider : null,
-      detectionAdapter:
-        typeof detectionAdapter === "string" && detectionAdapter ? detectionAdapter : null,
+      detectionModel: resolvedModel,
+      detectionProvider: resolvedProvider,
+      detectionAdapter: adapterStr,
       trigger: {
         create: {
-          conditions: (triggerConditions as object) ?? [
-            { field: "root_span_finished", op: "=", value: true },
-            { field: "total_tokens", op: ">", value: 1000 },
-          ],
+          conditions: (triggerConditions as object) ?? [],
         },
       },
     },
