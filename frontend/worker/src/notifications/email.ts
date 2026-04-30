@@ -69,7 +69,7 @@ export async function sendCombinedAlertEmail(params: {
   await transport.sendMail({
     from: SMTP_FROM,
     to: params.to.join(", "),
-    subject: `[Traceroot Alert] Trace ${shortTraceId} — ${params.projectName}`,
+    subject: `[TraceRoot Alert] Trace ${shortTraceId} — ${params.projectName}`,
     text: textParts.join("\n"),
     html: `
 <p><strong>${escapeHtml(params.detectorName)}</strong> fired on project <strong>${escapeHtml(params.projectName)}</strong>.</p>
@@ -77,7 +77,7 @@ export async function sendCombinedAlertEmail(params: {
 <h3 style="margin-top:16px;font-size:14px;color:#333;">Finding</h3>
 <p>${escapeHtml(params.summary)}</p>
 ${htmlRcaSection}
-<p style="margin-top:16px;"><a href="${traceUrl}">View trace in Traceroot &rarr;</a></p>
+<p style="margin-top:16px;"><a href="${traceUrl}">View trace in TraceRoot &rarr;</a></p>
     `.trim(),
   });
 }

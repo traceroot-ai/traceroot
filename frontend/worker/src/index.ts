@@ -1,5 +1,5 @@
 /**
- * Traceroot Billing Worker
+ * TraceRoot Billing Worker
  *
  * Background job processor for:
  * - Billing (hourly): usage stats, free plan blocking, Stripe metering
@@ -33,7 +33,7 @@ process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
 async function main(): Promise<void> {
-  console.log("[Billing Worker] Traceroot Billing Worker starting...");
+  console.log("[Billing Worker] TraceRoot Billing Worker starting...");
 
   // Test database connection
   try {
