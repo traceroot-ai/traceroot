@@ -16,6 +16,7 @@ export function MessageInput({ onSend, disabled, workspaceId, actions }: Message
     model: "",
     provider: "",
     source: "system",
+    adapter: "",
   });
 
   const noModelSelected = !modelSelection.model;

@@ -42,6 +42,8 @@ export interface Project {
   workspace_id?: string;
   name: string;
   trace_ttl_days: number | null;
+  rca_model?: string | null;
+  alert_emails?: string[];
   access_key_count?: number;
   delete_time?: string | null;
   create_time: string;

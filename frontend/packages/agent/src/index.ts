@@ -48,14 +48,14 @@ app.post("/api/v1/cache/invalidate-provider", async (c) => {
 // Session CRUD routes
 app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   const projectId = c.req.param("projectId");
-  const userId = c.req.header("x-user-id") || "";
+  const userId = c.req.header("x-user-id") || undefined;
   const workspaceId = c.req.header("x-workspace-id") || "";
   const body = await c.req.json<{ title?: string }>();
 
   const session = await createSession({
     projectId,
     workspaceId,
-    userId,
+    userId, // undefined → stored as null for system/RCA sessions
     title: body.title,
   });
   return c.json(session, 201);
@@ -73,7 +73,8 @@ app.get("/api/v1/projects/:projectId/sessions", async (c) => {
 
 app.get("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
   const userId = c.req.header("x-user-id") || "";
-  const session = await getSession(c.req.param("sessionId"), userId);
+  const projectId = c.req.param("projectId");
+  const session = await getSession(c.req.param("sessionId"), userId, projectId);
   if (!session) return c.json({ error: "not found" }, 404);
   return c.json(session);
 });
@@ -81,7 +82,8 @@ app.get("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
 // GET messages for a session (for loading history in UI)
 app.get("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) => {
   const userId = c.req.header("x-user-id") || "";
-  const messages = await getSessionMessages(c.req.param("sessionId"), userId);
+  const projectId = c.req.param("projectId");
+  const messages = await getSessionMessages(c.req.param("sessionId"), userId, projectId);
   if (!messages) return c.json({ error: "not found" }, 404);
   return c.json({ messages });
 });
@@ -155,7 +157,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   await sessionManager.appendMessage("user", body.message);
 
   // Auto-generate session title from first user message
-  const session = await getSession(sessionId, userId);
+  const session = await getSession(sessionId, userId, projectId);
   if (session && !session.title) {
     const title = body.message.slice(0, 80) + (body.message.length > 80 ? "..." : "");
     await updateSessionTitle(sessionId, title);

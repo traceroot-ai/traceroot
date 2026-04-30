@@ -88,29 +88,44 @@ export class SessionManager {
 export async function createSession(params: {
   projectId: string;
   workspaceId: string;
-  userId: string;
+  userId?: string; // optional — null for system/RCA sessions
   title?: string;
 }) {
   return prisma.aISession.create({
     data: {
       projectId: params.projectId,
       workspaceId: params.workspaceId,
-      userId: params.userId,
+      userId: params.userId ?? null,
       title: params.title,
     },
   });
 }
 
-export async function getSession(id: string, userId: string) {
+/**
+ * Get a session by ID.
+ * For user sessions: requires userId match.
+ * For system sessions (userId=null): scoped to the same projectId so a user
+ * from another project cannot read RCA sessions they don't own.
+ */
+export async function getSession(id: string, userId: string, projectId?: string) {
   return prisma.aISession.findFirst({
-    where: { id, userId },
+    where: {
+      id,
+      OR: [
+        { userId }, // user's own session
+        { userId: null, projectId: projectId ?? undefined }, // system/RCA session — scoped to project
+      ],
+    },
     include: { messages: { orderBy: { createTime: "asc" } } },
   });
 }
 
-export async function getSessionMessages(sessionId: string, userId: string) {
+export async function getSessionMessages(sessionId: string, userId: string, projectId?: string) {
   const session = await prisma.aISession.findFirst({
-    where: { id: sessionId, userId },
+    where: {
+      id: sessionId,
+      OR: [{ userId }, { userId: null, projectId: projectId ?? undefined }],
+    },
     include: { messages: { orderBy: { createTime: "asc" } } },
   });
   if (!session) return null;
@@ -118,6 +133,7 @@ export async function getSessionMessages(sessionId: string, userId: string) {
 }
 
 export async function listSessions(params: { projectId: string; userId: string; limit?: number }) {
+  // Only return sessions belonging to this user — system sessions (userId=null) are excluded
   return prisma.aISession.findMany({
     where: {
       projectId: params.projectId,
@@ -129,7 +145,7 @@ export async function listSessions(params: { projectId: string; userId: string; 
 }
 
 export async function deleteSession(id: string, userId: string) {
-  // Verify ownership before deleting
+  // Verify ownership before deleting — only the session owner can delete
   const session = await prisma.aISession.findFirst({
     where: { id, userId },
   });

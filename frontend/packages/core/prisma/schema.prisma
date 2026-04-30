@@ -122,8 +122,12 @@ model Project {
   deleteTime   DateTime? @map("delete_time") @db.Timestamp(6)
   createTime   DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime   DateTime  @default(now()) @map("update_time") @db.Timestamp(6)
+  // Agent model for Step 2 deep analysis — project-scoped, shared across all detectors
+  rcaModel     String?   @map("rca_model") @db.VarChar
   accessKeys   AccessKey[]
   aiSessions   AISession[]
+  detectors    Detector[]
+  alertConfig  DetectorAlertConfig?
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspaceId], map: "ix_project_workspace_id")
@@ -229,7 +233,7 @@ model AISession {
   id          String      @id @default(cuid()) @db.VarChar
   projectId   String      @map("project_id") @db.VarChar
   workspaceId String      @map("workspace_id") @db.VarChar
-  userId      String      @map("user_id") @db.VarChar
+  userId      String?     @map("user_id") @db.VarChar  // null for system/RCA sessions
   title       String?     @db.VarChar
   status      String      @default("active") @db.VarChar  // active, completed, failed
   metadata    Json?       @db.JsonB
@@ -287,4 +291,65 @@ model StandardModelPrice {
 
   @@unique([modelId, usageType])
   @@map("standard_model_prices")
+}
+
+// Detectors — automatic production monitoring for AI agents
+
+model Detector {
+  id           String   @id @default(cuid()) @db.VarChar
+  projectId    String   @map("project_id") @db.VarChar
+  name         String   @db.VarChar
+  template     String   @db.VarChar  // "failure"|"hallucination"|"logic"|"task"|"safety"|"intent"|"blank"
+  prompt       String   @db.Text
+  outputSchema       Json     @map("output_schema") @db.JsonB
+  sampleRate         Int      @default(100) @map("sample_rate")  // 1–100
+  enabled            Boolean  @default(true)
+  detectionModel     String?  @map("detection_model") @db.VarChar    // null = system default (haiku)
+  detectionProvider  String?  @map("detection_provider") @db.VarChar // provider label for key resolution
+  detectionAdapter   String?  @map("detection_adapter") @db.VarChar  // "anthropic"|"openai"|etc
+  createTime   DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime   DateTime @updatedAt @map("update_time") @db.Timestamp(6)
+
+  project     Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  trigger     DetectorTrigger?
+
+  @@index([projectId], map: "ix_detector_project_id")
+  @@map("detectors")
+}
+
+model DetectorTrigger {
+  id         String   @id @default(cuid()) @db.VarChar
+  detectorId String   @unique @map("detector_id") @db.VarChar
+  conditions Json     @db.JsonB
+  // [{field: "root_span_finished", op: "=", value: true}, {field: "total_tokens", op: ">", value: 1000}]
+
+  detector Detector @relation(fields: [detectorId], references: [id], onDelete: Cascade)
+
+  @@map("detector_triggers")
+}
+
+// Project-scoped alert config for detector findings.
+// One row per project; recipients of every detector finding for the project.
+// Future fields (Slack channel, webhook URL, etc.) extend this same row.
+model DetectorAlertConfig {
+  id             String   @id @default(cuid()) @db.VarChar
+  projectId      String   @unique @map("project_id") @db.VarChar
+  emailAddresses String[] @default([]) @map("email_addresses")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("detector_alert_configs")
+}
+
+model DetectorRca {
+  id          String    @id @default(cuid()) @db.VarChar
+  findingId   String    @unique @map("finding_id") @db.VarChar  // trace-level finding UUID (one per trace)
+  projectId   String?   @map("project_id") @db.VarChar
+  sessionId   String?   @map("session_id") @db.VarChar  // AISession id for the system RCA session
+  status      String    @db.VarChar  // "pending"|"running"|"done"|"failed"
+  result      String?   @db.Text
+  completedAt DateTime? @map("completed_at") @db.Timestamp(6)
+  createTime  DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+
+  @@map("detector_rcas")
 }

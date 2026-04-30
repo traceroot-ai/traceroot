@@ -10,6 +10,7 @@ import { SpanTreeView } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
 import { AiChatOverlay } from "@/features/ai-assistant/components/ai-chat-overlay";
 import { useTraceStream } from "../hooks/use-trace-stream";
+import { useTraceFindings, useRca } from "@/features/detectors/hooks/use-findings";
 
 interface TraceViewerPanelProps {
   projectId: string;
@@ -21,6 +22,8 @@ interface TraceViewerPanelProps {
   dateFilter?: { id: string; isCustom?: boolean };
   customStartDate?: Date | null;
   customEndDate?: Date | null;
+  /** When true, auto-opens chat with RCA loaded on mount (detector findings page only) */
+  autoOpenRca?: boolean;
 }
 
 /**
@@ -36,9 +39,35 @@ export function TraceViewerPanel({
   dateFilter,
   customStartDate,
   customEndDate,
+  autoOpenRca,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   const [aiChatOpen, setAiChatOpen] = useState(false);
+  // "rca" = follow rcaSessionId once available; "fresh" = empty chat; null = closed
+  const [chatMode, setChatMode] = useState<"rca" | "fresh" | null>(null);
+
+  const { data: traceFindingsData } = useTraceFindings(projectId, traceId);
+  // One finding per trace — take the first (and only) one
+  const traceFinding = traceFindingsData?.findings?.[0];
+  const hasFindings = !!traceFinding;
+
+  // Fetch RCA for the trace-level finding to surface the Step 2 session in the chat
+  const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
+  const rcaSessionId = rcaData?.rca?.sessionId ?? undefined;
+
+  // The session id passed into the chat overlay. Decoupled from chatMode so the
+  // chat can open immediately on Alert click / autoOpenRca, even before useRca
+  // has resolved — and updates in place once the session id arrives.
+  const chatInitialSessionId = chatMode === "rca" ? rcaSessionId : undefined;
+
+  // Auto-open chat in RCA mode when coming from the detector findings page.
+  // Fires as soon as the panel mounts; rcaSessionId fills in via the prop above
+  // when it loads.
+  useEffect(() => {
+    if (!autoOpenRca) return;
+    setChatMode("rca");
+    setAiChatOpen(true);
+  }, [autoOpenRca]);
 
   const {
     data: trace,
@@ -69,7 +98,33 @@ export function TraceViewerPanel({
           <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
         </div>
         <div className="flex items-center gap-1">
-          {/* Navigation buttons */}
+          {/* Alert | Agent | ↑ | ↓ | ✕ */}
+          {hasFindings && (
+            <button
+              type="button"
+              onClick={() => {
+                setChatMode("rca");
+                setAiChatOpen(true);
+              }}
+              className="rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60"
+              title="Findings detected — open root cause analysis"
+            >
+              Alert
+            </button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setChatMode("fresh"); // always fresh chat
+              setAiChatOpen((v) => !v);
+            }}
+            className="h-7 w-7 p-0"
+            title="AI Assistant"
+          >
+            <BotMessageSquare className="h-4 w-4" />
+          </Button>
+          <div className="w-1" />
           <Button
             variant="outline"
             size="sm"
@@ -90,16 +145,7 @@ export function TraceViewerPanel({
           >
             <ArrowDown className="h-4 w-4" />
           </Button>
-          <div className="w-2" /> {/* Spacer */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setAiChatOpen(!aiChatOpen)}
-            className="h-7 w-7 p-0"
-            title="AI Assistant"
-          >
-            <BotMessageSquare className="h-4 w-4" />
-          </Button>
+          <div className="w-1" />
           <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
             <X className="h-4 w-4" />
           </Button>
@@ -135,12 +181,16 @@ export function TraceViewerPanel({
             />
           </div>
 
-          {/* AI Chat overlay */}
+          {/* AI Chat overlay — chatMode controls whether RCA session is loaded */}
           {aiChatOpen && (
             <AiChatOverlay
               projectId={projectId}
               traceId={traceId}
-              onClose={() => setAiChatOpen(false)}
+              initialSessionId={chatInitialSessionId}
+              onClose={() => {
+                setAiChatOpen(false);
+                setChatMode(null);
+              }}
             />
           )}
         </div>
