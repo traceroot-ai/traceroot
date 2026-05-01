@@ -2,63 +2,71 @@
  * Claude Agent SDK — TraceRoot Observability
  *
  * Multi-agent research pipeline using Claude Code as a library.
- * Demonstrates subagents, multiple built-in tools, and TraceRoot tracing.
+ * Demonstrates subagents, multiple built-in tools, and TraceRoot tracing
+ * (via @arizeai/openinference-instrumentation-claude-agent-sdk).
  *
- * Env vars required: ANTHROPIC_API_KEY, TRACEROOT_API_KEY
+ * Env vars: ANTHROPIC_API_KEY, TRACEROOT_API_KEY
+ *           TRACEROOT_HOST_URL is optional (defaults to https://app.traceroot.ai)
  *
  * Run:
+ *   pnpm install
  *   pnpm demo
  */
 
 import 'dotenv/config';
-import * as claudeAgentSDK from '@anthropic-ai/claude-agent-sdk';
-import { TraceRoot, observe, usingAttributes, getPatchedModule } from '@traceroot-ai/traceroot';
+import { ClaudeAgentSDKInstrumentation } from '@arizeai/openinference-instrumentation-claude-agent-sdk';
+import * as ClaudeAgentSDKModule from '@anthropic-ai/claude-agent-sdk';
+import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
+import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 
-// ── TraceRoot setup ───────────────────────────────────────────────────────────
-TraceRoot.initialize({
-  instrumentModules: { claudeAgentSDK },
-});
+// Spread the read-only ESM namespace into a mutable object so the OpenInference
+// patcher can rewrite `query` in place. If you call the original namespace's
+// `query` after this point, your calls will NOT be traced.
+const ClaudeAgentSDK = { ...ClaudeAgentSDKModule };
 
-// Get the instrumented version of the SDK (ESM modules are frozen,
-// so the instrumentor returns a patched copy via getPatchedModule).
-const sdk = getPatchedModule('claudeAgentSDK', claudeAgentSDK);
+// 1. Initialize TraceRoot first — registers the global TracerProvider.
+//    `disableBatch: true` switches to SimpleSpanProcessor for live tracing.
+TraceRoot.initialize({ disableBatch: true });
+
+// 2. Wire the OpenInference instrumentor manually against the spread namespace.
+//    Spans flow through TraceRoot's TracerProvider via the OpenTelemetry global.
+new ClaudeAgentSDKInstrumentation().manuallyInstrument(ClaudeAgentSDK);
 
 console.log('[Observability: TraceRoot]');
 
 // ── Subagent definitions ──────────────────────────────────────────────────────
-const RESEARCHER: claudeAgentSDK.AgentDefinition = {
+const RESEARCHER: AgentDefinition = {
   description:
-    'Research specialist. Use when you need to gather information about a topic from the web.',
+    'Research specialist. Use when you need to gather information about a topic from the web. Returns structured research notes.',
   prompt:
-    'You are a research specialist. Use WebSearch to find relevant information. Provide a concise summary with key facts. Keep your response under 200 words.',
+    'You are a research specialist. Use WebSearch to find relevant information about the given topic. Provide a concise summary with key facts and sources. Keep your response under 200 words.',
   tools: ['WebSearch'],
   model: 'haiku',
 };
 
-const ANALYST: claudeAgentSDK.AgentDefinition = {
+const ANALYST: AgentDefinition = {
   description:
-    'Data analyst. Use for calculations, data processing, or generating statistics.',
+    'Data analyst. Use when you need to perform calculations, data processing, or generate statistics from research findings.',
   prompt:
     'You are a data analyst. Use Bash with python3 to perform calculations or data processing. Provide clear numerical results. Keep your response concise.',
   tools: ['Bash'],
   model: 'haiku',
 };
 
-const WRITER: claudeAgentSDK.AgentDefinition = {
+const WRITER: AgentDefinition = {
   description:
-    'Report writer. Synthesizes research findings and analysis into a clear summary report.',
+    'Report writer. Use when you need to synthesize research findings and analysis into a clear, well-structured summary report.',
   prompt:
-    'You are a report writer. Synthesize the information provided into a clear, well-structured summary. Use bullet points and headers. Keep the report under 300 words.',
+    'You are a report writer. Synthesize the information provided into a clear, well-structured summary. Use bullet points and headers. Keep the report concise and under 300 words.',
   tools: [],
   model: 'haiku',
 };
 
-// ── Agent ─────────────────────────────────────────────────────────────────────
+// ── Pipeline ──────────────────────────────────────────────────────────────────
 async function runResearch(topic: string): Promise<string> {
   return observe({ name: 'research_pipeline', type: 'agent' }, async () => {
     let resultText = '';
-
-    for await (const message of sdk.query({
+    for await (const message of ClaudeAgentSDK.query({
       prompt: [
         `Research the following topic using a multi-step approach:\n\n`,
         `Topic: ${topic}\n\n`,
@@ -71,18 +79,16 @@ async function runResearch(topic: string): Promise<string> {
       options: {
         allowedTools: ['Agent'],
         maxTurns: 15,
-        agents: {
-          researcher: RESEARCHER,
-          analyst: ANALYST,
-          writer: WRITER,
-        },
+        // bypassPermissions auto-approves all tool calls. Demo-only — do NOT
+        // use this in production code that touches real systems.
+        permissionMode: 'bypassPermissions',
+        agents: { researcher: RESEARCHER, analyst: ANALYST, writer: WRITER },
       },
     })) {
       if ('result' in message && (message as any).result) {
         resultText = (message as any).result;
       }
     }
-
     return resultText;
   });
 }
@@ -90,6 +96,7 @@ async function runResearch(topic: string): Promise<string> {
 // ── Demo ──────────────────────────────────────────────────────────────────────
 const DEMO_TOPICS = [
   'What are the key features of OpenTelemetry for AI observability?',
+  'What is Model Context Protocol (MCP) and why does it matter?',
 ];
 
 async function main() {
