@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ExpandableSection } from "@/components/ui/expandable-section";
 import { useSession } from "@/features/traces/hooks";
+import { useSession as useAuthSession } from "@/lib/auth-client";
 import { ContentRenderer } from "./ContentRenderer";
 import { formatDuration, formatCost, buildUrlWithFilters } from "@/lib/utils";
 import { toTimestampBounds } from "@/lib/date-filter";
@@ -94,6 +95,7 @@ export function SessionDetailPanel({
 }: SessionDetailPanelProps) {
   const router = useRouter();
   const [aiChatOpen, setAiChatOpen] = useState(false);
+  const { isPending: authPending } = useAuthSession();
 
   // Compute timestamps from date filter props
   const sessionQueryOptions = useMemo(() => {
@@ -109,7 +111,15 @@ export function SessionDetailPanel({
     };
   }, [dateFilter, customStartDate, customEndDate]);
 
-  const { data, isLoading, error } = useSession(projectId, sessionId, sessionQueryOptions);
+  const {
+    data,
+    isPending: dataPending,
+    error,
+  } = useSession(projectId, sessionId, sessionQueryOptions);
+  // Auth-gated React Query reports isLoading: false while disabled (TanStack v5).
+  // Use isPending OR'd with auth pending so the loading branch shows during the
+  // auth-resolution window instead of falling through to "Session not found".
+  const checking = authPending || dataPending;
 
   const buildUrl = (basePath: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(basePath, { dateFilter, customStartDate, customEndDate, extraParams });
@@ -221,7 +231,7 @@ export function SessionDetailPanel({
 
           {/* Trace list */}
           <div className="flex-1 overflow-auto p-4">
-            {isLoading ? (
+            {checking ? (
               <div className="flex h-64 items-center justify-center">
                 <p className="text-[13px] text-muted-foreground">Loading session...</p>
               </div>
