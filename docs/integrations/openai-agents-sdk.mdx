@@ -3,60 +3,113 @@ title: OpenAI Agents SDK
 description: Auto-instrument OpenAI Agents SDK agents, tools, and multi-turn conversations
 ---
 
-Automatically capture agent runs, tool executions, and handoff transitions within the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python).
+Automatically capture agent runs, tool executions, and handoff transitions within the OpenAI Agents SDK ([Python](https://github.com/openai/openai-agents-python), [TypeScript](https://github.com/openai/openai-agents-js)).
 
 ## Setup
 
-```python
-import traceroot
-from traceroot import Integration
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
 
-traceroot.initialize(integrations=[Integration.OPENAI_AGENTS])
-```
+    traceroot.initialize(integrations=[Integration.OPENAI_AGENTS])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import * as agents from '@openai/agents';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openaiAgents: agents },
+    });
+    ```
+  </Tab>
+</Tabs>
 
 ## Usage
 
 Once initialized, all agent runs and tool calls are captured automatically:
 
-```python
-import asyncio
-import traceroot
-from traceroot import Integration
-from agents import Agent, Runner, function_tool
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import asyncio
+    import traceroot
+    from traceroot import Integration
+    from agents import Agent, Runner, function_tool
 
-traceroot.initialize(integrations=[Integration.OPENAI_AGENTS])
-
-
-@function_tool
-def get_weather(city: str) -> str:
-    """Get current weather for a city."""
-    return f"The weather in {city} is 72°F and sunny."
+    traceroot.initialize(integrations=[Integration.OPENAI_AGENTS])
 
 
-agent = Agent(
-    name="Weather Assistant",
-    instructions="You are a helpful weather assistant.",
-    model="gpt-4o-mini",
-    tools=[get_weather],
-)
+    @function_tool
+    def get_weather(city: str) -> str:
+        """Get current weather for a city."""
+        return f"The weather in {city} is 72°F and sunny."
 
 
-async def main():
-    # The entire agent run is automatically traced
-    result = await Runner.run(agent, "What's the weather in Tokyo?")
-    print(result.final_output)
+    agent = Agent(
+        name="Weather Assistant",
+        instructions="You are a helpful weather assistant.",
+        model="gpt-4o-mini",
+        tools=[get_weather],
+    )
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
-    traceroot.flush()
-```
+    async def main():
+        # The entire agent run is automatically traced
+        result = await Runner.run(agent, "What's the weather in Tokyo?")
+        print(result.final_output)
+
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+        traceroot.flush()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import * as agents from '@openai/agents';
+    import { Agent, run, tool } from '@openai/agents';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+    import { z } from 'zod';
+
+    TraceRoot.initialize({
+      instrumentModules: { openaiAgents: agents },
+    });
+
+    const getWeather = tool({
+      name: 'get_weather',
+      description: 'Get current weather for a city.',
+      parameters: z.object({ city: z.string() }),
+      execute: async ({ city }) => `The weather in ${city} is 72°F and sunny.`,
+    });
+
+    const agent = new Agent({
+      name: 'Weather Assistant',
+      instructions: 'You are a helpful weather assistant.',
+      model: 'gpt-4o-mini',
+      tools: [getWeather],
+    });
+
+    async function main() {
+      // The entire agent run is automatically traced
+      const result = await run(agent, "What's the weather in Tokyo?");
+      console.log(result.finalOutput);
+      await TraceRoot.shutdown();
+    }
+
+    main().catch(console.error);
+    ```
+  </Tab>
+</Tabs>
 
 ## What Gets Captured
 
 | Attribute | Description |
 |-----------|-------------|
-| Agent runs | Each `Runner.run()` or `Runner.run_streamed()` invocation |
+| Agent runs | Each `Runner.run()` / `run()` invocation |
 | Agent steps | Individual turns within the agent loop |
 | Tool calls | Each tool invocation with name, input, and output |
 | Handoffs | Multi-agent transitions and handoff decisions |

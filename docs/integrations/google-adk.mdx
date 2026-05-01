@@ -1,0 +1,85 @@
+---
+title: Google ADK
+description: Auto-instrument Google Agent Development Kit agents, tools, and runners
+---
+
+Automatically capture agent runs, tool executions, and the multi-turn agent loop within the [Google Agent Development Kit (ADK)](https://github.com/google/adk-python).
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.GOOGLE_ADK])
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+Once initialized, ADK agent executions, tool calls, and underlying Gemini calls are captured automatically:
+
+```python
+import asyncio
+import traceroot
+from traceroot import Integration
+from google.adk.agents import Agent
+from google.adk.runners import InMemoryRunner
+from google.genai import types
+
+traceroot.initialize(integrations=[Integration.GOOGLE_ADK])
+
+
+def get_weather(city: str) -> dict:
+    """Get current weather for a city."""
+    return {"status": "success", "city": city, "temp": 72, "condition": "sunny"}
+
+
+agent = Agent(
+    name="assistant",
+    model="gemini-2.5-flash",
+    description="Helpful assistant with access to tools.",
+    instruction="You are a helpful AI assistant. Use tools when needed.",
+    tools=[get_weather],
+)
+
+
+async def main():
+    runner = InMemoryRunner(agent=agent, app_name="traceroot-adk-demo")
+    await runner.session_service.create_session(
+        app_name="traceroot-adk-demo",
+        user_id="demo-user",
+        session_id="demo-session",
+    )
+
+    # The full run, including tool calls and Gemini calls, is traced
+    async for event in runner.run_async(
+        user_id="demo-user",
+        session_id="demo-session",
+        new_message=types.Content(
+            role="user",
+            parts=[types.Part(text="What's the weather in Tokyo?")],
+        ),
+    ):
+        if event.is_final_response() and event.content and event.content.parts:
+            print(event.content.parts[0].text)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+    traceroot.flush()
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Agent runs | Each `runner.run_async()` invocation |
+| Agent steps | Individual turns within the ADK agent loop |
+| Tool calls | Each tool invocation with input arguments and results |
+| LLM calls | Raw Gemini calls made by the ADK runtime |
+| Tokens & Cost | Aggregated token usage and pricing |
+| Latency | Duration per agent run and per span |
