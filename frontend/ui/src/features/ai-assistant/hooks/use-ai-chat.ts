@@ -7,9 +7,15 @@ import type { ModelSelection } from "../components/model-selector";
 
 interface UseAiChatOptions extends AiTraceContext {
   projectId: string | undefined;
+  initialSessionId?: string; // pre-load an existing session (e.g. RCA session from Step 2)
 }
 
-export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptions) {
+export function useAiChat({
+  projectId,
+  traceId,
+  traceSessionId,
+  initialSessionId,
+}: UseAiChatOptions) {
   const { messages, isStreaming, sendMessage, abort, setMessages } = useAIStream();
   const sessionIdRef = useRef<string | null>(null);
   const [sessions, setSessions] = useState<AISession[]>([]);
@@ -19,11 +25,45 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
   // setIsStreaming(true) and setIsStreaming(false) into a single frame, hiding the button.
   const [isSending, setIsSending] = useState(false);
 
-  // Reset session when traceSessionId changes (panel reopened for a different session)
+  // Reset session when traceSessionId changes — only when there's no initialSessionId
   useEffect(() => {
+    if (initialSessionId) return;
     sessionIdRef.current = null;
     setMessages([]);
-  }, [traceSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [traceSessionId, initialSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When initialSessionId is provided, load that session's messages on mount / change.
+  // AbortController guards against stale fetches: if the user navigates between
+  // traces quickly, an older fetch resolving after a newer one would otherwise
+  // overwrite the current session's messages.
+  useEffect(() => {
+    if (!initialSessionId || !projectId) return;
+    sessionIdRef.current = initialSessionId;
+    setMessages([]);
+
+    const ac = new AbortController();
+    fetch(`/api/projects/${projectId}/ai/sessions/${initialSessionId}/messages`, {
+      signal: ac.signal,
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (ac.signal.aborted || !data) return;
+        const all = (data.messages || []).map(
+          (m: { id: string; role: string; content: string; createTime: string }) => ({
+            id: m.id,
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            timestamp: m.createTime,
+          }),
+        );
+        setMessages(all);
+      })
+      .catch((err) => {
+        if (err?.name !== "AbortError")
+          console.error("[AI Chat] Failed to load initial session:", err);
+      });
+    return () => ac.abort();
+  }, [initialSessionId, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Lazy session creation — only when first message is sent
   const ensureSession = useCallback(async (): Promise<string | null> => {

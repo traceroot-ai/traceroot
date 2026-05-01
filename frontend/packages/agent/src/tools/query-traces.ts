@@ -47,6 +47,7 @@ export function createQueryTracesTool(projectId: string, userId: string): AgentT
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         "x-user-id": userId,
+        "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
       };
 
       const res = await fetch(url, { headers, signal });

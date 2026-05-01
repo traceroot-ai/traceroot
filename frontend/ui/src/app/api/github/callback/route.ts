@@ -97,7 +97,7 @@ async function processGitHubCallback(
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: "application/vnd.github.v3+json",
-      "User-Agent": "Traceroot",
+      "User-Agent": "TraceRoot",
     },
   });
 
@@ -220,7 +220,7 @@ export async function POST(request: NextRequest) {
     // because storedState is null by design). Security is enforced by:
     //   1. Origin header check (same-origin enforcement below)
     //   2. GitHub validating the OAuth code on exchange (one-time use, short TTL)
-    //   3. requireAuth() — user must have an active Traceroot session
+    //   3. requireAuth() — user must have an active TraceRoot session
     //   4. verifyInstallationId() — installation_id must belong to the authenticated GitHub user
     const origin = request.headers.get("origin");
     let parsedOrigin: string;

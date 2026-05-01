@@ -6,8 +6,12 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "dev": "dotenv -e ../../.env -- tsx watch src/index.ts",
+    "dev:billing": "dotenv -e ../../.env -- tsx watch src/index.ts",
+    "dev:detectors": "dotenv -e ../../.env -- tsx watch src/detector-main.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "start:billing": "node dist/index.js",
+    "start:detectors": "node dist/detector-main.js",
     "clean": "rm -rf dist",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -17,13 +21,19 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.87.0",
     "@traceroot/core": "workspace:*",
+    "bullmq": "^5.73.3",
+    "ioredis": "^5.10.1",
+    "nodemailer": "^6.10.0",
     "node-cron": "^3.0.0",
+    "openai": "^4.98.0",
     "stripe": "14.25.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/node-cron": "^3.0.0",
+    "@types/nodemailer": "^6.4.14",
     "tsx": "^4.21.0",
     "typescript": "^5.0.0",
     "vitest": "^3.0.0"

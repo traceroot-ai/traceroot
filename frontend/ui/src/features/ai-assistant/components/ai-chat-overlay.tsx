@@ -15,14 +15,22 @@ interface AiChatOverlayProps {
   projectId: string;
   traceId?: string;
   traceSessionId?: string;
+  initialSessionId?: string; // open and display an existing session (e.g. RCA from Step 2)
   onClose: () => void;
 }
 
 /**
  * AI chat panel for use inside trace detail viewer.
  * traceId is passed through to the agent so it knows which trace the user is viewing.
+ * initialSessionId pre-loads an existing session so the user can read it and continue chatting.
  */
-export function AiChatOverlay({ projectId, traceId, traceSessionId, onClose }: AiChatOverlayProps) {
+export function AiChatOverlay({
+  projectId,
+  traceId,
+  traceSessionId,
+  initialSessionId,
+  onClose,
+}: AiChatOverlayProps) {
   const { width, onMouseDown } = usePanelResize();
 
   const { data: project } = useQuery({
@@ -57,7 +65,7 @@ export function AiChatOverlay({ projectId, traceId, traceSessionId, onClose }: A
     handleOpenHistory,
     handleSelectSession,
     handleDeleteSession,
-  } = useAiChat({ projectId, traceId, traceSessionId });
+  } = useAiChat({ projectId, traceId, traceSessionId, initialSessionId });
 
   return (
     <div className="relative flex h-full flex-col border-l bg-background" style={{ width }}>
