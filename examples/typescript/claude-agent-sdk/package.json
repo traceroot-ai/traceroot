@@ -1,0 +1,19 @@
+{
+  "name": "@traceroot/example-claude-agent-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "demo": "tsx agent.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.0",
+    "@traceroot-ai/traceroot": "0.1.2",
+    "dotenv": "^16.4.5",
+    "openai": "^6.34.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}
