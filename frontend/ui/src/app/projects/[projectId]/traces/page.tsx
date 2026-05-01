@@ -22,6 +22,7 @@ import type { TraceListItem } from "@/types/api";
 import { useTraces, useListPageState } from "@/features/traces/hooks";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
 import { formatContentPreview } from "@/features/traces/utils";
+import { useSession as useAuthSession } from "@/lib/auth-client";
 
 // Tab definitions
 const tabs = [
@@ -37,6 +38,7 @@ export default function TracesPage() {
   const projectId = params.projectId as string;
   const queryClient = useQueryClient();
   const { aiPanelOpen, setAiPanelOpen, setHideAiButton } = useLayout();
+  const { isPending: authPending } = useAuthSession();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
 
@@ -70,7 +72,7 @@ export default function TracesPage() {
   // staleTime: Infinity because once a project has traces it always will (immutable fact).
   // refetchInterval polls every 3s while onboarding is shown so the page auto-transitions
   // when the first trace arrives, without requiring a manual refresh.
-  const { data: anyTracesData, isLoading: hasEverTracedLoading } = useTraces(
+  const { data: anyTracesData, isPending: hasEverTracedPending } = useTraces(
     projectId,
     { limit: 1 },
     {
@@ -84,6 +86,9 @@ export default function TracesPage() {
     },
   );
   const hasEverTraced = (anyTracesData?.data?.length ?? 0) > 0;
+  // Auth-gated React Query reports isLoading: false while disabled (TanStack v5),
+  // so derive a single "still figuring it out" flag from auth + the probe's isPending.
+  const checking = authPending || hasEverTracedPending;
   useEffect(() => {
     if (hasEverTraced) queryClient.invalidateQueries({ queryKey: ["traces", projectId] });
   }, [hasEverTraced, projectId, queryClient]);
@@ -91,10 +96,10 @@ export default function TracesPage() {
   const traces = data?.data || [];
   const meta = data?.meta || { page: 0, limit: 50, total: 0 };
   const totalPages = Math.ceil(meta.total / meta.limit);
-  const showGettingStarted = !hasEverTracedLoading && !hasEverTraced;
+  const showGettingStarted = !checking && !hasEverTraced;
 
   // Hide AI button during loading AND when GettingStarted is shown
-  const shouldHideAiButton = hasEverTracedLoading || showGettingStarted;
+  const shouldHideAiButton = checking || showGettingStarted;
 
   useLayoutEffect(() => {
     setHideAiButton(shouldHideAiButton);
@@ -115,7 +120,7 @@ export default function TracesPage() {
       {/* Main content */}
       <div className="flex flex-1 flex-col">
         {/* Tab navigation — hidden during onboarding or while checking */}
-        {!hasEverTracedLoading && !showGettingStarted && (
+        {!checking && !showGettingStarted && (
           <div className="border-b border-border bg-background">
             <div className="flex">
               {tabs.map((tab) => {
@@ -142,7 +147,7 @@ export default function TracesPage() {
         )}
 
         {/* Filters bar — hidden during onboarding or while checking */}
-        {!hasEverTracedLoading && !showGettingStarted && (
+        {!checking && !showGettingStarted && (
           <SearchFilterBar
             searchValue={state.keyword}
             onSearchChange={updateKeyword}
@@ -199,7 +204,7 @@ export default function TracesPage() {
 
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background">
-          {isLoading || hasEverTracedLoading ? (
+          {isLoading || checking ? (
             <div className="flex h-64 items-center justify-center">
               <p className="text-[13px] text-muted-foreground">Loading traces...</p>
             </div>
