@@ -1,0 +1,66 @@
+---
+title: DSPy
+description: Auto-instrument DSPy modules, signatures, and chain-of-thought reasoning
+---
+
+Automatically capture module executions, signature predictions, and underlying LLM calls in [DSPy](https://github.com/stanfordnlp/dspy) programs.
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.DSPY])
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+Once initialized, every DSPy module call and underlying LLM request is traced automatically:
+
+```python
+import dspy
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.DSPY])
+
+# DSPy resolves the API key from OPENAI_API_KEY in the environment.
+dspy.configure(lm=dspy.LM("openai/gpt-4o-mini", max_tokens=1024))
+
+
+class CoTQA(dspy.Module):
+    """Chain-of-thought question-answering module."""
+
+    def __init__(self):
+        super().__init__()
+        self.cot = dspy.ChainOfThought("question -> answer")
+
+    def forward(self, question: str):
+        return self.cot(question=question)
+
+
+qa = CoTQA()
+
+# The forward call, the chain-of-thought step, and the LLM call are all captured
+result = qa(question="Why does ice float on water?")
+print(result.reasoning)
+print(result.answer)
+
+traceroot.flush()
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Module calls | Each `Module.__call__` / `Module.forward` invocation |
+| Predictors | `Predict`, `ChainOfThought`, `ReAct`, etc. as nested spans |
+| Signatures | Input/output fields declared on each signature |
+| LLM calls | Raw completion requests to the configured `dspy.LM` |
+| Tokens & Cost | Aggregated token usage and pricing |
+| Latency | Duration per module call and per LLM call |
