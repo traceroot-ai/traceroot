@@ -13,7 +13,7 @@
 import 'dotenv/config';
 import * as agents from '@openai/agents';
 import { Agent, run, tool } from '@openai/agents';
-import { TraceRoot } from '@traceroot-ai/traceroot';
+import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 import { z } from 'zod';
 
 // ── TraceRoot setup ───────────────────────────────────────────────────────────
@@ -96,12 +96,22 @@ async function main() {
   console.log('============================================================\n');
 
   try {
-    for (const query of DEMO_QUERIES) {
-      console.log(`Query: ${query}`);
-      const result = await run(agent, query);
-      console.log(`\nAgent: ${result.finalOutput ?? '(no output)'}\n`);
-      console.log('------------------------------------------------------------\n');
-    }
+    await usingAttributes(
+      {
+        sessionId: 'openai-agents-ts-session',
+        userId: 'demo-user',
+        tags: ['demo', 'openai-agents'],
+      },
+      () =>
+        observe({ name: 'demo_session' }, async () => {
+          for (const query of DEMO_QUERIES) {
+            console.log(`Query: ${query}`);
+            const result = await run(agent, query);
+            console.log(`\nAgent: ${result.finalOutput ?? '(no output)'}\n`);
+            console.log('------------------------------------------------------------\n');
+          }
+        }),
+    );
   } finally {
     await TraceRoot.shutdown();
     console.log('[Traces exported]');
