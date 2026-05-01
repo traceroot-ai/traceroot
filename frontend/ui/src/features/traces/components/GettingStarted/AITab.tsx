@@ -24,6 +24,7 @@ My project uses [Python / TypeScript/Node.js] — adjust the instructions to mat
        Integration.ANTHROPIC,     # if using Anthropic
        Integration.GOOGLE_GENAI,  # if using Google Gemini
        Integration.CREWAI,        # if using CrewAI
+       Integration.AUTOGEN,       # if using AutoGen (AG2)
        Integration.LLAMA_INDEX,   # if using LlamaIndex
    ])
 3. Add @observe on agent entrypoints and tool functions:
