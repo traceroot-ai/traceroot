@@ -6,6 +6,9 @@ export * from "./ee/billing/index";
 // Encryption
 export { encryptKey, decryptKey, maskKey } from "./lib/encryption";
 
+// BYOK key resolution
+export { resolveWorkspaceApiKey } from "./lib/workspace-api-key";
+
 // Re-export Prisma types
 export type {
   User,

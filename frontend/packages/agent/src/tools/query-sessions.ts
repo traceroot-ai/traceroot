@@ -37,6 +37,7 @@ export function createQuerySessionsTool(projectId: string, userId: string): Agen
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         "x-user-id": userId,
+        "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
       };
 
       // Single session detail

@@ -39,6 +39,7 @@ export function createDownloadSessionTool(
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         "x-user-id": userId,
+        "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
       };
 
       const sessionRes = await fetch(sessionUrl, { headers, signal });

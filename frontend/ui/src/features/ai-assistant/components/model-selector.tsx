@@ -6,13 +6,14 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { SYSTEM_MODELS, PROVIDER_PRIORITY } from "@traceroot/core";
-import { getAvailableLLMModels, type AvailableLLMModel } from "@/lib/api";
+import { getAvailableLLMModels } from "@/lib/api";
+import { flattenAvailableModels, pickDefaultModel } from "../lib/resolve-model";
 
 export interface ModelSelection {
   model: string;
   provider: string;
   source: "system" | "byok";
+  adapter: string; // e.g. "anthropic" | "openai" — needed for SDK routing
 }
 
 interface ModelSelectorProps {
@@ -20,17 +21,6 @@ interface ModelSelectorProps {
   onChange: (selection: ModelSelection) => void;
   workspaceId?: string;
 }
-
-// Flatten all system models into a single list with provider info attached
-const FALLBACK_MODELS = SYSTEM_MODELS.flatMap((s) =>
-  s.models.map((m) => ({
-    ...m,
-    provider: s.provider,
-    adapter: s.piAIProvider,
-    source: "system" as const,
-    supported: true,
-  })),
-);
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
   return `${m.source}:${m.provider}:${m.id ?? m.model}`;
@@ -45,57 +35,54 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
     enabled: !!workspaceId,
   });
 
-  // Build flat model list: BYOK models first, then system models. No deduplication.
-  const models: (AvailableLLMModel & {
-    provider: string;
-    adapter: string;
-    source: "system" | "byok";
-  })[] = (() => {
-    if (!data) return FALLBACK_MODELS;
-    const systemList = data.systemModels.flatMap((g) =>
-      g.models.map((m) => ({
-        ...m,
-        provider: g.provider,
-        adapter: g.adapter,
-        source: "system" as const,
-        supported: true,
-      })),
-    );
-    const byokList = data.byokProviders.flatMap((g) =>
-      g.models.map((m) => ({
-        ...m,
-        provider: g.provider,
-        adapter: g.adapter,
-        source: "byok" as const,
-      })),
-    );
-    return [...byokList, ...systemList];
-  })();
+  // BYOK models first, then system models. No deduplication.
+  const models = flattenAvailableModels(data);
 
-  // Auto-select the best available model if current selection is not in the list.
-  // This handles: initial empty state, provider becoming unavailable, and the
-  // transition from FALLBACK_MODELS to real API data.
+  // Reconcile the incoming selection against the catalog:
+  //   1. exact match on (model, provider, source) → check adapter; backfill if empty/wrong
+  //   2. model-id-only match (legacy/hydrated state where the parent only has
+  //      `model` saved, e.g. `project.rca_model: string`) → backfill the rest
+  //   3. no match → auto-pick a default
+  // Without case 2 the selector would silently auto-pick a default when a
+  // partially-hydrated saved selection arrives, clobbering the user's choice.
   useEffect(() => {
     if (models.length === 0) return;
-    const currentExists = models.some(
+
+    const exact = models.find(
       (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
     );
-    if (!currentExists) {
-      // Pick the first model from the highest-priority provider.
-      // Walk the priority list and return the first model we find.
-      let found = false;
-      for (const adapter of PROVIDER_PRIORITY) {
-        const match = models.find((m) => m.adapter === adapter);
-        if (match) {
-          onChange({ model: match.id, provider: match.provider, source: match.source });
-          found = true;
-          break;
-        }
+    const modelOnly =
+      !exact && value.model && !value.provider ? models.find((m) => m.id === value.model) : null;
+    const match = exact ?? modelOnly;
+
+    if (!match) {
+      const pick = pickDefaultModel(models);
+      if (pick) {
+        onChange({
+          model: pick.id,
+          provider: pick.provider,
+          source: pick.source,
+          adapter: pick.adapter,
+        });
       }
-      // If no priority match, fall back to the first model in the list
-      if (!found && models[0]) {
-        onChange({ model: models[0].id, provider: models[0].provider, source: models[0].source });
-      }
+      return;
+    }
+
+    // Match found — backfill any stale/empty fields (notably `adapter`, which
+    // legacy selections often store as `""` and which `currentExists`-style
+    // checks elsewhere ignore).
+    if (
+      match.id !== value.model ||
+      match.provider !== value.provider ||
+      match.source !== value.source ||
+      match.adapter !== value.adapter
+    ) {
+      onChange({
+        model: match.id,
+        provider: match.provider,
+        source: match.source,
+        adapter: match.adapter,
+      });
     }
   }, [models, value, onChange]);
 
@@ -134,7 +121,12 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
                   isSelected && "font-medium text-foreground",
                 )}
                 onClick={() => {
-                  onChange({ model: m.id, provider: m.provider, source: m.source });
+                  onChange({
+                    model: m.id,
+                    provider: m.provider,
+                    source: m.source,
+                    adapter: m.adapter,
+                  });
                   setOpen(false);
                 }}
               >
