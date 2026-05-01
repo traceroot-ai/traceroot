@@ -1,0 +1,67 @@
+---
+title: Agno
+description: Auto-instrument Agno agents, tools, and multi-step reasoning
+---
+
+Automatically capture agent runs, tool calls, and reasoning steps within the [Agno](https://github.com/agno-agi/agno) framework.
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.AGNO])
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+Once initialized, all Agno agent runs and tool invocations are captured automatically:
+
+```python
+import traceroot
+from traceroot import Integration
+from agno.agent import Agent
+from agno.models.anthropic import Claude
+from agno.tools.duckduckgo import DuckDuckGoTools
+from agno.tools.yfinance import YFinanceTools
+
+traceroot.initialize(integrations=[Integration.AGNO])
+
+agent = Agent(
+    model=Claude(id="claude-sonnet-4-20250514"),
+    tools=[
+        YFinanceTools(),
+        DuckDuckGoTools(),
+    ],
+    instructions=[
+        "Use YFinance for stock prices and fundamentals.",
+        "Use DuckDuckGo for general web searches.",
+        "Always cite your sources.",
+    ],
+    markdown=True,
+)
+
+# The entire agent run, including every tool call, is traced
+agent.print_response(
+    "What is the current stock price of NVDA and what are its fundamentals?",
+    stream=False,
+)
+
+traceroot.flush()
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Agent runs | Each `agent.run()` / `agent.print_response()` invocation |
+| Reasoning steps | Individual ReAct-style steps within the agent loop |
+| Tool calls | Each tool invocation with input arguments and results |
+| LLM calls | Raw completion requests to the underlying provider |
+| Tokens & Cost | Aggregated token usage and pricing |
+| Latency | Duration per agent run and per span |

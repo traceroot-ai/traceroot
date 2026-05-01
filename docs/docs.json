@@ -144,7 +144,10 @@
               "integrations/mastra",
               "integrations/autogen",
               "integrations/llamaindex",
-              "integrations/crewai"
+              "integrations/crewai",
+              "integrations/agno",
+              "integrations/dspy",
+              "integrations/google-adk"
             ]
           },
           {
@@ -152,7 +155,8 @@
             "pages": [
               "integrations/openai",
               "integrations/anthropic",
-              "integrations/gemini"
+              "integrations/gemini",
+              "integrations/mistral"
             ]
           },
           {
