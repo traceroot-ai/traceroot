@@ -1,0 +1,57 @@
+---
+title: Mistral
+description: Auto-instrument Mistral AI API calls
+---
+
+Automatically capture all Mistral AI chat completion calls, including tool/function calls and streaming responses.
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.MISTRAL])
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+Once initialized, all Mistral calls are captured automatically:
+
+```python
+import os
+from mistralai import Mistral
+
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.MISTRAL])
+
+client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
+
+# This call is automatically traced
+response = client.chat.complete(
+    model="mistral-large-latest",
+    messages=[
+        {"role": "user", "content": "What is the capital of France?"},
+    ],
+)
+
+print(response.choices[0].message.content)
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Model | `mistral-large-latest`, `mistral-small-latest`, etc. |
+| Messages | Input messages array |
+| Response | Completion content |
+| Tool calls | Function calls emitted by the model |
+| Tokens | Input and output tokens |
+| Cost | Calculated from token usage and model pricing |
+| Latency | Request duration |
