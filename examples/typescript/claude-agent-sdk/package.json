@@ -7,7 +7,6 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.0",
-    "@arizeai/openinference-instrumentation-claude-agent-sdk": "^0.2.3",
     "@traceroot-ai/traceroot": "0.1.2",
     "dotenv": "^16.4.5",
     "openai": "^6.34.0"

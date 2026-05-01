@@ -2,8 +2,7 @@
  * Claude Agent SDK — TraceRoot Observability
  *
  * Multi-agent research pipeline using Claude Code as a library.
- * Demonstrates subagents, multiple built-in tools, and TraceRoot tracing
- * (via @arizeai/openinference-instrumentation-claude-agent-sdk).
+ * Demonstrates subagents, multiple built-in tools, and TraceRoot tracing.
  *
  * Env vars: ANTHROPIC_API_KEY, TRACEROOT_API_KEY
  *           TRACEROOT_HOST_URL is optional (defaults to https://app.traceroot.ai)
@@ -14,23 +13,19 @@
  */
 
 import 'dotenv/config';
-import { ClaudeAgentSDKInstrumentation } from '@arizeai/openinference-instrumentation-claude-agent-sdk';
-import * as ClaudeAgentSDKModule from '@anthropic-ai/claude-agent-sdk';
+import * as claudeAgentSDKModule from '@anthropic-ai/claude-agent-sdk';
 import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
 import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 
-// Spread the read-only ESM namespace into a mutable object so the OpenInference
-// patcher can rewrite `query` in place. If you call the original namespace's
-// `query` after this point, your calls will NOT be traced.
-const ClaudeAgentSDK = { ...ClaudeAgentSDKModule };
+// Spread the read-only ESM namespace into a mutable object so the patcher
+// can rewrite `query` in place. If you call the original namespace's `query`
+// after this point, it will NOT be traced.
+const claudeAgentSDK = { ...claudeAgentSDKModule };
 
-// 1. Initialize TraceRoot first — registers the global TracerProvider.
-//    `disableBatch: true` switches to SimpleSpanProcessor for live tracing.
-TraceRoot.initialize({ disableBatch: true });
-
-// 2. Wire the OpenInference instrumentor manually against the spread namespace.
-//    Spans flow through TraceRoot's TracerProvider via the OpenTelemetry global.
-new ClaudeAgentSDKInstrumentation().manuallyInstrument(ClaudeAgentSDK);
+TraceRoot.initialize({
+  instrumentModules: { claudeAgentSDK },
+  disableBatch: true,
+});
 
 console.log('[Observability: TraceRoot]');
 
@@ -66,7 +61,7 @@ const WRITER: AgentDefinition = {
 async function runResearch(topic: string): Promise<string> {
   return observe({ name: 'research_pipeline', type: 'agent' }, async () => {
     let resultText = '';
-    for await (const message of ClaudeAgentSDK.query({
+    for await (const message of claudeAgentSDK.query({
       prompt: [
         `Research the following topic using a multi-step approach:\n\n`,
         `Topic: ${topic}\n\n`,
