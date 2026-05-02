@@ -54,7 +54,17 @@ export function flattenTreeWithMetrics(
   const flatList: FlatTimelineItem[] = [];
   const safeTraceDuration = Math.max(1, traceDurationMs);
 
-  function traverse(span: Span) {
+  // Iterative DFS — avoids stack overflow on deeply-nested traces (recursive
+  // agents, deep ReAct loops). Children are pushed in reverse so the first
+  // child is popped first, preserving chronological DFS order.
+  const stack: Span[] = [];
+  for (let i = topLevel.length - 1; i >= 0; i--) {
+    stack.push(topLevel[i]);
+  }
+
+  while (stack.length > 0) {
+    const span = stack.pop()!;
+
     const offsetMs = startTimes.get(span.span_id)! - traceStartMs;
     const durationMs = getSpanDuration(span) ?? 0;
     const isInProgress = span.span_end_time === null;
@@ -75,14 +85,11 @@ export function flattenTreeWithMetrics(
     });
 
     if (!collapsedIds.has(span.span_id)) {
-      for (const child of childrenMap.get(span.span_id) ?? []) {
-        traverse(child);
+      const children = childrenMap.get(span.span_id) ?? [];
+      for (let i = children.length - 1; i >= 0; i--) {
+        stack.push(children[i]);
       }
     }
-  }
-
-  for (const span of topLevel) {
-    traverse(span);
   }
 
   return flatList;
