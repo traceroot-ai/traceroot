@@ -23,9 +23,13 @@ My project uses [Python / TypeScript/Node.js] — adjust the instructions to mat
        Integration.LANGCHAIN,     # if using LangChain/LangGraph/DeepAgents
        Integration.ANTHROPIC,     # if using Anthropic
        Integration.GOOGLE_GENAI,  # if using Google Gemini
+       Integration.MISTRAL,       # if using Mistral
        Integration.CREWAI,        # if using CrewAI
        Integration.AUTOGEN,       # if using AutoGen (AG2)
        Integration.LLAMA_INDEX,   # if using LlamaIndex
+       Integration.AGNO,          # if using Agno
+       Integration.DSPY,          # if using DSPy
+       Integration.GOOGLE_ADK,    # if using Google ADK
    ])
 3. Add @observe on agent entrypoints and tool functions:
    from traceroot import observe
