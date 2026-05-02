@@ -5,7 +5,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn, formatDuration, formatTokens } from "@/lib/utils";
 import { SpanStatus, SpanKind } from "@traceroot/core";
 import { flattenTreeWithMetrics } from "../utils/timeline";
-import { TREE_LAYOUT, enrichSpansWithPending } from "../utils";
+import { TREE_LAYOUT, enrichSpansWithPending, getTraceDuration } from "../utils";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
 
@@ -69,22 +69,7 @@ export function SpanTimelineView({
     return () => observer.disconnect();
   }, []);
 
-  const { traceDurationMs } = useMemo(() => {
-    const traceStartMs = trace.spans.reduce(
-      (min, s) => Math.min(min, new Date(s.span_start_time).getTime()),
-      Infinity,
-    );
-    const durationMs =
-      trace.duration_ms ??
-      Math.max(
-        1,
-        trace.spans.reduce((max, s) => {
-          const start = new Date(s.span_start_time).getTime();
-          return Math.max(max, start - traceStartMs + (s.duration_ms ?? 0));
-        }, 0),
-      );
-    return { traceDurationMs: durationMs };
-  }, [trace.spans, trace.duration_ms]);
+  const traceDurationMs = useMemo(() => Math.max(1, getTraceDuration(trace) ?? 1), [trace]);
 
   const ticks = useMemo(() => {
     const durationSec = traceDurationMs > 0 ? traceDurationMs / 1000 : 1;

@@ -1,5 +1,5 @@
 import type { Span } from "@/types/api";
-import { buildChildrenMap } from "../utils";
+import { buildChildrenMap, getSpanDuration } from "../utils";
 
 export interface TimelineMetrics {
   startOffsetPx: number;
@@ -56,7 +56,7 @@ export function flattenTreeWithMetrics(
 
   function traverse(span: Span) {
     const offsetMs = startTimes.get(span.span_id)! - traceStartMs;
-    const durationMs = span.duration_ms ?? 0;
+    const durationMs = getSpanDuration(span) ?? 0;
     const isInProgress = span.span_end_time === null;
 
     const startOffsetPx = (offsetMs / safeTraceDuration) * scaleWidth;
