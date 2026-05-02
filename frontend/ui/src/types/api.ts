@@ -112,7 +112,6 @@ export interface Span {
   span_kind: SpanKind;
   span_start_time: string;
   span_end_time: string | null;
-  duration_ms?: number | null;
   status: SpanStatus;
   status_message: string | null;
   model_name: string | null;
@@ -134,7 +133,6 @@ export interface TraceDetail {
   project_id: string;
   name: string;
   trace_start_time: string;
-  duration_ms?: number | null;
   user_id: string | null;
   session_id: string | null;
   git_ref: string | null;
