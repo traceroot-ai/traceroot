@@ -258,6 +258,150 @@ traceroot.initialize(integrations=[
     },
   },
   {
+    id: "agno",
+    name: "Agno",
+    href: "https://traceroot.ai/docs/integrations/agno",
+    icon: (
+      <svg
+        aria-hidden="true"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        className="text-foreground"
+      >
+        <mask id="agno-onboarding-logo-mask">
+          <rect width="24" height="24" fill="white" />
+          <g transform="translate(-0.82, 2.42) scale(0.292)" fill="black">
+            <path d="M52.4943 9.29102H29.5019V17.2933H46.8809L61.6912 56.3333H71.2585L52.4943 9.29102Z" />
+            <path d="M40.0389 48.3312H16.4961V56.3334H40.0389V48.3312Z" />
+          </g>
+        </mask>
+        <rect
+          x="2"
+          y="2"
+          width="20"
+          height="20"
+          rx="4.5"
+          fill="currentColor"
+          mask="url(#agno-onboarding-logo-mask)"
+        />
+      </svg>
+    ),
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.AGNO])`,
+      },
+    },
+  },
+  {
+    id: "dspy",
+    name: "DSPy",
+    href: "https://traceroot.ai/docs/integrations/dspy",
+    icon: (
+      <svg
+        aria-hidden="true"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="text-foreground"
+      >
+        <rect x="3" y="3" width="18" height="18" rx="0.8" />
+        <path d="M12 3 V6.5 A1.5 1.5 0 0 1 12 9.5 V12" />
+        <path d="M12 12 V15.5 A1.5 1.5 0 0 1 12 18.5 V21" />
+        <path d="M3 12 H6.5 A1.5 1.5 0 0 1 9.5 12 H12" />
+        <path d="M12 12 H15.5 A1.5 1.5 0 0 1 18.5 12 H21" />
+      </svg>
+    ),
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.DSPY])`,
+      },
+    },
+  },
+  {
+    id: "mistral",
+    name: "Mistral",
+    href: "https://traceroot.ai/docs/integrations/mistral",
+    icon: (
+      <svg
+        aria-hidden="true"
+        width="24"
+        height="24"
+        viewBox="0 0 191 135"
+        fill="currentColor"
+        className="text-foreground"
+      >
+        <path d="M54.3219 0H27.1528V27.0892H54.3219V0Z" />
+        <path d="M162.984 0H135.815V27.0892H162.984V0Z" />
+        <path d="M81.482 27.0913H27.1528V54.1805H81.482V27.0913Z" />
+        <path d="M162.99 27.0913H108.661V54.1805H162.99V27.0913Z" />
+        <path d="M162.971 54.168H27.1528V81.2572H162.971V54.168Z" />
+        <path d="M54.3219 81.2593H27.1528V108.349H54.3219V81.2593Z" />
+        <path d="M108.661 81.2593H81.4917V108.349H108.661V81.2593Z" />
+        <path d="M162.984 81.2593H135.815V108.349H162.984V81.2593Z" />
+        <path d="M81.4879 108.339H-0.00146484V135.429H81.4879V108.339Z" />
+        <path d="M190.159 108.339H108.661V135.429H190.159V108.339Z" />
+      </svg>
+    ),
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.MISTRAL])`,
+      },
+    },
+  },
+  {
+    id: "google-adk",
+    name: "Google ADK",
+    href: "https://traceroot.ai/docs/integrations/google-adk",
+    icon: (
+      <svg
+        aria-hidden="true"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="text-foreground"
+      >
+        <rect x="3" y="3" width="18" height="10" rx="5" />
+        <circle cx="9.5" cy="8" r="1" fill="currentColor" stroke="none" />
+        <circle cx="14.5" cy="8" r="1" fill="currentColor" stroke="none" />
+        <path d="M6 16.5 H4.5 V21.5 H6" />
+        <path d="M11.5 16.5 L9 19 L11.5 21.5" />
+        <path d="M15 16.5 L17.5 19 L15 21.5" />
+      </svg>
+    ),
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.GOOGLE_ADK])`,
+      },
+    },
+  },
+  {
     id: "llamaindex",
     name: "LlamaIndex",
     href: "https://traceroot.ai/docs/integrations/llamaindex",
