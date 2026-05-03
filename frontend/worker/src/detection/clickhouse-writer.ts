@@ -1,8 +1,6 @@
 /**
- * Internal API client for writing detector results to ClickHouse.
- * The TypeScript worker calls the Python backend's internal API,
- * which handles the actual ClickHouse writes.
- * Pattern matches frontend/worker/src/ee/billing/clickhouse.ts
+ * Internal API client for writing detector results to ClickHouse (via Python backend).
+ * Same pattern as `ee/billing/clickhouse.ts`.
  */
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";

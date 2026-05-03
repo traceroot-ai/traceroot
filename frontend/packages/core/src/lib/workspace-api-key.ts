@@ -4,8 +4,6 @@ import { decryptKey } from "./encryption";
 /** Cache: `${workspaceId}:${provider}` → { key, expiresAt } */
 const keyCache = new Map<string, { key: string; expiresAt: number }>();
 const CACHE_TTL_MS = 60_000;
-// Sweep expired entries when the cache grows past this size — bounds memory
-// without paying a sweep cost on every lookup.
 const CACHE_SWEEP_AT = 256;
 
 function evictExpired(now: number): void {
@@ -15,15 +13,12 @@ function evictExpired(now: number): void {
 }
 
 /**
- * Resolve an API key for a workspace + provider.
- * Checks BYOK (modelProvider table) first, then falls back to env var.
- * Throws if neither source produces a key — silently returning "" would let
- * SDK constructors accept an empty string and fail later with a misleading
- * authentication error far from the configuration mistake.
+ * Resolve an API key for a workspace + model-provider row label.
+ * Checks BYOK (`model_providers.provider` equals `provider`) first, then env.
  *
  * @param workspaceId - workspace to look up BYOK for
- * @param provider    - "anthropic" | "openai" (matches modelProvider.provider in DB)
- * @param envVar      - env var name to fall back to (e.g. "ANTHROPIC_API_KEY")
+ * @param provider    - value of `ModelProvider.provider` (e.g. user label or legacy `"openai"`)
+ * @param envVar      - env var name to fall back to (e.g. `ANTHROPIC_API_KEY`)
  */
 export async function resolveWorkspaceApiKey(
   workspaceId: string,

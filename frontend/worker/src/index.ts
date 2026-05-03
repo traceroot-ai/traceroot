@@ -8,6 +8,7 @@
 import cron from "node-cron";
 import { prisma, syncStandardPrices } from "@traceroot/core";
 import { runBillingJob, closeClickHouseClient } from "./ee/billing";
+// Detector sandbox LLM eval: import { runDetectionForTrace, completeDetectorSandboxEval } from "./detection";
 
 // Graceful shutdown handling
 let isShuttingDown = false;

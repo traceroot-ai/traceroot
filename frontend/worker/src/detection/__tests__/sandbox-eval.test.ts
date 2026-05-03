@@ -1,20 +1,47 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockCreate = vi.fn();
+const mockComplete = vi.fn();
 
-// Mock Anthropic before importing the module under test
-vi.mock("@anthropic-ai/sdk", () => {
+vi.mock("@mariozechner/pi-ai", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@mariozechner/pi-ai")>();
   return {
-    default: vi.fn().mockImplementation(() => ({
-      messages: { create: mockCreate },
-    })),
+    ...actual,
+    complete: (...args: unknown[]) => mockComplete(...args),
+    getEnvApiKey: vi.fn(() => "sk-test"),
   };
 });
 
-// Mock @traceroot/core so tests don't need a real DB
-vi.mock("@traceroot/core", () => ({
-  resolveWorkspaceApiKey: vi.fn().mockResolvedValue("test-api-key"),
+vi.mock("@traceroot/core/pi-model", () => ({
+  resolvePiModel: vi.fn(() => ({
+    id: "claude-haiku-4-5",
+    name: "claude-haiku-4-5",
+    api: "anthropic-messages",
+    provider: "anthropic",
+    baseUrl: "",
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 200000,
+    maxTokens: 64000,
+  })),
 }));
+
+vi.mock("@traceroot/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@traceroot/core")>();
+  const findUnique = vi.fn().mockResolvedValue(null);
+  const findMany = vi.fn().mockResolvedValue([]);
+  return {
+    ...actual,
+    prisma: new Proxy(actual.prisma, {
+      get(target, prop, receiver) {
+        if (prop === "modelProvider") {
+          return { findUnique, findMany };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }),
+  };
+});
 
 import { runDetectionForTrace } from "../sandbox-eval";
 
@@ -25,26 +52,48 @@ const DETECTOR = {
   outputSchema: [{ name: "category", type: "string" }],
 };
 
+const emptyUsage = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
+function assistantWithTool(args: Record<string, unknown>) {
+  return {
+    role: "assistant" as const,
+    content: [
+      {
+        type: "toolCall" as const,
+        id: "toolu_1",
+        name: "submit_result",
+        arguments: args,
+      },
+    ],
+    api: "anthropic-messages",
+    provider: "anthropic",
+    model: "claude-haiku-4-5",
+    usage: emptyUsage,
+    stopReason: "toolUse" as const,
+    timestamp: Date.now(),
+  };
+}
+
 describe("runDetectionForTrace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("returns identified=true when LLM calls submit_result with identified=true", async () => {
-    mockCreate.mockResolvedValueOnce({
-      content: [
-        {
-          type: "tool_use",
-          name: "submit_result",
-          input: {
-            identified: true,
-            summary: "Tool errored 3 times",
-            data: { category: "tool_error" },
-          },
-        },
-      ],
-      stop_reason: "tool_use",
-    });
+    mockComplete.mockResolvedValueOnce(
+      assistantWithTool({
+        identified: true,
+        summary: "Tool errored 3 times",
+        data: { category: "tool_error" },
+      }),
+    );
 
     const result = await runDetectionForTrace({
       traceId: "trace-abc",
@@ -60,16 +109,9 @@ describe("runDetectionForTrace", () => {
   });
 
   it("returns identified=false when LLM calls submit_result with identified=false", async () => {
-    mockCreate.mockResolvedValueOnce({
-      content: [
-        {
-          type: "tool_use",
-          name: "submit_result",
-          input: { identified: false, summary: "No errors found", data: {} },
-        },
-      ],
-      stop_reason: "tool_use",
-    });
+    mockComplete.mockResolvedValueOnce(
+      assistantWithTool({ identified: false, summary: "No errors found", data: {} }),
+    );
 
     const result = await runDetectionForTrace({
       traceId: "trace-abc",
@@ -82,23 +124,20 @@ describe("runDetectionForTrace", () => {
     expect(result.summary).toBe("No errors found");
   });
 
-  it("retries when LLM responds with plain text (end_turn without tool_use)", async () => {
-    // First call: plain text response
-    mockCreate.mockResolvedValueOnce({
-      content: [{ type: "text", text: "I think there is an error." }],
-      stop_reason: "end_turn",
+  it("retries when LLM responds with plain text (no tool call)", async () => {
+    mockComplete.mockResolvedValueOnce({
+      role: "assistant" as const,
+      content: [{ type: "text" as const, text: "I think there is an error." }],
+      api: "anthropic-messages",
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+      usage: emptyUsage,
+      stopReason: "stop" as const,
+      timestamp: Date.now(),
     });
-    // Second call: proper tool use
-    mockCreate.mockResolvedValueOnce({
-      content: [
-        {
-          type: "tool_use",
-          name: "submit_result",
-          input: { identified: true, summary: "Found on retry", data: {} },
-        },
-      ],
-      stop_reason: "tool_use",
-    });
+    mockComplete.mockResolvedValueOnce(
+      assistantWithTool({ identified: true, summary: "Found on retry", data: {} }),
+    );
 
     const result = await runDetectionForTrace({
       traceId: "trace-abc",
@@ -109,20 +148,13 @@ describe("runDetectionForTrace", () => {
 
     expect(result.identified).toBe(true);
     expect(result.summary).toBe("Found on retry");
-    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(mockComplete).toHaveBeenCalledTimes(2);
   });
 
   it("truncates spansJsonl at 40000 chars", async () => {
-    mockCreate.mockResolvedValueOnce({
-      content: [
-        {
-          type: "tool_use",
-          name: "submit_result",
-          input: { identified: false, summary: "Clean", data: {} },
-        },
-      ],
-      stop_reason: "tool_use",
-    });
+    mockComplete.mockResolvedValueOnce(
+      assistantWithTool({ identified: false, summary: "Clean", data: {} }),
+    );
 
     const longSpans = "x".repeat(50000);
     await runDetectionForTrace({
@@ -132,14 +164,13 @@ describe("runDetectionForTrace", () => {
       workspaceId: "",
     });
 
-    const callArg = mockCreate.mock.calls[0][0];
+    const callArg = mockComplete.mock.calls[0][1] as { messages: { content: string }[] };
     const userMessage = callArg.messages[0].content as string;
-    // The spans portion should be truncated to 40000 chars
     expect(userMessage.length).toBeLessThan(42000);
   });
 
-  it("returns error when Anthropic throws", async () => {
-    mockCreate.mockRejectedValueOnce(new Error("API rate limit"));
+  it("returns error when complete throws", async () => {
+    mockComplete.mockRejectedValueOnce(new Error("API rate limit"));
 
     const result = await runDetectionForTrace({
       traceId: "trace-abc",

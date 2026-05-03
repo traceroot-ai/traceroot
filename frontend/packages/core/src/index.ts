@@ -6,7 +6,7 @@ export * from "./ee/billing/index";
 // Encryption
 export { encryptKey, decryptKey, maskKey } from "./lib/encryption";
 
-// BYOK key resolution
+// Workspace API keys (BYOK + env)
 export { resolveWorkspaceApiKey } from "./lib/workspace-api-key";
 
 // Re-export Prisma types
@@ -18,7 +18,7 @@ export type {
   AccessKey,
   Invite,
   Account,
-  GitHubInstallation,
+  GitHubConnection,
   ModelProvider,
 } from "@prisma/client";
 

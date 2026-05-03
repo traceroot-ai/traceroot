@@ -8,6 +8,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./pi-model": {
+      "types": "./src/pi-model.ts",
+      "default": "./src/pi-model.ts"
     }
   },
   "scripts": {
@@ -20,6 +24,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@mariozechner/pi-ai": "0.57.1",
     "@prisma/client": "^5.22.0",
     "zod": "^4.3.6"
   },

@@ -3,6 +3,10 @@ ci:
   autoupdate_commit_msg: '[pre-commit.ci] pre-commit suggestions'
   autoupdate_schedule: monthly
 
+# Stop after the first failing hook. Otherwise `mixed-line-ending` can rewrite the
+# working tree and a later `lint-staged` pass still sees the old index → restore conflict.
+fail_fast: true
+
 repos:
   # General file hygiene
   - repo: https://github.com/pre-commit/pre-commit-hooks

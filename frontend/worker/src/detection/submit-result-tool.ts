@@ -1,3 +1,6 @@
+import { Type, type TSchema } from "@mariozechner/pi-ai";
+import type { Tool } from "@mariozechner/pi-ai";
+
 export interface SubmitResultInput {
   identified: boolean;
   summary: string;
@@ -5,11 +8,8 @@ export interface SubmitResultInput {
 }
 
 /**
- * Build the submit_result tool definition for the detection LLM.
- * outputSchemaFields is the user-defined fields from detector.outputSchema,
- * e.g. [{name: "category", type: "string"}, {name: "severity", type: "string"}]
- *
- * The LLM MUST call this tool to complete. Plain text responses are forbidden.
+ * Build the submit_result tool definition for the detection LLM (JSON-schema shape).
+ * Used by tests and any Anthropic-shaped tooling; runtime eval uses {@link buildSubmitResultToolForPiAi}.
  */
 export function buildSubmitResultTool(outputSchemaFields: Array<{ name: string; type: string }>) {
   const dataProperties: Record<string, { type: string; description: string }> = {};
@@ -43,11 +43,49 @@ export function buildSubmitResultTool(outputSchemaFields: Array<{ name: string; 
           properties: dataProperties,
         },
       },
-      // `data` is only required when identified=true (per the description).
-      // The system prompt also tells the LLM this. Marking it required at the
-      // schema level forced models to fabricate empty objects on clean traces,
-      // adding noise without value.
       required: ["identified", "summary"],
     },
+  };
+}
+
+function fieldToSchema(field: { name: string; type: string }): TSchema {
+  const desc = `User-defined field: ${field.name}`;
+  if (field.type === "number") return Type.Number({ description: desc });
+  if (field.type === "boolean") return Type.Boolean({ description: desc });
+  return Type.String({ description: desc });
+}
+
+/** pi-ai / TypeBox tool definition for {@link complete} with tool calling. */
+export function buildSubmitResultToolForPiAi(
+  outputSchemaFields: Array<{ name: string; type: string }>,
+): Tool {
+  const dataProps: Record<string, TSchema> = {};
+  for (const f of outputSchemaFields) {
+    dataProps[f.name] = fieldToSchema(f);
+  }
+  const dataObject = Type.Object(dataProps, {
+    description: "User-defined extraction fields. Supply when identified=true.",
+    additionalProperties: false,
+  });
+  const parameters = Type.Object(
+    {
+      identified: Type.Boolean({
+        description:
+          "true if the problem described in the prompt was found in this trace, false otherwise",
+      }),
+      summary: Type.String({
+        description:
+          "One sentence describing what was found. Required even if identified=false (explain why it is clean).",
+      }),
+      data: Type.Optional(dataObject),
+    },
+    { additionalProperties: false, required: ["identified", "summary"] },
+  );
+
+  return {
+    name: "submit_result",
+    description:
+      "Submit your detection result. You MUST call this tool to complete. Do not respond with plain text.",
+    parameters,
   };
 }
