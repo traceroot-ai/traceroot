@@ -230,9 +230,7 @@ export function SpanTimelineView({
             const isSelected = selection.type === "span" && selection.span.span_id === span.span_id;
             const isError = span.status === SpanStatus.ERROR;
             const isInProgress = item.metrics.isInProgress;
-            const durationText = isInProgress
-              ? `${formatDuration(item.metrics.durationMs)}…`
-              : formatDuration(item.metrics.durationMs);
+            const durationText = formatDuration(item.metrics.durationMs);
 
             const isRootSpan = span.parent_span_id === null;
             const showDuration =
@@ -264,12 +262,7 @@ export function SpanTimelineView({
                 onClick={() => onSelect({ type: "span", span })}
               >
                 {showDuration && (
-                  <span
-                    className={cn(
-                      "absolute left-2 z-20 whitespace-nowrap text-[10px] text-muted-foreground",
-                      isInProgress && "italic",
-                    )}
-                  >
+                  <span className="absolute left-2 z-20 whitespace-nowrap text-[10px] text-muted-foreground">
                     {durationText}
                   </span>
                 )}
