@@ -300,8 +300,7 @@ export default function DetectorDetailPage() {
         {/* Pagination — copied from traces/page.tsx so the detector page
             renders an identical control: items-per-page popover, typeable
             page input, and first/prev/next/last navigation buttons. */}
-        {((activeTab === "findings" && findings.length > 0) ||
-          (activeTab === "runs" && runs.length > 0)) && (
+        {meta.total > 0 && (
           <div className="flex items-center justify-end gap-6 border-t border-border bg-background px-4 py-2.5">
             <div className="flex items-center gap-2">
               <span className="text-[12px] text-muted-foreground">Items per page</span>
