@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { CircleStop, CircleDollarSign } from "lucide-react";
 import { cn, formatDuration, formatTokens } from "@/lib/utils";
 import { SpanStatus, SpanKind } from "@traceroot/core";
 import { flattenTreeWithMetrics } from "../utils/timeline";
@@ -78,7 +79,7 @@ export function SpanTimelineView({
     const count = Math.ceil(durationSec / stepSec) + 1;
     return Array.from({ length: count }, (_, i) => {
       const sec = i * stepSec;
-      if (sec > durationSec * 1.1) return null;
+      if (sec > durationSec) return null;
       return { sec, leftPct: (sec / durationSec) * 100, label: formatTickLabel(sec) };
     }).filter((t): t is { sec: number; leftPct: number; label: string } => t !== null);
   }, [traceDurationMs, timelineWidth]);
@@ -86,9 +87,7 @@ export function SpanTimelineView({
   const traceAggregates = useMemo(() => {
     const totalTokens = trace.spans.reduce((sum, s) => sum + (s.total_tokens || 0), 0);
     const totalCost = trace.spans.reduce((sum, s) => sum + (s.cost || 0), 0);
-    const tokensText = totalTokens > 0 ? `${formatTokens(totalTokens)} tok` : "";
-    const costText = totalCost > 0 ? `$${totalCost.toFixed(3)}` : "";
-    return { rightLabel: [tokensText, costText].filter(Boolean).join(" · ") };
+    return { totalTokens, totalCost };
   }, [trace.spans]);
 
   const traceIsCollapsed = collapsedIds.has("trace");
@@ -151,7 +150,7 @@ export function SpanTimelineView({
 
       <div
         ref={scrollRef}
-        className="relative flex-1 overflow-auto [&::-webkit-scrollbar]:hidden"
+        className="relative flex-1 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden"
         style={{ scrollbarWidth: "none" }}
         onScroll={onScroll}
       >
@@ -199,14 +198,25 @@ export function SpanTimelineView({
                   <span className="absolute left-2 z-20 whitespace-nowrap text-[10px] font-medium text-muted-foreground">
                     {formatDuration(traceDurationMs)}
                   </span>
-                  {traceAggregates.rightLabel && (
-                    <span className="absolute right-2 z-20 whitespace-nowrap text-[10px] font-medium text-muted-foreground">
-                      {traceAggregates.rightLabel}
+                  {(traceAggregates.totalTokens > 0 || traceAggregates.totalCost > 0) && (
+                    <span className="absolute right-2 z-20 inline-flex items-center gap-2 whitespace-nowrap text-[10px] font-medium text-muted-foreground">
+                      {traceAggregates.totalTokens > 0 && (
+                        <span className="inline-flex items-center gap-0.5">
+                          <CircleStop className="h-2.5 w-2.5" />
+                          {formatTokens(traceAggregates.totalTokens)}
+                        </span>
+                      )}
+                      {traceAggregates.totalCost > 0 && (
+                        <span className="inline-flex items-center gap-0.5">
+                          <CircleDollarSign className="h-2.5 w-2.5" />
+                          {traceAggregates.totalCost.toFixed(4)}
+                        </span>
+                      )}
                     </span>
                   )}
                   <div
                     className={cn(
-                      "absolute z-10 overflow-hidden rounded-[2px] border border-solid border-border/60 bg-muted transition-colors group-hover:bg-muted/80",
+                      "absolute z-10 overflow-hidden rounded-[2px] border border-solid border-foreground/30 bg-foreground/[0.06] transition-colors group-hover:bg-foreground/15",
                       isSelected && "ring-1 ring-border",
                     )}
                     style={{ left: "0px", width: "100%", height: "20px" }}
@@ -229,13 +239,10 @@ export function SpanTimelineView({
               span.span_kind === SpanKind.LLM || span.span_kind === SpanKind.TOOL || isRootSpan;
 
             const showRightMetrics = span.span_kind === SpanKind.LLM || isRootSpan;
-            const tokensText =
-              showRightMetrics && span.total_tokens ? `${formatTokens(span.total_tokens)} tok` : "";
-            const costText =
-              showRightMetrics && span.cost && Number.isFinite(span.cost)
-                ? `$${span.cost.toFixed(3)}`
-                : "";
-            const rightLabel = [tokensText, costText].filter(Boolean).join(" · ");
+            const showTokens =
+              showRightMetrics && span.total_tokens != null && span.total_tokens > 0;
+            const showCost =
+              showRightMetrics && span.cost != null && Number.isFinite(span.cost) && span.cost > 0;
 
             return (
               <div
@@ -266,9 +273,20 @@ export function SpanTimelineView({
                     {durationText}
                   </span>
                 )}
-                {rightLabel && (
-                  <span className="absolute right-2 z-20 whitespace-nowrap text-[10px] text-muted-foreground">
-                    {rightLabel}
+                {(showTokens || showCost) && (
+                  <span className="absolute right-2 z-20 inline-flex items-center gap-2 whitespace-nowrap text-[10px] text-muted-foreground">
+                    {showTokens && (
+                      <span className="inline-flex items-center gap-0.5">
+                        <CircleStop className="h-2.5 w-2.5" />
+                        {formatTokens(span.total_tokens!)}
+                      </span>
+                    )}
+                    {showCost && (
+                      <span className="inline-flex items-center gap-0.5">
+                        <CircleDollarSign className="h-2.5 w-2.5" />
+                        {span.cost!.toFixed(4)}
+                      </span>
+                    )}
                   </span>
                 )}
                 {item.metrics.isInstant && !item.metrics.isInProgress ? (
@@ -282,7 +300,7 @@ export function SpanTimelineView({
                       "absolute z-10 overflow-hidden rounded-[2px] border border-solid transition-colors",
                       isError
                         ? "border-red-300 bg-red-100 dark:bg-red-950/60"
-                        : "border-border/60 bg-muted/60",
+                        : "border-foreground/40 bg-foreground/[0.08]",
                       item.metrics.isInProgress && "animate-pulse border-dashed opacity-70",
                       isSelected && "ring-1 ring-border",
                     )}
