@@ -3,7 +3,7 @@
  * Combines pagination, URL-based date filtering, and search with coordinated page resets.
  *
  * URL params: page_index, page_limit, date_filter, start, end
- * Use this for pages that need shared filter state (traces, users, sessions).
+ * Use this for pages that need shared filter state (traces, users, sessions, detector page).
  */
 import { useMemo } from "react";
 import { useUrlPagination } from "./use-url-pagination";

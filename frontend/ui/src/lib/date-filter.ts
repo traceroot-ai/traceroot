@@ -11,7 +11,8 @@ export interface DateFilterOption {
 }
 
 /**
- * Available date filter presets for trace listing.
+ * Available date filter presets for trace listing. Shared by all list pages
+ * (traces, sessions, users, detector findings/runs) — no per-page overrides.
  */
 export const DATE_FILTER_OPTIONS: DateFilterOption[] = [
   { id: "30m", label: "Last 30 minutes", durationMinutes: 30 },

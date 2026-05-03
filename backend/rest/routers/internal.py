@@ -11,7 +11,21 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from db.clickhouse.client import get_clickhouse_client
+from rest.schemas.detectors import FindingListResponse, RunListResponse
+from rest.services.trace_reader import _to_utc_naive
 from shared.config import settings
+
+
+def _escape_ilike(value: str) -> str:
+    """Escape ClickHouse ILIKE wildcards (`%`, `_`) plus the escape char itself.
+
+    ClickHouse ILIKE uses backslash as the default escape character (no
+    explicit ESCAPE clause is supported in syntax), so wrapping user input
+    with backslash-escapes makes `%` and `_` match literally instead of
+    behaving as wildcards.
+    """
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -226,61 +240,128 @@ async def write_detector_finding(body: DetectorFindingPayload):
     return {"ok": True}
 
 
-@router.get("/detector-runs", dependencies=[Depends(verify_internal_secret)])
+@router.get(
+    "/detector-runs",
+    response_model=RunListResponse,
+    dependencies=[Depends(verify_internal_secret)],
+)
 async def list_detector_runs(
     project_id: str,
     detector_id: str,
-    limit: int = 50,
-    offset: int = 0,
+    page: int = Query(0, ge=0, description="Page number (0-indexed)"),
+    limit: int = Query(50, ge=1, le=200, description="Items per page"),
+    start_after: datetime | None = Query(
+        None, description="Filter runs at/after this timestamp (inclusive)"
+    ),
+    end_before: datetime | None = Query(
+        None, description="Filter runs strictly before this timestamp"
+    ),
+    search_query: str | None = Query(
+        None, description="Substring match against trace_id OR the per-detector summary"
+    ),
 ):
     """List runs for a detector, newest first.
+
+    Param naming and pagination shape mirror the trace listing endpoints
+    (`page`/`limit`/`start_after`/`end_before`/`search_query`) so the same
+    `useListPageState` queryOptions can flow through unchanged.
 
     For triggered runs, JOIN with detector_findings to surface this detector's
     per-detector summary string (the finding's `payload` is the combined
     array of all triggered detectors for the trace; we filter to the entry
     matching this run's detector_id).
+
+    Returns {data: [...], meta: {page, limit, total}}. Total is computed by a
+    second COUNT query against the same WHERE clause.
     """
     ch = get_clickhouse_client()
-    result = ch.query(
-        """SELECT
-             r.run_id      AS run_id,
-             r.detector_id AS detector_id,
-             r.project_id  AS project_id,
-             r.trace_id    AS trace_id,
-             r.finding_id  AS finding_id,
-             r.status      AS status,
-             r.timestamp   AS timestamp,
-             if(
-               r.finding_id IS NOT NULL,
-               JSONExtractString(
-                 arrayFirst(
-                   x -> JSONExtractString(x, 'detectorId') = r.detector_id,
-                   JSONExtractArrayRaw(f.payload)
-                 ),
-                 'summary'
-               ),
-               ''
-             ) AS summary
-           FROM detector_runs r
-           LEFT JOIN detector_findings f
-             ON r.finding_id = f.finding_id AND r.project_id = f.project_id
-           WHERE r.project_id = {project_id:String} AND r.detector_id = {detector_id:String}
-           ORDER BY r.timestamp DESC
-           LIMIT {limit:Int32} OFFSET {offset:Int32}""",
-        parameters={
-            "project_id": project_id,
-            "detector_id": detector_id,
-            "limit": limit,
-            "offset": offset,
-        },
+    offset = page * limit
+
+    conditions: list[str] = [
+        "r.project_id = {project_id:String}",
+        "r.detector_id = {detector_id:String}",
+    ]
+    params: dict = {
+        "project_id": project_id,
+        "detector_id": detector_id,
+    }
+
+    if start_after is not None:
+        conditions.append("r.timestamp >= {start_after:DateTime64(3)}")
+        params["start_after"] = _to_utc_naive(start_after)
+
+    if end_before is not None:
+        conditions.append("r.timestamp < {end_before:DateTime64(3)}")
+        params["end_before"] = _to_utc_naive(end_before)
+
+    # Per-detector summary expression; reused in WHERE search and SELECT to keep
+    # one source of truth for what "the summary for this detector" means.
+    summary_expr = (
+        "if("
+        "  r.finding_id IS NOT NULL,"
+        "  JSONExtractString("
+        "    arrayFirst("
+        "      x -> JSONExtractString(x, 'detectorId') = r.detector_id,"
+        "      JSONExtractArrayRaw(f.payload)"
+        "    ),"
+        "    'summary'"
+        "  ),"
+        "  ''"
+        ")"
     )
+
+    if search_query:
+        # ClickHouse ILIKE uses backslash as the default escape character; no
+        # ESCAPE clause is supported in the syntax, so we pre-escape `%`/`_`
+        # in user input via `_escape_ilike`.
+        conditions.append(
+            f"(r.trace_id ILIKE {{search_kw:String}} OR {summary_expr} ILIKE {{search_kw:String}})"
+        )
+        params["search_kw"] = f"%{_escape_ilike(search_query)}%"
+
+    where_clause = " AND ".join(conditions)
+
+    data_query = f"""
+        SELECT
+            r.run_id      AS run_id,
+            r.detector_id AS detector_id,
+            r.project_id  AS project_id,
+            r.trace_id    AS trace_id,
+            r.finding_id  AS finding_id,
+            r.status      AS status,
+            r.timestamp   AS timestamp,
+            {summary_expr} AS summary
+        FROM detector_runs r
+        LEFT JOIN detector_findings f
+          ON r.finding_id = f.finding_id AND r.project_id = f.project_id
+        WHERE {where_clause}
+        ORDER BY r.timestamp DESC
+        LIMIT {{limit:Int32}} OFFSET {{offset:Int32}}
+    """
+    data_params = {**params, "limit": limit, "offset": offset}
+    result = ch.query(data_query, parameters=data_params)
+
+    count_query = f"""
+        SELECT count()
+        FROM detector_runs r
+        LEFT JOIN detector_findings f
+          ON r.finding_id = f.finding_id AND r.project_id = f.project_id
+        WHERE {where_clause}
+    """
+    count_result = ch.query(count_query, parameters=params)
+    total = count_result.result_rows[0][0] if count_result.result_rows else 0
+
     runs = []
     for row in result.result_rows:
         row_dict = dict(zip(result.column_names, row))
         if hasattr(row_dict.get("timestamp"), "isoformat"):
             row_dict["timestamp"] = row_dict["timestamp"].isoformat()
         runs.append(row_dict)
-    return {"runs": runs}
+
+    return {
+        "data": runs,
+        "meta": {"page": page, "limit": limit, "total": total},
+    }
 
 
 @router.get(
@@ -317,43 +398,93 @@ async def get_spans_jsonl(trace_id: str, project_id: str):
     return PlainTextResponse("\n".join(lines))
 
 
-@router.get("/detector-findings", dependencies=[Depends(verify_internal_secret)])
+@router.get(
+    "/detector-findings",
+    response_model=FindingListResponse,
+    dependencies=[Depends(verify_internal_secret)],
+)
 async def list_detector_findings(
     project_id: str,
     detector_id: str,
-    limit: int = 50,
-    offset: int = 0,
-    since: str | None = None,
+    page: int = Query(0, ge=0, description="Page number (0-indexed)"),
+    limit: int = Query(50, ge=1, le=200, description="Items per page"),
+    start_after: datetime | None = Query(
+        None, description="Filter findings at/after this timestamp (inclusive)"
+    ),
+    end_before: datetime | None = Query(
+        None, description="Filter findings strictly before this timestamp"
+    ),
+    search_query: str | None = Query(
+        None, description="Substring match against trace_id OR summary"
+    ),
 ):
-    """List findings for a detector (joined through runs), newest first."""
+    """List findings for a detector (joined through runs), newest first.
+
+    Param naming and pagination shape mirror the trace listing endpoints
+    (`page`/`limit`/`start_after`/`end_before`/`search_query`) so the same
+    `useListPageState` queryOptions can flow through unchanged.
+
+    Returns {data: [...], meta: {page, limit, total}}.
+    """
     ch = get_clickhouse_client()
-    since_clause = "AND f.timestamp >= {since:String}" if since else ""
+    offset = page * limit
+
+    conditions: list[str] = [
+        "r.project_id = {project_id:String}",
+        "r.detector_id = {detector_id:String}",
+    ]
     params: dict = {
         "project_id": project_id,
         "detector_id": detector_id,
-        "limit": limit,
-        "offset": offset,
     }
-    if since:
-        params["since"] = since
-    result = ch.query(
-        f"""SELECT f.finding_id, f.project_id, f.trace_id, f.summary, f.payload, f.timestamp
-            FROM detector_findings f
-            INNER JOIN detector_runs r ON f.finding_id = r.finding_id
-            WHERE r.project_id = {{project_id:String}}
-              AND r.detector_id = {{detector_id:String}}
-            {since_clause}
-            ORDER BY f.timestamp DESC
-            LIMIT {{limit:Int32}} OFFSET {{offset:Int32}}""",
-        parameters=params,
-    )
+
+    if start_after is not None:
+        conditions.append("f.timestamp >= {start_after:DateTime64(3)}")
+        params["start_after"] = _to_utc_naive(start_after)
+
+    if end_before is not None:
+        conditions.append("f.timestamp < {end_before:DateTime64(3)}")
+        params["end_before"] = _to_utc_naive(end_before)
+
+    if search_query:
+        conditions.append(
+            "(f.trace_id ILIKE {search_kw:String} OR f.summary ILIKE {search_kw:String})"
+        )
+        params["search_kw"] = f"%{_escape_ilike(search_query)}%"
+
+    where_clause = " AND ".join(conditions)
+
+    data_query = f"""
+        SELECT f.finding_id, f.project_id, f.trace_id, f.summary, f.payload, f.timestamp
+        FROM detector_findings f
+        INNER JOIN detector_runs r ON f.finding_id = r.finding_id
+        WHERE {where_clause}
+        ORDER BY f.timestamp DESC
+        LIMIT {{limit:Int32}} OFFSET {{offset:Int32}}
+    """
+    data_params = {**params, "limit": limit, "offset": offset}
+    result = ch.query(data_query, parameters=data_params)
+
+    count_query = f"""
+        SELECT count()
+        FROM detector_findings f
+        INNER JOIN detector_runs r ON f.finding_id = r.finding_id
+        WHERE {where_clause}
+    """
+    count_result = ch.query(count_query, parameters=params)
+    total = count_result.result_rows[0][0] if count_result.result_rows else 0
+
     findings = []
     for row in result.result_rows:
         row_dict = dict(zip(result.column_names, row))
         if hasattr(row_dict.get("timestamp"), "isoformat"):
             row_dict["timestamp"] = row_dict["timestamp"].isoformat()
         findings.append(row_dict)
-    return {"findings": findings}
+
+    return {
+        "data": findings,
+        "meta": {"page": page, "limit": limit, "total": total},
+    }
 
 
 @router.get(
