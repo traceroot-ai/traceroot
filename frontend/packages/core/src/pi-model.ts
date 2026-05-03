@@ -80,6 +80,27 @@ function getDefaultSystemModel(): {
   return null;
 }
 
+/** When BYOK has no explicit model id, pick a sensible default for that adapter (never Anthropic IDs for OpenAI-tunnel adapters). */
+function defaultModelIdForByokAdapter(adapter: string): string {
+  const catalog = ADAPTER_MODELS[adapter as LLMAdapter];
+  if (catalog?.length) {
+    const cheap =
+      catalog.find((m) => /haiku|mini|flash|lite|turbo|chat/i.test(m.id)) ??
+      catalog[catalog.length - 1];
+    return cheap.id;
+  }
+  if (adapter === "openai") return "gpt-5-mini";
+  if (adapter === "google") return "gemini-2.5-flash";
+  if (adapter === "anthropic") return "claude-haiku-4-5";
+  if (adapter === "deepseek") return "deepseek-chat";
+  if (adapter === "xai") return "grok-4";
+  if (adapter === "moonshot") return "kimi-k2.5";
+  if (adapter === "zai") return "glm-5-turbo";
+  if (adapter === "openrouter") return "openai/gpt-4o-mini";
+  if (adapter === "azure") return "gpt-5-mini";
+  return "claude-haiku-4-5";
+}
+
 /**
  * Resolve the pi-ai {@link Model} for a request: BYOK (adapter + protocol + base URL),
  * TraceRoot system catalog model, or best-effort default — matching agent behavior.
@@ -88,8 +109,14 @@ export function resolvePiModel(
   modelId: string | undefined,
   providerConfig: ProviderModelConfig | null,
 ): Model<Api> {
-  const defaultSystemModel = !modelId ? getDefaultSystemModel() : null;
-  const effectiveModelId = modelId || defaultSystemModel?.modelId || "claude-sonnet-4-5";
+  const trimmed = modelId?.trim() ?? "";
+  const defaultSystemModel = !trimmed && !providerConfig ? getDefaultSystemModel() : null;
+
+  const effectiveModelId = trimmed
+    ? trimmed
+    : providerConfig
+      ? defaultModelIdForByokAdapter(providerConfig.adapter)
+      : (defaultSystemModel?.modelId ?? "claude-sonnet-4-5");
 
   if (providerConfig) {
     const piAIProvider = ADAPTER_TO_PI_AI[providerConfig.adapter];

@@ -7,13 +7,23 @@ export interface SubmitResultInput {
   data: Record<string, unknown>;
 }
 
+const UNSAFE_SCHEMA_KEYS = new Set(["__proto__", "prototype", "constructor"]);
+
+function isSafeOutputFieldName(name: string): boolean {
+  return name.length > 0 && !UNSAFE_SCHEMA_KEYS.has(name);
+}
+
 /**
  * Build the submit_result tool definition for the detection LLM (JSON-schema shape).
  * Used by tests and any Anthropic-shaped tooling; runtime eval uses {@link buildSubmitResultToolForPiAi}.
  */
 export function buildSubmitResultTool(outputSchemaFields: Array<{ name: string; type: string }>) {
-  const dataProperties: Record<string, { type: string; description: string }> = {};
+  const dataProperties = Object.create(null) as Record<
+    string,
+    { type: string; description: string }
+  >;
   for (const field of outputSchemaFields) {
+    if (!isSafeOutputFieldName(field.name)) continue;
     dataProperties[field.name] = {
       type: field.type,
       description: `User-defined field: ${field.name}`,
@@ -59,8 +69,9 @@ function fieldToSchema(field: { name: string; type: string }): TSchema {
 export function buildSubmitResultToolForPiAi(
   outputSchemaFields: Array<{ name: string; type: string }>,
 ): Tool {
-  const dataProps: Record<string, TSchema> = {};
+  const dataProps = Object.create(null) as Record<string, TSchema>;
   for (const f of outputSchemaFields) {
+    if (!isSafeOutputFieldName(f.name)) continue;
     dataProps[f.name] = fieldToSchema(f);
   }
   const dataObject = Type.Object(dataProps, {

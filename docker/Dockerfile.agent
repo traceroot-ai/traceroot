@@ -34,7 +34,7 @@ RUN cd packages/core && npx prisma generate \
 RUN cd packages/core && \
     node -e "const t=JSON.parse(require('fs').readFileSync('tsconfig.json','utf8')); t.compilerOptions.module='CommonJS'; t.compilerOptions.moduleResolution='node'; require('fs').writeFileSync('tsconfig.json',JSON.stringify(t,null,2))" && \
     pnpm build && \
-    node -e "const p=JSON.parse(require('fs').readFileSync('package.json','utf8')); p.main='./dist/index.js'; p.exports={'.':{'types':'./dist/index.d.ts','default':'./dist/index.js'}}; require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+    node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.main='./dist/index.js';p.exports={'.':{types:'./dist/index.d.ts',default:'./dist/index.js'},'./pi-model':{types:'./dist/pi-model.d.ts',default:'./dist/pi-model.js'}};fs.writeFileSync('package.json',JSON.stringify(p,null,2))"
 RUN cd packages/agent && pnpm build
 
 FROM node:20-alpine AS runner

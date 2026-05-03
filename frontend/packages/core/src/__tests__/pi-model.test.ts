@@ -28,6 +28,19 @@ describe("resolvePiModel", () => {
     expect(m.baseUrl).toContain("deepseek");
   });
 
+  it("uses adapter-specific default when BYOK model id is missing (not Anthropic fallback)", () => {
+    const cfg: ProviderModelConfig = {
+      adapter: "deepseek",
+      key: "sk-test",
+      baseUrl: null,
+      config: null,
+    };
+    const m = resolvePiModel(undefined, cfg);
+    expect(m.provider).toBe("openai");
+    expect(m.id).toMatch(/^deepseek-/);
+    expect(m.id).not.toMatch(/claude/i);
+  });
+
   it("uses catalog apiProtocol for BYOK OpenAI Codex when modelProtocols is unset", () => {
     const cfg: ProviderModelConfig = {
       adapter: "openai",

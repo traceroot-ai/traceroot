@@ -42,4 +42,14 @@ describe("buildSubmitResultTool", () => {
     expect(dataProps.count.type).toBe("number");
     expect(dataProps.flagged.type).toBe("boolean");
   });
+
+  it("ignores prototype-polluting field names", () => {
+    const tool = buildSubmitResultTool([
+      { name: "__proto__", type: "string" },
+      { name: "safe", type: "string" },
+    ]);
+    const dataProps = tool.input_schema.properties.data.properties;
+    expect(dataProps).not.toHaveProperty("__proto__");
+    expect(dataProps).toHaveProperty("safe");
+  });
 });
