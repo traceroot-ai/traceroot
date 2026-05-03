@@ -84,6 +84,19 @@ agent:
       cpu: "1"
       memory: "1Gi"
 
+detector:
+  image:
+    repository: ""
+    tag: "latest"
+  replicas: 1
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
 # --- Ingress (overridden by Terraform with TLS config) ---
 ingress:
   enabled: true
