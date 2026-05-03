@@ -9,6 +9,7 @@
 import cron from "node-cron";
 import { prisma, syncStandardPrices } from "@traceroot/core";
 import { runBillingJob, closeClickHouseClient } from "./ee/billing";
+import { runDataRetentionJob } from "./dataRetention";
 
 // Graceful shutdown handling
 let isShuttingDown = false;
@@ -61,8 +62,22 @@ async function main(): Promise<void> {
     }
   });
 
+  // Schedule data retention job (default: daily at 02:00 UTC)
+  const retentionCron = process.env.DATA_RETENTION_CRON || "0 2 * * *";
+  cron.schedule(retentionCron, async () => {
+    if (isShuttingDown) return;
+
+    console.log("[Worker] Running scheduled data retention job...");
+    try {
+      await runDataRetentionJob();
+    } catch (error) {
+      console.error("[Worker] Data retention job failed:", error);
+    }
+  });
+
   console.log("[Worker] Scheduled jobs:");
-  console.log(`  - Billing: ${billingCron}`);
+  console.log(`  - Billing:        ${billingCron}`);
+  console.log(`  - Data Retention: ${retentionCron}`);
   console.log("[Worker] Worker is running. Press Ctrl+C to stop.");
 
   // Keep the process alive
