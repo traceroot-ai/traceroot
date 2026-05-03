@@ -1,7 +1,7 @@
 # docker/Dockerfile.web
 FROM node:20-alpine AS base
 RUN apk add --no-cache openssl && \
-    corepack enable && corepack prepare pnpm@latest --activate
+    corepack enable && corepack prepare pnpm@9.15.9 --activate
 
 # --- Dependencies stage ---
 FROM base AS deps

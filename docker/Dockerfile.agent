@@ -1,7 +1,7 @@
 # docker/Dockerfile.agent
 FROM node:20-alpine AS base
 RUN apk add --no-cache openssl && \
-    corepack enable && corepack prepare pnpm@latest --activate
+    corepack enable && corepack prepare pnpm@9.15.9 --activate
 
 FROM base AS deps
 WORKDIR /app
