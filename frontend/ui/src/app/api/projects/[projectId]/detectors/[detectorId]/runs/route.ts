@@ -20,16 +20,22 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
   const { searchParams } = req.nextUrl;
   const rawLimit = parseInt(searchParams.get("limit") ?? "50", 10);
-  const rawOffset = parseInt(searchParams.get("offset") ?? "0", 10);
+  const rawPage = parseInt(searchParams.get("page") ?? "0", 10);
   const limit = isNaN(rawLimit) ? 50 : Math.min(Math.max(rawLimit, 1), 200);
-  const offset = isNaN(rawOffset) ? 0 : Math.max(rawOffset, 0);
+  const page = isNaN(rawPage) ? 0 : Math.max(rawPage, 0);
+  const startAfter = searchParams.get("start_after");
+  const endBefore = searchParams.get("end_before");
+  const searchQuery = searchParams.get("search_query");
 
   const backendParams = new URLSearchParams({
     project_id: projectId,
     detector_id: detectorId,
     limit: limit.toString(),
-    offset: offset.toString(),
+    page: page.toString(),
   });
+  if (startAfter) backendParams.set("start_after", startAfter);
+  if (endBefore) backendParams.set("end_before", endBefore);
+  if (searchQuery) backendParams.set("search_query", searchQuery);
 
   let response: Response;
   try {
