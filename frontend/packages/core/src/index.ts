@@ -18,7 +18,7 @@ export type {
   AccessKey,
   Invite,
   Account,
-  GitHubConnection,
+  GitHubInstallation,
   ModelProvider,
 } from "@prisma/client";
 

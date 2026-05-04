@@ -13,7 +13,7 @@ const schema = Type.Object({
 });
 
 export function createGitCloneTool(
-  userId: string,
+  workspaceId: string,
   uiBaseUrl: string,
   executor: Executor,
 ): AgentTool<typeof schema> {
@@ -34,7 +34,7 @@ export function createGitCloneTool(
         `${uiBaseUrl}/api/github/token?repo=${encodeURIComponent(params.repo)}`,
         {
           headers: {
-            "x-user-id": userId,
+            "x-workspace-id": workspaceId,
             "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
           },
         },

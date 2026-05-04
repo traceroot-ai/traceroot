@@ -28,7 +28,6 @@ async function runRcaSession(params: {
   traceId: string;
   findings: DetectorRcaJob["findings"];
   hasGitHub: boolean;
-  githubUserId?: string;
   rcaModel?: string | null;
 }): Promise<{ result: string; sessionId: string }> {
   const sessionRes = await fetch(
@@ -92,9 +91,6 @@ Output your findings in this format:
     "Content-Type": "application/json",
     "x-workspace-id": params.workspaceId,
   };
-  if (params.githubUserId) {
-    msgHeaders["x-user-id"] = params.githubUserId;
-  }
 
   const resolved = resolveSystemModel(params.rcaModel);
   const msgBody: {
@@ -201,14 +197,12 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
         });
         emailAddresses = project?.alertConfig?.emailAddresses ?? [];
 
-        // Find any workspace member with a GitHub connection for the GitHub tool.
-        // TODO (PR 2): replace with project-level GitHubConnection lookup.
-        const members = await prisma.workspaceMember.findMany({
+        // Workspace-level GitHub installations now drive the GitHub tool.
+        // Any installation in this workspace is enough to flip the tool on.
+        const ghCount = await prisma.gitHubInstallation.count({
           where: { workspaceId },
-          include: { user: { include: { githubConnection: true } } },
         });
-        const hasGitHub = members.some((m) => !!m.user.githubConnection);
-        const githubUserId = members.find((m) => !!m.user.githubConnection)?.userId;
+        const hasGitHub = ghCount > 0;
 
         const { result: rcaResult } = await runRcaSession({
           findingId,
@@ -217,7 +211,6 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
           traceId,
           findings,
           hasGitHub,
-          githubUserId,
           rcaModel: project?.rcaModel,
         });
 

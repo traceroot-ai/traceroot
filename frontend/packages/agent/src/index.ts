@@ -142,7 +142,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     sessionExecutors.set(sessionId, executor);
   }
 
-  const tools = createTools({ projectId, userId, executor });
+  const tools = createTools({ projectId, userId, workspaceId, executor });
 
   console.log(
     `[Agent] POST message: session=${sessionId}, model=${body.model}, provider=${body.providerName}, source=${body.source}`,

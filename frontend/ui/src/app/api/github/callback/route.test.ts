@@ -7,6 +7,7 @@ vi.mock("@/env", () => ({
     GITHUB_APP_ID: "123456",
     GITHUB_APP_CLIENT_ID: "client_id",
     GITHUB_APP_CLIENT_SECRET: "client_secret",
+    GITHUB_APP_PRIVATE_KEY: "fake-key",
   },
 }));
 
@@ -28,7 +29,8 @@ vi.mock("next/server", () => ({
 
 vi.mock("@traceroot/core", () => ({
   prisma: {
-    gitHubConnection: { upsert: vi.fn() },
+    workspaceMember: { findFirst: vi.fn(async () => ({ workspaceId: "ws_1" })) },
+    gitHubInstallation: { upsert: vi.fn(async () => ({})) },
   },
 }));
 
@@ -37,9 +39,16 @@ vi.mock("@/lib/auth-helpers", () => ({
 }));
 
 vi.mock("@traceroot/github", async (importOriginal) => {
-  // Keep real validateCallbackParams / verifyInstallationId
+  // Keep real validateCallbackParams / verifyInstallationId; stub network helpers.
   const original = await importOriginal<typeof import("@traceroot/github")>();
-  return { ...original };
+  return {
+    ...original,
+    getInstallation: vi.fn(async () => ({
+      id: 789,
+      account: { login: "octocat", id: 42, type: "User" },
+      app_id: 123456,
+    })),
+  };
 });
 
 import { POST } from "./route";
@@ -65,16 +74,11 @@ function makeRequest(
 
 // Sequence-aware fetch stub.
 //  - Call #1: GitHub token exchange → { access_token }
-//  - Call #2: GitHub /user            → { id, login }
-//  - Call #3: GitHub /user/installations → { installations }
-
+//  - Call #2: GitHub /user/installations → { installations }
 function stubFetch({
   accessToken = "ghp_mock",
-  userId = 42,
-  login = "octocat",
-  installations = [{ id: 789, app_id: 123456 }],
+  installations = [{ id: 789, app_id: 123456, account: { login: "octocat" } }],
   tokenOk = true,
-  userOk = true,
   installOk = true,
 } = {}) {
   let callCount = 0;
@@ -84,7 +88,6 @@ function stubFetch({
       callCount++;
       if (callCount === 1)
         return { ok: tokenOk, json: async () => ({ access_token: accessToken }) };
-      if (callCount === 2) return { ok: userOk, json: async () => ({ id: userId, login }) };
       return { ok: installOk, json: async () => ({ installations }) };
     }),
   );
@@ -96,7 +99,6 @@ describe("POST /api/github/callback (direct install confirmation)", () => {
     vi.clearAllMocks();
   });
 
-  //Origin header validation
   describe("Origin header validation", () => {
     it("returns 403 when Origin header is absent", async () => {
       const req = makeRequest(null);
@@ -134,7 +136,6 @@ describe("POST /api/github/callback (direct install confirmation)", () => {
     });
   });
 
-  // Request body validation
   describe("Request body validation", () => {
     it("returns 400 when code is missing from body", async () => {
       stubFetch();
@@ -145,7 +146,6 @@ describe("POST /api/github/callback (direct install confirmation)", () => {
     });
   });
 
-  // Successful flow
   describe("Successful flow", () => {
     it("returns 200 with redirectUrl when Origin, code, and auth are valid", async () => {
       stubFetch();
