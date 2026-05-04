@@ -34,8 +34,12 @@ export function ListPagination({
 
   if (total <= 0) return null;
 
-  const totalPages = Math.ceil(total / limit);
-  const displayPages = Math.max(1, totalPages);
+  // Defend against invalid `limit` propagating from URL/state (0, negative,
+  // NaN, Infinity) — without this, `Math.ceil(total / 0)` is Infinity and
+  // negative limits give negative `totalPages`, breaking nav controls.
+  const safeLimit =
+    Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : itemsPerPageOptions[0];
+  const totalPages = Math.max(1, Math.ceil(total / safeLimit));
 
   return (
     <div className="flex items-center justify-end gap-6 border-t border-border bg-background px-4 py-2.5">
@@ -76,7 +80,7 @@ export function ListPagination({
         <input
           type="number"
           min={1}
-          max={displayPages}
+          max={totalPages}
           value={page + 1}
           onChange={(e) => {
             const val = parseInt(e.target.value, 10);
@@ -86,7 +90,7 @@ export function ListPagination({
           }}
           className="h-7 w-12 rounded border border-border bg-background px-2 py-1 text-center text-[12px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         />
-        <span className="text-[12px] text-muted-foreground">of {displayPages}</span>
+        <span className="text-[12px] text-muted-foreground">of {totalPages}</span>
       </div>
       <div className="flex items-center gap-0.5">
         <Button
