@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useMemo, useLayoutEffect } from "react";
+import { useMemo, useLayoutEffect } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
-import { Workflow, Users, Layers, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Workflow, Users, Layers } from "lucide-react";
 import { SearchFilterBar } from "@/components/search-filter-bar";
+import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useUsers, useListPageState } from "@/features/traces/hooks";
 import { formatDate, formatCost, formatTokens, cn, buildUrlWithFilters } from "@/lib/utils";
@@ -25,7 +24,6 @@ export default function UsersPage() {
   const router = useRouter();
   const projectId = params.projectId as string;
   const { setHideAiButton } = useLayout();
-  const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
 
   useLayoutEffect(() => {
     setHideAiButton(false);
@@ -57,8 +55,7 @@ export default function UsersPage() {
   const { data, isLoading, error } = useUsers(projectId, userQueryOptions);
 
   const users = data?.data || [];
-  const meta = data?.meta || { page: 0, limit: 50, total: 0 };
-  const totalPages = Math.ceil(meta.total / meta.limit);
+  const total = data?.meta?.total ?? 0;
 
   const buildUrl = (path: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(path, {
@@ -196,100 +193,13 @@ export default function UsersPage() {
                 </table>
               </div>
 
-              {/* Pagination */}
-              <div className="flex items-center justify-end gap-6 border-t border-border bg-background px-4 py-2.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-[12px] text-muted-foreground">Items per page</span>
-                  <Popover open={itemsPerPageOpen} onOpenChange={setItemsPerPageOpen}>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 min-w-[60px] justify-between px-2 text-[12px]"
-                      >
-                        <span>{state.limit}</span>
-                        <ChevronDown className="ml-1 h-3 w-3 text-muted-foreground" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent side="top" align="start" className="w-[80px] p-1">
-                      {[50, 100, 200].map((value) => (
-                        <button
-                          key={value}
-                          className={cn(
-                            "w-full rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors",
-                            state.limit === value ? "bg-muted" : "hover:bg-muted/50",
-                          )}
-                          onClick={() => {
-                            updateLimit(value);
-                            setItemsPerPageOpen(false);
-                          }}
-                        >
-                          {value}
-                        </button>
-                      ))}
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[12px] text-muted-foreground">Page</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={Math.max(1, totalPages)}
-                    value={state.page + 1}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10);
-                      if (!isNaN(val) && val >= 1 && val <= totalPages) {
-                        goToPage(val - 1);
-                      }
-                    }}
-                    className="h-7 w-12 rounded border border-border bg-background px-2 py-1 text-center text-[12px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                  />
-                  <span className="text-[12px] text-muted-foreground">
-                    of {Math.max(1, totalPages)}
-                  </span>
-                </div>
-                <div className="flex items-center gap-0.5">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => goToPage(0)}
-                    disabled={state.page === 0}
-                    className="h-7 w-7 p-0"
-                  >
-                    <ChevronLeft className="h-3.5 w-3.5" />
-                    <ChevronLeft className="-ml-2 h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => goToPage(Math.max(0, state.page - 1))}
-                    disabled={state.page === 0}
-                    className="h-7 w-7 p-0"
-                  >
-                    <ChevronLeft className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => goToPage(state.page + 1)}
-                    disabled={state.page >= totalPages - 1}
-                    className="h-7 w-7 p-0"
-                  >
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => goToPage(totalPages - 1)}
-                    disabled={state.page >= totalPages - 1}
-                    className="h-7 w-7 p-0"
-                  >
-                    <ChevronRight className="h-3.5 w-3.5" />
-                    <ChevronRight className="-ml-2 h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
+              <ListPagination
+                page={state.page}
+                limit={state.limit}
+                total={total}
+                onPageChange={goToPage}
+                onLimitChange={updateLimit}
+              />
             </div>
           )}
         </div>

@@ -1,16 +1,9 @@
 """Service for reading traces from ClickHouse."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 from db.clickhouse import get_clickhouse_client
-
-
-def _to_utc_naive(dt: datetime) -> datetime:
-    """Convert datetime to UTC naive datetime for ClickHouse comparison."""
-    if dt.tzinfo is not None:
-        # Convert to UTC then remove timezone info
-        return dt.astimezone(UTC).replace(tzinfo=None)
-    return dt
+from rest.sql_utils import escape_ilike, to_utc_naive
 
 
 class TraceReaderService:
@@ -39,7 +32,7 @@ class TraceReaderService:
 
         if name:
             conditions.append("t.name ILIKE {name:String}")
-            params["name"] = f"%{name}%"
+            params["name"] = f"%{escape_ilike(name)}%"
 
         if user_id:
             conditions.append("t.user_id = {user_id:String}")
@@ -48,11 +41,11 @@ class TraceReaderService:
         # Date range filtering (convert to UTC naive datetime for ClickHouse)
         if start_after is not None:
             conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
-            params["start_after"] = _to_utc_naive(start_after)
+            params["start_after"] = to_utc_naive(start_after)
 
         if end_before is not None:
             conditions.append("t.trace_start_time < {end_before:DateTime64(3)}")
-            params["end_before"] = _to_utc_naive(end_before)
+            params["end_before"] = to_utc_naive(end_before)
 
         # Multi-field keyword search (trace_id, name, session_id, user_id)
         if search_query:
@@ -62,7 +55,7 @@ class TraceReaderService:
                 "OR t.session_id ILIKE {search_kw:String} "
                 "OR t.user_id ILIKE {search_kw:String})"
             )
-            params["search_kw"] = f"%{search_query}%"
+            params["search_kw"] = f"%{escape_ilike(search_query)}%"
 
         where_clause = " AND ".join(conditions)
 
@@ -238,15 +231,15 @@ class TraceReaderService:
 
         if search_query:
             conditions.append("t.session_id ILIKE {search_kw:String}")
-            params["search_kw"] = f"%{search_query}%"
+            params["search_kw"] = f"%{escape_ilike(search_query)}%"
 
         if start_after is not None:
             conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
-            params["start_after"] = _to_utc_naive(start_after)
+            params["start_after"] = to_utc_naive(start_after)
 
         if end_before is not None:
             conditions.append("t.trace_start_time < {end_before:DateTime64(3)}")
-            params["end_before"] = _to_utc_naive(end_before)
+            params["end_before"] = to_utc_naive(end_before)
 
         where_clause = " AND ".join(conditions)
 
@@ -386,11 +379,11 @@ class TraceReaderService:
         # Date range filtering
         if start_after is not None:
             conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
-            params["start_after"] = _to_utc_naive(start_after)
+            params["start_after"] = to_utc_naive(start_after)
 
         if end_before is not None:
             conditions.append("t.trace_start_time < {end_before:DateTime64(3)}")
-            params["end_before"] = _to_utc_naive(end_before)
+            params["end_before"] = to_utc_naive(end_before)
 
         where_clause = " AND ".join(conditions)
 
@@ -536,16 +529,16 @@ class TraceReaderService:
         # Search by user_id
         if search_query:
             conditions.append("t.user_id ILIKE {search_kw:String}")
-            params["search_kw"] = f"%{search_query}%"
+            params["search_kw"] = f"%{escape_ilike(search_query)}%"
 
         # Date range filtering
         if start_after:
             conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
-            params["start_after"] = _to_utc_naive(start_after)
+            params["start_after"] = to_utc_naive(start_after)
 
         if end_before:
             conditions.append("t.trace_start_time <= {end_before:DateTime64(3)}")
-            params["end_before"] = _to_utc_naive(end_before)
+            params["end_before"] = to_utc_naive(end_before)
 
         where_clause = " AND ".join(conditions)
 
