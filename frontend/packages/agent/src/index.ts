@@ -158,7 +158,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   const { agent, sessionManager } = await getOrCreateAgent({
     sessionId,
     projectId,
-    workspaceId,
+    workspaceId: ownedSession.workspaceId,
     userId,
     systemPrompt,
     tools,

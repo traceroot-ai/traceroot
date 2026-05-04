@@ -19,11 +19,15 @@ export async function POST(request: NextRequest) {
   const memberCheck = await requireWorkspaceMembership(user.id, workspaceId, "ADMIN");
   if (memberCheck.error) return memberCheck.error;
 
+  // Distinguish "param absent" (delete all) from "param present but empty"
+  // (delete nothing — pass the empty string through as a no-match filter).
+  // Truthy check would conflate the two and turn ?installationId= into a
+  // workspace-wide wipe, which is not what the URL implies.
   const installationId = request.nextUrl.searchParams.get("installationId");
   await prisma.gitHubInstallation.deleteMany({
     where: {
       workspaceId,
-      ...(installationId ? { installationId } : {}),
+      ...(installationId !== null ? { installationId } : {}),
     },
   });
 
