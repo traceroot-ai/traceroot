@@ -18,7 +18,8 @@ import {
   buildUrlWithFilters,
 } from "@/lib/utils";
 import type { TraceListItem } from "@/types/api";
-import { useTraces, useListPageState } from "@/features/traces/hooks";
+import { useTraces } from "@/features/traces/hooks";
+import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
 import { formatContentPreview } from "@/features/traces/utils";
 
