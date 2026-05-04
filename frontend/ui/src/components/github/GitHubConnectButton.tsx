@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { usePathname } from "next/navigation";
 import { FaGithub } from "react-icons/fa";
 import { ChevronDown, ExternalLink, Unlink } from "lucide-react";
 import { fetchGitHubConnection } from "@/lib/github";
@@ -20,6 +21,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
 
   const { data: workspace } = useWorkspace(workspaceId);
   const canManage = workspace?.role === "ADMIN";
+  const pathname = usePathname();
 
   const { data, isLoading } = useQuery({
     queryKey: ["github-connection", workspaceId],
@@ -43,8 +45,10 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
     }
   };
 
+  // usePathname is consistent on server and client — using window.location here
+  // would create an SSR/CSR hydration mismatch in this client component.
   const buildHref = (path: string) =>
-    `${path}?workspaceId=${encodeURIComponent(workspaceId)}&returnTo=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname : "/")}`;
+    `${path}?workspaceId=${encodeURIComponent(workspaceId)}&returnTo=${encodeURIComponent(pathname || "/")}`;
 
   if (isLoading) {
     return (

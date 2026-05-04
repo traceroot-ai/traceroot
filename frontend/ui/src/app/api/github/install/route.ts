@@ -14,7 +14,12 @@ export async function GET(request: NextRequest) {
 
     const state = crypto.randomUUID();
     const returnTo = request.nextUrl.searchParams.get("returnTo") || "/";
-    const workspaceId = request.nextUrl.searchParams.get("workspaceId");
+    // Allow workspaceId to come from either the query (button click) or the
+    // cookie set by /api/github/login earlier in the flow — callback redirects
+    // here without re-passing the param when no install exists yet.
+    const workspaceId =
+      request.nextUrl.searchParams.get("workspaceId") ||
+      request.cookies.get(GITHUB_WORKSPACE_ID_COOKIE)?.value;
 
     // Adding/configuring an installation mutates a workspace-shared resource — admin only.
     if (!workspaceId) {
