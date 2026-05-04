@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, ChevronDown, Flag, History } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ChevronRight, Flag, History } from "lucide-react";
 import { SearchFilterBar } from "@/components/search-filter-bar";
+import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { formatDate, cn } from "@/lib/utils";
 import { useDetectors } from "@/features/detectors/hooks/use-detectors";
@@ -25,7 +24,6 @@ export default function DetectorDetailPage() {
   const detectorId = params.detectorId as string;
 
   const [activeTab, setActiveTab] = useState("findings");
-  const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
   const [selectedFinding, setSelectedFinding] = useState<BackendFinding | null>(null);
 
   // Single shared state across both tabs — same pattern as traces/sessions/users.
@@ -59,12 +57,7 @@ export default function DetectorDetailPage() {
   // since `useListPageState` is one shared instance — switching tabs keeps you
   // on the same page index. The other tab's data may show empty if it has
   // fewer pages; clicking "first" recovers.
-  const meta = (activeTab === "runs" ? runsData?.meta : findingsData?.meta) || {
-    page: 0,
-    limit: 50,
-    total: 0,
-  };
-  const totalPages = Math.ceil(meta.total / meta.limit);
+  const activeMeta = activeTab === "runs" ? runsData?.meta : findingsData?.meta;
 
   // Clear `selectedFinding` if the row it points to is no longer in the
   // current findings list (e.g. user paginated, refetched, or filtered).
@@ -297,104 +290,13 @@ export default function DetectorDetailPage() {
           )}
         </div>
 
-        {/* Pagination — copied from traces/page.tsx so the detector page
-            renders an identical control: items-per-page popover, typeable
-            page input, and first/prev/next/last navigation buttons. */}
-        {meta.total > 0 && (
-          <div className="flex items-center justify-end gap-6 border-t border-border bg-background px-4 py-2.5">
-            <div className="flex items-center gap-2">
-              <span className="text-[12px] text-muted-foreground">Items per page</span>
-              <Popover open={itemsPerPageOpen} onOpenChange={setItemsPerPageOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 min-w-[60px] justify-between px-2 text-[12px]"
-                  >
-                    <span>{state.limit}</span>
-                    <ChevronDown className="ml-1 h-3 w-3 text-muted-foreground" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent side="top" align="start" className="w-[80px] p-1">
-                  {[50, 100, 200].map((value) => (
-                    <button
-                      key={value}
-                      className={cn(
-                        "w-full rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors",
-                        state.limit === value ? "bg-muted" : "hover:bg-muted/50",
-                      )}
-                      onClick={() => {
-                        updateLimit(value);
-                        setItemsPerPageOpen(false);
-                      }}
-                    >
-                      {value}
-                    </button>
-                  ))}
-                </PopoverContent>
-              </Popover>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[12px] text-muted-foreground">Page</span>
-              <input
-                type="number"
-                min={1}
-                max={Math.max(1, totalPages)}
-                value={state.page + 1}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value, 10);
-                  if (!isNaN(val) && val >= 1 && val <= totalPages) {
-                    goToPage(val - 1);
-                  }
-                }}
-                className="h-7 w-12 rounded border border-border bg-background px-2 py-1 text-center text-[12px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-              />
-              <span className="text-[12px] text-muted-foreground">
-                of {Math.max(1, totalPages)}
-              </span>
-            </div>
-            <div className="flex items-center gap-0.5">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => goToPage(0)}
-                disabled={state.page === 0}
-                className="h-7 w-7 p-0"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-                <ChevronLeft className="-ml-2 h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => goToPage(Math.max(0, state.page - 1))}
-                disabled={state.page === 0}
-                className="h-7 w-7 p-0"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => goToPage(state.page + 1)}
-                disabled={state.page >= totalPages - 1}
-                className="h-7 w-7 p-0"
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => goToPage(totalPages - 1)}
-                disabled={state.page >= totalPages - 1}
-                className="h-7 w-7 p-0"
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-                <ChevronRight className="-ml-2 h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-        )}
+        <ListPagination
+          page={state.page}
+          limit={state.limit}
+          total={activeMeta?.total ?? 0}
+          onPageChange={goToPage}
+          onLimitChange={updateLimit}
+        />
       </div>
 
       {/* Detail panel — fixed overlay sliding in from right, same pattern as traces page */}
