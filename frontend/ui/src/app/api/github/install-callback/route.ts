@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { prisma } from "@traceroot/core";
-import { requireAuth } from "@/lib/auth-helpers";
+import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
 import {
   GITHUB_INSTALL_STATE_COOKIE,
   GITHUB_INSTALLATION_ID_COOKIE,
@@ -52,6 +52,12 @@ export async function GET(request: NextRequest) {
         { status: 400 },
       );
     }
+
+    // ADMIN-only: writing the workspace's GitHub installation mutates a shared
+    // resource. The state cookie alone is not enough — a non-admin member could
+    // still complete this flow if they obtained a state cookie somehow.
+    const memberCheck = await requireWorkspaceMembership(user.id, workspaceId, "ADMIN");
+    if (memberCheck.error) return memberCheck.error;
 
     // Fetch installation details (account.login) using the App's JWT — no user
     // OAuth token required. This is the source of truth for which org/user the

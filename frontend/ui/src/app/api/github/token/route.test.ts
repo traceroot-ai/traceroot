@@ -176,7 +176,7 @@ describe("GET /api/github/token", () => {
       expect((await res.json()).installation_id).toBe("1");
     });
 
-    it("falls back to the first install when repo owner doesn't match any", async () => {
+    it("returns 404 when repo owner doesn't match any installation", async () => {
       findManyMock.mockResolvedValue([
         { installationId: "1", accountLogin: "acme" },
         { installationId: "2", accountLogin: "other" },
@@ -188,8 +188,7 @@ describe("GET /api/github/token", () => {
           repo: "stranger/api",
         }),
       );
-      expect(res.status).toBe(200);
-      expect((await res.json()).installation_id).toBe("1");
+      expect(res.status).toBe(404);
     });
   });
 

@@ -36,6 +36,7 @@ vi.mock("@traceroot/core", () => ({
 
 vi.mock("@/lib/auth-helpers", () => ({
   requireAuth: vi.fn(async () => ({ user: { id: "user_abc" } })),
+  requireWorkspaceMembership: vi.fn(async () => ({ membership: { workspaceId: "ws_1" } })),
 }));
 
 vi.mock("@traceroot/github", async (importOriginal) => {

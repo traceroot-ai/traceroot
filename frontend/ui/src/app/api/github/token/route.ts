@@ -40,13 +40,24 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "No GitHub App installation found" }, { status: 404 });
     }
 
-    // If a repo is provided, prefer the installation whose accountLogin matches
-    // the repo owner. Otherwise fall back to the first installation.
+    // If a repo is provided, the install whose accountLogin matches the repo
+    // owner is the only valid one — silently falling back to the first install
+    // would mint a token for the wrong org in multi-installation workspaces.
+    // No repo provided → caller doesn't care which install (e.g. status check),
+    // so we hand back the first one.
     let chosen = installations[0];
     if (repo) {
       const repoOwner = repo.split("/")[0]?.toLowerCase();
-      const match = installations.find((i) => i.accountLogin.toLowerCase() === repoOwner);
-      if (match) chosen = match;
+      const match = repoOwner
+        ? installations.find((i) => i.accountLogin.toLowerCase() === repoOwner)
+        : undefined;
+      if (!match) {
+        return NextResponse.json(
+          { error: "No GitHub App installation found for repo owner" },
+          { status: 404 },
+        );
+      }
+      chosen = match;
     }
 
     const { token, expires_at } = await getInstallationToken(
