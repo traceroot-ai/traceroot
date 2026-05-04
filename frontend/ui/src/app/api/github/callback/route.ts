@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { prisma } from "@traceroot/core";
-import { requireAuth } from "@/lib/auth-helpers";
+import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
 import {
   GITHUB_AUTH_STATE_COOKIE,
   GITHUB_INSTALL_STATE_COOKIE,
@@ -133,8 +133,11 @@ async function processGitHubCallback(
 
   // 6. Persist the install if both pieces are known. If we have no install yet,
   //    we'll bounce through /api/github/install — that flow ends in install-callback,
-  //    which writes the row.
+  //    which writes the row. ADMIN-gated: writing a workspace integration is admin-only.
   if (chosen && workspaceId) {
+    const memberCheck = await requireWorkspaceMembership(user.id, workspaceId, "ADMIN");
+    if (memberCheck.error) return memberCheck.error;
+
     const installationId = String(chosen.id);
     await prisma.gitHubInstallation.upsert({
       where: { workspaceId_installationId: { workspaceId, installationId } },

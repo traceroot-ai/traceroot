@@ -142,7 +142,14 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     sessionExecutors.set(sessionId, executor);
   }
 
-  const tools = createTools({ projectId, userId, workspaceId, executor });
+  // Use the session's workspaceId (authorized by getSession above) rather than
+  // the raw header value, so tools can't be coerced into another workspace.
+  const tools = createTools({
+    projectId,
+    userId,
+    workspaceId: ownedSession.workspaceId,
+    executor,
+  });
 
   console.log(
     `[Agent] POST message: session=${sessionId}, model=${body.model}, provider=${body.providerName}, source=${body.source}`,
