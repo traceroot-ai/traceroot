@@ -330,8 +330,8 @@ class TraceReaderService:
             span_io_query = """
                 SELECT
                     t.session_id,
-                    argMin(s.input, s.span_start_time) as first_input,
-                    argMax(s.output, s.span_end_time) as last_output
+                    argMinIf(s.input, s.span_start_time, s.input != '' AND s.input != '{}') as first_input,
+                    argMaxIf(s.output, s.span_end_time, s.output != '' AND s.output != '{}') as last_output
                 FROM traces AS t FINAL
                 JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
                 WHERE t.project_id = {project_id:String}
@@ -452,8 +452,8 @@ class TraceReaderService:
             span_io_query = """
                 SELECT
                     trace_id,
-                    argMin(input, span_start_time) as first_input,
-                    argMax(output, span_end_time) as last_output
+                    argMinIf(input, span_start_time, input != '' AND input != '{}') as first_input,
+                    argMaxIf(output, span_end_time, output != '' AND output != '{}') as last_output
                 FROM spans FINAL
                 WHERE project_id = {project_id:String}
                   AND trace_id IN ({trace_ids:Array(String)})
