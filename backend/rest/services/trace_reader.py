@@ -169,7 +169,8 @@ class TraceReaderService:
             "metadata": row[10],
         }
 
-        # Fetch spans
+        # Fetch spans. Duration is derived on the client from start/end so
+        # in-progress spans can grow against `now()` for live traces.
         spans_query = """
             SELECT
                 span_id, trace_id, parent_span_id, name, span_kind,

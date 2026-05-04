@@ -104,35 +104,37 @@ export const TREE_LAYOUT = {
 } as const;
 
 /**
- * Calculate span duration in milliseconds
+ * Calculate span duration in milliseconds.
+ * In-progress spans (no end_time) measure against now() so live bars grow.
  */
 export function getSpanDuration(span: Span): number | null {
-  if (!span.span_start_time || !span.span_end_time) return null;
-  return parseTimestamp(span.span_end_time) - parseTimestamp(span.span_start_time);
+  if (!span.span_start_time) return null;
+  const start = parseTimestamp(span.span_start_time);
+  const end = span.span_end_time ? parseTimestamp(span.span_end_time) : Date.now();
+  return Math.max(0, end - start);
 }
 
 /**
  * Calculate trace duration from all spans.
- * Langfuse-aligned: prefer root span's own start/end to avoid skew from
- * child spans with bad timestamps (e.g. LangGraph task spans).
- * Falls back to min(span_start) .. max(span_end) across all real spans,
- * matching the backend ClickHouse formula.
+ * Prefer the root span's own start/end to avoid skew from child spans with
+ * bad timestamps (e.g. LangGraph task spans). Falls back to min(start)..max(end)
+ * across non-pending spans; in-progress spans measure against now() so live
+ * traces grow.
  */
 export function getTraceDuration(trace: TraceDetail): number | null {
-  if (!trace.spans.length) return null;
-  const rootSpan = trace.spans.find((s) => s.parent_span_id === null && !s.pending);
-  if (rootSpan?.span_end_time) {
-    return parseTimestamp(rootSpan.span_end_time) - parseTimestamp(rootSpan.span_start_time);
+  const realSpans = trace.spans.filter((s) => !s.pending && s.span_start_time);
+  if (!realSpans.length) return null;
+
+  const root = realSpans.find((s) => s.parent_span_id === null);
+  if (root?.span_end_time) {
+    return parseTimestamp(root.span_end_time) - parseTimestamp(root.span_start_time);
   }
-  // Fallback for live streaming: use min(start) .. max(end) across all
-  // real (non-pending) spans, matching the backend ClickHouse formula.
-  const realSpans = trace.spans.filter((s) => !s.pending);
-  const startTimes = realSpans.map((s) => parseTimestamp(s.span_start_time));
-  const endTimes = realSpans
-    .filter((s) => s.span_end_time)
-    .map((s) => parseTimestamp(s.span_end_time!));
-  if (!startTimes.length || !endTimes.length) return null;
-  return Math.max(...endTimes) - Math.min(...startTimes);
+
+  const minStart = Math.min(...realSpans.map((s) => parseTimestamp(s.span_start_time)));
+  const maxEnd = Math.max(
+    ...realSpans.map((s) => (s.span_end_time ? parseTimestamp(s.span_end_time) : Date.now())),
+  );
+  return Math.max(0, maxEnd - minStart);
 }
 
 /**
