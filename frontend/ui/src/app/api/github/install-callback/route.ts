@@ -33,22 +33,17 @@ export async function GET(request: NextRequest) {
     if (authResult.error) return authResult.error;
     const { user } = authResult;
 
-    // Resolve target workspace from cookie, falling back to user's first
-    // membership (covers direct-from-GitHub install flow).
-    const cookieWorkspaceId = request.cookies.get(GITHUB_WORKSPACE_ID_COOKIE)?.value;
-    let workspaceId = cookieWorkspaceId;
-    if (!workspaceId) {
-      const membership = await prisma.workspaceMember.findFirst({
-        where: { userId: user.id },
-        orderBy: { createTime: "asc" },
-        select: { workspaceId: true },
-      });
-      workspaceId = membership?.workspaceId;
-    }
-
+    // Workspace must come from the cookie set by /api/github/install. Falling
+    // back to "user's first workspace" can attach the install to the wrong
+    // workspace for users in multiple workspaces — force them to start the
+    // install from a workspace settings page so the cookie is set correctly.
+    const workspaceId = request.cookies.get(GITHUB_WORKSPACE_ID_COOKIE)?.value;
     if (!workspaceId) {
       return NextResponse.json(
-        { error: "User has no workspace to attach this installation to" },
+        {
+          error:
+            "Missing workspace context for installation. Start installation from a workspace settings page.",
+        },
         { status: 400 },
       );
     }

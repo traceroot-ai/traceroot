@@ -158,9 +158,15 @@ async function processGitHubCallback(
   const returnTo = rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//") ? rawReturnTo : "/";
   // Use BETTER_AUTH_URL as base — request.url inside Docker resolves to 0.0.0.0
   // which loses the session cookie (set on localhost).
-  const redirectUrl = chosen
-    ? new URL(returnTo, env.BETTER_AUTH_URL)
-    : new URL(`/api/github/install?returnTo=${encodeURIComponent(returnTo)}`, env.BETTER_AUTH_URL);
+  // Mirror the persistence condition (chosen && workspaceId): if either is
+  // missing we didn't write a row, so we shouldn't redirect "as connected".
+  const redirectUrl =
+    chosen && workspaceId
+      ? new URL(returnTo, env.BETTER_AUTH_URL)
+      : new URL(
+          `/api/github/install?returnTo=${encodeURIComponent(returnTo)}`,
+          env.BETTER_AUTH_URL,
+        );
 
   const response =
     request.method === "POST"
@@ -173,7 +179,7 @@ async function processGitHubCallback(
   const clearCookie = (name: string) =>
     response.cookies.set(name, "", { httpOnly: true, sameSite: "lax", maxAge: 0, path: "/" });
   clearCookie(GITHUB_AUTH_STATE_COOKIE);
-  if (chosen) {
+  if (chosen && workspaceId) {
     clearCookie(GITHUB_RETURN_TO_COOKIE);
     clearCookie(GITHUB_INSTALL_STATE_COOKIE);
     clearCookie(GITHUB_WORKSPACE_ID_COOKIE);
