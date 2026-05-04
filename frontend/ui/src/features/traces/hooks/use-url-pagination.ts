@@ -18,20 +18,25 @@ interface UseUrlPaginationReturn {
 const DEFAULT_PAGE = 0;
 const DEFAULT_LIMIT = 50;
 
+// Reject NaN, Infinity, and out-of-range values so a hand-edited URL like
+// `?page_limit=0` or `?page_index=-2` falls back to defaults instead of
+// propagating to the API request and the pagination component.
+function parseUrlInt(raw: string | null, fallback: number, min: number): number {
+  if (!raw) return fallback;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= min ? n : fallback;
+}
+
 export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPaginationReturn {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
 
-  // Read initial state from URL
-  const urlPage = searchParams.get("page_index");
-  const urlLimit = searchParams.get("page_limit");
+  const initialPage = parseUrlInt(searchParams.get("page_index"), DEFAULT_PAGE, 0);
+  const initialLimit = parseUrlInt(searchParams.get("page_limit"), defaultLimit, 1);
 
-  const initialPage = urlPage ? parseInt(urlPage, 10) : DEFAULT_PAGE;
-  const initialLimit = urlLimit ? parseInt(urlLimit, 10) : defaultLimit;
-
-  const [page, setPageState] = useState(isNaN(initialPage) ? DEFAULT_PAGE : initialPage);
-  const [limit, setLimitState] = useState(isNaN(initialLimit) ? defaultLimit : initialLimit);
+  const [page, setPageState] = useState(initialPage);
+  const [limit, setLimitState] = useState(initialLimit);
 
   // Track if we're doing a programmatic update (to avoid re-syncing from URL)
   const isProgrammaticUpdate = useRef(false);
@@ -44,20 +49,8 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
       return;
     }
 
-    const urlPageStr = searchParams.get("page_index");
-    const urlLimitStr = searchParams.get("page_limit");
-
-    // Parse URL values, defaulting to 0 and defaultLimit if not present
-    const newPage = urlPageStr ? parseInt(urlPageStr, 10) : DEFAULT_PAGE;
-    const newLimit = urlLimitStr ? parseInt(urlLimitStr, 10) : defaultLimit;
-
-    if (!isNaN(newPage)) {
-      setPageState(newPage);
-    }
-
-    if (!isNaN(newLimit)) {
-      setLimitState(newLimit);
-    }
+    setPageState(parseUrlInt(searchParams.get("page_index"), DEFAULT_PAGE, 0));
+    setLimitState(parseUrlInt(searchParams.get("page_limit"), defaultLimit, 1));
   }, [searchParams, defaultLimit]);
 
   // Update URL with current pagination state

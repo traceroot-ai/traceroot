@@ -10,27 +10,50 @@ export interface BackendFinding {
   payload: string;
 }
 
+/** Pagination metadata returned alongside data arrays. */
+export interface PaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+}
+
+/**
+ * Query options shape mirrors `TraceQueryOptions` so a `useListPageState`
+ * `queryOptions` object can be spread directly into either hook.
+ */
 export interface FindingsQuery {
+  page?: number;
   limit?: number;
-  offset?: number;
-  since?: string;
+  /** ISO-8601 lower bound on `timestamp` (inclusive). */
+  start_after?: string;
+  /** ISO-8601 upper bound on `timestamp` (exclusive). */
+  end_before?: string;
+  /** Substring match against trace_id OR summary. */
+  search_query?: string;
+}
+
+export interface FindingsResponse {
+  data: BackendFinding[];
+  meta: PaginationMeta;
 }
 
 async function fetchFindings(
   projectId: string,
   detectorId: string,
   query: FindingsQuery = {},
-): Promise<{ findings: BackendFinding[] }> {
+): Promise<FindingsResponse> {
   const params = new URLSearchParams();
+  if (query.page !== undefined) params.set("page", String(query.page));
   if (query.limit !== undefined) params.set("limit", String(query.limit));
-  if (query.offset !== undefined) params.set("offset", String(query.offset));
-  if (query.since) params.set("since", query.since);
+  if (query.start_after) params.set("start_after", query.start_after);
+  if (query.end_before) params.set("end_before", query.end_before);
+  if (query.search_query) params.set("search_query", query.search_query);
 
   const qs = params.toString();
   const url = `/api/projects/${projectId}/detectors/${detectorId}/findings${qs ? `?${qs}` : ""}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch findings: ${res.status}`);
-  return res.json() as Promise<{ findings: BackendFinding[] }>;
+  return res.json() as Promise<FindingsResponse>;
 }
 
 async function fetchTraceFindings(
@@ -49,9 +72,11 @@ export function useFindings(projectId: string, detectorId: string, query: Findin
       "findings",
       projectId,
       detectorId,
+      query.page ?? 0,
       query.limit ?? 50,
-      query.offset ?? 0,
-      query.since ?? null,
+      query.search_query ?? null,
+      query.start_after ?? null,
+      query.end_before ?? null,
     ],
     queryFn: () => fetchFindings(projectId, detectorId, query),
     enabled: !!projectId && !!detectorId,
@@ -105,29 +130,49 @@ export interface BackendRun {
 }
 
 export interface RunsQuery {
+  page?: number;
   limit?: number;
-  offset?: number;
+  start_after?: string;
+  end_before?: string;
+  search_query?: string;
+}
+
+export interface RunsResponse {
+  data: BackendRun[];
+  meta: PaginationMeta;
 }
 
 async function fetchRuns(
   projectId: string,
   detectorId: string,
   query: RunsQuery = {},
-): Promise<{ runs: BackendRun[] }> {
+): Promise<RunsResponse> {
   const params = new URLSearchParams();
+  if (query.page !== undefined) params.set("page", String(query.page));
   if (query.limit !== undefined) params.set("limit", String(query.limit));
-  if (query.offset !== undefined) params.set("offset", String(query.offset));
+  if (query.start_after) params.set("start_after", query.start_after);
+  if (query.end_before) params.set("end_before", query.end_before);
+  if (query.search_query) params.set("search_query", query.search_query);
 
   const qs = params.toString();
   const url = `/api/projects/${projectId}/detectors/${detectorId}/runs${qs ? `?${qs}` : ""}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
-  return res.json() as Promise<{ runs: BackendRun[] }>;
+  return res.json() as Promise<RunsResponse>;
 }
 
 export function useRuns(projectId: string, detectorId: string, query: RunsQuery = {}) {
   return useQuery({
-    queryKey: ["detector-runs", projectId, detectorId, query.limit ?? 50, query.offset ?? 0],
+    queryKey: [
+      "detector-runs",
+      projectId,
+      detectorId,
+      query.page ?? 0,
+      query.limit ?? 50,
+      query.search_query ?? null,
+      query.start_after ?? null,
+      query.end_before ?? null,
+    ],
     queryFn: () => fetchRuns(projectId, detectorId, query),
     enabled: !!projectId && !!detectorId,
   });
