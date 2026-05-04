@@ -6,7 +6,7 @@ const schema = Type.Object({
 });
 
 export function createCheckGitHubAccessTool(
-  userId: string,
+  workspaceId: string,
   uiBaseUrl: string,
 ): AgentTool<typeof schema> {
   return {
@@ -21,7 +21,7 @@ export function createCheckGitHubAccessTool(
         `${uiBaseUrl}/api/github/token?repo=${encodeURIComponent(params.repo)}`,
         {
           headers: {
-            "x-user-id": userId,
+            "x-workspace-id": workspaceId,
             "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
           },
         },

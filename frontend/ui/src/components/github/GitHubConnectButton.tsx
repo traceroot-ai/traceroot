@@ -5,31 +5,46 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FaGithub } from "react-icons/fa";
 import { ChevronDown, ExternalLink, Unlink } from "lucide-react";
 import { fetchGitHubConnection } from "@/lib/github";
+import { useWorkspace } from "@/features/workspaces/hooks";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 
-export function GitHubConnectButton() {
+interface GitHubConnectButtonProps {
+  workspaceId: string;
+}
+
+export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
   const queryClient = useQueryClient();
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [open, setOpen] = useState(false);
 
+  const { data: workspace } = useWorkspace(workspaceId);
+  const canManage = workspace?.role === "ADMIN";
+
   const { data, isLoading } = useQuery({
-    queryKey: ["github-connection"],
-    queryFn: fetchGitHubConnection,
+    queryKey: ["github-connection", workspaceId],
+    queryFn: () => fetchGitHubConnection(workspaceId),
+    enabled: !!workspaceId,
   });
 
   const handleDisconnect = async () => {
     setIsDisconnecting(true);
     try {
-      const res = await fetch("/api/github/disconnect", { method: "POST" });
+      const res = await fetch(
+        `/api/github/disconnect?workspaceId=${encodeURIComponent(workspaceId)}`,
+        { method: "POST" },
+      );
       if (res.ok) {
-        queryClient.invalidateQueries({ queryKey: ["github-connection"] });
+        queryClient.invalidateQueries({ queryKey: ["github-connection", workspaceId] });
         setOpen(false);
       }
     } finally {
       setIsDisconnecting(false);
     }
   };
+
+  const buildHref = (path: string) =>
+    `${path}?workspaceId=${encodeURIComponent(workspaceId)}&returnTo=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname : "/")}`;
 
   if (isLoading) {
     return (
@@ -46,6 +61,10 @@ export function GitHubConnectButton() {
   }
 
   if (data?.connected) {
+    const summary =
+      data.installations.length === 1
+        ? data.installations[0].accountLogin
+        : `${data.installations.length} installations`;
     return (
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -56,36 +75,38 @@ export function GitHubConnectButton() {
               Connect GitHub for repository linking and code-level tracing.
             </div>
             <div className="mt-1 text-sm text-muted-foreground">
-              Connected as <span className="font-medium text-foreground">{data.username}</span>
+              Connected to <span className="font-medium text-foreground">{summary}</span>
             </div>
           </div>
         </div>
 
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1">
-              Manage
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-48 p-1">
-            <a
-              href={`/api/github/install?returnTo=${encodeURIComponent(window.location.pathname)}`}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
-            >
-              <ExternalLink className="h-4 w-4" />
-              Configure
-            </a>
-            <button
-              onClick={handleDisconnect}
-              disabled={isDisconnecting}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive transition-colors hover:bg-accent disabled:opacity-50"
-            >
-              <Unlink className="h-4 w-4" />
-              {isDisconnecting ? "Disconnecting..." : "Disconnect"}
-            </button>
-          </PopoverContent>
-        </Popover>
+        {canManage && (
+          <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1">
+                Manage
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-48 p-1">
+              <a
+                href={buildHref("/api/github/install")}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Configure
+              </a>
+              <button
+                onClick={handleDisconnect}
+                disabled={isDisconnecting}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive transition-colors hover:bg-accent disabled:opacity-50"
+              >
+                <Unlink className="h-4 w-4" />
+                {isDisconnecting ? "Disconnecting..." : "Disconnect"}
+              </button>
+            </PopoverContent>
+          </Popover>
+        )}
       </div>
     );
   }
@@ -97,18 +118,22 @@ export function GitHubConnectButton() {
         <div>
           <div className="text-sm font-medium">GitHub</div>
           <div className="text-sm text-muted-foreground">
-            Connect GitHub for repository linking and code-level tracing.
+            {canManage
+              ? "Connect GitHub for repository linking and code-level tracing."
+              : "GitHub is not connected. Ask a workspace admin to set it up."}
           </div>
         </div>
       </div>
 
-      <a
-        href={`/api/github/login?returnTo=${encodeURIComponent(window.location.pathname)}`}
-        className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-      >
-        Connect
-        <ExternalLink className="h-3 w-3" />
-      </a>
+      {canManage && (
+        <a
+          href={buildHref("/api/github/login")}
+          className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          Connect
+          <ExternalLink className="h-3 w-3" />
+        </a>
+      )}
     </div>
   );
 }

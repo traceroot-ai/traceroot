@@ -84,6 +84,7 @@ model Workspace {
   currentUsage           Json?     @map("current_usage") // { traces, spans, tokens, updatedAt, ai }
 
   modelProviders ModelProvider[]
+  githubInstallations GitHubInstallation[]
 
   @@index([billingCustomerId])
   @@index([billingSubscriptionId])
@@ -153,7 +154,6 @@ model User {
   memberships   WorkspaceMember[]
   accounts      Account[]
   sessions      Session[]
-  githubConnection GitHubConnection?
 
   @@map("users")
 }
@@ -212,21 +212,27 @@ model Verification {
   @@map("verifications")
 }
 
-// GitHub App Connections - Links GitHub accounts and app installations to users
-model GitHubConnection {
-  id              String   @id @default(cuid()) @db.VarChar
-  userId          String   @unique @map("user_id") @db.VarChar
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+// Workspace-level GitHub App installations.
+// One row per (workspace, GitHub installation). Multiple rows per workspace
+// supports the multi-org case (e.g. workspace has projects under github.com/acme
+// and github.com/acme-labs — each is a separate App installation on GitHub's side).
+// No accessToken stored: getInstallationToken signs a JWT with the App private
+// key and exchanges it for a short-lived installation token at request time.
+model GitHubInstallation {
+  id                String   @id @default(cuid()) @db.VarChar
+  workspaceId       String   @map("workspace_id") @db.VarChar
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  githubUserId    String   @map("github_user_id") @db.VarChar
-  githubUsername  String   @map("github_username") @db.VarChar
-  accessToken     String   @map("access_token") @db.Text
-  installationId  String?  @map("installation_id") @db.VarChar
+  installationId    String   @map("installation_id") @db.VarChar
+  accountLogin      String   @map("account_login") @db.VarChar  // GitHub org/user that owns the install
+  installedByUserId String?  @map("installed_by_user_id") @db.VarChar  // who clicked Connect
 
-  createTime      DateTime @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime      DateTime @updatedAt @map("update_time") @db.Timestamp(6)
+  createTime        DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime        DateTime @updatedAt @map("update_time") @db.Timestamp(6)
 
-  @@map("github_connections")
+  @@unique([workspaceId, installationId], map: "uq_github_installation")
+  @@index([workspaceId], map: "ix_github_installation_workspace_id")
+  @@map("github_installations")
 }
 
 // AI Sessions - Conversation sessions for the AI debugging assistant
