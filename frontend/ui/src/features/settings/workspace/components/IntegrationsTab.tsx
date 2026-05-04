@@ -6,7 +6,7 @@ interface IntegrationsTabProps {
   workspaceId: string;
 }
 
-export function IntegrationsTab({ workspaceId: _workspaceId }: IntegrationsTabProps) {
+export function IntegrationsTab({ workspaceId }: IntegrationsTabProps) {
   return (
     <div className="space-y-6">
       <div>
@@ -21,7 +21,7 @@ export function IntegrationsTab({ workspaceId: _workspaceId }: IntegrationsTabPr
           <h3 className="text-sm font-medium">Connected Services</h3>
         </div>
         <div className="px-4 py-3">
-          <GitHubConnectButton />
+          <GitHubConnectButton workspaceId={workspaceId} />
         </div>
       </div>
     </div>

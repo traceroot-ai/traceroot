@@ -5,6 +5,7 @@ import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
+import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
 
 const INSTRUMENT_PROMPT = `I want to add observability to my project using TraceRoot.
@@ -117,6 +118,8 @@ interface AITabProps {
 }
 
 export function AITab({ projectId }: AITabProps) {
+  const { data: project } = useProject(projectId);
+  const workspaceId = project?.workspace_id ?? "";
   return (
     <div className="space-y-6">
       <div className="space-y-2">
@@ -165,7 +168,7 @@ export function AITab({ projectId }: AITabProps) {
             analysis.
           </p>
           <div className="mt-3">
-            <GitHubConnectButton />
+            <GitHubConnectButton workspaceId={workspaceId} />
           </div>
         </div>
       </div>

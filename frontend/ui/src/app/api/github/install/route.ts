@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
-import { requireAuth } from "@/lib/auth-helpers";
-import { GITHUB_INSTALL_STATE_COOKIE, GITHUB_RETURN_TO_COOKIE } from "@traceroot/github";
+import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
+import {
+  GITHUB_INSTALL_STATE_COOKIE,
+  GITHUB_RETURN_TO_COOKIE,
+  GITHUB_WORKSPACE_ID_COOKIE,
+} from "@traceroot/github";
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,6 +14,19 @@ export async function GET(request: NextRequest) {
 
     const state = crypto.randomUUID();
     const returnTo = request.nextUrl.searchParams.get("returnTo") || "/";
+    // Allow workspaceId to come from either the query (button click) or the
+    // cookie set by /api/github/login earlier in the flow — callback redirects
+    // here without re-passing the param when no install exists yet.
+    const workspaceId =
+      request.nextUrl.searchParams.get("workspaceId") ||
+      request.cookies.get(GITHUB_WORKSPACE_ID_COOKIE)?.value;
+
+    // Adding/configuring an installation mutates a workspace-shared resource — admin only.
+    if (!workspaceId) {
+      return NextResponse.json({ error: "workspaceId required" }, { status: 400 });
+    }
+    const memberCheck = await requireWorkspaceMembership(authResult.user.id, workspaceId, "ADMIN");
+    if (memberCheck.error) return memberCheck.error;
 
     const params = new URLSearchParams({ state });
     const redirectUrl = `https://github.com/apps/${env.GITHUB_APP_NAME}/installations/new?${params.toString()}`;
@@ -23,6 +40,13 @@ export async function GET(request: NextRequest) {
     });
 
     response.cookies.set(GITHUB_RETURN_TO_COOKIE, returnTo, {
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 600,
+      path: "/",
+    });
+
+    response.cookies.set(GITHUB_WORKSPACE_ID_COOKIE, workspaceId, {
       httpOnly: true,
       sameSite: "lax",
       maxAge: 600,

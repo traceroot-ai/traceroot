@@ -1,13 +1,18 @@
 "use client";
 
-export interface GitHubConnectionStatus {
-  connected: boolean;
-  username?: string;
-  installationId?: string; // Present when connected is true
+export interface GitHubInstallation {
+  installationId: string;
+  accountLogin: string;
 }
 
-export async function fetchGitHubConnection(): Promise<GitHubConnectionStatus> {
-  const res = await fetch("/api/github/status");
-  if (!res.ok) return { connected: false };
+export interface GitHubConnectionStatus {
+  connected: boolean;
+  installations: GitHubInstallation[];
+}
+
+export async function fetchGitHubConnection(workspaceId: string): Promise<GitHubConnectionStatus> {
+  if (!workspaceId) return { connected: false, installations: [] };
+  const res = await fetch(`/api/github/status?workspaceId=${encodeURIComponent(workspaceId)}`);
+  if (!res.ok) return { connected: false, installations: [] };
   return res.json();
 }
