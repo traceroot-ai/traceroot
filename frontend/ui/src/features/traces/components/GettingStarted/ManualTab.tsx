@@ -4,6 +4,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
 import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
+import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
 import { ALL_LANGS, INTEGRATIONS, type Lang } from "./integrations";
 
@@ -48,6 +49,8 @@ interface ManualTabProps {
 }
 
 export function ManualTab({ projectId }: ManualTabProps) {
+  const { data: project } = useProject(projectId);
+  const workspaceId = project?.workspace_id ?? "";
   const [selectedIntegrationId, setSelectedIntegrationId] = useState("openai");
   const [lang, setLang] = useState<Lang>("python");
 
@@ -147,7 +150,7 @@ export function ManualTab({ projectId }: ManualTabProps) {
             analysis.
           </p>
           <div className="mt-3">
-            <GitHubConnectButton />
+            <GitHubConnectButton workspaceId={workspaceId} />
           </div>
         </div>
       </div>
