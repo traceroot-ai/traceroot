@@ -9,7 +9,7 @@ import { ProjectBreadcrumb } from "@/features/projects/components";
 import { formatDate, cn } from "@/lib/utils";
 import { useDetectors } from "@/features/detectors/hooks/use-detectors";
 import { useFindings, useRuns, type BackendFinding } from "@/features/detectors/hooks/use-findings";
-import { useListPageState } from "@/features/traces/hooks";
+import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
 
 const tabs = [
