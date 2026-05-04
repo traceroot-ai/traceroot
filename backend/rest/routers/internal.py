@@ -12,20 +12,8 @@ from pydantic import BaseModel, Field
 
 from db.clickhouse.client import get_clickhouse_client
 from rest.schemas.detectors import FindingListResponse, RunListResponse
-from rest.services.trace_reader import _to_utc_naive
+from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.config import settings
-
-
-def _escape_ilike(value: str) -> str:
-    """Escape ClickHouse ILIKE wildcards (`%`, `_`) plus the escape char itself.
-
-    ClickHouse ILIKE uses backslash as the default escape character (no
-    explicit ESCAPE clause is supported in syntax), so wrapping user input
-    with backslash-escapes makes `%` and `_` match literally instead of
-    behaving as wildcards.
-    """
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -288,11 +276,11 @@ async def list_detector_runs(
 
     if start_after is not None:
         conditions.append("r.timestamp >= {start_after:DateTime64(3)}")
-        params["start_after"] = _to_utc_naive(start_after)
+        params["start_after"] = to_utc_naive(start_after)
 
     if end_before is not None:
         conditions.append("r.timestamp < {end_before:DateTime64(3)}")
-        params["end_before"] = _to_utc_naive(end_before)
+        params["end_before"] = to_utc_naive(end_before)
 
     # Per-detector summary expression; reused in WHERE search and SELECT to keep
     # one source of truth for what "the summary for this detector" means.
@@ -313,11 +301,11 @@ async def list_detector_runs(
     if search_query:
         # ClickHouse ILIKE uses backslash as the default escape character; no
         # ESCAPE clause is supported in the syntax, so we pre-escape `%`/`_`
-        # in user input via `_escape_ilike`.
+        # in user input via `escape_ilike`.
         conditions.append(
             f"(r.trace_id ILIKE {{search_kw:String}} OR {summary_expr} ILIKE {{search_kw:String}})"
         )
-        params["search_kw"] = f"%{_escape_ilike(search_query)}%"
+        params["search_kw"] = f"%{escape_ilike(search_query)}%"
 
     where_clause = " AND ".join(conditions)
 
@@ -440,17 +428,17 @@ async def list_detector_findings(
 
     if start_after is not None:
         conditions.append("f.timestamp >= {start_after:DateTime64(3)}")
-        params["start_after"] = _to_utc_naive(start_after)
+        params["start_after"] = to_utc_naive(start_after)
 
     if end_before is not None:
         conditions.append("f.timestamp < {end_before:DateTime64(3)}")
-        params["end_before"] = _to_utc_naive(end_before)
+        params["end_before"] = to_utc_naive(end_before)
 
     if search_query:
         conditions.append(
             "(f.trace_id ILIKE {search_kw:String} OR f.summary ILIKE {search_kw:String})"
         )
-        params["search_kw"] = f"%{_escape_ilike(search_query)}%"
+        params["search_kw"] = f"%{escape_ilike(search_query)}%"
 
     where_clause = " AND ".join(conditions)
 
