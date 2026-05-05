@@ -316,6 +316,10 @@ export default function SessionsPage() {
       </div>
 
       {/* Detail panel - overlays right side, slides in from right (like traces) */}
+      {/* TODO(#784 follow-up): make this panel user-resizable on its left edge
+          (same pattern as AiAssistantPanel's usePanelResize) so users can
+          widen / narrow it to see more of the session list behind it,
+          especially when the AI panel is also open. */}
       {selectedSessionId && (
         <div
           className="animate-slide-in-right fixed bottom-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl"
