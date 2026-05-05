@@ -1,0 +1,142 @@
+# Coastfile — experimental wrapper around `make prod-lite`.
+#
+# `make prod-lite` runs `docker compose -f docker-compose.prod.yml up --build`
+# directly on the host. This Coastfile lets `coast` run that same compose stack
+# inside a DinD-isolated Coast instance, so multiple branches can boot the full
+# prod-lite stack side-by-side without colliding on host ports or volumes.
+
+[coast]
+name = "traceroot"
+compose = "./docker-compose.prod.yml"
+primary_port = "web"
+
+# Each Coast instance gets its own .next build cache. Without this, two
+# instances bind-mounting the same workspace fight over `frontend/ui/.next`.
+private_paths = [
+    "frontend/ui/.next",
+    "frontend/worker/dist",
+    "frontend/packages/core/dist",
+    "frontend/packages/core/node_modules/.prisma",
+]
+
+[coast.setup]
+# The DinD host doesn't run application code itself for prod-lite — compose
+# builds carry their own runtimes — but having bash + curl available makes
+# `coast exec` debugging tolerable.
+packages = ["bash", "curl", "ca-certificates"]
+
+# All ports the prod-lite stack publishes on the host. Each instance gets a
+# dynamic port; the checked-out instance also binds the canonical port.
+[ports]
+web = 3000           # Next.js UI
+rest = 8000          # FastAPI backend
+agent = 8100         # Agent service
+minio = 9090         # MinIO S3 API (host:9090 -> container:9000)
+minio-console = 9091 # MinIO console
+postgres = 5432
+clickhouse-http = 8123
+clickhouse-native = 9000
+redis = 6379
+
+[healthcheck]
+web = "/"
+rest = "/api/v1/health"
+
+# Branch-switch behavior. prod-lite builds images for app services, so the only
+# way to pick up code changes is to rebuild. Infra (postgres/clickhouse/redis/
+# minio) and one-shot migrations are left untouched on `coast assign`.
+[assign]
+default = "none"
+exclude_paths = [
+    ".coasts",
+    ".worktrees",
+    "node_modules",
+    "frontend/ui/.next",
+    "frontend/worker/dist",
+    "frontend/packages/core/dist",
+    "frontend/packages/core/node_modules",
+    "frontend/ui/node_modules",
+    "frontend/worker/node_modules",
+    ".venv",
+    "docs",
+    "examples",
+    "tests/__snapshots__",
+]
+
+[assign.services]
+web = "rebuild"
+rest = "rebuild"
+worker = "rebuild"
+billing = "rebuild"
+agent = "rebuild"
+migrate = "rebuild"
+migrate-clickhouse = "rebuild"
+
+# Avoid expensive image rebuilds when only docs/tests changed. Triggers cover
+# the Dockerfiles and the dependency manifests baked into each image.
+[assign.rebuild_triggers]
+web = [
+    "docker/Dockerfile.web",
+    "frontend/ui/package.json",
+    "frontend/packages/core/package.json",
+    "frontend/packages/core/prisma/schema.prisma",
+    "pnpm-lock.yaml",
+]
+rest = [
+    "docker/Dockerfile.rest",
+    "pyproject.toml",
+    "uv.lock",
+    "backend/rest/**",
+]
+worker = [
+    "docker/Dockerfile.worker",
+    "pyproject.toml",
+    "uv.lock",
+    "backend/worker/**",
+]
+billing = [
+    "docker/Dockerfile.billing",
+    "pyproject.toml",
+    "uv.lock",
+]
+agent = [
+    "docker/Dockerfile.agent",
+    "pyproject.toml",
+    "uv.lock",
+]
+migrate = [
+    "docker/Dockerfile.web",
+    "frontend/packages/core/prisma/**",
+]
+migrate-clickhouse = [
+    "docker/Dockerfile.migrate-clickhouse",
+    "backend/db/migrations/**",
+]
+
+# Forward host secrets needed for prod-lite into the Coast instance so the
+# inner `docker compose up` resolves them via `${VAR:-default}`. These are
+# only injected if present on the host.
+[inject]
+env = [
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "BETTER_AUTH_SECRET",
+    "ENCRYPTION_KEY",
+    "INTERNAL_API_SECRET",
+    "AUTH_GOOGLE_CLIENT_ID",
+    "AUTH_GOOGLE_CLIENT_SECRET",
+    "GITHUB_APP_ID",
+    "GITHUB_APP_NAME",
+    "GITHUB_APP_PRIVATE_KEY",
+    "GITHUB_APP_CLIENT_ID",
+    "GITHUB_APP_CLIENT_SECRET",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_WEBHOOK_SIGNING_SECRET",
+    "STRIPE_PRICE_ID_STARTER",
+    "STRIPE_PRICE_ID_PRO",
+    "STRIPE_PRICE_ID_AI_USAGE",
+    "TRACEROOT_SMTP_URL",
+    "TRACEROOT_SMTP_MAIL_FROM",
+    "TRACEROOT_EE_LICENSE_KEY",
+    "DAYTONA_API_KEY",
+]

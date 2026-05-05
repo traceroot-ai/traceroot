@@ -4,7 +4,7 @@
 
 PROD_COMPOSE := docker compose -f docker-compose.prod.yml
 
-.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset
+.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-lite-coast prod-reset
 
 ## Install repository git hooks for contributors.
 install-hooks:
@@ -38,6 +38,17 @@ prod:
 prod-lite:
 	@echo "Starting TraceRoot at http://localhost:3000 - Ctrl+C to stop"
 	$(PROD_COMPOSE) up --build
+
+## Run prod-lite inside a Coast (isolated DinD instance via the Coastfile).
+## Lets multiple branches run the full prod stack side-by-side. Requires
+## the `coast` CLI (https://coasts.dev/install).
+prod-lite-coast:
+	@command -v coast >/dev/null 2>&1 || { \
+	  echo "coast CLI not found — install from https://coasts.dev/install"; exit 1; \
+	}
+	coast build
+	coast run
+	coast checkout
 
 ## Nuclear reset: stop containers, remove volumes, built images, and orphaned sandboxes.
 prod-reset:
