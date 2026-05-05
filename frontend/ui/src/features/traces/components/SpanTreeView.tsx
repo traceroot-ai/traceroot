@@ -97,22 +97,22 @@ export function SpanTreeView({
           <span className="min-w-0 shrink truncate text-xs font-medium">{trace.name}</span>
 
           {/* Always render the flex-1 container to lock the gap math, but conditionally render contents */}
-          <div className="@container flex min-w-0 flex-1 items-center justify-start gap-1.5">
+          <div className="flex min-w-0 flex-1 items-center justify-start gap-1.5 @container">
             {!compact && (
               <>
-                <span className="@[45px]:inline-flex hidden shrink-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
+                <span className="hidden shrink-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[45px]:inline-flex">
                   {formatDuration(traceDuration)}
                 </span>
 
                 {traceTokenUsage && (
-                  <span className="@[80px]:inline-flex hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
+                  <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[80px]:inline-flex">
                     <CircleStop className="h-2.5 w-2.5" />
                     {formatTokens(traceTokenUsage.totalTokens)}
                   </span>
                 )}
 
                 {traceTotalCost != null && (
-                  <span className="@[130px]:inline-flex hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
+                  <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[130px]:inline-flex">
                     <CircleDollarSign className="h-2.5 w-2.5" />
                     {traceTotalCost.toFixed(4)}
                   </span>
@@ -190,17 +190,17 @@ export function SpanTreeView({
                 )}
 
                 {/* Always render the flex-1 container to lock the gap math */}
-                <div className="@container flex min-w-0 flex-1 items-center justify-start gap-1.5">
+                <div className="flex min-w-0 flex-1 items-center justify-start gap-1.5 @container">
                   {!compact && (
                     <>
                       {!span.pending && (
-                        <span className="@[45px]:inline-flex hidden shrink-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
+                        <span className="hidden shrink-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[45px]:inline-flex">
                           {formatDuration(getSpanDuration(span))}
                         </span>
                       )}
 
                       {span.span_kind === SpanKind.LLM && span.total_tokens != null && (
-                        <span className="@[80px]:inline-flex hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
+                        <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[80px]:inline-flex">
                           <CircleStop className="h-2.5 w-2.5" />
                           {formatTokens(span.total_tokens)}
                         </span>
@@ -209,7 +209,7 @@ export function SpanTreeView({
                       {span.span_kind === SpanKind.LLM &&
                         span.cost != null &&
                         Number.isFinite(span.cost) && (
-                          <span className="@[130px]:inline-flex hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
+                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[130px]:inline-flex">
                             <CircleDollarSign className="h-2.5 w-2.5" />
                             {span.cost.toFixed(4)}
                           </span>
