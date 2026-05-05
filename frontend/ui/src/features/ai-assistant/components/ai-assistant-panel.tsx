@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
 import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MessageList } from "./message-list";
@@ -73,17 +73,17 @@ export function AiAssistantPanel({
     traceSessionId: initialContext?.traceSessionId,
   });
 
-  // Reset to a blank session whenever the panel is closed so re-opening starts fresh.
-  useEffect(() => {
-    if (!open) handleNewSession();
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!open) return null;
-
+  // Stay mounted when closed: hide via CSS so chat state (messages, in-flight
+  // SSE) is preserved across route changes and trace switches. Re-opening
+  // returns the user to the same conversation; ➕ "New session" is the only
+  // explicit reset path.
   return (
     <div
-      className="relative z-[60] flex h-screen shrink-0 flex-col border-l bg-background"
-      style={{ width }}
+      className={cn(
+        "relative z-[60] flex h-screen shrink-0 flex-col border-l bg-background",
+        !open && "hidden",
+      )}
+      style={{ width: open ? width : 0 }}
     >
       {/* Left resize handle */}
       <div
