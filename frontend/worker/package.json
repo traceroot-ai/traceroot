@@ -19,12 +19,16 @@
   "dependencies": {
     "@mariozechner/pi-ai": "0.57.1",
     "@traceroot/core": "workspace:*",
+    "bullmq": "^5.76.5",
+    "ioredis": "^5.10.1",
     "node-cron": "^3.0.0",
+    "nodemailer": "^8.0.5",
     "stripe": "14.25.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/node-cron": "^3.0.0",
+    "@types/nodemailer": "^7.0.9",
     "tsx": "^4.21.0",
     "typescript": "^5.0.0",
     "vitest": "^3.0.0"
