@@ -19,7 +19,7 @@ import type { Span } from "@/types/api";
 import type { TraceSelection } from "../types";
 import { SpanTreeView } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
-import { AiChatOverlay } from "@/features/ai-assistant/components/ai-chat-overlay";
+import { useLayout } from "@/components/layout/app-layout";
 import { useTraceStream } from "../hooks/use-trace-stream";
 import { SpanTimelineView } from "./SpanTimelineView";
 import { buildSpanTree, enrichSpansWithPending, TREE_LAYOUT } from "../utils";
@@ -63,8 +63,8 @@ export function TraceViewerPanel({
   customEndDate,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
-  const [aiChatOpen, setAiChatOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"tree" | "timeline">("tree");
+  const { setAiPanelOpen, setAiContext } = useLayout();
 
   // Shared collapse state (SpanTreeView + SpanTimelineView stay in sync)
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
@@ -215,7 +215,10 @@ export function TraceViewerPanel({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setAiChatOpen(!aiChatOpen)}
+            onClick={() => {
+              setAiContext({ traceId });
+              setAiPanelOpen(true);
+            }}
             className="h-7 w-7 p-0"
             title="AI Assistant"
           >
@@ -332,15 +335,6 @@ export function TraceViewerPanel({
               )}
             </ResizablePanel>
           </ResizablePanelGroup>
-
-          {/* AI Chat overlay */}
-          {aiChatOpen && (
-            <AiChatOverlay
-              projectId={projectId}
-              traceId={traceId}
-              onClose={() => setAiChatOpen(false)}
-            />
-          )}
         </div>
       )}
     </div>
