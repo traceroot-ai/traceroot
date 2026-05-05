@@ -30,9 +30,10 @@ Tools: `get_weather`, `get_stock_price`, `calculate`, `get_current_time`
 The example defaults to `anthropic/claude-3-5-sonnet`. You can change the model in `agent.ts`:
 
 ```typescript
-private readonly model = 'openai/gpt-4o';
-private readonly model = 'google/gemini-2.0-flash-001';
-private readonly model = 'meta-llama/llama-3.1-70b-instruct';
+// Pick one:
+'openai/gpt-4o'
+'google/gemini-2.0-flash-001'
+'meta-llama/llama-3.1-70b-instruct'
 ```
 
 See [OpenRouter models](https://openrouter.ai/models) for the full list.

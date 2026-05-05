@@ -100,8 +100,14 @@ def calculate(expression: str) -> dict:
 
 @observe(name="get_current_time", type="tool")
 def get_current_time(timezone: str = "UTC") -> dict:
-    """Get current time."""
-    return {"timezone": timezone, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    """Get current time in the given timezone."""
+    from zoneinfo import ZoneInfo
+
+    try:
+        tz = ZoneInfo(timezone)
+    except (KeyError, ValueError):
+        tz = ZoneInfo("UTC")
+    return {"timezone": timezone, "time": datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")}
 
 
 TOOLS = {
@@ -287,7 +293,10 @@ class ReActAgent:
 
             # Execute each tool call
             for tc in msg.tool_calls:
-                args = json.loads(tc.function.arguments)
+                try:
+                    args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    args = {}
                 logger.info(f"Tool call: {tc.function.name}({args})")
                 result = self._execute_tool(tc.function.name, args)
                 logger.info(f"Tool result: {result}")

@@ -63,7 +63,12 @@ function calculate(expression: string): ToolResult {
 }
 
 function getCurrentTime(timezone = 'UTC'): ToolResult {
-  return { timezone, time: new Date().toISOString() };
+  try {
+    const time = new Date().toLocaleString('en-US', { timeZone: timezone });
+    return { timezone, time };
+  } catch {
+    return { timezone, time: new Date().toISOString() };
+  }
 }
 
 const TOOLS: Record<string, (a: Record<string, unknown>) => ToolResult> = {
@@ -168,7 +173,12 @@ class ReActAgent {
           this.conversationHistory.push(msg);
           for (const tc of msg.tool_calls) {
             if (tc.type !== 'function') continue;
-            const fnArgs = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+            let fnArgs: Record<string, unknown>;
+            try {
+              fnArgs = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+            } catch {
+              fnArgs = {};
+            }
             console.log(`\n  [Tool: ${tc.function.name}(${JSON.stringify(fnArgs)})]`);
             const result = await this.executeTool(tc.function.name, fnArgs);
             console.log(`  [Result: ${result}]`);
