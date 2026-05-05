@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -21,7 +21,7 @@ import { useSession as useAuthSession } from "@/lib/auth-client";
 import { ContentRenderer } from "./ContentRenderer";
 import { formatDuration, formatCost, buildUrlWithFilters } from "@/lib/utils";
 import { toTimestampBounds } from "@/lib/date-filter";
-import { AiChatOverlay } from "@/features/ai-assistant/components/ai-chat-overlay";
+import { useLayout } from "@/components/layout/app-layout";
 import type { SessionTraceItem } from "@/types/api";
 
 interface SessionDetailPanelProps {
@@ -94,7 +94,7 @@ export function SessionDetailPanel({
   customEndDate,
 }: SessionDetailPanelProps) {
   const router = useRouter();
-  const [aiChatOpen, setAiChatOpen] = useState(false);
+  const { setAiPanelOpen, setAiContext } = useLayout();
   const { isPending: authPending } = useAuthSession();
 
   // Compute timestamps from date filter props
@@ -161,7 +161,13 @@ export function SessionDetailPanel({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setAiChatOpen(!aiChatOpen)}
+            onClick={() => {
+              setAiContext({
+                traceId: data?.traces[0]?.trace_id,
+                traceSessionId: sessionId,
+              });
+              setAiPanelOpen(true);
+            }}
             className="ml-2 h-7 w-7 p-0"
             title="AI Assistant"
           >
@@ -265,16 +271,6 @@ export function SessionDetailPanel({
             )}
           </div>
         </div>
-
-        {/* AI Chat overlay */}
-        {aiChatOpen && (
-          <AiChatOverlay
-            projectId={projectId}
-            traceId={data?.traces[0]?.trace_id}
-            traceSessionId={sessionId}
-            onClose={() => setAiChatOpen(false)}
-          />
-        )}
       </div>
     </div>
   );
