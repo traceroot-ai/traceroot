@@ -30,6 +30,11 @@ interface SpanTreeViewProps {
   onHoverChange: (id: string | null) => void;
 }
 
+/**
+ * Tree view component for displaying trace and span hierarchy.
+ * Collapse state is managed externally (lifted to TraceViewerPanel) so it can
+ * be shared with the timeline bars view for scroll-sync and row alignment.
+ */
 export function SpanTreeView({
   trace,
   selection,
@@ -40,6 +45,8 @@ export function SpanTreeView({
   hoveredSpanId,
   onHoverChange,
 }: SpanTreeViewProps) {
+  // Enrich with placeholder spans for any missing ancestors — handles both
+  // live-streaming gaps (parent not yet arrived) and permanently dropped spans.
   const spans = useMemo(() => enrichSpansWithPending(trace.spans), [trace.spans]);
   const childrenByParent = useMemo(() => buildChildrenMap(spans), [spans]);
   const spanById = useMemo(() => new Map(spans.map((s) => [s.span_id, s])), [spans]);
@@ -89,23 +96,23 @@ export function SpanTreeView({
           <SpanKindIcon kind="trace" inTree />
           <span className="min-w-0 shrink truncate text-xs font-medium">{trace.name}</span>
 
-          {/* ALWAYS render the flex-1 container to lock the gap math, but conditionally render contents */}
-          <div className="flex min-w-0 flex-1 items-center justify-start gap-1.5 @container">
+          {/* Always render the flex-1 container to lock the gap math, but conditionally render contents */}
+          <div className="@container flex min-w-0 flex-1 items-center justify-start gap-1.5">
             {!compact && (
               <>
-                <span className="hidden shrink-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[45px]:inline-flex">
+                <span className="@[45px]:inline-flex hidden shrink-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
                   {formatDuration(traceDuration)}
                 </span>
 
                 {traceTokenUsage && (
-                  <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[80px]:inline-flex">
+                  <span className="@[80px]:inline-flex hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
                     <CircleStop className="h-2.5 w-2.5" />
                     {formatTokens(traceTokenUsage.totalTokens)}
                   </span>
                 )}
 
                 {traceTotalCost != null && (
-                  <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[130px]:inline-flex">
+                  <span className="@[130px]:inline-flex hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
                     <CircleDollarSign className="h-2.5 w-2.5" />
                     {traceTotalCost.toFixed(4)}
                   </span>
@@ -182,18 +189,18 @@ export function SpanTreeView({
                   </span>
                 )}
 
-                {/* ALWAYS render the flex-1 container to lock the gap math */}
-                <div className="flex min-w-0 flex-1 items-center justify-start gap-1.5 @container">
+                {/* Always render the flex-1 container to lock the gap math */}
+                <div className="@container flex min-w-0 flex-1 items-center justify-start gap-1.5">
                   {!compact && (
                     <>
                       {!span.pending && (
-                        <span className="hidden shrink-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[45px]:inline-flex">
+                        <span className="@[45px]:inline-flex hidden shrink-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
                           {formatDuration(getSpanDuration(span))}
                         </span>
                       )}
 
                       {span.span_kind === SpanKind.LLM && span.total_tokens != null && (
-                        <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[80px]:inline-flex">
+                        <span className="@[80px]:inline-flex hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
                           <CircleStop className="h-2.5 w-2.5" />
                           {formatTokens(span.total_tokens)}
                         </span>
@@ -202,7 +209,7 @@ export function SpanTreeView({
                       {span.span_kind === SpanKind.LLM &&
                         span.cost != null &&
                         Number.isFinite(span.cost) && (
-                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[130px]:inline-flex">
+                          <span className="@[130px]:inline-flex hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
                             <CircleDollarSign className="h-2.5 w-2.5" />
                             {span.cost.toFixed(4)}
                           </span>
