@@ -15,6 +15,8 @@ interface LayoutContextType {
   setHeaderContent: (content: ReactNode) => void;
   aiPanelOpen: boolean;
   setAiPanelOpen: (open: boolean) => void;
+  aiPanelWidth: number;
+  setAiPanelWidth: (width: number) => void;
   aiContext: AiTraceContext | null;
   setAiContext: (context: AiTraceContext | null) => void;
   hideAiButton: boolean;
@@ -28,6 +30,8 @@ const LayoutContext = createContext<LayoutContextType>({
   setHeaderContent: () => {},
   aiPanelOpen: false,
   setAiPanelOpen: () => {},
+  aiPanelWidth: 0,
+  setAiPanelWidth: () => {},
   aiContext: null,
   setAiContext: () => {},
   hideAiButton: false,
@@ -42,6 +46,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [headerContent, setHeaderContent] = useState<ReactNode>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiPanelWidth, setAiPanelWidth] = useState(0);
   const [aiContext, setAiContext] = useState<AiTraceContext | null>(null);
   const [hideAiButton, setHideAiButton] = useState(true);
   const pathname = usePathname();
@@ -77,6 +82,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         setHeaderContent,
         aiPanelOpen,
         setAiPanelOpen,
+        aiPanelWidth,
+        setAiPanelWidth,
         aiContext,
         setAiContext,
         hideAiButton,
