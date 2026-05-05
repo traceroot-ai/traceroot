@@ -227,7 +227,7 @@ export default function TracesPage() {
           ) : (
             <div className="flex h-full flex-col">
               <div className="flex-1 overflow-auto">
-                <table className="w-full">
+                <table className="w-full whitespace-nowrap">
                   <thead className="sticky top-0 bg-background">
                     <tr className="border-b border-border bg-muted/50">
                       <th className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
