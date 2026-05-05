@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback } from "react";
 import { useAIStream } from "./use-ai-stream";
 import type { AISession, AIMessage, AiTraceContext } from "../types";
 import type { ModelSelection } from "../components/model-selector";
@@ -19,11 +19,11 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
   // setIsStreaming(true) and setIsStreaming(false) into a single frame, hiding the button.
   const [isSending, setIsSending] = useState(false);
 
-  // Reset session when traceSessionId changes (panel reopened for a different session)
-  useEffect(() => {
-    sessionIdRef.current = null;
-    setMessages([]);
-  }, [traceSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Note: traceSessionId / traceId can change while the chat is active (the
+  // user navigates between traces with the panel open). Don't reset the chat
+  // here — the latest values flow into handleSend below so subsequent messages
+  // get the new context. handleNewSession / handleSelectSession remain the
+  // explicit reset paths.
 
   // Lazy session creation — only when first message is sent
   const ensureSession = useCallback(async (): Promise<string | null> => {
