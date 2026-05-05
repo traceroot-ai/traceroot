@@ -29,7 +29,7 @@ export default function SessionsPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const projectId = params.projectId as string;
-  const { aiPanelOpen, setAiPanelOpen, setHideAiButton } = useLayout();
+  const { aiPanelOpen, setAiPanelOpen, aiPanelWidth, setHideAiButton } = useLayout();
   const { isPending: authPending } = useAuthSession();
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
   const sessionIdFromUrl = searchParams.get("sessionId");
@@ -317,7 +317,10 @@ export default function SessionsPage() {
 
       {/* Detail panel - overlays right side, slides in from right (like traces) */}
       {selectedSessionId && (
-        <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl">
+        <div
+          className="animate-slide-in-right fixed bottom-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl"
+          style={{ right: aiPanelWidth }}
+        >
           <SessionDetailPanel
             projectId={projectId}
             sessionId={selectedSessionId}

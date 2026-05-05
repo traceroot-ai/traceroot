@@ -1,10 +1,12 @@
 "use client";
 
+import { useEffect } from "react";
 import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useLayout } from "@/components/layout/app-layout";
 import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
@@ -27,6 +29,14 @@ export function AiAssistantPanel({
   initialContext,
 }: AiAssistantPanelProps) {
   const { width, onMouseDown } = usePanelResize();
+  const { setAiPanelWidth } = useLayout();
+
+  // Publish the panel's effective width into LayoutContext so other fixed
+  // overlays (e.g. TraceViewerPanel) can offset their right edge to avoid
+  // being covered when the AI panel is open.
+  useEffect(() => {
+    setAiPanelWidth(open ? width : 0);
+  }, [open, width, setAiPanelWidth]);
 
   const { data: project } = useQuery({
     queryKey: ["project", projectId],

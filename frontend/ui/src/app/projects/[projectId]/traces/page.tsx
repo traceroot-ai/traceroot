@@ -37,7 +37,7 @@ export default function TracesPage() {
   const router = useRouter();
   const projectId = params.projectId as string;
   const queryClient = useQueryClient();
-  const { aiPanelOpen, setAiPanelOpen, setHideAiButton } = useLayout();
+  const { aiPanelOpen, setAiPanelOpen, aiPanelWidth, setHideAiButton } = useLayout();
   const { isPending: authPending } = useAuthSession();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
@@ -436,7 +436,10 @@ export default function TracesPage() {
 
       {/* Detail panel - overlays header, takes 70% width, slides in from right */}
       {selectedTraceId && (
-        <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl">
+        <div
+          className="animate-slide-in-right fixed bottom-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl"
+          style={{ right: aiPanelWidth }}
+        >
           <TraceViewerPanel
             projectId={projectId}
             traceId={selectedTraceId}
