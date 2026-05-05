@@ -308,7 +308,7 @@ export default function TracesPage() {
                             {formatContentPreview(trace.output)}
                           </span>
                         </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                           {(trace.total_input_tokens ?? 0) + (trace.total_output_tokens ?? 0) >
                           0 ? (
                             <span
