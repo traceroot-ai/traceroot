@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { AIMessage } from "../types";
 
 /** Generate a UUID that works in both secure (HTTPS) and insecure (HTTP) contexts. */
@@ -258,6 +258,16 @@ export function useAIStream() {
   const abort = useCallback(() => {
     readerRef.current?.cancel();
     abortRef.current?.abort();
+  }, []);
+
+  // Defensive cleanup: if the host component truly unmounts (logout, tab
+  // close, hard route swap), abort any in-flight stream so we don't leak the
+  // SSE connection or keep burning LLM tokens after the UI is gone.
+  useEffect(() => {
+    return () => {
+      readerRef.current?.cancel();
+      abortRef.current?.abort();
+    };
   }, []);
 
   return { messages, isStreaming, sendMessage, abort, setMessages };
