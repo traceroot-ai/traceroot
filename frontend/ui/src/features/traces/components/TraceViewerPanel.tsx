@@ -184,13 +184,15 @@ export function TraceViewerPanel({
   return (
     <div className="flex h-full flex-col bg-background">
       {/* ── MAIN HEADER ── */}
-      <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
-        <div className="flex min-w-0 items-center gap-2">
-          <Workflow className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">Trace</span>
-          <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
+      <div className="flex h-12 items-center justify-between gap-2 border-b border-border bg-muted/30 px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <Workflow className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="shrink-0 text-sm font-medium">Trace</span>
+          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+            {traceId}
+          </span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           <Button
             variant="outline"
             size="sm"
