@@ -220,6 +220,7 @@ services:
     environment:
       TZ: UTC
       # --- Internal Docker networking (fixed) ---
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: "8123"
       CLICKHOUSE_NATIVE_PORT: "9000"
