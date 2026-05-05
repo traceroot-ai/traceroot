@@ -77,10 +77,14 @@ export function AiAssistantPanel({
   // SSE) is preserved across route changes and trace switches. Re-opening
   // returns the user to the same conversation; ➕ "New session" is the only
   // explicit reset path.
+  //
+  // Use `fixed` positioning (like TraceViewerPanel) so the panel overlays the
+  // viewport instead of taking flex width — opening it doesn't re-flow the
+  // sidebar or the underlying traces UI.
   return (
     <div
       className={cn(
-        "relative z-[60] flex h-screen shrink-0 flex-col border-l bg-background",
+        "fixed bottom-0 right-0 top-0 z-[60] flex flex-col border-l bg-background shadow-xl",
         !open && "hidden",
       )}
       style={{ width: open ? width : 0 }}
