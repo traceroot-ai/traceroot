@@ -227,7 +227,7 @@ export default function TracesPage() {
           ) : (
             <div className="flex h-full flex-col">
               <div className="flex-1 overflow-auto">
-                <table className="w-full whitespace-nowrap">
+                <table className="w-full">
                   <thead className="sticky top-0 bg-background">
                     <tr className="border-b border-border bg-muted/50">
                       <th className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
@@ -281,8 +281,10 @@ export default function TracesPage() {
                         <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
                           {trace.name}
                         </td>
-                        <td className="min-w-[280px] max-w-[400px] border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-                          <span title={trace.trace_id}>{trace.trace_id}</span>
+                        <td className="min-w-[280px] max-w-[400px] whitespace-nowrap border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
+                          <span className="block truncate" title={trace.trace_id}>
+                            {trace.trace_id}
+                          </span>
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5">
                           {trace.status === "error" ? (
