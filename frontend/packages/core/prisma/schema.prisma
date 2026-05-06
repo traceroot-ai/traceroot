@@ -85,6 +85,7 @@ model Workspace {
 
   modelProviders ModelProvider[]
   githubInstallations GitHubInstallation[]
+  slackIntegration SlackIntegration?
 
   @@index([billingCustomerId])
   @@index([billingSubscriptionId])
@@ -235,6 +236,30 @@ model GitHubInstallation {
   @@map("github_installations")
 }
 
+// Workspace-level Slack OAuth integration.
+// One row per workspace (UNIQUE on workspaceId). The chosen channel is
+// inlined here for v1; per-project overrides live on DetectorAlertConfig.
+model SlackIntegration {
+  id          String    @id @default(cuid()) @db.VarChar
+  workspaceId String    @unique @map("workspace_id") @db.VarChar
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  teamId    String @map("team_id")     @db.VarChar
+  teamName  String @map("team_name")   @db.VarChar
+  botUserId String @map("bot_user_id") @db.VarChar
+  botToken  String @map("bot_token")   @db.Text
+
+  channelId   String? @map("channel_id")   @db.VarChar
+  channelName String? @map("channel_name") @db.VarChar
+
+  connectedByUserId String? @map("connected_by_user_id") @db.VarChar
+
+  createTime DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime DateTime @updatedAt      @map("update_time") @db.Timestamp(6)
+
+  @@map("slack_integrations")
+}
+
 // AI Sessions - Conversation sessions for the AI debugging assistant
 model AISession {
   id          String      @id @default(cuid()) @db.VarChar
@@ -342,6 +367,11 @@ model DetectorAlertConfig {
   id             String   @id @default(cuid()) @db.VarChar
   projectId      String   @unique @map("project_id") @db.VarChar
   emailAddresses String[] @default([]) @map("email_addresses")
+
+  // Per-project Slack channel override (no UI in v1).
+  // When set, takes precedence over SlackIntegration.channelId.
+  slackChannelId   String? @map("slack_channel_id")   @db.VarChar
+  slackChannelName String? @map("slack_channel_name") @db.VarChar
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 

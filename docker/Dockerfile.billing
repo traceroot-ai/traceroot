@@ -10,6 +10,7 @@ COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml 
 COPY frontend/.npmrc ./.npmrc
 COPY frontend/worker/package.json ./worker/package.json
 COPY frontend/packages/core/package.json ./packages/core/package.json
+COPY frontend/packages/slack/package.json ./packages/slack/package.json
 
 RUN pnpm install --frozen-lockfile
 
@@ -19,8 +20,10 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/worker/node_modules ./worker/node_modules
 COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
+COPY --from=deps /app/packages/slack/node_modules ./packages/slack/node_modules
 
 COPY frontend/packages/core ./packages/core
+COPY frontend/packages/slack ./packages/slack
 COPY frontend/worker ./worker
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 
@@ -32,6 +35,12 @@ RUN cd packages/core && npx prisma generate \
 # Build core for Node.js (patch tsconfig to produce CJS, patch package.json exports)
 RUN cd packages/core && \
     node -e "const t=JSON.parse(require('fs').readFileSync('tsconfig.json','utf8')); t.compilerOptions.module='CommonJS'; t.compilerOptions.moduleResolution='node'; require('fs').writeFileSync('tsconfig.json',JSON.stringify(t,null,2))" && \
+    pnpm build && \
+    node -e "const p=JSON.parse(require('fs').readFileSync('package.json','utf8')); p.main='./dist/index.js'; p.exports={'.':{'types':'./dist/index.d.ts','default':'./dist/index.js'}}; require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+# Build slack package — keeps NodeNext moduleResolution so it can resolve
+# @traceroot/core via exports.types; patches package.json to point at dist/
+# so the worker's require() resolves to compiled JS at runtime.
+RUN cd packages/slack && \
     pnpm build && \
     node -e "const p=JSON.parse(require('fs').readFileSync('package.json','utf8')); p.main='./dist/index.js'; p.exports={'.':{'types':'./dist/index.d.ts','default':'./dist/index.js'}}; require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
 RUN cd worker && pnpm build
@@ -49,6 +58,10 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/core/dist ./packages/core/dist
 COPY --from=builder /app/packages/core/package.json ./packages/core/package.json
 COPY --from=builder /app/packages/core/node_modules ./packages/core/node_modules
+# Copy compiled slack package
+COPY --from=builder /app/packages/slack/dist ./packages/slack/dist
+COPY --from=builder /app/packages/slack/package.json ./packages/slack/package.json
+COPY --from=builder /app/packages/slack/node_modules ./packages/slack/node_modules
 # Copy compiled worker
 COPY --from=builder /app/worker/dist ./worker/dist
 COPY --from=builder /app/worker/package.json ./worker/package.json

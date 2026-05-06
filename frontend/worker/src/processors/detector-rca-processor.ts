@@ -3,6 +3,7 @@ import { prisma, SYSTEM_MODELS } from "@traceroot/core";
 import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
 import { DETECTOR_RCA_QUEUE, createRedisConnection } from "../queues/detector-run-queue.js";
 import { sendCombinedAlertEmail } from "../notifications/email.js";
+import { sendCombinedAlertSlack } from "../notifications/slack.js";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 
@@ -153,6 +154,55 @@ Output your findings in this format:
   return { result: rcaResult, sessionId: session.id };
 }
 
+// ---------------------------------------------------------------------------
+// Fan-out helper — exported for unit testing
+// ---------------------------------------------------------------------------
+
+export interface FanOutCommon {
+  detectorName: string;
+  projectName: string;
+  summary: string;
+  rcaResult: string | null;
+  traceId: string;
+  projectId: string;
+}
+
+export interface RunFanOutParams {
+  emailAddresses: string[];
+  slackChannelId: string | null;
+  slackBotTokenEnc: string | null;
+  common: FanOutCommon;
+}
+
+export async function runFanOut({
+  emailAddresses,
+  slackChannelId,
+  slackBotTokenEnc,
+  common,
+}: RunFanOutParams): Promise<void> {
+  const tasks: Promise<unknown>[] = [];
+
+  if (emailAddresses.length > 0) {
+    tasks.push(
+      sendCombinedAlertEmail({ to: emailAddresses, ...common }).catch((e) =>
+        console.error(`[RCA] Alert email failed for trace ${common.traceId}:`, e),
+      ),
+    );
+  }
+
+  if (slackChannelId && slackBotTokenEnc) {
+    tasks.push(
+      sendCombinedAlertSlack({
+        encryptedBotToken: slackBotTokenEnc,
+        channelId: slackChannelId,
+        ...common,
+      }).catch((e) => console.error(`[RCA] Slack send failed for trace ${common.traceId}:`, e)),
+    );
+  }
+
+  await Promise.allSettled(tasks);
+}
+
 export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
   const connection = createRedisConnection();
 
@@ -171,20 +221,17 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
       // outer catch's fallback alert can still use it (defaults to []).
       let emailAddresses: string[] = [];
 
+      let slackChannelId: string | null = null;
+
+      let slackBotTokenEnc: string | null = null;
+
       // Always send a combined alert (success: with RCA result; failure: null).
       // Detector findings should never fail silently on configured channels.
-      const sendAlert = (rcaResult: string | null) => {
-        if (emailAddresses.length === 0) return Promise.resolve();
+      const sendAlert = async (rcaResult: string | null) => {
         const summary = findings.map((f) => `[${f.detectorName}] ${f.summary}`).join("\n");
-        return sendCombinedAlertEmail({
-          to: emailAddresses,
-          detectorName: findings.map((f) => f.detectorName).join(", "),
-          projectName,
-          summary,
-          rcaResult,
-          traceId,
-          projectId,
-        }).catch((e) => console.error(`[RCA] Alert email failed for trace ${traceId}:`, e));
+        const detectorName = findings.map((f) => f.detectorName).join(", ");
+        const common = { detectorName, projectName, summary, rcaResult, traceId, projectId };
+        await runFanOut({ emailAddresses, slackChannelId, slackBotTokenEnc, common });
       };
 
       try {
@@ -193,9 +240,25 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
         // failure-state + fallback-alert handling.
         const project = await prisma.project.findUnique({
           where: { id: projectId },
-          select: { rcaModel: true, alertConfig: { select: { emailAddresses: true } } },
+          select: {
+            rcaModel: true,
+            alertConfig: {
+              select: { emailAddresses: true, slackChannelId: true, slackChannelName: true },
+            },
+            workspace: {
+              select: {
+                slackIntegration: {
+                  select: { channelId: true, channelName: true, botToken: true },
+                },
+              },
+            },
+          },
         });
         emailAddresses = project?.alertConfig?.emailAddresses ?? [];
+
+        const slack = project?.workspace?.slackIntegration ?? null;
+        slackChannelId = project?.alertConfig?.slackChannelId ?? slack?.channelId ?? null;
+        slackBotTokenEnc = slack?.botToken ?? null;
 
         // Workspace-level GitHub installations now drive the GitHub tool.
         // Any installation in this workspace is enough to flip the tool on.
