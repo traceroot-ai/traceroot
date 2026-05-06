@@ -23,6 +23,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.87.0",
     "@traceroot/core": "workspace:*",
+    "@traceroot/slack": "workspace:*",
     "bullmq": "^5.73.3",
     "ioredis": "^5.10.1",
     "nodemailer": "^6.10.0",

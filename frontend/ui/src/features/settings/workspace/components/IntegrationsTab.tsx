@@ -1,6 +1,7 @@
 "use client";
 
 import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
+import { SlackConnectButton } from "@/components/slack/SlackConnectButton";
 
 interface IntegrationsTabProps {
   workspaceId: string;
@@ -20,8 +21,13 @@ export function IntegrationsTab({ workspaceId }: IntegrationsTabProps) {
         <div className="border-b bg-muted/30 px-4 py-3">
           <h3 className="text-sm font-medium">Connected Services</h3>
         </div>
-        <div className="px-4 py-3">
-          <GitHubConnectButton workspaceId={workspaceId} />
+        <div className="divide-y">
+          <div className="px-4 py-3">
+            <GitHubConnectButton workspaceId={workspaceId} />
+          </div>
+          <div className="px-4 py-3">
+            <SlackConnectButton workspaceId={workspaceId} />
+          </div>
         </div>
       </div>
     </div>
