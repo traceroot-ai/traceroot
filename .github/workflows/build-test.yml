@@ -77,6 +77,8 @@ jobs:
             dockerfile: docker/Dockerfile.worker
           - service: billing
             dockerfile: docker/Dockerfile.billing
+          - service: detector
+            dockerfile: docker/Dockerfile.detector
           - service: agent
             dockerfile: docker/Dockerfile.agent
           - service: migrate-clickhouse
