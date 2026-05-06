@@ -2,10 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Mail, Slack, ArrowUpRight } from "lucide-react";
+import Link from "next/link";
+import { ArrowUpRight, Mail } from "lucide-react";
+import { FaSlack } from "react-icons/fa";
 import { Button } from "@/components/ui/button";
 import { updateProject } from "@/lib/api";
 import { useProject } from "@/features/projects/hooks";
+import { useSlackStatus } from "@/features/integrations/hooks/useSlackIntegration";
 import {
   ModelSelector,
   type ModelSelection,
@@ -19,6 +22,7 @@ interface DetectorsTabProps {
 export function DetectorsTab({ projectId }: DetectorsTabProps) {
   const queryClient = useQueryClient();
   const { data: project, isLoading } = useProject(projectId);
+  const { data: slack } = useSlackStatus(project?.workspace_id);
 
   const [agentModelSelection, setAgentModelSelection] = useState<ModelSelection>({
     model: "",
@@ -129,26 +133,31 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
           </Button>
         </div>
 
-        {/* Slack subsection — config will live in Project → Settings → Integrations */}
+        {/* Slack subsection — read-only mirror, configured at workspace settings */}
         <div className="border-t border-border px-4 py-3">
           <div className="flex items-center gap-1.5">
-            <Slack className="h-3.5 w-3.5 text-muted-foreground" />
+            <FaSlack className="h-3.5 w-3.5 text-muted-foreground" />
             <h4 className="text-[12px] font-medium">Slack</h4>
-            <span className="rounded-sm border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-              Coming soon
-            </span>
           </div>
-          <button
-            type="button"
-            disabled
-            aria-disabled="true"
-            className="mt-2 inline-flex h-7 cursor-not-allowed items-center gap-1 rounded-sm border border-border bg-muted/40 px-2.5 text-[12px] text-muted-foreground opacity-70"
-            title="Slack integration is not yet available"
-          >
-            Connect
-            <ArrowUpRight className="h-3 w-3" />
-          </button>
-          <p className="mt-2 text-[12px] text-muted-foreground">Post alerts to a channel.</p>
+          <p className="mt-2 text-[12px] text-muted-foreground">
+            {slack?.connected ? (
+              <>
+                Connected to <span className="font-medium text-foreground">{slack.teamName}</span>
+                {slack.channel ? <> · #{slack.channel.name}</> : <> · No channel selected</>}
+              </>
+            ) : (
+              <>Not connected.</>
+            )}
+          </p>
+          {project?.workspace_id && (
+            <Link
+              href={`/workspaces/${project.workspace_id}/settings/integrations`}
+              className="mt-3 inline-flex h-7 items-center gap-1 rounded-md bg-primary px-3 text-[12px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              {slack?.connected ? "Manage" : "Connect"}
+              <ArrowUpRight className="h-3 w-3" />
+            </Link>
+          )}
         </div>
       </div>
     </div>

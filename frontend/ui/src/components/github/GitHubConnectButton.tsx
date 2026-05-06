@@ -92,20 +92,20 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
                 <ChevronDown className="h-4 w-4" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-48 p-1">
+            <PopoverContent align="end" className="w-40 p-1">
               <a
                 href={buildHref("/api/github/install")}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors hover:bg-accent"
               >
-                <ExternalLink className="h-4 w-4" />
+                <ExternalLink className="h-3.5 w-3.5" />
                 Configure
               </a>
               <button
                 onClick={handleDisconnect}
                 disabled={isDisconnecting}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive transition-colors hover:bg-accent disabled:opacity-50"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-[12px] text-destructive transition-colors hover:bg-accent disabled:opacity-50"
               >
-                <Unlink className="h-4 w-4" />
+                <Unlink className="h-3.5 w-3.5" />
                 {isDisconnecting ? "Disconnecting..." : "Disconnect"}
               </button>
             </PopoverContent>

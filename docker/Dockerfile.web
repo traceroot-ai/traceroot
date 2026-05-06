@@ -15,6 +15,7 @@ COPY frontend/.npmrc ./.npmrc
 COPY frontend/ui/package.json ./ui/package.json
 COPY frontend/packages/core/package.json ./packages/core/package.json
 COPY frontend/packages/github/package.json ./packages/github/package.json
+COPY frontend/packages/slack/package.json ./packages/slack/package.json
 
 # Install all dependencies
 RUN pnpm install --frozen-lockfile
@@ -28,21 +29,26 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/ui/node_modules ./ui/node_modules
 COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
 COPY --from=deps /app/packages/github/node_modules ./packages/github/node_modules
+COPY --from=deps /app/packages/slack/node_modules ./packages/slack/node_modules
 
 # Copy source code
 COPY frontend/packages/core ./packages/core
 COPY frontend/packages/github ./packages/github
+COPY frontend/packages/slack ./packages/slack
 COPY frontend/ui ./ui
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 
-# Build workspace packages that export compiled dist/
-RUN cd packages/github && pnpm build
-
-# Generate Prisma client and stash engine binary for the runner stage
-# (pnpm symlinks break Next.js standalone output file tracing)
+# Generate Prisma client first — slack imports from @traceroot/core, whose
+# types reference @prisma/client. Without the generated client, tsc on
+# slack would fail to resolve those types.
+# (pnpm symlinks break Next.js standalone output file tracing, hence the stash.)
 RUN cd packages/core && npx prisma generate \
     && mkdir -p /tmp/prisma-engines/.prisma \
     && cp -rL /app/node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client /tmp/prisma-engines/.prisma/client
+
+# Build workspace packages that export compiled dist/
+RUN cd packages/github && pnpm build
+RUN cd packages/slack && pnpm build
 
 # Build the Next.js app
 # better-auth validates BETTER_AUTH_SECRET at startup; pass a placeholder at
