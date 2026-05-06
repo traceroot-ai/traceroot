@@ -9,17 +9,8 @@ import { getUsers, type UserQueryOptions } from "@/lib/api/users";
 import type { SessionQueryOptions, TraceQueryOptions } from "@/types/api";
 import type { TraceApiUser } from "@/lib/api/client";
 
-// Individual state hooks (for fine-grained control)
-export { usePagination } from "./use-pagination";
-export { useDateFilter } from "./use-date-filter";
-export { useKeywordSearch } from "./use-keyword-search";
-export { useUrlDateFilter } from "./use-url-date-filter";
-export { useUrlPagination } from "./use-url-pagination";
-
 // Composed state hooks
 export { useTraceListState } from "./use-trace-list-state";
-// URL-synced version for shared date filter across pages
-export { useListPageState } from "./use-list-page-state";
 
 // Live trace streaming
 export { useTraceStream } from "./use-trace-stream";

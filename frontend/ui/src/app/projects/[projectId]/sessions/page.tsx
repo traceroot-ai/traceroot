@@ -9,7 +9,8 @@ import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { SessionDetailPanel } from "@/features/traces/components/SessionDetailPanel";
-import { useSessions, useListPageState } from "@/features/traces/hooks";
+import { useSessions } from "@/features/traces/hooks";
+import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { formatDate, formatCost, formatTokens, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { SessionListItem, SessionQueryOptions } from "@/types/api";
 
