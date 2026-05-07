@@ -43,3 +43,17 @@ class RunListResponse(BaseModel):
 
     data: list[RunItem]
     meta: PaginationMeta
+
+
+class DetectorCountsItem(BaseModel):
+    """Aggregated counts for a single detector over a time window."""
+
+    finding_count: int
+    run_count: int
+
+
+class DetectorCountsResponse(BaseModel):
+    """Map of detector_id -> counts. Detectors with zero runs in the window
+    are omitted; the frontend defaults absent entries to {0, 0}."""
+
+    data: dict[str, DetectorCountsItem]

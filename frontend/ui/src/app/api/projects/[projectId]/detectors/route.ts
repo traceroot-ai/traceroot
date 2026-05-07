@@ -9,8 +9,10 @@ import {
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
-// GET /api/projects/[projectId]/detectors - List all detectors for the project
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+// GET /api/projects/[projectId]/detectors - List detectors for the project.
+// Supports `search_query` (substring on name/template/prompt), `page`, `limit`.
+// Returns `{ data, meta }` to match the rest of the list endpoints.
+export async function GET(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
@@ -19,13 +21,36 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
 
-  const detectors = await prisma.detector.findMany({
-    where: { projectId },
-    include: { trigger: true },
-    orderBy: { createTime: "asc" },
-  });
+  const { searchParams } = req.nextUrl;
+  const rawLimit = parseInt(searchParams.get("limit") ?? "50", 10);
+  const rawPage = parseInt(searchParams.get("page") ?? "0", 10);
+  const limit = isNaN(rawLimit) ? 50 : Math.min(Math.max(rawLimit, 1), 200);
+  const page = isNaN(rawPage) ? 0 : Math.max(rawPage, 0);
+  const searchQuery = searchParams.get("search_query")?.trim() || null;
 
-  return successResponse({ detectors });
+  const where = searchQuery
+    ? {
+        projectId,
+        OR: [
+          { name: { contains: searchQuery, mode: "insensitive" as const } },
+          { template: { contains: searchQuery, mode: "insensitive" as const } },
+          { prompt: { contains: searchQuery, mode: "insensitive" as const } },
+        ],
+      }
+    : { projectId };
+
+  const [data, total] = await prisma.$transaction([
+    prisma.detector.findMany({
+      where,
+      include: { trigger: true },
+      orderBy: { createTime: "asc" },
+      skip: page * limit,
+      take: limit,
+    }),
+    prisma.detector.count({ where }),
+  ]);
+
+  return successResponse({ data, meta: { page, limit, total } });
 }
 
 // POST /api/projects/[projectId]/detectors - Create a new detector
