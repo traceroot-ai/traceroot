@@ -1,7 +1,7 @@
 # docker/Dockerfile.migrate-postgres
 # Prisma migration image — reuses the migrate stage from Dockerfile.web.
 # Build with: docker build --platform linux/amd64 -f docker/Dockerfile.migrate-postgres .
-FROM node:20-alpine AS base
+FROM node:26-alpine AS base
 RUN apk add --no-cache openssl && corepack enable
 
 FROM base AS deps

@@ -1,5 +1,5 @@
 # docker/Dockerfile.agent
-FROM node:20-alpine AS base
+FROM node:26-alpine AS base
 RUN apk add --no-cache openssl && corepack enable
 
 FROM base AS deps
@@ -36,7 +36,7 @@ RUN cd packages/core && \
     node -e "const p=JSON.parse(require('fs').readFileSync('package.json','utf8')); p.main='./dist/index.js'; p.exports={'.':{'types':'./dist/index.d.ts','default':'./dist/index.js'}}; require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
 RUN cd packages/agent && pnpm build
 
-FROM node:20-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 
 RUN apk add --no-cache openssl docker-cli
