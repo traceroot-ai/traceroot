@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { ADAPTER_MODELS, SYSTEM_MODELS, ADAPTER_API_PROTOCOL, LLMAdapter } from "../llm-providers";
+import {
+  ADAPTER_MODELS,
+  SYSTEM_MODELS,
+  ADAPTER_API_PROTOCOL,
+  LLMAdapter,
+} from "../llm-providers.js";
 
 describe("ADAPTER_MODELS", () => {
   it("contains no duplicate model IDs within a single adapter", () => {

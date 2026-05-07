@@ -1,5 +1,5 @@
-import { prisma } from "../lib/prisma";
-import { registerCacheClear } from "./sync-standard-prices";
+import { prisma } from "../lib/prisma.js";
+import { registerCacheClear } from "./sync-standard-prices.js";
 
 export interface ModelPricing {
   input: number;

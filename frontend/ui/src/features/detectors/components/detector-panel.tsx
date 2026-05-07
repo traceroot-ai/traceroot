@@ -56,8 +56,8 @@ export function DetectorPanel({
     setEditModelSelection({
       model: d.detectionModel ?? "",
       provider: d.detectionProvider ?? "",
-      source: "system",
-      adapter: d.detectionAdapter ?? "",
+      source: d.detectionSource ?? "system",
+      adapter: "",
     });
     setEditConditions((d.trigger?.conditions ?? []) as TriggerCondition[]);
   };
@@ -87,7 +87,7 @@ export function DetectorPanel({
         triggerConditions: editConditions,
         detectionModel: editModelSelection.model || undefined,
         detectionProvider: editModelSelection.provider || undefined,
-        detectionAdapter: editModelSelection.adapter || undefined,
+        detectionSource: editModelSelection.source === "byok" ? "byok" : "system",
       },
       { onSuccess: () => onClose() },
     );
