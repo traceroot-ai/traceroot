@@ -59,7 +59,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     triggerConditions,
     detectionModel,
     detectionProvider,
-    detectionAdapter,
+    detectionSource,
   } = body as Record<string, unknown>;
 
   // Required fields must be non-empty strings (trim catches whitespace-only).
@@ -97,26 +97,20 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return errorResponse("outputSchema must be an array", 400);
   }
 
-  // Adapter-aware defaults: when an adapter is selected but model/provider
-  // are blank, fill in the canonical defaults for that adapter so worker-side
-  // sandbox-eval doesn't have to fall back through `DETECTION_DEFAULTS`
-  // (and won't accidentally route a Claude-default model through the OpenAI
-  // SDK). Keep in sync with `frontend/worker/src/detection/sandbox-eval.ts`.
-  const ADAPTER_DEFAULTS: Record<string, { model: string; provider: string }> = {
-    anthropic: { model: "claude-haiku-4-5-20251001", provider: "anthropic" },
-    openai: { model: "gpt-4o-mini", provider: "openai" },
-  };
-  const adapterStr =
-    typeof detectionAdapter === "string" && detectionAdapter ? detectionAdapter : null;
-  const adapterDefaults = adapterStr ? ADAPTER_DEFAULTS[adapterStr] : null;
+  // detectionSource: only "system" / "byok" / null are valid. Reject anything
+  // else with 400 so a typo (e.g. "syetm") doesn't silently store null and
+  // produce a misconfigured detector.
+  let sourceStr: "system" | "byok" | null = null;
+  if (detectionSource !== undefined && detectionSource !== null) {
+    if (detectionSource !== "system" && detectionSource !== "byok") {
+      return errorResponse(`detectionSource must be "system" or "byok"`, 400);
+    }
+    sourceStr = detectionSource;
+  }
   const resolvedModel =
-    typeof detectionModel === "string" && detectionModel
-      ? detectionModel
-      : (adapterDefaults?.model ?? null);
+    typeof detectionModel === "string" && detectionModel ? detectionModel : null;
   const resolvedProvider =
-    typeof detectionProvider === "string" && detectionProvider
-      ? detectionProvider
-      : (adapterDefaults?.provider ?? null);
+    typeof detectionProvider === "string" && detectionProvider ? detectionProvider : null;
 
   const detector = await prisma.detector.create({
     data: {
@@ -128,7 +122,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       sampleRate: resolvedSampleRate,
       detectionModel: resolvedModel,
       detectionProvider: resolvedProvider,
-      detectionAdapter: adapterStr,
+      detectionSource: sourceStr,
       trigger: {
         create: {
           conditions: (triggerConditions as object) ?? [],

@@ -1,6 +1,11 @@
-import Anthropic from "@anthropic-ai/sdk";
-import OpenAI from "openai";
-import { resolveWorkspaceApiKey } from "@traceroot/core";
+import { complete, getEnvApiKey } from "@mariozechner/pi-ai";
+import type { Message, ToolCall } from "@mariozechner/pi-ai";
+import {
+  findByokKeyForPiProvider,
+  fetchProviderConfig,
+  resolvePiModel,
+  type ProviderModelConfig,
+} from "@traceroot/core/model-resolver";
 import { buildSubmitResultTool, type SubmitResultInput } from "./submit-result-tool.js";
 
 export interface DetectorConfig {
@@ -10,7 +15,7 @@ export interface DetectorConfig {
   outputSchema: Array<{ name: string; type: string }>;
   detectionModel?: string | null;
   detectionProvider?: string | null;
-  detectionAdapter?: string | null;
+  detectionSource?: "system" | "byok" | null;
 }
 
 export interface EvalResult {
@@ -20,158 +25,53 @@ export interface EvalResult {
   error?: string;
 }
 
-// Adapter-aware defaults: a detector may set adapter without setting
-// model/provider. Anthropic defaults to claude-haiku; OpenAI defaults to
-// gpt-4o-mini. Without this split, an OpenAI detector with a blank model
-// would route to the OpenAI SDK with a Claude model name and fail.
-const DETECTION_DEFAULTS: Record<string, { model: string; provider: string }> = {
-  anthropic: { model: "claude-haiku-4-5-20251001", provider: "anthropic" },
-  openai: { model: "gpt-4o-mini", provider: "openai" },
-};
-const DEFAULT_ADAPTER = "anthropic";
+const MAX_ATTEMPTS = 2;
+const SAFETY_TRUNCATE_CHARS = 40000;
+/** Default screening model for system source — cheap-and-fast, not the agent default. */
+const SYSTEM_DEFAULT_MODEL = "claude-haiku-4-5";
 
-async function runDetectionWithAnthropic(params: {
-  traceId: string;
-  userMessage: string;
-  systemPrompt: string;
-  model: string;
-  apiKey: string;
-  submitTool: ReturnType<typeof buildSubmitResultTool>;
-}): Promise<EvalResult> {
-  const client = new Anthropic({ apiKey: params.apiKey });
+/**
+ * `tool_choice` value sent to every provider for detector eval.
+ *
+ * We use `"auto"` universally instead of per-protocol forcing values.
+ * Stronger values (`"required"` / `"any"`) trip on real-world quirks:
+ *   - OpenAI-compatible providers (Moonshot, DeepSeek-reasoner) reject `"required"`
+ *     when thinking is on: `400 tool_choice 'required' is incompatible with thinking enabled`
+ *   - `openai-responses` / `azure-openai-responses` only accept `"auto"` per spec
+ *
+ * Reliability comes from the strict system prompt + retry-once-on-plain-text loop,
+ * not from a protocol-level force flag.
+ */
+const TOOL_CHOICE = "auto";
 
-  let identified = false;
-  let summary = "Analysis failed";
-  let data: Record<string, unknown> = {};
-  let error: string | undefined;
-
-  try {
-    let continueLoop = true;
-    let messages: Anthropic.MessageParam[] = [{ role: "user", content: params.userMessage }];
-    let attempts = 0;
-
-    while (continueLoop && attempts < 5) {
-      attempts++;
-      const response = await client.messages.create({
-        model: params.model,
-        max_tokens: 1024,
-        system: params.systemPrompt,
-        tools: [params.submitTool as Anthropic.Tool],
-        tool_choice: { type: "any" }, // force tool use
-        messages,
-      });
-
-      // Look for submit_result tool call
-      const toolUse = response.content.find(
-        (block): block is Anthropic.ToolUseBlock =>
-          block.type === "tool_use" && block.name === "submit_result",
-      );
-
-      if (toolUse) {
-        const input = toolUse.input as SubmitResultInput;
-        identified = input.identified;
-        summary = input.summary;
-        data = input.data || {};
-        continueLoop = false;
-      } else if (response.stop_reason === "end_turn") {
-        // LLM gave plain text — retry with reminder
-        messages = [
-          ...messages,
-          { role: "assistant", content: response.content },
-          { role: "user", content: "You must call submit_result. Do not respond with text." },
-        ];
-      } else {
-        continueLoop = false;
-      }
-    }
-  } catch (e) {
-    error = e instanceof Error ? e.message : String(e);
-  }
-
-  return { identified, summary, data, error };
+function errorResult(message: string): EvalResult {
+  return { identified: false, summary: "Analysis failed", data: {}, error: message };
 }
 
-async function runDetectionWithOpenAI(params: {
-  traceId: string;
-  userMessage: string;
-  systemPrompt: string;
-  model: string;
-  apiKey: string;
-  submitTool: ReturnType<typeof buildSubmitResultTool>;
-}): Promise<EvalResult> {
-  const client = new OpenAI({ apiKey: params.apiKey });
+/**
+ * Resolve the API key for a detector eval call.
+ *   1. BYOK source → the explicit row's decrypted key (in `providerConfig`)
+ *   2. System source → env var (pi-ai owns the provider→env-var mapping)
+ *   3. System source fallback → any enabled BYOK row in the workspace whose
+ *      adapter maps to the same pi-ai provider (matches agent behavior)
+ */
+async function resolveDetectorApiKey(
+  workspaceId: string,
+  providerConfig: ProviderModelConfig | null,
+  piProvider: string,
+): Promise<string | null> {
+  if (providerConfig) return providerConfig.key;
 
-  // Convert Anthropic tool schema to OpenAI format
-  const tool: OpenAI.Chat.ChatCompletionTool = {
-    type: "function",
-    function: {
-      name: "submit_result",
-      description: params.submitTool.description,
-      parameters: params.submitTool.input_schema as Record<string, unknown>,
-    },
-  };
+  const envKey = getEnvApiKey(piProvider);
+  if (envKey) return envKey;
 
-  let identified = false;
-  let summary = "Analysis failed";
-  let data: Record<string, unknown> = {};
-  let error: string | undefined;
-
-  try {
-    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      { role: "system", content: params.systemPrompt },
-      { role: "user", content: params.userMessage },
-    ];
-
-    let continueLoop = true;
-    let attempts = 0;
-
-    while (continueLoop && attempts < 5) {
-      attempts++;
-      const response = await client.chat.completions.create({
-        model: params.model,
-        // newer OpenAI reasoning/codex models reject `max_tokens`
-        max_completion_tokens: 1024,
-        messages,
-        tools: [tool],
-        tool_choice: "required",
-      });
-
-      const choice = response.choices[0];
-      const toolCall = choice.message.tool_calls?.find(
-        (tc) => tc.function.name === "submit_result",
-      );
-
-      if (toolCall) {
-        const input = JSON.parse(toolCall.function.arguments) as {
-          identified: boolean;
-          summary: string;
-          data?: Record<string, unknown>;
-        };
-        identified = input.identified;
-        summary = input.summary;
-        data = input.data ?? {};
-        continueLoop = false;
-      } else if (choice.finish_reason === "stop") {
-        messages.push({ role: "assistant", content: choice.message.content ?? "" });
-        messages.push({
-          role: "user",
-          content: "You must call submit_result. Do not respond with text.",
-        });
-      } else {
-        continueLoop = false;
-      }
-    }
-  } catch (e) {
-    error = e instanceof Error ? e.message : String(e);
-  }
-
-  return { identified, summary, data, error };
+  return findByokKeyForPiProvider(workspaceId, piProvider);
 }
 
 /**
  * Run LLM detection for a single trace.
  * spansJsonl is the content of the trace's spans.jsonl file.
- * The LLM must call submit_result to complete — plain text responses are retried.
+ * The LLM must call submit_result; plain-text responses trigger one retry.
  */
 export async function runDetectionForTrace(params: {
   traceId: string;
@@ -180,17 +80,35 @@ export async function runDetectionForTrace(params: {
   workspaceId: string;
 }): Promise<EvalResult> {
   const { traceId, spansJsonl, detector, workspaceId } = params;
+  const source = detector.detectionSource ?? null;
 
-  const adapter = detector.detectionAdapter || DEFAULT_ADAPTER;
-  const adapterDefaults = DETECTION_DEFAULTS[adapter] ?? DETECTION_DEFAULTS[DEFAULT_ADAPTER];
-  const model = detector.detectionModel || adapterDefaults.model;
-  const provider = detector.detectionProvider || adapterDefaults.provider;
+  // 1. BYOK config
+  let providerConfig: ProviderModelConfig | null = null;
+  if (source === "byok") {
+    if (!detector.detectionProvider) {
+      return errorResult("BYOK detector has no detectionProvider");
+    }
+    providerConfig = await fetchProviderConfig(workspaceId, detector.detectionProvider);
+    if (!providerConfig) {
+      return errorResult(
+        `BYOK provider "${detector.detectionProvider}" not found or disabled in workspace settings`,
+      );
+    }
+  }
 
-  // Resolve the API key for the chosen provider, falling back to env var
-  const envVarFallback = adapter === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
-  const apiKey = await resolveWorkspaceApiKey(workspaceId, provider, envVarFallback);
+  // 2. Resolve model
+  const modelId =
+    detector.detectionModel ?? (source === "system" ? SYSTEM_DEFAULT_MODEL : undefined);
+  const model = resolvePiModel(modelId, providerConfig);
+
+  // 3. Resolve API key (BYOK row → env var → workspace BYOK scan)
+  const apiKey = await resolveDetectorApiKey(workspaceId, providerConfig, model.provider);
+  if (!apiKey) {
+    return errorResult(`No API key configured for provider "${model.provider}"`);
+  }
+
+  // 4. Build prompt + tool
   const submitTool = buildSubmitResultTool(detector.outputSchema);
-
   const systemPrompt = `You are a production monitoring assistant analyzing AI agent traces.
 You are evaluating one trace to determine if it exhibits the problem described below.
 
@@ -201,7 +119,7 @@ RULES:
 - summary must be one sentence. If identified=true, describe what you found. If false, state why it is clean.
 - data fields are only required when identified=true.`;
 
-  const userMessage = `DETECTOR: ${detector.name}
+  const userText = `DETECTOR: ${detector.name}
 
 WHAT TO DETECT:
 ${detector.prompt}
@@ -209,25 +127,60 @@ ${detector.prompt}
 TRACE ID: ${traceId}
 
 SPANS (one JSON object per line):
-${spansJsonl.slice(0, 40000)}`; // safety truncation at ~10k tokens
+${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
 
-  if (adapter === "openai") {
-    return runDetectionWithOpenAI({
-      traceId,
-      userMessage,
-      systemPrompt,
-      model,
-      apiKey,
-      submitTool,
-    });
+  // 5. Single-shot complete() with retry-once-on-text-response
+  const messages: Message[] = [{ role: "user", content: userText, timestamp: Date.now() }];
+  let lastError: string | undefined;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await complete(model, { systemPrompt, messages, tools: [submitTool] }, {
+        apiKey,
+        toolChoice: TOOL_CHOICE,
+      } as Record<string, unknown>);
+
+      const toolCall = response.content.find(
+        (c): c is ToolCall => c.type === "toolCall" && c.name === "submit_result",
+      );
+      if (toolCall) {
+        const args = toolCall.arguments as Partial<SubmitResultInput>;
+        return {
+          identified: Boolean(args.identified),
+          summary: typeof args.summary === "string" ? args.summary : "",
+          data: (args.data as Record<string, unknown>) ?? {},
+        };
+      }
+
+      // pi-ai swallows API failures into the assistant message with
+      // stopReason="error" + an errorMessage field. Treat that as a hard
+      // failure — retrying won't help, and we want the upstream error
+      // surfaced clearly (e.g. provider rejected toolChoice="required",
+      // 401 from a bad key, etc.).
+      if (response.stopReason === "error") {
+        lastError = response.errorMessage || `provider error (model=${model.id}, api=${model.api})`;
+        console.warn(
+          `[sandbox-eval] Provider error on attempt ${attempt} (model=${model.id}, api=${model.api}): ${lastError}`,
+        );
+        break;
+      }
+
+      // Plain text — log enough to diagnose provider tool-calling compliance,
+      // then append the full assistant turn + a stricter reminder; retry once.
+      console.warn(
+        `[sandbox-eval] No submit_result on attempt ${attempt} (model=${model.id}, api=${model.api}, stopReason=${response.stopReason}). content=${JSON.stringify(response.content).slice(0, 600)}`,
+      );
+      messages.push(response);
+      messages.push({
+        role: "user",
+        content: "You must call submit_result. Do not respond with text.",
+        timestamp: Date.now(),
+      });
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      break;
+    }
   }
 
-  return runDetectionWithAnthropic({
-    traceId,
-    userMessage,
-    systemPrompt,
-    model,
-    apiKey,
-    submitTool,
-  });
+  return errorResult(lastError ?? "LLM did not call submit_result after retry");
 }

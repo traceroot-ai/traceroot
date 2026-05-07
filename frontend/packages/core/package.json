@@ -2,12 +2,17 @@
   "name": "@traceroot/core",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./model-resolver": {
+      "types": "./src/model-resolver.ts",
+      "default": "./src/model-resolver.ts"
     }
   },
   "scripts": {
@@ -20,6 +25,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@mariozechner/pi-ai": "0.57.1",
     "@prisma/client": "^5.22.0",
     "zod": "^4.3.6"
   },

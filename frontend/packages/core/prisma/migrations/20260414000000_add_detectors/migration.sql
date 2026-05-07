@@ -17,7 +17,7 @@ CREATE TABLE "detectors" (
     "enabled" BOOLEAN NOT NULL DEFAULT true,
     "detection_model" VARCHAR,
     "detection_provider" VARCHAR,
-    "detection_adapter" VARCHAR,
+    "detection_source" VARCHAR,
     "create_time" TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "update_time" TIMESTAMP(6) NOT NULL,
 

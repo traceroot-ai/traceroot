@@ -30,11 +30,12 @@ RUN cd packages/core && npx prisma generate \
     && mkdir -p /tmp/prisma-engines/.prisma \
     && cp -rL /app/node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client /tmp/prisma-engines/.prisma/client
 
-# Build core for Node.js (patch tsconfig to produce CJS, patch package.json exports)
+# Build core for Node.js (compile to dist/, point package.json main + exports at the build output).
+# core is ESM (`"type": "module"` + NodeNext); the existing tsconfig already emits ESM-tagged
+# `.js` with explicit relative-import extensions, so no tsconfig patching is needed.
 RUN cd packages/core && \
-    node -e "const t=JSON.parse(require('fs').readFileSync('tsconfig.json','utf8')); t.compilerOptions.module='CommonJS'; t.compilerOptions.moduleResolution='node'; require('fs').writeFileSync('tsconfig.json',JSON.stringify(t,null,2))" && \
     pnpm build && \
-    node -e "const p=JSON.parse(require('fs').readFileSync('package.json','utf8')); p.main='./dist/index.js'; p.exports={'.':{'types':'./dist/index.d.ts','default':'./dist/index.js'}}; require('fs').writeFileSync('package.json',JSON.stringify(p,null,2))"
+    node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.main='./dist/index.js'; p.exports={'.':{types:'./dist/index.d.ts',import:'./dist/index.js'},'./model-resolver':{types:'./dist/model-resolver.d.ts',import:'./dist/model-resolver.js'}}; fs.writeFileSync('package.json',JSON.stringify(p,null,2))"
 RUN cd packages/agent && pnpm build
 
 FROM node:20-alpine AS runner

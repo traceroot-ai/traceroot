@@ -4,7 +4,7 @@ import {
   DETECTOR_RCA_QUEUE,
   type DetectorRunJob,
   type DetectorRcaJob,
-} from "../detector-run-queue";
+} from "../detector-run-queue.js";
 
 describe("Detector queue constants", () => {
   it("DETECTOR_RUN_QUEUE has correct value", () => {

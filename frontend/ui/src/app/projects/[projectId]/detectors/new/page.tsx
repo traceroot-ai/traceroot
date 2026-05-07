@@ -67,7 +67,7 @@ export default function NewDetectorPage() {
       triggerConditions,
       detectionModel: modelSelection.model || undefined,
       detectionProvider: modelSelection.provider || undefined,
-      detectionAdapter: modelSelection.adapter || undefined,
+      detectionSource: modelSelection.source === "byok" ? "byok" : "system",
     };
     await createMutation.mutateAsync(input);
     router.push(`/projects/${projectId}/detectors`);

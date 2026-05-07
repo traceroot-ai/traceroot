@@ -24,7 +24,7 @@ import {
   AI_RUN_QUOTAS,
   EVENT_QUOTAS,
 } from "@traceroot/core";
-import { getWorkspaceUsageDetails } from "./clickhouse";
+import { getWorkspaceUsageDetails } from "./clickhouse.js";
 
 let stripe: Stripe | null = null;
 

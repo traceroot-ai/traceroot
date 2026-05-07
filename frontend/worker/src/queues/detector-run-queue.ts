@@ -1,5 +1,5 @@
 import { Queue } from "bullmq";
-import IORedis from "ioredis";
+import { Redis } from "ioredis";
 
 export interface DetectorRunJob {
   traceId: string;
@@ -24,8 +24,8 @@ export interface DetectorRcaJob {
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 
-export function createRedisConnection(): IORedis {
-  return new IORedis(REDIS_URL, {
+export function createRedisConnection(): Redis {
+  return new Redis(REDIS_URL, {
     maxRetriesPerRequest: null, // required for BullMQ
   });
 }
@@ -33,10 +33,10 @@ export function createRedisConnection(): IORedis {
 export const DETECTOR_RUN_QUEUE = "detector-run";
 export const DETECTOR_RCA_QUEUE = "detector-rca";
 
-export function createDetectorRunQueue(connection: IORedis): Queue<DetectorRunJob> {
+export function createDetectorRunQueue(connection: Redis): Queue<DetectorRunJob> {
   return new Queue<DetectorRunJob>(DETECTOR_RUN_QUEUE, { connection });
 }
 
-export function createDetectorRcaQueue(connection: IORedis): Queue<DetectorRcaJob> {
+export function createDetectorRcaQueue(connection: Redis): Queue<DetectorRcaJob> {
   return new Queue<DetectorRcaJob>(DETECTOR_RCA_QUEUE, { connection });
 }
