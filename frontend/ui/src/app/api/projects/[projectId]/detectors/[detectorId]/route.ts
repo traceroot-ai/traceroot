@@ -66,7 +66,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     triggerConditions,
     detectionModel,
     detectionProvider,
-    detectionAdapter,
+    detectionSource,
   } = body as Record<string, unknown>;
 
   // Validate types up-front so invalid payloads return 400 instead of crashing
@@ -100,7 +100,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     ["prompt", prompt],
     ["detectionModel", detectionModel],
     ["detectionProvider", detectionProvider],
-    ["detectionAdapter", detectionAdapter],
+    ["detectionSource", detectionSource],
   ] as const) {
     if (val !== undefined && val !== null && typeof val !== "string") {
       return errorResponse(`${key} must be a string`, 400);
@@ -123,7 +123,16 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (enabled !== undefined) detectorData.enabled = enabled;
   if (detectionModel !== undefined) detectorData.detectionModel = detectionModel || null;
   if (detectionProvider !== undefined) detectorData.detectionProvider = detectionProvider || null;
-  if (detectionAdapter !== undefined) detectorData.detectionAdapter = detectionAdapter || null;
+  if (detectionSource !== undefined) {
+    // null/empty-string clear the field; otherwise must be a valid enum value.
+    if (detectionSource === null || detectionSource === "") {
+      detectorData.detectionSource = null;
+    } else if (detectionSource === "system" || detectionSource === "byok") {
+      detectorData.detectionSource = detectionSource;
+    } else {
+      return errorResponse(`detectionSource must be "system" or "byok"`, 400);
+    }
+  }
 
   const detector = await prisma.detector.update({
     where: { id: detectorId },

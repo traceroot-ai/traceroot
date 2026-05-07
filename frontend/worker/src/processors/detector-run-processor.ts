@@ -66,7 +66,7 @@ async function runSingleDetector(params: {
     outputSchema: Array<{ name: string; type: string }>;
     detectionModel: string | null;
     detectionProvider: string | null;
-    detectionAdapter: string | null;
+    detectionSource: "system" | "byok" | null;
   };
   traceId: string;
   projectId: string;
@@ -88,7 +88,7 @@ async function runSingleDetector(params: {
         outputSchema: detector.outputSchema,
         detectionModel: detector.detectionModel,
         detectionProvider: detector.detectionProvider,
-        detectionAdapter: detector.detectionAdapter,
+        detectionSource: detector.detectionSource,
       },
       workspaceId,
     });
@@ -191,7 +191,7 @@ async function processTrace(
           outputSchema,
           detectionModel: detector.detectionModel,
           detectionProvider: detector.detectionProvider,
-          detectionAdapter: detector.detectionAdapter,
+          detectionSource: detector.detectionSource as "system" | "byok" | null,
         },
         traceId,
         projectId,
