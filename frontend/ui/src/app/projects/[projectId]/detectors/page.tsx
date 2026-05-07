@@ -5,9 +5,16 @@ import { useParams, useRouter } from "next/navigation";
 import { Eye, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { SearchFilterBar } from "@/components/search-filter-bar";
+import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { formatDate, cn } from "@/lib/utils";
-import { useDetectors, useDeleteDetector } from "@/features/detectors/hooks/use-detectors";
+import {
+  useDetectorList,
+  useDetectorCounts,
+  useDeleteDetector,
+} from "@/features/detectors/hooks/use-detectors";
+import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useProject } from "@/features/projects/hooks";
 import { DeleteDetectorDialog } from "@/features/detectors/components/delete-detector-dialog";
 import { DetectorPanel } from "@/features/detectors/components/detector-panel";
@@ -22,11 +29,32 @@ export default function DetectorsPage() {
   const [actionsOpen, setActionsOpen] = useState<string | null>(null);
   const [selectedDetectorId, setSelectedDetectorId] = useState<string | null>(null);
 
-  const { data: project } = useProject(projectId);
-  const { data, isLoading, error } = useDetectors(projectId);
-  const deleteMutation = useDeleteDetector(projectId);
+  const {
+    state,
+    queryOptions,
+    updateDateFilter,
+    updateCustomRange,
+    updateKeyword,
+    updateLimit,
+    goToPage,
+  } = useListPageState({ defaultDateFilterId: "14d" });
 
-  const detectors = data ?? [];
+  const { data: project } = useProject(projectId);
+
+  const { data, isLoading, error } = useDetectorList(projectId, {
+    page: queryOptions.page,
+    limit: queryOptions.limit,
+    search_query: queryOptions.search_query,
+  });
+
+  const { data: counts, isLoading: countsLoading } = useDetectorCounts(projectId, {
+    start_after: queryOptions.start_after,
+    end_before: queryOptions.end_before,
+  });
+
+  const deleteMutation = useDeleteDetector(projectId);
+  const detectors = data?.data ?? [];
+  const meta = data?.meta;
 
   const handleDeleteConfirm = () => {
     if (!deleteTarget) return;
@@ -49,6 +77,9 @@ export default function DetectorsPage() {
     if (next >= 0 && next < detectors.length) setSelectedDetectorId(detectors[next].id);
   };
 
+  const isEmptyProject = !isLoading && !error && (meta?.total ?? 0) === 0 && !state.keyword;
+  const isEmptySearch = !isLoading && !error && detectors.length === 0 && !!state.keyword;
+
   return (
     <div className="relative flex h-full text-[13px]">
       <ProjectBreadcrumb projectId={projectId} />
@@ -66,6 +97,18 @@ export default function DetectorsPage() {
           </Button>
         </div>
 
+        {/* Search / time-range filter */}
+        <SearchFilterBar
+          searchValue={state.keyword}
+          onSearchChange={updateKeyword}
+          searchPlaceholder="Search..."
+          dateFilter={state.dateFilter}
+          customStartDate={state.customStartDate}
+          customEndDate={state.customEndDate}
+          onDateFilterChange={updateDateFilter}
+          onCustomRangeChange={updateCustomRange}
+        />
+
         {/* Table */}
         <div className="flex-1 overflow-auto bg-background">
           {isLoading ? (
@@ -76,7 +119,7 @@ export default function DetectorsPage() {
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-destructive">Error loading detectors</p>
             </div>
-          ) : detectors.length === 0 ? (
+          ) : isEmptyProject ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <Eye className="h-8 w-8 text-muted-foreground/40" />
               <p className="text-[13px] text-muted-foreground">No detectors yet</p>
@@ -89,6 +132,20 @@ export default function DetectorsPage() {
                 onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
               >
                 New Detector
+              </Button>
+            </div>
+          ) : isEmptySearch ? (
+            <div className="flex h-64 flex-col items-center justify-center gap-3">
+              <p className="text-[13px] text-muted-foreground">
+                No detectors match &ldquo;{state.keyword}&rdquo;
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-[12px]"
+                onClick={() => updateKeyword("")}
+              >
+                Clear search
               </Button>
             </div>
           ) : (
@@ -107,6 +164,12 @@ export default function DetectorsPage() {
                   <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Sampling
                   </th>
+                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                    Findings
+                  </th>
+                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
+                    Runs
+                  </th>
                   <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Created At
                   </th>
@@ -124,6 +187,11 @@ export default function DetectorsPage() {
               <tbody>
                 {detectors.map((detector) => {
                   const template = getTemplate(detector.template);
+                  const c = counts?.[detector.id];
+                  const findingCount = c?.finding_count ?? 0;
+                  const runCount = c?.run_count ?? 0;
+                  const countClass =
+                    "border-r border-border/50 px-3 py-1.5 text-right text-[12px] text-muted-foreground tabular-nums";
                   return (
                     <tr
                       key={detector.id}
@@ -145,6 +213,8 @@ export default function DetectorsPage() {
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                         {detector.sampleRate}%
                       </td>
+                      <td className={countClass}>{countsLoading ? "—" : findingCount}</td>
+                      <td className={countClass}>{countsLoading ? "—" : runCount}</td>
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                         {formatDate(detector.createTime)}
                       </td>
@@ -202,6 +272,16 @@ export default function DetectorsPage() {
             </table>
           )}
         </div>
+
+        {meta && (
+          <ListPagination
+            page={meta.page}
+            limit={meta.limit}
+            total={meta.total}
+            onPageChange={goToPage}
+            onLimitChange={updateLimit}
+          />
+        )}
       </div>
 
       {/* Edit panel — fixed overlay */}

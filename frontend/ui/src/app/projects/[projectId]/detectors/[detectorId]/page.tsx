@@ -7,7 +7,7 @@ import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { formatDate, cn } from "@/lib/utils";
-import { useDetectors } from "@/features/detectors/hooks/use-detectors";
+import { useDetector } from "@/features/detectors/hooks/use-detectors";
 import { useFindings, useRuns, type BackendFinding } from "@/features/detectors/hooks/use-findings";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
@@ -27,8 +27,7 @@ export default function DetectorDetailPage() {
   const [selectedFinding, setSelectedFinding] = useState<BackendFinding | null>(null);
 
   // Single shared state across both tabs — same pattern as traces/sessions/users.
-  // Pagination, search, and date filter live in the URL so a tab switch keeps
-  // them; `defaultDateFilter` is the only detector-specific deviation (#806).
+  // Pagination, search, and date filter live in the URL so a tab switch keeps them.
   const {
     state,
     queryOptions,
@@ -39,8 +38,7 @@ export default function DetectorDetailPage() {
     goToPage,
   } = useListPageState();
 
-  const { data: detectorsData } = useDetectors(projectId);
-  const detector = detectorsData?.find((d) => d.id === detectorId);
+  const { data: detector } = useDetector(projectId, detectorId);
 
   const { data: findingsData, isLoading, error } = useFindings(projectId, detectorId, queryOptions);
 

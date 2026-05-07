@@ -280,3 +280,98 @@ class TestInternalAuth:
             headers={"X-Internal-Secret": "wrong"},
         )
         assert resp.status_code == 403
+
+
+# =============================================================================
+# /detector-counts (#810)
+# =============================================================================
+
+
+class TestListDetectorCounts:
+    def _fake_aggregate(self, rows: list[tuple]):
+        return _make_query_result(
+            rows=rows,
+            column_names=["detector_id", "run_count", "finding_count"],
+        )
+
+    def test_returns_per_detector_counts(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [
+            self._fake_aggregate([("d-a", 100, 7), ("d-b", 25, 0)]),
+        ]
+        resp = client.get(
+            "/api/v1/internal/detector-counts",
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body == {
+            "data": {
+                "d-a": {"finding_count": 7, "run_count": 100},
+                "d-b": {"finding_count": 0, "run_count": 25},
+            }
+        }
+
+    def test_empty_when_no_runs_in_window(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [self._fake_aggregate([])]
+        resp = client.get(
+            "/api/v1/internal/detector-counts",
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"data": {}}
+
+    def test_passes_end_before_when_provided(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [self._fake_aggregate([])]
+        client.get(
+            "/api/v1/internal/detector-counts",
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-05-01T00:00:00Z",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        call_args = mock_ch.query.call_args
+        sql = call_args.args[0] if call_args.args else call_args.kwargs.get("query")
+        params = call_args.kwargs.get("parameters", {})
+        assert "timestamp <" in sql
+        assert "end_before" in params
+
+    def test_omits_end_before_when_absent(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [self._fake_aggregate([])]
+        client.get(
+            "/api/v1/internal/detector-counts",
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        call_args = mock_ch.query.call_args
+        sql = call_args.args[0] if call_args.args else call_args.kwargs.get("query")
+        params = call_args.kwargs.get("parameters", {})
+        assert "timestamp <" not in sql or "end_before" not in sql
+        assert "end_before" not in params
+
+    def test_requires_internal_secret(self, client, mock_ch):
+        resp = client.get(
+            "/api/v1/internal/detector-counts",
+            params={"project_id": "p1", "start_after": "2026-04-20T00:00:00Z"},
+        )
+        assert resp.status_code == 403
+
+    def test_requires_start_after(self, client, mock_ch, secret):
+        resp = client.get(
+            "/api/v1/internal/detector-counts",
+            params={"project_id": "p1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 422
