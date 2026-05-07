@@ -21,6 +21,7 @@ export const DATE_FILTER_OPTIONS: DateFilterOption[] = [
   { id: "6h", label: "Last 6 hours", durationMinutes: 360 },
   { id: "1d", label: "Last 24 hours", durationMinutes: 1440 },
   { id: "7d", label: "Last 7 days", durationMinutes: 10080 },
+  { id: "14d", label: "Last 14 days", durationMinutes: 20160 },
   { id: "30d", label: "Last 30 days", durationMinutes: 43200 },
   { id: "custom", label: "Custom", durationMinutes: null, isCustom: true },
 ];

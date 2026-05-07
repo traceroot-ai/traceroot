@@ -24,7 +24,10 @@ interface UseUrlDateFilterReturn {
   };
 }
 
-export function useUrlDateFilter(onFilterChange?: () => void): UseUrlDateFilterReturn {
+export function useUrlDateFilter(
+  onFilterChange?: () => void,
+  defaultId?: string,
+): UseUrlDateFilterReturn {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -37,7 +40,9 @@ export function useUrlDateFilter(onFilterChange?: () => void): UseUrlDateFilterR
   // Parse URL values into state
   const initialDateFilter = urlDateFilterId
     ? findDateFilterOption(urlDateFilterId)
-    : DEFAULT_DATE_FILTER;
+    : defaultId
+      ? findDateFilterOption(defaultId)
+      : DEFAULT_DATE_FILTER;
   const initialCustomStart = urlStartDate ? new Date(urlStartDate) : null;
   const initialCustomEnd = urlEndDate ? new Date(urlEndDate) : null;
 
