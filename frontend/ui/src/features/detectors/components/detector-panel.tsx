@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Eye, X, Copy, Check, ArrowUp, ArrowDown } from "lucide-react";
-import { useDetectors, useUpdateDetector } from "../hooks/use-detectors";
+import { useDetector, useUpdateDetector } from "../hooks/use-detectors";
 import { useProject } from "@/features/projects/hooks";
 import { TriggerEditor } from "./trigger-editor";
 import type { TriggerCondition } from "./trigger-editor";
@@ -33,8 +33,7 @@ export function DetectorPanel({
   canNavigateUp,
   canNavigateDown,
 }: DetectorPanelProps) {
-  const { data: detectorsData } = useDetectors(projectId);
-  const detector = detectorsData?.find((d) => d.id === detectorId);
+  const { data: detector } = useDetector(projectId, detectorId);
   const { data: project } = useProject(projectId);
 
   const [editName, setEditName] = useState("");

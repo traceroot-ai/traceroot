@@ -11,7 +11,11 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from db.clickhouse.client import get_clickhouse_client
-from rest.schemas.detectors import FindingListResponse, RunListResponse
+from rest.schemas.detectors import (
+    DetectorCountsResponse,
+    FindingListResponse,
+    RunListResponse,
+)
 from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.config import settings
 
@@ -496,3 +500,62 @@ async def get_trace_findings(trace_id: str, project_id: str):
             row_dict["timestamp"] = row_dict["timestamp"].isoformat()
         findings.append(row_dict)
     return {"findings": findings}
+
+
+@router.get(
+    "/detector-counts",
+    response_model=DetectorCountsResponse,
+    dependencies=[Depends(verify_internal_secret)],
+)
+async def list_detector_counts(
+    project_id: str,
+    start_after: datetime = Query(
+        ..., description="Lower bound on detector_runs.timestamp (inclusive)"
+    ),
+    end_before: datetime | None = Query(
+        None, description="Upper bound on detector_runs.timestamp (exclusive)"
+    ),
+):
+    """Aggregate finding and run counts per detector for a project, in one query.
+
+    `detector_runs.finding_id` is set when a run produced a finding; counting
+    `finding_id IS NOT NULL` avoids a JOIN with `detector_findings`.
+
+    Detectors with zero runs in the window are absent from the result map; the
+    frontend defaults absent entries to {findingCount: 0, runCount: 0}.
+    """
+    ch = get_clickhouse_client()
+
+    conditions = [
+        "project_id = {project_id:String}",
+        "timestamp >= {start_after:DateTime64(3)}",
+    ]
+    params: dict = {
+        "project_id": project_id,
+        "start_after": to_utc_naive(start_after),
+    }
+    if end_before is not None:
+        conditions.append("timestamp < {end_before:DateTime64(3)}")
+        params["end_before"] = to_utc_naive(end_before)
+
+    where_clause = " AND ".join(conditions)
+    query = f"""
+        SELECT
+            detector_id,
+            count()                          AS run_count,
+            countIf(finding_id IS NOT NULL)  AS finding_count
+        FROM detector_runs
+        WHERE {where_clause}
+        GROUP BY detector_id
+    """
+
+    result = ch.query(query, parameters=params)
+    data: dict[str, dict[str, int]] = {}
+    for row in result.result_rows:
+        row_dict = dict(zip(result.column_names, row))
+        data[row_dict["detector_id"]] = {
+            "finding_count": int(row_dict["finding_count"]),
+            "run_count": int(row_dict["run_count"]),
+        }
+
+    return {"data": data}
