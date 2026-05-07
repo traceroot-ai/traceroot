@@ -61,12 +61,22 @@ export function DetectorPanel({
     setEditConditions((d.trigger?.conditions ?? []) as TriggerCondition[]);
   };
 
+  // When the loaded detector matches the requested id, populate edit state.
+  // Otherwise clear it: the panel's Next/Prev arrow can change `detectorId`
+  // before `useDetector` resolves the new fetch, and without this clear the
+  // form would briefly hold the previous detector's values — a Save during
+  // that gap would write them to the new detector.
   useEffect(() => {
-    populate(detector);
-  }, [detector]);
-  useEffect(() => {
-    populate(detector);
-  }, [detectorId]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (detector && detector.id === detectorId) {
+      populate(detector);
+    } else {
+      setEditName("");
+      setEditPrompt("");
+      setEditSampleRate(100);
+      setEditModelSelection({ model: "", provider: "", source: "system", adapter: "" });
+      setEditConditions([]);
+    }
+  }, [detectorId, detector]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [copied, setCopied] = useState(false);
   const copyId = useCallback(() => {
@@ -78,6 +88,12 @@ export function DetectorPanel({
   const updateMutation = useUpdateDetector(projectId, detectorId);
 
   const handleSave = () => {
+    // Guard against saving while the new detector's data is still loading.
+    // Edit state would be the previous detector's, but the mutation targets
+    // the current detectorId; without this guard, stale values would
+    // overwrite the new detector. The Save button is also disabled in this
+    // state — this is defense-in-depth.
+    if (!detector || detector.id !== detectorId) return;
     updateMutation.mutate(
       {
         name: editName,
@@ -240,7 +256,7 @@ export function DetectorPanel({
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={updateMutation.isPending}
+            disabled={updateMutation.isPending || !detector || detector.id !== detectorId}
             className="h-7 text-[12px]"
           >
             {updateMutation.isPending ? "Saving..." : "Save"}
