@@ -39,6 +39,8 @@ jobs:
             dockerfile: docker/Dockerfile.billing
           - service: agent
             dockerfile: docker/Dockerfile.agent
+          - service: detector
+            dockerfile: docker/Dockerfile.detector
           - service: migrate-clickhouse
             dockerfile: docker/Dockerfile.migrate-clickhouse
           - service: migrate-postgres
