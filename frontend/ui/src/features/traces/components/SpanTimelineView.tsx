@@ -17,10 +17,30 @@ const NICE_STEPS_SEC = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600]
 
 function formatTickLabel(sec: number): string {
   if (sec === 0) return "0";
-  if (sec >= 3600) return `${Math.round(sec / 3600)}h`;
-  if (sec >= 60) return `${Math.round(sec / 60)}m`;
-  if (sec >= 1) return `${sec}s`;
-  return `${Math.round(sec * 1000)}ms`;
+
+  if (sec < 1) {
+    return `${Math.round(sec * 1000)}ms`;
+  }
+
+  if (sec < 60) {
+    return Number.isInteger(sec) ? `${sec}s` : `${sec.toFixed(1).replace(/\.0$/, "")}s`;
+  }
+
+  const totalSec = Math.round(sec);
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+
+  if (hours > 0) {
+    if (minutes > 0) return `${hours}h ${minutes}m`;
+    return `${hours}h`;
+  }
+
+  if (seconds > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+
+  return `${minutes}m`;
 }
 
 type TimelineRow =
