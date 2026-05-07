@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCombinedAlertBlocks } from "../block-kit";
+import { buildCombinedAlertBlocks } from "../block-kit.js";
 
 const base = {
   detectorName: "Hallucination",

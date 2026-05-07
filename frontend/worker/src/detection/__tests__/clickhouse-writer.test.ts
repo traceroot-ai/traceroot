@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-import { writeDetectorRun, writeDetectorFinding } from "../clickhouse-writer";
+import { writeDetectorRun, writeDetectorFinding } from "../clickhouse-writer.js";
 
 describe("writeDetectorRun", () => {
   beforeEach(() => vi.clearAllMocks());

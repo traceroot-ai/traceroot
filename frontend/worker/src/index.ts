@@ -7,7 +7,7 @@
 
 import cron from "node-cron";
 import { prisma, syncStandardPrices } from "@traceroot/core";
-import { runBillingJob, closeClickHouseClient } from "./ee/billing";
+import { runBillingJob, closeClickHouseClient } from "./ee/billing/index.js";
 
 // Graceful shutdown handling
 let isShuttingDown = false;

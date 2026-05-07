@@ -1,4 +1,4 @@
-import { Role } from "../constants";
+import { Role } from "../constants.js";
 
 export type { Role };
 

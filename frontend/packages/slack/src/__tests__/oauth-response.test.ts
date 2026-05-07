@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SlackOAuthResponseSchema } from "../oauth-response";
+import { SlackOAuthResponseSchema } from "../oauth-response.js";
 
 describe("SlackOAuthResponseSchema", () => {
   it("parses a successful oauth.v2.access response", () => {

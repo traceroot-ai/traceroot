@@ -10,7 +10,7 @@ export interface Detector {
   sampleRate: number;
   detectionModel: string | null;
   detectionProvider: string | null;
-  detectionAdapter: string | null;
+  detectionSource: "system" | "byok" | null;
   createTime: string;
   updateTime: string;
   trigger?: { conditions: Array<{ field: string; op: string; value: unknown }> } | null;
@@ -25,7 +25,7 @@ export interface CreateDetectorInput {
   triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
   detectionModel?: string;
   detectionProvider?: string;
-  detectionAdapter?: string;
+  detectionSource?: "system" | "byok";
 }
 
 async function fetchDetectors(projectId: string): Promise<Detector[]> {
@@ -53,7 +53,7 @@ export interface UpdateDetectorInput {
   triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
   detectionModel?: string;
   detectionProvider?: string;
-  detectionAdapter?: string;
+  detectionSource?: "system" | "byok";
 }
 
 async function updateDetector(

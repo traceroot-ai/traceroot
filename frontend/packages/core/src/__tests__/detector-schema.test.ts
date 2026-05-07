@@ -1,6 +1,6 @@
 // Unit test: verify Detector-related types are exported from @traceroot/core
 import { describe, it, expect } from "vitest";
-import { prisma } from "../lib/prisma";
+import { prisma } from "../lib/prisma.js";
 
 describe("Detector schema types", () => {
   it("prisma client has detector model", () => {

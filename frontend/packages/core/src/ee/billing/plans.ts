@@ -1,4 +1,4 @@
-import { isBillingEnabled } from "../license";
+import { isBillingEnabled } from "../license.js";
 export { isBillingEnabled };
 
 // =============================================================================
