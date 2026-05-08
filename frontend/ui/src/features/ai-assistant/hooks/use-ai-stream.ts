@@ -27,37 +27,6 @@ export function useAIStream() {
   // Tracks the last frozen bubble ID so usage stats from message_end can still
   // be attached when a turn ends with a tool call (currentTextIdRef is null then).
   const lastFrozenIdRef = useRef<string | null>(null);
-  // The currently-active run, tracked separately from a "stale" flag so a
-  // session switch can pause delta application without permanently dropping
-  // the run — coming back to the same session reactivates the run so its
-  // remaining deltas are applied again, instead of leaving the user with an
-  // empty chat while the backend is still streaming.
-  const currentRunRef = useRef<{
-    runId: string;
-    sessionId: string;
-    stale: boolean;
-  } | null>(null);
-
-  const detachCurrentRun = useCallback(() => {
-    if (currentRunRef.current) {
-      currentRunRef.current = { ...currentRunRef.current, stale: true };
-    }
-    setIsStreaming(false);
-  }, []);
-
-  // If a still-running stream belongs to `sessionId`, mark it live again so
-  // its incoming deltas resume updating the visible messages. Returns true
-  // if a stream was reattached (the caller should skip reloading from DB
-  // since live data is more current).
-  const reattachIfRunningForSession = useCallback((sessionId: string): boolean => {
-    const run = currentRunRef.current;
-    if (run && run.sessionId === sessionId) {
-      currentRunRef.current = { ...run, stale: false };
-      setIsStreaming(true);
-      return true;
-    }
-    return false;
-  }, []);
 
   const sendMessage = useCallback(
     async (params: {
@@ -70,21 +39,13 @@ export function useAIStream() {
       traceId?: string;
       traceSessionId?: string;
     }) => {
-      const runId = generateId();
-      currentRunRef.current = { runId, sessionId: params.sessionId, stale: false };
-      const isLive = () => currentRunRef.current?.runId === runId && !currentRunRef.current.stale;
-      const safeSetMessages: typeof setMessages = (updater) => {
-        if (!isLive()) return;
-        setMessages(updater);
-      };
-
       const userMsg: AIMessage = {
         id: generateId(),
         role: "user",
         content: params.message,
         timestamp: new Date().toISOString(),
       };
-      safeSetMessages((prev) => [...prev, userMsg]);
+      setMessages((prev) => [...prev, userMsg]);
 
       setIsStreaming(true);
       currentTextIdRef.current = null;
@@ -95,7 +56,7 @@ export function useAIStream() {
       const openTextBubble = (): string => {
         const id = generateId();
         currentTextIdRef.current = id;
-        safeSetMessages((prev) => [
+        setMessages((prev) => [
           ...prev,
           {
             id,
@@ -114,7 +75,7 @@ export function useAIStream() {
         const frozenId = currentTextIdRef.current;
         lastFrozenIdRef.current = frozenId;
         currentTextIdRef.current = null;
-        safeSetMessages((prev) =>
+        setMessages((prev) =>
           prev.map((m) => (m.id === frozenId ? { ...m, isStreaming: false } : m)),
         );
       };
@@ -122,7 +83,7 @@ export function useAIStream() {
       // Helper: show an error in the current bubble or open a new one.
       const showError = (errorMessage: string) => {
         const targetId = currentTextIdRef.current ?? openTextBubble();
-        safeSetMessages((prev) =>
+        setMessages((prev) =>
           prev.map((m) =>
             m.id === targetId ? { ...m, content: `Error: ${errorMessage}`, isStreaming: false } : m,
           ),
@@ -182,7 +143,7 @@ export function useAIStream() {
                     // Open a new bubble if there isn't one (first text, or post-tool text)
                     if (!currentTextIdRef.current) openTextBubble();
                     const targetId = currentTextIdRef.current!;
-                    safeSetMessages((prev) =>
+                    setMessages((prev) =>
                       prev.map((msg) =>
                         msg.id === targetId ? { ...msg, content: msg.content + delta.delta } : msg,
                       ),
@@ -192,7 +153,7 @@ export function useAIStream() {
                   if (delta?.type === "thinking_delta" && delta.delta) {
                     if (!currentTextIdRef.current) openTextBubble();
                     const targetId = currentTextIdRef.current!;
-                    safeSetMessages((prev) =>
+                    setMessages((prev) =>
                       prev.map((msg) =>
                         msg.id === targetId
                           ? { ...msg, thinking: (msg.thinking ?? "") + delta.delta }
@@ -213,7 +174,7 @@ export function useAIStream() {
                   if (msg?.usage) {
                     const lastId = currentTextIdRef.current ?? lastFrozenIdRef.current;
                     if (lastId) {
-                      safeSetMessages((prev) =>
+                      setMessages((prev) =>
                         prev.map((m) =>
                           m.id === lastId
                             ? {
@@ -246,11 +207,11 @@ export function useAIStream() {
                       status: "running",
                     },
                   };
-                  safeSetMessages((prev) => [...prev, toolStepMsg]);
+                  setMessages((prev) => [...prev, toolStepMsg]);
                 }
 
                 if (eventData.type === "tool_execution_end") {
-                  safeSetMessages((prev) =>
+                  setMessages((prev) =>
                     prev.map((m) =>
                       m.id === eventData.toolCallId
                         ? {
@@ -286,14 +247,7 @@ export function useAIStream() {
       } finally {
         // Freeze the last open bubble (if streaming was cut short)
         freezeCurrentBubble();
-        // Only clear isStreaming + the run pointer if this run is still the
-        // one in flight. If a newer run has taken over (user sent another
-        // message before this one finished) or the run was detached,
-        // leave their state untouched.
-        if (currentRunRef.current?.runId === runId) {
-          if (isLive()) setIsStreaming(false);
-          currentRunRef.current = null;
-        }
+        setIsStreaming(false);
         abortRef.current = null;
         readerRef.current = null;
       }
@@ -316,13 +270,5 @@ export function useAIStream() {
     };
   }, []);
 
-  return {
-    messages,
-    isStreaming,
-    sendMessage,
-    abort,
-    detachCurrentRun,
-    reattachIfRunningForSession,
-    setMessages,
-  };
+  return { messages, isStreaming, sendMessage, abort, setMessages };
 }
