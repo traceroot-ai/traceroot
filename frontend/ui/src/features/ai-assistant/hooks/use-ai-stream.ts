@@ -27,17 +27,36 @@ export function useAIStream() {
   // Tracks the last frozen bubble ID so usage stats from message_end can still
   // be attached when a turn ends with a tool call (currentTextIdRef is null then).
   const lastFrozenIdRef = useRef<string | null>(null);
-  // Identifier for the current run. When the user switches sessions mid-stream
-  // we mark the run "stale" so its remaining SSE deltas stop updating the
-  // visible messages — but the SSE itself keeps reading so the backend run
-  // completes and persists in onDone. Keeping the connection open avoids
-  // putting the agent service into a "busy, can't accept new prompt" state
-  // for that session.
-  const currentRunIdRef = useRef<string | null>(null);
+  // The currently-active run, tracked separately from a "stale" flag so a
+  // session switch can pause delta application without permanently dropping
+  // the run — coming back to the same session reactivates the run so its
+  // remaining deltas are applied again, instead of leaving the user with an
+  // empty chat while the backend is still streaming.
+  const currentRunRef = useRef<{
+    runId: string;
+    sessionId: string;
+    stale: boolean;
+  } | null>(null);
 
   const detachCurrentRun = useCallback(() => {
-    currentRunIdRef.current = null;
+    if (currentRunRef.current) {
+      currentRunRef.current = { ...currentRunRef.current, stale: true };
+    }
     setIsStreaming(false);
+  }, []);
+
+  // If a still-running stream belongs to `sessionId`, mark it live again so
+  // its incoming deltas resume updating the visible messages. Returns true
+  // if a stream was reattached (the caller should skip reloading from DB
+  // since live data is more current).
+  const reattachIfRunningForSession = useCallback((sessionId: string): boolean => {
+    const run = currentRunRef.current;
+    if (run && run.sessionId === sessionId) {
+      currentRunRef.current = { ...run, stale: false };
+      setIsStreaming(true);
+      return true;
+    }
+    return false;
   }, []);
 
   const sendMessage = useCallback(
@@ -52,8 +71,8 @@ export function useAIStream() {
       traceSessionId?: string;
     }) => {
       const runId = generateId();
-      currentRunIdRef.current = runId;
-      const isLive = () => currentRunIdRef.current === runId;
+      currentRunRef.current = { runId, sessionId: params.sessionId, stale: false };
+      const isLive = () => currentRunRef.current?.runId === runId && !currentRunRef.current.stale;
       const safeSetMessages: typeof setMessages = (updater) => {
         if (!isLive()) return;
         setMessages(updater);
@@ -267,12 +286,13 @@ export function useAIStream() {
       } finally {
         // Freeze the last open bubble (if streaming was cut short)
         freezeCurrentBubble();
-        // Only clear isStreaming for the run that owns it. If a newer run has
-        // taken over (user sent another message before this one finished),
-        // don't blow away its in-progress state.
-        if (isLive()) {
-          setIsStreaming(false);
-          currentRunIdRef.current = null;
+        // Only clear isStreaming + the run pointer if this run is still the
+        // one in flight. If a newer run has taken over (user sent another
+        // message before this one finished) or the run was detached,
+        // leave their state untouched.
+        if (currentRunRef.current?.runId === runId) {
+          if (isLive()) setIsStreaming(false);
+          currentRunRef.current = null;
         }
         abortRef.current = null;
         readerRef.current = null;
@@ -296,5 +316,13 @@ export function useAIStream() {
     };
   }, []);
 
-  return { messages, isStreaming, sendMessage, abort, detachCurrentRun, setMessages };
+  return {
+    messages,
+    isStreaming,
+    sendMessage,
+    abort,
+    detachCurrentRun,
+    reattachIfRunningForSession,
+    setMessages,
+  };
 }

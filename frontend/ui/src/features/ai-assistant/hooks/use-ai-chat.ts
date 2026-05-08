@@ -10,8 +10,15 @@ interface UseAiChatOptions extends AiTraceContext {
 }
 
 export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptions) {
-  const { messages, isStreaming, sendMessage, abort, detachCurrentRun, setMessages } =
-    useAIStream();
+  const {
+    messages,
+    isStreaming,
+    sendMessage,
+    abort,
+    detachCurrentRun,
+    reattachIfRunningForSession,
+    setMessages,
+  } = useAIStream();
   const sessionIdRef = useRef<string | null>(null);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -102,15 +109,21 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
 
   const handleSelectSession = useCallback(
     async (session: AISession) => {
-      // Detach (don't abort) any in-flight stream from the session we're
-      // leaving — see handleNewSession for the rationale. The leaving run's
-      // remaining deltas are ignored on the FE, but the SSE keeps going so
-      // the agent service finishes the prompt, persists in onDone, and is
-      // free to accept the next user message.
-      detachCurrentRun();
+      // If the current in-flight stream belongs to the session we're
+      // selecting, reattach it instead of detaching + reloading from DB —
+      // the live deltas are more current than what's been persisted so far.
+      const reattached = reattachIfRunningForSession(session.id);
       sessionIdRef.current = session.id;
-      setMessages([]);
       setHistoryOpen(false);
+      if (reattached) {
+        return;
+      }
+
+      // Otherwise detach the leaving stream (it keeps reading on the FE so
+      // the BE can finish + persist + free its agent) and load the chosen
+      // session's messages from the DB.
+      detachCurrentRun();
+      setMessages([]);
 
       if (!projectId) return;
       try {
@@ -129,7 +142,7 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
         console.error("[AI Chat] Failed to load session messages:", err);
       }
     },
-    [detachCurrentRun, projectId, setMessages],
+    [detachCurrentRun, reattachIfRunningForSession, projectId, setMessages],
   );
 
   const handleDeleteSession = useCallback(
