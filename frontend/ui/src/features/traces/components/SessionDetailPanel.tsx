@@ -97,10 +97,8 @@ export function SessionDetailPanel({
   const { setAiPanelOpen, setAiContext, setAiPanelSlotEl } = useLayout();
   const { isPending: authPending } = useAuthSession();
 
-  // Slot for the global AiAssistantPanel to portal its UI into. Ref callback
-  // fires every time the slot DOM mounts/unmounts, so registration is robust
-  // to conditional renders (e.g. while session data is loading the slot
-  // isn't yet in the tree). See TraceViewerPanel for the same pattern.
+  // Portal target for the global AiAssistantPanel. State stays in AppLayout
+  // so chat survives this viewer's unmount.
   const setSlotRef = useCallback(
     (el: HTMLDivElement | null) => {
       setAiPanelSlotEl(el);
@@ -284,9 +282,7 @@ export function SessionDetailPanel({
             )}
           </div>
         </div>
-        {/* AI panel portal slot — global AiAssistantPanel renders here when
-            this viewer is mounted, so chat appears as a sibling of the
-            session detail column (matching pre-PR1 visual). */}
+        {/* AI panel portal target — chat renders here as a sibling of the session detail column. */}
         <div ref={setSlotRef} className="flex shrink-0" />
       </div>
     </div>

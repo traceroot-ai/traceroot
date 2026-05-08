@@ -30,6 +30,7 @@ export function AiAssistantPanel({
 }: AiAssistantPanelProps) {
   const { width, onMouseDown } = usePanelResize();
   const { aiPanelSlotEl } = useLayout();
+  const inSlot = !!aiPanelSlotEl;
 
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
@@ -88,26 +89,31 @@ export function AiAssistantPanel({
         onMouseDown={onMouseDown}
       />
       {/* Header */}
-      <div className="flex h-14 items-center gap-1 border-b px-3">
+      <div
+        className={cn(
+          "flex items-center gap-1 border-b px-3",
+          inSlot ? "h-10 bg-muted/30" : "h-14",
+        )}
+      >
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 shrink-0"
+          className={cn("shrink-0", inSlot ? "h-7 w-7 p-0" : "h-8 w-8")}
           title="New session"
           onClick={handleNewSession}
         >
-          <Plus className="h-4 w-4" />
+          <Plus className={inSlot ? "h-3.5 w-3.5" : "h-4 w-4"} />
         </Button>
         <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
           <PopoverTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 shrink-0"
+              className={cn("shrink-0", inSlot ? "h-7 w-7 p-0" : "h-8 w-8")}
               title="History"
               onClick={handleOpenHistory}
             >
-              <History className="h-4 w-4" />
+              <History className={inSlot ? "h-3.5 w-3.5" : "h-4 w-4"} />
             </Button>
           </PopoverTrigger>
           <PopoverContent
@@ -126,8 +132,13 @@ export function AiAssistantPanel({
           </PopoverContent>
         </Popover>
         <div className="flex-1" />
-        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onClose}>
-          <X className="h-4 w-4" />
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn("shrink-0", inSlot ? "h-7 w-7 p-0" : "h-8 w-8")}
+          onClick={onClose}
+        >
+          <X className={inSlot ? "h-3.5 w-3.5" : "h-4 w-4"} />
         </Button>
       </div>
 
@@ -196,12 +207,9 @@ export function AiAssistantPanel({
     </>
   );
 
-  // When a host (e.g. TraceViewerPanel) registers a slot, portal the visual UI
-  // into that slot so the chatbox visually appears inside the host (matches
-  // the pre-PR1 AiChatOverlay placement). State always lives in the
-  // AppLayout-owned AiAssistantPanel, so chat survives the host mount /
-  // unmount cycle. When no slot is registered (list / users / sessions
-  // pages), fall back to the fixed viewport-right overlay.
+  // Portal into a host-registered slot when present; otherwise render in
+  // place at the AppLayout flex root. State lives in AppLayout so chat
+  // survives host mount/unmount.
   if (aiPanelSlotEl) {
     return createPortal(
       <div
@@ -220,7 +228,7 @@ export function AiAssistantPanel({
   return (
     <div
       className={cn(
-        "fixed bottom-0 right-0 top-0 z-[60] flex flex-col border-l bg-background shadow-xl",
+        "relative z-[60] flex h-screen shrink-0 flex-col border-l bg-background",
         !open && "hidden",
       )}
       style={{ width: open ? width : 0 }}

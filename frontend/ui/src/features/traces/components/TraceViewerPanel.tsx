@@ -74,17 +74,8 @@ export function TraceViewerPanel({
   const timelineScrollRef = useRef<HTMLDivElement>(null);
   const isSyncing = useRef(false);
 
-  // Slot for the global AiAssistantPanel to portal its UI into. While this
-  // panel is mounted, the chatbox renders inside the trace viewer (matching
-  // the pre-PR1 visual). Chat state stays in AppLayout, so closing this
-  // viewer doesn't lose the conversation — the panel just falls back to its
-  // default fixed-right overlay.
-  //
-  // Use a ref-callback (not useRef + useEffect) so registration fires every
-  // time the slot DOM mounts/unmounts. The slot lives inside the
-  // `trace ? ... : null` branch, so on first render (while trace is loading)
-  // the slot doesn't exist yet — a useEffect-based registration would miss
-  // the later mount and leave the panel stuck on its fallback overlay.
+  // Portal target for the global AiAssistantPanel. State stays in AppLayout
+  // so chat survives this viewer's unmount.
   const setSlotRef = useCallback(
     (el: HTMLDivElement | null) => {
       setAiPanelSlotEl(el);
@@ -363,9 +354,7 @@ export function TraceViewerPanel({
             </ResizablePanelGroup>
           )}
         </div>
-        {/* AI panel portal slot — global AiAssistantPanel renders here when
-            this viewer is mounted, so chat appears as a sibling of the span
-            panels (matching pre-PR1 visual). */}
+        {/* AI panel portal target — chat renders here as a sibling of the span panels. */}
         <div ref={setSlotRef} className="flex shrink-0" />
       </div>
     </div>
