@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
@@ -29,14 +29,7 @@ export function AiAssistantPanel({
   initialContext,
 }: AiAssistantPanelProps) {
   const { width, onMouseDown } = usePanelResize();
-  const { setAiPanelWidth } = useLayout();
-
-  // Publish the panel's effective width into LayoutContext so other fixed
-  // overlays (e.g. TraceViewerPanel) can offset their right edge to avoid
-  // being covered when the AI panel is open.
-  useEffect(() => {
-    setAiPanelWidth(open ? width : 0);
-  }, [open, width, setAiPanelWidth]);
+  const { aiPanelSlotEl } = useLayout();
 
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
@@ -87,18 +80,8 @@ export function AiAssistantPanel({
   // SSE) is preserved across route changes and trace switches. Re-opening
   // returns the user to the same conversation; ➕ "New session" is the only
   // explicit reset path.
-  //
-  // Use `fixed` positioning (like TraceViewerPanel) so the panel overlays the
-  // viewport instead of taking flex width — opening it doesn't re-flow the
-  // sidebar or the underlying traces UI.
-  return (
-    <div
-      className={cn(
-        "fixed bottom-0 right-0 top-0 z-[60] flex flex-col border-l bg-background shadow-xl",
-        !open && "hidden",
-      )}
-      style={{ width: open ? width : 0 }}
-    >
+  const panelInner = (
+    <>
       {/* Left resize handle */}
       <div
         className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50"
@@ -210,6 +193,39 @@ export function AiAssistantPanel({
           )
         }
       />
+    </>
+  );
+
+  // When a host (e.g. TraceViewerPanel) registers a slot, portal the visual UI
+  // into that slot so the chatbox visually appears inside the host (matches
+  // the pre-PR1 AiChatOverlay placement). State always lives in the
+  // AppLayout-owned AiAssistantPanel, so chat survives the host mount /
+  // unmount cycle. When no slot is registered (list / users / sessions
+  // pages), fall back to the fixed viewport-right overlay.
+  if (aiPanelSlotEl) {
+    return createPortal(
+      <div
+        className={cn(
+          "relative flex h-full shrink-0 flex-col border-l bg-background",
+          !open && "hidden",
+        )}
+        style={{ width: open ? width : 0 }}
+      >
+        {panelInner}
+      </div>,
+      aiPanelSlotEl,
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "fixed bottom-0 right-0 top-0 z-[60] flex flex-col border-l bg-background shadow-xl",
+        !open && "hidden",
+      )}
+      style={{ width: open ? width : 0 }}
+    >
+      {panelInner}
     </div>
   );
 }

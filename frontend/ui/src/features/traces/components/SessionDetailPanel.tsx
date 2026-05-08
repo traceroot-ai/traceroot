@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -94,8 +94,16 @@ export function SessionDetailPanel({
   customEndDate,
 }: SessionDetailPanelProps) {
   const router = useRouter();
-  const { setAiPanelOpen, setAiContext } = useLayout();
+  const { setAiPanelOpen, setAiContext, setAiPanelSlotEl } = useLayout();
   const { isPending: authPending } = useAuthSession();
+
+  // Slot for the global AiAssistantPanel to portal its UI into. See
+  // TraceViewerPanel for rationale — same pattern.
+  const aiSlotRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    setAiPanelSlotEl(aiSlotRef.current);
+    return () => setAiPanelSlotEl(null);
+  }, [setAiPanelSlotEl]);
 
   // Compute timestamps from date filter props
   const sessionQueryOptions = useMemo(() => {
@@ -273,6 +281,10 @@ export function SessionDetailPanel({
             )}
           </div>
         </div>
+        {/* AI panel portal slot — global AiAssistantPanel renders here when
+            this viewer is mounted, so chat appears as a sibling of the
+            session detail column (matching pre-PR1 visual). */}
+        <div ref={aiSlotRef} className="flex shrink-0" />
       </div>
     </div>
   );

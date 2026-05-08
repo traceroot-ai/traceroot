@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Workflow,
@@ -64,7 +64,7 @@ export function TraceViewerPanel({
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   const [viewMode, setViewMode] = useState<"tree" | "timeline">("tree");
-  const { setAiPanelOpen, setAiContext } = useLayout();
+  const { setAiPanelOpen, setAiContext, setAiPanelSlotEl } = useLayout();
 
   // Shared collapse state (SpanTreeView + SpanTimelineView stay in sync)
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
@@ -73,6 +73,17 @@ export function TraceViewerPanel({
   const treeScrollRef = useRef<HTMLDivElement>(null);
   const timelineScrollRef = useRef<HTMLDivElement>(null);
   const isSyncing = useRef(false);
+
+  // Slot for the global AiAssistantPanel to portal its UI into. While this
+  // panel is mounted, the chatbox renders inside the trace viewer (matching
+  // the pre-PR1 visual). Chat state stays in AppLayout, so closing this
+  // viewer doesn't lose the conversation — the panel just falls back to its
+  // default fixed-right overlay.
+  const aiSlotRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    setAiPanelSlotEl(aiSlotRef.current);
+    return () => setAiPanelSlotEl(null);
+  }, [setAiPanelSlotEl]);
 
   const [hoveredSpanId, setHoveredSpanId] = useState<string | null>(null);
 
@@ -273,70 +284,76 @@ export function TraceViewerPanel({
         </div>
       ) : (
         <div className="relative flex flex-1 overflow-hidden">
-          <ResizablePanelGroup orientation="horizontal">
-            {/* LEFT: tree panel */}
-            <ResizablePanel
-              defaultSize="30%"
-              minSize="20%"
-              maxSize="50%"
-              className="flex flex-col bg-muted/30"
-            >
-              <div
-                className="flex flex-shrink-0 items-center border-b border-border bg-muted/10 px-3"
-                style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
+          <div className="flex flex-1 overflow-hidden">
+            <ResizablePanelGroup orientation="horizontal">
+              {/* LEFT: tree panel */}
+              <ResizablePanel
+                defaultSize="30%"
+                minSize="20%"
+                maxSize="50%"
+                className="flex flex-col bg-muted/30"
               >
-                <span className="text-[11px] font-medium text-muted-foreground">Trace Tree</span>
-              </div>
-              <div
-                ref={treeScrollRef}
-                className="flex-1 overflow-y-auto"
-                onScroll={handleTreeScroll}
-              >
-                <SpanTreeView
-                  trace={trace}
-                  selection={selection}
-                  onSelect={viewMode === "tree" ? setSelection : handleTimelineSelect}
-                  collapsedIds={collapsedIds}
-                  onToggleCollapse={handleToggleCollapse}
-                  compact={viewMode === "timeline"}
-                  hoveredSpanId={hoveredSpanId}
-                  onHoverChange={setHoveredSpanId}
-                />
-              </div>
-            </ResizablePanel>
+                <div
+                  className="flex flex-shrink-0 items-center border-b border-border bg-muted/10 px-3"
+                  style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
+                >
+                  <span className="text-[11px] font-medium text-muted-foreground">Trace Tree</span>
+                </div>
+                <div
+                  ref={treeScrollRef}
+                  className="flex-1 overflow-y-auto"
+                  onScroll={handleTreeScroll}
+                >
+                  <SpanTreeView
+                    trace={trace}
+                    selection={selection}
+                    onSelect={viewMode === "tree" ? setSelection : handleTimelineSelect}
+                    collapsedIds={collapsedIds}
+                    onToggleCollapse={handleToggleCollapse}
+                    compact={viewMode === "timeline"}
+                    hoveredSpanId={hoveredSpanId}
+                    onHoverChange={setHoveredSpanId}
+                  />
+                </div>
+              </ResizablePanel>
 
-            {/* RIGHT BORDER / RESIZER HANDLE */}
-            <ResizableHandle className="group/handle relative z-50 flex w-px cursor-col-resize items-center justify-center bg-border transition-colors duration-150 ease-in-out">
-              <div className="absolute inset-y-0 z-10 w-[3px] bg-transparent transition-colors duration-150 group-hover/handle:bg-primary/30 group-active/handle:bg-primary/40 group-data-[resize-handle-state=drag]/handle:bg-primary/40" />
-              <div className="absolute z-20 h-4 w-[3px] rounded-full bg-muted-foreground/40 ring-2 ring-transparent transition-all duration-150 group-hover/handle:h-6 group-hover/handle:bg-primary group-hover/handle:ring-background group-active/handle:bg-primary group-active/handle:ring-background group-data-[resize-handle-state=drag]/handle:h-6 group-data-[resize-handle-state=drag]/handle:bg-primary group-data-[resize-handle-state=drag]/handle:ring-background" />
-            </ResizableHandle>
+              {/* RIGHT BORDER / RESIZER HANDLE */}
+              <ResizableHandle className="group/handle relative z-50 flex w-px cursor-col-resize items-center justify-center bg-border transition-colors duration-150 ease-in-out">
+                <div className="absolute inset-y-0 z-10 w-[3px] bg-transparent transition-colors duration-150 group-hover/handle:bg-primary/30 group-active/handle:bg-primary/40 group-data-[resize-handle-state=drag]/handle:bg-primary/40" />
+                <div className="absolute z-20 h-4 w-[3px] rounded-full bg-muted-foreground/40 ring-2 ring-transparent transition-all duration-150 group-hover/handle:h-6 group-hover/handle:bg-primary group-hover/handle:ring-background group-active/handle:bg-primary group-active/handle:ring-background group-data-[resize-handle-state=drag]/handle:h-6 group-data-[resize-handle-state=drag]/handle:bg-primary group-data-[resize-handle-state=drag]/handle:ring-background" />
+              </ResizableHandle>
 
-            {/* RIGHT: details panel (tree mode) or Gantt bars (timeline mode) */}
-            <ResizablePanel className="overflow-hidden bg-background">
-              {viewMode === "tree" ? (
-                <SpanInfoPanel
-                  projectId={projectId}
-                  trace={trace}
-                  selection={selection}
-                  onClose={onClose}
-                  dateFilter={dateFilter}
-                  customStartDate={customStartDate}
-                  customEndDate={customEndDate}
-                />
-              ) : (
-                <SpanTimelineView
-                  trace={trace}
-                  selection={selection}
-                  onSelect={handleTimelineSelect}
-                  collapsedIds={collapsedIds}
-                  scrollRef={timelineScrollRef}
-                  onScroll={handleTimelineScroll}
-                  hoveredSpanId={hoveredSpanId}
-                  onHoverChange={setHoveredSpanId}
-                />
-              )}
-            </ResizablePanel>
-          </ResizablePanelGroup>
+              {/* RIGHT: details panel (tree mode) or Gantt bars (timeline mode) */}
+              <ResizablePanel className="overflow-hidden bg-background">
+                {viewMode === "tree" ? (
+                  <SpanInfoPanel
+                    projectId={projectId}
+                    trace={trace}
+                    selection={selection}
+                    onClose={onClose}
+                    dateFilter={dateFilter}
+                    customStartDate={customStartDate}
+                    customEndDate={customEndDate}
+                  />
+                ) : (
+                  <SpanTimelineView
+                    trace={trace}
+                    selection={selection}
+                    onSelect={handleTimelineSelect}
+                    collapsedIds={collapsedIds}
+                    scrollRef={timelineScrollRef}
+                    onScroll={handleTimelineScroll}
+                    hoveredSpanId={hoveredSpanId}
+                    onHoverChange={setHoveredSpanId}
+                  />
+                )}
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          </div>
+          {/* AI panel portal slot — global AiAssistantPanel renders here when
+              this viewer is mounted, so chat appears as a sibling of the
+              span panels (matching pre-PR1 visual). */}
+          <div ref={aiSlotRef} className="flex shrink-0" />
         </div>
       )}
     </div>
