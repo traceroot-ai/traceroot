@@ -136,6 +136,7 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
       AGENT_SERVICE_URL: http://agent:8100
       TRACEROOT_UI_URL: http://web:3000
+      BACKEND_INTERNAL_URL: http://rest:8000
       # --- Auth ---
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-dev-secret-change-in-production}
