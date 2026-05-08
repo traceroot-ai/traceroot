@@ -10,15 +10,7 @@ interface UseAiChatOptions extends AiTraceContext {
 }
 
 export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptions) {
-  const {
-    messages,
-    isStreaming,
-    sendMessage,
-    abort,
-    detachCurrentRun,
-    reattachIfRunningForSession,
-    setMessages,
-  } = useAIStream();
+  const { messages, isStreaming, sendMessage, abort, setMessages } = useAIStream();
   const sessionIdRef = useRef<string | null>(null);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -84,16 +76,13 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
   );
 
   const handleNewSession = useCallback(() => {
-    // Detach (don't abort) any in-flight stream so its remaining SSE deltas
-    // stop updating the visible messages — the backend run keeps going,
-    // persists its result on onDone, and frees the agent for the next
-    // prompt. Aborting the SSE here would leave the agent service stuck
-    // mid-prompt and reject the next user message with "already
-    // processing".
-    detachCurrentRun();
+    // Note: a still-running stream from the previous session keeps reading
+    // in the background. Its SSE deltas may briefly bleed into this fresh
+    // chat view until the backend turn completes — tracked separately as a
+    // follow-up (see the linked discussion / issue on #784).
     sessionIdRef.current = null;
     setMessages([]);
-  }, [detachCurrentRun, setMessages]);
+  }, [setMessages]);
 
   const handleOpenHistory = useCallback(async () => {
     if (!projectId) return;
@@ -109,21 +98,9 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
 
   const handleSelectSession = useCallback(
     async (session: AISession) => {
-      // If the current in-flight stream belongs to the session we're
-      // selecting, reattach it instead of detaching + reloading from DB —
-      // the live deltas are more current than what's been persisted so far.
-      const reattached = reattachIfRunningForSession(session.id);
       sessionIdRef.current = session.id;
-      setHistoryOpen(false);
-      if (reattached) {
-        return;
-      }
-
-      // Otherwise detach the leaving stream (it keeps reading on the FE so
-      // the BE can finish + persist + free its agent) and load the chosen
-      // session's messages from the DB.
-      detachCurrentRun();
       setMessages([]);
+      setHistoryOpen(false);
 
       if (!projectId) return;
       try {
@@ -142,7 +119,7 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
         console.error("[AI Chat] Failed to load session messages:", err);
       }
     },
-    [detachCurrentRun, reattachIfRunningForSession, projectId, setMessages],
+    [projectId, setMessages],
   );
 
   const handleDeleteSession = useCallback(
