@@ -15,7 +15,7 @@ export function ResizableHandle({ className, ...props }: React.ComponentProps<ty
   return (
     <Separator
       className={cn(
-        "relative w-px flex-shrink-0 cursor-col-resize bg-border/20 transition-colors hover:bg-border focus-visible:outline-none",
+        "relative w-px flex-shrink-0 !cursor-col-resize bg-border/20 transition-colors hover:bg-border focus-visible:outline-none",
         className,
       )}
       {...props}

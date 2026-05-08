@@ -268,7 +268,7 @@ export function TraceViewerPanel({
         </div>
       ) : (
         <div className="relative flex flex-1 overflow-hidden">
-          <ResizablePanelGroup orientation="horizontal">
+          <ResizablePanelGroup orientation="horizontal" disableCursor>
             {/* LEFT: tree panel */}
             <ResizablePanel
               defaultSize="30%"
@@ -301,9 +301,15 @@ export function TraceViewerPanel({
             </ResizablePanel>
 
             {/* RIGHT BORDER / RESIZER HANDLE */}
-            <ResizableHandle className="group/handle relative z-50 flex w-px cursor-col-resize items-center justify-center bg-border transition-colors duration-150 ease-in-out">
-              <div className="absolute inset-y-0 z-10 w-[3px] bg-transparent transition-colors duration-150 group-hover/handle:bg-primary/30 group-active/handle:bg-primary/40 group-data-[resize-handle-state=drag]/handle:bg-primary/40" />
-              <div className="absolute z-20 h-4 w-[3px] rounded-full bg-muted-foreground/40 ring-2 ring-transparent transition-all duration-150 group-hover/handle:h-6 group-hover/handle:bg-primary group-hover/handle:ring-background group-active/handle:bg-primary group-active/handle:ring-background group-data-[resize-handle-state=drag]/handle:h-6 group-data-[resize-handle-state=drag]/handle:bg-primary group-data-[resize-handle-state=drag]/handle:ring-background" />
+            <ResizableHandle
+              className={cn(
+                "group/handle relative z-50 flex w-px items-center justify-center bg-border transition-colors duration-150 ease-in-out",
+                "cursor-col-resize [&_*]:cursor-col-resize",
+              )}
+            >
+              <div className="absolute inset-y-0 -left-2 -right-2 z-10 bg-transparent" />
+              <div className="absolute inset-y-0 z-20 w-[3px] bg-transparent transition-colors duration-150 group-hover/handle:bg-primary/30 group-active/handle:bg-primary/40 group-data-[resize-handle-state=drag]/handle:bg-primary/40" />
+              <div className="absolute z-30 h-4 w-[3px] rounded-full bg-muted-foreground/40 ring-2 ring-transparent transition-all duration-150 group-hover/handle:h-6 group-hover/handle:bg-primary group-hover/handle:ring-background group-active/handle:bg-primary group-active/handle:ring-background group-data-[resize-handle-state=drag]/handle:h-6 group-data-[resize-handle-state=drag]/handle:bg-primary group-data-[resize-handle-state=drag]/handle:ring-background" />
             </ResizableHandle>
 
             {/* RIGHT: details panel (tree mode) or Gantt bars (timeline mode) */}
