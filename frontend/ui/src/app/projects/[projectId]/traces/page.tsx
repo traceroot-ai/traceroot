@@ -37,7 +37,7 @@ export default function TracesPage() {
   const router = useRouter();
   const projectId = params.projectId as string;
   const queryClient = useQueryClient();
-  const { aiPanelOpen, setAiPanelOpen, setHideAiButton } = useLayout();
+  const { setHideAiButton } = useLayout();
   const { isPending: authPending } = useAuthSession();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
@@ -268,7 +268,6 @@ export default function TracesPage() {
                         key={trace.trace_id}
                         onClick={() => {
                           setSelectedTraceId(trace.trace_id);
-                          if (aiPanelOpen) setAiPanelOpen(false);
                         }}
                         className={cn(
                           "cursor-pointer border-b border-border/50 transition-colors last:border-0",

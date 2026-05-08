@@ -281,17 +281,22 @@ export function TraceViewerPanel({
       </div>
 
       {/* ── CONTENT AREA ── */}
-      {isLoading ? (
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm text-muted-foreground">Loading trace...</p>
-        </div>
-      ) : error || !trace ? (
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm text-destructive">Error loading trace</p>
-        </div>
-      ) : (
-        <div className="relative flex flex-1 overflow-hidden">
-          <div className="flex flex-1 overflow-hidden">
+      {/* Always render this container (and the AI slot inside it) regardless
+          of trace load state, so navigating to a not-yet-cached trace via
+          ↑ / ↓ doesn't unmount the slot — that would force the AI panel to
+          fall back to its fixed overlay for the duration of the fetch and
+          flicker the chatbox in / out of place. */}
+      <div className="relative flex flex-1 overflow-hidden">
+        <div className="flex flex-1 overflow-hidden">
+          {isLoading ? (
+            <div className="flex flex-1 items-center justify-center">
+              <p className="text-sm text-muted-foreground">Loading trace...</p>
+            </div>
+          ) : error || !trace ? (
+            <div className="flex flex-1 items-center justify-center">
+              <p className="text-sm text-destructive">Error loading trace</p>
+            </div>
+          ) : (
             <ResizablePanelGroup orientation="horizontal">
               {/* LEFT: tree panel */}
               <ResizablePanel
@@ -356,13 +361,13 @@ export function TraceViewerPanel({
                 )}
               </ResizablePanel>
             </ResizablePanelGroup>
-          </div>
-          {/* AI panel portal slot — global AiAssistantPanel renders here when
-              this viewer is mounted, so chat appears as a sibling of the
-              span panels (matching pre-PR1 visual). */}
-          <div ref={setSlotRef} className="flex shrink-0" />
+          )}
         </div>
-      )}
+        {/* AI panel portal slot — global AiAssistantPanel renders here when
+            this viewer is mounted, so chat appears as a sibling of the span
+            panels (matching pre-PR1 visual). */}
+        <div ref={setSlotRef} className="flex shrink-0" />
+      </div>
     </div>
   );
 }
