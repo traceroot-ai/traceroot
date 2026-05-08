@@ -76,9 +76,13 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
   );
 
   const handleNewSession = useCallback(() => {
+    // Abort any in-flight stream first; otherwise its incoming SSE deltas
+    // would keep updating `messages` after this reset, making the cleared
+    // chat re-fill with text from the previous session.
+    abort();
     sessionIdRef.current = null;
     setMessages([]);
-  }, [setMessages]);
+  }, [abort, setMessages]);
 
   const handleOpenHistory = useCallback(async () => {
     if (!projectId) return;
@@ -94,6 +98,9 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
 
   const handleSelectSession = useCallback(
     async (session: AISession) => {
+      // Abort any in-flight stream from the session we're leaving so its
+      // SSE deltas don't bleed into the freshly-loaded session's messages.
+      abort();
       sessionIdRef.current = session.id;
       setMessages([]);
       setHistoryOpen(false);
@@ -115,7 +122,7 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
         console.error("[AI Chat] Failed to load session messages:", err);
       }
     },
-    [projectId, setMessages],
+    [abort, projectId, setMessages],
   );
 
   const handleDeleteSession = useCallback(
