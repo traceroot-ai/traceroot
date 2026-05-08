@@ -23,6 +23,8 @@ const PYTHON_INSTALL_COMMAND = "pip install traceroot";
 const TYPESCRIPT_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot";
 const MASTRA_INSTALL_COMMAND =
   "npm install @traceroot-ai/mastra @mastra/core @mastra/observability";
+const VERCEL_AI_INSTALL_COMMAND =
+  "npm install @traceroot-ai/traceroot ai @ai-sdk/openai";
 
 export const INTEGRATIONS: IntegrationOption[] = [
   {
@@ -190,6 +192,35 @@ const mastra = new Mastra({
     },
   }),
 });`,
+      },
+    },
+  },
+  {
+    id: "vercel-ai",
+    name: "Vercel AI SDK",
+    href: "https://traceroot.ai/docs/integrations/vercel-ai",
+    icon: (
+      <svg
+        aria-hidden="true"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        className="text-foreground"
+      >
+        <path d="M24 22.525H0l12-21.05 12 21.05z" />
+      </svg>
+    ),
+    languages: {
+      typescript: {
+        installCommand: VERCEL_AI_INSTALL_COMMAND,
+        initSnippet: `import { TraceRoot } from "@traceroot-ai/traceroot";
+
+// No instrumentModules — Vercel AI SDK telemetry is handled automatically.
+TraceRoot.initialize();
+
+// Then on each generateText / streamText / generateObject call:
+//   experimental_telemetry: { isEnabled: true }`,
       },
     },
   },

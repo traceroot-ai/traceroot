@@ -1,0 +1,76 @@
+---
+title: Vercel AI SDK
+description: Trace Vercel AI SDK agents — no instrumentModules config required
+---
+
+Trace [Vercel AI SDK](https://sdk.vercel.ai) agents in TraceRoot. Unlike LangChain, OpenAI, or Anthropic, no `instrumentModules` configuration is needed — the Vercel AI SDK emits OpenTelemetry spans natively when `experimental_telemetry` is enabled, and TraceRoot enriches them via the OpenInference span processor automatically.
+
+## Setup
+
+Install the SDK:
+
+```bash
+npm install @traceroot-ai/traceroot ai @ai-sdk/openai
+```
+
+Initialize TraceRoot at your entry point — no `instrumentModules` config:
+
+```typescript
+import { TraceRoot } from '@traceroot-ai/traceroot';
+
+// No instrumentModules — Vercel AI SDK telemetry is handled automatically.
+TraceRoot.initialize();
+```
+
+## Usage
+
+Enable `experimental_telemetry` on each `generateText` / `streamText` / `generateObject` call. That single line activates the Vercel AI SDK's built-in OpenTelemetry spans; TraceRoot enriches them with no further setup.
+
+```typescript
+import { generateText, tool } from 'ai';
+import { openai } from '@ai-sdk/openai';
+import { z } from 'zod';
+import { observe } from '@traceroot-ai/traceroot';
+
+const result = await observe({ name: 'my_agent', type: 'agent' }, async () => {
+  return await generateText({
+    model: openai('gpt-4o-mini'),
+    maxSteps: 5,
+    prompt: 'What is the weather in Tokyo?',
+    // This single line activates Vercel AI SDK's built-in OpenTelemetry spans.
+    // TraceRoot enriches them automatically.
+    experimental_telemetry: { isEnabled: true },
+    tools: {
+      getWeather: tool({
+        description: 'Get current weather for a city',
+        parameters: z.object({ city: z.string() }),
+        execute: async ({ city }) => ({ city, temp: 72, condition: 'sunny' }),
+      }),
+    },
+  });
+});
+
+console.log(result.text);
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Model | The model passed to `generateText` / `streamText` / `generateObject` |
+| Messages | Input prompt and message history |
+| Response | Generated text output |
+| Tool calls | Each tool invocation with input and output |
+| Tokens | Input and output token counts |
+| Cost | Calculated from token usage and model pricing |
+| Latency | Request duration per span |
+| Multi-step iterations | Each `maxSteps` iteration captured as a child span |
+
+
+## Run the example
+
+Clone the repo and run a complete agent end-to-end.
+
+  <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/vercel-ai">
+    Run the TypeScript example
+  </Card>
