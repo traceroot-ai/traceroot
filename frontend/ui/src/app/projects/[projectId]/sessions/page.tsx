@@ -29,7 +29,7 @@ export default function SessionsPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const projectId = params.projectId as string;
-  const { aiPanelOpen, setAiPanelOpen, aiPanelWidth, setHideAiButton } = useLayout();
+  const { aiPanelOpen, setAiPanelOpen, setHideAiButton } = useLayout();
   const { isPending: authPending } = useAuthSession();
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
   const sessionIdFromUrl = searchParams.get("sessionId");
@@ -321,10 +321,7 @@ export default function SessionsPage() {
           widen / narrow it to see more of the session list behind it,
           especially when the AI panel is also open. */}
       {selectedSessionId && (
-        <div
-          className="animate-slide-in-right fixed bottom-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl"
-          style={{ right: aiPanelWidth }}
-        >
+        <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl">
           <SessionDetailPanel
             projectId={projectId}
             sessionId={selectedSessionId}
