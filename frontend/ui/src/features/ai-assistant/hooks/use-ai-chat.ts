@@ -10,7 +10,8 @@ interface UseAiChatOptions extends AiTraceContext {
 }
 
 export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptions) {
-  const { messages, isStreaming, sendMessage, abort, setMessages } = useAIStream();
+  const { messages, isStreaming, sendMessage, abort, detachCurrentRun, setMessages } =
+    useAIStream();
   const sessionIdRef = useRef<string | null>(null);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -76,13 +77,16 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
   );
 
   const handleNewSession = useCallback(() => {
-    // Abort any in-flight stream first; otherwise its incoming SSE deltas
-    // would keep updating `messages` after this reset, making the cleared
-    // chat re-fill with text from the previous session.
-    abort();
+    // Detach (don't abort) any in-flight stream so its remaining SSE deltas
+    // stop updating the visible messages — the backend run keeps going,
+    // persists its result on onDone, and frees the agent for the next
+    // prompt. Aborting the SSE here would leave the agent service stuck
+    // mid-prompt and reject the next user message with "already
+    // processing".
+    detachCurrentRun();
     sessionIdRef.current = null;
     setMessages([]);
-  }, [abort, setMessages]);
+  }, [detachCurrentRun, setMessages]);
 
   const handleOpenHistory = useCallback(async () => {
     if (!projectId) return;
@@ -98,9 +102,12 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
 
   const handleSelectSession = useCallback(
     async (session: AISession) => {
-      // Abort any in-flight stream from the session we're leaving so its
-      // SSE deltas don't bleed into the freshly-loaded session's messages.
-      abort();
+      // Detach (don't abort) any in-flight stream from the session we're
+      // leaving — see handleNewSession for the rationale. The leaving run's
+      // remaining deltas are ignored on the FE, but the SSE keeps going so
+      // the agent service finishes the prompt, persists in onDone, and is
+      // free to accept the next user message.
+      detachCurrentRun();
       sessionIdRef.current = session.id;
       setMessages([]);
       setHistoryOpen(false);
@@ -122,7 +129,7 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
         console.error("[AI Chat] Failed to load session messages:", err);
       }
     },
-    [abort, projectId, setMessages],
+    [detachCurrentRun, projectId, setMessages],
   );
 
   const handleDeleteSession = useCallback(
