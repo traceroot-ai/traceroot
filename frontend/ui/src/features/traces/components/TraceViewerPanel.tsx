@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Workflow,
@@ -79,11 +79,18 @@ export function TraceViewerPanel({
   // the pre-PR1 visual). Chat state stays in AppLayout, so closing this
   // viewer doesn't lose the conversation — the panel just falls back to its
   // default fixed-right overlay.
-  const aiSlotRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    setAiPanelSlotEl(aiSlotRef.current);
-    return () => setAiPanelSlotEl(null);
-  }, [setAiPanelSlotEl]);
+  //
+  // Use a ref-callback (not useRef + useEffect) so registration fires every
+  // time the slot DOM mounts/unmounts. The slot lives inside the
+  // `trace ? ... : null` branch, so on first render (while trace is loading)
+  // the slot doesn't exist yet — a useEffect-based registration would miss
+  // the later mount and leave the panel stuck on its fallback overlay.
+  const setSlotRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      setAiPanelSlotEl(el);
+    },
+    [setAiPanelSlotEl],
+  );
 
   const [hoveredSpanId, setHoveredSpanId] = useState<string | null>(null);
 
@@ -353,7 +360,7 @@ export function TraceViewerPanel({
           {/* AI panel portal slot — global AiAssistantPanel renders here when
               this viewer is mounted, so chat appears as a sibling of the
               span panels (matching pre-PR1 visual). */}
-          <div ref={aiSlotRef} className="flex shrink-0" />
+          <div ref={setSlotRef} className="flex shrink-0" />
         </div>
       )}
     </div>
