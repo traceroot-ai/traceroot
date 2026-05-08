@@ -15,6 +15,12 @@ interface LayoutContextType {
   setHeaderContent: (content: ReactNode) => void;
   aiPanelOpen: boolean;
   setAiPanelOpen: (open: boolean) => void;
+  // When a host (e.g. TraceViewerPanel) provides a portal target, the global
+  // AiAssistantPanel renders its visual UI into that element instead of its
+  // default fixed position. State always lives in AppLayout, so chat survives
+  // the host mounting / unmounting.
+  aiPanelSlotEl: HTMLDivElement | null;
+  setAiPanelSlotEl: (el: HTMLDivElement | null) => void;
   aiContext: AiTraceContext | null;
   setAiContext: (context: AiTraceContext | null) => void;
   hideAiButton: boolean;
@@ -28,6 +34,8 @@ const LayoutContext = createContext<LayoutContextType>({
   setHeaderContent: () => {},
   aiPanelOpen: false,
   setAiPanelOpen: () => {},
+  aiPanelSlotEl: null,
+  setAiPanelSlotEl: () => {},
   aiContext: null,
   setAiContext: () => {},
   hideAiButton: false,
@@ -42,6 +50,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [headerContent, setHeaderContent] = useState<ReactNode>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiPanelSlotEl, setAiPanelSlotEl] = useState<HTMLDivElement | null>(null);
   const [aiContext, setAiContext] = useState<AiTraceContext | null>(null);
   const [hideAiButton, setHideAiButton] = useState(true);
   const pathname = usePathname();
@@ -77,6 +86,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         setHeaderContent,
         aiPanelOpen,
         setAiPanelOpen,
+        aiPanelSlotEl,
+        setAiPanelSlotEl,
         aiContext,
         setAiContext,
         hideAiButton,

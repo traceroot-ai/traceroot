@@ -19,11 +19,17 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
   // setIsStreaming(true) and setIsStreaming(false) into a single frame, hiding the button.
   const [isSending, setIsSending] = useState(false);
 
-  // Reset session when traceSessionId changes (panel reopened for a different session)
+  // Reset session + messages when the user navigates to a different project so
+  // a session ID from project A can never be replayed against project B's chat
+  // route. Within the same project, traceSessionId / traceId can change while
+  // the chat is active (the user navigates between traces with the panel
+  // open) — those don't reset; the latest values flow into handleSend below
+  // so subsequent messages get the new context. handleNewSession /
+  // handleSelectSession remain the explicit reset paths within a project.
   useEffect(() => {
     sessionIdRef.current = null;
     setMessages([]);
-  }, [traceSessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Lazy session creation — only when first message is sent
   const ensureSession = useCallback(async (): Promise<string | null> => {
@@ -70,6 +76,10 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
   );
 
   const handleNewSession = useCallback(() => {
+    // Note: a still-running stream from the previous session keeps reading
+    // in the background. Its SSE deltas may briefly bleed into this fresh
+    // chat view until the backend turn completes — tracked separately as a
+    // follow-up (see the linked discussion / issue on #784).
     sessionIdRef.current = null;
     setMessages([]);
   }, [setMessages]);

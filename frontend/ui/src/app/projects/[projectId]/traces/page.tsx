@@ -37,7 +37,7 @@ export default function TracesPage() {
   const router = useRouter();
   const projectId = params.projectId as string;
   const queryClient = useQueryClient();
-  const { aiPanelOpen, setAiPanelOpen, setHideAiButton } = useLayout();
+  const { setHideAiButton } = useLayout();
   const { isPending: authPending } = useAuthSession();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
@@ -268,7 +268,6 @@ export default function TracesPage() {
                         key={trace.trace_id}
                         onClick={() => {
                           setSelectedTraceId(trace.trace_id);
-                          if (aiPanelOpen) setAiPanelOpen(false);
                         }}
                         className={cn(
                           "cursor-pointer border-b border-border/50 transition-colors last:border-0",
@@ -281,8 +280,10 @@ export default function TracesPage() {
                         <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
                           {trace.name}
                         </td>
-                        <td className="min-w-[280px] max-w-[400px] border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-                          <span title={trace.trace_id}>{trace.trace_id}</span>
+                        <td className="min-w-[280px] max-w-[400px] whitespace-nowrap border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
+                          <span className="block truncate" title={trace.trace_id}>
+                            {trace.trace_id}
+                          </span>
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5">
                           {trace.status === "error" ? (
@@ -306,7 +307,7 @@ export default function TracesPage() {
                             {formatContentPreview(trace.output)}
                           </span>
                         </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                           {(trace.total_input_tokens ?? 0) + (trace.total_output_tokens ?? 0) >
                           0 ? (
                             <span
@@ -433,6 +434,10 @@ export default function TracesPage() {
       </div>
 
       {/* Detail panel - overlays header, takes 70% width, slides in from right */}
+      {/* TODO(#784 follow-up): make this panel user-resizable on its left edge
+          (same pattern as AiAssistantPanel's usePanelResize) so users can
+          widen / narrow it to see more of the trace list behind it,
+          especially when the AI panel is also open. */}
       {selectedTraceId && (
         <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl">
           <TraceViewerPanel

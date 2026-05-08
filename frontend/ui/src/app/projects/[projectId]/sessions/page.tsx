@@ -29,7 +29,7 @@ export default function SessionsPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const projectId = params.projectId as string;
-  const { aiPanelOpen, setAiPanelOpen, setHideAiButton } = useLayout();
+  const { setHideAiButton } = useLayout();
   const { isPending: authPending } = useAuthSession();
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
   const sessionIdFromUrl = searchParams.get("sessionId");
@@ -173,7 +173,6 @@ export default function SessionsPage() {
                         key={session.session_id}
                         onClick={() => {
                           setSelectedSessionId(session.session_id);
-                          if (aiPanelOpen) setAiPanelOpen(false);
                         }}
                         className={cn(
                           "cursor-pointer border-b border-border/50 transition-colors last:border-0",
@@ -316,6 +315,10 @@ export default function SessionsPage() {
       </div>
 
       {/* Detail panel - overlays right side, slides in from right (like traces) */}
+      {/* TODO(#784 follow-up): make this panel user-resizable on its left edge
+          (same pattern as AiAssistantPanel's usePanelResize) so users can
+          widen / narrow it to see more of the session list behind it,
+          especially when the AI panel is also open. */}
       {selectedSessionId && (
         <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl">
           <SessionDetailPanel
