@@ -27,6 +27,11 @@ export function useAIStream() {
   // Tracks the last frozen bubble ID so usage stats from message_end can still
   // be attached when a turn ends with a tool call (currentTextIdRef is null then).
   const lastFrozenIdRef = useRef<string | null>(null);
+  // Bumped on send AND on abort — invalidates in-flight setMessages from prior streams.
+  const generationRef = useRef(0);
+  // Bumped only on send — finally checks this to distinguish "I was aborted"
+  // from "a newer send superseded me" (only the latter must skip cleanup).
+  const latestSendRef = useRef(0);
 
   const sendMessage = useCallback(
     async (params: {
@@ -39,13 +44,20 @@ export function useAIStream() {
       traceId?: string;
       traceSessionId?: string;
     }) => {
+      const myGen = ++generationRef.current;
+      latestSendRef.current = myGen;
+      const safeSetMessages: typeof setMessages = (updater) => {
+        if (generationRef.current !== myGen) return;
+        setMessages(updater);
+      };
+
       const userMsg: AIMessage = {
         id: generateId(),
         role: "user",
         content: params.message,
         timestamp: new Date().toISOString(),
       };
-      setMessages((prev) => [...prev, userMsg]);
+      safeSetMessages((prev) => [...prev, userMsg]);
 
       setIsStreaming(true);
       currentTextIdRef.current = null;
@@ -56,7 +68,7 @@ export function useAIStream() {
       const openTextBubble = (): string => {
         const id = generateId();
         currentTextIdRef.current = id;
-        setMessages((prev) => [
+        safeSetMessages((prev) => [
           ...prev,
           {
             id,
@@ -75,7 +87,7 @@ export function useAIStream() {
         const frozenId = currentTextIdRef.current;
         lastFrozenIdRef.current = frozenId;
         currentTextIdRef.current = null;
-        setMessages((prev) =>
+        safeSetMessages((prev) =>
           prev.map((m) => (m.id === frozenId ? { ...m, isStreaming: false } : m)),
         );
       };
@@ -83,7 +95,7 @@ export function useAIStream() {
       // Helper: show an error in the current bubble or open a new one.
       const showError = (errorMessage: string) => {
         const targetId = currentTextIdRef.current ?? openTextBubble();
-        setMessages((prev) =>
+        safeSetMessages((prev) =>
           prev.map((m) =>
             m.id === targetId ? { ...m, content: `Error: ${errorMessage}`, isStreaming: false } : m,
           ),
@@ -143,7 +155,7 @@ export function useAIStream() {
                     // Open a new bubble if there isn't one (first text, or post-tool text)
                     if (!currentTextIdRef.current) openTextBubble();
                     const targetId = currentTextIdRef.current!;
-                    setMessages((prev) =>
+                    safeSetMessages((prev) =>
                       prev.map((msg) =>
                         msg.id === targetId ? { ...msg, content: msg.content + delta.delta } : msg,
                       ),
@@ -153,7 +165,7 @@ export function useAIStream() {
                   if (delta?.type === "thinking_delta" && delta.delta) {
                     if (!currentTextIdRef.current) openTextBubble();
                     const targetId = currentTextIdRef.current!;
-                    setMessages((prev) =>
+                    safeSetMessages((prev) =>
                       prev.map((msg) =>
                         msg.id === targetId
                           ? { ...msg, thinking: (msg.thinking ?? "") + delta.delta }
@@ -174,7 +186,7 @@ export function useAIStream() {
                   if (msg?.usage) {
                     const lastId = currentTextIdRef.current ?? lastFrozenIdRef.current;
                     if (lastId) {
-                      setMessages((prev) =>
+                      safeSetMessages((prev) =>
                         prev.map((m) =>
                           m.id === lastId
                             ? {
@@ -207,11 +219,11 @@ export function useAIStream() {
                       status: "running",
                     },
                   };
-                  setMessages((prev) => [...prev, toolStepMsg]);
+                  safeSetMessages((prev) => [...prev, toolStepMsg]);
                 }
 
                 if (eventData.type === "tool_execution_end") {
-                  setMessages((prev) =>
+                  safeSetMessages((prev) =>
                     prev.map((m) =>
                       m.id === eventData.toolCallId
                         ? {
@@ -245,17 +257,22 @@ export function useAIStream() {
           showError((error as Error).message || "Failed to get response.");
         }
       } finally {
-        // Freeze the last open bubble (if streaming was cut short)
+        // Freeze the last open bubble (if streaming was cut short).
         freezeCurrentBubble();
-        setIsStreaming(false);
-        abortRef.current = null;
-        readerRef.current = null;
+        // Skip cleanup if a newer send already began — would clobber its state.
+        if (latestSendRef.current === myGen) {
+          setIsStreaming(false);
+          abortRef.current = null;
+          readerRef.current = null;
+        }
       }
     },
     [],
   );
 
   const abort = useCallback(() => {
+    // Bump first so chunks still buffered in the stream loop noop via safeSetMessages.
+    generationRef.current++;
     readerRef.current?.cancel();
     abortRef.current?.abort();
   }, []);
