@@ -23,8 +23,7 @@ const PYTHON_INSTALL_COMMAND = "pip install traceroot";
 const TYPESCRIPT_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot";
 const MASTRA_INSTALL_COMMAND =
   "npm install @traceroot-ai/mastra @mastra/core @mastra/observability";
-const VERCEL_AI_INSTALL_COMMAND =
-  "npm install @traceroot-ai/traceroot ai @ai-sdk/openai";
+const VERCEL_AI_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot ai @ai-sdk/openai";
 
 export const INTEGRATIONS: IntegrationOption[] = [
   {
@@ -204,7 +203,7 @@ const mastra = new Mastra({
         aria-hidden="true"
         width="24"
         height="24"
-        viewBox="0 0 24 24"
+        viewBox="-2 -2 28 28"
         fill="currentColor"
         className="text-foreground"
       >
