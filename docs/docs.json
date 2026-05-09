@@ -147,6 +147,7 @@
               "integrations/crewai",
               "integrations/agno",
               "integrations/dspy",
+              "integrations/pydantic-ai",
               "integrations/google-adk"
             ]
           },

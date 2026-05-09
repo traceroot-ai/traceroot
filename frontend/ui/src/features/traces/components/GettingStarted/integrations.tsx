@@ -332,6 +332,21 @@ traceroot.initialize(integrations=[Integration.DSPY])`,
     },
   },
   {
+    id: "pydantic-ai",
+    name: "PydanticAI",
+    href: "https://traceroot.ai/docs/integrations/pydantic-ai",
+    icon: <LinkIcon className="h-6 w-6 text-foreground" />,
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.PYDANTIC_AI])`,
+      },
+    },
+  },
+  {
     id: "mistral",
     name: "Mistral",
     href: "https://traceroot.ai/docs/integrations/mistral",

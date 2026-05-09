@@ -29,6 +29,7 @@ My project uses [Python / TypeScript/Node.js] — adjust the instructions to mat
        Integration.LLAMA_INDEX,   # if using LlamaIndex
        Integration.AGNO,          # if using Agno
        Integration.DSPY,          # if using DSPy
+       Integration.PYDANTIC_AI,   # if using PydanticAI
        Integration.GOOGLE_ADK,    # if using Google ADK
    ])
 3. Add @observe on agent entrypoints and tool functions:

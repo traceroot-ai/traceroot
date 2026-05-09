@@ -1,0 +1,80 @@
+---
+title: PydanticAI
+description: Auto-instrument PydanticAI agents, runs, and tool calls
+---
+
+Automatically capture agent runs and tool execution in [PydanticAI](https://ai.pydantic.dev/) applications.
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.PYDANTIC_AI])
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+Once initialized, PydanticAI agent runs and tool calls are traced automatically:
+
+```python
+from dataclasses import dataclass
+
+import traceroot
+from pydantic_ai import Agent, RunContext
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.PYDANTIC_AI])
+
+
+@dataclass
+class WeatherDeps:
+    weather_by_city: dict[str, dict[str, str | int]]
+
+
+agent = Agent(
+    "openai:gpt-4o-mini",
+    deps_type=WeatherDeps,
+    system_prompt="Use tools for weather lookups before answering.",
+)
+
+
+@agent.tool
+def get_weather(ctx: RunContext[WeatherDeps], city: str) -> str:
+    data = ctx.deps.weather_by_city.get(city.lower(), {"temp_f": 70, "condition": "unknown"})
+    return f"{city.title()}: {data['temp_f']}F, {data['condition']}"
+
+
+result = agent.run_sync(
+    "Compare weather in San Francisco and Tokyo.",
+    deps=WeatherDeps(
+        weather_by_city={
+            "san francisco": {"temp_f": 62, "condition": "foggy"},
+            "tokyo": {"temp_f": 74, "condition": "sunny"},
+        }
+    ),
+)
+print(result.output)
+traceroot.flush()
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Agent runs | Each `Agent.run` / `Agent.run_sync` invocation |
+| Tool calls | Every `@agent.tool` execution with input/output |
+| Model calls | Underlying LLM requests made by PydanticAI |
+| Tokens & Cost | Token usage and associated cost (when provider reports it) |
+| Latency | Duration of model and tool operations |
+
+## Run the example
+
+  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/pydantic-ai-agent">
+    Run the Python example
+  </Card>
