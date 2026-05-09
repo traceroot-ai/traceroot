@@ -84,6 +84,17 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
     setMessages([]);
   }, [setMessages]);
 
+  // Closing the panel ends the conversation: any in-flight run is aborted,
+  // and the session id + messages are dropped so the next reopen starts
+  // fresh. History list remains the way back to past sessions (server-side).
+  // Switching traces within the same page does NOT trigger this — the panel
+  // stays open in that case.
+  const handleClose = useCallback(() => {
+    abort();
+    sessionIdRef.current = null;
+    setMessages([]);
+  }, [abort, setMessages]);
+
   const handleOpenHistory = useCallback(async () => {
     if (!projectId) return;
     try {
@@ -148,6 +159,7 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
     handleSend,
     handleAbort: abort,
     handleNewSession,
+    handleClose,
     handleOpenHistory,
     handleSelectSession,
     handleDeleteSession,

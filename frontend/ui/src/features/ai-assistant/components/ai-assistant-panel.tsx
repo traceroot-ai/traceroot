@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -68,6 +69,7 @@ export function AiAssistantPanel({
     handleSend,
     handleAbort,
     handleNewSession,
+    handleClose,
     handleOpenHistory,
     handleSelectSession,
     handleDeleteSession,
@@ -77,10 +79,21 @@ export function AiAssistantPanel({
     traceSessionId: initialContext?.traceSessionId,
   });
 
-  // Stay mounted when closed: hide via CSS so chat state (messages, in-flight
-  // SSE) is preserved across route changes and trace switches. Re-opening
-  // returns the user to the same conversation; ➕ "New session" is the only
-  // explicit reset path.
+  // End the conversation when the panel closes (X button, sidebar toggle, or
+  // route change). Any in-flight run is aborted client-side; the agent
+  // service finishes writing its message to DB on its own, so users can
+  // recover the full message via History. Reopening starts a fresh session.
+  // Switching traces within the same page does NOT close the panel, so this
+  // does not fire there — preserving the in-page chat-survives-trace-switch
+  // behavior from the decoupling fix.
+  useEffect(() => {
+    if (!open) handleClose();
+  }, [open, handleClose]);
+
+  // Stay mounted when closed: hide via CSS so trace switches (which keep the
+  // panel open) do not tear down the conversation. Closing the panel itself
+  // ends the conversation via the effect above — DOM stays mounted but state
+  // is reset, so re-opening starts fresh.
   const panelInner = (
     <>
       {/* Left resize handle */}
