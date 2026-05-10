@@ -4,12 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "demo": "tsx index.ts"
+    "demo": "tsx agent.ts"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1040.0",
-    "@traceroot-ai/traceroot": "0.1.2",
-    "dotenv": "^16.4.5"
+    "@traceroot-ai/traceroot": "^0.1.4",
+    "dotenv": "^16.4.5",
+    "openai": "^6.37.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
