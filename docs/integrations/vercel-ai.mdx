@@ -7,8 +7,6 @@ Trace [Vercel AI SDK](https://sdk.vercel.ai) agents in TraceRoot. Unlike LangCha
 
 ## Setup
 
-Install the SDK:
-
 ```bash
 npm install @traceroot-ai/traceroot ai @ai-sdk/openai zod
 ```
@@ -23,8 +21,6 @@ TraceRoot.initialize();
 ```
 
 ## Usage
-
-Enable `experimental_telemetry` on each `generateText` / `streamText` / `generateObject` call. That single line activates the Vercel AI SDK's built-in OpenTelemetry spans; TraceRoot enriches them with no further setup.
 
 ```typescript
 import { generateText, tool } from 'ai';
