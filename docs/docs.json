@@ -128,7 +128,7 @@
             ]
           },
           {
-            "group": "SDK",
+            "group": "Native",
             "pages": [
               "tracing/python-sdk",
               "tracing/typescript-sdk"
