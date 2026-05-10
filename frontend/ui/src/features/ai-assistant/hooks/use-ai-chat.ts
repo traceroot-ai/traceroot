@@ -12,9 +12,9 @@ interface UseAiChatOptions extends AiTraceContext {
 export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptions) {
   const { messages, isStreaming, sendMessage, abort, setMessages } = useAIStream();
   const sessionIdRef = useRef<string | null>(null);
-  // Aborts an in-flight POST /sessions when the panel closes, so a delayed
-  // session-creation response can't resurrect state after handleClose.
-  const ensureSessionAbortRef = useRef<AbortController | null>(null);
+  // Set so concurrent ensureSession calls don't cancel each other; handleClose
+  // aborts all in-flight POST /sessions to prevent post-close resurrection.
+  const ensureSessionAbortersRef = useRef<Set<AbortController>>(new Set());
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   // isSending covers the gap between user hitting send and isStreaming becoming true
@@ -40,9 +40,8 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
   const ensureSession = useCallback(async (): Promise<string | null> => {
     if (sessionIdRef.current) return sessionIdRef.current;
     if (!projectId) return null;
-    ensureSessionAbortRef.current?.abort();
     const ac = new AbortController();
-    ensureSessionAbortRef.current = ac;
+    ensureSessionAbortersRef.current.add(ac);
     try {
       const res = await fetch(`/api/projects/${projectId}/ai/sessions`, {
         method: "POST",
@@ -56,6 +55,8 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
     } catch (err) {
       if ((err as Error).name !== "AbortError") console.error(err);
       return null;
+    } finally {
+      ensureSessionAbortersRef.current.delete(ac);
     }
   }, [projectId, traceId, traceSessionId]);
 
@@ -99,7 +100,8 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
   // Switching traces within the same page does NOT trigger this — the panel
   // stays open in that case.
   const handleClose = useCallback(() => {
-    ensureSessionAbortRef.current?.abort();
+    for (const ac of ensureSessionAbortersRef.current) ac.abort();
+    ensureSessionAbortersRef.current.clear();
     abort();
     sessionIdRef.current = null;
     setMessages([]);
