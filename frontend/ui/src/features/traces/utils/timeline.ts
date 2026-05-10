@@ -1,5 +1,5 @@
 import type { Span } from "@/types/api";
-import { buildChildrenMap, getSpanDuration } from "../utils";
+import { buildChildrenMap, getSpanDuration, parseTimestamp } from "../utils";
 
 export interface TimelineMetrics {
   startOffsetPx: number;
@@ -29,7 +29,7 @@ export function flattenTreeWithMetrics(
   // Cache parsed timestamps to avoid re-parsing during traversal
   const startTimes = new Map<string, number>();
   for (const span of spans) {
-    startTimes.set(span.span_id, new Date(span.span_start_time).getTime());
+    startTimes.set(span.span_id, parseTimestamp(span.span_start_time));
   }
 
   const traceStartMs = spans.reduce(
