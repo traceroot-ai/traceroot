@@ -142,6 +142,7 @@
               "integrations/claude-agent-sdk",
               "integrations/openai-agents-sdk",
               "integrations/mastra",
+              "integrations/vercel-ai",
               "integrations/autogen",
               "integrations/llamaindex",
               "integrations/crewai",
