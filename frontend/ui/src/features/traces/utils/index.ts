@@ -122,17 +122,18 @@ export function getSpanDuration(span: Span): number | null {
  * traces grow.
  */
 export function getTraceDuration(trace: TraceDetail): number | null {
-  const realSpans = trace.spans.filter((s) => !s.pending && s.span_start_time);
-  if (!realSpans.length) return null;
+  const allSpans = enrichSpansWithPending(trace.spans);
+  if (!allSpans.length) return null;
 
-  const root = realSpans.find((s) => s.parent_span_id === null);
-  if (root?.span_end_time) {
-    return parseTimestamp(root.span_end_time) - parseTimestamp(root.span_start_time);
+  const root = allSpans.find((s) => !s.parent_span_id);
+  if (root) {
+    return getSpanDuration(root);
   }
 
-  const minStart = Math.min(...realSpans.map((s) => parseTimestamp(s.span_start_time)));
+  const now = Date.now();
+  const minStart = Math.min(...allSpans.map((s) => parseTimestamp(s.span_start_time)));
   const maxEnd = Math.max(
-    ...realSpans.map((s) => (s.span_end_time ? parseTimestamp(s.span_end_time) : Date.now())),
+    ...allSpans.map((s) => (s.span_end_time ? parseTimestamp(s.span_end_time) : now)),
   );
   return Math.max(0, maxEnd - minStart);
 }
