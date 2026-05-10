@@ -12,6 +12,9 @@ interface UseAiChatOptions extends AiTraceContext {
 export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptions) {
   const { messages, isStreaming, sendMessage, abort, setMessages } = useAIStream();
   const sessionIdRef = useRef<string | null>(null);
+  // Aborts an in-flight POST /sessions when the panel closes, so a delayed
+  // session-creation response can't resurrect state after handleClose.
+  const ensureSessionAbortRef = useRef<AbortController | null>(null);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   // isSending covers the gap between user hitting send and isStreaming becoming true
@@ -31,22 +34,27 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
     setMessages([]);
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Lazy session creation — only when first message is sent
+  // Lazy session creation — only when first message is sent. The fetch is
+  // cancellable so handleClose can prevent a pending response from resurrecting
+  // sessionIdRef after we've cleared it. Caller commits the id on success.
   const ensureSession = useCallback(async (): Promise<string | null> => {
     if (sessionIdRef.current) return sessionIdRef.current;
     if (!projectId) return null;
+    ensureSessionAbortRef.current?.abort();
+    const ac = new AbortController();
+    ensureSessionAbortRef.current = ac;
     try {
       const res = await fetch(`/api/projects/${projectId}/ai/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ traceId, traceSessionId }),
+        signal: ac.signal,
       });
       if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
       const data = await res.json();
-      sessionIdRef.current = data.id;
       return data.id;
     } catch (err) {
-      console.error(err);
+      if ((err as Error).name !== "AbortError") console.error(err);
       return null;
     }
   }, [projectId, traceId, traceSessionId]);
@@ -58,6 +66,7 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
       try {
         const sessionId = await ensureSession();
         if (!sessionId) return;
+        sessionIdRef.current = sessionId;
         sendMessage({
           sessionId,
           message,
@@ -90,6 +99,7 @@ export function useAiChat({ projectId, traceId, traceSessionId }: UseAiChatOptio
   // Switching traces within the same page does NOT trigger this — the panel
   // stays open in that case.
   const handleClose = useCallback(() => {
+    ensureSessionAbortRef.current?.abort();
     abort();
     sessionIdRef.current = null;
     setMessages([]);

@@ -20,13 +20,6 @@ export function useAIStream() {
   const [isStreaming, setIsStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
-  // Tracks the ID of the currently-active assistant text bubble.
-  // null means no text bubble is open yet (e.g. before the first text delta,
-  // or right after a tool call was appended).
-  const currentTextIdRef = useRef<string | null>(null);
-  // Tracks the last frozen bubble ID so usage stats from message_end can still
-  // be attached when a turn ends with a tool call (currentTextIdRef is null then).
-  const lastFrozenIdRef = useRef<string | null>(null);
   // Bumped on send AND on abort — invalidates in-flight setMessages from prior streams.
   const generationRef = useRef(0);
   // Bumped only on send — finally checks this to distinguish "I was aborted"
@@ -51,6 +44,15 @@ export function useAIStream() {
         setMessages(updater);
       };
 
+      // Cancel any prior in-flight stream so its tail chunks can't race with this run.
+      readerRef.current?.cancel();
+      abortRef.current?.abort();
+
+      // Bubble tracking is local to this run so superseded streams cannot
+      // mutate the live run's state via shared refs.
+      let currentTextId: string | null = null;
+      let lastFrozenId: string | null = null;
+
       const userMsg: AIMessage = {
         id: generateId(),
         role: "user",
@@ -60,14 +62,12 @@ export function useAIStream() {
       safeSetMessages((prev) => [...prev, userMsg]);
 
       setIsStreaming(true);
-      currentTextIdRef.current = null;
-      lastFrozenIdRef.current = null;
 
       // Opens a new streaming assistant text bubble and returns its id.
       // Subsequent text deltas append to this bubble until it is frozen.
       const openTextBubble = (): string => {
         const id = generateId();
-        currentTextIdRef.current = id;
+        currentTextId = id;
         safeSetMessages((prev) => [
           ...prev,
           {
@@ -83,10 +83,10 @@ export function useAIStream() {
 
       // Stops the currently-active text bubble from streaming (freezes it).
       const freezeCurrentBubble = () => {
-        if (!currentTextIdRef.current) return;
-        const frozenId = currentTextIdRef.current;
-        lastFrozenIdRef.current = frozenId;
-        currentTextIdRef.current = null;
+        if (!currentTextId) return;
+        const frozenId = currentTextId;
+        lastFrozenId = frozenId;
+        currentTextId = null;
         safeSetMessages((prev) =>
           prev.map((m) => (m.id === frozenId ? { ...m, isStreaming: false } : m)),
         );
@@ -94,13 +94,13 @@ export function useAIStream() {
 
       // Helper: show an error in the current bubble or open a new one.
       const showError = (errorMessage: string) => {
-        const targetId = currentTextIdRef.current ?? openTextBubble();
+        const targetId = currentTextId ?? openTextBubble();
         safeSetMessages((prev) =>
           prev.map((m) =>
             m.id === targetId ? { ...m, content: `Error: ${errorMessage}`, isStreaming: false } : m,
           ),
         );
-        currentTextIdRef.current = null;
+        currentTextId = null;
       };
 
       const abortController = new AbortController();
@@ -153,8 +153,8 @@ export function useAIStream() {
 
                   if (delta?.type === "text_delta" && delta.delta) {
                     // Open a new bubble if there isn't one (first text, or post-tool text)
-                    if (!currentTextIdRef.current) openTextBubble();
-                    const targetId = currentTextIdRef.current!;
+                    if (!currentTextId) openTextBubble();
+                    const targetId = currentTextId!;
                     safeSetMessages((prev) =>
                       prev.map((msg) =>
                         msg.id === targetId ? { ...msg, content: msg.content + delta.delta } : msg,
@@ -163,8 +163,8 @@ export function useAIStream() {
                   }
 
                   if (delta?.type === "thinking_delta" && delta.delta) {
-                    if (!currentTextIdRef.current) openTextBubble();
-                    const targetId = currentTextIdRef.current!;
+                    if (!currentTextId) openTextBubble();
+                    const targetId = currentTextId!;
                     safeSetMessages((prev) =>
                       prev.map((msg) =>
                         msg.id === targetId
@@ -184,7 +184,7 @@ export function useAIStream() {
                   }
 
                   if (msg?.usage) {
-                    const lastId = currentTextIdRef.current ?? lastFrozenIdRef.current;
+                    const lastId = currentTextId ?? lastFrozenId;
                     if (lastId) {
                       safeSetMessages((prev) =>
                         prev.map((m) =>
