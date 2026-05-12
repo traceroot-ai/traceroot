@@ -459,9 +459,15 @@ async function processWorkspace(
     if (overageRcaRuns > 0) {
       const rcaOverageBlocks = Math.ceil(overageRcaRuns / 100);
       const rcaRunOverageUnits = rcaOverageBlocks * 1000;
-      // 1.05x markup over the period's system-source RCA inference cost.
-      // BYOK turns are excluded by the kind="rca" aggregation's isByok=false filter.
-      const rcaTokenMarkupUnits = Math.round(rcaSystemTokenCost * 1.05 * 100);
+      // 1.05x markup applied ONLY to the overage portion of token cost.
+      // Proportional allocation by run count: same shape as detector's
+      // (overageScans / scansRun), and matches chat's getOverageSystemModelCost()
+      // behavior. Avoids overbilling customers whose included runs already
+      // accrued most of the period's inference cost.
+      // BYOK turns are excluded upstream by the kind="rca" isByok=false filter.
+      const rcaOverageTokenCost =
+        rcaRunsUsed > 0 ? rcaSystemTokenCost * (overageRcaRuns / rcaRunsUsed) : 0;
+      const rcaTokenMarkupUnits = Math.round(rcaOverageTokenCost * 1.05 * 100);
       totalRcaBillableUnits = rcaRunOverageUnits + rcaTokenMarkupUnits;
     }
 
