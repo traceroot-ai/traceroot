@@ -216,13 +216,26 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
 
       // Free-plan RCA cap enforcement — read the cached `rcaBlocked` flag
       // set by the hourly billing job (same pattern as `detectorBlocked` in
-      // detector-run-processor). Skip cleanly: no DetectorRca row, no alert.
-      // Worst-case overshoot: ~1h of RCA runs between cron passes.
+      // detector-run-processor). Worst-case overshoot: ~1h of RCA runs
+      // between cron passes.
       const ws = await prisma.workspace.findUnique({
         where: { id: workspaceId },
         select: { billingPlan: true, rcaBlocked: true },
       });
       if (ws?.rcaBlocked && (ws.billingPlan as PlanType) === PlanType.FREE) {
+        // detector-run-processor pre-seeds a DetectorRca row with
+        // status="pending" before enqueuing; mark it terminal so the UI
+        // doesn't show a permanently-stuck "in progress" RCA.
+        await prisma.detectorRca
+          .update({
+            where: { findingId },
+            data: {
+              status: "failed",
+              result: "Skipped — Free plan RCA quota exceeded. Upgrade to continue.",
+              completedAt: new Date(),
+            },
+          })
+          .catch(() => {}); // best-effort; row may not exist if pre-seed failed
         console.log(
           `[RCA] Workspace ${workspaceId} is rca-blocked (Free plan cap exceeded); ` +
             `skipping RCA for finding ${findingId}`,
