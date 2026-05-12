@@ -1,5 +1,5 @@
-import { Type, type Static } from "@mariozechner/pi-ai";
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import { Type, type Static } from "@earendil-works/pi-ai";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Executor } from "../executors/interface.js";
 import { downloadOneTrace } from "./download-traces.js";
 
@@ -27,9 +27,10 @@ export function createDownloadSessionTool(
     parameters: downloadSessionSchema,
     execute: async (
       _toolCallId: string,
-      params: DownloadSessionParams,
+      rawParams: unknown,
       signal?: AbortSignal,
     ): Promise<AgentToolResult<undefined>> => {
+      const params = rawParams as DownloadSessionParams;
       if (!executor.isReady()) {
         await executor.init();
       }

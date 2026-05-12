@@ -25,7 +25,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@mariozechner/pi-ai": "0.57.1",
+    "@earendil-works/pi-ai": "0.74.0",
     "@prisma/client": "^5.22.0",
     "zod": "^4.3.6"
   },

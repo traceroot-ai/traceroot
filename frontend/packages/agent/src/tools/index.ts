@@ -1,4 +1,4 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Executor } from "../executors/interface.js";
 import { createQueryTracesTool } from "./query-traces.js";
 import { createQuerySessionsTool } from "./query-sessions.js";

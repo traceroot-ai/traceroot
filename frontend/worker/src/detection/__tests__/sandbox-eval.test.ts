@@ -11,8 +11,8 @@ const { mockComplete, mockResolvePiModel, mockFetchProviderConfig, mockFindByokK
 
 // Forward unmocked exports (Type, getModel, etc.) so submit-result-tool.ts's
 // TypeBox imports still work; only `complete` is replaced with the mock.
-vi.mock("@mariozechner/pi-ai", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@mariozechner/pi-ai")>();
+vi.mock("@earendil-works/pi-ai", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@earendil-works/pi-ai")>();
   return {
     ...actual,
     complete: mockComplete,
@@ -50,6 +50,17 @@ const ZERO_USAGE = {
   totalTokens: 0,
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
+
+function usageWithCost(total: number) {
+  return {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total },
+  };
+}
 
 describe("runDetectionForTrace", () => {
   beforeEach(() => {
@@ -180,7 +191,7 @@ describe("runDetectionForTrace", () => {
     }
   });
 
-  it("truncates spansJsonl at 40000 chars", async () => {
+  it("truncates spansJsonl at 150000 chars", async () => {
     mockComplete.mockResolvedValueOnce({
       content: [
         {
@@ -193,7 +204,7 @@ describe("runDetectionForTrace", () => {
       stopReason: "toolUse",
     });
 
-    const longSpans = "x".repeat(50000);
+    const longSpans = "x".repeat(200_000);
     await runDetectionForTrace({
       traceId: "t",
       spansJsonl: longSpans,
@@ -204,7 +215,7 @@ describe("runDetectionForTrace", () => {
     const ctxArg = mockComplete.mock.calls[0][1] as { messages: { content: string }[] };
     const userMessage = ctxArg.messages[0].content;
     expect(typeof userMessage).toBe("string");
-    expect((userMessage as string).length).toBeLessThan(42000);
+    expect((userMessage as string).length).toBeLessThan(152_000);
   });
 
   it("returns error when complete() throws", async () => {
@@ -219,5 +230,155 @@ describe("runDetectionForTrace", () => {
 
     expect(result.identified).toBe(false);
     expect(result.error).toBe("API rate limit");
+  });
+
+  describe("inference cost + source attribution", () => {
+    it("captures system source cost on happy path", async () => {
+      mockComplete.mockResolvedValueOnce({
+        content: [
+          {
+            type: "toolCall",
+            name: "submit_result",
+            arguments: { identified: false, summary: "clean", data: {} },
+          },
+        ],
+        usage: usageWithCost(0.0042),
+        stopReason: "toolUse",
+      });
+
+      const result = await runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      expect(result.inferenceCost).toBeCloseTo(0.0042, 6);
+      expect(result.inferenceSource).toBe("system");
+    });
+
+    it("sums cost across attempts on retry-then-success", async () => {
+      mockComplete
+        .mockResolvedValueOnce({
+          content: [{ type: "text", text: "ignoring instructions" }],
+          usage: usageWithCost(0.001),
+          stopReason: "stop",
+        })
+        .mockResolvedValueOnce({
+          content: [
+            {
+              type: "toolCall",
+              name: "submit_result",
+              arguments: { identified: true, summary: "found", data: {} },
+            },
+          ],
+          usage: usageWithCost(0.003),
+          stopReason: "toolUse",
+        });
+
+      const result = await runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      expect(result.identified).toBe(true);
+      expect(result.inferenceCost).toBeCloseTo(0.004, 6);
+      expect(result.inferenceSource).toBe("system");
+    });
+
+    it("captures BYOK source attribution with positive cost", async () => {
+      mockFetchProviderConfig.mockResolvedValueOnce({
+        key: "byok-key",
+        provider: "anthropic",
+        model: "claude-haiku-4-5",
+      });
+      mockComplete.mockResolvedValueOnce({
+        content: [
+          {
+            type: "toolCall",
+            name: "submit_result",
+            arguments: { identified: false, summary: "ok", data: {} },
+          },
+        ],
+        usage: usageWithCost(0.005),
+        stopReason: "toolUse",
+      });
+
+      const result = await runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: {
+          ...DETECTOR,
+          detectionSource: "byok",
+          detectionProvider: "byok-provider",
+        },
+        workspaceId: "ws-1",
+      });
+
+      expect(result.inferenceSource).toBe("byok");
+      expect(result.inferenceCost).toBeCloseTo(0.005, 6);
+    });
+
+    it("preserves source on error path with cost=0 (early-exit, BYOK provider missing)", async () => {
+      mockFetchProviderConfig.mockResolvedValueOnce(null);
+
+      const result = await runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: {
+          ...DETECTOR,
+          detectionSource: "byok",
+          detectionProvider: "missing",
+        },
+        workspaceId: "ws-1",
+      });
+
+      expect(result.error).toMatch(/not found or disabled/i);
+      expect(result.inferenceCost).toBe(0);
+      expect(result.inferenceSource).toBe("byok");
+      expect(mockComplete).not.toHaveBeenCalled();
+    });
+
+    it("preserves source on error path with cost=0 (complete() throws)", async () => {
+      mockComplete.mockRejectedValueOnce(new Error("network down"));
+
+      const result = await runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      expect(result.error).toBe("network down");
+      expect(result.inferenceCost).toBe(0);
+      expect(result.inferenceSource).toBe("system");
+    });
+
+    it("treats null source as null on the EvalResult (processor normalizes)", async () => {
+      mockComplete.mockResolvedValueOnce({
+        content: [
+          {
+            type: "toolCall",
+            name: "submit_result",
+            arguments: { identified: false, summary: "ok", data: {} },
+          },
+        ],
+        usage: usageWithCost(0.002),
+        stopReason: "toolUse",
+      });
+
+      const detectorWithoutSource = { ...DETECTOR };
+      const result = await runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: detectorWithoutSource,
+        workspaceId: "ws-1",
+      });
+
+      expect(result.inferenceSource).toBeNull();
+      expect(result.inferenceCost).toBeCloseTo(0.002, 6);
+    });
   });
 });

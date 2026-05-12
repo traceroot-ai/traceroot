@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
 import { installer, SLACK_BOT_SCOPES } from "@traceroot/slack";
+import { hasEntitlement, prisma, type PlanType } from "@traceroot/core";
 import { env } from "@/env";
+
+const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
 export async function GET(
   request: NextRequest,
@@ -13,6 +16,17 @@ export async function GET(
   const { workspaceId } = await params;
   const memberCheck = await requireWorkspaceMembership(auth.user.id, workspaceId, "ADMIN");
   if (memberCheck.error) return memberCheck.error;
+
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { billingPlan: true },
+  });
+  const plan = (workspace?.billingPlan ?? "free") as PlanType;
+  if (!hasEntitlement(plan, "slack-integration")) {
+    const upgradeUrl = new URL(`/workspaces/${workspaceId}/settings/billing`, APP_BASE_URL);
+    upgradeUrl.searchParams.set("upgrade", "slack-integration");
+    return NextResponse.redirect(upgradeUrl);
+  }
 
   const url = new URL(request.url);
   const returnTo = url.searchParams.get("returnTo") || "/";

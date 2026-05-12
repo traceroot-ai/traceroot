@@ -28,6 +28,7 @@ describe("runFanOut", () => {
   it("sends email only when slack is not configured", async () => {
     const { runFanOut } = await import("../processors/detector-rca-processor.js");
     await runFanOut({
+      workspaceId: "ws_1",
       emailAddresses: ["a@b.c"],
       slackChannelId: null,
       slackBotTokenEnc: null,
@@ -40,6 +41,7 @@ describe("runFanOut", () => {
   it("sends slack only when email is not configured", async () => {
     const { runFanOut } = await import("../processors/detector-rca-processor.js");
     await runFanOut({
+      workspaceId: "ws_1",
       emailAddresses: [],
       slackChannelId: "C1",
       slackBotTokenEnc: "enc",
@@ -47,11 +49,13 @@ describe("runFanOut", () => {
     });
     expect(sendCombinedAlertEmail).not.toHaveBeenCalled();
     expect(sendCombinedAlertSlack).toHaveBeenCalledTimes(1);
+    expect(sendCombinedAlertSlack.mock.calls[0][0].workspaceId).toBe("ws_1");
   });
 
   it("sends to both when both are configured", async () => {
     const { runFanOut } = await import("../processors/detector-rca-processor.js");
     await runFanOut({
+      workspaceId: "ws_1",
       emailAddresses: ["a@b.c"],
       slackChannelId: "C1",
       slackBotTokenEnc: "enc",
@@ -64,6 +68,7 @@ describe("runFanOut", () => {
   it("does nothing when neither configured", async () => {
     const { runFanOut } = await import("../processors/detector-rca-processor.js");
     await runFanOut({
+      workspaceId: "ws_1",
       emailAddresses: [],
       slackChannelId: null,
       slackBotTokenEnc: null,
