@@ -5,6 +5,7 @@ Called from process_s3_traces after ClickHouse insert.
 Non-blocking: exceptions are caught and logged, never re-raised.
 """
 
+import fnmatch
 import json
 import logging
 import random
@@ -40,6 +41,8 @@ def _eval_condition(trace_summary: dict, condition: dict) -> bool:
         return actual == value
     elif op == "!=":
         return actual != value
+    elif op == "matches":
+        return fnmatch.fnmatchcase(str(actual), str(value))
     elif op == ">":
         return float(actual) > float(value)
     elif op == ">=":
@@ -59,7 +62,7 @@ def _passes_trigger(trace_summary: dict, conditions: list[dict]) -> bool:
 def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dict]:
     """
     Query ClickHouse for the fields needed for trigger evaluation.
-    Returns {trace_id: {root_span_finished, status, environment}}
+    Returns {trace_id: {root_span_finished, status, environment, tag:*...}}
     """
     from db.clickhouse.client import get_clickhouse_client
 
@@ -74,7 +77,8 @@ def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dic
             trace_id,
             max(CASE WHEN parent_span_id IS NULL THEN 1 ELSE 0 END) AS root_span_finished,
             max(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END)       AS has_error,
-            anyIf(environment, parent_span_id IS NULL)               AS environment
+            anyIf(environment, parent_span_id IS NULL)               AS environment,
+            anyIf(metadata, parent_span_id IS NULL)                  AS root_metadata
         FROM spans
         WHERE project_id = {project_id:String}
           AND trace_id IN {trace_ids:Array(String)}
@@ -85,12 +89,24 @@ def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dic
 
     summaries: dict[str, dict] = {}
     for row in result.result_rows:
-        summaries[row[0]] = {
+        summary: dict = {
             "root_span_finished": bool(row[1]),
             # Expose status as a string matching what users configure ("ERROR" or "OK")
             "status": "ERROR" if bool(row[2]) else "OK",
             "environment": row[3],  # Nullable — None if not set
         }
+        # Inject tag:* keys from root span metadata for trigger evaluation
+        raw_metadata = row[4]
+        if raw_metadata:
+            try:
+                meta = json.loads(raw_metadata) if isinstance(raw_metadata, str) else raw_metadata
+                if isinstance(meta, dict):
+                    for key, val in meta.items():
+                        if isinstance(val, (str, int, float, bool)):
+                            summary[f"tag:{key}"] = str(val)
+            except (json.JSONDecodeError, TypeError):
+                pass  # Malformed metadata — skip tags, don't break trigger eval
+        summaries[row[0]] = summary
     return summaries
 
 

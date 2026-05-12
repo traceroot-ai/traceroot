@@ -118,6 +118,24 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   if (triggerConditions !== undefined && !Array.isArray(triggerConditions)) {
     return errorResponse("triggerConditions must be an array", 400);
   }
+  if (triggerConditions !== undefined && Array.isArray(triggerConditions)) {
+    for (const cond of triggerConditions as Array<Record<string, unknown>>) {
+      if (typeof cond.field !== "string" || !cond.field) {
+        return errorResponse("Each condition must have a valid field string", 400);
+      }
+      if (typeof cond.op !== "string" || !cond.op) {
+        return errorResponse("Each condition must have a valid op string", 400);
+      }
+      if (cond.field.startsWith("tag:")) {
+        if (!["=", "!=", "matches"].includes(cond.op)) {
+          return errorResponse(`Invalid operator '${cond.op}' for tag field`, 400);
+        }
+        if (typeof cond.value !== "string") {
+          return errorResponse(`Value for tag field must be a string`, 400);
+        }
+      }
+    }
+  }
   if (outputSchema !== undefined && !Array.isArray(outputSchema)) {
     return errorResponse("outputSchema must be an array", 400);
   }

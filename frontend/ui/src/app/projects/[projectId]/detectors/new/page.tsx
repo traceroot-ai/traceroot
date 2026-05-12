@@ -193,6 +193,7 @@ export default function NewDetectorPage() {
                 conditions={triggerConditions}
                 onChange={setTriggerConditions}
                 asCard
+                projectId={projectId}
               />
             </div>
 

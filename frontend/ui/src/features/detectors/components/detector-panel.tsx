@@ -225,7 +225,12 @@ export function DetectorPanel({
 
         {/* Filter */}
         <div className="border border-border">
-          <TriggerEditor conditions={editConditions} onChange={setEditConditions} asCard />
+          <TriggerEditor
+            conditions={editConditions}
+            onChange={setEditConditions}
+            asCard
+            projectId={projectId}
+          />
         </div>
 
         {/* Sampling */}

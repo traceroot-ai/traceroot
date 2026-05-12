@@ -113,6 +113,30 @@ def test_eval_condition_numeric_strings_in_comparisons():
     assert _eval_condition(trace_summary, condition) is True
 
 
+def test_eval_condition_tag_equality():
+    """Test equality operator with a trace tag field."""
+    trace_summary = {"tag:model": "claude-haiku", "status": "OK"}
+    condition = {"field": "tag:model", "op": "=", "value": "claude-haiku"}
+    assert _eval_condition(trace_summary, condition) is True
+
+
+def test_eval_condition_matches_wildcard():
+    """Test 'matches' operator with wildcard pattern."""
+    trace_summary = {"tag:customer-tier": "enterprise-plus"}
+    condition = {"field": "tag:customer-tier", "op": "matches", "value": "enterprise*"}
+    assert _eval_condition(trace_summary, condition) is True
+
+    condition_fail = {"field": "tag:customer-tier", "op": "matches", "value": "free*"}
+    assert _eval_condition(trace_summary, condition_fail) is False
+
+
+def test_eval_condition_matches_none():
+    """Test 'matches' operator when the field is missing (None)."""
+    trace_summary = {"status": "OK"}
+    condition = {"field": "tag:customer-tier", "op": "matches", "value": "enterprise*"}
+    assert _eval_condition(trace_summary, condition) is False
+
+
 # ── Tests for _passes_trigger ──────────────────────────────────────
 
 
@@ -160,6 +184,30 @@ def test_passes_trigger_single_condition_passes():
     trace_summary = {"cost": 100.0}
     conditions = [{"field": "cost", "op": ">", "value": 50.0}]
     assert _passes_trigger(trace_summary, conditions) is True
+
+
+def test_passes_trigger_mixed_builtin_and_tags():
+    """Trigger passes with mixed built-in and tag conditions."""
+    trace_summary = {
+        "status": "ERROR",
+        "environment": "production",
+        "tag:model": "gpt-4",
+        "tag:severity": "high",
+    }
+    conditions = [
+        {"field": "status", "op": "=", "value": "ERROR"},
+        {"field": "tag:model", "op": "matches", "value": "gpt-*"},
+        {"field": "tag:severity", "op": "=", "value": "high"},
+    ]
+    assert _passes_trigger(trace_summary, conditions) is True
+
+    # One condition fails -> false
+    conditions_fail = [
+        {"field": "status", "op": "=", "value": "ERROR"},
+        {"field": "tag:model", "op": "matches", "value": "claude-*"},  # Fails here
+        {"field": "tag:severity", "op": "=", "value": "high"},
+    ]
+    assert _passes_trigger(trace_summary, conditions_fail) is False
 
 
 # ── Tests for _enqueue_to_bullmq ───────────────────────────────────

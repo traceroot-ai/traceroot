@@ -559,3 +559,116 @@ async def list_detector_counts(
         }
 
     return {"data": data}
+
+
+# =============================================================================
+# Trace Tag Suggestion Endpoints (for detector trigger tag autocomplete)
+# =============================================================================
+
+
+class TraceTagKeysResponse(BaseModel):
+    keys: list[str]
+
+
+class TraceTagValuesResponse(BaseModel):
+    values: list[str]
+
+
+@router.get(
+    "/trace-tag-keys",
+    response_model=TraceTagKeysResponse,
+    dependencies=[Depends(verify_internal_secret)],
+)
+async def list_trace_tag_keys(
+    project_id: str = Query(..., description="Project ID"),
+    limit: int = Query(50, ge=1, le=200, description="Max number of keys to return"),
+):
+    """Return distinct metadata keys from recent root spans.
+
+    Scans root spans (parent_span_id IS NULL) from the last 7 days and
+    extracts top-level JSON keys from their `metadata` column. These keys
+    are used for tag autocomplete in the detector TriggerEditor.
+    """
+    import json as _json
+
+    ch = get_clickhouse_client()
+    result = ch.query(
+        """
+        SELECT DISTINCT metadata
+        FROM spans
+        WHERE project_id = {project_id:String}
+          AND parent_span_id IS NULL
+          AND metadata IS NOT NULL
+          AND metadata != ''
+          AND span_start_time >= now() - INTERVAL 7 DAY
+        LIMIT 500
+        """,
+        parameters={"project_id": project_id},
+    )
+
+    key_set: set[str] = set()
+    for row in result.result_rows:
+        raw = row[0]
+        if not raw:
+            continue
+        try:
+            meta = _json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(meta, dict):
+                key_set.update(meta.keys())
+        except (ValueError, TypeError):
+            continue
+
+    # Sort for deterministic ordering, limit result
+    keys = sorted(key_set)[:limit]
+    return TraceTagKeysResponse(keys=keys)
+
+
+@router.get(
+    "/trace-tag-values",
+    response_model=TraceTagValuesResponse,
+    dependencies=[Depends(verify_internal_secret)],
+)
+async def list_trace_tag_values(
+    project_id: str = Query(..., description="Project ID"),
+    key: str = Query(..., description="Metadata key to get values for"),
+    limit: int = Query(30, ge=1, le=100, description="Max number of values to return"),
+):
+    """Return distinct values for a given metadata key from recent root spans.
+
+    Scans root spans (parent_span_id IS NULL) from the last 7 days and
+    extracts the value for the specified key from their `metadata` column.
+    Used for tag value autocomplete in the detector TriggerEditor.
+    """
+    import json as _json
+
+    ch = get_clickhouse_client()
+    result = ch.query(
+        """
+        SELECT DISTINCT metadata
+        FROM spans
+        WHERE project_id = {project_id:String}
+          AND parent_span_id IS NULL
+          AND metadata IS NOT NULL
+          AND metadata != ''
+          AND span_start_time >= now() - INTERVAL 7 DAY
+        LIMIT 500
+        """,
+        parameters={"project_id": project_id},
+    )
+
+    value_set: set[str] = set()
+    for row in result.result_rows:
+        raw = row[0]
+        if not raw:
+            continue
+        try:
+            meta = _json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(meta, dict) and key in meta:
+                val = meta[key]
+                if isinstance(val, (str, int, float, bool)):
+                    value_set.add(str(val))
+        except (ValueError, TypeError):
+            continue
+
+    values = sorted(value_set)[:limit]
+    return TraceTagValuesResponse(values=values)
