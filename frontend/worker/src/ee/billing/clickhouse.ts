@@ -34,27 +34,34 @@ async function internalApiRequest<T>(path: string, params?: Record<string, strin
 }
 
 /**
- * Get detailed usage (traces and spans separately) for a workspace.
+ * Get detailed usage (traces, spans, detector runs) for a workspace.
+ * Detector runs are counted from ClickHouse `detector_runs` so the billing
+ * cron is the single source of truth — matching how spans/AI runs work.
  */
 export async function getWorkspaceUsageDetails(params: {
   projectIds: string[];
   start: Date;
   end: Date;
-}): Promise<{ traces: number; spans: number }> {
+}): Promise<{ traces: number; spans: number; detectorRuns: number }> {
   if (params.projectIds.length === 0) {
-    return { traces: 0, spans: 0 };
+    return { traces: 0, spans: 0, detectorRuns: 0 };
   }
 
   const result = await internalApiRequest<{
     traces: number;
     spans: number;
+    detector_runs: number;
   }>("/api/v1/internal/usage/details", {
     project_ids: params.projectIds.join(","),
     start: params.start.toISOString(),
     end: params.end.toISOString(),
   });
 
-  return result;
+  return {
+    traces: result.traces,
+    spans: result.spans,
+    detectorRuns: result.detector_runs ?? 0,
+  };
 }
 
 /**

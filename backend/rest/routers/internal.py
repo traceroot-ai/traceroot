@@ -55,6 +55,7 @@ class UsageTotalResponse(BaseModel):
 class UsageDetailsResponse(BaseModel):
     traces: int
     spans: int
+    detector_runs: int = 0
 
 
 @router.get(
@@ -79,20 +80,20 @@ async def get_usage_total(
     start_str = start.strftime("%Y-%m-%d %H:%M:%S")
     end_str = end.strftime("%Y-%m-%d %H:%M:%S")
 
+    # ReplacingMergeTree dedup via uniqExact — same trace/span id can have
+    # multiple pre-merge rows in ClickHouse.
     result = ch.query(
         """
-        SELECT count(*) as total
-        FROM (
-            SELECT 1 FROM traces
-            WHERE project_id IN {project_ids:Array(String)}
-              AND ch_create_time >= {start:String}
-              AND ch_create_time < {end:String}
-            UNION ALL
-            SELECT 1 FROM spans
-            WHERE project_id IN {project_ids:Array(String)}
-              AND ch_create_time >= {start:String}
-              AND ch_create_time < {end:String}
-        )
+        SELECT (
+            (SELECT uniqExact(trace_id) FROM traces
+             WHERE project_id IN {project_ids:Array(String)}
+               AND ch_create_time >= {start:String}
+               AND ch_create_time < {end:String})
+          + (SELECT uniqExact(span_id) FROM spans
+             WHERE project_id IN {project_ids:Array(String)}
+               AND ch_create_time >= {start:String}
+               AND ch_create_time < {end:String})
+        ) as total
         """,
         parameters={
             "project_ids": project_id_list,
@@ -119,7 +120,7 @@ async def get_usage_details(
     project_id_list = [p.strip() for p in project_ids.split(",") if p.strip()]
 
     if not project_id_list:
-        return UsageDetailsResponse(traces=0, spans=0)
+        return UsageDetailsResponse(traces=0, spans=0, detector_runs=0)
 
     ch = get_clickhouse_client()
 
@@ -127,10 +128,13 @@ async def get_usage_details(
     start_str = start.strftime("%Y-%m-%d %H:%M:%S")
     end_str = end.strftime("%Y-%m-%d %H:%M:%S")
 
-    # Query traces count
+    # Query traces count — uniqExact dedups across pre-merge ReplacingMergeTree
+    # rows (a single trace can have multiple rows until background merge runs,
+    # e.g. on status update). uniqExact is faster than count(DISTINCT trace_id)
+    # in ClickHouse and produces identical results.
     traces_result = ch.query(
         """
-        SELECT count(*) as total
+        SELECT uniqExact(trace_id) as total
         FROM traces
         WHERE project_id IN {project_ids:Array(String)}
           AND ch_create_time >= {start:String}
@@ -143,10 +147,10 @@ async def get_usage_details(
         },
     )
 
-    # Query spans count
+    # Query spans count — same uniqExact pattern for ReplacingMergeTree dedup
     spans_result = ch.query(
         """
-        SELECT count(*) as total
+        SELECT uniqExact(span_id) as total
         FROM spans
         WHERE project_id IN {project_ids:Array(String)}
           AND ch_create_time >= {start:String}
@@ -162,7 +166,27 @@ async def get_usage_details(
     traces = int(traces_result.result_rows[0][0]) if traces_result.result_rows else 0
     spans = int(spans_result.result_rows[0][0]) if spans_result.result_rows else 0
 
-    return UsageDetailsResponse(traces=traces, spans=spans)
+    # Detector runs: count every scan attempt recorded by the detector worker
+    # (BYOK + system source both count toward Free-plan hard cap).
+    detector_runs_result = ch.query(
+        """
+        SELECT count(*) as total
+        FROM detector_runs
+        WHERE project_id IN {project_ids:Array(String)}
+          AND timestamp >= {start:String}
+          AND timestamp < {end:String}
+        """,
+        parameters={
+            "project_ids": project_id_list,
+            "start": start_str,
+            "end": end_str,
+        },
+    )
+    detector_runs = (
+        int(detector_runs_result.result_rows[0][0]) if detector_runs_result.result_rows else 0
+    )
+
+    return UsageDetailsResponse(traces=traces, spans=spans, detector_runs=detector_runs)
 
 
 # =============================================================================

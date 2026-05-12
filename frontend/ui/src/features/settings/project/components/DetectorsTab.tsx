@@ -121,7 +121,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             <AlertChannelsEditor emailAddresses={emailAddresses} onChange={setEmailAddresses} />
           </div>
           <p className="mt-2 text-[12px] text-muted-foreground">
-            Sent once per trace, after RCA completes.
+            Sent once per trace, after Root Cause Analysis completes.
           </p>
           <Button
             size="sm"

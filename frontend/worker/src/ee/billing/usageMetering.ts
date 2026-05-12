@@ -21,7 +21,12 @@ import {
   USAGE_CONFIG,
   PlanType,
   isAiRunBlocked,
+  isRcaRunBlocked,
+  isDetectorRunBlocked,
+  DETECTOR_HOSTED_LLM_FREE_THRESHOLD,
   AI_RUN_QUOTAS,
+  RCA_RUN_QUOTAS,
+  DETECTOR_RUN_QUOTAS,
   EVENT_QUOTAS,
 } from "@traceroot/core";
 import { getWorkspaceUsageDetails } from "./clickhouse.js";
@@ -96,6 +101,8 @@ async function processWorkspace(
     billingPeriodEnd: Date | null;
     ingestionBlocked: boolean;
     aiBlocked: boolean;
+    rcaBlocked: boolean;
+    detectorBlocked: boolean;
     currentUsage: any;
     projects: { id: string }[];
   },
@@ -110,11 +117,11 @@ async function processWorkspace(
   const isFreePlan = plan === PlanType.FREE;
 
   // =========================================================================
-  // 1. Query event usage (traces + spans) from ClickHouse
+  // 1. Query event usage (traces + spans + detector runs) from ClickHouse
   // =========================================================================
-  let usage: { traces: number; spans: number };
+  let usage: { traces: number; spans: number; detectorRuns: number };
   if (projectIds.length === 0) {
-    usage = { traces: 0, spans: 0 };
+    usage = { traces: 0, spans: 0, detectorRuns: 0 };
   } else {
     // Free plan: total usage (all time)
     // Paid plans: usage within current billing period (from Stripe webhook)
@@ -153,68 +160,67 @@ async function processWorkspace(
     ? ctx.now
     : (workspace.billingPeriodEnd ?? new Date(ctx.now.getFullYear(), ctx.now.getMonth() + 1, 1));
 
-  // 2a. Count total AI runs in period (both BYOK and system model)
-  const runsUsed = await prisma.aIMessage.count({
-    where: {
-      role: "assistant",
-      session: { workspaceId: workspace.id },
-      createTime: { gte: aiPeriodStart, lt: aiPeriodEnd },
-    },
-  });
+  // =========================================================================
+  // 2a-2d. Aggregate aIMessage rows by kind for billing + usage display.
+  //
+  // Three categorical sources flow into the same table:
+  //   kind = "chat"     — user-initiated chat (and manual triage / issue-gen)
+  //   kind = "rca"      — auto-RCA agent turns (system-initiated)
+  //   kind = "detector" — single-shot detector LLM scans
+  //
+  // `aggregateMessagesForKind` does the per-kind heavy lifting; only the
+  // chat block reads `runsUsedCount` + byokAgg (the others don't need them).
+  // =========================================================================
 
-  // 2b. Aggregate system model token usage (for cost display + Stripe metering)
-  const systemWhere = {
-    role: "assistant" as const,
-    inputTokens: { not: null as null },
-    isByok: false as const,
-    session: { workspaceId: workspace.id },
-    createTime: { gte: aiPeriodStart, lt: aiPeriodEnd },
-  };
+  const periodWindow = { createTime: { gte: aiPeriodStart, lt: aiPeriodEnd } };
 
-  // BYOK models: same billing period as system models (runs count toward quota)
-  const byokWhere = {
-    role: "assistant" as const,
-    inputTokens: { not: null as null },
-    isByok: true as const,
-    session: { workspaceId: workspace.id },
-    createTime: { gte: aiPeriodStart, lt: aiPeriodEnd },
-  };
-
-  const [systemAgg, byokAgg, systemByModel, byokByModel] = await Promise.all([
-    prisma.aIMessage.aggregate({
-      where: systemWhere,
-      _count: { id: true },
-      _sum: { inputTokens: true, outputTokens: true, cost: true },
-    }),
-    prisma.aIMessage.aggregate({
-      where: byokWhere,
-      _count: { id: true },
-      _sum: { inputTokens: true, outputTokens: true, cost: true },
-    }),
-    prisma.aIMessage.groupBy({
-      by: ["model", "provider", "isByok"],
-      where: systemWhere,
-      _count: { id: true },
-      _sum: { inputTokens: true, outputTokens: true, cost: true },
-    }),
-    prisma.aIMessage.groupBy({
-      by: ["model", "provider", "isByok"],
-      where: byokWhere,
-      _count: { id: true },
-      _sum: { inputTokens: true, outputTokens: true, cost: true },
+  const [chatAgg, rcaAgg, detectorAgg, rcaRunsUsed] = await Promise.all([
+    aggregateMessagesForKind(workspace.id, "chat", periodWindow),
+    aggregateMessagesForKind(workspace.id, "rca", periodWindow),
+    aggregateMessagesForKind(workspace.id, "detector", periodWindow),
+    prisma.detectorRca.count({
+      where: { project: { workspaceId: workspace.id }, ...periodWindow },
     }),
   ]);
 
-  const byModel = [...systemByModel, ...byokByModel];
+  const runsUsed = chatAgg.runsUsedCount;
+  const systemAgg = chatAgg.systemAgg;
+  const byokAgg = chatAgg.byokAgg;
+  const byModel = [...chatAgg.systemByModel, ...chatAgg.byokByModel];
   const systemCost = Number(systemAgg._sum.cost ?? 0);
+
+  const rcaSystemTokenCost = Number(rcaAgg.systemAgg._sum.cost ?? 0);
+  const rcaSystemInputTokens = Number(rcaAgg.systemAgg._sum.inputTokens ?? 0);
+  const rcaSystemOutputTokens = Number(rcaAgg.systemAgg._sum.outputTokens ?? 0);
+  const rcaByModel = [...rcaAgg.systemByModel, ...rcaAgg.byokByModel];
+
+  const detectorSystemTokenCost = Number(detectorAgg.systemAgg._sum.cost ?? 0);
+  const detectorSystemInputTokens = Number(detectorAgg.systemAgg._sum.inputTokens ?? 0);
+  const detectorSystemOutputTokens = Number(detectorAgg.systemAgg._sum.outputTokens ?? 0);
+  const detectorByModel = [...detectorAgg.systemByModel, ...detectorAgg.byokByModel];
 
   // =========================================================================
   // 3. Build update data
   // =========================================================================
+  // Preserve detector cost fields written per-scan by the detector worker.
+  // (scansRun comes from ClickHouse on every cron run — no need to preserve.)
+  const previousDetector =
+    ((workspace.currentUsage as any)?.detector as
+      | {
+          systemTokenCost?: number;
+          systemInputTokens?: number;
+          systemOutputTokens?: number;
+          lastReportedUnits?: number;
+          lastReportedPeriodStart?: string | null;
+        }
+      | undefined) ?? {};
+
   const updateData: {
     currentUsage: object;
     ingestionBlocked?: boolean;
     aiBlocked?: boolean;
+    rcaBlocked?: boolean;
+    detectorBlocked?: boolean;
   } = {
     currentUsage: {
       traces: usage.traces,
@@ -244,6 +250,42 @@ async function processWorkspace(
           outputTokens: row._sum.outputTokens ?? 0,
           cost: Number(row._sum.cost ?? 0),
         })),
+      },
+      rca: {
+        runsUsed: rcaRunsUsed,
+        systemTokenCost: rcaSystemTokenCost,
+        systemInputTokens: rcaSystemInputTokens,
+        systemOutputTokens: rcaSystemOutputTokens,
+        byModel: rcaByModel.map((row) => ({
+          model: row.model ?? "unknown",
+          provider: row.provider ?? "unknown",
+          isByok: row.isByok ?? false,
+          messages: row._count.id,
+          inputTokens: row._sum.inputTokens ?? 0,
+          outputTokens: row._sum.outputTokens ?? 0,
+          cost: Number(row._sum.cost ?? 0),
+        })),
+        lastReportedUnits: 0,
+        lastReportedPeriodStart: null as string | null,
+      },
+      detector: {
+        // scansRun = canonical count from ClickHouse `detector_runs`.
+        // Cost + tokens = aIMessage rows tagged kind="detector" (system source).
+        scansRun: usage.detectorRuns,
+        systemTokenCost: detectorSystemTokenCost,
+        systemInputTokens: detectorSystemInputTokens,
+        systemOutputTokens: detectorSystemOutputTokens,
+        byModel: detectorByModel.map((row) => ({
+          model: row.model ?? "unknown",
+          provider: row.provider ?? "unknown",
+          isByok: row.isByok ?? false,
+          messages: row._count.id,
+          inputTokens: row._sum.inputTokens ?? 0,
+          outputTokens: row._sum.outputTokens ?? 0,
+          cost: Number(row._sum.cost ?? 0),
+        })),
+        lastReportedUnits: previousDetector.lastReportedUnits ?? 0,
+        lastReportedPeriodStart: previousDetector.lastReportedPeriodStart ?? null,
       },
     },
   };
@@ -281,6 +323,45 @@ async function processWorkspace(
     console.log(`[Billing] Workspace ${workspace.id}: unblocking AI (paid plan)`);
   }
 
+  // 4c-bis. RCA blocking — Free plan only, 30-run hard cap. Mirrors AI at 4b.
+  // detectorBlocked alone does NOT cap RCA: the Free RCA quota (30) is lower
+  // than the Free detector-scan cap (100), so a workspace can produce 30+
+  // findings before hitting the detector cap, each triggering an RCA.
+  if (isFreePlan) {
+    const shouldBlockRca = isRcaRunBlocked(plan, rcaRunsUsed);
+    if (workspace.rcaBlocked !== shouldBlockRca) {
+      updateData.rcaBlocked = shouldBlockRca;
+      console.log(
+        `[Billing] Workspace ${workspace.id}: ${rcaRunsUsed}/${RCA_RUN_QUOTAS[plan].included} RCA runs, rca_blocked: ${shouldBlockRca}`,
+      );
+    }
+  }
+
+  // 4c-ter. Paid plans: always unblock RCA (overage is billed, not blocked)
+  if (!isFreePlan && workspace.rcaBlocked) {
+    updateData.rcaBlocked = false;
+    console.log(`[Billing] Workspace ${workspace.id}: unblocking RCA (paid plan)`);
+  }
+
+  // 4d. Detector blocking — Free plan only, 100-scan hard cap (any source).
+  // Count comes from the ClickHouse `detector_runs` aggregate we just fetched
+  // (same source as traces/spans). Mirrors the AI-runs hard-cap pattern at 4b.
+  if (isFreePlan) {
+    const shouldBlockDetector = isDetectorRunBlocked(plan, usage.detectorRuns);
+    if (workspace.detectorBlocked !== shouldBlockDetector) {
+      updateData.detectorBlocked = shouldBlockDetector;
+      console.log(
+        `[Billing] Workspace ${workspace.id}: ${usage.detectorRuns}/${DETECTOR_RUN_QUOTAS[plan].included} detector scans, detector_blocked: ${shouldBlockDetector}`,
+      );
+    }
+  }
+
+  // 4e. Paid plans: always unblock detector
+  if (!isFreePlan && workspace.detectorBlocked) {
+    updateData.detectorBlocked = false;
+    console.log(`[Billing] Workspace ${workspace.id}: unblocking detector (paid plan)`);
+  }
+
   // =========================================================================
   // 5. Stripe metering (paid plans only)
   // =========================================================================
@@ -298,7 +379,7 @@ async function processWorkspace(
     // Reports total 50k blocks, minimum = included blocks (e.g. 3 for starter = 150k).
     // Stripe tiered graduated price handles the math:
     //   Tier 1: 0-3 blocks → $30 flat fee (base plan cost)
-    //   Tier 2: 4+ blocks  → $3/unit     (overage at $3 per 50k block)
+    //   Tier 2: 4+ blocks  → $4/unit     (overage at $4 per 50k block)
     if (plan !== PlanType.ENTERPRISE) {
       const includedEvents = EVENT_QUOTAS[plan].included;
       const includedBlocks = includedEvents / 50_000;
@@ -369,6 +450,100 @@ async function processWorkspace(
       (updateData.currentUsage as any).ai.lastReportedUnits = lastReportedUnits;
       (updateData.currentUsage as any).ai.lastReportedPeriodStart = currentPeriodStart;
     }
+
+    // 5c. Report RCA run overage to Stripe (separate meter / Stripe product)
+    const includedRcaRuns = RCA_RUN_QUOTAS[plan].included;
+    const overageRcaRuns = Math.max(0, rcaRunsUsed - includedRcaRuns);
+
+    let totalRcaBillableUnits = 0;
+    if (overageRcaRuns > 0) {
+      const rcaOverageBlocks = Math.ceil(overageRcaRuns / 100);
+      const rcaRunOverageUnits = rcaOverageBlocks * 1000;
+      // 1.05x markup over the period's system-source RCA inference cost.
+      // BYOK turns are excluded by the kind="rca" aggregation's isByok=false filter.
+      const rcaTokenMarkupUnits = Math.round(rcaSystemTokenCost * 1.05 * 100);
+      totalRcaBillableUnits = rcaRunOverageUnits + rcaTokenMarkupUnits;
+    }
+
+    const prevRcaPeriodStart = previousUsage?.rca?.lastReportedPeriodStart ?? null;
+    const lastReportedRcaUnits =
+      prevRcaPeriodStart === currentPeriodStart ? (previousUsage?.rca?.lastReportedUnits ?? 0) : 0;
+    const deltaRcaUnits = totalRcaBillableUnits - lastReportedRcaUnits;
+
+    console.log(
+      `[Billing] RCA run metering: runsUsed=${rcaRunsUsed}, included=${includedRcaRuns}, overage=${overageRcaRuns}, ` +
+        `systemTokenCost=$${rcaSystemTokenCost.toFixed(4)}, totalUnits=${totalRcaBillableUnits}, ` +
+        `lastReported=${lastReportedRcaUnits}, delta=${deltaRcaUnits}`,
+    );
+
+    if (deltaRcaUnits > 0) {
+      const reported = await reportRcaRunOverageToStripe(
+        workspace.id,
+        workspace.billingCustomerId!,
+        deltaRcaUnits,
+        ctx.stripeClient,
+      );
+      if (reported) {
+        (updateData.currentUsage as any).rca.lastReportedUnits = totalRcaBillableUnits;
+        (updateData.currentUsage as any).rca.lastReportedPeriodStart = currentPeriodStart;
+      } else {
+        (updateData.currentUsage as any).rca.lastReportedUnits = lastReportedRcaUnits;
+        (updateData.currentUsage as any).rca.lastReportedPeriodStart = currentPeriodStart;
+      }
+    } else {
+      (updateData.currentUsage as any).rca.lastReportedUnits = lastReportedRcaUnits;
+      (updateData.currentUsage as any).rca.lastReportedPeriodStart = currentPeriodStart;
+    }
+
+    // 5d. Report managed detector inference token usage (1.05× pass-through).
+    //
+    // Paid plans inherit Free's "first 100 detector scans/month at $0" — we
+    // absorb that hosted-LLM cost so upgrading from Free never *removes* the
+    // 100-free benefit. Beyond the threshold, the OVERAGE portion of the
+    // hosted-LLM cost is billed at 1.05× passthrough.
+    //
+    // Proportional split: we don't have per-scan cost in ClickHouse today, so
+    // we apportion the period's total cost by scan count (overage / total).
+    // Approximation is fine — scans within a single detector have similar cost.
+    // BYOK detectors contribute 0 to systemTokenCost (we filter by isByok=false above).
+    const detectorSystemCost = detectorSystemTokenCost;
+    const detectorOverageScans = Math.max(
+      0,
+      usage.detectorRuns - DETECTOR_HOSTED_LLM_FREE_THRESHOLD,
+    );
+    const detectorBillableCost =
+      usage.detectorRuns > 0 ? detectorSystemCost * (detectorOverageScans / usage.detectorRuns) : 0;
+    const detectorTotalUnits = Math.round(detectorBillableCost * 1.05 * 100);
+
+    const prevDetectorPeriodStart = previousDetector.lastReportedPeriodStart ?? null;
+    const detectorLastReportedUnits =
+      prevDetectorPeriodStart === currentPeriodStart
+        ? (previousDetector.lastReportedUnits ?? 0)
+        : 0;
+    const detectorDeltaUnits = detectorTotalUnits - detectorLastReportedUnits;
+
+    console.log(
+      `[Billing] Detector token metering: scansRun=${usage.detectorRuns}, ` +
+        `included=${DETECTOR_HOSTED_LLM_FREE_THRESHOLD}, overageScans=${detectorOverageScans}, ` +
+        `totalCost=$${detectorSystemCost.toFixed(4)}, billableCost=$${detectorBillableCost.toFixed(4)}, ` +
+        `totalUnits=${detectorTotalUnits}, lastReported=${detectorLastReportedUnits}, delta=${detectorDeltaUnits}`,
+    );
+
+    if (detectorDeltaUnits > 0) {
+      const reported = await reportDetectorOverageToStripe(
+        workspace.id,
+        workspace.billingCustomerId!,
+        detectorDeltaUnits,
+        ctx.stripeClient,
+      );
+      if (reported) {
+        (updateData.currentUsage as any).detector.lastReportedUnits = detectorTotalUnits;
+        (updateData.currentUsage as any).detector.lastReportedPeriodStart = currentPeriodStart;
+      }
+    } else {
+      (updateData.currentUsage as any).detector.lastReportedUnits = detectorLastReportedUnits;
+      (updateData.currentUsage as any).detector.lastReportedPeriodStart = currentPeriodStart;
+    }
   }
 
   // =========================================================================
@@ -388,6 +563,56 @@ async function processWorkspace(
   );
 }
 
+type MessageKind = "chat" | "rca" | "detector";
+
+/**
+ * Aggregate `aIMessage` rows for one `kind` over a billing window. Returns:
+ *   - runsUsedCount: total assistant rows (chat uses this for run-count meter;
+ *     rca/detector get their canonical counts from elsewhere)
+ *   - systemAgg / byokAgg: cost + token sums split by inference source
+ *   - systemByModel / byokByModel: per-(model, provider) breakdowns for UI
+ *
+ * `inputTokens: { not: null }` filters out incomplete writes; rows with null
+ * tokens have null cost too, so this is a no-op for cost sums.
+ */
+async function aggregateMessagesForKind(
+  workspaceId: string,
+  kind: MessageKind,
+  periodWindow: { createTime: { gte: Date; lt: Date } },
+) {
+  const baseWhere = { workspaceId, kind, role: "assistant", ...periodWindow };
+  const systemWhere = { ...baseWhere, isByok: false, inputTokens: { not: null } };
+  const byokWhere = { ...baseWhere, isByok: true, inputTokens: { not: null } };
+
+  const [runsUsedCount, systemAgg, byokAgg, systemByModel, byokByModel] = await Promise.all([
+    prisma.aIMessage.count({ where: baseWhere }),
+    prisma.aIMessage.aggregate({
+      where: systemWhere,
+      _count: { id: true },
+      _sum: { inputTokens: true, outputTokens: true, cost: true },
+    }),
+    prisma.aIMessage.aggregate({
+      where: byokWhere,
+      _count: { id: true },
+      _sum: { inputTokens: true, outputTokens: true, cost: true },
+    }),
+    prisma.aIMessage.groupBy({
+      by: ["model", "provider", "isByok"],
+      where: systemWhere,
+      _count: { id: true },
+      _sum: { inputTokens: true, outputTokens: true, cost: true },
+    }),
+    prisma.aIMessage.groupBy({
+      by: ["model", "provider", "isByok"],
+      where: byokWhere,
+      _count: { id: true },
+      _sum: { inputTokens: true, outputTokens: true, cost: true },
+    }),
+  ]);
+
+  return { runsUsedCount, systemAgg, byokAgg, systemByModel, byokByModel };
+}
+
 /**
  * Get the total system model token cost for AI runs beyond the included quota.
  *
@@ -401,12 +626,15 @@ async function getOverageSystemModelCost(
   start: Date,
   end: Date,
 ): Promise<number> {
-  // Step 1: Find the cutoff timestamp — the createTime of the first message
-  // after the included quota (e.g., the 101st message for Starter/Pro)
+  // Step 1: Find the cutoff timestamp — the createTime of the first chat
+  // message after the included quota (e.g., the 101st message for Starter/Pro).
+  // kind="chat" so RCA/detector turns living in the same table don't shift
+  // the cutoff or inflate the cost sum.
   const cutoff = await prisma.aIMessage.findMany({
     where: {
+      workspaceId,
+      kind: "chat",
       role: "assistant",
-      session: { workspaceId },
       createTime: { gte: start, lt: end },
     },
     orderBy: { createTime: "asc" },
@@ -420,9 +648,10 @@ async function getOverageSystemModelCost(
   // Step 2: Aggregate system model cost from the cutoff onward (DB-side sum)
   const agg = await prisma.aIMessage.aggregate({
     where: {
+      workspaceId,
+      kind: "chat",
       role: "assistant",
       isByok: false,
-      session: { workspaceId },
       createTime: { gte: cutoff[0].createTime, lt: end },
     },
     _sum: { cost: true },
@@ -438,9 +667,16 @@ async function updateStripeQuantity(
 ): Promise<void> {
   try {
     const subscription = await stripeClient.subscriptions.retrieve(subscriptionId);
-    // Find the plan item (not the AI usage metered item)
+    // Find the plan item (not the metered usage items — AI runs, RCA runs, detector usage)
     const aiUsagePriceId = process.env.STRIPE_PRICE_ID_AI_USAGE;
-    const planItem = subscription.items.data.find((item) => item.price.id !== aiUsagePriceId);
+    const rcaUsagePriceId = process.env.STRIPE_PRICE_ID_RCA_USAGE;
+    const detectorUsagePriceId = process.env.STRIPE_PRICE_ID_DETECTOR_USAGE;
+    const meteredPriceIds = new Set(
+      [aiUsagePriceId, rcaUsagePriceId, detectorUsagePriceId].filter((p): p is string =>
+        Boolean(p),
+      ),
+    );
+    const planItem = subscription.items.data.find((item) => !meteredPriceIds.has(item.price.id));
 
     if (!planItem) {
       console.warn(`[Billing] No plan subscription item found for ${subscriptionId}`);
@@ -466,6 +702,45 @@ async function updateStripeQuantity(
  * - System model token markup: 1.05x of token cost on overage runs (granular)
  * Returns true if successfully reported.
  */
+/**
+ * Report managed (system-source) detector inference token cost to Stripe.
+ * Pricing: 1.05× pass-through, billed at $0.01/unit. No quota, no cap —
+ * informational meter; every system-source dollar is billed.
+ *
+ * Idempotent across hourly runs via lastReportedUnits delta tracking. The
+ * underlying system-token cost is aggregated from `aIMessage` rows with
+ * kind="detector" and isByok=false; this function just pushes the delta.
+ */
+export async function reportDetectorOverageToStripe(
+  workspaceId: string,
+  customerId: string,
+  units: number,
+  stripeClient: Stripe,
+): Promise<boolean> {
+  if (units <= 0) return false;
+
+  try {
+    await stripeClient.billing.meterEvents.create({
+      event_name: "detector_usage",
+      payload: {
+        stripe_customer_id: customerId,
+        value: String(units),
+      },
+      timestamp: Math.floor(Date.now() / 1000),
+    });
+    console.log(
+      `[Billing] Reported detector usage to Stripe: workspace=${workspaceId}, delta=${units} units ($${(units * 0.01).toFixed(2)})`,
+    );
+    return true;
+  } catch (error) {
+    console.error(
+      `[Billing] Failed to report detector usage to Stripe for workspace ${workspaceId}:`,
+      error,
+    );
+    return false;
+  }
+}
+
 async function reportAiRunOverageToStripe(
   workspaceId: string,
   customerId: string,
@@ -490,6 +765,44 @@ async function reportAiRunOverageToStripe(
   } catch (error) {
     console.error(
       `[Billing] Failed to report AI run overage to Stripe for workspace ${workspaceId}:`,
+      error,
+    );
+    return false;
+  }
+}
+
+/**
+ * Report RCA run overage to Stripe via meter events on a separate Stripe
+ * product (`STRIPE_PRICE_ID_RCA_USAGE`). Same shape as AI run overage:
+ * units at $0.01 each, including:
+ *  - Run overage fee: $10 per 100-run block (rounded up), 1 block = 1000 units
+ *  - System token markup: 1.05x of system-source RCA inference cost (granular)
+ * Returns true if successfully reported.
+ */
+export async function reportRcaRunOverageToStripe(
+  workspaceId: string,
+  customerId: string,
+  units: number,
+  stripeClient: Stripe,
+): Promise<boolean> {
+  if (units <= 0) return false;
+
+  try {
+    await stripeClient.billing.meterEvents.create({
+      event_name: "rca_usage",
+      payload: {
+        stripe_customer_id: customerId,
+        value: String(units),
+      },
+      timestamp: Math.floor(Date.now() / 1000),
+    });
+    console.log(
+      `[Billing] Reported RCA run overage to Stripe: workspace=${workspaceId}, delta=${units} units ($${(units * 0.01).toFixed(2)})`,
+    );
+    return true;
+  } catch (error) {
+    console.error(
+      `[Billing] Failed to report RCA run overage to Stripe for workspace ${workspaceId}:`,
       error,
     );
     return false;

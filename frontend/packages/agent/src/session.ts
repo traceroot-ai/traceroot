@@ -1,6 +1,6 @@
 import { prisma } from "@traceroot/core";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { UserMessage, Message } from "@mariozechner/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { UserMessage, Message } from "@earendil-works/pi-ai";
 
 // ============================================================
 // SessionManager — follows Mom's SessionManager pattern
@@ -55,6 +55,11 @@ export class SessionManager {
   /**
    * Append a message to the session.
    * Like Mom's sessionManager.appendMessage() — persists to DB.
+   *
+   * `workspaceId` and `kind` are required on every AIMessage row (see schema).
+   * We derive both from the parent AISession: `kind = "chat"` for user sessions
+   * (userId set), `kind = "rca"` for system sessions (userId null). This
+   * mirrors the existing convention in createSession.
    */
   async appendMessage(
     role: string,
@@ -62,9 +67,20 @@ export class SessionManager {
     metadata?: Record<string, unknown>,
     tokenUsage?: TokenUsageData,
   ): Promise<void> {
+    const session = await prisma.aISession.findUnique({
+      where: { id: this.sessionId },
+      select: { workspaceId: true, userId: true },
+    });
+    if (!session) {
+      throw new Error(`AISession not found: ${this.sessionId}`);
+    }
+    const kind = session.userId === null ? "rca" : "chat";
+
     await prisma.aIMessage.create({
       data: {
         sessionId: this.sessionId,
+        workspaceId: session.workspaceId,
+        kind,
         role,
         content,
         metadata: metadata as any,

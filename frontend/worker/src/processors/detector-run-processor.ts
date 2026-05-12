@@ -1,6 +1,6 @@
 import { Worker, Queue, type Job } from "bullmq";
 import { createHash } from "crypto";
-import { prisma } from "@traceroot/core";
+import { prisma, PlanType } from "@traceroot/core";
 import type {
   DetectorRunJob,
   DetectorRcaJob,
@@ -51,6 +51,21 @@ interface TriggeredResult {
   data: unknown;
 }
 
+export interface ScanUsage {
+  inferenceCost: number;
+  inferenceInputTokens: number;
+  inferenceOutputTokens: number;
+  inferenceSource: "system" | "byok" | null;
+  inferenceModel: string | null;
+  inferenceProvider: string | null;
+}
+
+interface SingleDetectorOutcome {
+  triggered: TriggeredResult | null;
+  /** null when the eval threw before pi-ai was called (cost/source unknown). */
+  usage: ScanUsage | null;
+}
+
 /**
  * Run one detector against a trace. Writes the run record immediately for
  * non-triggered and failed cases (finding_id = null). For triggered cases,
@@ -72,7 +87,7 @@ async function runSingleDetector(params: {
   projectId: string;
   spansJsonl: string;
   workspaceId: string;
-}): Promise<TriggeredResult | null> {
+}): Promise<SingleDetectorOutcome> {
   const { detector, traceId, projectId, spansJsonl, workspaceId } = params;
   const runId = deterministicRunId(projectId, traceId, detector.id);
 
@@ -102,8 +117,17 @@ async function runSingleDetector(params: {
       findingId: null,
       status: "failed",
     }).catch((err) => console.error("[Detector] Failed to write run:", err));
-    return null;
+    return { triggered: null, usage: null };
   }
+
+  const usage: ScanUsage = {
+    inferenceCost: result.inferenceCost,
+    inferenceInputTokens: result.inferenceInputTokens,
+    inferenceOutputTokens: result.inferenceOutputTokens,
+    inferenceSource: result.inferenceSource,
+    inferenceModel: result.inferenceModel,
+    inferenceProvider: result.inferenceProvider,
+  };
 
   if (!result.identified) {
     if (result.error) {
@@ -120,7 +144,7 @@ async function runSingleDetector(params: {
       findingId: null,
       status: result.error ? "failed" : "completed",
     }).catch((err) => console.error("[Detector] Failed to write run:", err));
-    return null;
+    return { triggered: null, usage };
   }
 
   // Triggered — return result without writing anything.
@@ -129,10 +153,13 @@ async function runSingleDetector(params: {
     `[Detector] Detector ${detector.name} triggered on trace ${traceId}: ${result.summary.slice(0, 80)}`,
   );
   return {
-    detectorId: detector.id,
-    detectorName: detector.name,
-    summary: result.summary,
-    data: result.data,
+    triggered: {
+      detectorId: detector.id,
+      detectorName: detector.name,
+      summary: result.summary,
+      data: result.data,
+    },
+    usage,
   };
 }
 
@@ -169,12 +196,30 @@ async function processTrace(
     }),
     prisma.project.findUnique({
       where: { id: projectId },
-      select: { name: true, workspaceId: true },
+      select: {
+        name: true,
+        workspaceId: true,
+        workspace: { select: { billingPlan: true, detectorBlocked: true } },
+      },
     }),
   ]);
 
   const projectName = project?.name ?? "";
   const workspaceId = project?.workspaceId ?? "";
+
+  // Free-plan detector cap enforcement — read the cached `detectorBlocked`
+  // flag set by the hourly billing job (same pattern as `aiBlocked` and
+  // `ingestionBlocked`). Worst-case overshoot: ~1h of scans between cron
+  // runs, which costs us a few cents of haiku tokens — acceptable as
+  // customer-acquisition spend per the pricing rule "Free is truly free."
+  const billingPlan = (project?.workspace?.billingPlan ?? "free") as PlanType;
+  if (project?.workspace?.detectorBlocked && billingPlan === PlanType.FREE) {
+    console.log(
+      `[Detector] Workspace ${workspaceId} is detector-blocked (Free plan cap exceeded); ` +
+        `skipping ${detectors.length} scan(s) for trace ${traceId}`,
+    );
+    return;
+  }
 
   // Run all detectors in parallel; collect triggered results
   const settled = await Promise.allSettled(
@@ -201,12 +246,38 @@ async function processTrace(
     }),
   );
 
-  const triggered = settled
-    .filter(
-      (r): r is PromiseFulfilledResult<TriggeredResult> =>
-        r.status === "fulfilled" && r.value !== null,
-    )
+  const fulfilled = settled
+    .filter((r): r is PromiseFulfilledResult<SingleDetectorOutcome> => r.status === "fulfilled")
     .map((r) => r.value);
+
+  // Persist one AIMessage row per scan with kind="detector". This is the
+  // source of truth for detector by-model + cost aggregations in the hourly
+  // billing cron — same role aIMessage plays for chat + RCA.
+  const usages = fulfilled.map((o) => o.usage).filter((u): u is ScanUsage => u !== null);
+  if (usages.length > 0 && workspaceId) {
+    const aiMessageRows = usages.map((u) => ({
+      workspaceId,
+      sessionId: null,
+      kind: "detector",
+      role: "assistant",
+      content: "", // detector scans don't have a chat-like content payload
+      model: u.inferenceModel,
+      provider: u.inferenceProvider,
+      isByok: u.inferenceSource === "byok",
+      inputTokens: u.inferenceInputTokens,
+      outputTokens: u.inferenceOutputTokens,
+      cost: u.inferenceCost,
+    }));
+    try {
+      await prisma.aIMessage.createMany({ data: aiMessageRows });
+    } catch (err) {
+      console.error(`[Detector] Failed to write aIMessage rows for trace ${traceId}:`, err);
+    }
+  }
+
+  const triggered = fulfilled
+    .map((o) => o.triggered)
+    .filter((t): t is TriggeredResult => t !== null);
 
   if (triggered.length === 0) return;
 

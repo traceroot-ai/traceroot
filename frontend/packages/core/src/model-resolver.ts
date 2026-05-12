@@ -13,8 +13,8 @@
  *      live together because resolvePiModel takes the BYOK config that
  *      fetchProviderConfig produces; splitting them would just create churn.
  */
-import { getModel } from "@mariozechner/pi-ai";
-import type { Api, Model } from "@mariozechner/pi-ai";
+import { getModel } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { prisma } from "./lib/prisma.js";
 import { decryptKey } from "./lib/encryption.js";
 import {

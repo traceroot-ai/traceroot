@@ -1,5 +1,5 @@
-import { complete, getEnvApiKey } from "@mariozechner/pi-ai";
-import type { Message, ToolCall } from "@mariozechner/pi-ai";
+import { complete, getEnvApiKey } from "@earendil-works/pi-ai";
+import type { Message, ToolCall } from "@earendil-works/pi-ai";
 import {
   findByokKeyForPiProvider,
   fetchProviderConfig,
@@ -23,10 +23,30 @@ export interface EvalResult {
   summary: string;
   data: Record<string, unknown>;
   error?: string;
+  /** Sum of `response.usage.cost.total` (USD) across attempts; 0 on early-exit error paths. */
+  inferenceCost: number;
+  /** Sum of `response.usage.input` tokens across attempts. */
+  inferenceInputTokens: number;
+  /** Sum of `response.usage.output` tokens across attempts. */
+  inferenceOutputTokens: number;
+  /** Source attribution for billing — preserved on error paths so failures still attribute. */
+  inferenceSource: "system" | "byok" | null;
+  /** Model id reported by pi-ai (e.g. "claude-haiku-4-5"); null on early-exit error paths. */
+  inferenceModel: string | null;
+  /** Provider key reported by pi-ai (e.g. "anthropic"); null on early-exit error paths. */
+  inferenceProvider: string | null;
 }
 
 const MAX_ATTEMPTS = 2;
-const SAFETY_TRUNCATE_CHARS = 40000;
+/**
+ * Hard character cap on per-trace context sent to the judge.
+ * Set at ~19% of claude-haiku-4-5's 200k-token window (~37k tokens at 4 chars/token),
+ * leaving generous headroom for the system prompt + tool definitions + response budget.
+ * Smart compression (type-aware truncation + path-based dedup + base64
+ * stripping) is a future improvement when we see real customer complaints
+ * about traces being truncated. For now, rely on this hard cap.
+ */
+const SAFETY_TRUNCATE_CHARS = 150_000;
 /** Default screening model for system source — cheap-and-fast, not the agent default. */
 const SYSTEM_DEFAULT_MODEL = "claude-haiku-4-5";
 
@@ -44,8 +64,27 @@ const SYSTEM_DEFAULT_MODEL = "claude-haiku-4-5";
  */
 const TOOL_CHOICE = "auto";
 
-function errorResult(message: string): EvalResult {
-  return { identified: false, summary: "Analysis failed", data: {}, error: message };
+function errorResult(
+  message: string,
+  source: "system" | "byok" | null,
+  inferenceCost = 0,
+  inferenceInputTokens = 0,
+  inferenceOutputTokens = 0,
+  inferenceModel: string | null = null,
+  inferenceProvider: string | null = null,
+): EvalResult {
+  return {
+    identified: false,
+    summary: "Analysis failed",
+    data: {},
+    error: message,
+    inferenceCost,
+    inferenceInputTokens,
+    inferenceOutputTokens,
+    inferenceSource: source,
+    inferenceModel,
+    inferenceProvider,
+  };
 }
 
 /**
@@ -86,12 +125,13 @@ export async function runDetectionForTrace(params: {
   let providerConfig: ProviderModelConfig | null = null;
   if (source === "byok") {
     if (!detector.detectionProvider) {
-      return errorResult("BYOK detector has no detectionProvider");
+      return errorResult("BYOK detector has no detectionProvider", source);
     }
     providerConfig = await fetchProviderConfig(workspaceId, detector.detectionProvider);
     if (!providerConfig) {
       return errorResult(
         `BYOK provider "${detector.detectionProvider}" not found or disabled in workspace settings`,
+        source,
       );
     }
   }
@@ -104,7 +144,7 @@ export async function runDetectionForTrace(params: {
   // 3. Resolve API key (BYOK row → env var → workspace BYOK scan)
   const apiKey = await resolveDetectorApiKey(workspaceId, providerConfig, model.provider);
   if (!apiKey) {
-    return errorResult(`No API key configured for provider "${model.provider}"`);
+    return errorResult(`No API key configured for provider "${model.provider}"`, source);
   }
 
   // 4. Build prompt + tool
@@ -132,6 +172,11 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
   // 5. Single-shot complete() with retry-once-on-text-response
   const messages: Message[] = [{ role: "user", content: userText, timestamp: Date.now() }];
   let lastError: string | undefined;
+  let inferenceCost = 0;
+  let inferenceInputTokens = 0;
+  let inferenceOutputTokens = 0;
+  let inferenceModel: string | null = null;
+  let inferenceProvider: string | null = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
@@ -139,6 +184,12 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
         apiKey,
         toolChoice: TOOL_CHOICE,
       } as Record<string, unknown>);
+
+      inferenceCost += response.usage?.cost?.total ?? 0;
+      inferenceInputTokens += response.usage?.input ?? 0;
+      inferenceOutputTokens += response.usage?.output ?? 0;
+      inferenceModel = response.model ?? inferenceModel;
+      inferenceProvider = response.provider ?? inferenceProvider;
 
       const toolCall = response.content.find(
         (c): c is ToolCall => c.type === "toolCall" && c.name === "submit_result",
@@ -149,6 +200,12 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
           identified: Boolean(args.identified),
           summary: typeof args.summary === "string" ? args.summary : "",
           data: (args.data as Record<string, unknown>) ?? {},
+          inferenceCost,
+          inferenceInputTokens,
+          inferenceOutputTokens,
+          inferenceSource: source,
+          inferenceModel,
+          inferenceProvider,
         };
       }
 
@@ -182,5 +239,13 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
     }
   }
 
-  return errorResult(lastError ?? "LLM did not call submit_result after retry");
+  return errorResult(
+    lastError ?? "LLM did not call submit_result after retry",
+    source,
+    inferenceCost,
+    inferenceInputTokens,
+    inferenceOutputTokens,
+    inferenceModel,
+    inferenceProvider,
+  );
 }

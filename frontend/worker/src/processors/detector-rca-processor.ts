@@ -1,5 +1,5 @@
 import { Worker, type Job } from "bullmq";
-import { prisma, SYSTEM_MODELS } from "@traceroot/core";
+import { prisma, SYSTEM_MODELS, PlanType } from "@traceroot/core";
 import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
 import { DETECTOR_RCA_QUEUE, createRedisConnection } from "../queues/detector-run-queue.js";
 import { sendCombinedAlertEmail } from "../notifications/email.js";
@@ -168,6 +168,7 @@ export interface FanOutCommon {
 }
 
 export interface RunFanOutParams {
+  workspaceId: string;
   emailAddresses: string[];
   slackChannelId: string | null;
   slackBotTokenEnc: string | null;
@@ -175,6 +176,7 @@ export interface RunFanOutParams {
 }
 
 export async function runFanOut({
+  workspaceId,
   emailAddresses,
   slackChannelId,
   slackBotTokenEnc,
@@ -193,6 +195,7 @@ export async function runFanOut({
   if (slackChannelId && slackBotTokenEnc) {
     tasks.push(
       sendCombinedAlertSlack({
+        workspaceId,
         encryptedBotToken: slackBotTokenEnc,
         channelId: slackChannelId,
         ...common,
@@ -210,6 +213,22 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
     DETECTOR_RCA_QUEUE,
     async (job: Job<DetectorRcaJob>) => {
       const { findingId, projectId, traceId, workspaceId, projectName, findings } = job.data;
+
+      // Free-plan RCA cap enforcement — read the cached `rcaBlocked` flag
+      // set by the hourly billing job (same pattern as `detectorBlocked` in
+      // detector-run-processor). Skip cleanly: no DetectorRca row, no alert.
+      // Worst-case overshoot: ~1h of RCA runs between cron passes.
+      const ws = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { billingPlan: true, rcaBlocked: true },
+      });
+      if (ws?.rcaBlocked && (ws.billingPlan as PlanType) === PlanType.FREE) {
+        console.log(
+          `[RCA] Workspace ${workspaceId} is rca-blocked (Free plan cap exceeded); ` +
+            `skipping RCA for finding ${findingId}`,
+        );
+        return;
+      }
 
       await prisma.detectorRca.upsert({
         where: { findingId },
@@ -231,7 +250,13 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
         const summary = findings.map((f) => `[${f.detectorName}] ${f.summary}`).join("\n");
         const detectorName = findings.map((f) => f.detectorName).join(", ");
         const common = { detectorName, projectName, summary, rcaResult, traceId, projectId };
-        await runFanOut({ emailAddresses, slackChannelId, slackBotTokenEnc, common });
+        await runFanOut({
+          workspaceId,
+          emailAddresses,
+          slackChannelId,
+          slackBotTokenEnc,
+          common,
+        });
       };
 
       try {
@@ -279,7 +304,11 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
 
         await prisma.detectorRca.update({
           where: { findingId },
-          data: { status: "done", result: rcaResult, completedAt: new Date() },
+          data: {
+            status: "done",
+            result: rcaResult,
+            completedAt: new Date(),
+          },
         });
 
         await sendAlert(rcaResult);
