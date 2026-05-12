@@ -7,11 +7,7 @@ import type { SpanTreeRow } from "../types";
 import { parseAsUTC } from "@/lib/utils";
 
 export function parseTimestamp(ts: string): number {
-  let normalizedTs = ts.trim();
-  if (!/(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalizedTs)) {
-    normalizedTs += "Z";
-  }
-  return parseAsUTC(normalizedTs).getTime();
+  return parseAsUTC(ts.trim()).getTime();
 }
 
 function parseMetadata(metadata: string | null): Record<string, unknown> {
