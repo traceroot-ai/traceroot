@@ -1,5 +1,5 @@
-import { Type } from "@mariozechner/pi-ai";
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import { Type } from "@earendil-works/pi-ai";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Executor } from "../executors/interface.js";
 import {
   DEFAULT_MAX_BYTES,
@@ -43,9 +43,10 @@ export function createBashTool(executor: Executor): AgentTool<any> {
     parameters: bashSchema,
     execute: async (
       _toolCallId: string,
-      { command, timeout }: { label: string; command: string; timeout?: number },
+      params: unknown,
       signal?: AbortSignal,
     ): Promise<AgentToolResult<BashToolDetails | undefined>> => {
+      const { command, timeout } = params as { label: string; command: string; timeout?: number };
       if (!executor.isReady()) {
         await executor.init();
       }
@@ -122,9 +123,15 @@ export function createReadTool(executor: Executor): AgentTool<any> {
     parameters: readSchema,
     execute: async (
       _toolCallId: string,
-      { path, offset, limit }: { label: string; path: string; offset?: number; limit?: number },
+      params: unknown,
       signal?: AbortSignal,
     ): Promise<AgentToolResult<ReadToolDetails | undefined>> => {
+      const { path, offset, limit } = params as {
+        label: string;
+        path: string;
+        offset?: number;
+        limit?: number;
+      };
       if (!executor.isReady()) {
         await executor.init();
       }
@@ -230,9 +237,10 @@ export function createWriteTool(executor: Executor): AgentTool<any> {
     parameters: writeSchema,
     execute: async (
       _toolCallId: string,
-      { path, content }: { label: string; path: string; content: string },
+      params: unknown,
       signal?: AbortSignal,
     ): Promise<AgentToolResult<undefined>> => {
+      const { path, content } = params as { label: string; path: string; content: string };
       if (!executor.isReady()) {
         await executor.init();
       }

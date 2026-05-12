@@ -1,9 +1,19 @@
 -- Detectors feature: detectors, triggers, alert configs, RCA
--- Also includes: ai_sessions.user_id nullable (system sessions for RCA worker)
--- Also includes: projects.rca_model (project-scoped agent model for RCA)
+-- Also includes:
+--   * ai_sessions.user_id nullable (system sessions for RCA worker)
+--   * projects.rca_model (project-scoped agent model for RCA)
+--   * workspaces.detector_blocked / rca_blocked (Free-plan hard-cap flags
+--     set by the hourly billing cron; mirrors existing ai_blocked)
+--   * ai_messages.kind / workspace_id / nullable session_id (so chat,
+--     RCA, and detector-scan rows share one table with categorical
+--     billing aggregation by kind)
 
 -- AlterTable: project-scoped RCA agent model
 ALTER TABLE "projects" ADD COLUMN "rca_model" VARCHAR;
+
+-- AlterTable: Free-plan hard-cap flags (set by hourly billing cron)
+ALTER TABLE "workspaces" ADD COLUMN "detector_blocked" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "workspaces" ADD COLUMN "rca_blocked" BOOLEAN NOT NULL DEFAULT false;
 
 -- CreateTable
 CREATE TABLE "detectors" (
@@ -85,3 +95,29 @@ ALTER TABLE "detector_rcas" ADD CONSTRAINT "detector_rcas_project_id_fkey" FOREI
 
 -- Make ai_sessions.user_id nullable (system/RCA sessions have no user)
 ALTER TABLE "ai_sessions" ALTER COLUMN "user_id" DROP NOT NULL;
+
+-- AlterTable ai_messages: categorical kind tag, direct workspace pointer,
+-- and nullable session_id so detector-scan rows (no chat session) can live
+-- alongside chat + RCA agent turns. Backfill workspace_id from the
+-- existing session -> project -> workspace chain, then enforce NOT NULL.
+ALTER TABLE "ai_messages" ADD COLUMN "kind" VARCHAR NOT NULL DEFAULT 'chat';
+
+ALTER TABLE "ai_messages" ALTER COLUMN "session_id" DROP NOT NULL;
+
+ALTER TABLE "ai_messages" ADD COLUMN "workspace_id" VARCHAR;
+
+UPDATE "ai_messages" m
+SET workspace_id = p.workspace_id
+FROM ai_sessions s
+JOIN projects p ON p.id = s.project_id
+WHERE s.id = m.session_id;
+
+ALTER TABLE "ai_messages" ALTER COLUMN "workspace_id" SET NOT NULL;
+
+ALTER TABLE "ai_messages"
+  ADD CONSTRAINT "ai_messages_workspace_id_fkey"
+  FOREIGN KEY ("workspace_id") REFERENCES "workspaces"("id")
+  ON DELETE CASCADE ON UPDATE NO ACTION;
+
+CREATE INDEX "ix_ai_message_workspace_kind_time"
+  ON "ai_messages"("workspace_id", "kind", "create_time");

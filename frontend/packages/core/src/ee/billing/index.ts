@@ -10,6 +10,9 @@ export {
   USAGE_CONFIG,
   EVENT_QUOTAS,
   AI_RUN_QUOTAS,
+  RCA_RUN_QUOTAS,
+  DETECTOR_RUN_QUOTAS,
+  DETECTOR_HOSTED_LLM_FREE_THRESHOLD,
   PlanType,
   // Types
   type PlanConfig,
@@ -33,4 +36,6 @@ export {
   // Free plan blocking
   isFreePlanBlocked,
   isAiRunBlocked,
+  isRcaRunBlocked,
+  isDetectorRunBlocked,
 } from "./plans.js";

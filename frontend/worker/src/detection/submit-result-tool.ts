@@ -1,5 +1,5 @@
-import { Type, type TSchema } from "@mariozechner/pi-ai";
-import type { Tool } from "@mariozechner/pi-ai";
+import { Type, type TSchema } from "@earendil-works/pi-ai";
+import type { Tool } from "@earendil-works/pi-ai";
 
 export interface SubmitResultInput {
   identified: boolean;

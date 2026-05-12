@@ -3,8 +3,8 @@ import {
   type AgentEvent,
   type AgentTool,
   type AgentMessage,
-} from "@mariozechner/pi-agent-core";
-import { getEnvApiKey, type Message } from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-agent-core";
+import { getEnvApiKey, type Message } from "@earendil-works/pi-ai";
 import { ADAPTER_TO_PI_AI, BEDROCK_USE_DEFAULT_CREDENTIALS, ModelSource } from "@traceroot/core";
 import {
   resolvePiModel,
@@ -126,7 +126,9 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
   // Load existing conversation history
   const agentMessages = await sessionManager.buildContext();
   if (agentMessages.length > 0) {
-    agent.replaceMessages(agentMessages);
+    // pi-agent-core 0.74.0 dropped `replaceMessages` in favor of direct state
+    // assignment. Semantically equivalent — sets the agent's message history.
+    agent.state.messages = agentMessages;
   }
 
   sessionAgents.set(config.sessionId, agent);

@@ -50,13 +50,23 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Create checkout session with plan price + AI usage metered price
+    // Create checkout session with plan price + all three metered products.
+    // Metered items have no quantity — usage flows from Stripe meter events.
+    // All three are required so paid plans can be billed for chat, RCA, and
+    // detector hosted-LLM usage. Missing any one means that meter's events
+    // will fire successfully but no charge will appear on the customer's bill.
     const lineItems: { price: string; quantity?: number }[] = [
       { price: planConfig.billingPriceId, quantity: 1 },
     ];
-    const aiUsagePriceId = process.env.STRIPE_PRICE_ID_AI_USAGE;
-    if (aiUsagePriceId) {
-      lineItems.push({ price: aiUsagePriceId });
+    const meteredPriceIds = [
+      process.env.STRIPE_PRICE_ID_AI_USAGE,
+      process.env.STRIPE_PRICE_ID_RCA_USAGE,
+      process.env.STRIPE_PRICE_ID_DETECTOR_USAGE,
+    ];
+    for (const priceId of meteredPriceIds) {
+      if (priceId) {
+        lineItems.push({ price: priceId });
+      }
     }
 
     const checkoutSession = await stripe.checkout.sessions.create({
