@@ -85,12 +85,25 @@ export async function POST(req: NextRequest) {
     // All metered usage price IDs — must be excluded when finding the plan item,
     // and preserved across plan changes / downgrade schedules so meter events
     // continue to bill correctly.
+    const meteredPriceEnvVars: Array<[string, string | undefined]> = [
+      ["STRIPE_PRICE_ID_AI_USAGE", process.env.STRIPE_PRICE_ID_AI_USAGE],
+      ["STRIPE_PRICE_ID_RCA_USAGE", process.env.STRIPE_PRICE_ID_RCA_USAGE],
+      ["STRIPE_PRICE_ID_DETECTOR_USAGE", process.env.STRIPE_PRICE_ID_DETECTOR_USAGE],
+    ];
+    for (const [envName, priceId] of meteredPriceEnvVars) {
+      if (!priceId) {
+        // Loud warning so prod misconfig surfaces. If the existing subscription
+        // has a real metered item with this missing-from-env ID, plan-item
+        // detection below will treat it as the plan item — wrong, and likely
+        // surfaces as a 500 ("Plan subscription item not found").
+        console.warn(
+          `[Billing] ${envName} is not set — plan-item detection and downgrade ` +
+            `schedule preservation will treat this meter as missing.`,
+        );
+      }
+    }
     const meteredPriceIds = new Set(
-      [
-        process.env.STRIPE_PRICE_ID_AI_USAGE,
-        process.env.STRIPE_PRICE_ID_RCA_USAGE,
-        process.env.STRIPE_PRICE_ID_DETECTOR_USAGE,
-      ].filter((p): p is string => Boolean(p)),
+      meteredPriceEnvVars.map(([, p]) => p).filter((p): p is string => Boolean(p)),
     );
     const planItem = subscription.items.data.find((item) => !meteredPriceIds.has(item.price.id));
 

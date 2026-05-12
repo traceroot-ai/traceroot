@@ -58,14 +58,22 @@ export async function POST(req: NextRequest) {
     const lineItems: { price: string; quantity?: number }[] = [
       { price: planConfig.billingPriceId, quantity: 1 },
     ];
-    const meteredPriceIds = [
-      process.env.STRIPE_PRICE_ID_AI_USAGE,
-      process.env.STRIPE_PRICE_ID_RCA_USAGE,
-      process.env.STRIPE_PRICE_ID_DETECTOR_USAGE,
+    const meteredPriceIds: Array<[string, string | undefined]> = [
+      ["STRIPE_PRICE_ID_AI_USAGE", process.env.STRIPE_PRICE_ID_AI_USAGE],
+      ["STRIPE_PRICE_ID_RCA_USAGE", process.env.STRIPE_PRICE_ID_RCA_USAGE],
+      ["STRIPE_PRICE_ID_DETECTOR_USAGE", process.env.STRIPE_PRICE_ID_DETECTOR_USAGE],
     ];
-    for (const priceId of meteredPriceIds) {
+    for (const [envName, priceId] of meteredPriceIds) {
       if (priceId) {
         lineItems.push({ price: priceId });
+      } else {
+        // Loud warning so prod misconfig surfaces in logs instead of silently
+        // dropping a metered line item (which means meter events fire but no
+        // revenue accrues for that usage type).
+        console.warn(
+          `[Billing] ${envName} is not set — checkout will skip this metered price. ` +
+            `Meter events for this usage type will fire but no charge will appear on the bill.`,
+        );
       }
     }
 

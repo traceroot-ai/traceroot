@@ -8,7 +8,6 @@
   "scripts": {
     "dev": "dotenv -e ../../.env -- tsx watch src/index.ts",
     "dev:billing": "dotenv -e ../../.env -- tsx watch src/index.ts",
-    "dev:billing:once": "dotenv -e ../../.env -- tsx src/billing-run-once.ts",
     "dev:detectors": "dotenv -e ../../.env -- tsx watch src/detector-main.ts",
     "build": "tsc",
     "start": "node dist/index.js",
