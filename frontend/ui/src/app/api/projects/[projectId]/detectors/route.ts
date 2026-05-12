@@ -120,6 +120,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   }
   if (triggerConditions !== undefined && Array.isArray(triggerConditions)) {
     for (const cond of triggerConditions as Array<Record<string, unknown>>) {
+      if (!cond || typeof cond !== "object" || Array.isArray(cond)) {
+        return errorResponse("Each condition must be an object", 400);
+      }
       if (typeof cond.field !== "string" || !cond.field) {
         return errorResponse("Each condition must have a valid field string", 400);
       }
@@ -127,7 +130,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         return errorResponse("Each condition must have a valid op string", 400);
       }
       if (cond.field.startsWith("tag:")) {
-        if (!["=", "!=", "matches"].includes(cond.op)) {
+        if (!["=", "!=", "matches"].includes(cond.op as string)) {
           return errorResponse(`Invalid operator '${cond.op}' for tag field`, 400);
         }
         if (typeof cond.value !== "string") {
