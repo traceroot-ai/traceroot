@@ -1,5 +1,5 @@
-import { Type, type Static } from "@mariozechner/pi-ai";
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import { Type, type Static } from "@earendil-works/pi-ai";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 
 const FASTAPI_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 
@@ -31,9 +31,10 @@ export function createQuerySessionsTool(projectId: string, userId: string): Agen
     parameters: querySessionsSchema,
     execute: async (
       _toolCallId: string,
-      params: QuerySessionsParams,
+      rawParams: unknown,
       signal?: AbortSignal,
     ): Promise<AgentToolResult<undefined>> => {
+      const params = rawParams as QuerySessionsParams;
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         "x-user-id": userId,

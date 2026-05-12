@@ -82,15 +82,42 @@ export async function POST(req: NextRequest) {
     // Case 3: Has subscription, changing to another paid plan
     const subscription = await stripe.subscriptions.retrieve(workspace.billingSubscriptionId);
 
-    // Find the plan item (non-metered) vs AI usage item (metered)
-    const aiUsagePriceId = process.env.STRIPE_PRICE_ID_AI_USAGE;
-    const planItem = subscription.items.data.find((item) => item.price.id !== aiUsagePriceId);
+    // All metered usage price IDs — must be excluded when finding the plan item,
+    // and preserved across plan changes / downgrade schedules so meter events
+    // continue to bill correctly.
+    const meteredPriceEnvVars: Array<[string, string | undefined]> = [
+      ["STRIPE_PRICE_ID_AI_USAGE", process.env.STRIPE_PRICE_ID_AI_USAGE],
+      ["STRIPE_PRICE_ID_RCA_USAGE", process.env.STRIPE_PRICE_ID_RCA_USAGE],
+      ["STRIPE_PRICE_ID_DETECTOR_USAGE", process.env.STRIPE_PRICE_ID_DETECTOR_USAGE],
+    ];
+    for (const [envName, priceId] of meteredPriceEnvVars) {
+      if (!priceId) {
+        // Loud warning so prod misconfig surfaces. If the existing subscription
+        // has a real metered item with this missing-from-env ID, plan-item
+        // detection below will treat it as the plan item — wrong, and likely
+        // surfaces as a 500 ("Plan subscription item not found").
+        console.warn(
+          `[Billing] ${envName} is not set — plan-item detection and downgrade ` +
+            `schedule preservation will treat this meter as missing.`,
+        );
+      }
+    }
+    const meteredPriceIds = new Set(
+      meteredPriceEnvVars.map(([, p]) => p).filter((p): p is string => Boolean(p)),
+    );
+    const planItem = subscription.items.data.find((item) => !meteredPriceIds.has(item.price.id));
 
     if (!planItem) {
       return NextResponse.json({ error: "Plan subscription item not found" }, { status: 500 });
     }
 
     const subscriptionItemId = planItem.id;
+    // Existing metered items on the subscription — used to preserve them
+    // across downgrade schedules (Stripe replaces phase.items, so we must
+    // re-include the metered prices in each phase or they get dropped).
+    const existingMeteredPriceIds = subscription.items.data
+      .map((item) => item.price.id)
+      .filter((priceId) => meteredPriceIds.has(priceId));
 
     // If subscription is set to cancel, remove that first
     if (subscription.cancel_at_period_end) {
@@ -125,6 +152,11 @@ export async function POST(req: NextRequest) {
           },
         ],
         proration_behavior: "always_invoice",
+        // Reset billing cycle to upgrade moment so usage quotas start fresh on
+        // the new plan. Matches Free→Paid behavior. Stripe handles money
+        // symmetrically via proration — customer pays full new-plan price
+        // minus refund for unused old-plan time.
+        billing_cycle_anchor: "now",
       });
 
       console.log("Stripe subscription updated:", {
@@ -160,15 +192,22 @@ export async function POST(req: NextRequest) {
         from_subscription: workspace.billingSubscriptionId!,
       });
 
+      // Preserve metered items on both phases — Stripe replaces `phase.items`
+      // wholesale, so anything we don't include here gets dropped at the
+      // phase boundary, breaking downstream billing for those meters.
+      const meteredPhaseItems = existingMeteredPriceIds.map((priceId) => ({ price: priceId }));
       await stripe.subscriptionSchedules.update(schedule.id, {
         phases: [
           {
-            items: [{ price: planItem.price.id, quantity: planItem.quantity ?? 1 }],
+            items: [
+              { price: planItem.price.id, quantity: planItem.quantity ?? 1 },
+              ...meteredPhaseItems,
+            ],
             start_date: schedule.phases[0].start_date,
             end_date: subscription.current_period_end,
           },
           {
-            items: [{ price: newPlanConfig.billingPriceId, quantity: 1 }],
+            items: [{ price: newPlanConfig.billingPriceId, quantity: 1 }, ...meteredPhaseItems],
             start_date: subscription.current_period_end,
           },
         ],

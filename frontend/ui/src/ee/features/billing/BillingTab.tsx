@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { ArrowRight, ExternalLink, AlertCircle, CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,8 +12,101 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { PLANS, PlanType, isUpgrade, EVENT_QUOTAS, AI_RUN_QUOTAS } from "@traceroot/core";
-import type { UsageStats } from "@/types/api";
+import {
+  PLANS,
+  PlanType,
+  isUpgrade,
+  EVENT_QUOTAS,
+  AI_RUN_QUOTAS,
+  RCA_RUN_QUOTAS,
+  DETECTOR_RUN_QUOTAS,
+} from "@traceroot/core";
+import type { UsageStats, AIUsageByModel } from "@/types/api";
+import { formatRcaQuotaLabel, formatDetectorScanLabel } from "./usage-labels";
+
+function formatCost(cost: number): string {
+  if (cost < 0.01) return cost > 0 ? "< $0.01" : "$0.00";
+  return `$${cost.toFixed(2)}`;
+}
+
+function formatTokens(input: number, output: number): string {
+  return `${(input + output).toLocaleString()} tokens`;
+}
+
+interface UsageSectionProps {
+  title: string;
+  runsLabel: string;
+  runsValue: string;
+  runsHelper: string;
+  systemCost: number;
+  systemHelper: string;
+  systemInputTokens: number;
+  systemOutputTokens: number;
+  byModel: AIUsageByModel[] | undefined;
+}
+
+function UsageSection({
+  title,
+  runsLabel,
+  runsValue,
+  runsHelper,
+  systemCost,
+  systemHelper,
+  systemInputTokens,
+  systemOutputTokens,
+  byModel,
+}: UsageSectionProps) {
+  return (
+    <div className="border">
+      <div className="border-b bg-muted/30 px-4 py-3">
+        <h3 className="text-sm font-medium">{title}</h3>
+      </div>
+      <div className="space-y-4 px-4 py-3">
+        <div>
+          <div className="flex items-baseline justify-between">
+            <p className="text-sm font-medium">{runsLabel}</p>
+            <span className="text-sm font-medium">{runsValue}</span>
+          </div>
+          <p className="text-xs text-muted-foreground">{runsHelper}</p>
+        </div>
+
+        <div>
+          <div className="flex items-baseline justify-between">
+            <p className="text-sm font-medium">Internal Models</p>
+            <span className="text-sm font-medium">{formatCost(systemCost)}</span>
+          </div>
+          <p className="text-xs text-muted-foreground">{systemHelper}</p>
+          <div className="mt-2 flex justify-between text-sm text-muted-foreground">
+            <span>Input / Output</span>
+            <span>
+              {systemInputTokens.toLocaleString()} / {systemOutputTokens.toLocaleString()}
+            </span>
+          </div>
+        </div>
+
+        {byModel && byModel.length > 0 && (
+          <div className="-mx-4 border-t px-4 pt-3">
+            <p className="text-xs font-medium uppercase text-muted-foreground">By model</p>
+            <div className="mt-2 space-y-1.5 text-sm">
+              {byModel.map((row) => (
+                <div key={`${row.model}-${row.isByok}`} className="flex justify-between">
+                  <span className="text-muted-foreground">
+                    {row.model}
+                    {row.isByok && <span className="ml-1 text-xs opacity-60">BYOK</span>}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {formatTokens(row.inputTokens, row.outputTokens)}
+                    {!row.isByok && ` · ${formatCost(row.cost)}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 import {
   createCheckoutSession,
   changePlan,
@@ -34,15 +128,21 @@ export function BillingTab({
   hasSubscription = false,
   currentUsage,
 }: BillingTabProps) {
-  const [showPricingDialog, setShowPricingDialog] = useState(false);
+  const searchParams = useSearchParams();
+  const upgradeIntent = searchParams.get("upgrade");
+  const [showPricingDialog, setShowPricingDialog] = useState(Boolean(upgradeIntent));
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [subscriptionInfo, setSubscriptionInfo] = useState<SubscriptionInfo | null>(null);
 
   const currentPlanConfig = PLANS[currentPlan];
   const aiUsage = currentUsage?.ai;
+  const rcaUsage = currentUsage?.rca;
+  const detectorUsage = currentUsage?.detector;
   const eventQuota = EVENT_QUOTAS[currentPlan];
   const aiRunQuota = AI_RUN_QUOTAS[currentPlan];
+  const rcaRunQuota = RCA_RUN_QUOTAS[currentPlan];
+  const detectorRunQuota = DETECTOR_RUN_QUOTAS[currentPlan];
 
   // Fetch live subscription info from Stripe
   useEffect(() => {
@@ -106,15 +206,6 @@ export function BillingTab({
     if (planId === PlanType.FREE) return "Downgrade";
     if (isUpgrade(currentPlan, planId)) return "Upgrade";
     return "Downgrade";
-  }
-
-  function formatCost(cost: number): string {
-    if (cost < 0.01) return cost > 0 ? "< $0.01" : "$0.00";
-    return `$${cost.toFixed(2)}`;
-  }
-
-  function formatTokens(input: number, output: number): string {
-    return `${(input + output).toLocaleString()} tokens`;
   }
 
   return (
@@ -244,96 +335,67 @@ export function BillingTab({
         </div>
       </div>
 
-      {/* AI Usage Section */}
-      <div className="border">
-        <div className="border-b bg-muted/30 px-4 py-3">
-          <h3 className="text-sm font-medium">AI Usage</h3>
-        </div>
-        <div className="space-y-4 px-4 py-3">
-          {/* AI Runs */}
-          <div>
-            <div className="flex items-baseline justify-between">
-              <p className="text-sm font-medium">AI Runs</p>
-              <span className="text-sm font-medium">
-                {aiRunQuota.included === Infinity
-                  ? `${aiUsage?.runsUsed ?? 0} (Unlimited)`
-                  : `${aiUsage?.runsUsed ?? 0} / ${aiRunQuota.included}`}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              1 run = 1 chat message, 1 agent turn, 1 auto-triage, or 1 issue creation.
-              {currentPlan !== PlanType.FREE &&
-                currentPlan !== PlanType.ENTERPRISE &&
-                ` Overage: ${aiRunQuota.overageLabel}.`}
-            </p>
-          </div>
+      <UsageSection
+        title="Chat Usage"
+        runsLabel="Chat Runs"
+        runsValue={
+          aiRunQuota.included === Infinity
+            ? `${aiUsage?.runsUsed ?? 0} (Unlimited)`
+            : `${aiUsage?.runsUsed ?? 0} / ${aiRunQuota.included}`
+        }
+        runsHelper={
+          "Each chat request." +
+          (currentPlan !== PlanType.FREE && currentPlan !== PlanType.ENTERPRISE
+            ? ` Overage: ${aiRunQuota.overageLabel}.`
+            : "")
+        }
+        systemCost={aiUsage?.systemUsage.cost ?? 0}
+        systemHelper={
+          currentPlan === PlanType.FREE
+            ? "Included in your plan (we pay)."
+            : "Included with runs; 1.05x markup on overage token cost."
+        }
+        systemInputTokens={aiUsage?.systemUsage.inputTokens ?? 0}
+        systemOutputTokens={aiUsage?.systemUsage.outputTokens ?? 0}
+        byModel={aiUsage?.byModel}
+      />
 
-          {/* System Models */}
-          <div>
-            <div className="flex items-baseline justify-between">
-              <p className="text-sm font-medium">Internal Models</p>
-              <span className="text-sm font-medium">
-                {formatCost(aiUsage?.systemUsage.cost ?? 0)}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {currentPlan === PlanType.FREE
-                ? "Included in your plan (we pay)."
-                : "Included with runs; 1.05x markup on overage token cost."}
-            </p>
-            <div className="mt-2 flex justify-between text-sm text-muted-foreground">
-              <span>Input / Output</span>
-              <span>
-                {(aiUsage?.systemUsage.inputTokens ?? 0).toLocaleString()} /{" "}
-                {(aiUsage?.systemUsage.outputTokens ?? 0).toLocaleString()}
-              </span>
-            </div>
-          </div>
+      <UsageSection
+        title="Detector Usage"
+        runsLabel="Detector Runs"
+        runsValue={
+          detectorRunQuota.included === Infinity
+            ? formatDetectorScanLabel(detectorUsage?.scansRun ?? 0)
+            : `${detectorUsage?.scansRun ?? 0} / ${detectorRunQuota.included}`
+        }
+        runsHelper="Each detector scan."
+        systemCost={detectorUsage?.systemTokenCost ?? 0}
+        systemHelper="Usage based."
+        systemInputTokens={detectorUsage?.systemInputTokens ?? 0}
+        systemOutputTokens={detectorUsage?.systemOutputTokens ?? 0}
+        byModel={detectorUsage?.byModel}
+      />
 
-          {/* BYOK Models */}
-          {aiUsage && (aiUsage.byokUsage.messages > 0 || aiUsage.byModel.some((m) => m.isByok)) && (
-            <div>
-              <div className="flex items-baseline justify-between">
-                <p className="text-sm font-medium">BYOK Models</p>
-                <span className="text-sm text-muted-foreground">
-                  {formatTokens(aiUsage.byokUsage.inputTokens, aiUsage.byokUsage.outputTokens)}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Your own API keys. Not billed by TraceRoot (runs still count).
-              </p>
-              <div className="mt-2 flex justify-between text-sm text-muted-foreground">
-                <span>Input / Output</span>
-                <span>
-                  {aiUsage.byokUsage.inputTokens.toLocaleString()} /{" "}
-                  {aiUsage.byokUsage.outputTokens.toLocaleString()}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* By Model breakdown */}
-          {aiUsage && aiUsage.byModel.length > 0 && (
-            <div className="-mx-4 border-t px-4 pt-3">
-              <p className="text-xs font-medium uppercase text-muted-foreground">By model</p>
-              <div className="mt-2 space-y-1.5 text-sm">
-                {aiUsage.byModel.map((row) => (
-                  <div key={`${row.model}-${row.isByok}`} className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      {row.model}
-                      {row.isByok && <span className="ml-1 text-xs opacity-60">BYOK</span>}
-                    </span>
-                    <span className="text-muted-foreground">
-                      {formatTokens(row.inputTokens, row.outputTokens)}
-                      {!row.isByok && ` \u00b7 ${formatCost(row.cost)}`}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+      <UsageSection
+        title="Root Cause Analysis Usage"
+        runsLabel="Root Cause Analysis Runs"
+        runsValue={formatRcaQuotaLabel(rcaRunQuota, rcaUsage?.runsUsed ?? 0)}
+        runsHelper={
+          "Triggered by detector findings." +
+          (currentPlan !== PlanType.FREE && currentPlan !== PlanType.ENTERPRISE
+            ? ` Overage: ${rcaRunQuota.overageLabel}.`
+            : "")
+        }
+        systemCost={rcaUsage?.systemTokenCost ?? 0}
+        systemHelper={
+          currentPlan === PlanType.FREE
+            ? "Included in your plan (we pay)."
+            : "Included with runs; 1.05x markup on overage token cost."
+        }
+        systemInputTokens={rcaUsage?.systemInputTokens ?? 0}
+        systemOutputTokens={rcaUsage?.systemOutputTokens ?? 0}
+        byModel={rcaUsage?.byModel}
+      />
 
       {/* Pricing Dialog */}
       <Dialog open={showPricingDialog} onOpenChange={setShowPricingDialog}>

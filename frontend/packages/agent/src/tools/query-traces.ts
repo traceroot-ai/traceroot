@@ -1,5 +1,5 @@
-import { Type, type Static } from "@mariozechner/pi-ai";
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import { Type, type Static } from "@earendil-works/pi-ai";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 
 const FASTAPI_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 
@@ -32,9 +32,10 @@ export function createQueryTracesTool(projectId: string, userId: string): AgentT
     parameters: queryTracesSchema,
     execute: async (
       _toolCallId: string,
-      params: QueryTracesParams,
+      rawParams: unknown,
       signal?: AbortSignal,
     ): Promise<AgentToolResult<undefined>> => {
+      const params = rawParams as QueryTracesParams;
       const queryParams = new URLSearchParams();
       queryParams.set("limit", String(params.limit || 20));
       if (params.userId) queryParams.set("user_id", params.userId);

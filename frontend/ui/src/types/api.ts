@@ -13,6 +13,8 @@ export interface UsageStats {
   tokens: number;
   updatedAt: string;
   ai?: AIUsageData;
+  rca?: RcaUsageData;
+  detector?: DetectorUsageData;
 }
 
 // Workspace types
@@ -241,6 +243,32 @@ export interface AIUsageData {
   systemUsage: AIUsageCategory;
   byokUsage: AIUsageCategory;
   byModel: AIUsageByModel[];
+}
+
+// RCA run usage stats (nested in UsageStats.rca). Separate meter from AI runs.
+// Mirrors the worker shape exactly. Optional on UsageStats — workspaces in
+// transition may not have the field populated yet.
+export interface RcaUsageData {
+  runsUsed: number;
+  systemTokenCost: number;
+  systemInputTokens: number;
+  systemOutputTokens: number;
+  byModel: AIUsageByModel[];
+  lastReportedUnits: number;
+  lastReportedPeriodStart: string | null;
+}
+
+// Detector scan usage (nested in UsageStats.detector). Informational + 1.05× pass-through
+// on system-source inference. scansRun counts BYOK + system; systemTokenCost / system*Tokens
+// track only system-source. Detector scans have no quota — this is just a counter.
+export interface DetectorUsageData {
+  scansRun: number;
+  systemTokenCost: number;
+  systemInputTokens: number;
+  systemOutputTokens: number;
+  byModel: AIUsageByModel[];
+  lastReportedUnits?: number;
+  lastReportedPeriodStart?: string | null;
 }
 
 // Legacy aliases for backward compatibility
