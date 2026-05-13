@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -22,6 +22,7 @@ import { ContentRenderer } from "./ContentRenderer";
 import { formatDuration, formatCost, buildUrlWithFilters } from "@/lib/utils";
 import { toTimestampBounds } from "@/lib/date-filter";
 import { useLayout } from "@/components/layout/app-layout";
+import { AiPanelSlot } from "@/features/ai-assistant/components/ai-panel-slot";
 import type { SessionTraceItem } from "@/types/api";
 
 interface SessionDetailPanelProps {
@@ -94,17 +95,8 @@ export function SessionDetailPanel({
   customEndDate,
 }: SessionDetailPanelProps) {
   const router = useRouter();
-  const { setAiPanelOpen, setAiContext, setAiPanelSlotEl } = useLayout();
+  const { setAiPanelOpen, setAiContext } = useLayout();
   const { isPending: authPending } = useAuthSession();
-
-  // Portal target for the global AiAssistantPanel. State stays in AppLayout
-  // so chat survives this viewer's unmount.
-  const setSlotRef = useCallback(
-    (el: HTMLDivElement | null) => {
-      setAiPanelSlotEl(el);
-    },
-    [setAiPanelSlotEl],
-  );
 
   // Compute timestamps from date filter props
   const sessionQueryOptions = useMemo(() => {
@@ -283,7 +275,7 @@ export function SessionDetailPanel({
           </div>
         </div>
         {/* AI panel portal target — chat renders here as a sibling of the session detail column. */}
-        <div ref={setSlotRef} className="flex shrink-0" />
+        <AiPanelSlot />
       </div>
     </div>
   );
