@@ -20,6 +20,7 @@ import type { TraceSelection } from "../types";
 import { SpanTreeView } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
 import { useLayout } from "@/components/layout/app-layout";
+import { AiPanelSlot } from "@/features/ai-assistant/components/ai-panel-slot";
 import { useTraceStream } from "../hooks/use-trace-stream";
 import { SpanTimelineView } from "./SpanTimelineView";
 import { buildSpanTree, enrichSpansWithPending, TREE_LAYOUT } from "../utils";
@@ -64,7 +65,7 @@ export function TraceViewerPanel({
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   const [viewMode, setViewMode] = useState<"tree" | "timeline">("tree");
-  const { setAiPanelOpen, setAiContext, setAiPanelSlotEl } = useLayout();
+  const { setAiPanelOpen, setAiContext } = useLayout();
 
   // Shared collapse state (SpanTreeView + SpanTimelineView stay in sync)
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
@@ -73,15 +74,6 @@ export function TraceViewerPanel({
   const treeScrollRef = useRef<HTMLDivElement>(null);
   const timelineScrollRef = useRef<HTMLDivElement>(null);
   const isSyncing = useRef(false);
-
-  // Portal target for the global AiAssistantPanel. State stays in AppLayout
-  // so chat survives this viewer's unmount.
-  const setSlotRef = useCallback(
-    (el: HTMLDivElement | null) => {
-      setAiPanelSlotEl(el);
-    },
-    [setAiPanelSlotEl],
-  );
 
   const [hoveredSpanId, setHoveredSpanId] = useState<string | null>(null);
 
@@ -355,7 +347,7 @@ export function TraceViewerPanel({
           )}
         </div>
         {/* AI panel portal target — chat renders here as a sibling of the span panels. */}
-        <div ref={setSlotRef} className="flex shrink-0" />
+        <AiPanelSlot />
       </div>
     </div>
   );

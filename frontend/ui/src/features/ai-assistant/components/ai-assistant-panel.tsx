@@ -32,6 +32,10 @@ export function AiAssistantPanel({
   const { width, onMouseDown } = usePanelResize();
   const { aiPanelSlotEl } = useLayout();
   const inSlot = !!aiPanelSlotEl;
+  // Header button + icon sizes shrink when the panel renders inside a host
+  // slot so the compact slot header doesn't dwarf the surrounding UI.
+  const headerBtnCls = cn("shrink-0", inSlot ? "h-7 w-7 p-0" : "h-8 w-8");
+  const headerIconCls = inSlot ? "h-3.5 w-3.5" : "h-4 w-4";
 
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
@@ -111,22 +115,22 @@ export function AiAssistantPanel({
         <Button
           variant="ghost"
           size="icon"
-          className={cn("shrink-0", inSlot ? "h-7 w-7 p-0" : "h-8 w-8")}
+          className={headerBtnCls}
           title="New session"
           onClick={handleNewSession}
         >
-          <Plus className={inSlot ? "h-3.5 w-3.5" : "h-4 w-4"} />
+          <Plus className={headerIconCls} />
         </Button>
         <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
           <PopoverTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className={cn("shrink-0", inSlot ? "h-7 w-7 p-0" : "h-8 w-8")}
+              className={headerBtnCls}
               title="History"
               onClick={handleOpenHistory}
             >
-              <History className={inSlot ? "h-3.5 w-3.5" : "h-4 w-4"} />
+              <History className={headerIconCls} />
             </Button>
           </PopoverTrigger>
           <PopoverContent
@@ -145,13 +149,8 @@ export function AiAssistantPanel({
           </PopoverContent>
         </Popover>
         <div className="flex-1" />
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn("shrink-0", inSlot ? "h-7 w-7 p-0" : "h-8 w-8")}
-          onClick={onClose}
-        >
-          <X className={inSlot ? "h-3.5 w-3.5" : "h-4 w-4"} />
+        <Button variant="ghost" size="icon" className={headerBtnCls} onClick={onClose}>
+          <X className={headerIconCls} />
         </Button>
       </div>
 
