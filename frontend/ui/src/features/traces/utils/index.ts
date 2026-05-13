@@ -6,8 +6,8 @@ import type { Span, TraceDetail } from "@/types/api";
 import type { SpanTreeRow } from "../types";
 import { parseAsUTC } from "@/lib/utils";
 
-function parseTimestamp(ts: string): number {
-  return parseAsUTC(ts).getTime();
+export function parseTimestamp(ts: string): number {
+  return parseAsUTC(ts.trim()).getTime();
 }
 
 function parseMetadata(metadata: string | null): Record<string, unknown> {
