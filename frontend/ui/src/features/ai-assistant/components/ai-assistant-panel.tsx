@@ -9,29 +9,20 @@ import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
 import { useAiChat } from "../hooks/use-ai-chat";
-import { usePanelResize } from "../hooks/use-panel-resize";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
 import type { AiTraceContext } from "../types";
 
 interface AiAssistantPanelProps {
   projectId?: string;
-  open: boolean;
   onClose: () => void;
   initialContext?: AiTraceContext | null;
 }
 
-export function AiAssistantPanel({
-  projectId,
-  open,
-  onClose,
-  initialContext,
-}: AiAssistantPanelProps) {
-  const { width, onMouseDown } = usePanelResize();
-
+export function AiAssistantPanel({ projectId, onClose, initialContext }: AiAssistantPanelProps) {
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => getProject(projectId!),
-    enabled: open && !!projectId,
+    enabled: !!projectId,
   });
 
   // workspaceId from project (only available on project pages)
@@ -41,7 +32,7 @@ export function AiAssistantPanel({
   const { data: llmModels } = useQuery({
     queryKey: ["llm-models", workspaceId],
     queryFn: () => getAvailableLLMModels(workspaceId!),
-    enabled: open && !!workspaceId,
+    enabled: !!workspaceId,
   });
   const hasModels =
     !llmModels ||
@@ -74,22 +65,10 @@ export function AiAssistantPanel({
   });
 
   // Reset to a blank session whenever the panel is closed so re-opening starts fresh.
-  useEffect(() => {
-    if (!open) handleNewSession();
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!open) return null;
+  useEffect(() => () => handleNewSession(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div
-      className="relative z-[60] flex h-screen shrink-0 flex-col border-l bg-background"
-      style={{ width }}
-    >
-      {/* Left resize handle */}
-      <div
-        className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50"
-        onMouseDown={onMouseDown}
-      />
+    <div className="flex h-full flex-col border-l border-border bg-background">
       {/* Header */}
       <div className="flex h-14 items-center gap-1 border-b px-3">
         <Button

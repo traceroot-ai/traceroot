@@ -15,6 +15,7 @@ import {
   BotMessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { ExpandableSection } from "@/components/ui/expandable-section";
 import { useSession } from "@/features/traces/hooks";
 import { useSession as useAuthSession } from "@/lib/auth-client";
@@ -174,107 +175,133 @@ export function SessionDetailPanel({
       </div>
 
       {/* Content row (session detail + optional AI overlay) */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Session detail */}
-        <div className="flex flex-1 flex-col overflow-hidden">
-          {/* Session metadata badges */}
-          {data && (
-            <div className="border-b border-border bg-background px-4 py-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                  <Layers className="h-3 w-3 text-muted-foreground" />
-                  <span className="text-muted-foreground">Traces:</span>
-                  <span className="font-medium">{data.trace_count}</span>
-                </div>
-                {data.duration_ms !== null && data.duration_ms > 0 && (
-                  <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                    <Clock className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-muted-foreground">Total Latency:</span>
-                    <span className="font-medium">{formatDuration(data.duration_ms)}</span>
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
+          {/* Session detail */}
+          <ResizablePanel
+            id="session-detail-main"
+            minSize="320px"
+            className="min-w-0 overflow-hidden"
+          >
+            <div className="flex h-full flex-col overflow-hidden">
+              {/* Session metadata badges */}
+              {data && (
+                <div className="border-b border-border bg-background px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                      <Layers className="h-3 w-3 text-muted-foreground" />
+                      <span className="text-muted-foreground">Traces:</span>
+                      <span className="font-medium">{data.trace_count}</span>
+                    </div>
+
+                    {data.duration_ms !== null && data.duration_ms > 0 && (
+                      <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                        <Clock className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-muted-foreground">Total Latency:</span>
+                        <span className="font-medium">{formatDuration(data.duration_ms)}</span>
+                      </div>
+                    )}
+
+                    <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                      <span className="text-muted-foreground">Total Tokens:</span>
+                      <span className="font-medium">
+                        {totalTokenCount?.toLocaleString() ?? "-"}
+                      </span>
+                    </div>
+
+                    <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                      <span className="text-muted-foreground">Cost:</span>
+                      <span className="font-medium">{formatCost(totalCost)}</span>
+                    </div>
                   </div>
-                )}
-                <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                  <span className="text-muted-foreground">Total Tokens:</span>
-                  <span className="font-medium">{totalTokenCount?.toLocaleString() ?? "-"}</span>
-                </div>
-                <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                  <span className="text-muted-foreground">Cost:</span>
-                  <span className="font-medium">{formatCost(totalCost)}</span>
-                </div>
-              </div>
-              {data.user_ids.length > 0 && (
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {data.user_ids.map((userId) => (
-                    <button
-                      key={userId}
-                      type="button"
-                      onClick={() => {
-                        onClose();
-                        router.push(
-                          buildUrl(`/projects/${projectId}/traces`, {
-                            user_id: userId,
-                          }),
-                        );
-                      }}
-                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
-                    >
-                      <Users className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-muted-foreground">User:</span>
-                      <span className="font-medium">{userId}</span>
-                      <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                    </button>
-                  ))}
+
+                  {data.user_ids.length > 0 && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {data.user_ids.map((userId) => (
+                        <button
+                          key={userId}
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            router.push(
+                              buildUrl(`/projects/${projectId}/traces`, {
+                                user_id: userId,
+                              }),
+                            );
+                          }}
+                          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
+                        >
+                          <Users className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-muted-foreground">User:</span>
+                          <span className="font-medium">{userId}</span>
+                          <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
+
+              {/* Trace list */}
+              <div className="flex-1 overflow-auto p-4">
+                {checking ? (
+                  <div className="flex h-64 items-center justify-center">
+                    <p className="text-[13px] text-muted-foreground">Loading session...</p>
+                  </div>
+                ) : error ? (
+                  <div className="flex h-64 flex-col items-center justify-center gap-3">
+                    <p className="text-[13px] text-destructive">Error loading session</p>
+                  </div>
+                ) : !data ? (
+                  <div className="flex h-64 flex-col items-center justify-center gap-3">
+                    <Layers className="h-8 w-8 text-muted-foreground" />
+                    <p className="text-[13px] text-muted-foreground">Session not found</p>
+                  </div>
+                ) : data.traces.length === 0 ? (
+                  <div className="flex h-64 flex-col items-center justify-center gap-3">
+                    <Layers className="h-8 w-8 text-muted-foreground" />
+                    <p className="text-[13px] text-muted-foreground">No traces in this session</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {data.traces.map((trace: SessionTraceItem, index: number) => (
+                      <TraceCard
+                        key={trace.trace_id}
+                        trace={trace}
+                        index={index}
+                        traceUrl={buildUrl(`/projects/${projectId}/traces`, {
+                          traceId: trace.trace_id,
+                        })}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
+          </ResizablePanel>
+
+          {/* AI Chat overlay */}
+          {aiChatOpen && (
+            <>
+              <ResizableHandle />
+
+              <ResizablePanel
+                id="session-ai-chat"
+                defaultSize="33%"
+                minSize="280px"
+                maxSize="50%"
+                className="min-w-0 bg-background"
+              >
+                <AiChatOverlay
+                  projectId={projectId}
+                  traceId={data?.traces[0]?.trace_id}
+                  traceSessionId={sessionId}
+                  onClose={() => setAiChatOpen(false)}
+                />
+              </ResizablePanel>
+            </>
           )}
-
-          {/* Trace list */}
-          <div className="flex-1 overflow-auto p-4">
-            {checking ? (
-              <div className="flex h-64 items-center justify-center">
-                <p className="text-[13px] text-muted-foreground">Loading session...</p>
-              </div>
-            ) : error ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-3">
-                <p className="text-[13px] text-destructive">Error loading session</p>
-              </div>
-            ) : !data ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-3">
-                <Layers className="h-8 w-8 text-muted-foreground" />
-                <p className="text-[13px] text-muted-foreground">Session not found</p>
-              </div>
-            ) : data.traces.length === 0 ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-3">
-                <Layers className="h-8 w-8 text-muted-foreground" />
-                <p className="text-[13px] text-muted-foreground">No traces in this session</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {data.traces.map((trace: SessionTraceItem, index: number) => (
-                  <TraceCard
-                    key={trace.trace_id}
-                    trace={trace}
-                    index={index}
-                    traceUrl={buildUrl(`/projects/${projectId}/traces`, {
-                      traceId: trace.trace_id,
-                    })}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* AI Chat overlay */}
-        {aiChatOpen && (
-          <AiChatOverlay
-            projectId={projectId}
-            traceId={data?.traces[0]?.trace_id}
-            traceSessionId={sessionId}
-            onClose={() => setAiChatOpen(false)}
-          />
-        )}
+        </ResizablePanelGroup>
       </div>
     </div>
   );
