@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Button } from "@/components/ui/button";
 import { PanelLeft, BotMessageSquare } from "lucide-react";
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import type { AiTraceContext } from "@/features/ai-assistant/types";
 
@@ -16,6 +15,12 @@ interface LayoutContextType {
   setHeaderContent: (content: ReactNode) => void;
   aiPanelOpen: boolean;
   setAiPanelOpen: (open: boolean) => void;
+  // When a host (e.g. TraceViewerPanel) provides a portal target, the global
+  // AiAssistantPanel renders its visual UI into that element instead of its
+  // default fixed position. State always lives in AppLayout, so chat survives
+  // the host mounting / unmounting.
+  aiPanelSlotEl: HTMLDivElement | null;
+  setAiPanelSlotEl: (el: HTMLDivElement | null) => void;
   aiContext: AiTraceContext | null;
   setAiContext: (context: AiTraceContext | null) => void;
   hideAiButton: boolean;
@@ -29,6 +34,8 @@ const LayoutContext = createContext<LayoutContextType>({
   setHeaderContent: () => {},
   aiPanelOpen: false,
   setAiPanelOpen: () => {},
+  aiPanelSlotEl: null,
+  setAiPanelSlotEl: () => {},
   aiContext: null,
   setAiContext: () => {},
   hideAiButton: false,
@@ -43,6 +50,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [headerContent, setHeaderContent] = useState<ReactNode>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiPanelSlotEl, setAiPanelSlotEl] = useState<HTMLDivElement | null>(null);
   const [aiContext, setAiContext] = useState<AiTraceContext | null>(null);
   const [hideAiButton, setHideAiButton] = useState(true);
   const pathname = usePathname();
@@ -78,79 +86,56 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         setHeaderContent,
         aiPanelOpen,
         setAiPanelOpen,
+        aiPanelSlotEl,
+        setAiPanelSlotEl,
         aiContext,
         setAiContext,
         hideAiButton,
         setHideAiButton,
       }}
     >
-      <div className="flex h-screen overflow-hidden">
+      <div className="flex h-screen">
         <Sidebar collapsed={sidebarCollapsed} />
-
-        <ResizablePanelGroup orientation="horizontal" className="min-w-0 flex-1 overflow-hidden">
-          <ResizablePanel
-            id="main-content"
-            minSize="0px"
-            className="flex min-w-0 flex-col overflow-hidden"
-          >
-            {/* Top header bar */}
-            <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 shrink-0"
-                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              >
-                <PanelLeft className="h-4 w-4" />
-              </Button>
-
-              {headerContent}
-
-              {showAiButton && (
-                <div className="ml-auto">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 shrink-0"
-                    onClick={() => {
-                      if (aiPanelOpen) setAiContext(null);
-                      setAiPanelOpen(!aiPanelOpen);
-                    }}
-                    title="AI Assistant"
-                  >
-                    <BotMessageSquare className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-            </header>
-
-            <main className="min-h-0 flex-1 overflow-auto">{children}</main>
-          </ResizablePanel>
-
-          {aiPanelOpen && (
-            <>
-              <ResizableHandle />
-
-              <ResizablePanel
-                id="app-ai-panel"
-                defaultSize="400px"
-                minSize="280px"
-                maxSize="520px"
-                groupResizeBehavior="preserve-pixel-size"
-                className="min-w-0 border-border"
-              >
-                <AiAssistantPanel
-                  projectId={projectId}
-                  initialContext={aiContext}
-                  onClose={() => {
-                    setAiPanelOpen(false);
-                    setAiContext(null);
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          {/* Top header bar */}
+          <header className="flex h-14 items-center gap-2 border-b bg-background px-3">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            >
+              <PanelLeft className="h-4 w-4" />
+            </Button>
+            {headerContent}
+            {showAiButton && (
+              <div className="ml-auto">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0"
+                  onClick={() => {
+                    if (aiPanelOpen) setAiContext(null);
+                    setAiPanelOpen(!aiPanelOpen);
                   }}
-                />
-              </ResizablePanel>
-            </>
-          )}
-        </ResizablePanelGroup>
+                  title="AI Assistant"
+                >
+                  <BotMessageSquare className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+          </header>
+          <main className="flex-1 overflow-hidden">{children}</main>
+        </div>
+        <AiAssistantPanel
+          projectId={projectId}
+          open={aiPanelOpen}
+          initialContext={aiContext}
+          onClose={() => {
+            setAiPanelOpen(false);
+            setAiContext(null);
+          }}
+        />
       </div>
     </LayoutContext.Provider>
   );

@@ -1,28 +1,46 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useLayout } from "@/components/layout/app-layout";
 import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
 import { useAiChat } from "../hooks/use-ai-chat";
+import { usePanelResize } from "../hooks/use-panel-resize";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
 import type { AiTraceContext } from "../types";
 
 interface AiAssistantPanelProps {
   projectId?: string;
+  open: boolean;
   onClose: () => void;
   initialContext?: AiTraceContext | null;
 }
 
-export function AiAssistantPanel({ projectId, onClose, initialContext }: AiAssistantPanelProps) {
+export function AiAssistantPanel({
+  projectId,
+  open,
+  onClose,
+  initialContext,
+}: AiAssistantPanelProps) {
+  const { width, onMouseDown } = usePanelResize();
+  const { aiPanelSlotEl } = useLayout();
+  const inSlot = !!aiPanelSlotEl;
+  // Header button + icon sizes shrink when the panel renders inside a host
+  // slot so the compact slot header doesn't dwarf the surrounding UI.
+  const headerBtnCls = cn("shrink-0", inSlot ? "h-7 w-7 p-0" : "h-8 w-8");
+  const headerIconCls = inSlot ? "h-3.5 w-3.5" : "h-4 w-4";
+
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => getProject(projectId!),
-    enabled: !!projectId,
+    enabled: open && !!projectId,
   });
 
   // workspaceId from project (only available on project pages)
@@ -32,7 +50,7 @@ export function AiAssistantPanel({ projectId, onClose, initialContext }: AiAssis
   const { data: llmModels } = useQuery({
     queryKey: ["llm-models", workspaceId],
     queryFn: () => getAvailableLLMModels(workspaceId!),
-    enabled: !!workspaceId,
+    enabled: open && !!workspaceId,
   });
   const hasModels =
     !llmModels ||
@@ -65,35 +83,54 @@ export function AiAssistantPanel({ projectId, onClose, initialContext }: AiAssis
     traceSessionId: initialContext?.traceSessionId,
   });
 
-  // Reset on unmount: abort any in-flight stream + drop session id and messages
-  // so reopening (a new mount via AppLayout) starts fresh. The agent service
-  // finishes writing its message to DB even after client disconnect, so an
-  // interrupted conversation is still recoverable via History.
-  useEffect(() => () => handleClose(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // End the conversation when the panel closes (X button, sidebar toggle, or
+  // route change). Any in-flight run is aborted client-side; the agent
+  // service finishes writing its message to DB on its own, so users can
+  // recover the full message via History. Reopening starts a fresh session.
+  // Switching traces within the same page does NOT close the panel, so this
+  // does not fire there — preserving the in-page chat-survives-trace-switch
+  // behavior from the decoupling fix.
+  useEffect(() => {
+    if (!open) handleClose();
+  }, [open, handleClose]);
 
-  return (
-    <div className="flex h-full flex-col border-l border-border bg-background">
+  // Stay mounted when closed: hide via CSS so trace switches (which keep the
+  // panel open) do not tear down the conversation. Closing the panel itself
+  // ends the conversation via the effect above — DOM stays mounted but state
+  // is reset, so re-opening starts fresh.
+  const panelInner = (
+    <>
+      {/* Left resize handle */}
+      <div
+        className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50"
+        onMouseDown={onMouseDown}
+      />
       {/* Header */}
-      <div className="flex h-14 items-center gap-1 border-b px-3">
+      <div
+        className={cn(
+          "flex items-center gap-1 border-b px-3",
+          inSlot ? "h-10 bg-muted/30" : "h-14",
+        )}
+      >
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 shrink-0"
+          className={headerBtnCls}
           title="New session"
           onClick={handleNewSession}
         >
-          <Plus className="h-4 w-4" />
+          <Plus className={headerIconCls} />
         </Button>
         <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
           <PopoverTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 shrink-0"
+              className={headerBtnCls}
               title="History"
               onClick={handleOpenHistory}
             >
-              <History className="h-4 w-4" />
+              <History className={headerIconCls} />
             </Button>
           </PopoverTrigger>
           <PopoverContent
@@ -112,8 +149,8 @@ export function AiAssistantPanel({ projectId, onClose, initialContext }: AiAssis
           </PopoverContent>
         </Popover>
         <div className="flex-1" />
-        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onClose}>
-          <X className="h-4 w-4" />
+        <Button variant="ghost" size="icon" className={headerBtnCls} onClick={onClose}>
+          <X className={headerIconCls} />
         </Button>
       </div>
 
@@ -179,6 +216,36 @@ export function AiAssistantPanel({ projectId, onClose, initialContext }: AiAssis
           )
         }
       />
+    </>
+  );
+
+  // Portal into a host-registered slot when present; otherwise render in
+  // place at the AppLayout flex root. State lives in AppLayout so chat
+  // survives host mount/unmount.
+  if (aiPanelSlotEl) {
+    return createPortal(
+      <div
+        className={cn(
+          "relative flex h-full shrink-0 flex-col border-l bg-background",
+          !open && "hidden",
+        )}
+        style={{ width: open ? width : 0 }}
+      >
+        {panelInner}
+      </div>,
+      aiPanelSlotEl,
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "relative z-[60] flex h-screen shrink-0 flex-col border-l bg-background",
+        !open && "hidden",
+      )}
+      style={{ width: open ? width : 0 }}
+    >
+      {panelInner}
     </div>
   );
 }
