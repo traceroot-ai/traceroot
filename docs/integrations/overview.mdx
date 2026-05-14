@@ -3,73 +3,85 @@ title: Introduction
 description: Connect TraceRoot to your LLM providers, frameworks, and tools
 ---
 
+export const IntegrationCard = ({ logo, logoDark, title, href }) => (
+  <a
+    href={href}
+    className="not-prose group flex flex-row items-center p-3 gap-2.5 border border-gray-950/10 dark:border-white/10 rounded-xl bg-white dark:bg-background-dark hover:border-primary dark:hover:border-primary-light transition-colors no-underline"
+  >
+    <div className="shrink-0 flex items-center justify-center">
+      <img
+        src={logo}
+        alt=""
+        className={`w-5 h-5 object-contain m-0 ${logoDark ? "block dark:hidden" : ""}`}
+      />
+      {logoDark && (
+        <img
+          src={logoDark}
+          alt=""
+          className="w-5 h-5 object-contain m-0 hidden dark:block"
+        />
+      )}
+    </div>
+    <h3 className="m-0 text-sm font-medium text-gray-700 dark:text-gray-300 leading-tight">
+      {title}
+    </h3>
+  </a>
+);
+
+export const IntegrationGrid = ({ cols = 3, children }) => (
+  <div
+    className={`grid gap-3 my-4 ${
+      cols === 2
+        ? "grid-cols-1 sm:grid-cols-2"
+        : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3"
+    }`}
+  >
+    {children}
+  </div>
+);
+
 TraceRoot integrates with popular LLM providers and agent frameworks via auto-instrumentation — every call is captured as a span with no code changes beyond initialization.
 
-## SDK
+Don't see your integration? [Request one on GitHub](https://github.com/traceroot-ai/traceroot/issues/new).
 
-<CardGroup cols={2}>
-  <Card title="Python SDK" icon="python" href="/tracing/python-sdk">
-    The core SDK for tracing, decorators, and manual instrumentation.
-  </Card>
-  <Card title="TypeScript SDK" icon="js" href="/tracing/typescript-sdk">
-    The core SDK for tracing, observe wrapper, and manual instrumentation.
-  </Card>
-</CardGroup>
+## Native
+
+Auto-instrument with TraceRoot's official SDKs.
+
+<IntegrationGrid cols={2}>
+  <IntegrationCard logo="/logo/integrations/python.svg" logoDark="/logo/integrations/python-dark.svg" title="Python SDK" href="/tracing/python-sdk" />
+  <IntegrationCard logo="/logo/integrations/typescript.svg" logoDark="/logo/integrations/typescript-dark.svg" title="TypeScript SDK" href="/tracing/typescript-sdk" />
+</IntegrationGrid>
 
 ## Frameworks
 
-<CardGroup cols={2}>
-  <Card title="LangChain & LangGraph" icon="link" href="/integrations/langchain">
-    Auto-instrument agent steps, tool calls, and LLM invocations.
-  </Card>
-  <Card title="LangChain DeepAgents" icon="magnifying-glass" href="/integrations/langchain-deepagents">
-    Trace multi-agent research pipelines built with DeepAgents.
-  </Card>
-  <Card title="OpenAI Agents SDK" icon="robot" href="/integrations/openai-agents-sdk">
-    Auto-instrument OpenAI Agents SDK agents, tools, and multi-turn conversations.
-  </Card>
-  <Card title="Mastra" icon="bolt" href="/integrations/mastra">
-    Export traces from Mastra agents via the TraceRoot OTLP exporter.
-  </Card>
-  <Card title="Vercel AI SDK" icon="cloud-bolt" href="/integrations/vercel-ai">
-    Native OpenTelemetry tracing — no `instrumentModules` config required.
-  </Card>
-  <Card title="AutoGen (AG2)" icon="robot" href="/integrations/autogen">
-    Auto-instrument AutoGen multi-agent conversations and tool calls.
-  </Card>
-  <Card title="LlamaIndex" icon="book-open" href="/integrations/llamaindex">
-    Auto-instrument RAG pipelines, retrieval, and query engines.
-  </Card>
-  <Card title="CrewAI" icon="users" href="/integrations/crewai">
-    Auto-instrument CrewAI multi-agent collaborative workflows.
-  </Card>
-  <Card title="Agno" icon="wand-magic-sparkles" href="/integrations/agno">
-    Auto-instrument Agno agents, tools, and multi-step reasoning.
-  </Card>
-  <Card title="DSPy" icon="diagram-project" href="/integrations/dspy">
-    Trace DSPy modules, signatures, and chain-of-thought reasoning.
-  </Card>
-  <Card title="Google ADK" icon="google" href="/integrations/google-adk">
-    Auto-instrument Google Agent Development Kit agents and runners.
-  </Card>
-</CardGroup>
+Trace popular agent frameworks and orchestration libraries.
+
+<IntegrationGrid cols={3}>
+  <IntegrationCard logo="/logo/integrations/agno.png" title="Agno" href="/integrations/agno" />
+  <IntegrationCard logo="/logo/integrations/autogen.svg" title="AutoGen" href="/integrations/autogen" />
+  <IntegrationCard logo="/logo/integrations/claude-agent-sdk.svg" title="Claude Agent SDK" href="/integrations/claude-agent-sdk" />
+  <IntegrationCard logo="/logo/integrations/crewai.svg" title="CrewAI" href="/integrations/crewai" />
+  <IntegrationCard logo="/logo/integrations/dspy.png" title="DSPy" href="/integrations/dspy" />
+  <IntegrationCard logo="/logo/integrations/google-adk.png" title="Google ADK" href="/integrations/google-adk" />
+  <IntegrationCard logo="/logo/integrations/langchain.png" title="LangChain & LangGraph" href="/integrations/langchain" />
+  <IntegrationCard logo="/logo/integrations/langchain.png" title="LangChain DeepAgents" href="/integrations/langchain-deepagents" />
+  <IntegrationCard logo="/logo/integrations/llamaindex.png" title="LlamaIndex" href="/integrations/llamaindex" />
+  <IntegrationCard logo="/logo/integrations/mastra.svg" logoDark="/logo/integrations/mastra-dark.svg" title="Mastra" href="/integrations/mastra" />
+  <IntegrationCard logo="/logo/integrations/openai-agents-sdk.svg" logoDark="/logo/integrations/openai-agents-sdk-dark.svg" title="OpenAI Agents SDK" href="/integrations/openai-agents-sdk" />
+  <IntegrationCard logo="/logo/integrations/vercel-ai.svg" logoDark="/logo/integrations/vercel-ai-dark.svg" title="Vercel AI SDK" href="/integrations/vercel-ai" />
+</IntegrationGrid>
 
 ## Model Providers
 
-<CardGroup cols={2}>
-  <Card title="OpenAI" href="/integrations/openai">
-    Chat Completions and Responses API.
-  </Card>
-  <Card title="Anthropic" href="/integrations/anthropic">
-    Messages API.
-  </Card>
-  <Card title="Google Gemini" href="/integrations/gemini">
-    Gemini models via the Google GenAI SDK.
-  </Card>
-  <Card title="Mistral" href="/integrations/mistral">
-    Mistral chat completion and tool-calling API.
-  </Card>
-</CardGroup>
+Trace direct calls to LLM providers.
+
+<IntegrationGrid cols={3}>
+  <IntegrationCard logo="/logo/integrations/anthropic.svg" logoDark="/logo/integrations/anthropic-dark.svg" title="Anthropic" href="/integrations/anthropic" />
+  <IntegrationCard logo="/logo/integrations/gemini.svg" title="Google Gemini" href="/integrations/gemini" />
+  <IntegrationCard logo="/logo/integrations/mistral.svg" title="Mistral" href="/integrations/mistral" />
+  <IntegrationCard logo="/logo/integrations/openai.svg" logoDark="/logo/integrations/openai-dark.svg" title="OpenAI" href="/integrations/openai" />
+</IntegrationGrid>
 
 ## Internal Model Providers
 
