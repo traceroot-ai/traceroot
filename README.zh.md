@@ -3,7 +3,7 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-[TraceRoot]("https://traceroot.ai/") 是面向 AI Agent 的开源可观测性平台 —— 采集追踪数据，借助能看到你的源码和 GitHub 历史的 AI 完成调试。
+[TraceRoot]("https://traceroot.ai/") 是面向 AI Agent 的开源可观测性平台 —— 捕获调用链路，通过能够理解你的源码与 GitHub 上下文的 AI 快速定位并修复问题。
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
