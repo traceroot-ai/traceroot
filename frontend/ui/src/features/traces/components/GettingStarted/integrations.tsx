@@ -194,6 +194,35 @@ const mastra = new Mastra({
     },
   },
   {
+    id: "vercel-ai",
+    name: "Vercel AI SDK",
+    href: "https://traceroot.ai/docs/integrations/vercel-ai",
+    icon: (
+      <svg
+        aria-hidden="true"
+        width="24"
+        height="24"
+        viewBox="-2 -2 28 28"
+        fill="currentColor"
+        className="text-foreground"
+      >
+        <path d="M24 22.525H0l12-21.05 12 21.05z" />
+      </svg>
+    ),
+    languages: {
+      typescript: {
+        installCommand: TYPESCRIPT_INSTALL_COMMAND,
+        initSnippet: `import { TraceRoot } from "@traceroot-ai/traceroot";
+
+// No instrumentModules — Vercel AI SDK telemetry is handled automatically.
+TraceRoot.initialize();
+
+// Then on each generateText / streamText / generateObject call:
+//   experimental_telemetry: { isEnabled: true }`,
+      },
+    },
+  },
+  {
     id: "crewai",
     name: "CrewAI",
     href: "https://traceroot.ai/docs/integrations/crewai",

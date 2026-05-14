@@ -22,7 +22,6 @@ import { ContentRenderer } from "./ContentRenderer";
 import { formatDuration, formatCost, buildUrlWithFilters } from "@/lib/utils";
 import { toTimestampBounds } from "@/lib/date-filter";
 import { useLayout } from "@/components/layout/app-layout";
-import { AiPanelSlot } from "@/features/ai-assistant/components/ai-panel-slot";
 import type { SessionTraceItem } from "@/types/api";
 
 interface SessionDetailPanelProps {
@@ -132,15 +131,13 @@ export function SessionDetailPanel({
   return (
     <div className="flex h-full flex-col bg-background">
       {/* Header bar */}
-      <div className="flex h-10 items-center justify-between gap-2 border-b border-border bg-muted/30 px-4">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="shrink-0 text-sm font-medium">Session</span>
-          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-            {sessionId}
-          </span>
+      <div className="flex h-10 items-center justify-between border-b border-border bg-muted/30 px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <Layers className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium">Session</span>
+          <span className="truncate font-mono text-xs text-muted-foreground">{sessionId}</span>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex items-center gap-1">
           <Button
             variant="outline"
             size="sm"
@@ -182,100 +179,99 @@ export function SessionDetailPanel({
         </div>
       </div>
 
-      {/* Content row (session detail + optional AI overlay) */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Session detail */}
-        <div className="flex flex-1 flex-col overflow-hidden">
-          {/* Session metadata badges */}
-          {data && (
-            <div className="border-b border-border bg-background px-4 py-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                  <Layers className="h-3 w-3 text-muted-foreground" />
-                  <span className="text-muted-foreground">Traces:</span>
-                  <span className="font-medium">{data.trace_count}</span>
-                </div>
-                {data.duration_ms !== null && data.duration_ms > 0 && (
-                  <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                    <Clock className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-muted-foreground">Total Latency:</span>
-                    <span className="font-medium">{formatDuration(data.duration_ms)}</span>
-                  </div>
-                )}
-                <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                  <span className="text-muted-foreground">Total Tokens:</span>
-                  <span className="font-medium">{totalTokenCount?.toLocaleString() ?? "-"}</span>
-                </div>
-                <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                  <span className="text-muted-foreground">Cost:</span>
-                  <span className="font-medium">{formatCost(totalCost)}</span>
-                </div>
+      {/* Content: session detail (AI lives globally in AppLayout, not here). */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* Session metadata badges */}
+        {data && (
+          <div className="border-b border-border bg-background px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                <Layers className="h-3 w-3 text-muted-foreground" />
+                <span className="text-muted-foreground">Traces:</span>
+                <span className="font-medium">{data.trace_count}</span>
               </div>
-              {data.user_ids.length > 0 && (
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {data.user_ids.map((userId) => (
-                    <button
-                      key={userId}
-                      type="button"
-                      onClick={() => {
-                        onClose();
-                        router.push(
-                          buildUrl(`/projects/${projectId}/traces`, {
-                            user_id: userId,
-                          }),
-                        );
-                      }}
-                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
-                    >
-                      <Users className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-muted-foreground">User:</span>
-                      <span className="font-medium">{userId}</span>
-                      <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                    </button>
-                  ))}
+
+              {data.duration_ms !== null && data.duration_ms > 0 && (
+                <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                  <Clock className="h-3 w-3 text-muted-foreground" />
+                  <span className="text-muted-foreground">Total Latency:</span>
+                  <span className="font-medium">{formatDuration(data.duration_ms)}</span>
                 </div>
               )}
-            </div>
-          )}
 
-          {/* Trace list */}
-          <div className="flex-1 overflow-auto p-4">
-            {checking ? (
-              <div className="flex h-64 items-center justify-center">
-                <p className="text-[13px] text-muted-foreground">Loading session...</p>
+              <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                <span className="text-muted-foreground">Total Tokens:</span>
+                <span className="font-medium">{totalTokenCount?.toLocaleString() ?? "-"}</span>
               </div>
-            ) : error ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-3">
-                <p className="text-[13px] text-destructive">Error loading session</p>
+
+              <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                <span className="text-muted-foreground">Cost:</span>
+                <span className="font-medium">{formatCost(totalCost)}</span>
               </div>
-            ) : !data ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-3">
-                <Layers className="h-8 w-8 text-muted-foreground" />
-                <p className="text-[13px] text-muted-foreground">Session not found</p>
-              </div>
-            ) : data.traces.length === 0 ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-3">
-                <Layers className="h-8 w-8 text-muted-foreground" />
-                <p className="text-[13px] text-muted-foreground">No traces in this session</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {data.traces.map((trace: SessionTraceItem, index: number) => (
-                  <TraceCard
-                    key={trace.trace_id}
-                    trace={trace}
-                    index={index}
-                    traceUrl={buildUrl(`/projects/${projectId}/traces`, {
-                      traceId: trace.trace_id,
-                    })}
-                  />
+            </div>
+
+            {data.user_ids.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {data.user_ids.map((userId) => (
+                  <button
+                    key={userId}
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      router.push(
+                        buildUrl(`/projects/${projectId}/traces`, {
+                          user_id: userId,
+                        }),
+                      );
+                    }}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
+                  >
+                    <Users className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-muted-foreground">User:</span>
+                    <span className="font-medium">{userId}</span>
+                    <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                  </button>
                 ))}
               </div>
             )}
           </div>
+        )}
+
+        {/* Trace list */}
+        <div className="flex-1 overflow-auto p-4">
+          {checking ? (
+            <div className="flex h-64 items-center justify-center">
+              <p className="text-[13px] text-muted-foreground">Loading session...</p>
+            </div>
+          ) : error ? (
+            <div className="flex h-64 flex-col items-center justify-center gap-3">
+              <p className="text-[13px] text-destructive">Error loading session</p>
+            </div>
+          ) : !data ? (
+            <div className="flex h-64 flex-col items-center justify-center gap-3">
+              <Layers className="h-8 w-8 text-muted-foreground" />
+              <p className="text-[13px] text-muted-foreground">Session not found</p>
+            </div>
+          ) : data.traces.length === 0 ? (
+            <div className="flex h-64 flex-col items-center justify-center gap-3">
+              <Layers className="h-8 w-8 text-muted-foreground" />
+              <p className="text-[13px] text-muted-foreground">No traces in this session</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {data.traces.map((trace: SessionTraceItem, index: number) => (
+                <TraceCard
+                  key={trace.trace_id}
+                  trace={trace}
+                  index={index}
+                  traceUrl={buildUrl(`/projects/${projectId}/traces`, {
+                    traceId: trace.trace_id,
+                  })}
+                />
+              ))}
+            </div>
+          )}
         </div>
-        {/* AI panel portal target — chat renders here as a sibling of the session detail column. */}
-        <AiPanelSlot />
       </div>
     </div>
   );
