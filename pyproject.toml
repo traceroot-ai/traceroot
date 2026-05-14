@@ -15,7 +15,7 @@ dependencies = [
     # REST API
     "fastapi>=0.109",
     "uvicorn[standard]>=0.27",
-    "python-multipart>=0.0.26",
+    "python-multipart>=0.0.27",
     # OpenTelemetry
     "protobuf>=6.33.5",
     "opentelemetry-proto>=1.20.0",
