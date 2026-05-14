@@ -61,6 +61,12 @@ My project uses [Python / TypeScript/Node.js] — adjust the instructions to mat
    import { TraceRootExporter } from '@traceroot-ai/mastra';
    const exporter = new TraceRootExporter({ apiKey: process.env.TRACEROOT_API_KEY });
    // Pass exporter to Mastra's Observability config (see docs/integrations/mastra)
+
+   For the Vercel AI SDK, no instrumentModules entry is needed:
+   TraceRoot.initialize();
+   // Then on each generateText / streamText / generateObject call, set:
+   //   experimental_telemetry: { isEnabled: true }
+   // (See docs/integrations/vercel-ai)
 3. Wrap agent entrypoints and tool functions with observe():
    import { observe } from '@traceroot-ai/traceroot';
    const result = await observe({ name: 'my_agent', type: 'agent' }, async () => {
