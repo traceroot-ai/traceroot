@@ -33,4 +33,7 @@ export {
   // Free plan blocking
   isFreePlanBlocked,
   isAiRunBlocked,
+  // Data retention
+  RETENTION_DAYS,
+  getRetentionDays,
 } from "./plans";

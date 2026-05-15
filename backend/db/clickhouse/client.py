@@ -144,6 +144,10 @@ class ClickHouseClient:
         """Execute a query and return the result."""
         return self._client.query(query, parameters=parameters)
 
+    def command(self, cmd: str, parameters: dict[str, Any] | None = None) -> None:
+        """Execute a DDL/DML command (e.g. ALTER TABLE DELETE mutation)."""
+        self._client.command(cmd, parameters=parameters)
+
     def close(self) -> None:
         """Close the client connection."""
         self._client.close()

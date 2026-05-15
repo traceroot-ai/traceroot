@@ -237,6 +237,35 @@ export function requireEntitlement(
 }
 
 // =============================================================================
+// DATA RETENTION
+// =============================================================================
+
+// Retention window in days per plan (null = custom / no enforced limit)
+export const RETENTION_DAYS: Record<PlanType, number | null> = {
+  [PlanType.FREE]: 15,
+  [PlanType.STARTER]: 30,
+  [PlanType.PRO]: 90,
+  [PlanType.ENTERPRISE]: null,
+};
+
+/**
+ * Get the effective data retention TTL in days for a plan.
+ *
+ * Returns null when:
+ * - Billing is disabled (self-hosted, no limits enforced)
+ * - Enterprise plan without a custom TTL set on the project
+ *
+ * @param plan          The workspace's billing plan
+ * @param customTtlDays Per-project override (used for Enterprise plans)
+ */
+export function getRetentionDays(plan: PlanType, customTtlDays?: number | null): number | null {
+  if (!isBillingEnabled()) return null;
+  const planDays = RETENTION_DAYS[plan];
+  if (planDays !== null) return planDays;
+  return customTtlDays ?? null;
+}
+
+// =============================================================================
 // SEAT ENFORCEMENT
 // =============================================================================
 export function getSeatLimit(plan: PlanType): number {
