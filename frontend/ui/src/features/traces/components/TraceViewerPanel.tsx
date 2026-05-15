@@ -20,7 +20,7 @@ import type { TraceSelection } from "../types";
 import { SpanTreeView } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
 import { useLayout } from "@/components/layout/app-layout";
-import { AiPanelSlot } from "@/features/ai-assistant/components/ai-panel-slot";
+import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { useTraceStream } from "../hooks/use-trace-stream";
 import { SpanTimelineView } from "./SpanTimelineView";
 import { buildSpanTree, enrichSpansWithPending, TREE_LAYOUT } from "../utils";
@@ -40,17 +40,14 @@ interface TraceViewerPanelProps {
 /**
  * Full-screen slide-in panel for viewing trace details.
  *
- * Layout — SpanTreeView is always on the left in both modes:
+ * Resize hierarchy (#881):
+ *   outer: [ Trace Tree | Right Workspace ]
+ *   inner: [ Span Details | AI Assistant (optional) ]
  *
- *   Tree mode:
- *     [SpanTreeView ~30%] | [SpanInfoPanel ~70%]
- *
- *   Timeline mode:
- *     [SpanTreeView compact ~30%] | [SpanTimelineView ~70%]
- *     Clicking a timeline bar → switches back to tree mode with the span selected.
- *
- * Collapse state and scroll position are shared so the tree and bars stay aligned.
- * The divider is draggable in both modes (tree and timeline).
+ * The outer divider resizes tree vs everything-else; the inner divider only
+ * touches details vs AI so the tree stays stable while the user adjusts the
+ * assistant. AI state lives in AiChatProvider above this component, so chat
+ * survives trace switching (#784).
  */
 export function TraceViewerPanel({
   projectId,
@@ -65,7 +62,14 @@ export function TraceViewerPanel({
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   const [viewMode, setViewMode] = useState<"tree" | "timeline">("tree");
-  const { setAiPanelOpen, setAiContext } = useLayout();
+  const { aiPanelOpen, setAiPanelOpen, setAiContext, registerAiHost } = useLayout();
+
+  // Claim the AI slot for this viewer so AppLayout's project rail steps aside.
+  // `registerAiHost()` returns its own cleanup, which we return from the effect
+  // so React runs it on unmount and the rail comes back.
+  useEffect(() => {
+    return registerAiHost();
+  }, [registerAiHost]);
 
   // Shared collapse state (SpanTreeView + SpanTimelineView stay in sync)
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
@@ -96,10 +100,8 @@ export function TraceViewerPanel({
 
   useEffect(() => {
     if (viewMode !== "timeline") return;
-
     requestAnimationFrame(() => {
       if (!treeScrollRef.current || !timelineScrollRef.current) return;
-
       timelineScrollRef.current.scrollTop = treeScrollRef.current.scrollTop;
     });
   }, [viewMode]);
@@ -107,11 +109,8 @@ export function TraceViewerPanel({
   const handleToggleCollapse = useCallback((id: string) => {
     setCollapsedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }, []);
@@ -146,7 +145,6 @@ export function TraceViewerPanel({
     (sel: TraceSelection) => {
       setSelection(sel);
       setViewMode("tree");
-
       if (sel.type === "span" && trace) {
         const spans = enrichSpansWithPending(trace.spans);
         const spanById = new Map(spans.map((s) => [s.span_id, s]));
@@ -163,8 +161,7 @@ export function TraceViewerPanel({
 
   // Sync tree scroll → timeline
   const handleTreeScroll = useCallback(() => {
-    if (isSyncing.current || !treeScrollRef.current) return;
-    if (!timelineScrollRef.current) return;
+    if (isSyncing.current || !treeScrollRef.current || !timelineScrollRef.current) return;
     isSyncing.current = true;
     timelineScrollRef.current.scrollTop = treeScrollRef.current.scrollTop;
     requestAnimationFrame(() => {
@@ -185,15 +182,13 @@ export function TraceViewerPanel({
   return (
     <div className="flex h-full flex-col bg-background">
       {/* ── MAIN HEADER ── */}
-      <div className="flex h-12 items-center justify-between gap-2 border-b border-border bg-muted/30 px-4">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Workflow className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="shrink-0 text-sm font-medium">Trace</span>
-          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-            {traceId}
-          </span>
+      <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <Workflow className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium">Trace</span>
+          <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex items-center gap-1">
           <Button
             variant="outline"
             size="sm"
@@ -220,7 +215,7 @@ export function TraceViewerPanel({
             size="sm"
             onClick={() => {
               setAiContext({ traceId });
-              setAiPanelOpen(true);
+              setAiPanelOpen(!aiPanelOpen);
             }}
             className="h-7 w-7 p-0"
             title="AI Assistant"
@@ -245,8 +240,7 @@ export function TraceViewerPanel({
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <ListTree className="h-3.5 w-3.5" />
-            Trace
+            <ListTree className="h-3.5 w-3.5" /> Trace
           </button>
           <button
             onClick={() => setViewMode("timeline")}
@@ -257,70 +251,71 @@ export function TraceViewerPanel({
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <SquareGanttChart className="h-3.5 w-3.5" />
-            Timeline
+            <SquareGanttChart className="h-3.5 w-3.5" /> Timeline
           </button>
         </div>
       </div>
 
       {/* ── CONTENT AREA ── */}
-      {/* Always render this container (and the AI slot inside it) regardless
-          of trace load state, so navigating to a not-yet-cached trace via
-          ↑ / ↓ doesn't unmount the slot — that would force the AI panel to
-          fall back to its fixed overlay for the duration of the fetch and
-          flicker the chatbox in / out of place. */}
+      {/* ResizablePanelGroup stays mounted across trace switches so the AI
+          panel inside doesn't get torn down while the next trace is
+          fetching (#784: chat survives ↑/↓ navigation). Loading and error
+          states are isolated to the detail panel's content. */}
       <div className="relative flex flex-1 overflow-hidden">
-        <div className="flex flex-1 overflow-hidden">
-          {isLoading ? (
-            <div className="flex flex-1 items-center justify-center">
-              <p className="text-sm text-muted-foreground">Loading trace...</p>
+        <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
+          {/* LEFT: tree panel — outer group */}
+          <ResizablePanel
+            id="trace-tree"
+            defaultSize="32%"
+            minSize="260px"
+            maxSize="50%"
+            className="flex min-w-0 flex-col bg-muted/30"
+          >
+            <div
+              className="flex flex-shrink-0 items-center border-b border-border bg-muted/10 px-3"
+              style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
+            >
+              <span className="text-[11px] font-medium text-muted-foreground">Trace Tree</span>
             </div>
-          ) : error || !trace ? (
-            <div className="flex flex-1 items-center justify-center">
-              <p className="text-sm text-destructive">Error loading trace</p>
+            <div ref={treeScrollRef} className="flex-1 overflow-y-auto" onScroll={handleTreeScroll}>
+              {trace && (
+                <SpanTreeView
+                  trace={trace}
+                  selection={selection}
+                  onSelect={viewMode === "tree" ? setSelection : handleTimelineSelect}
+                  collapsedIds={collapsedIds}
+                  onToggleCollapse={handleToggleCollapse}
+                  compact={viewMode === "timeline"}
+                  hoveredSpanId={hoveredSpanId}
+                  onHoverChange={setHoveredSpanId}
+                />
+              )}
             </div>
-          ) : (
-            <ResizablePanelGroup orientation="horizontal">
-              {/* LEFT: tree panel */}
+          </ResizablePanel>
+
+          <ResizableHandle />
+
+          {/* RIGHT: workspace (details + optional AI) — inner group */}
+          <ResizablePanel
+            id="trace-right-workspace"
+            minSize="420px"
+            className="min-w-0 overflow-hidden border-l border-border bg-background"
+          >
+            <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
               <ResizablePanel
-                defaultSize="30%"
-                minSize="20%"
-                maxSize="50%"
-                className="flex flex-col bg-muted/30"
+                id="trace-detail"
+                minSize="320px"
+                className="min-w-0 overflow-hidden bg-background"
               >
-                <div
-                  className="flex flex-shrink-0 items-center border-b border-border bg-muted/10 px-3"
-                  style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
-                >
-                  <span className="text-[11px] font-medium text-muted-foreground">Trace Tree</span>
-                </div>
-                <div
-                  ref={treeScrollRef}
-                  className="flex-1 overflow-y-auto"
-                  onScroll={handleTreeScroll}
-                >
-                  <SpanTreeView
-                    trace={trace}
-                    selection={selection}
-                    onSelect={viewMode === "tree" ? setSelection : handleTimelineSelect}
-                    collapsedIds={collapsedIds}
-                    onToggleCollapse={handleToggleCollapse}
-                    compact={viewMode === "timeline"}
-                    hoveredSpanId={hoveredSpanId}
-                    onHoverChange={setHoveredSpanId}
-                  />
-                </div>
-              </ResizablePanel>
-
-              {/* RIGHT BORDER / RESIZER HANDLE */}
-              <ResizableHandle className="group/handle relative z-50 flex w-px cursor-col-resize items-center justify-center bg-border transition-colors duration-150 ease-in-out">
-                <div className="absolute inset-y-0 z-10 w-[3px] bg-transparent transition-colors duration-150 group-hover/handle:bg-primary/30 group-active/handle:bg-primary/40 group-data-[resize-handle-state=drag]/handle:bg-primary/40" />
-                <div className="absolute z-20 h-4 w-[3px] rounded-full bg-muted-foreground/40 ring-2 ring-transparent transition-all duration-150 group-hover/handle:h-6 group-hover/handle:bg-primary group-hover/handle:ring-background group-active/handle:bg-primary group-active/handle:ring-background group-data-[resize-handle-state=drag]/handle:h-6 group-data-[resize-handle-state=drag]/handle:bg-primary group-data-[resize-handle-state=drag]/handle:ring-background" />
-              </ResizableHandle>
-
-              {/* RIGHT: details panel (tree mode) or Gantt bars (timeline mode) */}
-              <ResizablePanel className="overflow-hidden bg-background">
-                {viewMode === "tree" ? (
+                {isLoading ? (
+                  <div className="flex h-full items-center justify-center">
+                    <p className="text-sm text-muted-foreground">Loading trace...</p>
+                  </div>
+                ) : error || !trace ? (
+                  <div className="flex h-full items-center justify-center">
+                    <p className="text-sm text-destructive">Error loading trace</p>
+                  </div>
+                ) : viewMode === "tree" ? (
                   <SpanInfoPanel
                     projectId={projectId}
                     trace={trace}
@@ -343,11 +338,31 @@ export function TraceViewerPanel({
                   />
                 )}
               </ResizablePanel>
+
+              {aiPanelOpen && (
+                <>
+                  <ResizableHandle />
+                  <ResizablePanel
+                    id="trace-ai-chat"
+                    defaultSize="33%"
+                    minSize="280px"
+                    maxSize="50%"
+                    className="min-w-0 border-border bg-background"
+                  >
+                    <AiAssistantPanel
+                      projectId={projectId}
+                      compact
+                      onClose={() => {
+                        setAiPanelOpen(false);
+                        setAiContext(null);
+                      }}
+                    />
+                  </ResizablePanel>
+                </>
+              )}
             </ResizablePanelGroup>
-          )}
-        </div>
-        {/* AI panel portal target — chat renders here as a sibling of the span panels. */}
-        <AiPanelSlot />
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
     </div>
   );

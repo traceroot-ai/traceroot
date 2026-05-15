@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect, createContext, useContext, ReactNode } from "react";
+import { useState, useEffect, useCallback, createContext, useContext, ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Button } from "@/components/ui/button";
 import { PanelLeft, BotMessageSquare } from "lucide-react";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
+import { AiChatProvider } from "@/features/ai-assistant/components/ai-chat-context";
 import type { AiTraceContext } from "@/features/ai-assistant/types";
 
 interface LayoutContextType {
@@ -15,16 +17,16 @@ interface LayoutContextType {
   setHeaderContent: (content: ReactNode) => void;
   aiPanelOpen: boolean;
   setAiPanelOpen: (open: boolean) => void;
-  // When a host (e.g. TraceViewerPanel) provides a portal target, the global
-  // AiAssistantPanel renders its visual UI into that element instead of its
-  // default fixed position. State always lives in AppLayout, so chat survives
-  // the host mounting / unmounting.
-  aiPanelSlotEl: HTMLDivElement | null;
-  setAiPanelSlotEl: (el: HTMLDivElement | null) => void;
   aiContext: AiTraceContext | null;
   setAiContext: (context: AiTraceContext | null) => void;
   hideAiButton: boolean;
   setHideAiButton: (hide: boolean) => void;
+  // Hosts (TraceViewerPanel / SessionDetailPanel) claim ownership of the AI
+  // visual slot on mount so AppLayout's project-wide rail steps aside and the
+  // host's own ResizablePanel renders the assistant instead. Returns an
+  // unregister callback for the host's effect cleanup.
+  viewerOwnsAiSlot: boolean;
+  registerAiHost: () => () => void;
 }
 
 const LayoutContext = createContext<LayoutContextType>({
@@ -34,12 +36,12 @@ const LayoutContext = createContext<LayoutContextType>({
   setHeaderContent: () => {},
   aiPanelOpen: false,
   setAiPanelOpen: () => {},
-  aiPanelSlotEl: null,
-  setAiPanelSlotEl: () => {},
   aiContext: null,
   setAiContext: () => {},
   hideAiButton: false,
   setHideAiButton: () => {},
+  viewerOwnsAiSlot: false,
+  registerAiHost: () => () => {},
 });
 
 export function useLayout() {
@@ -50,22 +52,24 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [headerContent, setHeaderContent] = useState<ReactNode>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [aiPanelSlotEl, setAiPanelSlotEl] = useState<HTMLDivElement | null>(null);
   const [aiContext, setAiContext] = useState<AiTraceContext | null>(null);
   const [hideAiButton, setHideAiButton] = useState(true);
+  const [aiHostRefCount, setAiHostRefCount] = useState(0);
   const pathname = usePathname();
 
   // Close the global AI panel whenever the user navigates.
-  // NOTE: do NOT reset hideAiButton here. TracesPage.useLayoutEffect is the sole
-  // owner of that flag. Resetting it here creates a race: useLayoutEffect (child,
-  // synchronous) fires before useEffect (parent, async), so this reset always
-  // overwrites the correct value set by TracesPage — hiding the button in prod
-  // (Strict Mode's double-invoke masked the bug locally). The isTracesPage guard
-  // in showAiButton already prevents the button from rendering on other pages.
+  // NOTE: do NOT reset hideAiButton here. Observability pages own that flag.
   useEffect(() => {
     setAiPanelOpen(false);
     setAiContext(null);
   }, [pathname]);
+
+  const registerAiHost = useCallback(() => {
+    setAiHostRefCount((c) => c + 1);
+    return () => setAiHostRefCount((c) => Math.max(0, c - 1));
+  }, []);
+
+  const viewerOwnsAiSlot = aiHostRefCount > 0;
 
   const isObservabilityPage = /^\/projects\/[^/]+\/(traces|users|sessions)(\/|$)/.test(pathname);
   const showAiButton = isObservabilityPage && !hideAiButton;
@@ -77,6 +81,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
+  const showAppRailAi = aiPanelOpen && !viewerOwnsAiSlot;
+
   return (
     <LayoutContext.Provider
       value={{
@@ -86,57 +92,82 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         setHeaderContent,
         aiPanelOpen,
         setAiPanelOpen,
-        aiPanelSlotEl,
-        setAiPanelSlotEl,
         aiContext,
         setAiContext,
         hideAiButton,
         setHideAiButton,
+        viewerOwnsAiSlot,
+        registerAiHost,
       }}
     >
-      <div className="flex h-screen">
-        <Sidebar collapsed={sidebarCollapsed} />
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          {/* Top header bar */}
-          <header className="flex h-14 items-center gap-2 border-b bg-background px-3">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0"
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+      <AiChatProvider projectId={projectId} initialContext={aiContext}>
+        <div className="flex h-screen overflow-hidden">
+          <Sidebar collapsed={sidebarCollapsed} />
+
+          <ResizablePanelGroup orientation="horizontal" className="min-w-0 flex-1 overflow-hidden">
+            <ResizablePanel
+              id="main-content"
+              minSize="0px"
+              className="flex min-w-0 flex-col overflow-hidden"
             >
-              <PanelLeft className="h-4 w-4" />
-            </Button>
-            {headerContent}
-            {showAiButton && (
-              <div className="ml-auto">
+              {/* Top header bar */}
+              <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3">
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 shrink-0"
-                  onClick={() => {
-                    if (aiPanelOpen) setAiContext(null);
-                    setAiPanelOpen(!aiPanelOpen);
-                  }}
-                  title="AI Assistant"
+                  onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
                 >
-                  <BotMessageSquare className="h-4 w-4" />
+                  <PanelLeft className="h-4 w-4" />
                 </Button>
-              </div>
+
+                {headerContent}
+
+                {showAiButton && (
+                  <div className="ml-auto">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0"
+                      onClick={() => {
+                        if (aiPanelOpen) setAiContext(null);
+                        setAiPanelOpen(!aiPanelOpen);
+                      }}
+                      title="AI Assistant"
+                    >
+                      <BotMessageSquare className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+              </header>
+
+              <main className="min-h-0 flex-1 overflow-auto">{children}</main>
+            </ResizablePanel>
+
+            {showAppRailAi && (
+              <>
+                <ResizableHandle />
+                <ResizablePanel
+                  id="app-ai-panel"
+                  defaultSize="400px"
+                  minSize="280px"
+                  maxSize="520px"
+                  groupResizeBehavior="preserve-pixel-size"
+                  className="min-w-0 border-border"
+                >
+                  <AiAssistantPanel
+                    projectId={projectId}
+                    onClose={() => {
+                      setAiPanelOpen(false);
+                      setAiContext(null);
+                    }}
+                  />
+                </ResizablePanel>
+              </>
             )}
-          </header>
-          <main className="flex-1 overflow-hidden">{children}</main>
+          </ResizablePanelGroup>
         </div>
-        <AiAssistantPanel
-          projectId={projectId}
-          open={aiPanelOpen}
-          initialContext={aiContext}
-          onClose={() => {
-            setAiPanelOpen(false);
-            setAiContext(null);
-          }}
-        />
-      </div>
+      </AiChatProvider>
     </LayoutContext.Provider>
   );
 }

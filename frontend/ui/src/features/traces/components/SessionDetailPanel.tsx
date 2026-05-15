@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -15,6 +15,7 @@ import {
   BotMessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { ExpandableSection } from "@/components/ui/expandable-section";
 import { useSession } from "@/features/traces/hooks";
 import { useSession as useAuthSession } from "@/lib/auth-client";
@@ -22,7 +23,7 @@ import { ContentRenderer } from "./ContentRenderer";
 import { formatDuration, formatCost, buildUrlWithFilters } from "@/lib/utils";
 import { toTimestampBounds } from "@/lib/date-filter";
 import { useLayout } from "@/components/layout/app-layout";
-import { AiPanelSlot } from "@/features/ai-assistant/components/ai-panel-slot";
+import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import type { SessionTraceItem } from "@/types/api";
 
 interface SessionDetailPanelProps {
@@ -95,8 +96,15 @@ export function SessionDetailPanel({
   customEndDate,
 }: SessionDetailPanelProps) {
   const router = useRouter();
-  const { setAiPanelOpen, setAiContext } = useLayout();
+  const { aiPanelOpen, setAiPanelOpen, setAiContext, registerAiHost } = useLayout();
   const { isPending: authPending } = useAuthSession();
+
+  // Claim the AI slot for this viewer so AppLayout's project rail steps aside.
+  // `registerAiHost()` returns its own cleanup, which we return from the effect
+  // so React runs it on unmount and the rail comes back.
+  useEffect(() => {
+    return registerAiHost();
+  }, [registerAiHost]);
 
   // Compute timestamps from date filter props
   const sessionQueryOptions = useMemo(() => {
@@ -129,18 +137,17 @@ export function SessionDetailPanel({
   const totalTokenCount = _rawTokens > 0 ? _rawTokens : null;
 
   const totalCost = data ? (data.total_cost ?? null) : null;
+
   return (
     <div className="flex h-full flex-col bg-background">
       {/* Header bar */}
-      <div className="flex h-10 items-center justify-between gap-2 border-b border-border bg-muted/30 px-4">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Layers className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="shrink-0 text-sm font-medium">Session</span>
-          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-            {sessionId}
-          </span>
+      <div className="flex h-10 items-center justify-between border-b border-border bg-muted/30 px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <Layers className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium">Session</span>
+          <span className="truncate font-mono text-xs text-muted-foreground">{sessionId}</span>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex items-center gap-1">
           <Button
             variant="outline"
             size="sm"
@@ -169,7 +176,7 @@ export function SessionDetailPanel({
                 traceId: data?.traces[0]?.trace_id,
                 traceSessionId: sessionId,
               });
-              setAiPanelOpen(true);
+              setAiPanelOpen(!aiPanelOpen);
             }}
             className="ml-2 h-7 w-7 p-0"
             title="AI Assistant"
@@ -182,100 +189,129 @@ export function SessionDetailPanel({
         </div>
       </div>
 
-      {/* Content row (session detail + optional AI overlay) */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Session detail */}
-        <div className="flex flex-1 flex-col overflow-hidden">
-          {/* Session metadata badges */}
-          {data && (
-            <div className="border-b border-border bg-background px-4 py-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                  <Layers className="h-3 w-3 text-muted-foreground" />
-                  <span className="text-muted-foreground">Traces:</span>
-                  <span className="font-medium">{data.trace_count}</span>
-                </div>
-                {data.duration_ms !== null && data.duration_ms > 0 && (
-                  <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                    <Clock className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-muted-foreground">Total Latency:</span>
-                    <span className="font-medium">{formatDuration(data.duration_ms)}</span>
+      {/* Content: session detail + optional AI ResizablePanel split (#881) */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
+          <ResizablePanel
+            id="session-detail-main"
+            minSize="320px"
+            className="min-w-0 overflow-hidden"
+          >
+            <div className="flex h-full flex-col overflow-hidden">
+              {/* Session metadata badges */}
+              {data && (
+                <div className="border-b border-border bg-background px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                      <Layers className="h-3 w-3 text-muted-foreground" />
+                      <span className="text-muted-foreground">Traces:</span>
+                      <span className="font-medium">{data.trace_count}</span>
+                    </div>
+                    {data.duration_ms !== null && data.duration_ms > 0 && (
+                      <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                        <Clock className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-muted-foreground">Total Latency:</span>
+                        <span className="font-medium">{formatDuration(data.duration_ms)}</span>
+                      </div>
+                    )}
+                    <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                      <span className="text-muted-foreground">Total Tokens:</span>
+                      <span className="font-medium">
+                        {totalTokenCount?.toLocaleString() ?? "-"}
+                      </span>
+                    </div>
+                    <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                      <span className="text-muted-foreground">Cost:</span>
+                      <span className="font-medium">{formatCost(totalCost)}</span>
+                    </div>
                   </div>
-                )}
-                <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                  <span className="text-muted-foreground">Total Tokens:</span>
-                  <span className="font-medium">{totalTokenCount?.toLocaleString() ?? "-"}</span>
-                </div>
-                <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                  <span className="text-muted-foreground">Cost:</span>
-                  <span className="font-medium">{formatCost(totalCost)}</span>
-                </div>
-              </div>
-              {data.user_ids.length > 0 && (
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {data.user_ids.map((userId) => (
-                    <button
-                      key={userId}
-                      type="button"
-                      onClick={() => {
-                        onClose();
-                        router.push(
-                          buildUrl(`/projects/${projectId}/traces`, {
-                            user_id: userId,
-                          }),
-                        );
-                      }}
-                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
-                    >
-                      <Users className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-muted-foreground">User:</span>
-                      <span className="font-medium">{userId}</span>
-                      <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                    </button>
-                  ))}
+                  {data.user_ids.length > 0 && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {data.user_ids.map((userId) => (
+                        <button
+                          key={userId}
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            router.push(
+                              buildUrl(`/projects/${projectId}/traces`, {
+                                user_id: userId,
+                              }),
+                            );
+                          }}
+                          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
+                        >
+                          <Users className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-muted-foreground">User:</span>
+                          <span className="font-medium">{userId}</span>
+                          <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          )}
 
-          {/* Trace list */}
-          <div className="flex-1 overflow-auto p-4">
-            {checking ? (
-              <div className="flex h-64 items-center justify-center">
-                <p className="text-[13px] text-muted-foreground">Loading session...</p>
+              {/* Trace list */}
+              <div className="flex-1 overflow-auto p-4">
+                {checking ? (
+                  <div className="flex h-64 items-center justify-center">
+                    <p className="text-[13px] text-muted-foreground">Loading session...</p>
+                  </div>
+                ) : error ? (
+                  <div className="flex h-64 flex-col items-center justify-center gap-3">
+                    <p className="text-[13px] text-destructive">Error loading session</p>
+                  </div>
+                ) : !data ? (
+                  <div className="flex h-64 flex-col items-center justify-center gap-3">
+                    <Layers className="h-8 w-8 text-muted-foreground" />
+                    <p className="text-[13px] text-muted-foreground">Session not found</p>
+                  </div>
+                ) : data.traces.length === 0 ? (
+                  <div className="flex h-64 flex-col items-center justify-center gap-3">
+                    <Layers className="h-8 w-8 text-muted-foreground" />
+                    <p className="text-[13px] text-muted-foreground">No traces in this session</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {data.traces.map((trace: SessionTraceItem, index: number) => (
+                      <TraceCard
+                        key={trace.trace_id}
+                        trace={trace}
+                        index={index}
+                        traceUrl={buildUrl(`/projects/${projectId}/traces`, {
+                          traceId: trace.trace_id,
+                        })}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
-            ) : error ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-3">
-                <p className="text-[13px] text-destructive">Error loading session</p>
-              </div>
-            ) : !data ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-3">
-                <Layers className="h-8 w-8 text-muted-foreground" />
-                <p className="text-[13px] text-muted-foreground">Session not found</p>
-              </div>
-            ) : data.traces.length === 0 ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-3">
-                <Layers className="h-8 w-8 text-muted-foreground" />
-                <p className="text-[13px] text-muted-foreground">No traces in this session</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {data.traces.map((trace: SessionTraceItem, index: number) => (
-                  <TraceCard
-                    key={trace.trace_id}
-                    trace={trace}
-                    index={index}
-                    traceUrl={buildUrl(`/projects/${projectId}/traces`, {
-                      traceId: trace.trace_id,
-                    })}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-        {/* AI panel portal target — chat renders here as a sibling of the session detail column. */}
-        <AiPanelSlot />
+            </div>
+          </ResizablePanel>
+
+          {aiPanelOpen && (
+            <>
+              <ResizableHandle />
+              <ResizablePanel
+                id="session-ai-chat"
+                defaultSize="33%"
+                minSize="280px"
+                maxSize="50%"
+                className="min-w-0 bg-background"
+              >
+                <AiAssistantPanel
+                  projectId={projectId}
+                  compact
+                  onClose={() => {
+                    setAiPanelOpen(false);
+                    setAiContext(null);
+                  }}
+                />
+              </ResizablePanel>
+            </>
+          )}
+        </ResizablePanelGroup>
       </div>
     </div>
   );
