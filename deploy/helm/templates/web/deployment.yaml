@@ -173,6 +173,41 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.stripe.existingSecret }}
                   key: {{ .Values.stripe.keys.priceIdAiUsage }}
+            - name: STRIPE_PRICE_ID_RCA_USAGE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stripe.existingSecret }}
+                  key: {{ .Values.stripe.keys.priceIdRcaUsage }}
+            - name: STRIPE_PRICE_ID_DETECTOR_USAGE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stripe.existingSecret }}
+                  key: {{ .Values.stripe.keys.priceIdDetectorUsage }}
+            {{- end }}
+            {{- end }}
+            # --- Slack (conditional) ---
+            {{- if .Values.slack }}
+            {{- if .Values.slack.existingSecret }}
+            - name: SLACK_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.slack.existingSecret }}
+                  key: {{ .Values.slack.keys.clientId }}
+            - name: SLACK_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.slack.existingSecret }}
+                  key: {{ .Values.slack.keys.clientSecret }}
+            - name: SLACK_STATE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.slack.existingSecret }}
+                  key: {{ .Values.slack.keys.stateSecret }}
+            - name: SLACK_REDIRECT_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.slack.existingSecret }}
+                  key: {{ .Values.slack.keys.redirectUri }}
             {{- end }}
             {{- end }}
             # --- SMTP (conditional) ---

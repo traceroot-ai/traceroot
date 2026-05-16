@@ -22,6 +22,14 @@ resource "random_id" "encryption_key" {
   byte_length = 32 # 32 bytes = 64 hex characters = 256 bits
 }
 
+# Slack OAuth state-param signing secret. Rotating invalidates only in-flight
+# install flows (state tokens are short-lived); already-stored bot tokens are
+# unaffected.
+resource "random_password" "slack_state_secret" {
+  length  = 64
+  special = false
+}
+
 # Namespace for this environment
 resource "kubernetes_namespace" "app" {
   metadata { name = local.namespace }
@@ -98,11 +106,34 @@ resource "kubernetes_secret" "stripe" {
   }
 
   data = {
-    "stripe-secret-key"             = var.stripe_secret_key
-    "stripe-webhook-signing-secret" = var.stripe_webhook_signing_secret
-    "stripe-price-id-starter"       = var.stripe_price_id_starter
-    "stripe-price-id-pro"           = var.stripe_price_id_pro
-    "stripe-price-id-ai-usage"      = var.stripe_price_id_ai_usage
+    "stripe-secret-key"              = var.stripe_secret_key
+    "stripe-webhook-signing-secret"  = var.stripe_webhook_signing_secret
+    "stripe-price-id-starter"        = var.stripe_price_id_starter
+    "stripe-price-id-pro"            = var.stripe_price_id_pro
+    "stripe-price-id-ai-usage"       = var.stripe_price_id_ai_usage
+    "stripe-price-id-rca-usage"      = var.stripe_price_id_rca_usage
+    "stripe-price-id-detector-usage" = var.stripe_price_id_detector_usage
+  }
+
+  depends_on = [module.eks]
+}
+
+# Slack OAuth secret (conditional — only if slack_client_id is provided).
+# State secret is auto-generated; redirect URI is computed from var.domain so
+# the operator only needs to register the Slack App with the same path.
+resource "kubernetes_secret" "slack" {
+  count = var.slack_client_id != "" && var.slack_client_secret != "" && var.domain != "" ? 1 : 0
+
+  metadata {
+    name      = "traceroot-slack"
+    namespace = kubernetes_namespace.app.metadata[0].name
+  }
+
+  data = {
+    "slack-client-id"     = var.slack_client_id
+    "slack-client-secret" = var.slack_client_secret
+    "slack-state-secret"  = random_password.slack_state_secret.result
+    "slack-redirect-uri"  = var.domain != "" ? "https://${var.domain}/api/slack/oauth/callback" : ""
   }
 
   depends_on = [module.eks]
