@@ -9,7 +9,13 @@ export async function GET(request: NextRequest) {
     if (authResult.error) return authResult.error;
 
     const state = crypto.randomUUID();
-    const returnTo = request.nextUrl.searchParams.get("returnTo") || "/";
+    const returnToParam = request.nextUrl.searchParams.get("returnTo");
+    let returnTo = "/";
+
+    // Validate returnTo is a relative path to prevent open redirect vulnerability
+    if (returnToParam && returnToParam.startsWith("/")) {
+      returnTo = returnToParam;
+    }
 
     const params = new URLSearchParams({
       client_id: env.GITHUB_APP_CLIENT_ID,
