@@ -344,9 +344,9 @@ export function TraceViewerPanel({
                   <ResizableHandle />
                   <ResizablePanel
                     id="trace-ai-chat"
-                    defaultSize="33%"
-                    minSize="280px"
-                    maxSize="50%"
+                    defaultSize="46%"
+                    minSize="320px"
+                    maxSize="55%"
                     className="min-w-0 border-border bg-background"
                   >
                     <AiAssistantPanel
