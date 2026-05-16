@@ -122,7 +122,7 @@ resource "kubernetes_secret" "stripe" {
 # State secret is auto-generated; redirect URI is computed from var.domain so
 # the operator only needs to register the Slack App with the same path.
 resource "kubernetes_secret" "slack" {
-  count = var.slack_client_id != "" ? 1 : 0
+  count = var.slack_client_id != "" && var.slack_client_secret != "" && var.domain != "" ? 1 : 0
 
   metadata {
     name      = "traceroot-slack"
