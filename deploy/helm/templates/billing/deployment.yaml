@@ -50,6 +50,16 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.stripe.existingSecret }}
                   key: {{ .Values.stripe.keys.priceIdAiUsage }}
+            - name: STRIPE_PRICE_ID_RCA_USAGE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stripe.existingSecret }}
+                  key: {{ .Values.stripe.keys.priceIdRcaUsage }}
+            - name: STRIPE_PRICE_ID_DETECTOR_USAGE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stripe.existingSecret }}
+                  key: {{ .Values.stripe.keys.priceIdDetectorUsage }}
             {{- end }}
             {{- end }}
             {{- with .Values.additionalEnv }}

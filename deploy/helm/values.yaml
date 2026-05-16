@@ -207,6 +207,8 @@ stripe:
     priceIdStarter: "stripe-price-id-starter"
     priceIdPro: "stripe-price-id-pro"
     priceIdAiUsage: "stripe-price-id-ai-usage"
+    priceIdRcaUsage: "stripe-price-id-rca-usage"
+    priceIdDetectorUsage: "stripe-price-id-detector-usage"
 
 # --- Google OAuth (optional — set existingSecret to enable) ---
 googleOAuth:
@@ -214,6 +216,15 @@ googleOAuth:
   keys:
     clientId: "google-client-id"
     clientSecret: "google-client-secret"
+
+# --- Slack (optional — set existingSecret to enable Slack workspace OAuth) ---
+slack:
+  existingSecret: ""
+  keys:
+    clientId: "slack-client-id"
+    clientSecret: "slack-client-secret"
+    stateSecret: "slack-state-secret"
+    redirectUri: "slack-redirect-uri"
 
 # --- Email / SMTP (optional — set existingSecret to enable) ---
 smtp:
