@@ -83,6 +83,19 @@ agent:
       cpu: "1"
       memory: "1Gi"
 
+detector:
+  image:
+    repository: ${aws_ecr_repository.services["detector"].repository_url}
+    tag: ${var.image_tag}
+  replicas: 1
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
 migrations:
   postgres:
     image:
@@ -186,6 +199,9 @@ EOT
   # Stripe secret reference (conditional)
   stripe_values = var.stripe_secret_key != "" ? "stripe:\n  existingSecret: \"traceroot-stripe\"" : ""
 
+  # Slack secret reference (conditional)
+  slack_values = var.slack_client_id != "" ? "slack:\n  existingSecret: \"traceroot-slack\"" : ""
+
   # Google OAuth secret reference (conditional)
   google_oauth_values = var.google_oauth_client_id != "" ? "googleOAuth:\n  existingSecret: \"traceroot-google-oauth\"" : ""
 
@@ -234,6 +250,7 @@ resource "helm_release" "traceroot" {
     local.github_values,
     local.llm_values,
     local.stripe_values,
+    local.slack_values,
     local.google_oauth_values,
     local.smtp_values,
     local.enterprise_values,

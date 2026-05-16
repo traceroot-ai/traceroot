@@ -17,11 +17,15 @@ function parseMeta(raw: string | undefined | null): InstallMetadata {
   }
 }
 
-function destination(workspaceId: string | undefined, params: string, requestUrl: string): URL {
+// Use BETTER_AUTH_URL as base — request.url inside Docker resolves to 0.0.0.0
+// (Next.js standalone with HOSTNAME=0.0.0.0), which loses the session cookie
+// set on the user-facing host (localhost / prod domain). Mirrors the pattern
+// in app/api/github/callback/route.ts.
+function destination(workspaceId: string | undefined, params: string): URL {
   const path = workspaceId
     ? `/workspaces/${workspaceId}/settings/integrations?${params}`
     : `/?${params}`;
-  return new URL(path, requestUrl);
+  return new URL(path, env.BETTER_AUTH_URL);
 }
 
 export async function GET(request: NextRequest) {
@@ -30,9 +34,7 @@ export async function GET(request: NextRequest) {
   const state = url.searchParams.get("state");
 
   if (!code || !state) {
-    return NextResponse.redirect(
-      destination(undefined, "slack=error&reason=missing_params", request.url),
-    );
+    return NextResponse.redirect(destination(undefined, "slack=error&reason=missing_params"));
   }
 
   // 1. Verify the state param (signed via SLACK_STATE_SECRET) and recover metadata.
@@ -42,9 +44,7 @@ export async function GET(request: NextRequest) {
     const verified = await installer.stateStore!.verifyStateParam(new Date(), state);
     meta = parseMeta(verified.metadata);
   } catch {
-    return NextResponse.redirect(
-      destination(undefined, "slack=error&reason=invalid_state", request.url),
-    );
+    return NextResponse.redirect(destination(undefined, "slack=error&reason=invalid_state"));
   }
 
   // 2. Exchange the code for a bot token.
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
   const parsed = SlackOAuthResponseSchema.safeParse(await tokenRes.json());
   if (!parsed.success) {
     return NextResponse.redirect(
-      destination(meta.workspaceId, "slack=error&reason=exchange_failed", request.url),
+      destination(meta.workspaceId, "slack=error&reason=exchange_failed"),
     );
   }
   const data = parsed.data;
@@ -84,10 +84,8 @@ export async function GET(request: NextRequest) {
       appId: data.app_id,
     } as never);
   } catch {
-    return NextResponse.redirect(
-      destination(meta.workspaceId, "slack=error&reason=store_failed", request.url),
-    );
+    return NextResponse.redirect(destination(meta.workspaceId, "slack=error&reason=store_failed"));
   }
 
-  return NextResponse.redirect(destination(meta.workspaceId, "slack=connected", request.url));
+  return NextResponse.redirect(destination(meta.workspaceId, "slack=connected"));
 }

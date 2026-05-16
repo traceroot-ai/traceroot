@@ -84,6 +84,19 @@ agent:
       cpu: "1"
       memory: "1Gi"
 
+detector:
+  image:
+    repository: ""
+    tag: "latest"
+  replicas: 1
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+
 # --- Ingress (overridden by Terraform with TLS config) ---
 ingress:
   enabled: true
@@ -194,6 +207,8 @@ stripe:
     priceIdStarter: "stripe-price-id-starter"
     priceIdPro: "stripe-price-id-pro"
     priceIdAiUsage: "stripe-price-id-ai-usage"
+    priceIdRcaUsage: "stripe-price-id-rca-usage"
+    priceIdDetectorUsage: "stripe-price-id-detector-usage"
 
 # --- Google OAuth (optional — set existingSecret to enable) ---
 googleOAuth:
@@ -201,6 +216,15 @@ googleOAuth:
   keys:
     clientId: "google-client-id"
     clientSecret: "google-client-secret"
+
+# --- Slack (optional — set existingSecret to enable Slack workspace OAuth) ---
+slack:
+  existingSecret: ""
+  keys:
+    clientId: "slack-client-id"
+    clientSecret: "slack-client-secret"
+    stateSecret: "slack-state-secret"
+    redirectUri: "slack-redirect-uri"
 
 # --- Email / SMTP (optional — set existingSecret to enable) ---
 smtp:
