@@ -74,7 +74,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
     <TooltipProvider delayDuration={0}>
       <div
         className={cn(
-          "flex h-screen flex-col border-r bg-background transition-all duration-200",
+          "flex h-screen shrink-0 flex-col border-r bg-background transition-all duration-200",
           collapsed ? "w-14" : "w-40",
         )}
       >

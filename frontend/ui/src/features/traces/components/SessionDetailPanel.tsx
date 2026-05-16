@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -22,7 +22,8 @@ import { useSession as useAuthSession } from "@/lib/auth-client";
 import { ContentRenderer } from "./ContentRenderer";
 import { formatDuration, formatCost, buildUrlWithFilters } from "@/lib/utils";
 import { toTimestampBounds } from "@/lib/date-filter";
-import { AiChatOverlay } from "@/features/ai-assistant/components/ai-chat-overlay";
+import { useLayout } from "@/components/layout/app-layout";
+import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import type { SessionTraceItem } from "@/types/api";
 
 interface SessionDetailPanelProps {
@@ -95,8 +96,15 @@ export function SessionDetailPanel({
   customEndDate,
 }: SessionDetailPanelProps) {
   const router = useRouter();
-  const [aiChatOpen, setAiChatOpen] = useState(false);
+  const { aiPanelOpen, setAiPanelOpen, setAiContext, registerAiHost } = useLayout();
   const { isPending: authPending } = useAuthSession();
+
+  // Claim the AI slot for this viewer so AppLayout's project rail steps aside.
+  // `registerAiHost()` returns its own cleanup, which we return from the effect
+  // so React runs it on unmount and the rail comes back.
+  useEffect(() => {
+    return registerAiHost();
+  }, [registerAiHost]);
 
   // Compute timestamps from date filter props
   const sessionQueryOptions = useMemo(() => {
@@ -129,6 +137,7 @@ export function SessionDetailPanel({
   const totalTokenCount = _rawTokens > 0 ? _rawTokens : null;
 
   const totalCost = data ? (data.total_cost ?? null) : null;
+
   return (
     <div className="flex h-full flex-col bg-background">
       {/* Header bar */}
@@ -162,7 +171,13 @@ export function SessionDetailPanel({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setAiChatOpen(!aiChatOpen)}
+            onClick={() => {
+              setAiContext({
+                traceId: data?.traces[0]?.trace_id,
+                traceSessionId: sessionId,
+              });
+              setAiPanelOpen(!aiPanelOpen);
+            }}
             className="ml-2 h-7 w-7 p-0"
             title="AI Assistant"
           >
@@ -174,10 +189,9 @@ export function SessionDetailPanel({
         </div>
       </div>
 
-      {/* Content row (session detail + optional AI overlay) */}
+      {/* Content: session detail + optional AI ResizablePanel split (#881) */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
-          {/* Session detail */}
           <ResizablePanel
             id="session-detail-main"
             minSize="320px"
@@ -193,7 +207,6 @@ export function SessionDetailPanel({
                       <span className="text-muted-foreground">Traces:</span>
                       <span className="font-medium">{data.trace_count}</span>
                     </div>
-
                     {data.duration_ms !== null && data.duration_ms > 0 && (
                       <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
                         <Clock className="h-3 w-3 text-muted-foreground" />
@@ -201,20 +214,17 @@ export function SessionDetailPanel({
                         <span className="font-medium">{formatDuration(data.duration_ms)}</span>
                       </div>
                     )}
-
                     <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
                       <span className="text-muted-foreground">Total Tokens:</span>
                       <span className="font-medium">
                         {totalTokenCount?.toLocaleString() ?? "-"}
                       </span>
                     </div>
-
                     <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
                       <span className="text-muted-foreground">Cost:</span>
                       <span className="font-medium">{formatCost(totalCost)}</span>
                     </div>
                   </div>
-
                   {data.user_ids.length > 0 && (
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       {data.user_ids.map((userId) => (
@@ -280,11 +290,9 @@ export function SessionDetailPanel({
             </div>
           </ResizablePanel>
 
-          {/* AI Chat overlay */}
-          {aiChatOpen && (
+          {aiPanelOpen && (
             <>
               <ResizableHandle />
-
               <ResizablePanel
                 id="session-ai-chat"
                 defaultSize="33%"
@@ -292,11 +300,13 @@ export function SessionDetailPanel({
                 maxSize="50%"
                 className="min-w-0 bg-background"
               >
-                <AiChatOverlay
+                <AiAssistantPanel
                   projectId={projectId}
-                  traceId={data?.traces[0]?.trace_id}
-                  traceSessionId={sessionId}
-                  onClose={() => setAiChatOpen(false)}
+                  compact
+                  onClose={() => {
+                    setAiPanelOpen(false);
+                    setAiContext(null);
+                  }}
                 />
               </ResizablePanel>
             </>

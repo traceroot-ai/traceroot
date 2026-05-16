@@ -19,7 +19,8 @@ import type { Span } from "@/types/api";
 import type { TraceSelection } from "../types";
 import { SpanTreeView } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
-import { AiChatOverlay } from "@/features/ai-assistant/components/ai-chat-overlay";
+import { useLayout } from "@/components/layout/app-layout";
+import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { useTraceStream } from "../hooks/use-trace-stream";
 import { SpanTimelineView } from "./SpanTimelineView";
 import { buildSpanTree, enrichSpansWithPending, TREE_LAYOUT } from "../utils";
@@ -39,17 +40,14 @@ interface TraceViewerPanelProps {
 /**
  * Full-screen slide-in panel for viewing trace details.
  *
- * Layout — SpanTreeView is always on the left in both modes:
+ * Resize hierarchy (#881):
+ *   outer: [ Trace Tree | Right Workspace ]
+ *   inner: [ Span Details | AI Assistant (optional) ]
  *
- *   Tree mode:
- *     [SpanTreeView ~30%] | [SpanInfoPanel ~70%]
- *
- *   Timeline mode:
- *     [SpanTreeView compact ~30%] | [SpanTimelineView ~70%]
- *     Clicking a timeline bar → switches back to tree mode with the span selected.
- *
- * Collapse state and scroll position are shared so the tree and bars stay aligned.
- * The divider is draggable in both modes (tree and timeline).
+ * The outer divider resizes tree vs everything-else; the inner divider only
+ * touches details vs AI so the tree stays stable while the user adjusts the
+ * assistant. AI state lives in AiChatProvider above this component, so chat
+ * survives trace switching (#784).
  */
 export function TraceViewerPanel({
   projectId,
@@ -63,8 +61,15 @@ export function TraceViewerPanel({
   customEndDate,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
-  const [aiChatOpen, setAiChatOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"tree" | "timeline">("tree");
+  const { aiPanelOpen, setAiPanelOpen, setAiContext, registerAiHost } = useLayout();
+
+  // Claim the AI slot for this viewer so AppLayout's project rail steps aside.
+  // `registerAiHost()` returns its own cleanup, which we return from the effect
+  // so React runs it on unmount and the rail comes back.
+  useEffect(() => {
+    return registerAiHost();
+  }, [registerAiHost]);
 
   // Shared collapse state (SpanTreeView + SpanTimelineView stay in sync)
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
@@ -208,7 +213,10 @@ export function TraceViewerPanel({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setAiChatOpen(!aiChatOpen)}
+            onClick={() => {
+              setAiContext({ traceId });
+              setAiPanelOpen(!aiPanelOpen);
+            }}
             className="h-7 w-7 p-0"
             title="AI Assistant"
           >
@@ -249,37 +257,28 @@ export function TraceViewerPanel({
       </div>
 
       {/* ── CONTENT AREA ── */}
-      {isLoading ? (
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm text-muted-foreground">Loading trace...</p>
-        </div>
-      ) : error || !trace ? (
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm text-destructive">Error loading trace</p>
-        </div>
-      ) : (
-        <div className="relative flex flex-1 overflow-hidden">
-          <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
-            {/* LEFT: tree panel. This only changes when dragging the tree/detail handle. */}
-            <ResizablePanel
-              id="trace-tree"
-              defaultSize="32%"
-              minSize="260px"
-              maxSize="50%"
-              className="flex min-w-0 flex-col bg-muted/30"
+      {/* ResizablePanelGroup stays mounted across trace switches so the AI
+          panel inside doesn't get torn down while the next trace is
+          fetching (#784: chat survives ↑/↓ navigation). Loading and error
+          states are isolated to the detail panel's content. */}
+      <div className="relative flex flex-1 overflow-hidden">
+        <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
+          {/* LEFT: tree panel — outer group */}
+          <ResizablePanel
+            id="trace-tree"
+            defaultSize="32%"
+            minSize="260px"
+            maxSize="50%"
+            className="flex min-w-0 flex-col bg-muted/30"
+          >
+            <div
+              className="flex flex-shrink-0 items-center border-b border-border bg-muted/10 px-3"
+              style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
             >
-              <div
-                className="flex flex-shrink-0 items-center border-b border-border bg-muted/10 px-3"
-                style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
-              >
-                <span className="text-[11px] font-medium text-muted-foreground">Trace Tree</span>
-              </div>
-
-              <div
-                ref={treeScrollRef}
-                className="flex-1 overflow-y-auto"
-                onScroll={handleTreeScroll}
-              >
+              <span className="text-[11px] font-medium text-muted-foreground">Trace Tree</span>
+            </div>
+            <div ref={treeScrollRef} className="flex-1 overflow-y-auto" onScroll={handleTreeScroll}>
+              {trace && (
                 <SpanTreeView
                   trace={trace}
                   selection={selection}
@@ -290,72 +289,81 @@ export function TraceViewerPanel({
                   hoveredSpanId={hoveredSpanId}
                   onHoverChange={setHoveredSpanId}
                 />
-              </div>
-            </ResizablePanel>
+              )}
+            </div>
+          </ResizablePanel>
 
-            {/* RIGHT BORDER / RESIZER HANDLE */}
-            <ResizableHandle />
+          <ResizableHandle />
 
-            {/* RIGHT: details panel (tree mode) or Gantt bars (timeline mode) + optional AI. AI resizing only affects this area. */}
-            <ResizablePanel
-              id="trace-right-workspace"
-              minSize="420px"
-              className="min-w-0 overflow-hidden border-l border-border bg-background"
-            >
-              <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
-                <ResizablePanel
-                  id="trace-detail"
-                  minSize="320px"
-                  className="min-w-0 overflow-hidden bg-background"
-                >
-                  {viewMode === "tree" ? (
-                    <SpanInfoPanel
-                      projectId={projectId}
-                      trace={trace}
-                      selection={selection}
-                      onClose={onClose}
-                      dateFilter={dateFilter}
-                      customStartDate={customStartDate}
-                      customEndDate={customEndDate}
-                    />
-                  ) : (
-                    <SpanTimelineView
-                      trace={trace}
-                      selection={selection}
-                      onSelect={handleTimelineSelect}
-                      collapsedIds={collapsedIds}
-                      scrollRef={timelineScrollRef}
-                      onScroll={handleTimelineScroll}
-                      hoveredSpanId={hoveredSpanId}
-                      onHoverChange={setHoveredSpanId}
-                    />
-                  )}
-                </ResizablePanel>
-                {/* AI Chat overlay */}
-                {aiChatOpen && (
-                  <>
-                    <ResizableHandle />
-
-                    <ResizablePanel
-                      id="trace-ai-chat"
-                      defaultSize="33%"
-                      minSize="280px"
-                      maxSize="50%"
-                      className="min-w-0 border-border bg-background"
-                    >
-                      <AiChatOverlay
-                        projectId={projectId}
-                        traceId={traceId}
-                        onClose={() => setAiChatOpen(false)}
-                      />
-                    </ResizablePanel>
-                  </>
+          {/* RIGHT: workspace (details + optional AI) — inner group */}
+          <ResizablePanel
+            id="trace-right-workspace"
+            minSize="420px"
+            className="min-w-0 overflow-hidden border-l border-border bg-background"
+          >
+            <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
+              <ResizablePanel
+                id="trace-detail"
+                minSize="320px"
+                className="min-w-0 overflow-hidden bg-background"
+              >
+                {isLoading ? (
+                  <div className="flex h-full items-center justify-center">
+                    <p className="text-sm text-muted-foreground">Loading trace...</p>
+                  </div>
+                ) : error || !trace ? (
+                  <div className="flex h-full items-center justify-center">
+                    <p className="text-sm text-destructive">Error loading trace</p>
+                  </div>
+                ) : viewMode === "tree" ? (
+                  <SpanInfoPanel
+                    projectId={projectId}
+                    trace={trace}
+                    selection={selection}
+                    onClose={onClose}
+                    dateFilter={dateFilter}
+                    customStartDate={customStartDate}
+                    customEndDate={customEndDate}
+                  />
+                ) : (
+                  <SpanTimelineView
+                    trace={trace}
+                    selection={selection}
+                    onSelect={handleTimelineSelect}
+                    collapsedIds={collapsedIds}
+                    scrollRef={timelineScrollRef}
+                    onScroll={handleTimelineScroll}
+                    hoveredSpanId={hoveredSpanId}
+                    onHoverChange={setHoveredSpanId}
+                  />
                 )}
-              </ResizablePanelGroup>
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        </div>
-      )}
+              </ResizablePanel>
+
+              {aiPanelOpen && (
+                <>
+                  <ResizableHandle />
+                  <ResizablePanel
+                    id="trace-ai-chat"
+                    defaultSize="46%"
+                    minSize="320px"
+                    maxSize="55%"
+                    className="min-w-0 border-border bg-background"
+                  >
+                    <AiAssistantPanel
+                      projectId={projectId}
+                      compact
+                      onClose={() => {
+                        setAiPanelOpen(false);
+                        setAiContext(null);
+                      }}
+                    />
+                  </ResizablePanel>
+                </>
+              )}
+            </ResizablePanelGroup>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
     </div>
   );
 }
