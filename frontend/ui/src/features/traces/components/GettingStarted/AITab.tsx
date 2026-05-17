@@ -24,8 +24,13 @@ My project uses [Python / TypeScript/Node.js] — adjust the instructions to mat
        Integration.LANGCHAIN,     # if using LangChain/LangGraph/DeepAgents
        Integration.ANTHROPIC,     # if using Anthropic
        Integration.GOOGLE_GENAI,  # if using Google Gemini
+       Integration.MISTRAL,       # if using Mistral
        Integration.CREWAI,        # if using CrewAI
+       Integration.AUTOGEN,       # if using AutoGen (AG2)
        Integration.LLAMA_INDEX,   # if using LlamaIndex
+       Integration.AGNO,          # if using Agno
+       Integration.DSPY,          # if using DSPy
+       Integration.GOOGLE_ADK,    # if using Google ADK
    ])
 3. Add @observe on agent entrypoints and tool functions:
    from traceroot import observe
@@ -57,6 +62,12 @@ My project uses [Python / TypeScript/Node.js] — adjust the instructions to mat
    import { TraceRootExporter } from '@traceroot-ai/mastra';
    const exporter = new TraceRootExporter({ apiKey: process.env.TRACEROOT_API_KEY });
    // Pass exporter to Mastra's Observability config (see docs/integrations/mastra)
+
+   For the Vercel AI SDK, no instrumentModules entry is needed:
+   TraceRoot.initialize();
+   // Then on each generateText / streamText / generateObject call, set:
+   //   experimental_telemetry: { isEnabled: true }
+   // (See docs/integrations/vercel-ai)
 3. Wrap agent entrypoints and tool functions with observe():
    import { observe } from '@traceroot-ai/traceroot';
    const result = await observe({ name: 'my_agent', type: 'agent' }, async () => {

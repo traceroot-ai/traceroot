@@ -1,15 +1,29 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Workflow, X, ArrowUp, ArrowDown, BotMessageSquare } from "lucide-react";
+import {
+  Workflow,
+  X,
+  ArrowUp,
+  ArrowDown,
+  BotMessageSquare,
+  ListTree,
+  SquareGanttChart,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
+import type { Span } from "@/types/api";
 import type { TraceSelection } from "../types";
 import { SpanTreeView } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
-import { AiChatOverlay } from "@/features/ai-assistant/components/ai-chat-overlay";
+import { useLayout } from "@/components/layout/app-layout";
+import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { useTraceStream } from "../hooks/use-trace-stream";
+import { SpanTimelineView } from "./SpanTimelineView";
+import { buildSpanTree, enrichSpansWithPending, TREE_LAYOUT } from "../utils";
 import { useTraceFindings, useRca } from "@/features/detectors/hooks/use-findings";
 
 interface TraceViewerPanelProps {
@@ -27,7 +41,16 @@ interface TraceViewerPanelProps {
 }
 
 /**
- * Full-screen slide-in panel for viewing trace details
+ * Full-screen slide-in panel for viewing trace details.
+ *
+ * Resize hierarchy (#881):
+ *   outer: [ Trace Tree | Right Workspace ]
+ *   inner: [ Span Details | AI Assistant (optional) ]
+ *
+ * The outer divider resizes tree vs everything-else; the inner divider only
+ * touches details vs AI so the tree stays stable while the user adjusts the
+ * assistant. AI state lives in AiChatProvider above this component, so chat
+ * survives trace switching (#784).
  */
 export function TraceViewerPanel({
   projectId,
@@ -42,32 +65,45 @@ export function TraceViewerPanel({
   autoOpenRca,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
-  const [aiChatOpen, setAiChatOpen] = useState(false);
-  // "rca" = follow rcaSessionId once available; "fresh" = empty chat; null = closed
-  const [chatMode, setChatMode] = useState<"rca" | "fresh" | null>(null);
+  const [viewMode, setViewMode] = useState<"tree" | "timeline">("tree");
+  const { aiPanelOpen, setAiPanelOpen, setAiContext, setAiInitialSessionId, registerAiHost } =
+    useLayout();
 
+  // Claim the AI slot for this viewer so AppLayout's project rail steps aside.
+  // `registerAiHost()` returns its own cleanup, which we return from the effect
+  // so React runs it on unmount and the rail comes back.
+  useEffect(() => {
+    return registerAiHost();
+  }, [registerAiHost]);
+
+  // Shared collapse state (SpanTreeView + SpanTimelineView stay in sync)
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+
+  // Scroll sync refs
+  const treeScrollRef = useRef<HTMLDivElement>(null);
+  const timelineScrollRef = useRef<HTMLDivElement>(null);
+  const isSyncing = useRef(false);
+
+  const [hoveredSpanId, setHoveredSpanId] = useState<string | null>(null);
+
+  // Detector findings → Alert button + auto-open RCA chat when entered from
+  // the findings page. The trace-level finding (at most one per trace) carries
+  // the RCA session the worker already populated.
   const { data: traceFindingsData } = useTraceFindings(projectId, traceId);
-  // One finding per trace — take the first (and only) one
   const traceFinding = traceFindingsData?.findings?.[0];
   const hasFindings = !!traceFinding;
-
-  // Fetch RCA for the trace-level finding to surface the Step 2 session in the chat
   const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
   const rcaSessionId = rcaData?.rca?.sessionId ?? undefined;
 
-  // The session id passed into the chat overlay. Decoupled from chatMode so the
-  // chat can open immediately on Alert click / autoOpenRca, even before useRca
-  // has resolved — and updates in place once the session id arrives.
-  const chatInitialSessionId = chatMode === "rca" ? rcaSessionId : undefined;
-
-  // Auto-open chat in RCA mode when coming from the detector findings page.
-  // Fires as soon as the panel mounts; rcaSessionId fills in via the prop above
-  // when it loads.
+  // Auto-open chat with RCA session loaded when arriving from /detectors.
+  // Waits for rcaSessionId so the chat opens already pointing at the session,
+  // avoiding a fresh-chat flash before the id resolves.
   useEffect(() => {
-    if (!autoOpenRca) return;
-    setChatMode("rca");
-    setAiChatOpen(true);
-  }, [autoOpenRca]);
+    if (!autoOpenRca || !rcaSessionId) return;
+    setAiContext({ traceId });
+    setAiInitialSessionId(rcaSessionId);
+    setAiPanelOpen(true);
+  }, [autoOpenRca, rcaSessionId, traceId, setAiContext, setAiInitialSessionId, setAiPanelOpen]);
 
   const {
     data: trace,
@@ -78,33 +114,112 @@ export function TraceViewerPanel({
     queryFn: () => getTrace(projectId, traceId, ""),
   });
 
-  // Always stream — the backend is authoritative about when the trace is complete.
-  // live.py will immediately emit trace_complete for already-finished traces,
-  // so there is no cost to opening a connection for completed traces.
   useTraceStream(projectId, traceId, true);
 
-  // Reset selection when navigating to a different trace
+  // Reset when navigating to a different trace
   useEffect(() => {
     setSelection({ type: "trace" });
+    setCollapsedIds(new Set());
   }, [traceId]);
+
+  useEffect(() => {
+    if (viewMode !== "timeline") return;
+    requestAnimationFrame(() => {
+      if (!treeScrollRef.current || !timelineScrollRef.current) return;
+      timelineScrollRef.current.scrollTop = treeScrollRef.current.scrollTop;
+    });
+  }, [viewMode]);
+
+  const handleToggleCollapse = useCallback((id: string) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Scroll the tree panel to bring a row index into view (centered).
+  const scrollTreeToRow = useCallback((rowIndex: number) => {
+    const el = treeScrollRef.current;
+    if (!el) return;
+    const target = rowIndex * TREE_LAYOUT.ROW_HEIGHT;
+    const center = target - el.clientHeight / 2 + TREE_LAYOUT.ROW_HEIGHT / 2;
+    el.scrollTop = Math.max(0, center);
+  }, []);
+
+  const isSpanVisible = useCallback(
+    (span: Span, spanById: Map<string, Span>) => {
+      let currentId = span.parent_span_id;
+      while (currentId) {
+        if (collapsedIds.has(currentId)) return false;
+        currentId = spanById.get(currentId)?.parent_span_id ?? null;
+      }
+      return true;
+    },
+    [collapsedIds],
+  );
+
+  /**
+   * Called when the user clicks a bar in the timeline.
+   * Switches to tree mode so the user lands on the full span details view.
+   * Also scrolls the tree to show the selected span.
+   */
+  const handleTimelineSelect = useCallback(
+    (sel: TraceSelection) => {
+      setSelection(sel);
+      setViewMode("tree");
+      if (sel.type === "span" && trace) {
+        const spans = enrichSpansWithPending(trace.spans);
+        const spanById = new Map(spans.map((s) => [s.span_id, s]));
+        const rows = buildSpanTree(spans).filter((row) => isSpanVisible(row.span, spanById));
+        const rowIdx = rows.findIndex((r) => r.span.span_id === sel.span.span_id);
+        if (rowIdx !== -1) {
+          // +1 because row 0 in the tree is the trace root
+          requestAnimationFrame(() => scrollTreeToRow(rowIdx + 1));
+        }
+      }
+    },
+    [trace, scrollTreeToRow, isSpanVisible],
+  );
+
+  // Sync tree scroll → timeline
+  const handleTreeScroll = useCallback(() => {
+    if (isSyncing.current || !treeScrollRef.current || !timelineScrollRef.current) return;
+    isSyncing.current = true;
+    timelineScrollRef.current.scrollTop = treeScrollRef.current.scrollTop;
+    requestAnimationFrame(() => {
+      isSyncing.current = false;
+    });
+  }, []);
+
+  // Sync timeline scroll → tree
+  const handleTimelineScroll = useCallback(() => {
+    if (isSyncing.current || !treeScrollRef.current || !timelineScrollRef.current) return;
+    isSyncing.current = true;
+    treeScrollRef.current.scrollTop = timelineScrollRef.current.scrollTop;
+    requestAnimationFrame(() => {
+      isSyncing.current = false;
+    });
+  }, []);
 
   return (
     <div className="flex h-full flex-col bg-background">
-      {/* Top header bar */}
-      <div className="flex h-10 items-center justify-between border-b border-border bg-muted/30 px-4">
+      {/* ── MAIN HEADER ── */}
+      <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
         <div className="flex min-w-0 items-center gap-2">
           <Workflow className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">Trace</span>
           <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
         </div>
         <div className="flex items-center gap-1">
-          {/* Alert | Agent | ↑ | ↓ | ✕ */}
           {hasFindings && (
             <button
               type="button"
               onClick={() => {
-                setChatMode("rca");
-                setAiChatOpen(true);
+                setAiContext({ traceId });
+                setAiInitialSessionId(rcaSessionId);
+                setAiPanelOpen(true);
               }}
               className="rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60"
               title="Findings detected — open root cause analysis"
@@ -112,19 +227,6 @@ export function TraceViewerPanel({
               Alert
             </button>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setChatMode("fresh"); // always fresh chat
-              setAiChatOpen((v) => !v);
-            }}
-            className="h-7 w-7 p-0"
-            title="AI Assistant"
-          >
-            <BotMessageSquare className="h-4 w-4" />
-          </Button>
-          <div className="w-1" />
           <Button
             variant="outline"
             size="sm"
@@ -145,56 +247,166 @@ export function TraceViewerPanel({
           >
             <ArrowDown className="h-4 w-4" />
           </Button>
-          <div className="w-1" />
+          <div className="w-2" />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setAiContext({ traceId });
+              // Bot button always opens a fresh chat; an active RCA session
+              // would otherwise hijack the next message into the worker's
+              // session instead of starting a new one.
+              setAiInitialSessionId(undefined);
+              setAiPanelOpen(!aiPanelOpen);
+            }}
+            className="h-7 w-7 p-0"
+            title="AI Assistant"
+          >
+            <BotMessageSquare className="h-4 w-4" />
+          </Button>
           <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
             <X className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
-      {/* Content */}
-      {isLoading ? (
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm text-muted-foreground">Loading trace...</p>
+      {/* ── VIEW TOGGLE SUB-HEADER ── */}
+      <div className="flex h-10 items-center border-b border-border">
+        <div className="flex items-center rounded-lg px-2 py-1">
+          <button
+            onClick={() => setViewMode("tree")}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+              viewMode === "tree"
+                ? "bg-muted text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <ListTree className="h-3.5 w-3.5" /> Trace
+          </button>
+          <button
+            onClick={() => setViewMode("timeline")}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+              viewMode === "timeline"
+                ? "bg-muted text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <SquareGanttChart className="h-3.5 w-3.5" /> Timeline
+          </button>
         </div>
-      ) : error || !trace ? (
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm text-destructive">Error loading trace</p>
-        </div>
-      ) : (
-        <div className="flex flex-1 overflow-hidden">
-          {/* Left: Tree view */}
-          <div className="w-[320px] flex-shrink-0 overflow-y-auto border-r border-border bg-muted/30">
-            <SpanTreeView trace={trace} selection={selection} onSelect={setSelection} />
-          </div>
+      </div>
 
-          {/* Right: Detail panel */}
-          <div className="min-w-[280px] flex-1 overflow-hidden bg-background">
-            <SpanInfoPanel
-              projectId={projectId}
-              trace={trace}
-              selection={selection}
-              onClose={onClose}
-              dateFilter={dateFilter}
-              customStartDate={customStartDate}
-              customEndDate={customEndDate}
-            />
-          </div>
+      {/* ── CONTENT AREA ── */}
+      {/* ResizablePanelGroup stays mounted across trace switches so the AI
+          panel inside doesn't get torn down while the next trace is
+          fetching (#784: chat survives ↑/↓ navigation). Loading and error
+          states are isolated to the detail panel's content. */}
+      <div className="relative flex flex-1 overflow-hidden">
+        <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
+          {/* LEFT: tree panel — outer group */}
+          <ResizablePanel
+            id="trace-tree"
+            defaultSize="32%"
+            minSize="260px"
+            maxSize="50%"
+            className="flex min-w-0 flex-col bg-muted/30"
+          >
+            <div
+              className="flex flex-shrink-0 items-center border-b border-border bg-muted/10 px-3"
+              style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
+            >
+              <span className="text-[11px] font-medium text-muted-foreground">Trace Tree</span>
+            </div>
+            <div ref={treeScrollRef} className="flex-1 overflow-y-auto" onScroll={handleTreeScroll}>
+              {trace && (
+                <SpanTreeView
+                  trace={trace}
+                  selection={selection}
+                  onSelect={viewMode === "tree" ? setSelection : handleTimelineSelect}
+                  collapsedIds={collapsedIds}
+                  onToggleCollapse={handleToggleCollapse}
+                  compact={viewMode === "timeline"}
+                  hoveredSpanId={hoveredSpanId}
+                  onHoverChange={setHoveredSpanId}
+                />
+              )}
+            </div>
+          </ResizablePanel>
 
-          {/* AI Chat overlay — chatMode controls whether RCA session is loaded */}
-          {aiChatOpen && (
-            <AiChatOverlay
-              projectId={projectId}
-              traceId={traceId}
-              initialSessionId={chatInitialSessionId}
-              onClose={() => {
-                setAiChatOpen(false);
-                setChatMode(null);
-              }}
-            />
-          )}
-        </div>
-      )}
+          <ResizableHandle />
+
+          {/* RIGHT: workspace (details + optional AI) — inner group */}
+          <ResizablePanel
+            id="trace-right-workspace"
+            minSize="420px"
+            className="min-w-0 overflow-hidden border-l border-border bg-background"
+          >
+            <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
+              <ResizablePanel
+                id="trace-detail"
+                minSize="320px"
+                className="min-w-0 overflow-hidden bg-background"
+              >
+                {isLoading ? (
+                  <div className="flex h-full items-center justify-center">
+                    <p className="text-sm text-muted-foreground">Loading trace...</p>
+                  </div>
+                ) : error || !trace ? (
+                  <div className="flex h-full items-center justify-center">
+                    <p className="text-sm text-destructive">Error loading trace</p>
+                  </div>
+                ) : viewMode === "tree" ? (
+                  <SpanInfoPanel
+                    projectId={projectId}
+                    trace={trace}
+                    selection={selection}
+                    onClose={onClose}
+                    dateFilter={dateFilter}
+                    customStartDate={customStartDate}
+                    customEndDate={customEndDate}
+                  />
+                ) : (
+                  <SpanTimelineView
+                    trace={trace}
+                    selection={selection}
+                    onSelect={handleTimelineSelect}
+                    collapsedIds={collapsedIds}
+                    scrollRef={timelineScrollRef}
+                    onScroll={handleTimelineScroll}
+                    hoveredSpanId={hoveredSpanId}
+                    onHoverChange={setHoveredSpanId}
+                  />
+                )}
+              </ResizablePanel>
+
+              {aiPanelOpen && (
+                <>
+                  <ResizableHandle />
+                  <ResizablePanel
+                    id="trace-ai-chat"
+                    defaultSize="46%"
+                    minSize="320px"
+                    maxSize="55%"
+                    className="min-w-0 border-border bg-background"
+                  >
+                    <AiAssistantPanel
+                      projectId={projectId}
+                      compact
+                      onClose={() => {
+                        setAiPanelOpen(false);
+                        setAiContext(null);
+                        setAiInitialSessionId(undefined);
+                      }}
+                    />
+                  </ResizablePanel>
+                </>
+              )}
+            </ResizablePanelGroup>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
     </div>
   );
 }

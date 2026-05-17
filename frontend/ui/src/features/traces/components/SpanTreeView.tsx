@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo } from "react";
 import { ChevronRight, ChevronDown, CircleStop, CircleDollarSign } from "lucide-react";
 import { cn, formatDuration, formatTokens } from "@/lib/utils";
 import { SpanKind, SpanStatus } from "@traceroot/core";
@@ -23,20 +23,34 @@ interface SpanTreeViewProps {
   trace: TraceDetail;
   selection: TraceSelection;
   onSelect: (selection: TraceSelection) => void;
+  collapsedIds: Set<string>;
+  onToggleCollapse: (id: string) => void;
+  compact?: boolean;
+  hoveredSpanId: string | null;
+  onHoverChange: (id: string | null) => void;
 }
 
 /**
- * Tree view component for displaying trace and span hierarchy
+ * Tree view component for displaying trace and span hierarchy.
+ * Collapse state is managed externally (lifted to TraceViewerPanel) so it can
+ * be shared with the timeline bars view for scroll-sync and row alignment.
  */
-export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) {
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
-
+export function SpanTreeView({
+  trace,
+  selection,
+  onSelect,
+  collapsedIds,
+  onToggleCollapse,
+  compact = false,
+  hoveredSpanId,
+  onHoverChange,
+}: SpanTreeViewProps) {
   // Enrich with placeholder spans for any missing ancestors — handles both
   // live-streaming gaps (parent not yet arrived) and permanently dropped spans.
-  // Mirrors lmnr's approach of calling enrichSpansWithPending on every render.
-  const spans = enrichSpansWithPending(trace.spans);
-
-  const childrenByParent = buildChildrenMap(spans);
+  const spans = useMemo(() => enrichSpansWithPending(trace.spans), [trace.spans]);
+  const childrenByParent = useMemo(() => buildChildrenMap(spans), [spans]);
+  const spanById = useMemo(() => new Map(spans.map((s) => [s.span_id, s])), [spans]);
+  const spanRows = useMemo(() => buildSpanTree(spans), [spans]);
 
   const hasChildren = (spanId: string | null) => {
     const children = childrenByParent.get(spanId) || [];
@@ -45,29 +59,18 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
 
   const toggleCollapse = (spanId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setCollapsedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(spanId)) {
-        next.delete(spanId);
-      } else {
-        next.add(spanId);
-      }
-      return next;
-    });
+    onToggleCollapse(spanId);
   };
 
-  // Check if a span should be visible (not hidden by collapsed ancestor)
   const isVisible = (span: Span): boolean => {
     let currentId = span.parent_span_id;
     while (currentId) {
       if (collapsedIds.has(currentId)) return false;
-      const parent = spans.find((s) => s.span_id === currentId);
-      currentId = parent?.parent_span_id || null;
+      currentId = spanById.get(currentId)?.parent_span_id || null;
     }
     return true;
   };
 
-  const spanRows = buildSpanTree(spans);
   const isTraceSelected = selection.type === "trace";
   const traceDuration = getTraceDuration(trace);
   const traceTotalCost = getTraceTotalCost(trace);
@@ -76,50 +79,52 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
   const traceIsCollapsed = collapsedIds.has("trace");
 
   return (
-    <div>
+    <div className="relative min-w-0">
       {/* Trace row */}
       <div
         className={cn(
-          "flex cursor-pointer items-center rounded-sm transition-colors",
-          isTraceSelected ? "bg-muted" : "hover:bg-muted/50",
+          "flex cursor-pointer items-center border-b border-border/5 transition-colors hover:bg-muted/50",
+          hoveredSpanId === "trace" && "bg-muted/60",
+          isTraceSelected && "bg-muted/60",
         )}
         style={{ height: TREE_LAYOUT.ROW_HEIGHT, paddingLeft: TREE_LAYOUT.LEFT_PADDING }}
         onClick={() => onSelect({ type: "trace" })}
+        onMouseEnter={() => onHoverChange("trace")}
+        onMouseLeave={() => onHoverChange(null)}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-2">
           <SpanKindIcon kind="trace" inTree />
-          <span className="truncate text-xs">{trace.name}</span>
-          <span className="whitespace-nowrap font-mono text-[10px] text-muted-foreground">
-            {formatDuration(traceDuration)}
-          </span>
-          {traceTokenUsage && (
-            <span className="inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
-              <CircleStop className="h-2.5 w-2.5" />
-              {formatTokens(traceTokenUsage.totalTokens)}
-            </span>
-          )}
-          {traceTotalCost && (
-            <span className="inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
-              <CircleDollarSign className="h-2.5 w-2.5" />
-              {traceTotalCost.toFixed(4)}
-            </span>
-          )}
-          <div className="flex-1" />
+          <span className="min-w-0 shrink truncate text-xs font-medium">{trace.name}</span>
+
+          {/* Always render the flex-1 container to lock the gap math, but conditionally render contents */}
+          <div className="flex min-w-0 flex-1 items-center justify-start gap-1.5 @container">
+            {!compact && (
+              <>
+                <span className="hidden shrink-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[45px]:inline-flex">
+                  {formatDuration(traceDuration)}
+                </span>
+
+                {traceTokenUsage && (
+                  <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[80px]:inline-flex">
+                    <CircleStop className="h-2.5 w-2.5" />
+                    {formatTokens(traceTokenUsage.totalTokens)}
+                  </span>
+                )}
+
+                {traceTotalCost != null && (
+                  <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[130px]:inline-flex">
+                    <CircleDollarSign className="h-2.5 w-2.5" />
+                    {traceTotalCost.toFixed(4)}
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+
           {traceHasChildren && (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setCollapsedIds((prev) => {
-                  const next = new Set(prev);
-                  if (next.has("trace")) {
-                    next.delete("trace");
-                  } else {
-                    next.add("trace");
-                  }
-                  return next;
-                });
-              }}
-              className="flex-shrink-0 rounded p-0.5 transition-colors hover:bg-muted"
+              onClick={(e) => toggleCollapse("trace", e)}
+              className="shrink-0 rounded p-0.5 transition-colors hover:bg-muted"
             >
               {traceIsCollapsed ? (
                 <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
@@ -134,7 +139,6 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
       {/* Span rows */}
       {!traceIsCollapsed &&
         spanRows.map(({ span, level, isTerminal, parentLevels }) => {
-          // Skip if hidden by collapsed ancestor
           if (!isVisible(span)) return null;
 
           const isSelected = selection.type === "span" && selection.span.span_id === span.span_id;
@@ -147,10 +151,19 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
             <div
               key={span.span_id}
               className={cn(
-                "flex cursor-pointer items-center rounded-r-sm pr-2 transition-colors",
-                isSelected ? "bg-muted" : "hover:bg-muted/50",
+                "group relative flex w-full cursor-pointer items-center border-b border-border/5 transition-colors",
+                hoveredSpanId === span.span_id ? "bg-muted/60" : "bg-transparent",
+                isSelected && "bg-muted/80",
               )}
               style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
+              onMouseEnter={(e) => {
+                e.stopPropagation();
+                onHoverChange(span.span_id);
+              }}
+              onMouseLeave={(e) => {
+                e.stopPropagation();
+                onHoverChange(null);
+              }}
               onClick={() => onSelect({ type: "span", span })}
             >
               <SpanTreeConnector
@@ -158,42 +171,57 @@ export function SpanTreeView({ trace, selection, onSelect }: SpanTreeViewProps) 
                 isTerminal={isTerminal}
                 parentLevels={adjustedParentLevels}
               />
-              <div className="flex min-w-0 flex-1 items-center gap-1.5">
+
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-2">
                 <SpanKindIcon kind={span.span_kind} inTree />
                 <span
-                  className={cn("truncate text-xs", span.pending && "text-muted-foreground/60")}
+                  className={cn(
+                    "min-w-0 shrink truncate text-xs",
+                    span.pending && "text-muted-foreground/60",
+                  )}
                 >
                   {span.name}
                 </span>
-                {!span.pending && (
-                  <span className="whitespace-nowrap font-mono text-[10px] text-muted-foreground">
-                    {formatDuration(getSpanDuration(span))}
-                  </span>
-                )}
+                {/* Error badge stays outside the @container to guarantee it is always visible */}
                 {span.status === SpanStatus.ERROR && (
-                  <span className="whitespace-nowrap rounded bg-red-100 px-1 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
+                  <span className="shrink-0 whitespace-nowrap rounded bg-red-100 px-1 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
                     ERROR
                   </span>
                 )}
-                {span.span_kind === SpanKind.LLM && span.total_tokens != null && (
-                  <span className="inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
-                    <CircleStop className="h-2.5 w-2.5" />
-                    {formatTokens(span.total_tokens)}
-                  </span>
-                )}
-                {span.span_kind === SpanKind.LLM &&
-                  span.cost != null &&
-                  Number.isFinite(span.cost) && (
-                    <span className="inline-flex items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
-                      <CircleDollarSign className="h-2.5 w-2.5" />
-                      {span.cost.toFixed(4)}
-                    </span>
+
+                {/* Always render the flex-1 container to lock the gap math */}
+                <div className="flex min-w-0 flex-1 items-center justify-start gap-1.5 @container">
+                  {!compact && (
+                    <>
+                      {!span.pending && (
+                        <span className="hidden shrink-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[45px]:inline-flex">
+                          {formatDuration(getSpanDuration(span))}
+                        </span>
+                      )}
+
+                      {span.span_kind === SpanKind.LLM && span.total_tokens != null && (
+                        <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[80px]:inline-flex">
+                          <CircleStop className="h-2.5 w-2.5" />
+                          {formatTokens(span.total_tokens)}
+                        </span>
+                      )}
+
+                      {span.span_kind === SpanKind.LLM &&
+                        span.cost != null &&
+                        Number.isFinite(span.cost) && (
+                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[130px]:inline-flex">
+                            <CircleDollarSign className="h-2.5 w-2.5" />
+                            {span.cost.toFixed(4)}
+                          </span>
+                        )}
+                    </>
                   )}
-                <div className="flex-1" />
+                </div>
+
                 {spanHasChildren && (
                   <button
                     onClick={(e) => toggleCollapse(span.span_id, e)}
-                    className="flex-shrink-0 rounded p-0.5 transition-colors hover:bg-muted"
+                    className="shrink-0 rounded p-0.5 transition-colors hover:bg-muted"
                   >
                     {isCollapsed ? (
                       <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
