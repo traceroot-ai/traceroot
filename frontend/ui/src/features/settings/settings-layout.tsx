@@ -10,6 +10,7 @@ import {
   CreditCard,
   Bot,
   Key,
+  Eye,
   ArrowLeftRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,7 @@ export const WORKSPACE_SETTINGS_TABS: SettingsTab[] = [
 export const PROJECT_SETTINGS_TABS: SettingsTab[] = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
   { id: "accessKeys", label: "API Keys", icon: Key, href: "accessKeys" },
+  { id: "detectors", label: "Detectors", icon: Eye, href: "detectors" },
 ];
 
 interface CrossLink {

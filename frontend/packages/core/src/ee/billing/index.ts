@@ -1,5 +1,5 @@
 // Stripe client
-export { stripe, getStripeOrThrow } from "./stripe";
+export { stripe, getStripeOrThrow } from "./stripe.js";
 
 // Plans and entitlements (single source of truth)
 export {
@@ -10,6 +10,9 @@ export {
   USAGE_CONFIG,
   EVENT_QUOTAS,
   AI_RUN_QUOTAS,
+  RCA_RUN_QUOTAS,
+  DETECTOR_RUN_QUOTAS,
+  DETECTOR_HOSTED_LLM_FREE_THRESHOLD,
   PlanType,
   // Types
   type PlanConfig,
@@ -33,4 +36,6 @@ export {
   // Free plan blocking
   isFreePlanBlocked,
   isAiRunBlocked,
-} from "./plans";
+  isRcaRunBlocked,
+  isDetectorRunBlocked,
+} from "./plans.js";

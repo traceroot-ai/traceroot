@@ -1,7 +1,7 @@
 # deploy/terraform/aws/ecr.tf
 
 locals {
-  services = ["web", "rest", "worker", "billing", "agent", "migrate-clickhouse", "migrate-postgres"]
+  services = ["web", "rest", "worker", "billing", "agent", "detector", "migrate-clickhouse", "migrate-postgres"]
 }
 
 resource "aws_ecr_repository" "services" {

@@ -48,14 +48,14 @@ app.post("/api/v1/cache/invalidate-provider", async (c) => {
 // Session CRUD routes
 app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   const projectId = c.req.param("projectId");
-  const userId = c.req.header("x-user-id") || "";
+  const userId = c.req.header("x-user-id") || undefined;
   const workspaceId = c.req.header("x-workspace-id") || "";
   const body = await c.req.json<{ title?: string }>();
 
   const session = await createSession({
     projectId,
     workspaceId,
-    userId,
+    userId, // undefined → stored as null for system/RCA sessions
     title: body.title,
   });
   return c.json(session, 201);
@@ -73,7 +73,8 @@ app.get("/api/v1/projects/:projectId/sessions", async (c) => {
 
 app.get("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
   const userId = c.req.header("x-user-id") || "";
-  const session = await getSession(c.req.param("sessionId"), userId);
+  const projectId = c.req.param("projectId");
+  const session = await getSession(c.req.param("sessionId"), userId, projectId);
   if (!session) return c.json({ error: "not found" }, 404);
   return c.json(session);
 });
@@ -81,7 +82,8 @@ app.get("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
 // GET messages for a session (for loading history in UI)
 app.get("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) => {
   const userId = c.req.header("x-user-id") || "";
-  const messages = await getSessionMessages(c.req.param("sessionId"), userId);
+  const projectId = c.req.param("projectId");
+  const messages = await getSessionMessages(c.req.param("sessionId"), userId, projectId);
   if (!messages) return c.json({ error: "not found" }, 404);
   return c.json({ messages });
 });
@@ -118,6 +120,15 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     source?: ModelSource;
   }>();
 
+  // Authorize first: caller must own the session (user-bound) or have
+  // projectId scope on a system session. Without this check, any caller
+  // who can reach the proxy could append messages and run the LLM in
+  // another user's session by guessing/known sessionIds.
+  const ownedSession = await getSession(sessionId, userId, projectId);
+  if (!ownedSession) {
+    return c.json({ error: "session not found" }, 404);
+  }
+
   const systemPrompt = getSystemPrompt({
     projectId,
     traceId: body.traceId,
@@ -131,7 +142,14 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     sessionExecutors.set(sessionId, executor);
   }
 
-  const tools = createTools({ projectId, userId, executor });
+  // Use the session's workspaceId (authorized by getSession above) rather than
+  // the raw header value, so tools can't be coerced into another workspace.
+  const tools = createTools({
+    projectId,
+    userId,
+    workspaceId: ownedSession.workspaceId,
+    executor,
+  });
 
   console.log(
     `[Agent] POST message: session=${sessionId}, model=${body.model}, provider=${body.providerName}, source=${body.source}`,
@@ -140,7 +158,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   const { agent, sessionManager } = await getOrCreateAgent({
     sessionId,
     projectId,
-    workspaceId,
+    workspaceId: ownedSession.workspaceId,
     userId,
     systemPrompt,
     tools,
@@ -154,9 +172,9 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   // Persist user message to DB via SessionManager
   await sessionManager.appendMessage("user", body.message);
 
-  // Auto-generate session title from first user message
-  const session = await getSession(sessionId, userId);
-  if (session && !session.title) {
+  // Auto-generate session title from first user message (we already have
+  // the session loaded above for the auth check — reuse it).
+  if (!ownedSession.title) {
     const title = body.message.slice(0, 80) + (body.message.length > 80 ? "..." : "");
     await updateSessionTitle(sessionId, title);
   }

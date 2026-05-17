@@ -17,14 +17,25 @@ const AiChatContext = createContext<ChatCtx | null>(null);
 interface AiChatProviderProps {
   projectId: string | undefined;
   initialContext: AiTraceContext | null;
+  // Pre-load an existing session (e.g. an RCA session opened from the detector
+  // findings flow). When set, useAiChat fetches that session's messages and
+  // continues attribution there. Clearing it lets the chat fall back to lazy
+  // session creation on the next user message.
+  initialSessionId?: string;
   children: ReactNode;
 }
 
-export function AiChatProvider({ projectId, initialContext, children }: AiChatProviderProps) {
+export function AiChatProvider({
+  projectId,
+  initialContext,
+  initialSessionId,
+  children,
+}: AiChatProviderProps) {
   const chat = useAiChat({
     projectId,
     traceId: initialContext?.traceId,
     traceSessionId: initialContext?.traceSessionId,
+    initialSessionId,
   });
   return <AiChatContext.Provider value={chat}>{children}</AiChatContext.Provider>;
 }

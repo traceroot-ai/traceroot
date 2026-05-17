@@ -19,6 +19,11 @@ interface LayoutContextType {
   setAiPanelOpen: (open: boolean) => void;
   aiContext: AiTraceContext | null;
   setAiContext: (context: AiTraceContext | null) => void;
+  // Pre-load an existing chat session (e.g. RCA from the detector findings
+  // flow). Set alongside aiContext + aiPanelOpen when opening the panel into
+  // an existing session; clear when opening a fresh chat.
+  aiInitialSessionId: string | undefined;
+  setAiInitialSessionId: (sessionId: string | undefined) => void;
   hideAiButton: boolean;
   setHideAiButton: (hide: boolean) => void;
   // Hosts (TraceViewerPanel / SessionDetailPanel) claim ownership of the AI
@@ -38,6 +43,8 @@ const LayoutContext = createContext<LayoutContextType>({
   setAiPanelOpen: () => {},
   aiContext: null,
   setAiContext: () => {},
+  aiInitialSessionId: undefined,
+  setAiInitialSessionId: () => {},
   hideAiButton: false,
   setHideAiButton: () => {},
   viewerOwnsAiSlot: false,
@@ -53,6 +60,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [headerContent, setHeaderContent] = useState<ReactNode>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiContext, setAiContext] = useState<AiTraceContext | null>(null);
+  const [aiInitialSessionId, setAiInitialSessionId] = useState<string | undefined>(undefined);
   const [hideAiButton, setHideAiButton] = useState(true);
   const [aiHostRefCount, setAiHostRefCount] = useState(0);
   const pathname = usePathname();
@@ -62,6 +70,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setAiPanelOpen(false);
     setAiContext(null);
+    setAiInitialSessionId(undefined);
   }, [pathname]);
 
   const registerAiHost = useCallback(() => {
@@ -94,13 +103,19 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         setAiPanelOpen,
         aiContext,
         setAiContext,
+        aiInitialSessionId,
+        setAiInitialSessionId,
         hideAiButton,
         setHideAiButton,
         viewerOwnsAiSlot,
         registerAiHost,
       }}
     >
-      <AiChatProvider projectId={projectId} initialContext={aiContext}>
+      <AiChatProvider
+        projectId={projectId}
+        initialContext={aiContext}
+        initialSessionId={aiInitialSessionId}
+      >
         <div className="flex h-screen overflow-hidden">
           <Sidebar collapsed={sidebarCollapsed} />
 
@@ -131,6 +146,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       className="h-8 w-8 shrink-0"
                       onClick={() => {
                         if (aiPanelOpen) setAiContext(null);
+                        setAiInitialSessionId(undefined);
                         setAiPanelOpen(!aiPanelOpen);
                       }}
                       title="AI Assistant"
@@ -160,6 +176,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                     onClose={() => {
                       setAiPanelOpen(false);
                       setAiContext(null);
+                      setAiInitialSessionId(undefined);
                     }}
                   />
                 </ResizablePanel>

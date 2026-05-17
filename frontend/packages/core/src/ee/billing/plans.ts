@@ -1,4 +1,4 @@
-import { isBillingEnabled } from "../license";
+import { isBillingEnabled } from "../license.js";
 export { isBillingEnabled };
 
 // =============================================================================
@@ -18,8 +18,8 @@ export type PlanType = (typeof PlanType)[keyof typeof PlanType];
 // Spans (observability)
 export const EVENT_QUOTAS: Record<PlanType, { included: number; overageLabel: string }> = {
   [PlanType.FREE]: { included: 50_000, overageLabel: "Hard cap (upgrade to continue)" },
-  [PlanType.STARTER]: { included: 150_000, overageLabel: "$3 per 50k events" },
-  [PlanType.PRO]: { included: 150_000, overageLabel: "$3 per 50k events" },
+  [PlanType.STARTER]: { included: 150_000, overageLabel: "$4 per 50k events" },
+  [PlanType.PRO]: { included: 150_000, overageLabel: "$4 per 50k events" },
   [PlanType.ENTERPRISE]: { included: Infinity, overageLabel: "Custom" },
 };
 
@@ -30,6 +30,33 @@ export const AI_RUN_QUOTAS: Record<PlanType, { included: number; overageLabel: s
   [PlanType.PRO]: { included: 100, overageLabel: "$10 per 100 runs" },
   [PlanType.ENTERPRISE]: { included: Infinity, overageLabel: "Unlimited" },
 };
+
+// RCA runs (auto-triggered by detector findings) — separate meter, same shape as AI runs
+export const RCA_RUN_QUOTAS: Record<PlanType, { included: number; overageLabel: string }> = {
+  [PlanType.FREE]: { included: 30, overageLabel: "Hard cap (upgrade to continue)" },
+  [PlanType.STARTER]: { included: 100, overageLabel: "$10 per 100 runs" },
+  [PlanType.PRO]: { included: 100, overageLabel: "$10 per 100 runs" },
+  [PlanType.ENTERPRISE]: { included: Infinity, overageLabel: "Unlimited" },
+};
+
+// Detector runs (BYOK + hosted combined). Free has a hard cap so the
+// "Free is truly free" promise holds — we absorb hosted-LLM cost up to the
+// cap as customer-acquisition spend. Paid plans are unlimited; hosted
+// inference is billed via STRIPE_PRICE_ID_DETECTOR_USAGE at 1.05× passthrough.
+export const DETECTOR_RUN_QUOTAS: Record<PlanType, { included: number; overageLabel: string }> = {
+  [PlanType.FREE]: { included: 100, overageLabel: "Hard cap (upgrade to continue)" },
+  [PlanType.STARTER]: { included: Infinity, overageLabel: "Unlimited" },
+  [PlanType.PRO]: { included: Infinity, overageLabel: "Unlimited" },
+  [PlanType.ENTERPRISE]: { included: Infinity, overageLabel: "Unlimited" },
+};
+
+// First N detector scans per billing period are billed at $0 even on paid
+// plans — we absorb the hosted-LLM cost. This matches Free's 100-scan grant
+// so upgrading from Free to Starter never *removes* a feature the customer
+// already had. Beyond this threshold, hosted-LLM tokens are billed at 1.05×
+// passthrough (proportional to the overage portion of the period total).
+// BYOK scans bypass billing entirely regardless of this threshold.
+export const DETECTOR_HOSTED_LLM_FREE_THRESHOLD = 100;
 
 // Legacy compat — used by usageMetering and free-plan blocking
 export const USAGE_CONFIG = {
@@ -52,6 +79,37 @@ export function isAiRunBlocked(plan: PlanType, runsUsed: number): boolean {
     return runsUsed >= AI_RUN_QUOTAS[plan].included;
   }
   return false; // paid plans: overage is billed via Stripe, never hard-blocked
+}
+
+/**
+ * Check if RCA runs should be blocked for a given plan and usage.
+ * Free plan: hard cap at included runs (30).
+ * Paid plans: never blocked (overage is billed via Stripe).
+ *
+ * Mirrors isAiRunBlocked. The Free RCA cap (30) is lower than the Free
+ * detector-scan cap (100), so detectorBlocked alone does NOT implicitly
+ * cap RCA — a workspace can produce 30+ findings before hitting the
+ * detector cap, each of which would otherwise trigger an RCA.
+ */
+export function isRcaRunBlocked(plan: PlanType, runsUsed: number): boolean {
+  if (!isBillingEnabled()) return false;
+  if (plan === PlanType.FREE) {
+    return runsUsed >= RCA_RUN_QUOTAS[plan].included;
+  }
+  return false;
+}
+
+/**
+ * Check if detector runs should be blocked for a given plan and usage.
+ * Free plan: hard cap at 100 total scans (BYOK + hosted combined).
+ * Paid plans: never blocked (hosted inference is billed at 1.05× passthrough; BYOK is free).
+ */
+export function isDetectorRunBlocked(plan: PlanType, scansRun: number): boolean {
+  if (!isBillingEnabled()) return false;
+  if (plan === PlanType.FREE) {
+    return scansRun >= DETECTOR_RUN_QUOTAS[plan].included;
+  }
+  return false;
 }
 
 // =============================================================================
@@ -123,8 +181,10 @@ export const PLANS: Record<
       "2 seats",
       "50k events/month included",
       "15-day retention",
-      "30 AI runs/month",
-      "BYOK supported",
+      "30 chat runs/month",
+      "30 RCA runs/month",
+      "100 detector runs/month",
+      "BYOK or hosted LLM",
     ],
     support: "Discord",
     entitlements: getEntitlementsForPlan(PlanType.FREE),
@@ -140,10 +200,14 @@ export const PLANS: Record<
       "Everything in Free",
       "Unlimited seats",
       "150k events/month included",
-      "$3 per 50k overage events",
+      "$4 per 50k overage events",
       "30-day retention",
-      "100 AI runs/month",
-      "$10 per 100 overage runs",
+      "100 chat runs/month",
+      "$10 per 100 overage chat runs",
+      "100 RCA runs/month",
+      "$10 per 100 overage RCA runs",
+      "Unlimited detector runs",
+      "Hosted LLM: token cost × 1.05 on overage",
     ],
     support: "Discord",
     entitlements: getEntitlementsForPlan(PlanType.STARTER),
@@ -158,6 +222,7 @@ export const PLANS: Record<
     features: [
       "Everything in Starter",
       "90-day retention",
+      "Slack integration for detector alerts",
       "Higher rate limits",
       "SOC2 compliance",
     ],

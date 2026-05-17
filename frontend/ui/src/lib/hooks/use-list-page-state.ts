@@ -3,7 +3,7 @@
  * Combines pagination, URL-based date filtering, and search with coordinated page resets.
  *
  * URL params: page_index, page_limit, date_filter, start, end
- * Use this for pages that need shared filter state (traces, users, sessions).
+ * Use this for pages that need shared filter state (traces, users, sessions, detector page).
  */
 import { useMemo } from "react";
 import { useUrlPagination } from "./use-url-pagination";
@@ -46,13 +46,17 @@ interface UseListPageStateReturn {
   queryOptions: QueryOptions;
 }
 
-export function useListPageState(defaultLimit = 50): UseListPageStateReturn {
+export function useListPageState(
+  options: { defaultLimit?: number; defaultDateFilterId?: string } = {},
+): UseListPageStateReturn {
+  const { defaultLimit = 50, defaultDateFilterId } = options;
+
   // URL-synced pagination hook - persists page/limit in URL
   const pagination = useUrlPagination(defaultLimit);
 
   // URL-synced date filter hook - resets page on change
   const { dateFilter, customStartDate, customEndDate, setDateFilter, setCustomRange, timestamps } =
-    useUrlDateFilter(pagination.resetPage);
+    useUrlDateFilter(pagination.resetPage, defaultDateFilterId);
 
   // Search hook - resets page on change
   const { keyword, setKeyword, searchQuery } = useKeywordSearch(pagination.resetPage);

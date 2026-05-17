@@ -24,6 +24,7 @@ import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistan
 import { useTraceStream } from "../hooks/use-trace-stream";
 import { SpanTimelineView } from "./SpanTimelineView";
 import { buildSpanTree, enrichSpansWithPending, TREE_LAYOUT } from "../utils";
+import { useTraceFindings, useRca } from "@/features/detectors/hooks/use-findings";
 
 interface TraceViewerPanelProps {
   projectId: string;
@@ -35,6 +36,8 @@ interface TraceViewerPanelProps {
   dateFilter?: { id: string; isCustom?: boolean };
   customStartDate?: Date | null;
   customEndDate?: Date | null;
+  /** When true, auto-opens chat with RCA loaded on mount (detector findings page only) */
+  autoOpenRca?: boolean;
 }
 
 /**
@@ -59,10 +62,12 @@ export function TraceViewerPanel({
   dateFilter,
   customStartDate,
   customEndDate,
+  autoOpenRca,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   const [viewMode, setViewMode] = useState<"tree" | "timeline">("tree");
-  const { aiPanelOpen, setAiPanelOpen, setAiContext, registerAiHost } = useLayout();
+  const { aiPanelOpen, setAiPanelOpen, setAiContext, setAiInitialSessionId, registerAiHost } =
+    useLayout();
 
   // Claim the AI slot for this viewer so AppLayout's project rail steps aside.
   // `registerAiHost()` returns its own cleanup, which we return from the effect
@@ -80,6 +85,25 @@ export function TraceViewerPanel({
   const isSyncing = useRef(false);
 
   const [hoveredSpanId, setHoveredSpanId] = useState<string | null>(null);
+
+  // Detector findings → Alert button + auto-open RCA chat when entered from
+  // the findings page. The trace-level finding (at most one per trace) carries
+  // the RCA session the worker already populated.
+  const { data: traceFindingsData } = useTraceFindings(projectId, traceId);
+  const traceFinding = traceFindingsData?.findings?.[0];
+  const hasFindings = !!traceFinding;
+  const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
+  const rcaSessionId = rcaData?.rca?.sessionId ?? undefined;
+
+  // Auto-open chat with RCA session loaded when arriving from /detectors.
+  // Waits for rcaSessionId so the chat opens already pointing at the session,
+  // avoiding a fresh-chat flash before the id resolves.
+  useEffect(() => {
+    if (!autoOpenRca || !rcaSessionId) return;
+    setAiContext({ traceId });
+    setAiInitialSessionId(rcaSessionId);
+    setAiPanelOpen(true);
+  }, [autoOpenRca, rcaSessionId, traceId, setAiContext, setAiInitialSessionId, setAiPanelOpen]);
 
   const {
     data: trace,
@@ -189,6 +213,20 @@ export function TraceViewerPanel({
           <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
         </div>
         <div className="flex items-center gap-1">
+          {hasFindings && (
+            <button
+              type="button"
+              onClick={() => {
+                setAiContext({ traceId });
+                setAiInitialSessionId(rcaSessionId);
+                setAiPanelOpen(true);
+              }}
+              className="rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60"
+              title="Findings detected — open root cause analysis"
+            >
+              Alert
+            </button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -215,6 +253,10 @@ export function TraceViewerPanel({
             size="sm"
             onClick={() => {
               setAiContext({ traceId });
+              // Bot button always opens a fresh chat; an active RCA session
+              // would otherwise hijack the next message into the worker's
+              // session instead of starting a new one.
+              setAiInitialSessionId(undefined);
               setAiPanelOpen(!aiPanelOpen);
             }}
             className="h-7 w-7 p-0"
@@ -355,6 +397,7 @@ export function TraceViewerPanel({
                       onClose={() => {
                         setAiPanelOpen(false);
                         setAiContext(null);
+                        setAiInitialSessionId(undefined);
                       }}
                     />
                   </ResizablePanel>
