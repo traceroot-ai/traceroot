@@ -4,8 +4,17 @@ function escapeMrkdwn(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// Bounded quantifiers keep the link-text + URL classes from backtracking
+// quadratically on hostile input (CodeQL js/polynomial-redos). 500 is well
+// above any realistic markdown link we emit in detector/RCA output.
+const LINK_PART_MAX = 500;
+const MD_LINK_RE = new RegExp(
+  `\\[([^\\]]{1,${LINK_PART_MAX}})\\]\\(([^)]{1,${LINK_PART_MAX}})\\)`,
+  "g",
+);
+
 function mdLinksToSlack(text: string): string {
-  return text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "<$2|$1>");
+  return text.replace(MD_LINK_RE, "<$2|$1>");
 }
 
 function truncate(text: string, max = SECTION_LIMIT): string {

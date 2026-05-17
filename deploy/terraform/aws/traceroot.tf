@@ -199,8 +199,15 @@ EOT
   # Stripe secret reference (conditional)
   stripe_values = var.stripe_secret_key != "" ? "stripe:\n  existingSecret: \"traceroot-stripe\"" : ""
 
-  # Slack secret reference (conditional)
-  slack_values = var.slack_client_id != "" ? "slack:\n  existingSecret: \"traceroot-slack\"" : ""
+  # Slack secret reference (conditional). Condition MUST match the
+  # `kubernetes_secret.slack` count in secrets.tf — otherwise the Helm chart
+  # references `traceroot-slack` while the secret was never created and pods
+  # crash at startup.
+  slack_values = (
+    var.slack_client_id != "" && var.slack_client_secret != "" && var.domain != ""
+    ? "slack:\n  existingSecret: \"traceroot-slack\""
+    : ""
+  )
 
   # Google OAuth secret reference (conditional)
   google_oauth_values = var.google_oauth_client_id != "" ? "googleOAuth:\n  existingSecret: \"traceroot-google-oauth\"" : ""
