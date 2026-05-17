@@ -36,7 +36,7 @@
     "@types/node-cron": "^3.0.0",
     "@types/nodemailer": "^6.4.14",
     "tsx": "^4.21.0",
-    "typescript": "^5.0.0",
+    "typescript": "^6.0.3",
     "vitest": "^3.0.0"
   }
 }
