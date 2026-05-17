@@ -135,6 +135,8 @@ export const PROVIDER_PRIORITY: LLMAdapter[] = [
 // Adapters NOT listed here (azure, amazon-bedrock, openrouter) use free-text input.
 export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   openai: [
+    { id: "gpt-5.5", label: "gpt-5.5" },
+    { id: "gpt-5.5-pro", label: "gpt-5.5-pro" },
     { id: "gpt-5.4", label: "gpt-5.4" },
     { id: "gpt-5.4-pro", label: "gpt-5.4-pro" },
     { id: "gpt-5.4-mini", label: "gpt-5.4-mini" },

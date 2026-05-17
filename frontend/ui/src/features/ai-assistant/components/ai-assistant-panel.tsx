@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -8,30 +7,41 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
-import { useAiChat } from "../hooks/use-ai-chat";
-import { usePanelResize } from "../hooks/use-panel-resize";
+import { useAiChatContext } from "./ai-chat-context";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
-import type { AiTraceContext } from "../types";
 
 interface AiAssistantPanelProps {
   projectId?: string;
-  open: boolean;
   onClose: () => void;
-  initialContext?: AiTraceContext | null;
+  /**
+   * Compact chrome mode (smaller header / buttons / icons) for use inside the
+   * trace or session viewer where vertical space is tighter. Mirrors upstream's
+   * pre-decoupling `AiChatOverlay` styling. Default (false) matches the
+   * project-wide right rail used in AppLayout.
+   */
+  compact?: boolean;
 }
 
-export function AiAssistantPanel({
-  projectId,
-  open,
-  onClose,
-  initialContext,
-}: AiAssistantPanelProps) {
-  const { width, onMouseDown } = usePanelResize();
-
+/**
+ * Pure presentational AI chatbox UI.
+ *
+ * State lives in {@link AiChatProvider} (at AppLayout root) and is consumed
+ * via {@link useAiChatContext}. This component is mounted by whichever host
+ * currently owns the AI slot — AppLayout's right rail when there is no
+ * trace/session viewer open, otherwise the viewer's own ResizablePanel. The
+ * provider above survives all of these mount/unmount cycles, so chat history
+ * and stream state persist across host transitions (#784 decoupling).
+ */
+export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssistantPanelProps) {
+  const headerCls = compact
+    ? "flex h-10 items-center gap-1 border-b bg-muted/30 px-3"
+    : "flex h-14 items-center gap-1 border-b px-3";
+  const btnCls = compact ? "h-7 w-7 shrink-0 p-0" : "h-8 w-8 shrink-0";
+  const iconCls = compact ? "h-3.5 w-3.5" : "h-4 w-4";
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => getProject(projectId!),
-    enabled: open && !!projectId,
+    enabled: !!projectId,
   });
 
   // workspaceId from project (only available on project pages)
@@ -41,7 +51,7 @@ export function AiAssistantPanel({
   const { data: llmModels } = useQuery({
     queryKey: ["llm-models", workspaceId],
     queryFn: () => getAvailableLLMModels(workspaceId!),
-    enabled: open && !!workspaceId,
+    enabled: !!workspaceId,
   });
   const hasModels =
     !llmModels ||
@@ -64,53 +74,45 @@ export function AiAssistantPanel({
     handleSend,
     handleAbort,
     handleNewSession,
+    handleClose,
     handleOpenHistory,
     handleSelectSession,
     handleDeleteSession,
-  } = useAiChat({
-    projectId,
-    traceId: initialContext?.traceId,
-    traceSessionId: initialContext?.traceSessionId,
-  });
+  } = useAiChatContext();
 
-  // Reset to a blank session whenever the panel is closed so re-opening starts fresh.
-  useEffect(() => {
-    if (!open) handleNewSession();
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!open) return null;
+  // Clicking X explicitly ends the conversation: abort any in-flight stream,
+  // clear messages, drop the session id. Matches the upstream pre-decoupling
+  // behavior (AiChatOverlay's `handleClose`). Trace switching does not go
+  // through this path — the panel stays mounted across `↑/↓`, so chat history
+  // survives those navigations (#784).
+  const handleCloseClick = () => {
+    handleClose();
+    onClose();
+  };
 
   return (
-    <div
-      className="relative z-[60] flex h-screen shrink-0 flex-col border-l bg-background"
-      style={{ width }}
-    >
-      {/* Left resize handle */}
-      <div
-        className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50"
-        onMouseDown={onMouseDown}
-      />
+    <div className="flex h-full flex-col border-l border-border bg-background">
       {/* Header */}
-      <div className="flex h-14 items-center gap-1 border-b px-3">
+      <div className={headerCls}>
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 shrink-0"
+          className={btnCls}
           title="New session"
           onClick={handleNewSession}
         >
-          <Plus className="h-4 w-4" />
+          <Plus className={iconCls} />
         </Button>
         <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
           <PopoverTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 shrink-0"
+              className={btnCls}
               title="History"
               onClick={handleOpenHistory}
             >
-              <History className="h-4 w-4" />
+              <History className={iconCls} />
             </Button>
           </PopoverTrigger>
           <PopoverContent
@@ -129,8 +131,8 @@ export function AiAssistantPanel({
           </PopoverContent>
         </Popover>
         <div className="flex-1" />
-        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onClose}>
-          <X className="h-4 w-4" />
+        <Button variant="ghost" size="icon" className={btnCls} onClick={handleCloseClick}>
+          <X className={iconCls} />
         </Button>
       </div>
 

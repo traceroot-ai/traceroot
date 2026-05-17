@@ -194,6 +194,35 @@ const mastra = new Mastra({
     },
   },
   {
+    id: "vercel-ai",
+    name: "Vercel AI SDK",
+    href: "https://traceroot.ai/docs/integrations/vercel-ai",
+    icon: (
+      <svg
+        aria-hidden="true"
+        width="24"
+        height="24"
+        viewBox="-2 -2 28 28"
+        fill="currentColor"
+        className="text-foreground"
+      >
+        <path d="M24 22.525H0l12-21.05 12 21.05z" />
+      </svg>
+    ),
+    languages: {
+      typescript: {
+        installCommand: TYPESCRIPT_INSTALL_COMMAND,
+        initSnippet: `import { TraceRoot } from "@traceroot-ai/traceroot";
+
+// No instrumentModules — Vercel AI SDK telemetry is handled automatically.
+TraceRoot.initialize();
+
+// Then on each generateText / streamText / generateObject call:
+//   experimental_telemetry: { isEnabled: true }`,
+      },
+    },
+  },
+  {
     id: "crewai",
     name: "CrewAI",
     href: "https://traceroot.ai/docs/integrations/crewai",
@@ -208,6 +237,196 @@ traceroot.initialize(integrations=[
     Integration.CREWAI,
     Integration.OPENAI,  # Or GOOGLE_GENAI, ANTHROPIC, etc.
 ])`,
+      },
+    },
+  },
+  {
+    id: "autogen",
+    name: "AutoGen",
+    href: "https://traceroot.ai/docs/integrations/autogen",
+    icon: (
+      <svg
+        aria-hidden="true"
+        width="24"
+        height="24"
+        viewBox="0 0 96 85"
+        fill="none"
+        className="text-foreground"
+      >
+        <mask id="autogen-onboarding-logo-mask">
+          <rect width="96" height="85" rx="6" fill="white" />
+          <path
+            d="M32.6484 28.7109L23.3672 57H15.8906L28.5703 22.875H33.3281L32.6484 28.7109ZM40.3594 57L31.0547 28.7109L30.3047 22.875H35.1094L47.8594 57H40.3594ZM39.9375 44.2969V49.8047H21.9141V44.2969H39.9375Z"
+            fill="black"
+          />
+          <path
+            d="M77.6484 39.1641V52.6875C77.1172 53.3281 76.2969 54.0234 75.1875 54.7734C74.0781 55.5078 72.6484 56.1406 70.8984 56.6719C69.1484 57.2031 67.0312 57.4688 64.5469 57.4688C62.3438 57.4688 60.3359 57.1094 58.5234 56.3906C56.7109 55.6562 55.1484 54.5859 53.8359 53.1797C52.5391 51.7734 51.5391 50.0547 50.8359 48.0234C50.1328 45.9766 49.7812 43.6406 49.7812 41.0156V38.8828C49.7812 36.2578 50.1172 33.9219 50.7891 31.875C51.4766 29.8281 52.4531 28.1016 53.7188 26.6953C54.9844 25.2891 56.4922 24.2188 58.2422 23.4844C59.9922 22.75 61.9375 22.3828 64.0781 22.3828C67.0469 22.3828 69.4844 22.8672 71.3906 23.8359C73.2969 24.7891 74.75 26.1172 75.75 27.8203C76.7656 29.5078 77.3906 31.4453 77.625 33.6328H70.8047C70.6328 32.4766 70.3047 31.4688 69.8203 30.6094C69.3359 29.75 68.6406 29.0781 67.7344 28.5938C66.8438 28.1094 65.6875 27.8672 64.2656 27.8672C63.0938 27.8672 62.0469 28.1094 61.125 28.5938C60.2188 29.0625 59.4531 29.7578 58.8281 30.6797C58.2031 31.6016 57.7266 32.7422 57.3984 34.1016C57.0703 35.4609 56.9062 37.0391 56.9062 38.8359V41.0156C56.9062 42.7969 57.0781 44.375 57.4219 45.75C57.7656 47.1094 58.2734 48.2578 58.9453 49.1953C59.6328 50.1172 60.4766 50.8125 61.4766 51.2812C62.4766 51.75 63.6406 51.9844 64.9688 51.9844C66.0781 51.9844 67 51.8906 67.7344 51.7031C68.4844 51.5156 69.0859 51.2891 69.5391 51.0234C70.0078 50.7422 70.3672 50.4766 70.6172 50.2266V44.1797H64.1953V39.1641H77.6484Z"
+            fill="black"
+          />
+        </mask>
+        <rect
+          width="96"
+          height="85"
+          rx="6"
+          fill="currentColor"
+          mask="url(#autogen-onboarding-logo-mask)"
+        />
+      </svg>
+    ),
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[
+    Integration.AUTOGEN,
+    Integration.OPENAI,  # Or GOOGLE_GENAI, ANTHROPIC, etc.
+])`,
+      },
+    },
+  },
+  {
+    id: "agno",
+    name: "Agno",
+    href: "https://traceroot.ai/docs/integrations/agno",
+    icon: (
+      <svg
+        aria-hidden="true"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        className="text-foreground"
+      >
+        <mask id="agno-onboarding-logo-mask">
+          <rect width="24" height="24" fill="white" />
+          <g transform="translate(-0.82, 2.42) scale(0.292)" fill="black">
+            <path d="M52.4943 9.29102H29.5019V17.2933H46.8809L61.6912 56.3333H71.2585L52.4943 9.29102Z" />
+            <path d="M40.0389 48.3312H16.4961V56.3334H40.0389V48.3312Z" />
+          </g>
+        </mask>
+        <rect
+          x="2"
+          y="2"
+          width="20"
+          height="20"
+          rx="4.5"
+          fill="currentColor"
+          mask="url(#agno-onboarding-logo-mask)"
+        />
+      </svg>
+    ),
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.AGNO])`,
+      },
+    },
+  },
+  {
+    id: "dspy",
+    name: "DSPy",
+    href: "https://traceroot.ai/docs/integrations/dspy",
+    icon: (
+      <svg
+        aria-hidden="true"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="text-foreground"
+      >
+        <rect x="3" y="3" width="18" height="18" rx="0.8" />
+        <path d="M12 3 V6.5 A1.5 1.5 0 0 1 12 9.5 V12" />
+        <path d="M12 12 V15.5 A1.5 1.5 0 0 1 12 18.5 V21" />
+        <path d="M3 12 H6.5 A1.5 1.5 0 0 1 9.5 12 H12" />
+        <path d="M12 12 H15.5 A1.5 1.5 0 0 1 18.5 12 H21" />
+      </svg>
+    ),
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.DSPY])`,
+      },
+    },
+  },
+  {
+    id: "mistral",
+    name: "Mistral",
+    href: "https://traceroot.ai/docs/integrations/mistral",
+    icon: (
+      <svg
+        aria-hidden="true"
+        width="24"
+        height="24"
+        viewBox="0 0 191 135"
+        fill="currentColor"
+        className="text-foreground"
+      >
+        <path d="M54.3219 0H27.1528V27.0892H54.3219V0Z" />
+        <path d="M162.984 0H135.815V27.0892H162.984V0Z" />
+        <path d="M81.482 27.0913H27.1528V54.1805H81.482V27.0913Z" />
+        <path d="M162.99 27.0913H108.661V54.1805H162.99V27.0913Z" />
+        <path d="M162.971 54.168H27.1528V81.2572H162.971V54.168Z" />
+        <path d="M54.3219 81.2593H27.1528V108.349H54.3219V81.2593Z" />
+        <path d="M108.661 81.2593H81.4917V108.349H108.661V81.2593Z" />
+        <path d="M162.984 81.2593H135.815V108.349H162.984V81.2593Z" />
+        <path d="M81.4879 108.339H-0.00146484V135.429H81.4879V108.339Z" />
+        <path d="M190.159 108.339H108.661V135.429H190.159V108.339Z" />
+      </svg>
+    ),
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.MISTRAL])`,
+      },
+    },
+  },
+  {
+    id: "google-adk",
+    name: "Google ADK",
+    href: "https://traceroot.ai/docs/integrations/google-adk",
+    icon: (
+      <svg
+        aria-hidden="true"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="text-foreground"
+      >
+        <rect x="3" y="3" width="18" height="10" rx="5" />
+        <circle cx="9.5" cy="8" r="1" fill="currentColor" stroke="none" />
+        <circle cx="14.5" cy="8" r="1" fill="currentColor" stroke="none" />
+        <path d="M6 16.5 H4.5 V21.5 H6" />
+        <path d="M11.5 16.5 L9 19 L11.5 21.5" />
+        <path d="M15 16.5 L17.5 19 L15 21.5" />
+      </svg>
+    ),
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.GOOGLE_ADK])`,
       },
     },
   },

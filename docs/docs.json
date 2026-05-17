@@ -128,7 +128,7 @@
             ]
           },
           {
-            "group": "SDK",
+            "group": "Native",
             "pages": [
               "tracing/python-sdk",
               "tracing/typescript-sdk"
@@ -139,11 +139,16 @@
             "pages": [
               "integrations/langchain",
               "integrations/langchain-deepagents",
+              "integrations/claude-agent-sdk",
               "integrations/openai-agents-sdk",
               "integrations/mastra",
+              "integrations/vercel-ai",
               "integrations/autogen",
               "integrations/llamaindex",
-              "integrations/crewai"
+              "integrations/crewai",
+              "integrations/agno",
+              "integrations/dspy",
+              "integrations/google-adk"
             ]
           },
           {
@@ -151,7 +156,8 @@
             "pages": [
               "integrations/openai",
               "integrations/anthropic",
-              "integrations/gemini"
+              "integrations/gemini",
+              "integrations/mistral"
             ]
           },
           {

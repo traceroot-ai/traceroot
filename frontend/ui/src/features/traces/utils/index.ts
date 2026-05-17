@@ -6,8 +6,8 @@ import type { Span, TraceDetail } from "@/types/api";
 import type { SpanTreeRow } from "../types";
 import { parseAsUTC } from "@/lib/utils";
 
-function parseTimestamp(ts: string): number {
-  return parseAsUTC(ts).getTime();
+export function parseTimestamp(ts: string): number {
+  return parseAsUTC(ts.trim()).getTime();
 }
 
 function parseMetadata(metadata: string | null): Record<string, unknown> {
@@ -104,35 +104,38 @@ export const TREE_LAYOUT = {
 } as const;
 
 /**
- * Calculate span duration in milliseconds
+ * Calculate span duration in milliseconds.
+ * In-progress spans (no end_time) measure against now() so live bars grow.
  */
 export function getSpanDuration(span: Span): number | null {
-  if (!span.span_start_time || !span.span_end_time) return null;
-  return parseTimestamp(span.span_end_time) - parseTimestamp(span.span_start_time);
+  if (!span.span_start_time) return null;
+  const start = parseTimestamp(span.span_start_time);
+  const end = span.span_end_time ? parseTimestamp(span.span_end_time) : Date.now();
+  return Math.max(0, end - start);
 }
 
 /**
  * Calculate trace duration from all spans.
- * Langfuse-aligned: prefer root span's own start/end to avoid skew from
- * child spans with bad timestamps (e.g. LangGraph task spans).
- * Falls back to min(span_start) .. max(span_end) across all real spans,
- * matching the backend ClickHouse formula.
+ * Prefer the root span's own start/end to avoid skew from child spans with
+ * bad timestamps (e.g. LangGraph task spans). Falls back to min(start)..max(end)
+ * across non-pending spans; in-progress spans measure against now() so live
+ * traces grow.
  */
 export function getTraceDuration(trace: TraceDetail): number | null {
-  if (!trace.spans.length) return null;
-  const rootSpan = trace.spans.find((s) => s.parent_span_id === null && !s.pending);
-  if (rootSpan?.span_end_time) {
-    return parseTimestamp(rootSpan.span_end_time) - parseTimestamp(rootSpan.span_start_time);
+  const allSpans = enrichSpansWithPending(trace.spans);
+  if (!allSpans.length) return null;
+
+  const root = allSpans.find((s) => !s.parent_span_id);
+  if (root) {
+    return getSpanDuration(root);
   }
-  // Fallback for live streaming: use min(start) .. max(end) across all
-  // real (non-pending) spans, matching the backend ClickHouse formula.
-  const realSpans = trace.spans.filter((s) => !s.pending);
-  const startTimes = realSpans.map((s) => parseTimestamp(s.span_start_time));
-  const endTimes = realSpans
-    .filter((s) => s.span_end_time)
-    .map((s) => parseTimestamp(s.span_end_time!));
-  if (!startTimes.length || !endTimes.length) return null;
-  return Math.max(...endTimes) - Math.min(...startTimes);
+
+  const now = Date.now();
+  const minStart = Math.min(...allSpans.map((s) => parseTimestamp(s.span_start_time)));
+  const maxEnd = Math.max(
+    ...allSpans.map((s) => (s.span_end_time ? parseTimestamp(s.span_end_time) : now)),
+  );
+  return Math.max(0, maxEnd - minStart);
 }
 
 /**
