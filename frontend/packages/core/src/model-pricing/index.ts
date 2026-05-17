@@ -1,3 +1,3 @@
-export { syncStandardPrices } from "./sync-standard-prices";
-export { getModelPricing, calculateCost } from "./lookup";
-export type { ModelPricing } from "./lookup";
+export { syncStandardPrices } from "./sync-standard-prices.js";
+export { getModelPricing, calculateCost } from "./lookup.js";
+export type { ModelPricing } from "./lookup.js";

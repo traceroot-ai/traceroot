@@ -1,4 +1,4 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Executor } from "../executors/interface.js";
 import { createQueryTracesTool } from "./query-traces.js";
 import { createQuerySessionsTool } from "./query-sessions.js";
@@ -20,6 +20,7 @@ const UI_BASE_URL = process.env.TRACEROOT_UI_URL || "http://localhost:3000";
 export function createTools(params: {
   projectId: string;
   userId: string;
+  workspaceId: string;
   executor: Executor;
 }): AgentTool<any>[] {
   const tools: AgentTool<any>[] = [];
@@ -30,9 +31,9 @@ export function createTools(params: {
   tools.push(createDownloadTracesTool(params.projectId, params.userId, params.executor));
   tools.push(createDownloadSessionTool(params.projectId, params.userId, params.executor));
 
-  // GitHub tools (host-side, need auth tokens)
-  tools.push(createCheckGitHubAccessTool(params.userId, UI_BASE_URL));
-  tools.push(createGitCloneTool(params.userId, UI_BASE_URL, params.executor));
+  // GitHub tools (host-side, workspace-scoped — installation lives at workspace level)
+  tools.push(createCheckGitHubAccessTool(params.workspaceId, UI_BASE_URL));
+  tools.push(createGitCloneTool(params.workspaceId, UI_BASE_URL, params.executor));
 
   // Sandbox-side tools (run inside Docker container via executor)
   tools.push(createBashTool(params.executor));

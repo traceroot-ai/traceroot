@@ -29,7 +29,12 @@ export async function createProject(
 export async function updateProject(
   workspaceId: string,
   projectId: string,
-  data: { name?: string; trace_ttl_days?: number | null },
+  data: {
+    name?: string;
+    trace_ttl_days?: number | null;
+    rca_model?: string | null;
+    alert_emails?: string[];
+  },
 ): Promise<Project> {
   return fetchNextApi<Project>(`/workspaces/${workspaceId}/projects/${projectId}`, {
     method: "PATCH",

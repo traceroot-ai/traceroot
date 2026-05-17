@@ -137,7 +137,7 @@ def run_prod_setup():
     # services here causes Compose to run migrate/migrate-clickhouse first and
     # only bring up each app container after its migration dependency exits 0.
     print("Starting application services (migrations run automatically before app services)...")
-    _run(f"{PROD_COMPOSE} up -d web rest worker billing agent")
+    _run(f"{PROD_COMPOSE} up -d web rest worker billing detector agent")
 
     print("\nAll containers started. Launching log viewer...\n")
 
@@ -343,7 +343,12 @@ def make_driver(autoreload=False):
             ),
             schema.Service(
                 title="Billing Worker",
-                command="cd frontend/worker && pnpm dev",
+                command="cd frontend/worker && pnpm dev:billing",
+                web_urls=[],
+            ),
+            schema.Service(
+                title="Detector Worker",
+                command="cd frontend/worker && pnpm dev:detectors",
                 web_urls=[],
             ),
             schema.Service(
@@ -419,6 +424,11 @@ def make_prod_driver():
             schema.Service(
                 title="Billing Worker",
                 command=f"{PROD_COMPOSE} logs -f --tail=50 billing",
+                web_urls=[],
+            ),
+            schema.Service(
+                title="Detector Worker",
+                command=f"{PROD_COMPOSE} logs -f --tail=50 detector",
                 web_urls=[],
             ),
             schema.Service(

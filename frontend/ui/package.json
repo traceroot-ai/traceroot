@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "dotenv -e ../../.env -- next dev",
-    "build": "dotenv -e ../../.env -- next build",
+    "dev": "dotenv -e ../../.env -- next dev --webpack",
+    "build": "dotenv -e ../../.env -- next build --webpack",
     "start": "dotenv -e ../../.env -- next start",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -22,6 +22,7 @@
     "@tanstack/react-virtual": "^3.13.24",
     "@traceroot/core": "workspace:*",
     "@traceroot/github": "workspace:*",
+    "@traceroot/slack": "workspace:*",
     "bcryptjs": "^3.0.3",
     "better-auth": "^1.5.5",
     "class-variance-authority": "^0.7.0",

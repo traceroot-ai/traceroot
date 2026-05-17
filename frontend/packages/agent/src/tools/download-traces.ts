@@ -1,5 +1,5 @@
-import { Type, type Static } from "@mariozechner/pi-ai";
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import { Type, type Static } from "@earendil-works/pi-ai";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Executor } from "../executors/interface.js";
 
 const FASTAPI_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
@@ -39,7 +39,11 @@ export async function downloadOneTrace(
 ): Promise<{ dir: string; spanCount: number; traceName: string }> {
   const url = `${FASTAPI_URL}/api/v1/projects/${projectId}/traces/${traceId}`;
   const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", "x-user-id": userId },
+    headers: {
+      "Content-Type": "application/json",
+      "x-user-id": userId,
+      "X-Internal-Secret": process.env.INTERNAL_API_SECRET || "",
+    },
     signal,
   });
   if (!res.ok) {
@@ -106,9 +110,10 @@ export function createDownloadTracesTool(
     parameters: downloadTracesSchema,
     execute: async (
       _toolCallId: string,
-      params: DownloadTracesParams,
+      rawParams: unknown,
       signal?: AbortSignal,
     ): Promise<AgentToolResult<undefined>> => {
+      const params = rawParams as DownloadTracesParams;
       if (!executor.isReady()) {
         await executor.init();
       }

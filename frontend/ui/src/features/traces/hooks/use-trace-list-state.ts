@@ -8,9 +8,9 @@
  * - useKeywordSearch
  */
 import { useMemo } from "react";
-import { usePagination } from "./use-pagination";
-import { useDateFilter } from "./use-date-filter";
-import { useKeywordSearch } from "./use-keyword-search";
+import { usePagination } from "@/lib/hooks/use-pagination";
+import { useDateFilter } from "@/lib/hooks/use-date-filter";
+import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
 import type { TraceQueryOptions } from "@/types/api";
 
 interface UseTraceListStateReturn {

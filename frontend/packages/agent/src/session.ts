@@ -1,6 +1,6 @@
 import { prisma } from "@traceroot/core";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { UserMessage, Message } from "@mariozechner/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { UserMessage, Message } from "@earendil-works/pi-ai";
 
 // ============================================================
 // SessionManager — follows Mom's SessionManager pattern
@@ -55,6 +55,11 @@ export class SessionManager {
   /**
    * Append a message to the session.
    * Like Mom's sessionManager.appendMessage() — persists to DB.
+   *
+   * `workspaceId` and `kind` are required on every AIMessage row (see schema).
+   * We derive both from the parent AISession: `kind = "chat"` for user sessions
+   * (userId set), `kind = "rca"` for system sessions (userId null). This
+   * mirrors the existing convention in createSession.
    */
   async appendMessage(
     role: string,
@@ -62,9 +67,20 @@ export class SessionManager {
     metadata?: Record<string, unknown>,
     tokenUsage?: TokenUsageData,
   ): Promise<void> {
+    const session = await prisma.aISession.findUnique({
+      where: { id: this.sessionId },
+      select: { workspaceId: true, userId: true },
+    });
+    if (!session) {
+      throw new Error(`AISession not found: ${this.sessionId}`);
+    }
+    const kind = session.userId === null ? "rca" : "chat";
+
     await prisma.aIMessage.create({
       data: {
         sessionId: this.sessionId,
+        workspaceId: session.workspaceId,
+        kind,
         role,
         content,
         metadata: metadata as any,
@@ -88,29 +104,47 @@ export class SessionManager {
 export async function createSession(params: {
   projectId: string;
   workspaceId: string;
-  userId: string;
+  userId?: string; // optional — null for system/RCA sessions
   title?: string;
 }) {
   return prisma.aISession.create({
     data: {
       projectId: params.projectId,
       workspaceId: params.workspaceId,
-      userId: params.userId,
+      userId: params.userId ?? null,
       title: params.title,
     },
   });
 }
 
-export async function getSession(id: string, userId: string) {
+/**
+ * Get a session by ID.
+ * For user sessions: requires userId match.
+ * For system sessions (userId=null): scoped to the same projectId so a user
+ * from another project cannot read RCA sessions they don't own.
+ */
+export async function getSession(id: string, userId: string, projectId?: string) {
+  // System-session OR branch is only safe when projectId scopes the lookup.
+  // Prisma omits `undefined` fields, which would turn `{ userId: null,
+  // projectId: undefined }` into `{ userId: null }` — matching every system
+  // session across every project. Drop the OR branch when projectId is
+  // missing so unscoped callers cannot accidentally read other projects'
+  // RCA sessions.
+  const orBranches: Array<Record<string, unknown>> = [{ userId }];
+  if (projectId) orBranches.push({ userId: null, projectId });
+
   return prisma.aISession.findFirst({
-    where: { id, userId },
+    where: { id, OR: orBranches },
     include: { messages: { orderBy: { createTime: "asc" } } },
   });
 }
 
-export async function getSessionMessages(sessionId: string, userId: string) {
+export async function getSessionMessages(sessionId: string, userId: string, projectId?: string) {
+  const orBranches: Array<Record<string, unknown>> = [{ userId }];
+  if (projectId) orBranches.push({ userId: null, projectId });
+
   const session = await prisma.aISession.findFirst({
-    where: { id: sessionId, userId },
+    where: { id: sessionId, OR: orBranches },
     include: { messages: { orderBy: { createTime: "asc" } } },
   });
   if (!session) return null;
@@ -118,6 +152,7 @@ export async function getSessionMessages(sessionId: string, userId: string) {
 }
 
 export async function listSessions(params: { projectId: string; userId: string; limit?: number }) {
+  // Only return sessions belonging to this user — system sessions (userId=null) are excluded
   return prisma.aISession.findMany({
     where: {
       projectId: params.projectId,
@@ -129,7 +164,7 @@ export async function listSessions(params: { projectId: string; userId: string; 
 }
 
 export async function deleteSession(id: string, userId: string) {
-  // Verify ownership before deleting
+  // Verify ownership before deleting — only the session owner can delete
   const session = await prisma.aISession.findFirst({
     where: { id, userId },
   });

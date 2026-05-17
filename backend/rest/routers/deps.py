@@ -1,5 +1,6 @@
 """FastAPI dependencies for authentication (via Next.js internal API)."""
 
+import hmac
 from typing import Annotated
 
 import httpx
@@ -21,15 +22,34 @@ class ProjectAccessInfo:
 async def get_project_access(
     project_id: str,
     x_user_id: Annotated[str | None, Header()] = None,
+    x_internal_secret: Annotated[str | None, Header()] = None,
 ) -> ProjectAccessInfo:
     """
     Validate user has access to a project via Next.js internal API.
 
-    The frontend should pass:
-    - x-user-id: User's unique ID (from session)
+    Auth modes:
+    - x-user-id: User's unique ID (from session) — normal user-initiated requests.
+    - X-Internal-Secret: Shared secret — for trusted server-to-server calls
+      (e.g. the agent service running a system-initiated RCA session that has no
+      associated user). Bypasses the Next.js per-user access check; the agent
+      service is itself trusted to scope access correctly.
 
-    Raises 401 if missing user ID, 403 if no access, 404 if project not found.
+    Raises 401 if neither auth mode succeeds, 403 if no access, 404 if project
+    not found.
     """
+    # System bypass: agent service / worker calling on behalf of the system.
+    # Constant-time compare to avoid leaking the secret via response timing.
+    if (
+        x_internal_secret
+        and settings.internal_api_secret
+        and hmac.compare_digest(x_internal_secret, settings.internal_api_secret)
+    ):
+        return ProjectAccessInfo(
+            project_id=project_id,
+            user_id=x_user_id or "system",
+            role=MemberRole.ADMIN,
+        )
+
     if not x_user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

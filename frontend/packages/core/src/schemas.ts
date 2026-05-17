@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Role, SpanKind, SpanStatus, TraceStatus } from "./constants";
+import { Role, SpanKind, SpanStatus, TraceStatus } from "./constants.js";
 
 export const RoleSchema = z.enum(Role);
 export const SpanKindSchema = z.enum(SpanKind);

@@ -190,6 +190,34 @@ variable "stripe_price_id_ai_usage" {
   default     = ""
 }
 
+variable "stripe_price_id_rca_usage" {
+  description = "Stripe price ID for RCA usage metering"
+  type        = string
+  default     = ""
+}
+
+variable "stripe_price_id_detector_usage" {
+  description = "Stripe price ID for managed detector inference metering"
+  type        = string
+  default     = ""
+}
+
+# --- Slack OAuth (workspace-level integration) ---
+# SLACK_STATE_SECRET is auto-generated (random_password.slack_state_secret).
+# Redirect URI is computed from var.domain in secrets.tf.
+variable "slack_client_id" {
+  description = "Slack App Client ID (from api.slack.com → Basic Information)"
+  type        = string
+  default     = ""
+}
+
+variable "slack_client_secret" {
+  description = "Slack App Client Secret"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 # --- Google OAuth ---
 variable "google_oauth_client_id" {
   description = "Google OAuth client ID"
