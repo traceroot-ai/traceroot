@@ -1,0 +1,43 @@
+---
+title: Introduction
+description: Continuous monitoring for your AI agents
+---
+
+
+A detector is an **LLM-as-a-judge** — an evaluator model that reads each incoming trace and decides whether a specific problem is present. When the judge flags one, the TraceRoot AI agent investigates — pulling in the trace, your production source code, and recent GitHub activity — and the combined alert lands once both steps complete.
+
+
+<Frame>
+  <img src="/images/detector_findings_v1.png" alt="Detector findings table with the detail panel open" />
+</Frame>
+
+## Two-step pipeline
+
+Detection runs in two stages so you pay deep-analysis costs only on real problems:
+
+**Step 1 — LLM-as-a-judge.** Every selected trace is read by an evaluator model. The judge returns a boolean: is the problem you defined present in this trace?
+
+**Step 2 — AI agent run.** When the judge flags a trace, the TraceRoot AI agent investigates: it downloads the trace, reads your production source code at the failure point, checks recent commits and PRs touching that file, and produces a root cause analysis with a code location and recommendation.
+
+Each step's model is configurable. For the judge we can choose a cheaper model and for the agent we can pick a stronger model since it only runs on real findings. You can swap either to any system model or a [BYOK](/ai-agent/byok) model — independently per step.
+
+## Anatomy of a detector
+
+A detector has three parts:
+
+- **A prompt** — what to look for, in natural language ("does this trace contain a hallucination?").
+- **A target** — which traces it runs on (every trace in the project, by default).
+- **An outcome** — a boolean `identified` — was the problem present in this trace?
+
+When `identified` is true, the detector emits a **finding**, the AI agent investigates, and the combined alert — finding plus analysis — lands in your inbox.
+
+## Where to start
+
+<CardGroup cols={2}>
+  <Card title="Get Started" icon="rocket" href="/detectors/get-started">
+    Create your first detector in a few minutes from a starting prompt.
+  </Card>
+  <Card title="Alerts" icon="bell" href="/detectors/alerts">
+    Configure email and Slack notifications for findings.
+  </Card>
+</CardGroup>
