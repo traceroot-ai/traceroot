@@ -3,7 +3,7 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-[TraceRoot]("https://traceroot.ai/") 是面向 AI Agent 的开源可观测性平台 —— 捕获调用链路，通过能够理解你的源码与 GitHub 上下文的 AI 快速定位并修复问题。
+[TraceRoot]("https://traceroot.ai/") 是面向 AI Agent 的开源可观测性平台 —— 捕获调用链路，监控生产环境问题，并通过能够理解你的源码与 GitHub 上下文的 AI 快速定位并修复问题。
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -31,12 +31,13 @@
 | ---- | ---- |
 | 追踪（Tracing） | 通过兼容 OpenTelemetry 的 SDK 采集 LLM 调用、Agent 行为以及工具使用情况。智能浮现真正值得关注的追踪 —— 过滤噪声，优先呈现信号。 |
 | 智能调试（Agentic Debugging） | AI 可以看到你的所有追踪，连接到运行你生产源码的沙箱中，精确定位出错的代码行，并将故障与你的 GitHub commit、PR、issue 关联起来。支持 BYOK，可接入任意模型厂商。 |
+| 检测器（Detectors） | 由 LLM 充当评审，监控进入的追踪是否存在幻觉、工具/逻辑错误、安全违规以及意图漂移 —— 自动呈现发现项，并触发根因分析与邮件、Slack 告警。 |
 
 ## 为什么选择 TraceRoot？
 
 - **仅靠追踪数据无法扩展。**
 
-  随着 AI Agent 系统越来越复杂，手动逐条翻看追踪已经不可持续。TraceRoot 会主动筛选你的追踪 —— 过滤掉噪声，只把真正需要关注的呈现出来，让你把时间花在解决问题上，而不是寻找问题上。
+  随着 AI Agent 系统越来越复杂，手动逐条翻看追踪已经不可持续。TraceRoot 的检测器会有选择地筛查进入的追踪 —— 自动标记幻觉、工具失败、逻辑错误以及安全问题，让你把时间花在解决问题上，而不是寻找问题上。
 
 - **调试 AI Agent 系统非常痛苦。**
 
