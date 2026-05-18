@@ -114,6 +114,14 @@
                 ]
               }
             ]
+          },
+          {
+            "group": "Detectors",
+            "pages": [
+              "detectors/introduction",
+              "detectors/get-started",
+              "detectors/alerts"
+            ]
           }
         ]
       },
