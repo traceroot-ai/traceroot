@@ -62,10 +62,11 @@ export async function getModelPricing(modelId: string): Promise<ModelPricing | n
   const exact = models.find((m) => m.modelName === modelId);
   if (exact) return exact.prices;
 
-  // Regex fallback
+  // Regex fallback (JSON patterns may use (?i); JavaScript RegExp does not support that flag form)
   for (const m of models) {
+    const body = m.matchPattern.replace(/^\(\?i\)/, "");
     try {
-      const re = new RegExp(m.matchPattern, "i");
+      const re = new RegExp(body, "i");
       if (re.test(modelId)) return m.prices;
     } catch {
       // Invalid regex — skip
