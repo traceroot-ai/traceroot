@@ -3,7 +3,7 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-[TraceRoot]("https://traceroot.ai/") is an open-source observability platform for AI agents — Capture traces, debug with AI that sees your source code and Github history.
+[TraceRoot]("https://traceroot.ai/") is an open-source observability platform for AI agents — Capture traces, monitors production issues, and debug with AI that sees your source code and Github history.
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -31,12 +31,13 @@
 | ------- | ----------- |
 | Tracing | Capture LLM calls, agent actions, and tool usage via OpenTelemetry-compatible SDK. Intelligently surfaces the traces that matter — noise filtered, signal prioritized. |
 | Agentic Debugging | AI that sees all your traces, connects to a sandbox with your production source code, identifies the exact failing line, and correlates the failure with your GitHub commits, PRs, and issues. BYOK support for any model provider. |
+| Detectors | LLM-as-judge evaluator monitors incoming trace for hallucinations, tool/logic failures, safety violations, and intent drift — surfaces findings and auto-triggers root cause analysis with email and slack alerts. |
 
 ## Why TraceRoot?
 
 - **Traces alone don't scale.**
 
-  As AI agent systems grow more complex, manually sifting through every trace is unsustainable. TraceRoot selectively screens your traces — filtering noise and surfacing only the ones that actually need attention, so you spend time fixing problems, not hunting for them.
+  As AI agent systems grow more complex, manually sifting through every trace is unsustainable. TraceRoot's Detectors selectively screen incoming traces — flagging hallucinations, tool failures, logic errors, and safety issues automatically, so you spend time fixing problems, not hunting for them.
 
 - **Debugging AI agent systems is painful.**
 
