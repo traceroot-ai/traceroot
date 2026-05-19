@@ -10,7 +10,7 @@
   [![X (Twitter)][twitter-image]][twitter-url]
   [![Discord][discord-image]][discord-url]
   [![Documentation][docs-image]][docs-url]
-  [![PyPI SDK Downloads][pypi-s...mage]][pypi-s...-url]
+  [![PyPI SDK Downloads][pypi-sdk-downloads-image]][pypi-sdk-downloads-url]
 
 </div>
 
@@ -209,8 +209,8 @@ main().catch(console.error);
 [license-url]: https://opensource.org/licenses/Apache-2.0
 [docs-image]: https://img.shields.io/badge/docs-traceroot.ai-0dbf43
 [docs-url]: https://traceroot.ai/docs
-[pypi-s...mage]: https://static.pepy.tech/badge/traceroot
-[pypi-s...-url]: https://pypi.python.org/pypi/traceroot
+[pypi-sdk-downloads-image]: https://static.pepy.tech/badge/traceroot
+[pypi-sdk-downloads-url]: https://pypi.python.org/pypi/traceroot
 [y-combinator-image]: https://img.shields.io/badge/Combinator-S25-orange?logo=ycombinator&labelColor=white
 [y-combinator-url]: https://www.ycombinator.com/companies/traceroot-ai
 [twitter-image]: https://img.shields.io/twitter/follow/TraceRootAI
