@@ -157,6 +157,7 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
   ],
   google: [
+    { id: "gemini-3.5-flash", label: "gemini-3.5-flash" },
     { id: "gemini-3.1-pro-preview", label: "gemini-3.1-pro-preview" },
     { id: "gemini-3-flash-preview", label: "gemini-3-flash-preview" },
     { id: "gemini-3.1-flash-lite-preview", label: "gemini-3.1-flash-lite-preview" },
