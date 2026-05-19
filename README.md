@@ -17,6 +17,7 @@
 <p align="center">
   <a href="./README.md"><img alt="README in English" src="https://img.shields.io/badge/English-f8f8f8"></a>
   <a href="./README.zh.md"><img alt="简体中文版自述文件" src="https://img.shields.io/badge/简体中文-f8f8f8"></a>
+  <a href="./README.ja.md"><img alt="日本語版 README" src="https://img.shields.io/badge/日本語-f8f8f8"></a>
 </p>
 
 ## Features
