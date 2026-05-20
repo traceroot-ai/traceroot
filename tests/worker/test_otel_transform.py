@@ -581,3 +581,75 @@ class TestGenAIInputOutputFallback:
         )
         _, spans = transform_otel_to_clickhouse(payload, "proj-1")
         assert spans[0]["input"] == "oi-input"
+
+    def test_openinference_tool_parameters_used_as_input(self):
+        # OpenInference maps pydantic-ai tool_arguments → tool.parameters
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[make_attr("tool.parameters", '{"symbol":"AAPL"}')],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["input"] == '{"symbol":"AAPL"}'
+
+    def test_openinference_tool_response_used_as_output(self):
+        # Raw pydantic-ai tool_response before OpenInference maps it to output.value
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[make_attr("tool_response", '{"price":178.5}')],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["output"] == '{"price":178.5}'
+
+    def test_tool_name_overrides_generic_span_name(self):
+        # pydantic-ai emits "running tool"; gen_ai.tool.name should win
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    name="running tool",
+                    attributes=[
+                        make_attr("gen_ai.operation.name", "execute_tool"),
+                        make_attr("gen_ai.tool.name", "get_stock_price"),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["name"] == "get_stock_price"
+
+    def test_non_tool_span_name_not_overridden(self):
+        # tool.name present but span is LLM kind — name should not change
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    name="chat gpt-4o-mini",
+                    attributes=[
+                        make_attr("gen_ai.operation.name", "chat"),
+                        make_attr("tool.name", "should-be-ignored"),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["name"] == "chat gpt-4o-mini"

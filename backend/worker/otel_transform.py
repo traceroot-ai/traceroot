@@ -292,8 +292,13 @@ def transform_otel_to_clickhouse(
                 otel_kind = otel_span.get("kind")
                 span_kind = get_span_kind(span_attrs, otel_kind)
 
-                # Extract span name
+                # Extract span name; for tool spans prefer the actual tool name over
+                # generic instrumentation names like "running tool" (pydantic-ai).
                 span_name = otel_span.get("name", "unknown")
+                if span_kind == SpanKind.TOOL:
+                    tool_name = span_attrs.get("gen_ai.tool.name") or span_attrs.get("tool.name")
+                    if tool_name:
+                        span_name = tool_name
 
                 # Build span record
                 environment = span_attrs.get("traceroot.environment")
@@ -324,19 +329,22 @@ def transform_otel_to_clickhouse(
 
                 # Extract input/output if present
                 # Priority: traceroot SDK attrs > OpenInference attrs > GenAI semconv
-                # gen_ai.input.messages / gen_ai.output.messages: pydantic-ai LLM child spans
-                # gen_ai.tool.call.arguments / gen_ai.tool.call.result: pydantic-ai tool spans
+                # OpenInference tool spans: tool_arguments → tool.parameters, tool_response → output.value
+                # GenAI semconv tool spans: gen_ai.tool.call.arguments / gen_ai.tool.call.result
                 span_input = (
                     span_attrs.get("traceroot.span.input")
                     or span_attrs.get("input.value")
                     or span_attrs.get("gen_ai.input.messages")
+                    or span_attrs.get("tool.parameters")
                     or span_attrs.get("gen_ai.tool.call.arguments")
+                    or span_attrs.get("tool_arguments")
                 )
                 span_output = (
                     span_attrs.get("traceroot.span.output")
                     or span_attrs.get("output.value")
                     or span_attrs.get("gen_ai.output.messages")
                     or span_attrs.get("gen_ai.tool.call.result")
+                    or span_attrs.get("tool_response")
                 )
 
                 if span_input is not None:
