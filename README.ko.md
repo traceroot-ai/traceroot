@@ -103,7 +103,7 @@
 | [LangChain & LangGraph](https://traceroot.ai/docs/integrations/langchain) | Python, JS/TS | callback handler를 LangChain 애플리케이션에 전달해 instrumentation을 자동으로 수집합니다. |
 | [LangChain DeepAgents](https://traceroot.ai/docs/integrations/langchain-deepagents) | Python, JS/TS | callback handler를 DeepAgents 파이프라인에 전달해 instrumentation을 자동으로 수집합니다. |
 | [Claude Agent SDK](https://traceroot.ai/docs/integrations/claude-agent-sdk) | Python, JS/TS | 에이전트 호출, subagent delegation, 툴 호출, 토큰 사용량에 대한 instrumentation을 자동으로 수집합니다. |
-| [OpenAI Agents SDK](https://traceroot.ai/docs/integrations/openai-agents-sdk) | 에이전트 실행, 툴 실행, handoff transition에 대한 instrumentation을 자동으로 수집합니다. |
+| [OpenAI Agents SDK](https://traceroot.ai/docs/integrations/openai-agents-sdk) | Python, JS/TS | 에이전트 실행, 툴 실행, handoff transition에 대한 instrumentation을 자동으로 수집합니다. |
 | [Mastra](https://traceroot.ai/docs/integrations/mastra) | JS/TS | TraceRoot OTLP exporter를 통한 자동 instrumentation을 지원합니다. |
 | [Vercel AI SDK](https://traceroot.ai/docs/integrations/vercel-ai) | JS/TS | `experimental_telemetry` 기반의 네이티브 OpenTelemetry tracing을 지원합니다. 별도의 `instrumentModules` 설정이 필요하지 않습니다. |
 | [AutoGen](https://traceroot.ai/docs/integrations/autogen) | Python | 멀티 에이전트 대화, agent loop, 툴 호출에 대한 instrumentation을 자동으로 수집합니다. |
