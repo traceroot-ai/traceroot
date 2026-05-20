@@ -90,7 +90,8 @@
                   "tracing/metadata",
                   "tracing/cost-tracking",
                   "tracing/git-context",
-                  "tracing/timeline"
+                  "tracing/timeline",
+                  "tracing/live-streaming"
                 ]
               }
             ]
