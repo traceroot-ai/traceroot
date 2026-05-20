@@ -9,10 +9,10 @@ import { z } from "zod/v3";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
 import { useLayout } from "@/components/layout/app-layout";
+import { Logo } from "@/components/Logo";
 import { createWorkspace, createProject } from "@/lib/api";
-import { LayoutGrid, Layers, Check } from "lucide-react";
+import { AlertCircle, Check, Layers, LayoutGrid } from "lucide-react";
 
 const onboardingSchema = z.object({
   workspaceName: z.string().min(1, "Workspace name is required"),
@@ -145,107 +145,97 @@ function OnboardingContent() {
 
   return (
     <div className="h-full overflow-auto bg-background">
-      <div className="mx-auto max-w-md px-4 py-8">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-lg font-semibold">Setup</h1>
-          <p className="text-[13px] text-muted-foreground">
-            Set up your workspace and first project
-          </p>
-        </div>
-
-        {/* Error message */}
-        {error && (
-          <div className="mb-4 border border-red-200 bg-red-50 p-3 text-[12px] text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
-            {error}
+      <div className="mx-auto grid min-h-full max-w-xl place-items-center px-4 py-12">
+        <div className="w-full">
+          {/* Welcome header */}
+          <div className="mb-8 flex items-center gap-4">
+            <Logo size="md" />
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight">Welcome to TraceRoot</h1>
+              <p className="text-sm text-muted-foreground">
+                Set up your workspace and first project to start capturing traces.
+              </p>
+            </div>
           </div>
-        )}
 
-        {/* Tree Form */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="space-y-0">
-              {/* Workspace Section */}
-              <div className="flex items-start gap-3">
-                <div className="flex flex-col items-center">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-primary/10">
-                    {isProjectOnlyMode ? (
-                      <Check className="h-4 w-4 text-primary" />
-                    ) : (
-                      <LayoutGrid className="h-4 w-4 text-primary" />
-                    )}
-                  </div>
-                  {/* Vertical connector line */}
-                  <div className="my-1.5 h-12 w-px bg-border" />
+          {/* Error callout */}
+          {error && (
+            <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm dark:border-red-900 dark:bg-red-950/50">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-600 dark:text-red-400" />
+              <span className="text-red-700 dark:text-red-300">{error}</span>
+            </div>
+          )}
+
+          {/* Step cards */}
+          <div className="space-y-3">
+            {/* Workspace step */}
+            <div className="rounded-xl border border-gray-950/10 bg-card p-5 transition-colors hover:border-primary dark:border-white/10">
+              <div className="flex items-start gap-4">
+                <div
+                  className={
+                    isProjectOnlyMode
+                      ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400"
+                      : "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground"
+                  }
+                >
+                  {isProjectOnlyMode ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    <LayoutGrid className="h-4 w-4" />
+                  )}
                 </div>
-                <div className="flex-1 pb-2 pt-0.5">
-                  <label className="text-[13px] font-medium">Workspace</label>
-                  <p className="mb-2 text-[11px] text-muted-foreground">
+                <div className="min-w-0 flex-1">
+                  <label className="text-sm font-medium">Workspace</label>
+                  <p className="mb-3 text-sm text-muted-foreground">
                     Your team's home for billing and members
                   </p>
                   {isProjectOnlyMode ? (
-                    <div className="flex max-w-xs items-center gap-2 border bg-muted/50 px-2.5 py-1.5 text-[13px]">
-                      <span>{existingWorkspaceName || "Selected workspace"}</span>
-                      <Check className="ml-auto h-3.5 w-3.5 text-green-600" />
+                    <div className="inline-flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm dark:border-green-900 dark:bg-green-950/50">
+                      <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
+                      <span className="font-medium">
+                        {existingWorkspaceName || "Selected workspace"}
+                      </span>
                     </div>
                   ) : (
-                    <Input
-                      placeholder="Acme Inc"
-                      {...register("workspaceName")}
-                      className="h-8 max-w-xs text-[13px]"
-                    />
+                    <Input placeholder="Acme Inc" {...register("workspaceName")} />
                   )}
                   {errors.workspaceName && (
-                    <p className="mt-1 text-[11px] text-red-500">{errors.workspaceName.message}</p>
+                    <p className="mt-2 text-xs text-destructive">{errors.workspaceName.message}</p>
                   )}
                 </div>
               </div>
+            </div>
 
-              {/* Project Section */}
-              <div className="flex items-start gap-3">
-                <div className="flex flex-col items-center">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted">
-                    <Layers className="h-4 w-4 text-muted-foreground" />
-                  </div>
+            {/* Project step */}
+            <div className="rounded-xl border border-gray-950/10 bg-card p-5 transition-colors hover:border-primary dark:border-white/10">
+              <div className="flex items-start gap-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+                  <Layers className="h-4 w-4" />
                 </div>
-                <div className="flex-1 pb-2 pt-0.5">
-                  <label className="text-[13px] font-medium">Project</label>
-                  <p className="mb-2 text-[11px] text-muted-foreground">
+                <div className="min-w-0 flex-1">
+                  <label className="text-sm font-medium">Project</label>
+                  <p className="mb-3 text-sm text-muted-foreground">
                     Where your traces and experiments live
                   </p>
-                  <Input
-                    placeholder="my-llm-project"
-                    {...register("projectName")}
-                    className="h-8 max-w-xs text-[13px]"
-                  />
+                  <Input placeholder="my-llm-project" {...register("projectName")} />
                   {errors.projectName && (
-                    <p className="mt-1 text-[11px] text-red-500">{errors.projectName.message}</p>
+                    <p className="mt-2 text-xs text-destructive">{errors.projectName.message}</p>
                   )}
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* Actions */}
-            <div className="mt-6 flex items-center justify-center gap-2">
-              <Button
-                size="sm"
-                className="h-7 px-4 text-[12px]"
-                onClick={handleSubmit}
-                disabled={isLoading}
-              >
-                {isLoading ? "Creating..." : "Create"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 px-4 text-[12px]"
-                onClick={() => router.push("/workspaces")}
-              >
-                Cancel
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+          {/* Actions */}
+          <div className="mt-6 flex items-center justify-end gap-2">
+            <Button variant="outline" onClick={() => router.push("/workspaces")}>
+              Cancel
+            </Button>
+            <Button onClick={handleSubmit} disabled={isLoading}>
+              {isLoading ? "Creating..." : "Create"}
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );
