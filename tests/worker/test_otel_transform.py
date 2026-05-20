@@ -428,3 +428,150 @@ class TestTransformOtelToClickhouse:
         _, spans = transform_otel_to_clickhouse(payload, "proj-1")
         assert spans[0]["input"] == "oi-input"
         assert spans[0]["output"] == "oi-output"
+
+
+# ── get_span_kind: GenAI semconv (pydantic-ai) ──────────────────────────
+
+
+class TestGetSpanKindGenAI:
+    def test_gen_ai_operation_name_chat_is_llm(self):
+        assert get_span_kind({"gen_ai.operation.name": "chat"}, None) == "LLM"
+
+    def test_gen_ai_operation_name_text_completion_is_llm(self):
+        assert get_span_kind({"gen_ai.operation.name": "text_completion"}, None) == "LLM"
+
+    def test_gen_ai_operation_name_embeddings_is_llm(self):
+        assert get_span_kind({"gen_ai.operation.name": "embeddings"}, None) == "LLM"
+
+    def test_gen_ai_operation_name_execute_tool_is_tool(self):
+        assert get_span_kind({"gen_ai.operation.name": "execute_tool"}, None) == "TOOL"
+
+    def test_gen_ai_operation_name_unknown_falls_through(self):
+        assert get_span_kind({"gen_ai.operation.name": "unknown_op"}, None) == "SPAN"
+
+    def test_infer_from_gen_ai_request_model(self):
+        assert get_span_kind({"gen_ai.request.model": "gpt-4o-mini"}, None) == "LLM"
+
+    def test_gen_ai_tool_call_arguments_is_tool(self):
+        assert get_span_kind({"gen_ai.tool.call.arguments": '{"city": "NYC"}'}, None) == "TOOL"
+
+    def test_gen_ai_tool_call_result_is_tool(self):
+        assert get_span_kind({"gen_ai.tool.call.result": "sunny"}, None) == "TOOL"
+
+    def test_openinference_takes_priority_over_gen_ai_operation(self):
+        # openinference.span.kind=AGENT should win even when gen_ai.operation.name=chat
+        assert (
+            get_span_kind(
+                {"openinference.span.kind": "AGENT", "gen_ai.operation.name": "chat"}, None
+            )
+            == "AGENT"
+        )
+
+    def test_traceroot_type_takes_priority_over_gen_ai_operation(self):
+        assert (
+            get_span_kind(
+                {"traceroot.span.type": "SPAN", "gen_ai.operation.name": "execute_tool"}, None
+            )
+            == "SPAN"
+        )
+
+
+# ── GenAI semconv input/output fallback ────────────────────────────────
+
+
+class TestGenAIInputOutputFallback:
+    def test_gen_ai_input_messages_used_as_input(self):
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[make_attr("gen_ai.input.messages", '[{"role":"user","content":"hi"}]')],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["input"] == '[{"role":"user","content":"hi"}]'
+
+    def test_gen_ai_output_messages_used_as_output(self):
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[make_attr("gen_ai.output.messages", '[{"role":"assistant","content":"hello"}]')],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["output"] == '[{"role":"assistant","content":"hello"}]'
+
+    def test_gen_ai_tool_call_arguments_used_as_input(self):
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[make_attr("gen_ai.tool.call.arguments", '{"city":"NYC"}')],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["input"] == '{"city":"NYC"}'
+
+    def test_gen_ai_tool_call_result_used_as_output(self):
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[make_attr("gen_ai.tool.call.result", "sunny, 72F")],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["output"] == "sunny, 72F"
+
+    def test_traceroot_input_takes_priority_over_gen_ai(self):
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[
+                        make_attr("traceroot.span.input", "explicit-input"),
+                        make_attr("gen_ai.input.messages", "should-be-ignored"),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["input"] == "explicit-input"
+
+    def test_openinference_input_takes_priority_over_gen_ai(self):
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[
+                        make_attr("input.value", "oi-input"),
+                        make_attr("gen_ai.input.messages", "should-be-ignored"),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["input"] == "oi-input"

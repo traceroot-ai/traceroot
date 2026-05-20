@@ -192,13 +192,28 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
     elif openinference_type == "CHAIN":
         return SpanKind.SPAN
 
-    # Default based on presence of LLM-related attributes
+    # GenAI semconv operation name (pydantic-ai, native OTel GenAI instrumentors)
+    operation_name = (attrs.get("gen_ai.operation.name") or "").lower()
+    if operation_name in ("chat", "text_completion", "embeddings"):
+        return SpanKind.LLM
+    if operation_name == "execute_tool":
+        return SpanKind.TOOL
+
+    # Infer from LLM-related attributes
     if (
         attrs.get("gen_ai.system")
+        or attrs.get("gen_ai.request.model")
         or attrs.get("llm.model_name")
         or attrs.get("traceroot.llm.model")
     ):
         return SpanKind.LLM
+
+    # Use `is not None` (not truthiness) so an empty-string value still classifies as TOOL
+    if (
+        attrs.get("gen_ai.tool.call.arguments") is not None
+        or attrs.get("gen_ai.tool.call.result") is not None
+    ):
+        return SpanKind.TOOL
 
     return SpanKind.SPAN
 
@@ -308,10 +323,20 @@ def transform_otel_to_clickhouse(
                     span_record["git_source_function"] = git_source_function
 
                 # Extract input/output if present
-                # Priority: traceroot SDK attrs > OpenInference attrs
-                span_input = span_attrs.get("traceroot.span.input") or span_attrs.get("input.value")
-                span_output = span_attrs.get("traceroot.span.output") or span_attrs.get(
-                    "output.value"
+                # Priority: traceroot SDK attrs > OpenInference attrs > GenAI semconv
+                # gen_ai.input.messages / gen_ai.output.messages: pydantic-ai LLM child spans
+                # gen_ai.tool.call.arguments / gen_ai.tool.call.result: pydantic-ai tool spans
+                span_input = (
+                    span_attrs.get("traceroot.span.input")
+                    or span_attrs.get("input.value")
+                    or span_attrs.get("gen_ai.input.messages")
+                    or span_attrs.get("gen_ai.tool.call.arguments")
+                )
+                span_output = (
+                    span_attrs.get("traceroot.span.output")
+                    or span_attrs.get("output.value")
+                    or span_attrs.get("gen_ai.output.messages")
+                    or span_attrs.get("gen_ai.tool.call.result")
                 )
 
                 if span_input is not None:
