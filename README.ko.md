@@ -3,7 +3,7 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-[TraceRoot]("https://traceroot.ai/")는 AI 에이전트를 위한 오픈소스옵저버빌리티 플랫폼입니다 — 트레이스 수집, 프로덕션 이슈 모니터링, 그리고 소스 코드 및 GitHub 히스토리를 이해하는 AI 기반 디버깅 기능을 제공합니다.
+[TraceRoot]("https://traceroot.ai/")는 AI 에이전트를 위한 오픈소스 옵저버빌리티 플랫폼입니다 — 트레이스 수집, 프로덕션 이슈 모니터링, 그리고 소스 코드 및 GitHub 히스토리를 이해하는 AI 기반 디버깅 기능을 제공합니다.
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
