@@ -488,7 +488,9 @@ class TestGenAIInputOutputFallback:
                 make_span(
                     trace_hex,
                     span_hex,
-                    attributes=[make_attr("gen_ai.input.messages", '[{"role":"user","content":"hi"}]')],
+                    attributes=[
+                        make_attr("gen_ai.input.messages", '[{"role":"user","content":"hi"}]')
+                    ],
                 )
             ]
         )
@@ -503,7 +505,11 @@ class TestGenAIInputOutputFallback:
                 make_span(
                     trace_hex,
                     span_hex,
-                    attributes=[make_attr("gen_ai.output.messages", '[{"role":"assistant","content":"hello"}]')],
+                    attributes=[
+                        make_attr(
+                            "gen_ai.output.messages", '[{"role":"assistant","content":"hello"}]'
+                        )
+                    ],
                 )
             ]
         )
