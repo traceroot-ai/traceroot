@@ -1,0 +1,40 @@
+---
+title: Timeline View
+description: Visualize spans as Gantt-style bars over time to spot long operations, parallelism, and gaps
+---
+
+The trace viewer renders every trace in two complementary views: **Trace** (a hierarchical tree of spans) and **Timeline** (a Gantt-style view where each span is a bar laid out over time).
+
+<Frame>
+  <img src="/images/trace_timeline_v1.png" alt="TraceRoot trace viewer showing the Timeline view with span bars" />
+</Frame>
+
+## Trace view vs Timeline view
+
+Both views show the same spans — they just emphasize different things.
+
+| Use the **Trace** view when… | Use the **Timeline** view when… |
+|---|---|
+| You want to understand the call hierarchy — which span is a child of which | You want to see how long each span took relative to the others |
+| You're inspecting attributes, inputs, and outputs of a specific span | You're looking for the critical path, the longest span, or unexpected gaps |
+| You're navigating nested agent or tool calls | You're checking whether work happened in parallel or serially |
+
+The two views share the same selection and collapse state, so collapsing a subtree or selecting a span in one is reflected in the other.
+
+## Toggling between views
+
+In the trace viewer's sub-header, two buttons sit side by side:
+
+- **Trace** — the hierarchical tree view (default).
+- **Timeline** — the Gantt-style view with span bars.
+
+Click either button to switch. Your selection persists across the switch, so you can jump back and forth without losing context.
+
+## Selecting a span from the timeline
+
+Clicking a span bar in the Timeline view does two things at once:
+
+1. Selects that span (so its details appear in the side panel).
+2. Switches back to the **Trace** view and scrolls the tree so the selected span is centered and visible — expanding any collapsed ancestors as needed.
+
+This makes the Timeline a fast jump-to: scan visually for the longest bar or the bar that looks out of place, click it, and you land on the span in the tree ready to inspect its attributes.
