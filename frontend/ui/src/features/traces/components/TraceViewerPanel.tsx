@@ -366,6 +366,7 @@ export function TraceViewerPanel({
                     dateFilter={dateFilter}
                     customStartDate={customStartDate}
                     customEndDate={customEndDate}
+                    finding={traceFinding}
                   />
                 ) : (
                   <SpanTimelineView
