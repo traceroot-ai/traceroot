@@ -8,6 +8,8 @@ import pytest
 
 from worker.tokens.pricing import calculate_cost, get_model_price
 
+MATCHED_MODEL_NAME = "__matched_model_name"
+
 PRICES_JSON = (
     Path(__file__).resolve().parents[3]
     / "frontend"
@@ -48,7 +50,10 @@ def real_cache() -> list[dict]:
         {
             "model_name": entry["modelName"],
             "match_pattern": entry["matchPattern"],
-            "prices": entry["prices"],
+            "prices": {
+                **entry["prices"],
+                MATCHED_MODEL_NAME: entry["modelName"],
+            },
         }
         for entry in entries
     ]
@@ -157,9 +162,7 @@ class TestOpenAIModelIds:
 
         assert price is not None, f"{model_id} should match a pricing entry but returned None"
         assert "input" in price and "output" in price
-
-        expected = next(entry for entry in real_cache if entry["model_name"] == expected_name)
-        assert price == expected["prices"], (
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different entry than {expected_name}"
         )
 
@@ -183,9 +186,7 @@ class TestGeminiModelIds:
 
         assert price is not None, f"{model_id} should match a pricing entry but returned None"
         assert "input" in price and "output" in price
-
-        expected = next(entry for entry in real_cache if entry["model_name"] == expected_name)
-        assert price == expected["prices"], (
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different entry than {expected_name}"
         )
 
