@@ -60,15 +60,135 @@
     }
   },
   {
+    "id": "tr-gpt-5-5",
+    "modelName": "gpt-5.5",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.5)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000005,
+      "output": 0.00003,
+      "cacheRead": 0.0000005,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-5-5-pro",
+    "modelName": "gpt-5.5-pro",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.5-pro)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00003,
+      "output": 0.00018,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-5-4",
+    "modelName": "gpt-5.4",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.4)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000025,
+      "output": 0.000015,
+      "cacheRead": 0.00000025,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-5-4-mini",
+    "modelName": "gpt-5.4-mini",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.4-mini)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00000075,
+      "output": 0.0000045,
+      "cacheRead": 0.000000075,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-5-4-nano",
+    "modelName": "gpt-5.4-nano",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.4-nano)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000002,
+      "output": 0.00000125,
+      "cacheRead": 0.00000002,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-5-4-pro",
+    "modelName": "gpt-5.4-pro",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.4-pro)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00003,
+      "output": 0.00018,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-5-2",
+    "modelName": "gpt-5.2",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.2)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00000175,
+      "output": 0.000014,
+      "cacheRead": 0.000000175,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-5-2-pro",
+    "modelName": "gpt-5.2-pro",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.2-pro)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000021,
+      "output": 0.000168,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-5-1",
+    "modelName": "gpt-5.1",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.1)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00000125,
+      "output": 0.00001,
+      "cacheRead": 0.000000125,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-chat-latest",
+    "modelName": "chat-latest",
+    "matchPattern": "(?i)^(openai\\/)?chat-latest$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000005,
+      "output": 0.00003,
+      "cacheRead": 0.0000005,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-gpt-5",
     "modelName": "gpt-5",
     "matchPattern": "(?i)^(openai\\/)?(gpt-5)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
-      "input": 0.000002,
+      "input": 0.00000125,
       "output": 0.00001,
-      "cacheRead": 0.000001,
-      "cacheWrite": 0.000002
+      "cacheRead": 0.000000125,
+      "cacheWrite": null
     }
   },
   {
@@ -77,10 +197,46 @@
     "matchPattern": "(?i)^(openai\\/)?(gpt-5-mini)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
-      "input": 0.0000004,
-      "output": 0.0000016,
-      "cacheRead": 0.0000002,
-      "cacheWrite": 0.0000004
+      "input": 0.00000025,
+      "output": 0.000002,
+      "cacheRead": 0.000000025,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-5-nano",
+    "modelName": "gpt-5-nano",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5-nano)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00000005,
+      "output": 0.0000004,
+      "cacheRead": 0.000000005,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-5-pro",
+    "modelName": "gpt-5-pro",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5-pro)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000015,
+      "output": 0.00012,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-o3-pro",
+    "modelName": "o3-pro",
+    "matchPattern": "(?i)^(openai\\/)?o3-pro(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00002,
+      "output": 0.00008,
+      "cacheRead": null,
+      "cacheWrite": null
     }
   },
   {
@@ -90,9 +246,9 @@
     "provider": "openai",
     "prices": {
       "input": 0.000002,
-      "output": 0.00001,
-      "cacheRead": 0.000001,
-      "cacheWrite": 0.000002
+      "output": 0.000008,
+      "cacheRead": 0.0000005,
+      "cacheWrite": null
     }
   },
   {
@@ -103,19 +259,31 @@
     "prices": {
       "input": 0.0000011,
       "output": 0.0000044,
-      "cacheRead": 0.00000055,
-      "cacheWrite": 0.0000011
+      "cacheRead": 0.000000275,
+      "cacheWrite": null
     }
   },
   {
     "id": "tr-gpt-4o",
     "modelName": "gpt-4o",
-    "matchPattern": "(?i)^(openai\\/)?(gpt-4o)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4o)(?!-2024-05-13)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.0000025,
       "output": 0.00001,
       "cacheRead": 0.00000125,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-4o-2024-05-13",
+    "modelName": "gpt-4o-2024-05-13",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4o-2024-05-13)$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000005,
+      "output": 0.000015,
+      "cacheRead": null,
       "cacheWrite": null
     }
   },
@@ -127,7 +295,7 @@
     "prices": {
       "input": 0.00000015,
       "output": 0.0000006,
-      "cacheRead": 0.00000008,
+      "cacheRead": 0.000000075,
       "cacheWrite": null
     }
   },
@@ -192,6 +360,42 @@
     }
   },
   {
+    "id": "tr-gpt-4-0125-preview",
+    "modelName": "gpt-4-0125-preview",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4-0125-preview)$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00001,
+      "output": 0.00003,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-4-1106-preview",
+    "modelName": "gpt-4-1106-preview",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4-1106-preview)$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00001,
+      "output": 0.00003,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-4-1106-vision-preview",
+    "modelName": "gpt-4-1106-vision-preview",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4-1106-vision-preview)$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00001,
+      "output": 0.00003,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-gpt-4",
     "modelName": "gpt-4",
     "matchPattern": "(?i)^(openai\\/)?(gpt-4)(-[\\d-]+)?$",
@@ -204,13 +408,109 @@
     }
   },
   {
+    "id": "tr-gpt-4-32k",
+    "modelName": "gpt-4-32k",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-4-32k)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00006,
+      "output": 0.00012,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-gpt-3.5-turbo",
     "modelName": "gpt-3.5-turbo",
-    "matchPattern": "(?i)^(openai\\/)?(gpt-3\\.5-turbo)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-3\\.5-turbo)(-0125)?$",
     "provider": "openai",
     "prices": {
       "input": 0.0000005,
       "output": 0.0000015,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-3.5-turbo-1106",
+    "modelName": "gpt-3.5-turbo-1106",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-3\\.5-turbo-1106)$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000001,
+      "output": 0.000002,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-3.5-turbo-0613",
+    "modelName": "gpt-3.5-turbo-0613",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-3\\.5-turbo-0613)$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000015,
+      "output": 0.000002,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-3.5-0301",
+    "modelName": "gpt-3.5-0301",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-3\\.5-0301)$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000015,
+      "output": 0.000002,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-3.5-turbo-instruct",
+    "modelName": "gpt-3.5-turbo-instruct",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-3\\.5-turbo-instruct)$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000015,
+      "output": 0.000002,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-3.5-turbo-16k-0613",
+    "modelName": "gpt-3.5-turbo-16k-0613",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-3\\.5-turbo-16k-0613)$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000003,
+      "output": 0.000004,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-davinci-002",
+    "modelName": "davinci-002",
+    "matchPattern": "(?i)^(openai\\/)?(davinci-002)$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000002,
+      "output": 0.000002,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-babbage-002",
+    "modelName": "babbage-002",
+    "matchPattern": "(?i)^(openai\\/)?(babbage-002)$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000004,
+      "output": 0.0000004,
       "cacheRead": null,
       "cacheWrite": null
     }
@@ -228,14 +528,26 @@
     }
   },
   {
+    "id": "tr-o1-pro",
+    "modelName": "o1-pro",
+    "matchPattern": "(?i)^(openai\\/)?o1-pro(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00015,
+      "output": 0.0006,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-o1-mini",
     "modelName": "o1-mini",
     "matchPattern": "(?i)^(openai\\/)?o1-mini(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
-      "input": 0.000003,
-      "output": 0.000012,
-      "cacheRead": null,
+      "input": 0.0000011,
+      "output": 0.0000044,
+      "cacheRead": 0.00000055,
       "cacheWrite": null
     }
   },
@@ -336,33 +648,141 @@
     }
   },
   {
-    "id": "tr-gemini-2-5-flash",
-    "modelName": "gemini-2.5-flash",
-    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.5-flash(-[\\d]+)?$",
+    "id": "tr-gemini-3-5-flash",
+    "modelName": "gemini-3.5-flash",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.5-flash(-[\\d-]+)?$",
     "provider": "google",
     "prices": {
-      "input": 0.00000015,
-      "output": 0.0000006,
-      "cacheRead": 0.0000000375,
+      "input": 0.0000015,
+      "output": 0.000009,
+      "cacheRead": 0.00000015,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-3-1-pro-preview",
+    "modelName": "gemini-3.1-pro-preview",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.1-pro-preview(-customtools)?(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.000002,
+      "output": 0.000012,
+      "cacheRead": 0.0000002,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-3-1-flash-lite",
+    "modelName": "gemini-3.1-flash-lite",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.1-flash-lite(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.00000025,
+      "output": 0.0000015,
+      "cacheRead": 0.000000025,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-3-1-flash-lite-preview",
+    "modelName": "gemini-3.1-flash-lite-preview",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.1-flash-lite-preview(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.00000025,
+      "output": 0.0000015,
+      "cacheRead": 0.000000025,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-3-flash-preview",
+    "modelName": "gemini-3-flash-preview",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3-flash-preview(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.0000005,
+      "output": 0.000003,
+      "cacheRead": 0.00000005,
       "cacheWrite": null
     }
   },
   {
     "id": "tr-gemini-2-5-pro",
     "modelName": "gemini-2.5-pro",
-    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.5-pro(-[\\d]+)?$",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.5-pro(-[\\d-]+)?$",
     "provider": "google",
     "prices": {
       "input": 0.00000125,
       "output": 0.00001,
-      "cacheRead": 0.0000003125,
+      "cacheRead": 0.000000125,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-2-5-flash",
+    "modelName": "gemini-2.5-flash",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.5-flash(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.0000003,
+      "output": 0.0000025,
+      "cacheRead": 0.00000003,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-2-5-flash-lite",
+    "modelName": "gemini-2.5-flash-lite",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.5-flash-lite(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.0000001,
+      "output": 0.0000004,
+      "cacheRead": 0.00000001,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-2-5-flash-lite-preview",
+    "modelName": "gemini-2.5-flash-lite-preview-09-2025",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.5-flash-lite-preview(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.0000001,
+      "output": 0.0000004,
+      "cacheRead": 0.00000001,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-2-5-computer-use-preview",
+    "modelName": "gemini-2.5-computer-use-preview-10-2025",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.5-computer-use-preview(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.00000125,
+      "output": 0.00001,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-robotics-er-1-6-preview",
+    "modelName": "gemini-robotics-er-1.6-preview",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-robotics-er-1\\.6-preview(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.000001,
+      "output": 0.000005,
+      "cacheRead": null,
       "cacheWrite": null
     }
   },
   {
     "id": "tr-gemini-2-0-flash",
     "modelName": "gemini-2.0-flash",
-    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.0-flash(-[\\d]+)?$",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.0-flash(-[\\d-]+)?$",
     "provider": "google",
     "prices": {
       "input": 0.0000001,
@@ -372,9 +792,21 @@
     }
   },
   {
+    "id": "tr-gemini-2-0-flash-lite",
+    "modelName": "gemini-2.0-flash-lite",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.0-flash-lite(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.000000075,
+      "output": 0.0000003,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-gemini-1-5-flash",
     "modelName": "gemini-1.5-flash",
-    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-1\\.5-flash(-[\\d]+)?$",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-1\\.5-flash(-[\\d-]+)?$",
     "provider": "google",
     "prices": {
       "input": 0.000000075,
@@ -386,7 +818,7 @@
   {
     "id": "tr-gemini-1-5-pro",
     "modelName": "gemini-1.5-pro",
-    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-1\\.5-pro(-[\\d]+)?$",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-1\\.5-pro(-[\\d-]+)?$",
     "provider": "google",
     "prices": {
       "input": 0.00000125,
