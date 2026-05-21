@@ -6,7 +6,13 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
 import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
-import { ALL_LANGS, INTEGRATIONS, type Lang } from "./integrations";
+import { IntegrationPickerCard } from "./IntegrationPickerCard";
+import { ALL_LANGS, INTEGRATIONS, type IntegrationCategory, type Lang } from "./integrations";
+
+const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string }[] = [
+  { category: "provider", label: "Model providers" },
+  { category: "framework", label: "Frameworks" },
+];
 
 function LangTabs({
   lang,
@@ -91,29 +97,46 @@ export function ManualTab({ projectId }: ManualTabProps) {
         </div>
       </div>
 
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">3. Select your integration</p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-          {INTEGRATIONS.map((integration) => (
-            <button
-              key={integration.id}
-              type="button"
-              onClick={() => setSelectedIntegrationId(integration.id)}
-              aria-pressed={selectedIntegration.id === integration.id}
-              className={cn(
-                "flex min-h-20 flex-col items-center justify-center gap-1.5 border px-3 py-3 transition-colors",
-                selectedIntegration.id === integration.id
-                  ? "border-primary bg-primary/5"
-                  : "border-border bg-muted/30 hover:bg-muted/60",
-              )}
-            >
-              {integration.icon}
-              <span className="text-center text-xs font-medium text-foreground">
-                {integration.name}
-              </span>
-            </button>
-          ))}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm font-medium text-foreground">3. Select your integration</p>
+          <a
+            href="https://github.com/traceroot-ai/traceroot/issues/new"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+          >
+            Don&apos;t see yours? Request one
+          </a>
         </div>
+
+        {INTEGRATION_GROUPS.map((group) => {
+          const items = INTEGRATIONS.filter(
+            (integration) => integration.category === group.category,
+          );
+          if (items.length === 0) return null;
+
+          return (
+            <div key={group.category} className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">{group.label}</p>
+              <div
+                role="radiogroup"
+                aria-label={group.label}
+                className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3"
+              >
+                {items.map((integration) => (
+                  <IntegrationPickerCard
+                    key={integration.id}
+                    integration={integration}
+                    selected={selectedIntegration.id === integration.id}
+                    onSelect={() => setSelectedIntegrationId(integration.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+
         <a
           href={selectedIntegration.href}
           target="_blank"
