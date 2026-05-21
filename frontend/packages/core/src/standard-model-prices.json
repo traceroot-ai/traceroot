@@ -648,33 +648,141 @@
     }
   },
   {
-    "id": "tr-gemini-2-5-flash",
-    "modelName": "gemini-2.5-flash",
-    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.5-flash(-[\\d]+)?$",
+    "id": "tr-gemini-3-5-flash",
+    "modelName": "gemini-3.5-flash",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.5-flash(-[\\d-]+)?$",
     "provider": "google",
     "prices": {
-      "input": 0.00000015,
-      "output": 0.0000006,
-      "cacheRead": 0.0000000375,
+      "input": 0.0000015,
+      "output": 0.000009,
+      "cacheRead": 0.00000015,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-3-1-pro-preview",
+    "modelName": "gemini-3.1-pro-preview",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.1-pro-preview(-customtools)?(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.000002,
+      "output": 0.000012,
+      "cacheRead": 0.0000002,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-3-1-flash-lite",
+    "modelName": "gemini-3.1-flash-lite",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.1-flash-lite(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.00000025,
+      "output": 0.0000015,
+      "cacheRead": 0.000000025,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-3-1-flash-lite-preview",
+    "modelName": "gemini-3.1-flash-lite-preview",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3\\.1-flash-lite-preview(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.00000025,
+      "output": 0.0000015,
+      "cacheRead": 0.000000025,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-3-flash-preview",
+    "modelName": "gemini-3-flash-preview",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3-flash-preview(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.0000005,
+      "output": 0.000003,
+      "cacheRead": 0.00000005,
       "cacheWrite": null
     }
   },
   {
     "id": "tr-gemini-2-5-pro",
     "modelName": "gemini-2.5-pro",
-    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.5-pro(-[\\d]+)?$",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.5-pro(-[\\d-]+)?$",
     "provider": "google",
     "prices": {
       "input": 0.00000125,
       "output": 0.00001,
-      "cacheRead": 0.0000003125,
+      "cacheRead": 0.000000125,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-2-5-flash",
+    "modelName": "gemini-2.5-flash",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.5-flash(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.0000003,
+      "output": 0.0000025,
+      "cacheRead": 0.00000003,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-2-5-flash-lite",
+    "modelName": "gemini-2.5-flash-lite",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.5-flash-lite(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.0000001,
+      "output": 0.0000004,
+      "cacheRead": 0.00000001,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-2-5-flash-lite-preview",
+    "modelName": "gemini-2.5-flash-lite-preview-09-2025",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.5-flash-lite-preview(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.0000001,
+      "output": 0.0000004,
+      "cacheRead": 0.00000001,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-2-5-computer-use-preview",
+    "modelName": "gemini-2.5-computer-use-preview-10-2025",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.5-computer-use-preview(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.00000125,
+      "output": 0.00001,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gemini-robotics-er-1-6-preview",
+    "modelName": "gemini-robotics-er-1.6-preview",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-robotics-er-1\\.6-preview(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.000001,
+      "output": 0.000005,
+      "cacheRead": null,
       "cacheWrite": null
     }
   },
   {
     "id": "tr-gemini-2-0-flash",
     "modelName": "gemini-2.0-flash",
-    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.0-flash(-[\\d]+)?$",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.0-flash(-[\\d-]+)?$",
     "provider": "google",
     "prices": {
       "input": 0.0000001,
@@ -684,9 +792,21 @@
     }
   },
   {
+    "id": "tr-gemini-2-0-flash-lite",
+    "modelName": "gemini-2.0-flash-lite",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-2\\.0-flash-lite(-[\\d-]+)?$",
+    "provider": "google",
+    "prices": {
+      "input": 0.000000075,
+      "output": 0.0000003,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-gemini-1-5-flash",
     "modelName": "gemini-1.5-flash",
-    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-1\\.5-flash(-[\\d]+)?$",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-1\\.5-flash(-[\\d-]+)?$",
     "provider": "google",
     "prices": {
       "input": 0.000000075,
@@ -698,7 +818,7 @@
   {
     "id": "tr-gemini-1-5-pro",
     "modelName": "gemini-1.5-pro",
-    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-1\\.5-pro(-[\\d]+)?$",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-1\\.5-pro(-[\\d-]+)?$",
     "provider": "google",
     "prices": {
       "input": 0.00000125,
