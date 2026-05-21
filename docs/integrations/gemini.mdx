@@ -39,7 +39,7 @@ weather_tool = types.Tool(function_declarations=[
 
 # This call is automatically traced
 response = client.models.generate_content(
-    model="gemini-2.5-flash",
+    model="gemini-3.5-flash",
     contents="What's the weather in Tokyo?",
     config=types.GenerateContentConfig(tools=[weather_tool]),
 )
@@ -51,7 +51,7 @@ print(response.text)
 
 | Attribute | Description |
 |-----------|-------------|
-| Model | `gemini-2.5-flash`, `gemini-2.0-pro`, etc. |
+| Model | `gemini-3.5-flash`, `gemini-3.1-pro-preview`, etc. |
 | Contents | Input messages |
 | Response | Generated text and function calls |
 | Tokens | Input and output token counts |

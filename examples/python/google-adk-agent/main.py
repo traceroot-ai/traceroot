@@ -84,7 +84,7 @@ def calculate(expression: str) -> dict:
 
 agent = Agent(
     name="assistant",
-    model="gemini-2.5-flash",
+    model="gemini-3.5-flash",
     description="Helpful assistant with access to tools.",
     instruction=(
         "You are a helpful AI assistant with access to tools. "
