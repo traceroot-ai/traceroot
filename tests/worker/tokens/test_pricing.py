@@ -101,6 +101,27 @@ OPENAI_MODEL_CASES = [
     ("babbage-002", "babbage-002"),
 ]
 
+GEMINI_MODEL_CASES = [
+    ("gemini-3.5-flash", "gemini-3.5-flash"),
+    ("google/gemini-3.5-flash", "gemini-3.5-flash"),
+    ("models/gemini-3.5-flash", "gemini-3.5-flash"),
+    ("gemini-3.1-pro-preview", "gemini-3.1-pro-preview"),
+    ("gemini-3.1-pro-preview-customtools", "gemini-3.1-pro-preview"),
+    ("gemini-3.1-flash-lite", "gemini-3.1-flash-lite"),
+    ("gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite-preview"),
+    ("gemini-3-flash-preview", "gemini-3-flash-preview"),
+    ("gemini-2.5-pro", "gemini-2.5-pro"),
+    ("gemini-2.5-flash", "gemini-2.5-flash"),
+    ("gemini-2.5-flash-lite", "gemini-2.5-flash-lite"),
+    ("gemini-2.5-flash-lite-preview-09-2025", "gemini-2.5-flash-lite-preview-09-2025"),
+    ("gemini-2.5-computer-use-preview-10-2025", "gemini-2.5-computer-use-preview-10-2025"),
+    ("gemini-robotics-er-1.6-preview", "gemini-robotics-er-1.6-preview"),
+    ("gemini-2.0-flash", "gemini-2.0-flash"),
+    ("gemini-2.0-flash-lite", "gemini-2.0-flash-lite"),
+    ("gemini-1.5-flash", "gemini-1.5-flash"),
+    ("gemini-1.5-pro", "gemini-1.5-pro"),
+]
+
 
 @patch("worker.tokens.pricing._load_cache", _mock_load_cache)
 class TestGetModelPrice:
@@ -152,6 +173,21 @@ class TestOpenAIModelIds:
         assert result["output_tokens"] > 0
         assert result["cost"] is not None
         assert result["cost"] > 0
+
+
+class TestGeminiModelIds:
+    @pytest.mark.parametrize("model_id,expected_name", GEMINI_MODEL_CASES)
+    def test_matches_expected_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert "input" in price and "output" in price
+
+        expected = next(entry for entry in real_cache if entry["model_name"] == expected_name)
+        assert price == expected["prices"], (
+            f"{model_id} matched a different entry than {expected_name}"
+        )
 
 
 @patch("worker.tokens.pricing._load_cache", _mock_load_cache)
