@@ -340,33 +340,33 @@ def transform_otel_to_clickhouse(
                 if git_source_function is not None:
                     span_record["git_source_function"] = git_source_function
 
-                # Extraction priority:
-                # 1. TraceRoot SDK attributes: user-provided / explicit TraceRoot values.
-                # 2. OpenInference attributes: normalized cross-framework schema.
-                # 3. GenAI semantic convention attributes: native OTel GenAI spans.
-                # 4. Framework-specific fallbacks: raw Pydantic-AI/Logfire tool attrs.
+                # Extraction priority (first key present/not-None wins):
+                # 1. TraceRoot SDK: user-provided explicit values — highest authority.
+                # 2. OpenInference: normalized cross-framework schema (LLM/chain spans).
+                # 3. GenAI semconv: native OTel GenAI attributes (LLM + tool spans).
+                # 4. Framework-specific fallbacks: raw attrs before OpenInference normalization.
                 #
-                # Use presence checks (`is not None`) rather than truthiness so valid empty
-                # values do not fall through to lower-priority attributes.
+                # Presence checks (`is not None`) rather than truthiness ensure that falsy
+                # but valid values (e.g. empty string) do not fall through to lower-priority keys.
                 span_input = first_present(
                     span_attrs,
                     [
-                        "traceroot.span.input",
-                        "input.value",
-                        "gen_ai.input.messages",
-                        "tool.parameters",
-                        "gen_ai.tool.call.arguments",
-                        "tool_arguments",
+                        "traceroot.span.input",  # 1. TraceRoot SDK explicit input
+                        "input.value",  # 2. OpenInference normalized input (LLM/chain)
+                        "gen_ai.input.messages",  # 3. GenAI semconv LLM input messages
+                        "tool.parameters",  # 3. OpenInference tool input (pydantic-ai tool_arguments mapped here)
+                        "gen_ai.tool.call.arguments",  # 3. GenAI semconv tool-call arguments
+                        "tool_arguments",  # 4. Raw pydantic-ai/Logfire attr before OpenInference normalization
                     ],
                 )
                 span_output = first_present(
                     span_attrs,
                     [
-                        "traceroot.span.output",
-                        "output.value",
-                        "gen_ai.output.messages",
-                        "gen_ai.tool.call.result",
-                        "tool_response",
+                        "traceroot.span.output",  # 1. TraceRoot SDK explicit output
+                        "output.value",  # 2. OpenInference normalized output (LLM/chain/tool)
+                        "gen_ai.output.messages",  # 3. GenAI semconv LLM output messages
+                        "gen_ai.tool.call.result",  # 3. GenAI semconv tool-call result
+                        "tool_response",  # 4. Raw pydantic-ai/Logfire attr before OpenInference normalization
                     ],
                 )
 
@@ -470,9 +470,12 @@ def transform_otel_to_clickhouse(
                         for k, v in span_attrs.items()
                         if not _is_known_attribute(k) and v is not None
                     }
-                    # gen_ai.usage.details.* is excluded by the gen_ai. prefix guard
-                    # but these keys are not extracted into any dedicated field —
-                    # rescue the cache token breakdown explicitly so it isn't silently dropped.
+                    # gen_ai.usage.details.* falls under the gen_ai. prefix and is therefore
+                    # excluded from generic metadata by _is_known_attribute(). Unlike
+                    # gen_ai.usage.input_tokens / output_tokens (promoted to dedicated token
+                    # fields), the cache-token breakdown has no first-class column. Rescue
+                    # these keys explicitly so they survive in metadata instead of being
+                    # silently dropped.
                     for _cache_key in (
                         "gen_ai.usage.details.cache_read_tokens",
                         "gen_ai.usage.details.cache_write_tokens",
