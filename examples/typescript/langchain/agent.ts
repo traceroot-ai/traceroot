@@ -37,7 +37,7 @@ TraceRoot.initialize({
 console.log('[Observability: TraceRoot]');
 
 // ── LLM ───────────────────────────────────────────────────────────────────────
-const llm = new ChatOpenAI({ model: 'gpt-5.5', temperature: 0 });
+const llm = new ChatOpenAI({ model: 'gpt-4o-mini', temperature: 0 });
 
 // ── Python code execution ─────────────────────────────────────────────────────
 const execAsync = promisify(exec);
@@ -96,7 +96,7 @@ async function codeNode(state: State): Promise<Partial<State>> {
   const response = await llm.invoke([
     new SystemMessage(
       'You are a Python code generator. Generate clean, executable Python code based on the plan. ' +
-      'Output ONLY raw Python code — no markdown fences, no explanations.',
+        'Output ONLY raw Python code — no markdown fences, no explanations.',
     ),
     new HumanMessage(`Plan:\n${state.plan}\n\nQuery: ${state.query}${retryCtx}`),
   ]);

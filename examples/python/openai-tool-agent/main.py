@@ -175,7 +175,7 @@ TOOL_SCHEMAS = [
 class ReActAgent:
     """ReAct-style agent that reasons and acts in a loop with streaming."""
 
-    def __init__(self, model: str = "gpt-5.5"):
+    def __init__(self, model: str = "gpt-4o-mini"):
         self.client = openai.OpenAI()
         self.model = model
         self.messages: list[dict] = [

@@ -171,7 +171,7 @@ SYSTEM_INSTRUCTION = (
 class ReActAgent:
     """ReAct-style agent that reasons and acts in a loop."""
 
-    def __init__(self, model: str = "gemini-3.5-flash"):
+    def __init__(self, model: str = "gemini-2.5-flash"):
         self.client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
         self.model = model
         self.contents: list[types.Content] = []

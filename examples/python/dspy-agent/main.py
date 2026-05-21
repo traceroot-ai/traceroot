@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # `cache=False` disables DSPy's local response cache so every run produces
 # real LLM latency in the trace — useful for the demo, drop the flag in
 # production to take advantage of caching.
-LM = dspy.LM("openai/gpt-5.5", max_tokens=1024, cache=False)
+LM = dspy.LM("openai/gpt-4o-mini", max_tokens=1024, cache=False)
 dspy.configure(lm=LM)
 
 

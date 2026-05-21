@@ -112,7 +112,7 @@ agent = Agent(
         "Use available tools to gather information, then provide "
         "a clear, comprehensive answer."
     ),
-    model="gpt-5.5",
+    model="gpt-4o-mini",
     tools=[get_weather, get_stock_price, calculate, get_current_time],
 )
 

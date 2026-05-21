@@ -35,7 +35,7 @@ from llama_index.core import Document, Settings, VectorStoreIndex
 from llama_index.llms.openai import OpenAI
 
 # Set up LLM with explicit model for cost tracking
-Settings.llm = OpenAI(model="gpt-5.5")
+Settings.llm = OpenAI(model="gpt-4o-mini")
 
 # Create documents about TraceRoot
 documents = [
