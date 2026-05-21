@@ -89,7 +89,8 @@
                   "tracing/tags",
                   "tracing/metadata",
                   "tracing/cost-tracking",
-                  "tracing/git-context"
+                  "tracing/git-context",
+                  "tracing/timeline"
                 ]
               }
             ]
