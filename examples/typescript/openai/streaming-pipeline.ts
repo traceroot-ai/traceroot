@@ -47,7 +47,7 @@ console.log('[Observability: TraceRoot — streaming pipeline]');
 
 async function* streamTokens(prompt: string) {
   const stream = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-5.5',
     messages: [{ role: 'user', content: prompt }],
     stream: true,
   });

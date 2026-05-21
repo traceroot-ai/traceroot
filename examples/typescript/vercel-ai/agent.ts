@@ -48,7 +48,7 @@ const stocks: Record<string, { price: number; change: number; percent: string }>
 async function runAgent(query: string): Promise<string> {
   return observe({ name: 'vercel_ai_agent', type: 'agent' }, async () => {
     const result = await generateText({
-      model: openai('gpt-4o-mini'),
+      model: openai('gpt-5.5'),
       maxSteps: 5,
       system:
         'You are a helpful AI assistant with access to weather and stock tools. ' +
