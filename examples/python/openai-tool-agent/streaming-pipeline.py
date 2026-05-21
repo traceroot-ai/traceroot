@@ -58,7 +58,7 @@ _client = openai.AsyncOpenAI()
 async def stream_tokens(prompt: str):
     """Yield raw text tokens from the OpenAI streaming API."""
     stream = await _client.chat.completions.create(
-        model="gpt-5.5",
+        model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
         stream=True,
     )

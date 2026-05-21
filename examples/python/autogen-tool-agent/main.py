@@ -84,7 +84,7 @@ DEMO_QUERIES = [
 def run_demo():
     config_list = [
         {
-            "model": "gemini-3.5-flash",
+            "model": "gemini-2.5-flash",
             "api_key": os.environ.get("GEMINI_API_KEY"),
             "api_type": "google",
         }
