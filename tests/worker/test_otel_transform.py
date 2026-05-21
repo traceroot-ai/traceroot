@@ -582,6 +582,26 @@ class TestGenAIInputOutputFallback:
         _, spans = transform_otel_to_clickhouse(payload, "proj-1")
         assert spans[0]["input"] == "oi-input"
 
+    def test_tool_parameters_takes_priority_over_gen_ai_input_messages(self):
+        # tool.parameters is OpenInference tier 2; gen_ai.input.messages is GenAI tier 3.
+        # They're mutually exclusive in real traces but this guards the ordering.
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[
+                        make_attr("tool.parameters", '{"city":"NYC"}'),
+                        make_attr("gen_ai.input.messages", "should-be-ignored"),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["input"] == '{"city":"NYC"}'
+
     def test_openinference_tool_parameters_used_as_input(self):
         # OpenInference maps pydantic-ai tool_arguments → tool.parameters
         trace_hex = "aa" * 16
