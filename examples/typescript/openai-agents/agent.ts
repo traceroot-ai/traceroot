@@ -80,7 +80,7 @@ const agent = new Agent({
     'You are a helpful assistant with access to weather, stock price, and calculator tools. ' +
     'Use tools when needed to answer questions accurately.',
   tools: [getWeather, getStockPrice, calculate],
-  model: 'gpt-4o-mini',
+  model: 'gpt-5.5',
 });
 
 // ── Demo ──────────────────────────────────────────────────────────────────────

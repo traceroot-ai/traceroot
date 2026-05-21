@@ -153,7 +153,7 @@ Available tools: weather, web search, stock prices, calculator, current time.`;
 
 class ReActAgent {
   private conversationHistory: OpenAI.Chat.ChatCompletionMessageParam[] = [];
-  private readonly model = 'gpt-4o-mini';
+  private readonly model = 'gpt-5.5';
 
   constructor() {
     this.conversationHistory.push({ role: 'system', content: SYSTEM_PROMPT });
