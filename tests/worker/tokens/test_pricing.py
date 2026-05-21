@@ -231,3 +231,60 @@ class TestCalculateCost:
         # Cost should be a reasonable float, not have floating-point artifacts
         cost_str = f"{result['cost']:.10f}"
         assert "999999" not in cost_str  # No floating-point weirdness
+
+
+# ---------------------------------------------------------------------------
+# Real-JSON tests — guard against pricing patterns drifting from real model IDs
+# emitted by AWS Bedrock and Google Vertex AI (issue #877).
+# ---------------------------------------------------------------------------
+
+
+# (model_id, expected modelName) for IDs the worker must price correctly.
+CLAUDE_BEDROCK_VERTEX_CASES = [
+    # Bedrock — with cross-region inference profile prefixes
+    ("us.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("eu.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("apac.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("global.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    # Bedrock — no CRIS prefix
+    ("anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
+    ("us.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
+    ("us.anthropic.claude-opus-4-5-20251101-v1:0", "claude-opus-4-5"),
+    ("us.anthropic.claude-sonnet-4-6-20251015-v1:0", "claude-sonnet-4-6"),
+    ("us.anthropic.claude-opus-4-6-20251015-v1:0", "claude-opus-4-6"),
+    ("us.anthropic.claude-sonnet-4-20250514-v1:0", "claude-sonnet-4"),
+    ("us.anthropic.claude-3-5-sonnet-20241022-v2:0", "claude-3-5-sonnet"),
+    ("anthropic.claude-3-5-sonnet-20241022-v2:0", "claude-3-5-sonnet"),
+    ("us.anthropic.claude-3-5-haiku-20241022-v1:0", "claude-3-5-haiku"),
+    ("anthropic.claude-3-opus-20240229-v1:0", "claude-3-opus"),
+    ("anthropic.claude-3-sonnet-20240229-v1:0", "claude-3-sonnet"),
+    ("anthropic.claude-3-haiku-20240307-v1:0", "claude-3-haiku"),
+    # Vertex AI — number-first ordering for 4.x families, @date separator
+    ("claude-4-5-haiku@20251001", "claude-haiku-4-5"),
+    ("claude-4-5-sonnet@20250929", "claude-sonnet-4-5"),
+    ("claude-4-5-opus@20251101", "claude-opus-4-5"),
+    ("claude-4-6-sonnet@20251015", "claude-sonnet-4-6"),
+    ("claude-4-6-opus@20251015", "claude-opus-4-6"),
+    ("claude-4-sonnet@20250514", "claude-sonnet-4"),
+    # Vertex AI — 3.x families keep number-first ordering, @date separator
+    ("claude-3-5-sonnet@20241022", "claude-3-5-sonnet"),
+    ("claude-3-5-haiku@20241022", "claude-3-5-haiku"),
+]
+
+
+class TestClaudeBedrockAndVertexIds:
+    @pytest.mark.parametrize("model_id,expected_name", CLAUDE_BEDROCK_VERTEX_CASES)
+    def test_matches_expected_family(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert "input" in price and "output" in price
+
+        expected = next(e for e in real_cache if e["model_name"] == expected_name)
+        assert price["input"] == expected["prices"]["input"], (
+            f"{model_id} matched a different family than {expected_name}"
+        )
+
+    def test_unrelated_model_still_none(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert get_model_price("totally-not-a-real-model-2099") is None

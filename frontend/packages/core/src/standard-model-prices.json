@@ -2,7 +2,7 @@
   {
     "id": "tr-claude-opus-4-6",
     "modelName": "claude-opus-4-6",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-6)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-6(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-6(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-6-opus(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000015,
@@ -14,7 +14,7 @@
   {
     "id": "tr-claude-sonnet-4-6",
     "modelName": "claude-sonnet-4-6",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4-6)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4-6(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-4-6(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-6-sonnet(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000003,
@@ -26,7 +26,7 @@
   {
     "id": "tr-claude-opus-4-5",
     "modelName": "claude-opus-4-5",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-5)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-5(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-opus(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000015,
@@ -38,7 +38,7 @@
   {
     "id": "tr-claude-sonnet-4-5",
     "modelName": "claude-sonnet-4-5",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4-5)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4-5(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-sonnet(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000003,
@@ -50,7 +50,7 @@
   {
     "id": "tr-claude-haiku-4-5",
     "modelName": "claude-haiku-4-5",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-haiku-4-5)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-haiku-4-5(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-haiku-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-haiku(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.0000008,
@@ -566,7 +566,7 @@
   {
     "id": "tr-claude-3-5-sonnet",
     "modelName": "claude-3-5-sonnet",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-5-sonnet)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-5-sonnet(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-3-5-sonnet(-[\\d-]+)?(-v\\d+:\\d+)?|claude-3-5-sonnet(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000003,
@@ -578,7 +578,7 @@
   {
     "id": "tr-claude-3-5-haiku",
     "modelName": "claude-3-5-haiku",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-5-haiku)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-5-haiku(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-3-5-haiku(-[\\d-]+)?(-v\\d+:\\d+)?|claude-3-5-haiku(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.0000008,
@@ -590,7 +590,7 @@
   {
     "id": "tr-claude-3-opus",
     "modelName": "claude-3-opus",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-opus)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-opus(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-3-opus(-[\\d-]+)?(-v\\d+:\\d+)?|claude-3-opus(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000015,
@@ -602,7 +602,7 @@
   {
     "id": "tr-claude-3-sonnet",
     "modelName": "claude-3-sonnet",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-sonnet)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-sonnet(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-3-sonnet(-[\\d-]+)?(-v\\d+:\\d+)?|claude-3-sonnet(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000003,
@@ -614,7 +614,7 @@
   {
     "id": "tr-claude-3-haiku",
     "modelName": "claude-3-haiku",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-haiku)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-haiku(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-3-haiku(-[\\d-]+)?(-v\\d+:\\d+)?|claude-3-haiku(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.00000025,
@@ -626,7 +626,7 @@
   {
     "id": "tr-claude-sonnet-4",
     "modelName": "claude-sonnet-4",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-4(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-sonnet(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000003,
