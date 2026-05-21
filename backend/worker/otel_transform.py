@@ -353,8 +353,8 @@ def transform_otel_to_clickhouse(
                     [
                         "traceroot.span.input",  # 1. TraceRoot SDK explicit input
                         "input.value",  # 2. OpenInference normalized input (LLM/chain)
+                        "tool.parameters",  # 2. OpenInference tool input (pydantic-ai tool_arguments mapped here)
                         "gen_ai.input.messages",  # 3. GenAI semconv LLM input messages
-                        "tool.parameters",  # 3. OpenInference tool input (pydantic-ai tool_arguments mapped here)
                         "gen_ai.tool.call.arguments",  # 3. GenAI semconv tool-call arguments
                         "tool_arguments",  # 4. Raw pydantic-ai/Logfire attr before OpenInference normalization
                     ],
