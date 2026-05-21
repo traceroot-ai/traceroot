@@ -1,0 +1,26 @@
+---
+title: Timeline View
+description: Visualize spans as Gantt-style bars over time to spot long operations, parallelism, and gaps
+---
+
+The trace viewer renders every trace as either a **Trace** view (hierarchical tree) or a **Timeline** view (Gantt-style bars). Both views share selection and collapse state.
+
+<Frame>
+  <img src="/images/trace_timeline_v1.png" alt="TraceRoot trace viewer showing the Timeline view with span bars" />
+</Frame>
+
+## Trace vs Timeline
+
+| Trace view | Timeline view |
+|---|---|
+| Call hierarchy and parent/child relationships | Span duration relative to siblings |
+| Inspecting span attributes, inputs, outputs | Finding the critical path or longest span |
+| Navigating nested agent or tool calls | Checking parallel vs serial execution |
+
+## Toggling
+
+Use the **Trace** / **Timeline** buttons in the trace viewer's sub-header. Selection persists across the switch.
+
+## Click-to-select
+
+Clicking a bar in the Timeline view selects the span and switches back to the Trace view, scrolling and expanding ancestors so the span is visible.
