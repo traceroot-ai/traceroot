@@ -653,3 +653,84 @@ class TestGenAIInputOutputFallback:
         )
         _, spans = transform_otel_to_clickhouse(payload, "proj-1")
         assert spans[0]["name"] == "chat gpt-4o-mini"
+
+
+# ── Falsy-but-present precedence ────────────────────────────────────────
+
+
+class TestFalsyPrecedence:
+    def test_falsy_traceroot_input_wins_over_input_value(self):
+        """traceroot.span.input="" must not fall through to input.value."""
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[
+                        make_attr("traceroot.span.input", ""),
+                        make_attr("input.value", "fallback"),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["input"] == ""
+
+    def test_falsy_input_value_wins_over_gen_ai_input(self):
+        """input.value="" must not fall through to gen_ai.input.messages."""
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[
+                        make_attr("input.value", ""),
+                        make_attr("gen_ai.input.messages", "fallback"),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["input"] == ""
+
+    def test_falsy_traceroot_output_wins_over_output_value(self):
+        """traceroot.span.output="" must not fall through to output.value."""
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[
+                        make_attr("traceroot.span.output", ""),
+                        make_attr("output.value", "fallback"),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["output"] == ""
+
+    def test_falsy_output_value_wins_over_gen_ai_output(self):
+        """output.value="" must not fall through to gen_ai.output.messages."""
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[
+                        make_attr("output.value", ""),
+                        make_attr("gen_ai.output.messages", "fallback"),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["output"] == ""

@@ -138,7 +138,9 @@ def run_demo() -> None:
 
 
 if __name__ == "__main__":
-    with using_attributes(user_id="example-user", session_id="pydantic-ai-session"):
-        run_demo()
-    traceroot.flush()
-    print("\n[Traces exported]")
+    try:
+        with using_attributes(user_id="example-user", session_id="pydantic-ai-session"):
+            run_demo()
+    finally:
+        traceroot.flush()
+        print("\n[Traces exported]")
