@@ -734,3 +734,71 @@ class TestFalsyPrecedence:
         )
         _, spans = transform_otel_to_clickhouse(payload, "proj-1")
         assert spans[0]["output"] == ""
+
+
+# ── Cache token metadata preservation ───────────────────────────────────
+
+
+class TestCacheTokenMetadata:
+    """gen_ai.usage.details.cache_* are filtered by the gen_ai. prefix guard but
+    have no first-class column — verify the explicit rescue loop preserves them."""
+
+    def test_cache_read_tokens_preserved_in_metadata(self):
+        import json
+
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[make_attr("gen_ai.usage.details.cache_read_tokens", 128)],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        metadata = json.loads(spans[0]["metadata"])
+        assert metadata["gen_ai.usage.details.cache_read_tokens"] == 128
+
+    def test_cache_write_tokens_preserved_in_metadata(self):
+        import json
+
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[make_attr("gen_ai.usage.details.cache_write_tokens", 64)],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        metadata = json.loads(spans[0]["metadata"])
+        assert metadata["gen_ai.usage.details.cache_write_tokens"] == 64
+
+    def test_both_cache_tokens_survive_as_integers(self):
+        import json
+
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[
+                        make_attr("gen_ai.usage.details.cache_read_tokens", 128),
+                        make_attr("gen_ai.usage.details.cache_write_tokens", 64),
+                    ],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        metadata = json.loads(spans[0]["metadata"])
+        assert metadata["gen_ai.usage.details.cache_read_tokens"] == 128
+        assert metadata["gen_ai.usage.details.cache_write_tokens"] == 64
+        assert isinstance(metadata["gen_ai.usage.details.cache_read_tokens"], int)
+        assert isinstance(metadata["gen_ai.usage.details.cache_write_tokens"], int)
