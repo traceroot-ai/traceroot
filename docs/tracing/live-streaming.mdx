@@ -1,0 +1,20 @@
+---
+title: Live Tracing
+description: Watch spans stream into the trace viewer in real time while your agent is still running
+---
+
+When you open a trace whose root span hasn't ended yet, TraceRoot streams new spans into the viewer as they arrive. There is no toggle and no SDK flag — live tracing is on by default for every in-flight trace.
+
+<Frame>
+  <img src="/images/trace_live_v1.png" alt="TraceRoot trace viewer streaming new spans live while an agent runs" />
+</Frame>
+
+## How spans arrive
+
+Spans are merged into the existing tree by span ID, so they can arrive in any order:
+
+- Newly started spans appear as **pending** rows (greyed out, no duration yet).
+- When a pending span finishes, its end time fills in and the row renders normally.
+- The [Timeline View](/tracing/timeline) updates in step — bars extend and new bars appear.
+
+Once the root span completes, the viewer makes a final consistency pass and stops streaming.
