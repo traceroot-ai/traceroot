@@ -71,6 +71,19 @@ def _is_known_attribute(key: str) -> bool:
     return any(key == prefix or key.startswith(prefix) for prefix in _KNOWN_ATTRIBUTE_PREFIXES)
 
 
+def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
+    """Return the value of the first key that is present (not None) in attrs.
+
+    Uses `is not None` rather than truthiness so falsy-but-valid values like
+    empty string, 0, or {} do not fall through to lower-priority keys.
+    """
+    for key in keys:
+        value = attrs.get(key)
+        if value is not None:
+            return value
+    return None
+
+
 def decode_otel_id(b64_value: str | None) -> str | None:
     """Decode base64-encoded OTEL trace/span ID to hex string.
 
@@ -192,13 +205,28 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
     elif openinference_type == "CHAIN":
         return SpanKind.SPAN
 
-    # Default based on presence of LLM-related attributes
+    # GenAI semconv operation name (pydantic-ai, native OTel GenAI instrumentors)
+    operation_name = (attrs.get("gen_ai.operation.name") or "").lower()
+    if operation_name in ("chat", "text_completion", "embeddings"):
+        return SpanKind.LLM
+    if operation_name == "execute_tool":
+        return SpanKind.TOOL
+
+    # Infer from LLM-related attributes
     if (
         attrs.get("gen_ai.system")
+        or attrs.get("gen_ai.request.model")
         or attrs.get("llm.model_name")
         or attrs.get("traceroot.llm.model")
     ):
         return SpanKind.LLM
+
+    # Use `is not None` (not truthiness) so an empty-string value still classifies as TOOL
+    if (
+        attrs.get("gen_ai.tool.call.arguments") is not None
+        or attrs.get("gen_ai.tool.call.result") is not None
+    ):
+        return SpanKind.TOOL
 
     return SpanKind.SPAN
 
@@ -277,8 +305,13 @@ def transform_otel_to_clickhouse(
                 otel_kind = otel_span.get("kind")
                 span_kind = get_span_kind(span_attrs, otel_kind)
 
-                # Extract span name
+                # Extract span name; for tool spans prefer the actual tool name over
+                # generic instrumentation names like "running tool" (pydantic-ai).
                 span_name = otel_span.get("name", "unknown")
+                if span_kind == SpanKind.TOOL:
+                    tool_name = span_attrs.get("gen_ai.tool.name") or span_attrs.get("tool.name")
+                    if tool_name:
+                        span_name = tool_name
 
                 # Build span record
                 environment = span_attrs.get("traceroot.environment")
@@ -307,11 +340,34 @@ def transform_otel_to_clickhouse(
                 if git_source_function is not None:
                     span_record["git_source_function"] = git_source_function
 
-                # Extract input/output if present
-                # Priority: traceroot SDK attrs > OpenInference attrs
-                span_input = span_attrs.get("traceroot.span.input") or span_attrs.get("input.value")
-                span_output = span_attrs.get("traceroot.span.output") or span_attrs.get(
-                    "output.value"
+                # Extraction priority (first key present/not-None wins):
+                # 1. TraceRoot SDK: user-provided explicit values — highest authority.
+                # 2. OpenInference: normalized cross-framework schema (LLM/chain spans).
+                # 3. GenAI semconv: native OTel GenAI attributes (LLM + tool spans).
+                # 4. Framework-specific fallbacks: raw attrs before OpenInference normalization.
+                #
+                # Presence checks (`is not None`) rather than truthiness ensure that falsy
+                # but valid values (e.g. empty string) do not fall through to lower-priority keys.
+                span_input = first_present(
+                    span_attrs,
+                    [
+                        "traceroot.span.input",  # 1. TraceRoot SDK explicit input
+                        "input.value",  # 2. OpenInference normalized input (LLM/chain)
+                        "tool.parameters",  # 2. OpenInference tool input (pydantic-ai tool_arguments mapped here)
+                        "gen_ai.input.messages",  # 3. GenAI semconv LLM input messages
+                        "gen_ai.tool.call.arguments",  # 3. GenAI semconv tool-call arguments
+                        "tool_arguments",  # 4. Raw pydantic-ai/Logfire attr before OpenInference normalization
+                    ],
+                )
+                span_output = first_present(
+                    span_attrs,
+                    [
+                        "traceroot.span.output",  # 1. TraceRoot SDK explicit output
+                        "output.value",  # 2. OpenInference normalized output (LLM/chain/tool)
+                        "gen_ai.output.messages",  # 3. GenAI semconv LLM output messages
+                        "gen_ai.tool.call.result",  # 3. GenAI semconv tool-call result
+                        "tool_response",  # 4. Raw pydantic-ai/Logfire attr before OpenInference normalization
+                    ],
                 )
 
                 if span_input is not None:
@@ -414,6 +470,19 @@ def transform_otel_to_clickhouse(
                         for k, v in span_attrs.items()
                         if not _is_known_attribute(k) and v is not None
                     }
+                    # gen_ai.usage.details.* falls under the gen_ai. prefix and is therefore
+                    # excluded from generic metadata by _is_known_attribute(). Unlike
+                    # gen_ai.usage.input_tokens / output_tokens (promoted to dedicated token
+                    # fields), the cache-token breakdown has no first-class column. Rescue
+                    # these keys explicitly so they survive in metadata instead of being
+                    # silently dropped.
+                    for _cache_key in (
+                        "gen_ai.usage.details.cache_read_tokens",
+                        "gen_ai.usage.details.cache_write_tokens",
+                    ):
+                        _val = span_attrs.get(_cache_key)
+                        if _val is not None:
+                            extra_attrs[_cache_key] = int(_val)
                     if extra_attrs:
                         span_record["metadata"] = json.dumps(extra_attrs)
 
