@@ -10,8 +10,8 @@ import { IntegrationPickerCard } from "./IntegrationPickerCard";
 import { ALL_LANGS, INTEGRATIONS, type IntegrationCategory, type Lang } from "./integrations";
 
 const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string }[] = [
-  { category: "provider", label: "Model providers" },
   { category: "framework", label: "Frameworks" },
+  { category: "provider", label: "Model providers" },
 ];
 
 function LangTabs({
