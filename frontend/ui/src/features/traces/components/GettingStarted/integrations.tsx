@@ -24,38 +24,124 @@ const TYPESCRIPT_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot";
 const MASTRA_INSTALL_COMMAND =
   "npm install @traceroot-ai/mastra @mastra/core @mastra/observability";
 
+// Ordered to mirror the docs integrations overview (frameworks first, then model
+// providers, alphabetical within each group). Keep this in sync with
+// docs/integrations/overview.mdx.
 export const INTEGRATIONS: IntegrationOption[] = [
   {
-    id: "openai",
-    name: "OpenAI",
-    href: "https://traceroot.ai/docs/integrations/openai",
-    category: "provider",
-    logo: "/logo/integrations/openai.svg",
-    logoDark: "/logo/integrations/openai-dark.svg",
+    id: "agno",
+    name: "Agno",
+    href: "https://traceroot.ai/docs/integrations/agno",
+    category: "framework",
+    logo: "/logo/integrations/agno.png",
     languages: {
       python: {
         installCommand: PYTHON_INSTALL_COMMAND,
         initSnippet: `import traceroot
 from traceroot import Integration
 
-traceroot.initialize(integrations=[Integration.OPENAI])`,
+traceroot.initialize(integrations=[Integration.AGNO])`,
+      },
+    },
+  },
+  {
+    id: "autogen",
+    name: "AutoGen",
+    href: "https://traceroot.ai/docs/integrations/autogen",
+    category: "framework",
+    logo: "/logo/integrations/autogen.svg",
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[
+    Integration.AUTOGEN,
+    Integration.OPENAI,  # Or GOOGLE_GENAI, ANTHROPIC, etc.
+])`,
+      },
+    },
+  },
+  {
+    id: "claude-agent-sdk",
+    name: "Claude Agent SDK",
+    href: "https://traceroot.ai/docs/integrations/claude-agent-sdk",
+    category: "framework",
+    logo: "/logo/integrations/claude-agent-sdk.svg",
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.CLAUDE_AGENT_SDK])`,
       },
       typescript: {
         installCommand: TYPESCRIPT_INSTALL_COMMAND,
-        initSnippet: `import OpenAI from "openai";
+        initSnippet: `import * as claudeAgentSDK from "@anthropic-ai/claude-agent-sdk";
 import { TraceRoot } from "@traceroot-ai/traceroot";
 
 TraceRoot.initialize({
-  instrumentModules: { openAI: OpenAI },
-});
+  instrumentModules: { claudeAgentSDK },
+});`,
+      },
+    },
+  },
+  {
+    id: "crewai",
+    name: "CrewAI",
+    href: "https://traceroot.ai/docs/integrations/crewai",
+    category: "framework",
+    logo: "/logo/integrations/crewai.svg",
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
 
-const openai = new OpenAI();`,
+traceroot.initialize(integrations=[
+    Integration.CREWAI,
+    Integration.OPENAI,  # Or GOOGLE_GENAI, ANTHROPIC, etc.
+])`,
+      },
+    },
+  },
+  {
+    id: "dspy",
+    name: "DSPy",
+    href: "https://traceroot.ai/docs/integrations/dspy",
+    category: "framework",
+    logo: "/logo/integrations/dspy.png",
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.DSPY])`,
+      },
+    },
+  },
+  {
+    id: "google-adk",
+    name: "Google ADK",
+    href: "https://traceroot.ai/docs/integrations/google-adk",
+    category: "framework",
+    logo: "/logo/integrations/google-adk.png",
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.GOOGLE_ADK])`,
       },
     },
   },
   {
     id: "langchain",
-    name: "LangChain",
+    name: "LangChain & LangGraph",
     href: "https://traceroot.ai/docs/integrations/langchain",
     category: "framework",
     logo: "/logo/integrations/langchain.png",
@@ -79,47 +165,43 @@ TraceRoot.initialize({
     },
   },
   {
-    id: "anthropic",
-    name: "Anthropic",
-    href: "https://traceroot.ai/docs/integrations/anthropic",
-    category: "provider",
-    logo: "/logo/integrations/anthropic.svg",
-    logoDark: "/logo/integrations/anthropic-dark.svg",
+    id: "langchain-deepagents",
+    name: "LangChain DeepAgents",
+    href: "https://traceroot.ai/docs/integrations/langchain-deepagents",
+    category: "framework",
+    logo: "/logo/integrations/langchain.png",
     languages: {
       python: {
         installCommand: PYTHON_INSTALL_COMMAND,
         initSnippet: `import traceroot
 from traceroot import Integration
 
-traceroot.initialize(integrations=[Integration.ANTHROPIC])`,
+traceroot.initialize(integrations=[Integration.LANGCHAIN])`,
       },
       typescript: {
         installCommand: TYPESCRIPT_INSTALL_COMMAND,
-        initSnippet: `import Anthropic from "@anthropic-ai/sdk";
-import * as anthropicSDK from "@anthropic-ai/sdk";
+        initSnippet: `import * as lcCallbackManager from "@langchain/core/callbacks/manager";
 import { TraceRoot } from "@traceroot-ai/traceroot";
 
 TraceRoot.initialize({
-  instrumentModules: { anthropic: anthropicSDK },
-});
-
-const client = new Anthropic();`,
+  instrumentModules: { langchain: lcCallbackManager },
+});`,
       },
     },
   },
   {
-    id: "gemini",
-    name: "Gemini",
-    href: "https://traceroot.ai/docs/integrations/gemini",
-    category: "provider",
-    logo: "/logo/integrations/gemini.svg",
+    id: "llamaindex",
+    name: "LlamaIndex",
+    href: "https://traceroot.ai/docs/integrations/llamaindex",
+    category: "framework",
+    logo: "/logo/integrations/llamaindex.png",
     languages: {
       python: {
         installCommand: PYTHON_INSTALL_COMMAND,
         initSnippet: `import traceroot
 from traceroot import Integration
 
-traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])`,
+traceroot.initialize(integrations=[Integration.LLAMA_INDEX])`,
       },
     },
   },
@@ -155,6 +237,32 @@ const mastra = new Mastra({
     },
   },
   {
+    id: "openai-agents-sdk",
+    name: "OpenAI Agents SDK",
+    href: "https://traceroot.ai/docs/integrations/openai-agents-sdk",
+    category: "framework",
+    logo: "/logo/integrations/openai-agents-sdk.svg",
+    logoDark: "/logo/integrations/openai-agents-sdk-dark.svg",
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI_AGENTS])`,
+      },
+      typescript: {
+        installCommand: TYPESCRIPT_INSTALL_COMMAND,
+        initSnippet: `import * as agents from "@openai/agents";
+import { TraceRoot } from "@traceroot-ai/traceroot";
+
+TraceRoot.initialize({
+  instrumentModules: { openaiAgents: agents },
+});`,
+      },
+    },
+  },
+  {
     id: "vercel-ai",
     name: "Vercel AI SDK",
     href: "https://traceroot.ai/docs/integrations/vercel-ai",
@@ -175,72 +283,47 @@ TraceRoot.initialize();
     },
   },
   {
-    id: "crewai",
-    name: "CrewAI",
-    href: "https://traceroot.ai/docs/integrations/crewai",
-    category: "framework",
-    logo: "/logo/integrations/crewai.svg",
+    id: "anthropic",
+    name: "Anthropic",
+    href: "https://traceroot.ai/docs/integrations/anthropic",
+    category: "provider",
+    logo: "/logo/integrations/anthropic.svg",
+    logoDark: "/logo/integrations/anthropic-dark.svg",
     languages: {
       python: {
         installCommand: PYTHON_INSTALL_COMMAND,
         initSnippet: `import traceroot
 from traceroot import Integration
 
-traceroot.initialize(integrations=[
-    Integration.CREWAI,
-    Integration.OPENAI,  # Or GOOGLE_GENAI, ANTHROPIC, etc.
-])`,
+traceroot.initialize(integrations=[Integration.ANTHROPIC])`,
+      },
+      typescript: {
+        installCommand: TYPESCRIPT_INSTALL_COMMAND,
+        initSnippet: `import Anthropic from "@anthropic-ai/sdk";
+import * as anthropicSDK from "@anthropic-ai/sdk";
+import { TraceRoot } from "@traceroot-ai/traceroot";
+
+TraceRoot.initialize({
+  instrumentModules: { anthropic: anthropicSDK },
+});
+
+const client = new Anthropic();`,
       },
     },
   },
   {
-    id: "autogen",
-    name: "AutoGen",
-    href: "https://traceroot.ai/docs/integrations/autogen",
-    category: "framework",
-    logo: "/logo/integrations/autogen.svg",
+    id: "gemini",
+    name: "Google Gemini",
+    href: "https://traceroot.ai/docs/integrations/gemini",
+    category: "provider",
+    logo: "/logo/integrations/gemini.svg",
     languages: {
       python: {
         installCommand: PYTHON_INSTALL_COMMAND,
         initSnippet: `import traceroot
 from traceroot import Integration
 
-traceroot.initialize(integrations=[
-    Integration.AUTOGEN,
-    Integration.OPENAI,  # Or GOOGLE_GENAI, ANTHROPIC, etc.
-])`,
-      },
-    },
-  },
-  {
-    id: "agno",
-    name: "Agno",
-    href: "https://traceroot.ai/docs/integrations/agno",
-    category: "framework",
-    logo: "/logo/integrations/agno.png",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
-from traceroot import Integration
-
-traceroot.initialize(integrations=[Integration.AGNO])`,
-      },
-    },
-  },
-  {
-    id: "dspy",
-    name: "DSPy",
-    href: "https://traceroot.ai/docs/integrations/dspy",
-    category: "framework",
-    logo: "/logo/integrations/dspy.png",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
-from traceroot import Integration
-
-traceroot.initialize(integrations=[Integration.DSPY])`,
+traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])`,
       },
     },
   },
@@ -261,34 +344,30 @@ traceroot.initialize(integrations=[Integration.MISTRAL])`,
     },
   },
   {
-    id: "google-adk",
-    name: "Google ADK",
-    href: "https://traceroot.ai/docs/integrations/google-adk",
-    category: "framework",
-    logo: "/logo/integrations/google-adk.png",
+    id: "openai",
+    name: "OpenAI",
+    href: "https://traceroot.ai/docs/integrations/openai",
+    category: "provider",
+    logo: "/logo/integrations/openai.svg",
+    logoDark: "/logo/integrations/openai-dark.svg",
     languages: {
       python: {
         installCommand: PYTHON_INSTALL_COMMAND,
         initSnippet: `import traceroot
 from traceroot import Integration
 
-traceroot.initialize(integrations=[Integration.GOOGLE_ADK])`,
+traceroot.initialize(integrations=[Integration.OPENAI])`,
       },
-    },
-  },
-  {
-    id: "llamaindex",
-    name: "LlamaIndex",
-    href: "https://traceroot.ai/docs/integrations/llamaindex",
-    category: "framework",
-    logo: "/logo/integrations/llamaindex.png",
-    languages: {
-      python: {
-        installCommand: PYTHON_INSTALL_COMMAND,
-        initSnippet: `import traceroot
-from traceroot import Integration
+      typescript: {
+        installCommand: TYPESCRIPT_INSTALL_COMMAND,
+        initSnippet: `import OpenAI from "openai";
+import { TraceRoot } from "@traceroot-ai/traceroot";
 
-traceroot.initialize(integrations=[Integration.LLAMA_INDEX])`,
+TraceRoot.initialize({
+  instrumentModules: { openAI: OpenAI },
+});
+
+const openai = new OpenAI();`,
       },
     },
   },
