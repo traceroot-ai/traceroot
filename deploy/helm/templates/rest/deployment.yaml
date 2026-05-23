@@ -78,6 +78,10 @@ spec:
             {{- end }}
             - name: CORS_ORIGINS
               value: '["{{ .Values.betterAuth.url }}"]'
+            # Self-host (enableBilling=false) disables REST rate limiting and
+            # unlocks all tiers; read by ee.license.is_billing_enabled().
+            - name: ENABLE_BILLING
+              value: {{ .Values.enableBilling | quote }}
             {{- with .Values.additionalEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
