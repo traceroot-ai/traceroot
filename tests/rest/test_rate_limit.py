@@ -403,6 +403,24 @@ def test_explicit_enterprise_override_beats_the_pro_mirror(monkeypatch):
     assert rate_limit.settings.rate_limit.limit_for("read", "enterprise") == "9000/minute"
 
 
+def test_blank_non_enterprise_tier_mirrors_pro_not_unlimited(monkeypatch):
+    """A blanked non-enterprise tier mirrors pro, never an empty (unlimited) limit.
+
+    ``limits.parse_many("")`` raises, and the limiter is built with
+    ``swallow_errors=True`` (fail-open) -> an empty limit string means NO
+    enforcement. An operator who blanks ``RATE_LIMIT_READ_FREE`` (generalizing
+    the documented "blank = mirror pro" enterprise convention) must still get a
+    bounded limit, not unlimited.
+    """
+    # Arrange: blank the free read tier and the starter ingest tier.
+    monkeypatch.setattr(rate_limit.settings.rate_limit, "read_free", "")
+    monkeypatch.setattr(rate_limit.settings.rate_limit, "ingest_starter", "")
+
+    # Assert: each empty tier falls back to pro, never "".
+    assert rate_limit.settings.rate_limit.limit_for("read", "free") == "1000/minute"
+    assert rate_limit.settings.rate_limit.limit_for("ingest", "starter") == "20000/minute"
+
+
 def _build_app_with_limiter(limiter, *, plan: str, workspace: str) -> FastAPI:
     """Wire a given limiter into a minimal read app using the real resolve_limit."""
 
