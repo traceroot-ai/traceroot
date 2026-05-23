@@ -75,8 +75,14 @@ class RateLimitSettings(BaseSettings):
     Two buckets (``ingest``, ``read``) across four plans. Limit values use the
     ``limits`` library format ``"<count>/<period>"`` (period: second, minute,
     hour, day). Every value is individually overridable via env, e.g.
-    ``RATE_LIMIT_INGEST_PRO=30000/minute`` — which is also how the Enterprise
-    tier is tuned per-deployment in v1 (no DB-backed override yet).
+    ``RATE_LIMIT_INGEST_PRO=30000/minute``.
+
+    Enterprise mirrors Pro by default (there are no near-term enterprise
+    customers, and a divergent tier is one more thing to keep in sync). When a
+    real enterprise customer lands, raise ``RATE_LIMIT_{INGEST,READ}_ENTERPRISE``
+    per-deployment. Note: self-host disables rate limiting entirely (the limiter
+    is built disabled when billing is off — see ``rest.rate_limit``), so these
+    tiers only take effect on cloud (billing-enabled) deployments.
 
     Env vars: RATE_LIMIT_ENABLED, RATE_LIMIT_STORAGE_URI, and
     RATE_LIMIT_{INGEST,READ}_{FREE,STARTER,PRO,ENTERPRISE}.
@@ -86,6 +92,10 @@ class RateLimitSettings(BaseSettings):
 
     # Master kill-switch: RATE_LIMIT_ENABLED=false disables all enforcement.
     enabled: bool = True
+    # Shadow / dry-run: when true (and enabled), over-limit requests are counted
+    # and logged but NOT blocked — for observing impact before enforcing on a
+    # fresh cloud rollout. See rest.rate_limit._build_limiter.
+    shadow: bool = False
     # Storage backend; defaults to the main Redis URL (REDIS_URL) so limits are
     # shared across REST replicas. Set "memory://" for single-process use.
     storage_uri: str | None = None
@@ -94,22 +104,30 @@ class RateLimitSettings(BaseSettings):
     ingest_free: str = "1000/minute"
     ingest_starter: str = "5000/minute"
     ingest_pro: str = "20000/minute"
-    ingest_enterprise: str = "100000/minute"
+    # Empty = mirror pro (so enterprise stays == pro even if pro is raised via
+    # env). Set RATE_LIMIT_INGEST_ENTERPRISE explicitly to diverge.
+    ingest_enterprise: str = ""
 
     # Read bucket: dashboard GET endpoints sharing one per-workspace budget.
     read_free: str = "60/minute"
     read_starter: str = "300/minute"
     read_pro: str = "1000/minute"
-    read_enterprise: str = "5000/minute"
+    read_enterprise: str = ""  # empty = mirror pro (see ingest_enterprise)
 
     def limit_for(self, bucket: str, plan: str) -> str:
         """Resolve the limit string for a ``(bucket, plan)`` pair.
 
         Falls back to the free tier for unknown plans and to the read bucket
-        for unknown bucket names — both the most restrictive choice.
+        for unknown bucket names — both the most restrictive choice. An empty
+        enterprise value mirrors pro, keeping enterprise == pro by default even
+        when pro is overridden.
         """
         bucket_name = bucket if bucket in ("ingest", "read") else "read"
-        return str(getattr(self, f"{bucket_name}_{normalize_plan(plan)}"))
+        plan_name = normalize_plan(plan)
+        value = str(getattr(self, f"{bucket_name}_{plan_name}"))
+        if not value and plan_name == "enterprise":
+            value = str(getattr(self, f"{bucket_name}_pro"))
+        return value
 
 
 class Settings(BaseSettings):
