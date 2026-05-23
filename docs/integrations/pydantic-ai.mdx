@@ -1,0 +1,60 @@
+---
+title: Pydantic AI
+description: Auto-instrument Pydantic AI agent runs, LLM calls, and tool invocations
+---
+
+Automatically capture agent runs, LLM calls, and tool invocations within the [Pydantic AI](https://ai.pydantic.dev) framework via its native OpenTelemetry instrumentation.
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.PYDANTIC_AI])
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+Once initialized, all Pydantic AI agent runs and tool invocations are captured automatically:
+
+```python
+import traceroot
+from traceroot import Integration
+from pydantic_ai import Agent
+
+traceroot.initialize(integrations=[Integration.PYDANTIC_AI])
+
+agent = Agent(
+    "openai:gpt-4o-mini",
+    system_prompt="You are a helpful assistant.",
+)
+
+result = agent.run_sync("What is the capital of France?")
+print(result.output)
+
+traceroot.flush()
+```
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Agent runs | Each `agent.run()` / `agent.run_sync()` / `agent.run_stream()` invocation |
+| Tool calls | Each tool invocation with input arguments and results |
+| LLM calls | Raw completion requests with input messages, output messages, and model name |
+| Tokens & Cost | Input and output token counts per LLM call; cost calculated from model pricing |
+| Cache tokens | Cache read and write token counts when reported by the provider |
+| Latency | Duration per agent run and per span |
+
+## Run the example
+
+Clone the repo and run a complete agent end-to-end.
+
+  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/pydantic-ai-tool-agent">
+    Run the Python example
+  </Card>
