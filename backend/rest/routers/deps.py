@@ -4,8 +4,13 @@ import hmac
 from typing import Annotated
 
 import httpx
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 
+from rest.rate_limit import (
+    clear_request_rate_limit_exempt,
+    mark_request_rate_limit_exempt,
+    set_rate_limit_identity,
+)
 from shared.config import settings
 from shared.enums import MemberRole
 
@@ -13,10 +18,20 @@ from shared.enums import MemberRole
 class ProjectAccessInfo:
     """Information about user's access to a project."""
 
-    def __init__(self, project_id: str, user_id: str, role: str):
+    def __init__(
+        self,
+        project_id: str,
+        user_id: str,
+        role: str,
+        workspace_id: str = "",
+        billing_plan: str = "free",
+    ):
         self.project_id = project_id
         self.user_id = user_id
         self.role = role
+        # Resolved for rate limiting (keyed per workspace, tiered by plan).
+        self.workspace_id = workspace_id
+        self.billing_plan = billing_plan
 
 
 async def get_project_access(
@@ -37,6 +52,10 @@ async def get_project_access(
     Raises 401 if neither auth mode succeeds, 403 if no access, 404 if project
     not found.
     """
+    # Establish a clean per-request exemption baseline before deciding below
+    # (defense-in-depth against any stale ContextVar value).
+    clear_request_rate_limit_exempt()
+
     # System bypass: agent service / worker calling on behalf of the system.
     # Constant-time compare to avoid leaking the secret via response timing.
     if (
@@ -44,6 +63,8 @@ async def get_project_access(
         and settings.internal_api_secret
         and hmac.compare_digest(x_internal_secret, settings.internal_api_secret)
     ):
+        # Trusted internal traffic is not rate limited (system-controlled volume).
+        mark_request_rate_limit_exempt()
         return ProjectAccessInfo(
             project_id=project_id,
             user_id=x_user_id or "system",
@@ -95,7 +116,26 @@ async def get_project_access(
         project_id=project_id,
         user_id=x_user_id,
         role=data.get("role", MemberRole.VIEWER),
+        workspace_id=data.get("workspaceId", ""),
+        billing_plan=data.get("billingPlan", "free"),
     )
 
 
 ProjectAccess = Annotated[ProjectAccessInfo, Depends(get_project_access)]
+
+
+async def get_rate_limited_project_access(
+    request: Request, access: ProjectAccess
+) -> ProjectAccessInfo:
+    """``ProjectAccess`` that also stamps the rate-limit identity on the request.
+
+    Used by dashboard read endpoints so the limiter can key the shared read
+    bucket by workspace and resolve the plan tier. The internal-secret bypass is
+    applied inside ``get_project_access`` (it marks the request exempt), so this
+    wrapper only needs to forward the resolved workspace/plan.
+    """
+    set_rate_limit_identity(request, access.workspace_id, access.billing_plan)
+    return access
+
+
+RateLimitedProjectAccess = Annotated[ProjectAccessInfo, Depends(get_rate_limited_project_access)]

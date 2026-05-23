@@ -56,6 +56,62 @@ class RedisSettings(BaseSettings):
     result_url: str = "redis://localhost:6379/1"
 
 
+RATE_LIMIT_PLANS: tuple[str, ...] = ("free", "starter", "pro", "enterprise")
+
+
+def normalize_plan(plan: str | None) -> str:
+    """Normalize a billing-plan string to a known plan, defaulting to ``free``.
+
+    Unknown or missing plans fall back to the most restrictive tier so a
+    mis-resolved plan never grants more quota than intended.
+    """
+    candidate = (plan or "").strip().lower()
+    return candidate if candidate in RATE_LIMIT_PLANS else "free"
+
+
+class RateLimitSettings(BaseSettings):
+    """Tiered rate-limit settings for the public REST API.
+
+    Two buckets (``ingest``, ``read``) across four plans. Limit values use the
+    ``limits`` library format ``"<count>/<period>"`` (period: second, minute,
+    hour, day). Every value is individually overridable via env, e.g.
+    ``RATE_LIMIT_INGEST_PRO=30000/minute`` — which is also how the Enterprise
+    tier is tuned per-deployment in v1 (no DB-backed override yet).
+
+    Env vars: RATE_LIMIT_ENABLED, RATE_LIMIT_STORAGE_URI, and
+    RATE_LIMIT_{INGEST,READ}_{FREE,STARTER,PRO,ENTERPRISE}.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="RATE_LIMIT_")
+
+    # Master kill-switch: RATE_LIMIT_ENABLED=false disables all enforcement.
+    enabled: bool = True
+    # Storage backend; defaults to the main Redis URL (REDIS_URL) so limits are
+    # shared across REST replicas. Set "memory://" for single-process use.
+    storage_uri: str | None = None
+
+    # Ingestion bucket: POST /api/v1/public/traces (keyed per workspace).
+    ingest_free: str = "1000/minute"
+    ingest_starter: str = "5000/minute"
+    ingest_pro: str = "20000/minute"
+    ingest_enterprise: str = "100000/minute"
+
+    # Read bucket: dashboard GET endpoints sharing one per-workspace budget.
+    read_free: str = "60/minute"
+    read_starter: str = "300/minute"
+    read_pro: str = "1000/minute"
+    read_enterprise: str = "5000/minute"
+
+    def limit_for(self, bucket: str, plan: str) -> str:
+        """Resolve the limit string for a ``(bucket, plan)`` pair.
+
+        Falls back to the free tier for unknown plans and to the read bucket
+        for unknown bucket names — both the most restrictive choice.
+        """
+        bucket_name = bucket if bucket in ("ingest", "read") else "read"
+        return str(getattr(self, f"{bucket_name}_{normalize_plan(plan)}"))
+
+
 class Settings(BaseSettings):
     """Root settings for the TraceRoot backend.
 
@@ -85,6 +141,7 @@ class Settings(BaseSettings):
     clickhouse: ClickHouseSettings = ClickHouseSettings()
     s3: S3Settings = S3Settings()
     redis: RedisSettings = RedisSettings()
+    rate_limit: RateLimitSettings = RateLimitSettings()
 
 
 settings = Settings()

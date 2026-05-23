@@ -16,9 +16,11 @@ dependencies = [
     "fastapi>=0.109",
     "uvicorn[standard]>=0.27",
     "python-multipart>=0.0.31",
+    "slowapi>=0.1.9",
     # OpenTelemetry
     "protobuf>=6.33.5",
     "opentelemetry-proto>=1.20.0",
+    "opentelemetry-api>=1.20.0",
     # Task Queue
     "celery[redis]>=5.3",
     "redis>=5.0",

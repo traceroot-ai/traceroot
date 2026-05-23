@@ -15,9 +15,9 @@ import gzip
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from google.protobuf.json_format import MessageToDict
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
@@ -29,6 +29,13 @@ from ee.license import is_billing_enabled
 # Auth is defined in the shared public deps module so read routes don't import
 # it from this ingestion endpoint. Re-exported here for backward compatibility.
 from rest.routers.public.deps import Auth, AuthResult, authenticate_api_key
+from rest.rate_limit import (
+    clear_request_rate_limit_exempt,
+    key_ingest,
+    limiter,
+    resolve_limit,
+    set_rate_limit_identity,
+)
 from rest.services.s3 import get_s3_service
 from worker.ingest_tasks import process_s3_traces
 
@@ -37,6 +44,23 @@ __all__ = ["AuthResult", "Auth", "authenticate_api_key", "router"]
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/public/traces", tags=["Traces (Public)"])
+
+
+async def authenticate_and_stamp_identity(request: Request, auth: Auth) -> AuthResult:
+    """Authenticate, then stamp the workspace/plan onto the request for limiting.
+
+    A thin wrapper over ``authenticate_api_key`` so the rate limiter can key the
+    ingestion bucket by workspace and resolve the plan tier. It runs during
+    dependency resolution — before slowapi evaluates the limit — so ``key_func``
+    sees the identity on ``request.state``.
+    """
+    # Ingestion is never exempt; establish a clean baseline defensively.
+    clear_request_rate_limit_exempt()
+    set_rate_limit_identity(request, auth.workspace_id, auth.billing_plan)
+    return auth
+
+
+IngestAuth = Annotated[AuthResult, Depends(authenticate_and_stamp_identity)]
 
 
 def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
@@ -66,9 +90,11 @@ class IngestResponse(BaseModel):
 
 
 @router.post("", response_model=IngestResponse)
+@limiter.limit(resolve_limit, key_func=key_ingest)
 async def ingest_traces(
     request: Request,
-    auth: Auth,
+    response: Response,
+    auth: IngestAuth,
 ):
     """Ingest OTLP trace data.
 
