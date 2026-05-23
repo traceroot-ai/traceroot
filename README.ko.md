@@ -112,6 +112,7 @@
 | [Agno](https://traceroot.ai/docs/integrations/agno) | Python | 에이전트 실행, 툴 호출, multi-step reasoning에 대한 instrumentation을 자동으로 수집합니다. |
 | [DSPy](https://traceroot.ai/docs/integrations/dspy) | Python | 모듈 실행, signature prediction, 내부 LLM 호출에 대한 instrumentation을 자동으로 수집합니다. |
 | [Google ADK](https://traceroot.ai/docs/integrations/google-adk) | Python | 에이전트 실행, 툴 실행, multi-turn agent loop에 대한 instrumentation을 자동으로 수집합니다. |
+| [Pydantic AI](https://traceroot.ai/docs/integrations/pydantic-ai) | Python | pydantic-ai의 네이티브 OpenTelemetry 지원을 통해 에이전트 실행, LLM 호출, 툴 호출에 대한 instrumentation을 자동으로 수집합니다. |
 
 > 프레임워크나 프로바이더가 목록에 없나요? [Integration 요청을 보내주세요](https://github.com/traceroot-ai/traceroot/issues).
 
