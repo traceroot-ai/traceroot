@@ -15,5 +15,9 @@ def is_ee_enabled() -> bool:
 
 
 def is_billing_enabled() -> bool:
-    """Check if cloud billing is enabled (Stripe, usage metering)."""
-    return os.environ.get("ENABLE_BILLING", "").lower() != "false"
+    """Check if cloud billing is enabled (Stripe, usage metering).
+
+    Disabled only when ENABLE_BILLING is exactly "false" (case-insensitive,
+    whitespace-trimmed so a quoted "  false  " from env/YAML still counts).
+    """
+    return os.environ.get("ENABLE_BILLING", "").strip().lower() != "false"
