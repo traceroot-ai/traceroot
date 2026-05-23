@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -1591,7 +1591,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "python-multipart", specifier = ">=0.0.31" },
     { name = "redis", specifier = ">=5.0" },
-    { name = "slowapi", specifier = ">=0.1.9" },
+    { name = "slowapi", specifier = ">=0.1.9,<0.2" },
     { name = "tiktoken", specifier = ">=0.5.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27" },
     { name = "watchfiles", specifier = ">=0.21" },
