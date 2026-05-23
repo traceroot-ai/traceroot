@@ -263,6 +263,22 @@ TraceRoot.initialize({
     },
   },
   {
+    id: "pydantic-ai",
+    name: "Pydantic AI",
+    href: "https://traceroot.ai/docs/integrations/pydantic-ai",
+    category: "framework",
+    logo: "/logo/integrations/pydantic-ai.png",
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.PYDANTIC_AI])`,
+      },
+    },
+  },
+  {
     id: "vercel-ai",
     name: "Vercel AI SDK",
     href: "https://traceroot.ai/docs/integrations/vercel-ai",
