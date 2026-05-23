@@ -119,13 +119,16 @@ class RateLimitSettings(BaseSettings):
 
         Falls back to the free tier for unknown plans and to the read bucket
         for unknown bucket names — both the most restrictive choice. An empty
-        enterprise value mirrors pro, keeping enterprise == pro by default even
-        when pro is overridden.
+        value on ANY tier mirrors pro: this keeps enterprise == pro by default,
+        and ensures a blanked override never resolves to ``""`` — which the
+        ``limits`` parser rejects and the limiter swallows (``swallow_errors``),
+        silently disabling enforcement for that tier (fail-open). Mirroring pro
+        keeps the limit bounded.
         """
         bucket_name = bucket if bucket in ("ingest", "read") else "read"
         plan_name = normalize_plan(plan)
         value = str(getattr(self, f"{bucket_name}_{plan_name}"))
-        if not value and plan_name == "enterprise":
+        if not value:
             value = str(getattr(self, f"{bucket_name}_pro"))
         return value
 
