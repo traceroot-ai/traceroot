@@ -81,7 +81,16 @@ def client(mock_trace_reader):
     """TestClient with mocked auth and trace reader."""
 
     async def mock_get_access(project_id: str, x_user_id=None):
-        return ProjectAccessInfo(project_id=project_id, user_id="test-user", role="ADMIN")
+        # Mirror the validate-project-access contract (workspaceId + billingPlan)
+        # so get_rate_limited_project_access stamps a real workspace instead of
+        # the _UNKNOWN_WORKSPACE fallback (which warns on every request).
+        return ProjectAccessInfo(
+            project_id=project_id,
+            user_id="test-user",
+            role="ADMIN",
+            workspace_id="ws-test",
+            billing_plan="free",
+        )
 
     app.dependency_overrides[get_project_access] = mock_get_access
 

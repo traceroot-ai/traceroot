@@ -482,3 +482,99 @@ def test_throttle_record_flags_degraded_storage(caplog):
 
     # Assert
     assert any("degraded" in r.message.lower() for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# H. Bucket isolation + unknown-workspace fallback
+# ---------------------------------------------------------------------------
+def _build_ingest_and_read_app() -> FastAPI:
+    """App with BOTH an ingest route (.limit) and a read route (.shared_limit).
+
+    Mirrors production wiring: ingest is keyed by key_ingest, reads share the
+    ``read`` scope keyed by key_read. Same workspace + plan, so the two keys
+    differ ONLY in the bucket segment (rl:ingest:... vs rl:read:...) — exactly
+    the case a shared-counter bug would surface.
+    """
+    limiter = Limiter(
+        key_func=get_remote_address,
+        enabled=True,
+        storage_uri="memory://",
+        headers_enabled=True,
+        in_memory_fallback_enabled=True,
+        swallow_errors=True,
+    )
+
+    async def stamp(request: Request):
+        rate_limit.clear_request_rate_limit_exempt()
+        rate_limit.set_rate_limit_identity(request, "ws-iso", "free")
+
+    app = FastAPI()
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit.rate_limit_exceeded_handler)
+
+    @app.post("/ingest")
+    @limiter.limit("2/minute", key_func=rate_limit.key_ingest)
+    async def ingest(request: Request, response: Response, _=Depends(stamp)):
+        return {"bucket": "ingest"}
+
+    @app.get("/read")
+    @limiter.shared_limit("2/minute", scope=rate_limit.BUCKET_READ, key_func=rate_limit.key_read)
+    async def read(request: Request, response: Response, _=Depends(stamp)):
+        return {"bucket": "read"}
+
+    return app
+
+
+def test_ingest_and_read_buckets_do_not_share_a_counter():
+    """Exhausting the read budget must not consume the ingest budget.
+
+    Both keys embed the same workspace+plan and differ only in the bucket
+    segment, so this proves they map to independent counters rather than one
+    shared bucket.
+    """
+    # Arrange
+    client = TestClient(_build_ingest_and_read_app())
+
+    # Act / Assert: drain read to its 2/min ceiling (3rd read 429)...
+    assert [client.get("/read").status_code for _ in range(3)] == [200, 200, 429]
+    # ...the ingest bucket is untouched: its own 2/min still allows two POSTs,
+    # then throttles on its own third — independent of the read bucket above.
+    assert [client.post("/ingest").status_code for _ in range(3)] == [200, 200, 429]
+
+
+def test_missing_workspace_falls_back_to_unknown_bucket_and_warns(caplog):
+    """A non-exempt request with no workspace lands in the shared ``unknown``
+    bucket and logs a warning, so a broken validate contract is visible rather
+    than silently collapsing tenants into one shared bucket."""
+    # Arrange
+    request = Request({"type": "http", "headers": [], "state": {}})
+    rate_limit.clear_request_rate_limit_exempt()
+
+    # Act
+    with caplog.at_level("WARNING"):
+        rate_limit.set_rate_limit_identity(request, "", "free")
+    key = rate_limit.key_read(request)
+
+    # Assert: collapses to the shared fallback bucket, and the collapse is logged.
+    assert key == f"rl:{rate_limit.BUCKET_READ}:free:{rate_limit._UNKNOWN_WORKSPACE}"
+    assert any("unknown workspace" in r.message.lower() for r in caplog.records)
+
+
+def test_exempt_request_with_missing_workspace_does_not_warn(caplog):
+    """Trusted internal (exempt) calls legitimately have no workspace, so the
+    unknown-workspace fallback must NOT warn for them."""
+    # Arrange
+    request = Request({"type": "http", "headers": [], "state": {}})
+    rate_limit.clear_request_rate_limit_exempt()
+    rate_limit.mark_request_rate_limit_exempt()
+
+    # Act
+    try:
+        with caplog.at_level("WARNING"):
+            rate_limit.set_rate_limit_identity(request, "", "free")
+    finally:
+        # Don't leak the exemption into other tests sharing this context.
+        rate_limit.clear_request_rate_limit_exempt()
+
+    # Assert
+    assert not any("unknown workspace" in r.message.lower() for r in caplog.records)

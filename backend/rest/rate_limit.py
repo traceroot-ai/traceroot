@@ -159,8 +159,9 @@ def resolve_limit(key: str) -> str:
     WARNING: the parameter MUST be named ``key`` — slowapi only forwards the
     bucket key when the callable's signature contains a literal ``key`` param
     (otherwise it calls this with no args). Renaming it would silently disable
-    enforcement (errors are swallowed). ``test_resolve_limit_signature`` guards
-    against this; do not rename without updating that test.
+    enforcement (errors are swallowed). ``test_resolve_limit_signature_is_literal_key``
+    (signature) and ``test_resolve_limit_applies_per_plan_limits`` (behavior)
+    guard against this; do not rename without updating those tests.
     """
     parts = key.split(":", 3)
     if len(parts) == 4:

@@ -185,7 +185,10 @@ betterAuth:
   url: ""
 
 # --- Feature flags ---
-enableBilling: "true"
+# Default false so a plain `helm install` self-hosts with billing off (REST
+# rate limiting disabled, all tiers unlocked). Cloud overrides to "true" via
+# terraform (deploy/terraform/aws: var.enable_billing -> feature_values).
+enableBilling: "false"
 
 # --- Sandbox provider ---
 sandboxProvider: "daytona"
