@@ -394,7 +394,7 @@ async def get_spans_jsonl(trace_id: str, project_id: str):
 
     ch = get_clickhouse_client()
     result = ch.query(
-        """SELECT * FROM spans
+        """SELECT * FROM spans FINAL
            WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}
            ORDER BY span_start_time""",
         parameters={"trace_id": trace_id, "project_id": project_id},
