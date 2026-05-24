@@ -223,7 +223,7 @@ services:
       # --- Billing ---
       # Self-host (ENABLE_BILLING=false) disables REST rate limiting and unlocks
       # all tiers; the REST process reads this via ee.license.is_billing_enabled().
-      ENABLE_BILLING: ${ENABLE_BILLING:-true}
+      ENABLE_BILLING: ${ENABLE_BILLING:-false}
     depends_on:
       migrate:
         condition: service_completed_successfully
