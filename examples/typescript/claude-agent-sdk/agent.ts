@@ -72,6 +72,7 @@ async function runResearch(topic: string): Promise<string> {
         `Coordinate the agents and present the final report.`,
       ].join(''),
       options: {
+        model: 'claude-opus-4-6',
         allowedTools: ['Agent'],
         maxTurns: 15,
         // bypassPermissions auto-approves all tool calls. Demo-only — do NOT
