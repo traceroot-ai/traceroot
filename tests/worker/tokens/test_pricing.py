@@ -241,6 +241,10 @@ class TestCalculateCost:
 
 # (model_id, expected modelName) for IDs the worker must price correctly.
 CLAUDE_BEDROCK_VERTEX_CASES = [
+    ("claude-opus-4-7", "claude-opus-4-7"),
+    ("claude-opus-4-7[1m]", "claude-opus-4-7"),
+    ("us.anthropic.claude-opus-4-7-20260514-v1:0", "claude-opus-4-7"),
+    ("claude-4-7-opus@20260514", "claude-opus-4-7"),
     # Bedrock — with cross-region inference profile prefixes
     ("us.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("eu.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
