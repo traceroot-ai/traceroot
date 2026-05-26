@@ -11,6 +11,7 @@
   [![Discord][discord-image]][discord-url]
   [![Documentation][docs-image]][docs-url]
   [![PyPI SDK Downloads][pypi-sdk-downloads-image]][pypi-sdk-downloads-url]
+  [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/traceroot-ai/traceroot)
 
 </div>
 
