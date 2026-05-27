@@ -16,14 +16,14 @@ interface LogoProps {
  * TraceRoot Logo React component with theme support
  */
 export function Logo({ className, size = "sm" }: LogoProps) {
-  const { theme } = useTheme();
+  const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const isDark = mounted && theme === "dark";
+  const isDark = mounted && resolvedTheme === "dark";
 
   const sizeClasses = {
     sm: "h-5 w-5",
