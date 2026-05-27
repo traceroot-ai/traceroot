@@ -49,6 +49,7 @@ class TestIngestTraces:
         response = test_client.post(
             "/api/v1/public/traces",
             content=b"fake-protobuf-bytes",
+            headers={"Content-Type": "application/x-protobuf"},
         )
         assert response.status_code == 200
         data = response.json()
@@ -69,7 +70,7 @@ class TestIngestTraces:
         response = test_client.post(
             "/api/v1/public/traces",
             content=compressed,
-            headers={"Content-Encoding": "gzip"},
+            headers={"Content-Encoding": "gzip", "Content-Type": "application/x-protobuf"},
         )
         assert response.status_code == 200
         mock_decode.assert_called_once_with(raw_bytes)
@@ -77,7 +78,11 @@ class TestIngestTraces:
     def test_empty_body_returns_400(self):
         app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result()
         test_client = TestClient(app)
-        response = test_client.post("/api/v1/public/traces", content=b"")
+        response = test_client.post(
+            "/api/v1/public/traces",
+            content=b"",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
         assert response.status_code == 400
 
     def test_invalid_protobuf_returns_400(self, monkeypatch):
@@ -87,7 +92,11 @@ class TestIngestTraces:
             MagicMock(side_effect=Exception("Invalid protobuf")),
         )
         test_client = TestClient(app)
-        response = test_client.post("/api/v1/public/traces", content=b"garbage-data")
+        response = test_client.post(
+            "/api/v1/public/traces",
+            content=b"garbage-data",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
         assert response.status_code == 400
 
     def test_invalid_gzip_returns_400(self):
@@ -96,26 +105,38 @@ class TestIngestTraces:
         response = test_client.post(
             "/api/v1/public/traces",
             content=b"not-gzip-data",
-            headers={"Content-Encoding": "gzip"},
+            headers={"Content-Encoding": "gzip", "Content-Type": "application/x-protobuf"},
         )
         assert response.status_code == 400
 
     def test_s3_failure_returns_500(self, client):
         test_client, mock_s3, _ = client
         mock_s3.upload_json.side_effect = Exception("S3 connection refused")
-        response = test_client.post("/api/v1/public/traces", content=b"fake-protobuf")
+        response = test_client.post(
+            "/api/v1/public/traces",
+            content=b"fake-protobuf",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
         assert response.status_code == 500
 
     def test_celery_failure_still_returns_200(self, client):
         """Celery enqueue failure is logged but response is still 200 (S3 has the data)."""
         test_client, _mock_s3, mock_task = client
         mock_task.delay.side_effect = Exception("Redis down")
-        response = test_client.post("/api/v1/public/traces", content=b"fake-protobuf")
+        response = test_client.post(
+            "/api/v1/public/traces",
+            content=b"fake-protobuf",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
         assert response.status_code == 200
 
     def test_s3_key_time_partitioned_format(self, client):
         test_client, mock_s3, _ = client
-        test_client.post("/api/v1/public/traces", content=b"fake-protobuf")
+        test_client.post(
+            "/api/v1/public/traces",
+            content=b"fake-protobuf",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
         s3_key = mock_s3.upload_json.call_args[0][0]
         assert s3_key.startswith("events/otel/test-project/")
         assert s3_key.endswith(".json")
@@ -125,7 +146,11 @@ class TestIngestTraces:
 
     def test_celery_task_receives_correct_args(self, client):
         test_client, _mock_s3, mock_task = client
-        test_client.post("/api/v1/public/traces", content=b"fake-protobuf")
+        test_client.post(
+            "/api/v1/public/traces",
+            content=b"fake-protobuf",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
         kw = mock_task.delay.call_args.kwargs
         assert kw["project_id"] == "test-project"
         assert kw["s3_key"].startswith("events/otel/test-project/")
@@ -134,9 +159,40 @@ class TestIngestTraces:
         test_client, mock_s3, _ = client
         decoded = {"resourceSpans": [{"custom": "data"}]}
         monkeypatch.setattr("rest.routers.public.traces.decode_otlp_protobuf", lambda _: decoded)
-        test_client.post("/api/v1/public/traces", content=b"protobuf-bytes")
+        test_client.post(
+            "/api/v1/public/traces",
+            content=b"protobuf-bytes",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
         uploaded_data = mock_s3.upload_json.call_args[0][1]
         assert uploaded_data == decoded
+
+
+class TestContentTypeValidation:
+    def test_missing_content_type_returns_415(self, client):
+        test_client, _mock_s3, _ = client
+        response = test_client.post("/api/v1/public/traces", content=b"fake-protobuf")
+        assert response.status_code == 415
+        assert response.json().get("detail") == "Content-Type must be application/x-protobuf"
+
+    def test_invalid_content_type_returns_415(self, client):
+        test_client, _mock_s3, _ = client
+        response = test_client.post(
+            "/api/v1/public/traces",
+            content=b"fake-protobuf",
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 415
+        assert response.json().get("detail") == "Content-Type must be application/x-protobuf"
+
+    def test_content_type_with_parameters_accepted(self, client):
+        test_client, _mock_s3, _ = client
+        response = test_client.post(
+            "/api/v1/public/traces",
+            content=b"fake-protobuf",
+            headers={"Content-Type": "application/x-protobuf; charset=utf-8"},
+        )
+        assert response.status_code == 200
 
 
 class TestIngestNoAuth:
