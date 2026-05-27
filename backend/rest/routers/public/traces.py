@@ -172,6 +172,22 @@ async def ingest_traces(
 
     project_id = auth.project_id
 
+    # Validate Content-Type before reading body
+    # Accept exactly 'application/x-protobuf' and variants with parameters
+    content_type = request.headers.get("content-type")
+    if not content_type:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Content-Type must be application/x-protobuf",
+        )
+    # handle parameters like 'application/x-protobuf; charset=utf-8'
+    mime = content_type.split(";", 1)[0].strip().lower()
+    if mime != "application/x-protobuf":
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Content-Type must be application/x-protobuf",
+        )
+
     # 1. Read body
     body = await request.body()
 

@@ -38,7 +38,11 @@ class TestFreePlanBlocker:
         )
 
         test_client = TestClient(app)
-        response = test_client.post("/api/v1/public/traces", content=b"fake-protobuf")
+        response = test_client.post(
+            "/api/v1/public/traces",
+            content=b"fake-protobuf",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
 
         assert response.status_code == 402
         assert "Free plan limit exceeded" in response.json()["detail"]
@@ -61,7 +65,11 @@ class TestFreePlanBlocker:
         monkeypatch.setattr("rest.routers.public.traces.process_s3_traces", MagicMock())
 
         test_client = TestClient(app)
-        response = test_client.post("/api/v1/public/traces", content=b"fake-protobuf")
+        response = test_client.post(
+            "/api/v1/public/traces",
+            content=b"fake-protobuf",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
 
         assert response.status_code == 200
 
@@ -83,7 +91,11 @@ class TestFreePlanBlocker:
         monkeypatch.setattr("rest.routers.public.traces.process_s3_traces", MagicMock())
 
         test_client = TestClient(app)
-        response = test_client.post("/api/v1/public/traces", content=b"fake-protobuf")
+        response = test_client.post(
+            "/api/v1/public/traces",
+            content=b"fake-protobuf",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
 
         assert response.status_code == 200
 
@@ -104,6 +116,10 @@ class TestFreePlanBlocker:
         monkeypatch.setattr("rest.routers.public.traces.process_s3_traces", MagicMock())
 
         test_client = TestClient(app)
-        response = test_client.post("/api/v1/public/traces", content=b"fake-protobuf")
+        response = test_client.post(
+            "/api/v1/public/traces",
+            content=b"fake-protobuf",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
 
         assert response.status_code == 200
