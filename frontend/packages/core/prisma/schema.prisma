@@ -347,7 +347,7 @@ model Detector {
   id           String   @id @default(cuid()) @db.VarChar
   projectId    String   @map("project_id") @db.VarChar
   name         String   @db.VarChar
-  template     String   @db.VarChar  // "failure"|"hallucination"|"logic"|"task"|"safety"|"intent"|"blank"
+  template     String   @db.VarChar  // "failure"|"hallucination"|"logic"|"task"|"safety"|"intent"|"blank"|"budget"
   prompt       String   @db.Text
   outputSchema       Json     @map("output_schema") @db.JsonB
   sampleRate         Int      @default(100) @map("sample_rate")  // 1–100

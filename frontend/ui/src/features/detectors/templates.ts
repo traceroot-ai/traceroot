@@ -93,6 +93,21 @@ Report identified=true only for clear, concrete safety violations.`,
     defaultConditions: [],
   },
   {
+    id: "budget",
+    label: "Budget Alert",
+    description: "Alert when project LLM spend crosses a USD threshold",
+    prompt: "", // mathematical evaluation — no LLM prompt needed
+    outputSchema: [
+      { name: "threshold_usd", type: "number" },
+      { name: "current_spend_usd", type: "number" },
+      { name: "window", type: "string" },
+    ],
+    defaultConditions: [
+      { field: "budget_threshold_usd", op: "=", value: 100.0 },
+      { field: "budget_window", op: "=", value: "24h" },
+    ],
+  },
+  {
     id: "blank",
     label: "Blank",
     description: "Write your own detector from scratch",

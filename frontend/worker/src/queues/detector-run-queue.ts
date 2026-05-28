@@ -5,6 +5,14 @@ export interface DetectorRunJob {
   traceId: string;
   detectorIds: string[];
   projectId: string;
+  /** Pre-resolved budget alert — skips LLM eval, writes finding directly. */
+  budgetAlert?: {
+    findingId: string;
+    detectorId: string;
+    detectorName: string;
+    summary: string;
+    data: Record<string, unknown>;
+  };
 }
 
 export interface DetectorRcaFinding {
@@ -20,6 +28,8 @@ export interface DetectorRcaJob {
   workspaceId: string;
   projectName: string;
   findings: DetectorRcaFinding[];
+  /** When true, skip LLM RCA session — just send notifications. */
+  skipRca?: boolean;
 }
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";

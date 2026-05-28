@@ -12,8 +12,6 @@ import logging
 import re
 from decimal import Decimal
 
-import psycopg2
-
 from shared.config import settings
 
 from .usage import count_tokens
@@ -32,7 +30,10 @@ def _load_cache() -> list[dict]:
     if _cache is not None:
         return _cache
 
+    import psycopg2
+
     models: list[dict] = []
+
     try:
         conn = psycopg2.connect(settings.database_url)
         try:
@@ -108,6 +109,8 @@ def calculate_cost(
     model: str,
     input_text: str | None,
     output_text: str | None,
+    cache_read_tokens: int | None = None,
+    cache_write_tokens: int | None = None,
 ) -> dict[str, int | float | None]:
     """Calculate token usage and cost.
 
@@ -138,6 +141,18 @@ def calculate_cost(
         # Prices are in USD per token — multiply directly
         input_cost = Decimal(input_tokens) * Decimal(str(prices.get("input", 0)))
         output_cost = Decimal(output_tokens) * Decimal(str(prices.get("output", 0)))
-        result["cost"] = float(input_cost + output_cost)
+
+        # Get cache read / write rates safely
+        cache_read_rate = prices.get("cacheRead")
+        if cache_read_rate is None:
+            cache_read_rate = 0
+        cache_write_rate = prices.get("cacheWrite")
+        if cache_write_rate is None:
+            cache_write_rate = 0
+
+        cache_read_cost = Decimal(cache_read_tokens or 0) * Decimal(str(cache_read_rate))
+        cache_write_cost = Decimal(cache_write_tokens or 0) * Decimal(str(cache_write_rate))
+
+        result["cost"] = float(input_cost + output_cost + cache_read_cost + cache_write_cost)
 
     return result

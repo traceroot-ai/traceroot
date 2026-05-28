@@ -138,6 +138,18 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
                 ch_client.insert_spans_batch(spans)
                 logger.info(f"Inserted {len(spans)} spans into ClickHouse")
 
+        # Budget alert: accumulate batch cost in Redis, check thresholds.
+        # Cost is already computed in span records — no additional queries.
+        if spans:
+            batch_cost = sum(float(s.get("cost") or 0) for s in spans)
+            if batch_cost > 0:
+                try:
+                    from worker.budget_alerts import check_budget_thresholds
+
+                    check_budget_thresholds(project_id, batch_cost, idempotency_key=s3_key)
+                except Exception as e:
+                    logger.error(f"Budget alert check failed: {e}", exc_info=True)
+
         # Trigger detector runs for ingested traces (fire-and-forget, non-blocking).
         # Union over traces AND spans so late-arriving spans for an existing
         # trace (no fresh trace row in this batch) still enqueue detection;
