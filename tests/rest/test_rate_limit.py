@@ -1,7 +1,7 @@
 """Behavioral spec tests for the REST rate-limiting feature.
 
 These tests are written STRICTLY to the target SPEC (enterprise == pro tiers,
-self-host disables the limiter entirely a la Langfuse, etc.). Some are EXPECTED
+self-host disables the limiter entirely, etc.). Some are EXPECTED
 to fail against the current implementation, which is about to be reworked; that
 separation is intentional (anti-reward-hacking): the tests assert the SPEC, not
 whatever the current code happens to return.
@@ -33,7 +33,11 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 import rest.rate_limit as rate_limit  # noqa: E402
-from shared.config import normalize_plan, settings  # noqa: E402
+from shared.config import (  # noqa: E402
+    _PLAN_LIMITS_READ,
+    normalize_plan,
+    settings,
+)
 
 
 @pytest.fixture()
@@ -360,10 +364,10 @@ def test_resolve_limit_applies_per_plan_limits(monkeypatch):
     the wrong tier, the per-plan distinction below would collapse. free is
     throttled on the 3rd read; pro (a higher limit) is not.
     """
-    # Arrange: distinct per-plan read limits on the live settings singleton
-    # (resolve_limit reads these per request).
-    monkeypatch.setattr(rate_limit.settings.rate_limit, "read_free", "2/minute")
-    monkeypatch.setattr(rate_limit.settings.rate_limit, "read_pro", "10/minute")
+    # Arrange: distinct per-plan read limits in the per-plan table
+    # (resolve_limit reads these per request via limit_for).
+    monkeypatch.setitem(_PLAN_LIMITS_READ, "free", "2/minute")
+    monkeypatch.setitem(_PLAN_LIMITS_READ, "pro", "10/minute")
 
     # Act / Assert: a free workspace hits its 2/min ceiling on the 3rd read.
     free_client = TestClient(_build_resolve_limit_app("free", "ws-free"))
@@ -376,49 +380,8 @@ def test_resolve_limit_applies_per_plan_limits(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# G. Hardening: enterprise tracks pro, shadow mode, degraded-storage signal
+# G. Hardening: shadow mode, degraded-storage signal
 # ---------------------------------------------------------------------------
-def test_enterprise_tier_tracks_pro_override(monkeypatch):
-    """Enterprise mirrors pro even when pro is RAISED via env — not a frozen literal.
-
-    Guards against the desync where bumping RATE_LIMIT_*_PRO would leave
-    enterprise stuck below pro.
-    """
-    # Arrange: raise pro, leave enterprise at its (mirroring) default.
-    monkeypatch.setattr(rate_limit.settings.rate_limit, "ingest_pro", "30000/minute")
-    monkeypatch.setattr(rate_limit.settings.rate_limit, "read_pro", "7000/minute")
-
-    # Assert: enterprise follows pro.
-    assert rate_limit.settings.rate_limit.limit_for("ingest", "enterprise") == "30000/minute"
-    assert rate_limit.settings.rate_limit.limit_for("read", "enterprise") == "7000/minute"
-
-
-def test_explicit_enterprise_override_beats_the_pro_mirror(monkeypatch):
-    """An explicit enterprise value still wins over the pro mirror."""
-    # Arrange
-    monkeypatch.setattr(rate_limit.settings.rate_limit, "read_pro", "1000/minute")
-    monkeypatch.setattr(rate_limit.settings.rate_limit, "read_enterprise", "9000/minute")
-
-    # Assert
-    assert rate_limit.settings.rate_limit.limit_for("read", "enterprise") == "9000/minute"
-
-
-def test_blank_non_enterprise_tier_mirrors_pro_not_unlimited(monkeypatch):
-    """A blanked non-enterprise tier mirrors pro, never an empty (unlimited) limit.
-
-    ``limits.parse_many("")`` raises, and the limiter is built with
-    ``swallow_errors=True`` (fail-open) -> an empty limit string means NO
-    enforcement. An operator who blanks ``RATE_LIMIT_READ_FREE`` (generalizing
-    the documented "blank = mirror pro" enterprise convention) must still get a
-    bounded limit, not unlimited.
-    """
-    # Arrange: blank the free read tier and the starter ingest tier.
-    monkeypatch.setattr(rate_limit.settings.rate_limit, "read_free", "")
-    monkeypatch.setattr(rate_limit.settings.rate_limit, "ingest_starter", "")
-
-    # Assert: each empty tier falls back to pro, never "".
-    assert rate_limit.settings.rate_limit.limit_for("read", "free") == "1000/minute"
-    assert rate_limit.settings.rate_limit.limit_for("ingest", "starter") == "20000/minute"
 
 
 def _build_app_with_limiter(limiter, *, plan: str, workspace: str) -> FastAPI:
@@ -451,7 +414,7 @@ def test_shadow_mode_records_but_does_not_block(monkeypatch, caplog):
     monkeypatch.setattr(rate_limit.settings.rate_limit, "shadow", True)
     monkeypatch.setattr(rate_limit.settings.rate_limit, "enabled", True)
     monkeypatch.setattr(rate_limit.settings.rate_limit, "storage_uri", "memory://")
-    monkeypatch.setattr(rate_limit.settings.rate_limit, "read_free", "2/minute")
+    monkeypatch.setitem(_PLAN_LIMITS_READ, "free", "2/minute")
     monkeypatch.setenv("ENABLE_BILLING", "true")
     client = TestClient(
         _build_app_with_limiter(rate_limit._build_limiter(), plan="free", workspace="ws-shadow")
@@ -473,7 +436,7 @@ def test_enforce_mode_blocks_when_shadow_is_off(monkeypatch):
     monkeypatch.setattr(rate_limit.settings.rate_limit, "shadow", False)
     monkeypatch.setattr(rate_limit.settings.rate_limit, "enabled", True)
     monkeypatch.setattr(rate_limit.settings.rate_limit, "storage_uri", "memory://")
-    monkeypatch.setattr(rate_limit.settings.rate_limit, "read_free", "2/minute")
+    monkeypatch.setitem(_PLAN_LIMITS_READ, "free", "2/minute")
     monkeypatch.setenv("ENABLE_BILLING", "true")
     client = TestClient(
         _build_app_with_limiter(rate_limit._build_limiter(), plan="free", workspace="ws-enforce")

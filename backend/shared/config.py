@@ -58,6 +58,23 @@ class RedisSettings(BaseSettings):
 
 RATE_LIMIT_PLANS: tuple[str, ...] = ("free", "starter", "pro", "enterprise")
 
+# Per-plan rate limits — product decision in code, not an ops knob. Format is
+# the ``limits`` library's ``"<count>/<period>"`` (period: second|minute|hour|day).
+# Enterprise mirrors Pro until a real Enterprise customer lands; per-workspace
+# overrides for that case will arrive as a DB-backed mechanism, not env knobs.
+_PLAN_LIMITS_INGEST: dict[str, str] = {
+    "free": "1000/minute",
+    "starter": "5000/minute",
+    "pro": "20000/minute",
+    "enterprise": "20000/minute",
+}
+_PLAN_LIMITS_READ: dict[str, str] = {
+    "free": "60/minute",
+    "starter": "300/minute",
+    "pro": "1000/minute",
+    "enterprise": "1000/minute",
+}
+
 
 def normalize_plan(plan: str | None) -> str:
     """Normalize a billing-plan string to a known plan, defaulting to ``free``.
@@ -70,22 +87,17 @@ def normalize_plan(plan: str | None) -> str:
 
 
 class RateLimitSettings(BaseSettings):
-    """Tiered rate-limit settings for the public REST API.
+    """Operational rate-limit settings for the public REST API.
 
-    Two buckets (``ingest``, ``read``) across four plans. Limit values use the
-    ``limits`` library format ``"<count>/<period>"`` (period: second, minute,
-    hour, day). Every value is individually overridable via env, e.g.
-    ``RATE_LIMIT_INGEST_PRO=30000/minute``.
+    Plan tiers are a product decision and live as code constants
+    (``_PLAN_LIMITS_INGEST``, ``_PLAN_LIMITS_READ`` above) — not env-overridable.
+    The knobs here are the operational ones an SRE legitimately needs at runtime.
 
-    Enterprise mirrors Pro by default (there are no near-term enterprise
-    customers, and a divergent tier is one more thing to keep in sync). When a
-    real enterprise customer lands, raise ``RATE_LIMIT_{INGEST,READ}_ENTERPRISE``
-    per-deployment. Note: self-host disables rate limiting entirely (the limiter
-    is built disabled when billing is off — see ``rest.rate_limit``), so these
-    tiers only take effect on cloud (billing-enabled) deployments.
+    Self-host disables rate limiting entirely (the limiter is built disabled
+    when billing is off — see ``rest.rate_limit``), so these knobs only take
+    effect on cloud (billing-enabled) deployments.
 
-    Env vars: RATE_LIMIT_ENABLED, RATE_LIMIT_STORAGE_URI, and
-    RATE_LIMIT_{INGEST,READ}_{FREE,STARTER,PRO,ENTERPRISE}.
+    Env vars: RATE_LIMIT_ENABLED, RATE_LIMIT_SHADOW, RATE_LIMIT_STORAGE_URI.
     """
 
     model_config = SettingsConfigDict(env_prefix="RATE_LIMIT_")
@@ -100,37 +112,14 @@ class RateLimitSettings(BaseSettings):
     # shared across REST replicas. Set "memory://" for single-process use.
     storage_uri: str | None = None
 
-    # Ingestion bucket: POST /api/v1/public/traces (keyed per workspace).
-    ingest_free: str = "1000/minute"
-    ingest_starter: str = "5000/minute"
-    ingest_pro: str = "20000/minute"
-    # Empty = mirror pro (so enterprise stays == pro even if pro is raised via
-    # env). Set RATE_LIMIT_INGEST_ENTERPRISE explicitly to diverge.
-    ingest_enterprise: str = ""
-
-    # Read bucket: dashboard GET endpoints sharing one per-workspace budget.
-    read_free: str = "60/minute"
-    read_starter: str = "300/minute"
-    read_pro: str = "1000/minute"
-    read_enterprise: str = ""  # empty = mirror pro (see ingest_enterprise)
-
     def limit_for(self, bucket: str, plan: str) -> str:
         """Resolve the limit string for a ``(bucket, plan)`` pair.
 
-        Falls back to the free tier for unknown plans and to the read bucket
-        for unknown bucket names — both the most restrictive choice. An empty
-        value on ANY tier mirrors pro: this keeps enterprise == pro by default,
-        and ensures a blanked override never resolves to ``""`` — which the
-        ``limits`` parser rejects and the limiter swallows (``swallow_errors``),
-        silently disabling enforcement for that tier (fail-open). Mirroring pro
-        keeps the limit bounded.
+        Falls back to the read bucket for unknown bucket names and the free
+        tier for unknown plans — both the most restrictive choice.
         """
-        bucket_name = bucket if bucket in ("ingest", "read") else "read"
-        plan_name = normalize_plan(plan)
-        value = str(getattr(self, f"{bucket_name}_{plan_name}"))
-        if not value:
-            value = str(getattr(self, f"{bucket_name}_pro"))
-        return value
+        table = _PLAN_LIMITS_INGEST if bucket == "ingest" else _PLAN_LIMITS_READ
+        return table[normalize_plan(plan)]
 
 
 class Settings(BaseSettings):
