@@ -13,7 +13,7 @@ import {
   formatDuration,
   formatDate,
   formatCost,
-  formatTokens,
+  formatTokenFlow,
   cn,
   buildUrlWithFilters,
 } from "@/lib/utils";
@@ -308,10 +308,9 @@ export default function TracesPage() {
                           {(trace.total_input_tokens ?? 0) + (trace.total_output_tokens ?? 0) >
                           0 ? (
                             <span
-                              title={`${(trace.total_input_tokens ?? 0).toLocaleString()} / ${(trace.total_output_tokens ?? 0).toLocaleString()}`}
+                              title={`${(trace.total_input_tokens ?? 0).toLocaleString()} → ${(trace.total_output_tokens ?? 0).toLocaleString()} (${((trace.total_input_tokens ?? 0) + (trace.total_output_tokens ?? 0)).toLocaleString()})`}
                             >
-                              {formatTokens(trace.total_input_tokens ?? 0)} /{" "}
-                              {formatTokens(trace.total_output_tokens ?? 0)}
+                              {formatTokenFlow(trace.total_input_tokens, trace.total_output_tokens)}
                             </span>
                           ) : (
                             "-"

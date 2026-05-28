@@ -75,6 +75,15 @@ export function formatTokens(count: number | null | undefined): string {
   return _compactTokenFormatter.format(count);
 }
 
+export function formatTokenFlow(
+  input: number | null | undefined,
+  output: number | null | undefined,
+  total?: number | null | undefined,
+): string {
+  const resolvedTotal = total ?? (input ?? 0) + (output ?? 0);
+  return `${formatTokens(input ?? 0)} → ${formatTokens(output ?? 0)} (${formatTokens(resolvedTotal)})`;
+}
+
 /**
  * Parse a date string as UTC.
  * Backend sends timestamps without timezone marker, but they are UTC.
