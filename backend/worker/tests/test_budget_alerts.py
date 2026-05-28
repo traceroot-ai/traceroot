@@ -192,6 +192,29 @@ class TestCheckSingleDetector:
         args = redis_mock.expire.call_args[0]
         assert args[1] == WINDOW_SECONDS["24h"]
 
+    def test_rollout_migration_migrates_old_key_spend(self):
+        """Verify that when a new counter is initialized (TTL=-1) and an old un-scoped key exists,
+        its spend is migrated and the old key is deleted to prevent double counting.
+        """
+        detector = _make_detector(threshold_usd=100.0, window="24h")
+
+        mock_redis = MagicMock()
+        mock_redis.incrbyfloat.side_effect = [10.0, 35.0]
+        mock_redis.ttl.return_value = -1
+        mock_redis.get.return_value = b"25.0"
+        mock_redis.delete.return_value = 1
+        mock_redis.exists.return_value = False
+        mock_redis.set.return_value = True
+
+        _check_single_detector(mock_redis, "proj-1", detector, batch_cost=10.0)
+
+        # Should fetch the old key
+        mock_redis.get.assert_called_with("budget:project:proj-1:det-1:24h")
+        # Should delete the old key atomically
+        mock_redis.delete.assert_called_once_with("budget:project:proj-1:det-1:24h")
+        # Should set the TTL
+        mock_redis.expire.assert_called_once()
+
     def test_existing_counter_skips_ttl(self):
         """When counter key already has a TTL, don't reset it."""
         detector = _make_detector(threshold_usd=1000.0)

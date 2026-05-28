@@ -300,6 +300,21 @@ def _check_single_detector(
     # Set TTL on first write — key expires naturally when the window ends.
     ttl = redis_client.ttl(counter_key)
     if ttl == -1:  # no expiry set yet (key is new or lost TTL)
+        # Rollout migration: if the old un-scoped key exists, migrate its spend to the new key
+        # and delete the old key atomically (using delete return value as a lock) to avoid double counting.
+        old_key = f"budget:project:{project_id}:{detector_id}:{window}"
+        old_val = redis_client.get(old_key)
+        if old_val:
+            try:
+                if isinstance(old_val, bytes):
+                    old_val = old_val.decode("utf-8")
+                # delete returns 1 if the key was deleted, 0 if it was already deleted by another worker
+                if redis_client.delete(old_key):
+                    old_spend = float(old_val)
+                    if old_spend > 0:
+                        new_total = float(redis_client.incrbyfloat(counter_key, old_spend))
+            except (ValueError, TypeError):
+                pass
         redis_client.expire(counter_key, window_secs)
 
     # 2. Threshold check + cooldown
