@@ -223,7 +223,7 @@ async def ingest_traces(
         logger.error(f"Failed to upload OTEL JSON to S3: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Storage error: {e}",
+            detail="Failed to store trace payload",
         ) from e
 
     # 6. Enqueue Celery task for async processing (S3 reference only, not full payload)

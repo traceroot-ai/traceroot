@@ -106,6 +106,7 @@ class TestIngestTraces:
         mock_s3.upload_json.side_effect = Exception("S3 connection refused")
         response = test_client.post("/api/v1/public/traces", content=b"fake-protobuf")
         assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to store trace payload"
 
     def test_celery_failure_still_returns_200(self, client):
         """Celery enqueue failure is logged but response is still 200 (S3 has the data)."""
