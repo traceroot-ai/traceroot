@@ -201,7 +201,7 @@ async def ingest_traces(
         logger.warning(f"Failed to parse OTLP protobuf: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to parse OTLP protobuf: {e}",
+            detail="Malformed OTLP protobuf payload",
         ) from e
 
     # 4. Generate S3 key (time-partitioned)

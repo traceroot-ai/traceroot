@@ -89,6 +89,7 @@ class TestIngestTraces:
         test_client = TestClient(app)
         response = test_client.post("/api/v1/public/traces", content=b"garbage-data")
         assert response.status_code == 400
+        assert response.json()["detail"] == "Malformed OTLP protobuf payload"
 
     def test_invalid_gzip_returns_400(self):
         app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result()
