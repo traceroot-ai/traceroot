@@ -4,11 +4,15 @@
 
 PROD_COMPOSE := docker compose -f docker-compose.prod.yml
 
-.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset
+.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset export-openapi
 
 ## Install repository git hooks for contributors.
 install-hooks:
 	uv run pre-commit install
+
+## Regenerate docs/api-reference/openapi.json from the FastAPI app.
+export-openapi:
+	uv run python backend/scripts/export_openapi.py
 
 ## Start developing. Handles everything: deps, infra, migrations, tmux launch.
 ## Idempotent - safe to run repeatedly. Reattaches if already running.

@@ -25,7 +25,7 @@ from google.protobuf.json_format import MessageToDict
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ee.license import is_billing_enabled
 from rest.services.s3 import get_s3_service
@@ -137,11 +137,26 @@ def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
 class IngestResponse(BaseModel):
     """Response for trace ingestion."""
 
-    status: str
-    file_key: str
+    status: str = Field(description="Ingestion status. `ok` when the payload was accepted.")
+    file_key: str = Field(
+        description="Storage key of the buffered OTLP payload, used for async processing."
+    )
 
 
-@router.post("", response_model=IngestResponse)
+@router.post(
+    "",
+    response_model=IngestResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Ingest OTLP traces",
+    responses={
+        400: {"description": "Empty body, malformed gzip, or unparseable protobuf payload."},
+        401: {"description": "Missing or invalid Authorization header, or invalid API key."},
+        402: {"description": "Free-plan ingestion limit exceeded (cloud only)."},
+        415: {"description": "Content-Type is not application/x-protobuf."},
+        500: {"description": "Failed to persist the payload to object storage."},
+        503: {"description": "Authentication service is unavailable."},
+    },
+)
 async def ingest_traces(
     request: Request,
     auth: Auth,

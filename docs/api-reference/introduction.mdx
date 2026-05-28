@@ -1,0 +1,41 @@
+---
+title: Introduction
+description: The public REST API for sending OpenTelemetry traces to TraceRoot.
+---
+
+The TraceRoot Public API is the HTTP surface that SDKs and custom clients use to
+send [OpenTelemetry](https://opentelemetry.io) (OTLP) trace data to TraceRoot.
+
+<Note>
+  Most users never call this API directly. The
+  [Python](/tracing/python-sdk) and [TypeScript](/tracing/typescript-sdk) SDKs
+  handle ingestion for you. Use this reference when building a client in another
+  language (Go, Rust, raw `curl`) or when debugging payload shapes.
+</Note>
+
+## Base URL
+
+| Environment | Base URL |
+| --- | --- |
+| TraceRoot Cloud | `https://app.traceroot.ai` |
+| Self-hosted | Your `TRACEROOT_HOST_URL` (see [Self-Hosting](/developer/self-hosting)) |
+
+## Wire format
+
+The ingestion endpoint accepts **OTLP protobuf only** — set
+`Content-Type: application/x-protobuf`. JSON bodies are rejected. You may
+optionally gzip the body and set `Content-Encoding: gzip`.
+
+Ingestion is asynchronous: a successful response means the payload was accepted
+and durably buffered, not that it has been fully indexed yet.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/api-reference/authentication">
+    How to authenticate requests with your API key.
+  </Card>
+  <Card title="Get Started with Tracing" icon="play" href="/tracing/get-started">
+    Set up the SDK and start sending traces in minutes.
+  </Card>
+</CardGroup>

@@ -1,0 +1,44 @@
+---
+title: Authentication
+description: Authenticate requests to the TraceRoot Public API with an API key.
+---
+
+All requests to the Public API are authenticated with an API key sent as a
+bearer token:
+
+```
+Authorization: Bearer <your_api_key>
+```
+
+## Get an API key
+
+Create an API key with [TraceRoot Cloud](https://app.traceroot.ai) or your
+[self-hosted](/developer/self-hosting) instance.
+
+## Example request
+
+```bash
+curl -X POST "https://app.traceroot.ai/api/v1/public/traces" \
+  -H "Authorization: Bearer $TRACEROOT_API_KEY" \
+  -H "Content-Type: application/x-protobuf" \
+  --data-binary @traces.pb
+```
+
+To send a gzip-compressed body, add `-H "Content-Encoding: gzip"` and compress
+the payload.
+
+## Errors
+
+| Status | Meaning |
+| --- | --- |
+| `400` | Empty body, malformed gzip, or unparseable protobuf payload. |
+| `401` | Missing or invalid `Authorization` header, or invalid API key. |
+| `402` | Free-plan ingestion limit exceeded. Applies to TraceRoot Cloud only. |
+| `415` | `Content-Type` is not `application/x-protobuf`. |
+| `500` | Failed to persist the payload to object storage. |
+| `503` | Authentication service is temporarily unavailable. |
+
+<Note>
+  The `402` plan-limit response only applies when billing is enabled (TraceRoot
+  Cloud). Self-hosted instances do not enforce ingestion limits.
+</Note>

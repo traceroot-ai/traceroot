@@ -1,0 +1,196 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "TraceRoot Public API",
+    "description": "Public REST API for ingesting OpenTelemetry traces into TraceRoot.",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "https://app.traceroot.ai",
+      "description": "TraceRoot Cloud"
+    },
+    {
+      "url": "http://localhost:8000",
+      "description": "Self-hosted backend"
+    }
+  ],
+  "paths": {
+    "/api/v1/public/traces": {
+      "post": {
+        "tags": [
+          "Traces (Public)"
+        ],
+        "summary": "Ingest OTLP traces",
+        "description": "Ingest OTLP trace data.\n\nAccepts OTLP protobuf format only (optionally gzip compressed).\nProtobuf is converted to camelCase JSON before storage in S3.\n\nS3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json\n\nHeaders:\n    Authorization: Bearer <api_key>\n    Content-Encoding: gzip (optional)\n    Content-Type: application/x-protobuf\n\nBody:\n    OTLP trace data in protobuf format",
+        "operationId": "ingest_traces_api_v1_public_traces_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Empty body, malformed gzip, or unparseable protobuf payload."
+          },
+          "401": {
+            "description": "Missing or invalid Authorization header, or invalid API key."
+          },
+          "402": {
+            "description": "Free-plan ingestion limit exceeded (cloud only)."
+          },
+          "415": {
+            "description": "Content-Type is not application/x-protobuf."
+          },
+          "500": {
+            "description": "Failed to persist the payload to object storage."
+          },
+          "503": {
+            "description": "Authentication service is unavailable."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Health check",
+        "description": "Health check endpoint.",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Service health status. `ok` when the API is healthy."
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "HealthResponse",
+        "description": "Health check response."
+      },
+      "IngestResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Ingestion status. `ok` when the payload was accepted."
+          },
+          "file_key": {
+            "type": "string",
+            "title": "File Key",
+            "description": "Storage key of the buffered OTLP payload, used for async processing."
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "file_key"
+        ],
+        "title": "IngestResponse",
+        "description": "Response for trace ingestion."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

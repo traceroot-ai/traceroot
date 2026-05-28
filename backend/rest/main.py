@@ -55,7 +55,7 @@ app.include_router(public_traces_router, prefix="/api/v1")
 app.include_router(internal_router, prefix="/api/v1")
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health", response_model=HealthResponse, summary="Health check", tags=["System"])
 async def health_check() -> HealthResponse:
     """Health check endpoint."""
     return HealthResponse(status="ok")

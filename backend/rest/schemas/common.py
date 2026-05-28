@@ -1,12 +1,12 @@
 """Common API response schemas."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
     """Health check response."""
 
-    status: str
+    status: str = Field(description="Service health status. `ok` when the API is healthy.")
 
 
 class PaginationMeta(BaseModel):

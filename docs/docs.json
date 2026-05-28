@@ -128,6 +128,27 @@
         ]
       },
       {
+        "tab": "API Reference",
+        "icon": "terminal",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "api-reference/introduction",
+              "api-reference/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "openapi": "api-reference/openapi.json",
+            "pages": [
+              "POST /api/v1/public/traces",
+              "GET /health"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "Integrations",
         "icon": "puzzle-piece",
         "groups": [
