@@ -84,6 +84,11 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
     return None
 
 
+def int_or_zero(value: Any) -> int:
+    """Convert a present OTEL numeric attribute to int, defaulting missing values to zero."""
+    return int(value) if value is not None else 0
+
+
 def decode_otel_id(b64_value: str | None) -> str | None:
     """Decode base64-encoded OTEL trace/span ID to hex string.
 
@@ -393,31 +398,53 @@ def transform_otel_to_clickhouse(
                     # Try API-provided token counts first (from instrumentors)
                     # OpenInference: llm.token_count.*
                     # GenAI semconv: gen_ai.usage.*
-                    api_input_tokens = (
-                        span_attrs.get("llm.token_count.prompt")
-                        or span_attrs.get("gen_ai.usage.input_tokens")
-                        or span_attrs.get("gen_ai.usage.prompt_tokens")
+                    api_input_tokens = first_present(
+                        span_attrs,
+                        [
+                            "llm.token_count.prompt",
+                            "gen_ai.usage.input_tokens",
+                            "gen_ai.usage.prompt_tokens",
+                        ],
                     )
-                    api_output_tokens = (
-                        span_attrs.get("llm.token_count.completion")
-                        or span_attrs.get("gen_ai.usage.output_tokens")
-                        or span_attrs.get("gen_ai.usage.completion_tokens")
+                    api_output_tokens = first_present(
+                        span_attrs,
+                        [
+                            "llm.token_count.completion",
+                            "gen_ai.usage.output_tokens",
+                            "gen_ai.usage.completion_tokens",
+                        ],
                     )
-                    api_total_tokens = span_attrs.get("llm.token_count.total") or span_attrs.get(
-                        "gen_ai.usage.total_tokens"
+                    api_total_tokens = first_present(
+                        span_attrs,
+                        ["llm.token_count.total", "gen_ai.usage.total_tokens"],
+                    )
+                    api_cache_read_tokens = first_present(
+                        span_attrs,
+                        [
+                            "gen_ai.usage.cache_read_input_tokens",
+                            "gen_ai.usage.input_cached_tokens",
+                            "gen_ai.usage.details.cache_read_tokens",
+                        ],
+                    )
+                    api_cache_write_tokens = first_present(
+                        span_attrs,
+                        [
+                            "gen_ai.usage.cache_creation_input_tokens",
+                            "gen_ai.usage.details.cache_write_tokens",
+                        ],
                     )
 
                     if api_input_tokens is not None or api_output_tokens is not None:
                         # Use API-provided counts (accurate)
-                        input_tokens = int(api_input_tokens) if api_input_tokens is not None else 0
-                        output_tokens = (
-                            int(api_output_tokens) if api_output_tokens is not None else 0
-                        )
+                        input_tokens = int_or_zero(api_input_tokens)
+                        output_tokens = int_or_zero(api_output_tokens)
                         total_tokens = (
-                            int(api_total_tokens)
+                            int_or_zero(api_total_tokens)
                             if api_total_tokens is not None
                             else input_tokens + output_tokens
                         )
+                        cache_read_tokens = int_or_zero(api_cache_read_tokens)
+                        cache_write_tokens = int_or_zero(api_cache_write_tokens)
                         span_record["input_tokens"] = input_tokens
                         span_record["output_tokens"] = output_tokens
                         span_record["total_tokens"] = total_tokens
@@ -436,7 +463,15 @@ def transform_otel_to_clickhouse(
                             output_cost = Decimal(output_tokens) * Decimal(
                                 str(prices.get("output", 0))
                             )
-                            span_record["cost"] = float(input_cost + output_cost)
+                            cache_read_cost = Decimal(cache_read_tokens) * Decimal(
+                                str(prices.get("cacheRead") or 0)
+                            )
+                            cache_write_cost = Decimal(cache_write_tokens) * Decimal(
+                                str(prices.get("cacheWrite") or 0)
+                            )
+                            span_record["cost"] = float(
+                                input_cost + output_cost + cache_read_cost + cache_write_cost
+                            )
                     else:
                         # Fall back to text-based estimation
                         from worker.tokens import calculate_cost

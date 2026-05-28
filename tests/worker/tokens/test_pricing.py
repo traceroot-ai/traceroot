@@ -24,12 +24,22 @@ MOCK_CACHE = [
     {
         "model_name": "gpt-4o",
         "match_pattern": "(?i)^(openai\\/)?(gpt-4o)(-[\\d-]+)?$",
-        "prices": {"input": 0.0000025, "output": 0.00001},
+        "prices": {
+            "input": 0.0000025,
+            "output": 0.00001,
+            "cacheRead": 0.0000005,
+            "cacheWrite": 0.00000375,
+        },
     },
     {
         "model_name": "claude-3-5-sonnet",
         "match_pattern": "(?i)^(anthropic\\/)?(claude-3-5-sonnet)(-[\\d-]+)?$",
-        "prices": {"input": 0.000003, "output": 0.000015},
+        "prices": {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+        },
     },
 ]
 
@@ -231,6 +241,24 @@ class TestCalculateCost:
         # Cost should be a reasonable float, not have floating-point artifacts
         cost_str = f"{result['cost']:.10f}"
         assert "999999" not in cost_str  # No floating-point weirdness
+
+    def test_cache_tokens_are_included_in_cost(self):
+        result = calculate_cost(
+            "gpt-4o",
+            "Hello",
+            "World",
+            cache_read_tokens=100,
+            cache_write_tokens=20,
+        )
+
+        assert result["cost"] is not None
+        input_cost = result["input_tokens"] * MOCK_CACHE[0]["prices"]["input"]
+        output_cost = result["output_tokens"] * MOCK_CACHE[0]["prices"]["output"]
+        cache_read_cost = 100 * MOCK_CACHE[0]["prices"]["cacheRead"]
+        cache_write_cost = 20 * MOCK_CACHE[0]["prices"]["cacheWrite"]
+        assert result["cost"] == pytest.approx(
+            input_cost + output_cost + cache_read_cost + cache_write_cost
+        )
 
 
 # ---------------------------------------------------------------------------

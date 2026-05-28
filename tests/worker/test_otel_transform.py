@@ -3,6 +3,8 @@
 import base64
 from datetime import datetime
 
+import pytest
+
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker.otel_transform import (
     attributes_to_dict,
@@ -382,6 +384,66 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["output_tokens"] == 50
         assert spans[0]["total_tokens"] == 150
         assert spans[0]["cost"] is not None
+
+    @pytest.mark.parametrize(
+        ("model_name", "cache_attrs", "prices"),
+        [
+            (
+                "claude-3-5-sonnet",
+                [
+                    make_attr("gen_ai.usage.cache_read_input_tokens", 900),
+                    make_attr("gen_ai.usage.cache_creation_input_tokens", 100),
+                ],
+                {
+                    "input": 0.000003,
+                    "output": 0.000015,
+                    "cacheRead": 0.0000003,
+                    "cacheWrite": 0.00000375,
+                },
+            ),
+            (
+                "gpt-4o",
+                [
+                    make_attr("gen_ai.usage.input_cached_tokens", 900),
+                    make_attr("gen_ai.usage.details.cache_write_tokens", 100),
+                ],
+                {
+                    "input": 0.0000025,
+                    "output": 0.00001,
+                    "cacheRead": 0.0000005,
+                    "cacheWrite": 0.00000375,
+                },
+            ),
+        ],
+    )
+    def test_api_token_cost_includes_cache_usage(self, model_name, cache_attrs, prices):
+        from unittest.mock import patch
+
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    attributes=[
+                        make_attr("gen_ai.request.model", model_name),
+                        make_attr("gen_ai.usage.input_tokens", 100),
+                        make_attr("gen_ai.usage.output_tokens", 50),
+                        *cache_attrs,
+                    ],
+                )
+            ]
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert spans[0]["cost"] == pytest.approx(
+            100 * prices["input"]
+            + 50 * prices["output"]
+            + 900 * prices["cacheRead"]
+            + 100 * prices["cacheWrite"]
+        )
 
     def test_text_estimation_fallback(self):
         """Falls back to text-based token estimation when no API counts."""

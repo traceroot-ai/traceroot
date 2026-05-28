@@ -108,6 +108,8 @@ def calculate_cost(
     model: str,
     input_text: str | None,
     output_text: str | None,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
 ) -> dict[str, int | float | None]:
     """Calculate token usage and cost.
 
@@ -138,6 +140,8 @@ def calculate_cost(
         # Prices are in USD per token — multiply directly
         input_cost = Decimal(input_tokens) * Decimal(str(prices.get("input", 0)))
         output_cost = Decimal(output_tokens) * Decimal(str(prices.get("output", 0)))
-        result["cost"] = float(input_cost + output_cost)
+        cache_read_cost = Decimal(cache_read_tokens) * Decimal(str(prices.get("cacheRead") or 0))
+        cache_write_cost = Decimal(cache_write_tokens) * Decimal(str(prices.get("cacheWrite") or 0))
+        result["cost"] = float(input_cost + output_cost + cache_read_cost + cache_write_cost)
 
     return result
