@@ -3,6 +3,10 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { admin } from "better-auth/plugins";
 import { prisma } from "@traceroot/core";
 import { env } from "@/env";
+import { getGoogleAuthProviderConfig, isGoogleAuthConfigured } from "@/lib/google-auth-config";
+
+const googleSocialProviders = getGoogleAuthProviderConfig();
+const trustedProviders = isGoogleAuthConfigured() ? ["google"] : [];
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
@@ -17,17 +21,12 @@ export const auth = betterAuth({
     minPasswordLength: 8,
   },
 
-  socialProviders: {
-    google: {
-      clientId: env.AUTH_GOOGLE_CLIENT_ID,
-      clientSecret: env.AUTH_GOOGLE_CLIENT_SECRET,
-    },
-  },
+  ...(googleSocialProviders ? { socialProviders: googleSocialProviders } : {}),
 
   account: {
     accountLinking: {
       enabled: true,
-      trustedProviders: ["google"],
+      trustedProviders,
     },
   },
 
