@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "demo": "tsx agent.ts",
+    "demo:images": "tsx agent-image.ts",
     "streaming": "tsx streaming-pipeline.ts"
   },
   "dependencies": {
