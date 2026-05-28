@@ -12,8 +12,7 @@ Design
   from ``settings.rate_limit`` (see ``RateLimitSettings``).
 * **Self-host** deployments (``ENABLE_BILLING=false``) have no billing tiers, so
   rate limiting is disabled entirely — the limiter is built with
-  ``enabled=False`` (see ``_build_limiter``). This matches Langfuse, which
-  applies no limits when not running as cloud; the operator's own infra is the
+  ``enabled=False`` (see ``_build_limiter``); the operator's own infra is the
   ceiling. Limits therefore apply on cloud (billing-enabled) deployments only.
 * **Buckets**  ``ingest`` (POST /public/traces) and ``read`` (dashboard GETs,
   which share one budget via ``shared_limit(scope="read")``).
@@ -311,9 +310,9 @@ def _build_limiter() -> Limiter:
 
     Rate limiting is a cloud-only construct: on self-host (``ENABLE_BILLING``
     unset/false) there are no billing tiers, so the limiter is built disabled and
-    every route decorator becomes inert (matches Langfuse, which applies no limits
-    when not running as cloud). ``RATE_LIMIT_ENABLED=false`` also disables it on
-    cloud. ``RATE_LIMIT_SHADOW=true`` keeps it enabled but count-only (no 429s).
+    every route decorator becomes inert; the operator's own infra is the ceiling.
+    ``RATE_LIMIT_ENABLED=false`` also disables it on cloud.
+    ``RATE_LIMIT_SHADOW=true`` keeps it enabled but count-only (no 429s).
     The billing gate is read once at startup; it does not change at runtime.
     """
     enabled = settings.rate_limit.enabled and is_billing_enabled()
