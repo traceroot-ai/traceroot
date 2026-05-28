@@ -972,8 +972,10 @@ async function reconcileBudgetAlerts(workspaceId: string, projectIds: string[]):
           attempts: 3,
         });
 
-        // Sync the Redis spend counter and set TTL to authoritative ClickHouse spend
-        const counterKey = `budget:project:${detector.projectId}:${detector.id}:${window}`;
+        // Sync the Redis spend counter and set TTL to authoritative ClickHouse spend.
+        // Counter key must include the epoch to match the Python ingest path format:
+        //   budget:project:{projectId}:{detectorId}:{window}-{epoch}
+        const counterKey = `budget:project:${detector.projectId}:${detector.id}:${windowKey}`;
         await connection.set(counterKey, String(total_cost), "EX", windowSecs);
 
         // Set cooldown key to avoid double alerting in ingestion path

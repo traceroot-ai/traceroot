@@ -260,7 +260,11 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
             common,
           });
         } catch (e) {
+          // Re-throw so BullMQ marks the job as failed and retries it.
+          // Swallowing the error here would let notification failures go
+          // undetected: BullMQ would record a success and never retry.
           console.error(`[RCA] Failed to send budget alert notifications for ${findingId}:`, e);
+          throw e;
         }
         return;
       }

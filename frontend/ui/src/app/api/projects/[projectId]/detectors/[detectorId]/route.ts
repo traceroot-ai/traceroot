@@ -109,7 +109,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (name !== undefined && (typeof name !== "string" || name.trim().length === 0)) {
     return errorResponse("name must be a non-empty string", 400);
   }
-  if (prompt !== undefined && (typeof prompt !== "string" || prompt.trim().length === 0)) {
+  // Budget and blank templates legitimately have an empty prompt (no LLM call).
+  // Only reject empty prompts for other template types.
+  if (
+    prompt !== undefined &&
+    (typeof prompt !== "string" ||
+      (prompt.trim().length === 0 && !new Set(["budget", "blank"]).has(existing.template)))
+  ) {
     return errorResponse("prompt must be a non-empty string", 400);
   }
 

@@ -94,7 +94,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   if (typeof template !== "string" || template.trim().length === 0) {
     return errorResponse("template must be a non-empty string", 400);
   }
-  if (typeof prompt !== "string" || prompt.trim().length === 0) {
+  // Budget and blank templates have no LLM prompt — allow empty string for those.
+  const noPromptTemplates = new Set(["budget", "blank"]);
+  if (
+    typeof prompt !== "string" ||
+    (prompt.trim().length === 0 && !noPromptTemplates.has(template as string))
+  ) {
     return errorResponse("prompt must be a non-empty string", 400);
   }
 

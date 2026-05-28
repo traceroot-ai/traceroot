@@ -288,10 +288,16 @@ def _check_single_detector(
     detector_id = detector["id"]
 
     # 1. INCRBYFLOAT — O(1), atomic
-    counter_key = f"budget:project:{project_id}:{detector_id}:{window}"
+    #
+    # Counter key is scoped to the current window EPOCH (same as the cooldown
+    # and finding-ID keys) so that spend from adjacent windows never pollutes
+    # each other. Without the epoch, an un-expired counter from window N would
+    # be incremented into window N+1, producing false-positive alerts.
+    window_epoch = int(time.time()) // window_secs * window_secs
+    counter_key = f"budget:project:{project_id}:{detector_id}:{window}-{window_epoch}"
     new_total = float(redis_client.incrbyfloat(counter_key, batch_cost))
 
-    # Set TTL only on first write (when no expiry is set)
+    # Set TTL on first write — key expires naturally when the window ends.
     ttl = redis_client.ttl(counter_key)
     if ttl == -1:  # no expiry set yet (key is new or lost TTL)
         redis_client.expire(counter_key, window_secs)
