@@ -30,6 +30,8 @@ import {
   EVENT_QUOTAS,
 } from "@traceroot/core";
 import { getWorkspaceUsageDetails } from "./clickhouse.js";
+import crypto from "crypto";
+import { createRedisConnection, createDetectorRunQueue } from "../../queues/detector-run-queue.js";
 
 let stripe: Stripe | null = null;
 
@@ -560,6 +562,20 @@ async function processWorkspace(
     data: updateData,
   });
 
+  // =========================================================================
+  // 7. Budget alert reconciliation (safety net for Redis data loss)
+  //
+  // The primary budget alert path is event-driven in the Python ingest
+  // worker (Redis INCRBYFLOAT per batch). This hourly reconciliation
+  // catches Redis crashes/evictions by re-checking authoritative
+  // ClickHouse data against configured budget thresholds.
+  // =========================================================================
+  try {
+    await reconcileBudgetAlerts(workspace.id, projectIds);
+  } catch (e) {
+    console.error(`[Billing] Budget reconciliation failed for workspace ${workspace.id}:`, e);
+  }
+
   console.log(
     `[Billing] Workspace ${workspace.id} (${workspace.billingPlan}): ` +
       `${usage.traces} traces, ${usage.spans} spans | ` +
@@ -812,5 +828,167 @@ export async function reportRcaRunOverageToStripe(
       error,
     );
     return false;
+  }
+}
+
+// =============================================================================
+// Budget Alert Reconciliation
+//
+// Safety net for the event-driven Redis budget check in the Python ingest path.
+// Runs hourly as part of the billing cron. For each project with budget
+// detectors, queries authoritative ClickHouse spend and enqueues a budget
+// finding if the threshold is exceeded and no recent finding exists.
+// =============================================================================
+
+const BUDGET_WINDOW_MS: Record<string, number> = {
+  "1h": 3_600_000,
+  "24h": 86_400_000,
+  "7d": 604_800_000,
+  "30d": 2_592_000_000,
+};
+
+const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
+const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
+
+function deterministicFindingId(projectId: string, detectorId: string, windowKey: string): string {
+  const raw = `budget:${projectId}:${detectorId}:${windowKey}`;
+  const h = crypto.createHash("sha256").update(raw).digest("hex").slice(0, 32);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
+
+async function reconcileBudgetAlerts(workspaceId: string, projectIds: string[]): Promise<void> {
+  if (projectIds.length === 0) return;
+
+  // 1. Find budget detectors across all projects in this workspace
+  const budgetDetectors = await prisma.detector.findMany({
+    where: {
+      projectId: { in: projectIds },
+      template: "budget",
+      enabled: true,
+    },
+    include: { trigger: true },
+  });
+
+  if (budgetDetectors.length === 0) return;
+
+  for (const detector of budgetDetectors) {
+    try {
+      // 2. Extract budget config from trigger conditions
+      const conditions = Array.isArray(detector.trigger?.conditions)
+        ? (detector.trigger.conditions as Array<{ field: string; value: unknown }>)
+        : [];
+
+      let thresholdUsd: number | null = null;
+      let window: string | null = null;
+      for (const cond of conditions) {
+        if (cond.field === "budget_threshold_usd") thresholdUsd = Number(cond.value);
+        if (cond.field === "budget_window") window = String(cond.value);
+      }
+
+      if (thresholdUsd == null || !window || !(window in BUDGET_WINDOW_MS)) continue;
+
+      // 3. Query ClickHouse for project spend in the configured window
+      const windowMs = BUDGET_WINDOW_MS[window];
+      const startTime = new Date(Date.now() - windowMs);
+
+      const response = await fetch(
+        `${BACKEND_URL}/api/v1/internal/projects/${detector.projectId}/spend?start_time=${startTime.toISOString()}`,
+        { headers: { "X-Internal-Secret": INTERNAL_API_SECRET } },
+      );
+
+      if (!response.ok) {
+        console.warn(
+          `[Billing] Budget reconciliation: failed to query spend for project ${detector.projectId}: HTTP ${response.status}`,
+        );
+        continue;
+      }
+
+      const { total_cost } = (await response.json()) as { total_cost: number };
+
+      if (total_cost < thresholdUsd) continue;
+
+      // 4. Check if a recent finding already exists (don't duplicate)
+      const findingResponse = await fetch(
+        `${BACKEND_URL}/api/v1/internal/detector-runs?project_id=${detector.projectId}&detector_id=${detector.id}&limit=1`,
+        { headers: { "X-Internal-Secret": INTERNAL_API_SECRET } },
+      );
+
+      if (findingResponse.ok) {
+        const { data } = (await findingResponse.json()) as {
+          data: Array<{ timestamp: string; finding_id: string | null }>;
+        };
+        if (data.length > 0 && data[0].finding_id) {
+          const lastFindingTime = new Date(data[0].timestamp).getTime();
+          if (Date.now() - lastFindingTime < windowMs) {
+            // A finding already exists within this window — skip
+            continue;
+          }
+        }
+      }
+
+      // 5. No recent finding — log, reset Redis counter, and enqueue the alert to recover it
+      console.log(
+        `[Billing] Budget reconciliation: project ${detector.projectId} ` +
+          `detector ${detector.id} spend $${total_cost.toFixed(2)} >= threshold $${thresholdUsd} ` +
+          `in ${window} window. Recovering lost alert and resetting Redis counter...`,
+      );
+
+      const windowSecs = windowMs / 1000;
+      const windowEpoch = Math.floor(Date.now() / 1000 / windowSecs) * windowSecs;
+      const windowKey = `${window}-${windowEpoch}`;
+
+      const findingId = deterministicFindingId(detector.projectId, detector.id, windowKey);
+      const summary =
+        `Budget alert: $${total_cost.toFixed(2)} spent in the last ${window} ` +
+        `(threshold: $${thresholdUsd.toFixed(2)})`;
+
+      const jobData = {
+        traceId: "",
+        detectorIds: [],
+        projectId: detector.projectId,
+        budgetAlert: {
+          findingId,
+          detectorId: detector.id,
+          detectorName: detector.name,
+          summary,
+          data: {
+            threshold_usd: thresholdUsd,
+            current_spend_usd: Number(total_cost.toFixed(4)),
+            window,
+          },
+        },
+      };
+
+      const jobId = `budget-${detector.projectId}-${detector.id}-${windowKey}`;
+      const connection = createRedisConnection();
+      try {
+        const queue = createDetectorRunQueue(connection);
+
+        // Enqueue the alert finding to BullMQ
+        await queue.add("budget-alert", jobData, {
+          jobId,
+          removeOnComplete: 100,
+          removeOnFail: 50,
+          attempts: 3,
+        });
+
+        // Sync the Redis spend counter and set TTL to authoritative ClickHouse spend
+        const counterKey = `budget:project:${detector.projectId}:${detector.id}:${window}`;
+        await connection.set(counterKey, String(total_cost), "EX", windowSecs);
+
+        // Set cooldown key to avoid double alerting in ingestion path
+        const cooldownKey = `budget:alert:cooldown:${detector.projectId}:${detector.id}:${windowKey}`;
+        await connection.set(cooldownKey, "1", "EX", windowSecs);
+
+        console.log(
+          `[Billing] Budget reconciliation alert enqueued & Redis counter synced for detector ${detector.id}`,
+        );
+        await queue.close();
+      } finally {
+        await connection.quit();
+      }
+    } catch (e) {
+      console.error(`[Billing] Budget reconciliation failed for detector ${detector.id}:`, e);
+    }
   }
 }

@@ -407,6 +407,18 @@ def transform_otel_to_clickhouse(
                         "gen_ai.usage.total_tokens"
                     )
 
+                    # Prompt caching tokens
+                    api_cache_read_tokens = (
+                        span_attrs.get("gen_ai.usage.details.cache_read_tokens")
+                        or span_attrs.get("llm.token_count.cache_read")
+                    )
+                    api_cache_write_tokens = (
+                        span_attrs.get("gen_ai.usage.details.cache_write_tokens")
+                        or span_attrs.get("llm.token_count.cache_write")
+                    )
+                    cache_read_tokens = int(api_cache_read_tokens) if api_cache_read_tokens is not None else 0
+                    cache_write_tokens = int(api_cache_write_tokens) if api_cache_write_tokens is not None else 0
+
                     if api_input_tokens is not None or api_output_tokens is not None:
                         # Use API-provided counts (accurate)
                         input_tokens = int(api_input_tokens) if api_input_tokens is not None else 0
@@ -436,7 +448,18 @@ def transform_otel_to_clickhouse(
                             output_cost = Decimal(output_tokens) * Decimal(
                                 str(prices.get("output", 0))
                             )
-                            span_record["cost"] = float(input_cost + output_cost)
+
+                            cache_read_rate = prices.get("cacheRead")
+                            if cache_read_rate is None:
+                                cache_read_rate = 0
+                            cache_write_rate = prices.get("cacheWrite")
+                            if cache_write_rate is None:
+                                cache_write_rate = 0
+
+                            cache_read_cost = Decimal(cache_read_tokens) * Decimal(str(cache_read_rate))
+                            cache_write_cost = Decimal(cache_write_tokens) * Decimal(str(cache_write_rate))
+
+                            span_record["cost"] = float(input_cost + output_cost + cache_read_cost + cache_write_cost)
                     else:
                         # Fall back to text-based estimation
                         from worker.tokens import calculate_cost
@@ -445,6 +468,8 @@ def transform_otel_to_clickhouse(
                             model=model_name,
                             input_text=span_record.get("input"),
                             output_text=span_record.get("output"),
+                            cache_read_tokens=cache_read_tokens,
+                            cache_write_tokens=cache_write_tokens,
                         )
                         if usage["input_tokens"] is not None:
                             span_record["input_tokens"] = usage["input_tokens"]

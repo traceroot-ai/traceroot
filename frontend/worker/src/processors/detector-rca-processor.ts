@@ -212,7 +212,49 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
   const worker = new Worker<DetectorRcaJob>(
     DETECTOR_RCA_QUEUE,
     async (job: Job<DetectorRcaJob>) => {
-      const { findingId, projectId, traceId, workspaceId, projectName, findings } = job.data;
+      const { findingId, projectId, traceId, workspaceId, projectName, findings, skipRca } =
+        job.data;
+
+      // Budget alerts (and similar pre-resolved findings) skip the LLM RCA
+      // session entirely — just load alert config and send notifications.
+      if (skipRca) {
+        console.log(`[RCA] Skipping RCA for finding ${findingId} (skipRca=true, e.g. budget alert)`);
+        try {
+          const project = await prisma.project.findUnique({
+            where: { id: projectId },
+            select: {
+              alertConfig: {
+                select: { emailAddresses: true, slackChannelId: true },
+              },
+              workspace: {
+                select: {
+                  slackIntegration: {
+                    select: { channelId: true, botToken: true },
+                  },
+                },
+              },
+            },
+          });
+          const emailAddresses = project?.alertConfig?.emailAddresses ?? [];
+          const slack = project?.workspace?.slackIntegration ?? null;
+          const slackChannelId = project?.alertConfig?.slackChannelId ?? slack?.channelId ?? null;
+          const slackBotTokenEnc = slack?.botToken ?? null;
+
+          const summary = findings.map((f) => `[${f.detectorName}] ${f.summary}`).join("\n");
+          const detectorName = findings.map((f) => f.detectorName).join(", ");
+          const common = { detectorName, projectName, summary, rcaResult: null, traceId, projectId };
+          await runFanOut({
+            workspaceId,
+            emailAddresses,
+            slackChannelId,
+            slackBotTokenEnc,
+            common,
+          });
+        } catch (e) {
+          console.error(`[RCA] Failed to send budget alert notifications for ${findingId}:`, e);
+        }
+        return;
+      }
 
       // Free-plan RCA cap enforcement — read the cached `rcaBlocked` flag
       // set by the hourly billing job (same pattern as `detectorBlocked` in

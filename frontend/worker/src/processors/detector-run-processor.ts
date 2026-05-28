@@ -368,7 +368,63 @@ export function startDetectorRunWorker(): Worker<DetectorRunJob> {
   const worker = new Worker<DetectorRunJob>(
     DETECTOR_RUN_QUEUE,
     async (job: Job<DetectorRunJob>) => {
-      const { traceId, detectorIds, projectId } = job.data;
+      const { traceId, detectorIds, projectId, budgetAlert } = job.data;
+
+      // Budget alert: pre-resolved finding from Python ingest path.
+      // No LLM eval needed — write finding and dispatch notifications.
+      if (budgetAlert) {
+        console.log(
+          `[Detector] Budget alert for project ${projectId}: ${budgetAlert.summary}`,
+        );
+
+        const project = await prisma.project.findUnique({
+          where: { id: projectId },
+          select: { name: true, workspaceId: true },
+        });
+        const workspaceId = project?.workspaceId ?? "";
+        const projectName = project?.name ?? "";
+
+        await writeDetectorFinding({
+          findingId: budgetAlert.findingId,
+          projectId,
+          traceId: traceId || "",
+          summary: budgetAlert.summary,
+          payload: JSON.stringify([
+            {
+              detectorId: budgetAlert.detectorId,
+              detectorName: budgetAlert.detectorName,
+              summary: budgetAlert.summary,
+              data: budgetAlert.data,
+            },
+          ]),
+        });
+
+        const rcaFinding: DetectorRcaFinding = {
+          detectorId: budgetAlert.detectorId,
+          detectorName: budgetAlert.detectorName,
+          summary: budgetAlert.summary,
+        };
+
+        await rcaQueue.add(
+          `rca-${budgetAlert.findingId}`,
+          {
+            findingId: budgetAlert.findingId,
+            projectId,
+            traceId: traceId || "",
+            workspaceId,
+            projectName,
+            findings: [rcaFinding],
+            skipRca: true,
+          },
+          {
+            jobId: `rca-${budgetAlert.findingId}`,
+            removeOnComplete: 100,
+            removeOnFail: 50,
+          },
+        );
+        return;
+      }
+
       if (!detectorIds || detectorIds.length === 0) return;
       await processTrace(traceId, projectId, detectorIds);
     },

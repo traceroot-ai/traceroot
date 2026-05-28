@@ -192,6 +192,49 @@ async def get_usage_details(
 
 
 # =============================================================================
+# Budget Alert Endpoints (for reconciliation safety net)
+# =============================================================================
+
+
+class ProjectSpendResponse(BaseModel):
+    total_cost: float
+
+
+@router.get(
+    "/projects/{project_id}/spend",
+    response_model=ProjectSpendResponse,
+    dependencies=[Depends(verify_internal_secret)],
+)
+async def get_project_spend(
+    project_id: str,
+    start_time: datetime = Query(..., description="Start of window (ISO format)"),
+) -> ProjectSpendResponse:
+    """Get total span cost for a project since start_time.
+
+    Used by the hourly billing cron as a reconciliation safety net for the
+    event-driven Redis budget check in the Python ingest path.
+    """
+    ch = get_clickhouse_client()
+    start_str = to_utc_naive(start_time).strftime("%Y-%m-%d %H:%M:%S")
+
+    result = ch.query(
+        """
+        SELECT sum(cost) as total_cost
+        FROM spans
+        WHERE project_id = {project_id:String}
+          AND ch_create_time >= {start_time:String}
+          AND cost IS NOT NULL
+        """,
+        parameters={"project_id": project_id, "start_time": start_str},
+    )
+
+    total = (
+        float(result.result_rows[0][0]) if result.result_rows and result.result_rows[0][0] else 0.0
+    )
+    return ProjectSpendResponse(total_cost=total)
+
+
+# =============================================================================
 # Detector Endpoints (for worker/TypeScript service writes and reads)
 # =============================================================================
 

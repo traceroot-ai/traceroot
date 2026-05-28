@@ -112,6 +112,7 @@ def _get_active_detectors(project_id: str) -> list[dict]:
                 FROM detectors d
                 LEFT JOIN detector_triggers dt ON dt.detector_id = d.id
                 WHERE d.project_id = %s AND d.enabled = TRUE
+                  AND d.template != 'budget'
                 """,
                 (project_id,),
             )

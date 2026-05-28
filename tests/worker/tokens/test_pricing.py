@@ -24,12 +24,22 @@ MOCK_CACHE = [
     {
         "model_name": "gpt-4o",
         "match_pattern": "(?i)^(openai\\/)?(gpt-4o)(-[\\d-]+)?$",
-        "prices": {"input": 0.0000025, "output": 0.00001},
+        "prices": {
+            "input": 0.0000025,
+            "output": 0.00001,
+            "cacheRead": 0.00000125,
+            "cacheWrite": None,
+        },
     },
     {
         "model_name": "claude-3-5-sonnet",
         "match_pattern": "(?i)^(anthropic\\/)?(claude-3-5-sonnet)(-[\\d-]+)?$",
-        "prices": {"input": 0.000003, "output": 0.000015},
+        "prices": {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+        },
     },
 ]
 
@@ -231,6 +241,51 @@ class TestCalculateCost:
         # Cost should be a reasonable float, not have floating-point artifacts
         cost_str = f"{result['cost']:.10f}"
         assert "999999" not in cost_str  # No floating-point weirdness
+
+    @patch("worker.tokens.pricing.count_tokens", return_value=25)
+    def test_cost_with_prompt_caching(self, mock_count):
+        """Verify cost calculation includes cache_read_tokens and cache_write_tokens."""
+        # Using claude-3-5-sonnet prices (from MOCK_CACHE above):
+        # input=0.000003, output=0.000015, cacheRead=0.0000003, cacheWrite=0.00000375
+        result = calculate_cost(
+            model="claude-3-5-sonnet",
+            input_text="x" * 100,  # about 25 tokens
+            output_text="y" * 100, # about 25 tokens
+            cache_read_tokens=10000,
+            cache_write_tokens=5000,
+        )
+        assert result["input_tokens"] == 25
+        assert result["output_tokens"] == 25
+        assert result["cost"] is not None
+
+        expected_input_cost = 25.0 * 0.000003
+        expected_output_cost = 25.0 * 0.000015
+        expected_cache_read_cost = 10000 * 0.0000003
+        expected_cache_write_cost = 5000 * 0.00000375
+        expected_total = expected_input_cost + expected_output_cost + expected_cache_read_cost + expected_cache_write_cost
+
+        assert abs(result["cost"] - expected_total) < 1e-9
+
+    @patch("worker.tokens.pricing.count_tokens", return_value=25)
+    def test_cost_with_missing_cache_rates(self, mock_count):
+        """Verify None cache pricing rates are safely handled as 0."""
+        # gpt-4o has cacheWrite=None
+        result = calculate_cost(
+            model="gpt-4o",
+            input_text="x" * 100,
+            output_text="y" * 100,
+            cache_read_tokens=1000,
+            cache_write_tokens=1000,
+        )
+        assert result["cost"] is not None
+        # Should not crash and should calculate correctly with cacheWrite treated as 0
+        expected_input_cost = 25.0 * 0.0000025
+        expected_output_cost = 25.0 * 0.00001
+        expected_cache_read_cost = 1000 * 0.00000125
+        expected_cache_write_cost = 1000 * 0.0
+        expected_total = expected_input_cost + expected_output_cost + expected_cache_read_cost + expected_cache_write_cost
+        assert abs(result["cost"] - expected_total) < 1e-9
+
 
 
 # ---------------------------------------------------------------------------
