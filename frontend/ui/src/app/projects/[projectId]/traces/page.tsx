@@ -237,7 +237,7 @@ export default function TracesPage() {
                         Trace ID
                       </th>
                       <th className="w-[60px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Status
+                        Errors
                       </th>
                       <th className="w-[60px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Spans
@@ -283,12 +283,12 @@ export default function TracesPage() {
                           </span>
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5">
-                          {trace.status === "error" ? (
+                          {trace.error_count > 0 ? (
                             <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
-                              ERROR
+                              {trace.error_count}
                             </span>
                           ) : (
-                            <span className="text-[10px] text-muted-foreground">OK</span>
+                            <span className="text-[10px] text-muted-foreground">—</span>
                           )}
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5 text-center text-[12px] text-muted-foreground">

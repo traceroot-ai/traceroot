@@ -13,11 +13,6 @@ class SpanStatus(StrEnum):
     ERROR = "ERROR"
 
 
-class TraceStatus(StrEnum):
-    OK = "ok"
-    ERROR = "error"
-
-
 class MemberRole(StrEnum):
     VIEWER = "VIEWER"
     MEMBER = "MEMBER"
