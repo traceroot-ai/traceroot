@@ -81,6 +81,11 @@ export function formatTokenFlow(
   total?: number | null | undefined,
 ): string {
   const resolvedTotal = total ?? (input ?? 0) + (output ?? 0);
+  // When the input/output breakdown is unknown, show only the total rather
+  // than a misleading "0 → 0 (z)".
+  if (input == null && output == null) {
+    return formatTokens(resolvedTotal);
+  }
   return `${formatTokens(input ?? 0)} → ${formatTokens(output ?? 0)} (${formatTokens(resolvedTotal)})`;
 }
 
