@@ -18,7 +18,9 @@ Create an API key with [TraceRoot Cloud](https://app.traceroot.ai) or your
 ## Example request
 
 ```bash
-curl -X POST "https://app.traceroot.ai/api/v1/public/traces" \
+TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
+
+curl -X POST "$TRACEROOT_HOST_URL/api/v1/public/traces" \
   -H "Authorization: Bearer $TRACEROOT_API_KEY" \
   -H "Content-Type: application/x-protobuf" \
   --data-binary @traces.pb
