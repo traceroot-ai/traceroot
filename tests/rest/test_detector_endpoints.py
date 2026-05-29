@@ -153,7 +153,7 @@ class TestListDetectorFindings:
         )
         count_call = mock_ch.query.call_args_list[1]
         count_sql = count_call.args[0]
-        assert "SELECT count()" in count_sql
+        assert "count(DISTINCT f.finding_id)" in count_sql
         assert "LIMIT" not in count_sql
         assert "OFFSET" not in count_sql
 

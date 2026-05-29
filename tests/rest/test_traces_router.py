@@ -21,7 +21,7 @@ TRACE_LIST_ITEM = {
     "session_id": None,
     "span_count": 3,
     "duration_ms": 1500.0,
-    "status": "ok",
+    "error_count": 0,
     "input": "hello",
     "output": "world",
 }

@@ -450,6 +450,7 @@ async def list_detector_findings(
     conditions: list[str] = [
         "r.project_id = {project_id:String}",
         "r.detector_id = {detector_id:String}",
+        "r.finding_id IS NOT NULL",
     ]
     params: dict = {
         "project_id": project_id,
@@ -471,11 +472,16 @@ async def list_detector_findings(
         params["search_kw"] = f"%{escape_ilike(search_query)}%"
 
     where_clause = " AND ".join(conditions)
+    join_clause = """
+        FROM detector_runs r
+        INNER JOIN detector_findings f
+          ON r.finding_id = f.finding_id AND r.project_id = f.project_id
+    """
 
     data_query = f"""
-        SELECT f.finding_id, f.project_id, f.trace_id, f.summary, f.payload, f.timestamp
-        FROM detector_findings f
-        INNER JOIN detector_runs r ON f.finding_id = r.finding_id
+        SELECT DISTINCT
+            f.finding_id, f.project_id, f.trace_id, f.summary, f.payload, f.timestamp
+        {join_clause}
         WHERE {where_clause}
         ORDER BY f.timestamp DESC
         LIMIT {{limit:Int32}} OFFSET {{offset:Int32}}
@@ -484,13 +490,12 @@ async def list_detector_findings(
     result = ch.query(data_query, parameters=data_params)
 
     count_query = f"""
-        SELECT count()
-        FROM detector_findings f
-        INNER JOIN detector_runs r ON f.finding_id = r.finding_id
+        SELECT count(DISTINCT f.finding_id)
+        {join_clause}
         WHERE {where_clause}
     """
     count_result = ch.query(count_query, parameters=params)
-    total = count_result.result_rows[0][0] if count_result.result_rows else 0
+    total = int(count_result.result_rows[0][0]) if count_result.result_rows else 0
 
     findings = []
     for row in result.result_rows:
