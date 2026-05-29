@@ -3,10 +3,6 @@
 import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
-import {
-  GOOGLE_AUTH_NOT_CONFIGURED_MESSAGE,
-  GOOGLE_AUTH_START_FAILED_MESSAGE,
-} from "@/lib/auth-errors";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
@@ -76,29 +72,11 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
   }
 
   async function handleGoogleSignUp() {
-    setError(null);
-
-    if (!googleAuthConfigured) {
-      setError(GOOGLE_AUTH_NOT_CONFIGURED_MESSAGE);
-      return;
-    }
-
     setIsGoogleLoading(true);
-
-    try {
-      const { error } = await authClient.signIn.social({
-        provider: "google",
-        callbackURL: "/onboarding",
-      });
-
-      if (error) {
-        setError(error.message || GOOGLE_AUTH_START_FAILED_MESSAGE);
-        setIsGoogleLoading(false);
-      }
-    } catch {
-      setError(GOOGLE_AUTH_START_FAILED_MESSAGE);
-      setIsGoogleLoading(false);
-    }
+    await authClient.signIn.social({
+      provider: "google",
+      callbackURL: "/onboarding",
+    });
   }
 
   return (
@@ -188,24 +166,28 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
             </Button>
           </form>
 
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-[11px] uppercase">
-              <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
-            </div>
-          </div>
+          {googleAuthConfigured && (
+            <>
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-[11px] uppercase">
+                  <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+                </div>
+              </div>
 
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 w-full text-[13px]"
-            onClick={handleGoogleSignUp}
-            disabled={isGoogleLoading}
-          >
-            {isGoogleLoading ? "Redirecting..." : "Google"}
-          </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-full text-[13px]"
+                onClick={handleGoogleSignUp}
+                disabled={isGoogleLoading}
+              >
+                {isGoogleLoading ? "Redirecting..." : "Google"}
+              </Button>
+            </>
+          )}
 
           <p className="text-center text-[12px] text-muted-foreground">
             Already have an account?{" "}
