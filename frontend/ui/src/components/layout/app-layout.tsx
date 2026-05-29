@@ -66,12 +66,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   // Close the global AI panel whenever the user navigates.
-  // NOTE: do NOT reset hideAiButton here. Observability pages own that flag.
-  useEffect(() => {
-    setAiPanelOpen(false);
-    setAiContext(null);
-    setAiInitialSessionId(undefined);
-  }, [pathname]);
+// Reset hideAiButton when leaving observability pages so stale visibility
+// state doesn't carry over to unrelated pages (e.g. the onboarding flow).
+// Observability pages still own the flag once they mount via setHideAiButton.
+const isObservabilityPage = /^\/projects\/[^/]+\/(traces|users|sessions)(\/|$)/.test(pathname);
+useEffect(() => {
+  setAiPanelOpen(false);
+  setAiContext(null);
+  setAiInitialSessionId(undefined);
+  if (!isObservabilityPage) {
+    setHideAiButton(true);
+  }
+}, [pathname, isObservabilityPage]);
 
   const registerAiHost = useCallback(() => {
     setAiHostRefCount((c) => c + 1);
@@ -80,7 +86,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const viewerOwnsAiSlot = aiHostRefCount > 0;
 
-  const isObservabilityPage = /^\/projects\/[^/]+\/(traces|users|sessions)(\/|$)/.test(pathname);
+  
   const showAiButton = isObservabilityPage && !hideAiButton;
   const projectIdMatch = pathname.match(/^\/projects\/([^/]+)/);
   const projectId = projectIdMatch?.[1];
