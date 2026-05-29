@@ -1,6 +1,7 @@
 "use client";
 
-import { InlineImage, JsonRenderer, imageSrc } from "./JsonRenderer";
+import { JsonRenderer } from "./JsonRenderer";
+import { InlineMedia, mediaSrc } from "./inline-media";
 
 interface ContentRendererProps {
   content: string | null;
@@ -14,11 +15,11 @@ export function ContentRenderer({ content }: ContentRendererProps) {
     return <span className="text-[11px] text-muted-foreground">-</span>;
   }
 
-  // A bare image string (data URI or raw base64) won't reach JsonRenderer, so
+  // A bare media string (data URI or raw base64) won't reach JsonRenderer, so
   // detect it here too.
-  const directImage = imageSrc(content);
-  if (directImage) {
-    return <InlineImage src={directImage} />;
+  const directMedia = mediaSrc(content);
+  if (directMedia) {
+    return <InlineMedia {...directMedia} />;
   }
 
   // Try to parse as JSON
@@ -32,9 +33,9 @@ export function ContentRenderer({ content }: ContentRendererProps) {
       );
     }
     // If it's a primitive after parsing, just show it
-    const parsedImage = typeof parsed === "string" ? imageSrc(parsed) : null;
-    if (parsedImage) {
-      return <InlineImage src={parsedImage} />;
+    const parsedMedia = typeof parsed === "string" ? mediaSrc(parsed) : null;
+    if (parsedMedia) {
+      return <InlineMedia {...parsedMedia} />;
     }
     return (
       <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">

@@ -5,6 +5,7 @@
   "scripts": {
     "demo": "tsx agent.ts",
     "demo:images": "tsx agent-image.ts",
+    "demo:voice": "tsx agent-voice.ts",
     "streaming": "tsx streaming-pipeline.ts"
   },
   "dependencies": {
