@@ -146,11 +146,11 @@ clickhouse:
     storageClass: "efs"
   resources:
     requests:
-      cpu: "1"
-      memory: "2Gi"
+      cpu: "2"
+      memory: "8Gi"
     limits:
       cpu: "2"
-      memory: "4Gi"
+      memory: "8Gi"
   extraEnvVars:
     - name: MALLOC_CONF
       value: "background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:1000"
@@ -244,6 +244,22 @@ additionalEnv:
 %{endif~}
 %{endfor~}
 EOT
+
+  # System-log tables grow unbounded; their merges OOM-kill ClickHouse on a
+  # memory-capped box (#963). When disabled (default), drop the high-volume tables
+  # and keep query_log/part_log/error_log for debugging.
+  clickhouse_log_table_overrides = var.enable_clickhouse_log_tables ? "" : <<EOT
+clickhouse:
+  extraOverrides: |
+      <clickhouse>
+        <trace_log remove="1"/>
+        <text_log remove="1"/>
+        <opentelemetry_span_log remove="1"/>
+        <asynchronous_metric_log remove="1"/>
+        <metric_log remove="1"/>
+        <latency_log remove="1"/>
+      </clickhouse>
+EOT
 }
 
 resource "helm_release" "traceroot" {
@@ -263,6 +279,7 @@ resource "helm_release" "traceroot" {
     local.enterprise_values,
     local.feature_values,
     local.additional_env_values,
+    local.clickhouse_log_table_overrides,
   ])
 
   # Ensure global.security.allowInsecureImages is set for bitnamilegacy images

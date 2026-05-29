@@ -88,6 +88,12 @@ variable "clickhouse_storage_size" {
   default     = "20Gi"
 }
 
+variable "enable_clickhouse_log_tables" {
+  description = "Enable ClickHouse's built-in system log tables (trace_log, metric_log, asynchronous_metric_log, etc.). Disabled by default: their unbounded growth and background merges can OOM-kill ClickHouse on a memory-capped box. query_log/part_log/error_log are always kept for debugging."
+  type        = bool
+  default     = false
+}
+
 variable "clickhouse_namespace" {
   description = "Kubernetes namespace where ClickHouse will be deployed. Defaults to traceroot-{environment}."
   type        = string
