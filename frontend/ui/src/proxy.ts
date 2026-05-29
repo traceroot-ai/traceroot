@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   // better-auth prefixes cookies with __Secure- in HTTPS environments
   const token =
     req.cookies.get("better-auth.session_token") ??
