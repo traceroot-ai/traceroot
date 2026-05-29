@@ -33,16 +33,6 @@ const FIELD_DEFS: FieldDef[] = [
     ops: ["=", "!="],
     valueType: "text",
   },
-  {
-    field: "status",
-    label: "Status",
-    ops: ["="],
-    valueType: "select",
-    options: [
-      { label: "Error", value: "ERROR" },
-      { label: "Success", value: "OK" },
-    ],
-  },
 ];
 
 const defaultValueForField = (field: string): unknown => {

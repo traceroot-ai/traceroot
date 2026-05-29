@@ -59,7 +59,7 @@ def _passes_trigger(trace_summary: dict, conditions: list[dict]) -> bool:
 def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dict]:
     """
     Query ClickHouse for the fields needed for trigger evaluation.
-    Returns {trace_id: {root_span_finished, status, environment}}
+    Returns {trace_id: {root_span_finished, environment}}
     """
     from db.clickhouse.client import get_clickhouse_client
 
@@ -73,7 +73,6 @@ def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dic
         SELECT
             trace_id,
             max(CASE WHEN parent_span_id IS NULL THEN 1 ELSE 0 END) AS root_span_finished,
-            max(CASE WHEN status = 'ERROR' THEN 1 ELSE 0 END)       AS has_error,
             anyIf(environment, parent_span_id IS NULL)               AS environment
         FROM spans
         WHERE project_id = {project_id:String}
@@ -87,9 +86,7 @@ def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dic
     for row in result.result_rows:
         summaries[row[0]] = {
             "root_span_finished": bool(row[1]),
-            # Expose status as a string matching what users configure ("ERROR" or "OK")
-            "status": "ERROR" if bool(row[2]) else "OK",
-            "environment": row[3],  # Nullable — None if not set
+            "environment": row[2],  # Nullable — None if not set
         }
     return summaries
 

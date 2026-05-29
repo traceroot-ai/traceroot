@@ -43,7 +43,7 @@ class TraceListItem(BaseModel):
     session_id: str | None
     span_count: int
     duration_ms: float | None
-    status: str  # "ok" or "error"
+    error_count: int
     input: str | None
     output: str | None
     total_input_tokens: int | None = 0

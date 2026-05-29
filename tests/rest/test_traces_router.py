@@ -21,7 +21,7 @@ TRACE_LIST_ITEM = {
     "session_id": None,
     "span_count": 3,
     "duration_ms": 1500.0,
-    "status": "ok",
+    "error_count": 0,
     "input": "hello",
     "output": "world",
 }
@@ -98,6 +98,8 @@ class TestListTraces:
         data = response.json()
         assert len(data["data"]) == 1
         assert data["data"][0]["trace_id"] == "abc123"
+        assert data["data"][0]["error_count"] == 0
+        assert "status" not in data["data"][0]
         assert data["meta"]["total"] == 1
 
     def test_with_name_and_user_filters(self, client, mock_trace_reader):
