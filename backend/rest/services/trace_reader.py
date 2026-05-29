@@ -65,13 +65,21 @@ class TraceReaderService:
         # and never groups by the large input/output text columns. See #963.
         query = f"""
             WITH page AS (
+                -- Dedup ReplacingMergeTree by latest ch_update_time FIRST (correctness),
+                -- THEN order by start time for pagination.
                 SELECT
-                    t.trace_id, t.project_id, t.name, t.trace_start_time,
-                    t.user_id, t.session_id, t.input, t.output
-                FROM traces AS t
-                WHERE {where_clause}
-                ORDER BY t.trace_start_time DESC, t.ch_update_time DESC
-                LIMIT 1 BY t.project_id, t.trace_id
+                    trace_id, project_id, name, trace_start_time,
+                    user_id, session_id, input, output
+                FROM (
+                    SELECT
+                        t.trace_id, t.project_id, t.name, t.trace_start_time,
+                        t.user_id, t.session_id, t.input, t.output
+                    FROM traces AS t
+                    WHERE {where_clause}
+                    ORDER BY t.ch_update_time DESC
+                    LIMIT 1 BY t.project_id, t.trace_id
+                )
+                ORDER BY trace_start_time DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             ),
             span_agg AS (
@@ -284,7 +292,7 @@ class TraceReaderService:
                     SELECT t.session_id, t.trace_start_time
                     FROM traces AS t
                     WHERE {where_clause}
-                    ORDER BY t.trace_start_time DESC, t.ch_update_time DESC
+                    ORDER BY t.ch_update_time DESC
                     LIMIT 1 BY t.project_id, t.trace_id
                 ) AS t
                 GROUP BY t.session_id
@@ -298,7 +306,7 @@ class TraceReaderService:
                 FROM traces AS t
                 WHERE {where_clause}
                   AND t.session_id IN (SELECT session_id FROM session_page)
-                ORDER BY t.trace_start_time DESC, t.ch_update_time DESC
+                ORDER BY t.ch_update_time DESC
                 LIMIT 1 BY t.project_id, t.trace_id
             ),
             span_agg AS (
@@ -343,11 +351,17 @@ class TraceReaderService:
 
         result = self._client.query(query, parameters=params)
 
-        # Get total count of distinct sessions (no FINAL; DISTINCT dedupes)
+        # Total distinct sessions. Dedup traces to their latest version first (via
+        # LIMIT 1 BY) so a session_id changed across versions isn't double-counted.
         count_query = f"""
-            SELECT count(DISTINCT t.session_id)
-            FROM traces AS t
-            WHERE {where_clause}
+            SELECT count(DISTINCT session_id)
+            FROM (
+                SELECT t.session_id
+                FROM traces AS t
+                WHERE {where_clause}
+                ORDER BY t.ch_update_time DESC
+                LIMIT 1 BY t.project_id, t.trace_id
+            )
         """
         count_result = self._client.query(count_query, parameters=params)
         total = count_result.result_rows[0][0] if count_result.result_rows else 0
@@ -615,7 +629,7 @@ class TraceReaderService:
                     SELECT t.user_id, t.trace_id, t.trace_start_time
                     FROM traces AS t
                     WHERE {where_clause}
-                    ORDER BY t.trace_start_time DESC, t.ch_update_time DESC
+                    ORDER BY t.ch_update_time DESC
                     LIMIT 1 BY t.project_id, t.trace_id
                 )
                 GROUP BY user_id
@@ -627,7 +641,7 @@ class TraceReaderService:
                 FROM traces AS t
                 WHERE {where_clause}
                   AND t.user_id IN (SELECT user_id FROM user_page)
-                ORDER BY t.trace_start_time DESC, t.ch_update_time DESC
+                ORDER BY t.ch_update_time DESC
                 LIMIT 1 BY t.project_id, t.trace_id
             ),
             span_totals AS (
@@ -661,11 +675,17 @@ class TraceReaderService:
 
         result = self._client.query(query, parameters=params)
 
-        # Get total count (count(DISTINCT) dedupes ReplacingMergeTree rows; no FINAL)
+        # Total distinct users. Dedup traces to their latest version first (via
+        # LIMIT 1 BY) so a user_id changed across versions isn't double-counted.
         count_query = f"""
-            SELECT count(DISTINCT t.user_id)
-            FROM traces AS t
-            WHERE {where_clause}
+            SELECT count(DISTINCT user_id)
+            FROM (
+                SELECT t.user_id
+                FROM traces AS t
+                WHERE {where_clause}
+                ORDER BY t.ch_update_time DESC
+                LIMIT 1 BY t.project_id, t.trace_id
+            )
         """
         count_result = self._client.query(count_query, parameters=params)
         total = count_result.result_rows[0][0] if count_result.result_rows else 0
