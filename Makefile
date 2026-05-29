@@ -4,11 +4,15 @@
 
 PROD_COMPOSE := docker compose -f docker-compose.prod.yml
 
-.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset
+.PHONY: install-hooks check-frontend-deps dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset
 
 ## Install repository git hooks for contributors.
 install-hooks:
 	uv run pre-commit install
+
+## Warn when host frontend dependencies are missing for editor support.
+check-frontend-deps:
+	@test -d frontend/node_modules || echo "hint: run 'pnpm --dir frontend install' for VS Code/TypeScript support; Docker installs its own dependencies."
 
 ## Start developing. Handles everything: deps, infra, migrations, tmux launch.
 ## Idempotent - safe to run repeatedly. Reattaches if already running.
@@ -20,7 +24,7 @@ dev-autoreload: install-hooks
 	uv run python tmux_tools/launcher.py --autoreload
 
 ## Windows contributors: full dev env without tmux requirement.
-dev-lite: install-hooks
+dev-lite: install-hooks check-frontend-deps
 	@echo "Starting TraceRoot at http://localhost:3000 - Ctrl+C to stop"
 	$(PROD_COMPOSE) up --build
 

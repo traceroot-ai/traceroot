@@ -34,12 +34,12 @@ On Windows or in environments without tmux, use `make dev-lite` instead.
 |---------|-------------|
 | `make dev` | Start dev environment. Idempotent - reattaches to existing tmux session if running and installs the pre-commit hook. |
 | `make dev-autoreload` | Same as `make dev`, but services auto-restart on code changes. |
-| `make dev-lite` | Start the local Docker workflow without tmux and install the pre-commit hook. Helpful on Windows. |
+| `make dev-lite` | Start the local Docker workflow without tmux and install the pre-commit hook. Helpful on Windows; prints a host dependency hint if `frontend/node_modules` is missing. |
 | `make dev-reset` | Nuclear reset: kills tmux, destroys containers/volumes/node_modules. Run `make dev` after. |
 | `make prod` | Start all services in Docker with tmux log viewer. |
 | `make prod-lite` | Run the Docker stack directly without tmux. Helpful on Windows and in environments without tmux. |
 
-`make dev`, `make dev-autoreload`, and `make dev-lite` install the pre-commit hook automatically on first run.
+`make dev`, `make dev-autoreload`, and `make dev-lite` install the pre-commit hook automatically on first run. `make dev-lite` runs the app in Docker, so if your editor reports missing frontend modules, run `pnpm --dir frontend install` on the host for local TypeScript/VS Code support.
 
 The tmux-based commands handle deps, Docker containers, migrations, and launch services in tmux (one window per service).
 
