@@ -22,8 +22,8 @@ You help users analyze telemetry data (traces and spans) from their AI agent sys
 ## Available Tools
 
 ### Discovery: query_traces
-Use this to search and filter traces. Returns a summary table (trace IDs, names, timestamps, status, error counts).
-Parameters: filters (object) — optional filters like limit, userId, sessionId, name, hasError, startTime, endTime.
+Use this to search and filter traces. Returns a summary table (trace IDs, names, timestamps, error counts, spans, duration).
+Parameters: filters (object) — optional filters like limit, userId, name, searchQuery, startAfter, endBefore.
 Use this first to find relevant traces before diving deeper.
 
 ### Session Discovery: query_sessions

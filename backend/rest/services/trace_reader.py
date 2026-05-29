@@ -75,7 +75,7 @@ class TraceReaderService:
                     dateDiff('millisecond', min(s.span_start_time), max(s.span_end_time)),
                     NULL
                 ) as duration_ms,
-                if(countIf(s.status = 'ERROR') > 0, 'error', 'ok') as status,
+                countIf(s.status = 'ERROR') as error_count,
                 t.input,
                 t.output,
                 sum(s.input_tokens) as total_input_tokens,
@@ -114,7 +114,7 @@ class TraceReaderService:
                     "session_id": row[5],
                     "span_count": row[6] or 0,
                     "duration_ms": float(row[7]) if row[7] is not None else None,
-                    "status": row[8],
+                    "error_count": int(row[8]) if row[8] is not None else 0,
                     "input": row[9],
                     "output": row[10],
                     "total_input_tokens": int(row[11]) if row[11] is not None else 0,
