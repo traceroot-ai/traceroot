@@ -601,28 +601,70 @@ class TraceReaderService:
 
         where_clause = " AND ".join(conditions)
 
+        # Page the users FIRST (trace_count / last_trace_time come from traces alone,
+        # deduped via LIMIT 1 BY instead of FINAL), then sum span tokens/cost for only
+        # that page's users' traces. Avoids the full traces x spans FINAL join over the
+        # whole project on each call. See #963.
         query = f"""
+            WITH user_page AS (
+                SELECT
+                    user_id,
+                    count(DISTINCT trace_id) as trace_count,
+                    max(trace_start_time) as last_trace_time
+                FROM (
+                    SELECT t.user_id, t.trace_id, t.trace_start_time
+                    FROM traces AS t
+                    WHERE {where_clause}
+                    ORDER BY t.trace_start_time DESC, t.ch_update_time DESC
+                    LIMIT 1 BY t.project_id, t.trace_id
+                )
+                GROUP BY user_id
+                ORDER BY last_trace_time DESC
+                LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
+            ),
+            user_traces AS (
+                SELECT t.user_id, t.trace_id
+                FROM traces AS t
+                WHERE {where_clause}
+                  AND t.user_id IN (SELECT user_id FROM user_page)
+                ORDER BY t.trace_start_time DESC, t.ch_update_time DESC
+                LIMIT 1 BY t.project_id, t.trace_id
+            ),
+            span_totals AS (
+                SELECT
+                    ut.user_id,
+                    sum(s.input_tokens) as total_input_tokens,
+                    sum(s.output_tokens) as total_output_tokens,
+                    sum(s.cost) as total_cost
+                FROM user_traces AS ut
+                LEFT JOIN (
+                    SELECT trace_id, span_id, input_tokens, output_tokens, cost
+                    FROM spans
+                    WHERE project_id = {{project_id:String}}
+                      AND trace_id IN (SELECT trace_id FROM user_traces)
+                    ORDER BY ch_update_time DESC
+                    LIMIT 1 BY project_id, trace_id, span_id
+                ) AS s ON ut.trace_id = s.trace_id
+                GROUP BY ut.user_id
+            )
             SELECT
-                t.user_id,
-                count(DISTINCT t.trace_id) as trace_count,
-                max(t.trace_start_time) as last_trace_time,
-                sum(s.input_tokens) as total_input_tokens,
-                sum(s.output_tokens) as total_output_tokens,
-                sum(s.cost) as total_cost
-            FROM traces AS t FINAL
-            LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
-            WHERE {where_clause}
-            GROUP BY t.user_id
-            ORDER BY last_trace_time DESC
-            LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
+                up.user_id,
+                up.trace_count,
+                up.last_trace_time,
+                st.total_input_tokens,
+                st.total_output_tokens,
+                st.total_cost
+            FROM user_page AS up
+            LEFT JOIN span_totals AS st ON up.user_id = st.user_id
+            ORDER BY up.last_trace_time DESC
         """
 
         result = self._client.query(query, parameters=params)
 
-        # Get total count
+        # Get total count (count(DISTINCT) dedupes ReplacingMergeTree rows; no FINAL)
         count_query = f"""
             SELECT count(DISTINCT t.user_id)
-            FROM traces AS t FINAL
+            FROM traces AS t
             WHERE {where_clause}
         """
         count_result = self._client.query(count_query, parameters=params)
