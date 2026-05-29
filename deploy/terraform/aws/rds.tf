@@ -29,7 +29,7 @@ resource "aws_rds_cluster" "postgres" {
   cluster_identifier = "${var.name}-postgres"
   engine             = "aurora-postgresql"
   engine_mode        = "provisioned"
-  engine_version     = "17.4"
+  engine_version     = "17.7"
   database_name      = "traceroot"
   master_username    = "traceroot"
   master_password    = random_password.postgres.result
@@ -46,6 +46,11 @@ resource "aws_rds_cluster" "postgres" {
     max_capacity = var.postgres_max_capacity
   }
 
+  # AWS auto-applies minor version upgrades; don't let Terraform revert them.
+  lifecycle {
+    ignore_changes = [engine_version]
+  }
+
   tags = local.tags
 }
 
@@ -55,6 +60,10 @@ resource "aws_rds_cluster_instance" "postgres" {
   instance_class     = "db.serverless"
   engine             = aws_rds_cluster.postgres.engine
   engine_version     = aws_rds_cluster.postgres.engine_version
+
+  lifecycle {
+    ignore_changes = [engine_version]
+  }
 
   tags = local.tags
 }
