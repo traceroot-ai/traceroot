@@ -183,12 +183,13 @@ class ReActAgent:
 
     Uses OpenRouter as the model provider by setting base_url on the
     OpenAI client. Any OpenRouter model string works — examples include
-    'openai/gpt-4o-mini', 'anthropic/claude-3-5-sonnet', etc.
+    'anthropic/claude-3-5-sonnet', 'meta-llama/llama-3.3-70b-instruct',
+    etc.
     """
 
     OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-    def __init__(self, model: str = "openai/gpt-4o-mini"):
+    def __init__(self, model: str = "anthropic/claude-3-5-sonnet"):
         self.client = openai.OpenAI(
             api_key=os.environ["OPENROUTER_API_KEY"],
             base_url=self.OPENROUTER_BASE_URL,
@@ -297,7 +298,20 @@ class ReActAgent:
 
             # Execute each tool call
             for tc in msg.tool_calls:
-                args = json.loads(tc.function.arguments)
+                try:
+                    args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError as e:
+                    logger.warning("Invalid tool arguments for %s: %s", tc.function.name, e)
+                    self.messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": json.dumps(
+                                {"error": "Invalid tool arguments JSON", "details": str(e)}
+                            ),
+                        }
+                    )
+                    continue
                 logger.info(f"Tool call: {tc.function.name}({args})")
                 result = self._execute_tool(tc.function.name, args)
                 logger.info(f"Tool result: {result}")

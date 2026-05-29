@@ -158,7 +158,7 @@ Available tools: weather, web search, stock prices, calculator, current time.`;
 
 class ReActAgent {
   private conversationHistory: OpenAI.Chat.ChatCompletionMessageParam[] = [];
-  private readonly model = 'openai/gpt-4o-mini';
+  private readonly model = 'anthropic/claude-3-5-sonnet';
 
   constructor() {
     this.conversationHistory.push({ role: 'system', content: SYSTEM_PROMPT });
@@ -189,7 +189,18 @@ class ReActAgent {
         if (msg.tool_calls && msg.tool_calls.length > 0) {
           this.conversationHistory.push(msg);
           for (const tc of msg.tool_calls) {
-            const fnArgs = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+            let fnArgs: Record<string, unknown>;
+            try {
+              fnArgs = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+            } catch (error) {
+              const result = JSON.stringify({
+                error: 'Invalid tool arguments JSON',
+                details: error instanceof Error ? error.message : String(error),
+              });
+              console.warn(`\n  [Tool: ${tc.function.name}(invalid JSON)]`);
+              this.conversationHistory.push({ role: 'tool', tool_call_id: tc.id, content: result });
+              continue;
+            }
             console.log(`\n  [Tool: ${tc.function.name}(${JSON.stringify(fnArgs)})]`);
             const result = await this.executeTool(tc.function.name, fnArgs);
             console.log(`  [Result: ${result}]`);

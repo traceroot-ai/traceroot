@@ -2,7 +2,7 @@
 
 ReAct-style agent with [OpenRouter](https://openrouter.ai/) streaming and tool use, instrumented with [TraceRoot](https://traceroot.ai).
 
-OpenRouter provides a unified API to 200+ models (GPT-4o, Claude, Llama, Gemini, Mistral, etc.). Since it's OpenAI-compatible, TraceRoot's OpenAI integration captures all calls automatically — no extra configuration needed.
+OpenRouter provides a unified API to 200+ models (Claude, Llama, Gemini, Mistral, GPT-4o, etc.). Since it's OpenAI-compatible, TraceRoot's OpenAI integration captures all calls automatically — no extra configuration needed.
 
 ## Setup
 
@@ -13,14 +13,6 @@ cp .env.example .env  # fill in OPENROUTER_API_KEY and TRACEROOT_API_KEY
 With `uv` (recommended):
 ```bash
 uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py
-```
-
-## Streaming pipeline
-
-Demonstrates `@observe` on async generators — spans stay open until the last token, capturing real end-to-end latency.
-
-```bash
-uv run --no-project --python 3.13 --with-requirements requirements.txt python streaming-pipeline.py
 ```
 
 ## What it does

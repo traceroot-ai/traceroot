@@ -2,7 +2,7 @@
 
 ReAct-style agent with [OpenRouter](https://openrouter.ai/) tool calling, instrumented with [TraceRoot](https://traceroot.ai).
 
-OpenRouter provides a unified API to 200+ models (GPT-4o, Claude, Llama, Gemini, Mistral, etc.). Since it's OpenAI-compatible, TraceRoot's OpenAI instrumentation captures all calls automatically — no extra configuration needed.
+OpenRouter provides a unified API to 200+ models (Claude, Llama, Gemini, Mistral, GPT-4o, etc.). Since it's OpenAI-compatible, TraceRoot's OpenAI instrumentation captures all calls automatically — no extra configuration needed.
 
 ## Setup
 
