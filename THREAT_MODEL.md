@@ -17,7 +17,8 @@ TraceRoot is an open-source observability and self-healing platform for AI agent
 |---|---|---|
 | **Browser client** | Next.js (TypeScript) | Web UI — trace explorer, debugger, onboarding |
 | **REST API** | FastAPI (Python) | Core backend — auth, trace ingestion, agent runner |
-| **Celery worker** | Python / Redis | Async task queue — processes traces, runs AI debugging |
+| **Celery worker** | Python / Redis | Async task queue — trace ingestion and detector trigger evaluation |
+| **TS agent service** | TypeScript (`frontend/packages/agent/`) | Drives the Daytona sandbox for AI debugging; runs `executors/daytona.ts` and `tools/sandbox.ts` |
 | **ClickHouse** | ClickHouse DB | Columnar store for traces and spans |
 | **Redis** | Redis | Task queue broker + short-lived caching |
 | **Object storage** | AWS S3 | Trace payload storage for large spans |
@@ -27,7 +28,7 @@ TraceRoot is an open-source observability and self-healing platform for AI agent
 
 ### Deployment Surfaces
 
-- **SaaS** (`app.traceroot.ai`): Anthropic-hosted, multi-tenant. Users authenticate via GitHub OAuth.
+- **SaaS** (`app.traceroot.ai`): TraceRoot-managed, multi-tenant on AWS. Users authenticate via GitHub OAuth.
 - **Self-hosted (Docker)**: Single-tenant. User runs the full stack locally or on their own cloud.
 - **Self-hosted (Kubernetes / Terraform)**: Production-grade deploy on AWS with Helm charts.
 - **SDK only**: User installs the Python SDK and points it at either SaaS or their own host.
@@ -44,7 +45,9 @@ TraceRoot is an open-source observability and self-healing platform for AI agent
 [ ClickHouse + S3 ]          <-- trust boundary: internal network only
         |
         v
-[ Celery Worker ]
+[ Celery Worker ]            (trace ingestion + detector trigger evaluation only)
+        
+[ TS Agent Service ]         <-- separate process (frontend/packages/agent/)
         |  sandbox API
         v
 [ Daytona Sandbox ]          <-- trust boundary: ephemeral container, no persistent state
@@ -75,7 +78,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 | T-01 | Trace payloads modified in transit between SDK and ingestion API (MITM on HTTP, not HTTPS) | SDK → API | P1 |
 | T-02 | Attacker with write access to ClickHouse modifies historical trace records to obscure a past failure | ClickHouse | P1 |
 | T-03 | Malicious OSS contributor introduces backdoor in the `traceroot` PyPI package during a supply-chain attack | SDK / CI | P0 |
-| T-04 | Prompt injection via crafted trace payloads manipulates the AI debugger's reasoning or output | Celery worker / AI debugger | P1 |
+| T-04 | Prompt injection via crafted trace payloads manipulates the AI debugger's reasoning or output | TS agent service / Daytona sandbox | P1 |
 
 ### 2.3 Repudiation
 
@@ -101,9 +104,9 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 | ID | Threat | Component | Priority |
 |---|---|---|---|
 | D-01 | Attacker floods trace ingestion endpoint with high-volume spans, exhausting ClickHouse write capacity | REST API / ClickHouse | P1 |
-| D-02 | Celery worker queue overwhelmed with AI debugging tasks, starving real-time trace processing | Redis / Celery | P1 |
+| D-02 | Celery worker queue overwhelmed with trace ingestion and detector tasks, starving real-time processing | Redis / Celery | P1 |
 | D-03 | Large trace payloads (>300 spans) cause memory exhaustion in the Daytona sandbox (known issue #618) | Daytona sandbox | P2 |
-| D-04 | Recursive or deeply nested agent traces cause unbounded processing time | Celery worker | P2 |
+| D-04 | Recursive or deeply nested agent traces cause unbounded processing time in the TS agent service | TS agent service | P2 |
 
 ### 2.6 Elevation of Privilege
 
@@ -135,7 +138,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 | Threat ID | Gap | Recommended Action | Priority |
 |---|---|---|---|
 | T-03, T-04 | No GitHub Actions pinning — workflows use floating tags (e.g. `@v3`) | Pin all GitHub Actions to commit SHAs (see issue #762) | P1 |
-| T-04 | No systematic sanitisation of trace payloads before they reach the AI prompt | Add a payload sanitisation layer in the Celery worker before AI prompt construction | P0 |
+| T-04 | No systematic sanitisation of trace payloads before they reach the AI prompt | Add a payload sanitisation layer in the TS agent service (`frontend/packages/agent/`) before AI prompt construction | P0 |
 | I-01 | No automatic scrubbing of API key patterns in span attributes | Implement regex-based secret scrubbing in the SDK before payloads are sent | P0 |
 | I-03 | Row-level security in ClickHouse not formally verified | Audit all ClickHouse queries for tenant isolation; add integration tests asserting cross-tenant data is unreachable | P0 |
 | R-01 | No audit log table for sensitive operations (debug session start, trace delete, billing change) | Add `audit_log` table in ClickHouse; log actor, action, resource, timestamp | P1 |
