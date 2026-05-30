@@ -397,6 +397,32 @@ export function startDetectorRunWorker(): Worker<DetectorRunJob> {
           ]),
         });
 
+        // Write a detector_run row so the hourly reconciliation can see that
+        // a finding was already created for this detector in this window.
+        // Without this, reconcileBudgetAlerts() finds no row with a non-null
+        // finding_id and re-enqueues an alert on every hourly cron cycle.
+        //
+        // Do NOT swallow this error. If the run write fails we let the job
+        // throw so BullMQ retries it. Both writeDetectorFinding (above) and
+        // writeDetectorRun use deterministic IDs and ClickHouse
+        // ReplacingMergeTree, so retrying is fully idempotent and avoids the
+        // finding-exists-but-no-run-row state that causes infinite re-enqueueing.
+        //
+        // Use findingId (window-scoped) as the second hash input instead of
+        // traceId. Budget alerts have traceId = "" so every alert for the same
+        // project+detector would otherwise collapse onto a single ClickHouse
+        // row, letting ReplacingMergeTree overwrite prior windows and making
+        // older alerts invisible to reconciliation and usage totals.
+        const budgetRunId = deterministicRunId(projectId, budgetAlert.findingId, budgetAlert.detectorId);
+        await writeDetectorRun({
+          runId: budgetRunId,
+          detectorId: budgetAlert.detectorId,
+          projectId,
+          traceId: traceId || "",
+          findingId: budgetAlert.findingId,
+          status: "completed",
+        });
+
         const rcaFinding: DetectorRcaFinding = {
           detectorId: budgetAlert.detectorId,
           detectorName: budgetAlert.detectorName,

@@ -887,9 +887,22 @@ async function reconcileBudgetAlerts(workspaceId: string, projectIds: string[]):
 
       if (thresholdUsd == null || !window || !(window in BUDGET_WINDOW_MS)) continue;
 
-      // 3. Query ClickHouse for project spend in the configured window
+      // 3. Query ClickHouse for project spend in the configured window.
+      //
+      // Use a true rolling lookback (now − windowMs) so the reconciliation
+      // measures the same slice as the Python sorted-set counter, which also
+      // uses [now − window_secs, now] as its ZRANGEBYSCORE range. The old
+      // epoch-bucketed start (floor(now/windowSecs)*windowSecs) snapped to UTC
+      // boundaries, causing under/overcounting near rollovers.
+      //
+      // windowKey stays epoch-bucketed: it is only used for the deterministic
+      // finding-ID and cooldown key, which need a stable per-slot label — not
+      // an accurate spend measurement.
       const windowMs = BUDGET_WINDOW_MS[window];
+      const windowSecs = windowMs / 1000;
       const startTime = new Date(Date.now() - windowMs);
+      const windowEpoch = Math.floor(Date.now() / 1000 / windowSecs) * windowSecs;
+      const windowKey = `${window}-${windowEpoch}`;
 
       const response = await fetch(
         `${BACKEND_URL}/api/v1/internal/projects/${detector.projectId}/spend?start_time=${startTime.toISOString()}`,
@@ -907,9 +920,16 @@ async function reconcileBudgetAlerts(workspaceId: string, projectIds: string[]):
 
       if (total_cost < thresholdUsd) continue;
 
-      // 4. Check if a recent finding already exists (don't duplicate)
+      // 4. Check if a finding already exists for this exact window epoch.
+      //
+      // Filter by finding_id directly instead of fetching the most-recent run
+      // and inspecting data[0]. The data[0] check broke whenever a later run
+      // (e.g. a regular trace scan) existed for the same detector — data[0]
+      // would be that newer run, not the budget alert, so the matching
+      // finding_id was missed and the cron re-enqueued a duplicate every hour.
+      const expectedFindingId = deterministicFindingId(detector.projectId, detector.id, windowKey);
       const findingResponse = await fetch(
-        `${BACKEND_URL}/api/v1/internal/detector-runs?project_id=${detector.projectId}&detector_id=${detector.id}&limit=1`,
+        `${BACKEND_URL}/api/v1/internal/detector-runs?project_id=${detector.projectId}&detector_id=${detector.id}&finding_id=${expectedFindingId}&limit=1`,
         { headers: { "X-Internal-Secret": INTERNAL_API_SECRET } },
       );
 
@@ -917,25 +937,20 @@ async function reconcileBudgetAlerts(workspaceId: string, projectIds: string[]):
         const { data } = (await findingResponse.json()) as {
           data: Array<{ timestamp: string; finding_id: string | null }>;
         };
-        if (data.length > 0 && data[0].finding_id) {
-          const lastFindingTime = new Date(data[0].timestamp).getTime();
-          if (Date.now() - lastFindingTime < windowMs) {
-            // A finding already exists within this window — skip
-            continue;
-          }
+        // Any non-empty result means a run row exists for exactly this finding
+        // ID — the alert already fired for this window slot, skip recovery.
+        if (data.length > 0) {
+          // Alert already fired for this epoch window — skip.
+          continue;
         }
       }
 
-      // 5. No recent finding — log, reset Redis counter, and enqueue the alert to recover it
+      // 5. No finding for this epoch window — log, reset Redis counter, and enqueue.
       console.log(
         `[Billing] Budget reconciliation: project ${detector.projectId} ` +
           `detector ${detector.id} spend $${total_cost.toFixed(2)} >= threshold $${thresholdUsd} ` +
-          `in ${window} window. Recovering lost alert and resetting Redis counter...`,
+          `in ${window} window (epoch ${windowEpoch}). Recovering lost alert and resetting Redis counter...`,
       );
-
-      const windowSecs = windowMs / 1000;
-      const windowEpoch = Math.floor(Date.now() / 1000 / windowSecs) * windowSecs;
-      const windowKey = `${window}-${windowEpoch}`;
 
       const findingId = deterministicFindingId(detector.projectId, detector.id, windowKey);
       const summary =
@@ -972,18 +987,15 @@ async function reconcileBudgetAlerts(workspaceId: string, projectIds: string[]):
           attempts: 3,
         });
 
-        // Sync the Redis spend counter and set TTL to authoritative ClickHouse spend.
-        // Counter key must include the epoch to match the Python ingest path format:
-        //   budget:project:{projectId}:{detectorId}:{window}-{epoch}
-        const counterKey = `budget:project:${detector.projectId}:${detector.id}:${windowKey}`;
-        await connection.set(counterKey, String(total_cost), "EX", windowSecs);
-
-        // Set cooldown key to avoid double alerting in ingestion path
+        // Set cooldown key so the Python ingest path won't double-alert within
+        // this reconciliation's window slot. The sorted-set counter is NOT seeded
+        // here — it will rebuild naturally from new ingest batches, and the
+        // reconciliation cron provides the authoritative safety net via ClickHouse.
         const cooldownKey = `budget:alert:cooldown:${detector.projectId}:${detector.id}:${windowKey}`;
         await connection.set(cooldownKey, "1", "EX", windowSecs);
 
         console.log(
-          `[Billing] Budget reconciliation alert enqueued & Redis counter synced for detector ${detector.id}`,
+          `[Billing] Budget reconciliation alert enqueued for detector ${detector.id}`,
         );
         await queue.close();
       } finally {

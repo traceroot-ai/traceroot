@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 import time
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -104,10 +105,29 @@ def _fetch_budget_detectors(project_id: str) -> list[dict]:
     for detector_id, detector_name, conditions in rows:
         # Parse conditions JSONB
         if conditions is None:
+            logger.error(
+                f"Budget detector {detector_id} ({detector_name!r}) has no trigger "
+                f"conditions — it will be silently excluded from spend enforcement. "
+                f"Ensure a detector_triggers row exists with a valid conditions array."
+            )
             continue
         if isinstance(conditions, str):
-            conditions = json.loads(conditions)
+            try:
+                conditions = json.loads(conditions)
+            except (json.JSONDecodeError, ValueError) as exc:
+                logger.error(
+                    f"Budget detector {detector_id} ({detector_name!r}) has unparseable "
+                    f"conditions JSON: {exc}. Raw value: {conditions[:200]!r}. "
+                    f"Detector excluded from spend enforcement."
+                )
+                continue
         if not isinstance(conditions, list):
+            logger.error(
+                f"Budget detector {detector_id} ({detector_name!r}) has conditions of "
+                f"type {type(conditions).__name__!r} (expected list). "
+                f"Actual value: {str(conditions)[:200]!r}. "
+                f"Detector excluded from spend enforcement — fix the trigger config."
+            )
             continue
 
         # Extract budget config from conditions
@@ -250,29 +270,60 @@ def check_budget_thresholds(
         logger.warning("Failed to get Redis client for budget check", exc_info=True)
         return
 
-    # Prevent duplicate processing on Celery retries
-    if idempotency_key:
-        processed_key = f"budget:processed:{idempotency_key}"
-        # Set processed key in Redis with 24h expiry to automatically reclaim memory
-        was_set = redis_client.set(processed_key, "1", ex=86400, nx=True)
-        if not was_set:
-            logger.info(
-                f"Budget check skipped for project {project_id} (idempotency key {idempotency_key} already processed)"
-            )
-            return
+    # Prevent duplicate processing on Celery retries.
+    # Strategy: per-detector sub-keys (budget:processed:{key}:{detector_id})
+    # are written immediately after each detector succeeds. The batch-level key
+    # (budget:processed:{key}) is written only once every detector is done.
+    #
+    # This means:
+    # - A retry skips detectors that already succeeded (no duplicate alerts).
+    # - A retry re-runs only the detectors that failed (no silent misses).
+    processed_key = f"budget:processed:{idempotency_key}" if idempotency_key else None
+    if processed_key and redis_client.get(processed_key):
+        logger.info(
+            f"Budget check skipped for project {project_id} "
+            f"(idempotency key {idempotency_key} already processed)"
+        )
+        return
 
     budget_detectors = _get_budget_detectors_cached(redis_client, project_id)
     if not budget_detectors:
+        # Nothing to do — mark processed so future retries skip the DB lookup too.
+        if processed_key:
+            redis_client.set(processed_key, "1", ex=86400, nx=True)
         return
 
+    failed = False
     for detector in budget_detectors:
+        detector_id = detector["id"]
+
+        # Skip detectors that already succeeded on a previous attempt.
+        detector_processed_key = (
+            f"{processed_key}:{detector_id}" if processed_key else None
+        )
+        if detector_processed_key and redis_client.get(detector_processed_key):
+            logger.debug(
+                f"Detector {detector_id} already processed for batch "
+                f"{idempotency_key}, skipping"
+            )
+            continue
+
         try:
-            _check_single_detector(redis_client, project_id, detector, batch_cost)
+            _check_single_detector(redis_client, project_id, detector, batch_cost, idempotency_key)
+            # Mark this detector as done immediately so a retry won't repeat it.
+            if detector_processed_key:
+                redis_client.set(detector_processed_key, "1", ex=86400, nx=True)
         except Exception:
+            failed = True
             logger.error(
-                f"Budget check failed for detector {detector['id']}",
+                f"Budget check failed for detector {detector_id}",
                 exc_info=True,
             )
+
+    # Write the batch-level key only when every detector has been individually
+    # marked. On the next retry the top-level GET will short-circuit immediately.
+    if processed_key and not failed:
+        redis_client.set(processed_key, "1", ex=86400, nx=True)
 
 
 def _check_single_detector(
@@ -280,6 +331,7 @@ def _check_single_detector(
     project_id: str,
     detector: dict,
     batch_cost: float,
+    idempotency_key: str | None = None,
 ) -> None:
     """Check a single budget detector against the running Redis counter."""
     threshold_usd = detector["threshold_usd"]
@@ -287,35 +339,53 @@ def _check_single_detector(
     window_secs = WINDOW_SECONDS[window]
     detector_id = detector["id"]
 
-    # 1. INCRBYFLOAT — O(1), atomic
+    # 1. Rolling-window spend accumulation via a Redis Sorted Set.
     #
-    # Counter key is scoped to the current window EPOCH (same as the cooldown
-    # and finding-ID keys) so that spend from adjacent windows never pollutes
-    # each other. Without the epoch, an un-expired counter from window N would
-    # be incremented into window N+1, producing false-positive alerts.
-    window_epoch = int(time.time()) // window_secs * window_secs
-    counter_key = f"budget:project:{project_id}:{detector_id}:{window}-{window_epoch}"
-    new_total = float(redis_client.incrbyfloat(counter_key, batch_cost))
+    # Key is scoped to project + detector + window only — no epoch bucket.
+    # Each ingest batch writes a unique member that encodes the batch cost,
+    # with the current Unix timestamp as its score. ZREMRANGEBYSCORE prunes
+    # entries older than one full window on every write, so the set always
+    # holds at most one window's worth of batches.
+    #
+    # This gives a true rolling lookback (now − window_secs → now) rather
+    # than snapping to a fixed UTC boundary. The old INCRBYFLOAT approach
+    # keyed on `floor(now / window_secs) * window_secs`, meaning "24h"
+    # measured "since the start of the current UTC day" — undercounting early
+    # in the day and potentially overcounting/missing alerts near midnight.
+    now = time.time()
+    counter_key = f"budget:project:{project_id}:{detector_id}:{window}"
+    # Member encodes cost so we can sum without an extra round-trip.
+    #
+    # When an idempotency_key is available (Celery task ID or batch hash), use
+    # it as the member suffix instead of a random UUID. ZADD on an existing
+    # member only updates its score (timestamp) — it does NOT add a new entry —
+    # so a Celery retry that reaches this line before `budget:processed:*` is
+    # written will be a no-op on the sorted set rather than adding the same
+    # batch cost a second time.
+    #
+    # Without idempotency_key (fire-and-forget call sites), fall back to a
+    # random UUID so concurrent batches at the same millisecond don’t collapse.
+    if idempotency_key:
+        member = f"{batch_cost}:{idempotency_key}:{detector_id}"
+    else:
+        member = f"{batch_cost}:{uuid.uuid4().hex[:8]}"
+    redis_client.zadd(counter_key, {member: now})
+    # Prune entries that have rolled out of the window.
+    redis_client.zremrangebyscore(counter_key, "-inf", now - window_secs)
+    # Self-expiry after one idle window + small buffer for clock drift.
+    redis_client.expire(counter_key, window_secs + 60)
 
-    # Set TTL on first write — key expires naturally when the window ends.
-    ttl = redis_client.ttl(counter_key)
-    if ttl == -1:  # no expiry set yet (key is new or lost TTL)
-        # Rollout migration: if the old un-scoped key exists, migrate its spend to the new key
-        # and delete the old key atomically (using delete return value as a lock) to avoid double counting.
-        old_key = f"budget:project:{project_id}:{detector_id}:{window}"
-        old_val = redis_client.get(old_key)
-        if old_val:
-            try:
-                if isinstance(old_val, bytes):
-                    old_val = old_val.decode("utf-8")
-                # delete returns 1 if the key was deleted, 0 if it was already deleted by another worker
-                if redis_client.delete(old_key):
-                    old_spend = float(old_val)
-                    if old_spend > 0:
-                        new_total = float(redis_client.incrbyfloat(counter_key, old_spend))
-            except (ValueError, TypeError):
-                pass
-        redis_client.expire(counter_key, window_secs)
+    # Sum the cost of all entries still within the rolling window.
+    entries = redis_client.zrangebyscore(counter_key, now - window_secs, "+inf")
+    new_total = 0.0
+    for entry in entries:
+        if isinstance(entry, bytes):
+            entry = entry.decode("utf-8")
+        try:
+            # Member format: "{cost}:{unique_suffix}" — first segment is cost.
+            new_total += float(entry.split(":")[0])
+        except (ValueError, TypeError):
+            pass
 
     # 2. Threshold check + cooldown
     if new_total >= threshold_usd:
@@ -330,8 +400,15 @@ def _check_single_detector(
         was_set = redis_client.set(cooldown_key, "1", ex=window_secs, nx=True)
 
         if was_set:
-            # First breach in this window — enqueue finding
-            _enqueue_budget_finding(redis_client, project_id, detector, new_total)
+            # First breach in this window — enqueue finding.
+            # If enqueueing fails we MUST release the cooldown key so the next
+            # ingest batch can retry. Leaving a cooldown key without a durably
+            # queued job would silently suppress the alert for the whole window.
+            try:
+                _enqueue_budget_finding(redis_client, project_id, detector, new_total)
+            except Exception:
+                redis_client.delete(cooldown_key)
+                raise
         else:
             logger.debug(
                 f"Budget alert suppressed (cooldown active): "

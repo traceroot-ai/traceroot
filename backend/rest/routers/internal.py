@@ -311,6 +311,10 @@ async def list_detector_runs(
     detector_id: str,
     page: int = Query(0, ge=0, description="Page number (0-indexed)"),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
+    finding_id: str | None = Query(
+        None,
+        description="Exact match on finding_id — use to check if a specific alert already fired",
+    ),
     start_after: datetime | None = Query(
         None, description="Filter runs at/after this timestamp (inclusive)"
     ),
@@ -346,6 +350,10 @@ async def list_detector_runs(
         "project_id": project_id,
         "detector_id": detector_id,
     }
+
+    if finding_id is not None:
+        conditions.append("r.finding_id = {finding_id:String}")
+        params["finding_id"] = finding_id
 
     if start_after is not None:
         conditions.append("r.timestamp >= {start_after:DateTime64(3)}")
