@@ -1,7 +1,7 @@
 # Threat Model — TraceRoot
 
 > **Framework:** STRIDE + 4-question model
-> **Surfaces covered:** SaaS (app.traceroot.ai), Self-hosted, Python SDK
+> **Surfaces covered:** SaaS (app.traceroot.ai), Self-hosted, Python and TypeScript SDKs
 > **Status:** Initial draft — open for review
 > **References:** [SECURITY.md](./SECURITY.md) · [INCIDENT_RESPONSE.md](./INCIDENT_RESPONSE.md) · [OWASP Threat Modeling](https://owasp.org/www-community/Threat_Modeling)
 
@@ -23,6 +23,7 @@ TraceRoot is an open-source observability and self-healing platform for AI agent
 | **Redis** | Redis | Task queue broker + short-lived caching |
 | **Object storage** | AWS S3 | Trace payload storage for large spans |
 | **Python SDK** | `traceroot` PyPI package | Installed in user's agent; instruments LLM calls via OpenTelemetry |
+| **TypeScript SDK** | `@traceroot-ai/traceroot` npm package | Installed in user's agent; instruments LLM calls via OpenTelemetry |
 | **Daytona sandbox** | Containerised runtime | Isolated environment for AI agentic debugging with access to user source code |
 | **GitHub integration** | GitHub App + OAuth linking flow | Uses short-lived installation tokens to read commits, PRs, and issues for root cause correlation |
 
@@ -31,7 +32,7 @@ TraceRoot is an open-source observability and self-healing platform for AI agent
 - **SaaS** (`app.traceroot.ai`): TraceRoot-managed, multi-tenant on AWS. Users authenticate through the Next.js app with Better Auth (email/password or Google); GitHub is connected as a workspace integration.
 - **Self-hosted (Docker)**: Single-tenant. User runs the full stack locally or on their own cloud.
 - **Self-hosted (Kubernetes / Terraform)**: Production-grade deploy on AWS with Helm charts.
-- **SDK only**: User installs the Python SDK and points it at either SaaS or their own host.
+- **SDK only**: User installs the Python or TypeScript SDK and points it at either SaaS or their own host.
 
 ### Trust Boundaries
 
@@ -68,7 +69,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 |---|---|---|---|
 | S-01 | Attacker uses a stolen `TRACEROOT_API_KEY` to ingest fake traces or read another tenant's data | REST API | P0 |
 | S-02 | Attacker forges an auth or integration callback to hijack a session or attach the wrong GitHub installation | Browser client / Next.js API routes | P1 |
-| S-03 | Malicious SDK version published to PyPI impersonates the official `traceroot` package (typosquatting) | PyPI / SDK | P1 |
+| S-03 | Malicious SDK version published to PyPI or npm impersonates an official TraceRoot package (typosquatting) | PyPI / npm / SDK | P1 |
 | S-04 | In self-hosted mode, internal services (Redis, ClickHouse) accept connections without authentication if misconfigured | Self-hosted infra | P2 |
 
 ### 2.2 Tampering
@@ -77,7 +78,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 |---|---|---|---|
 | T-01 | Trace payloads modified in transit between SDK and ingestion API (MITM on HTTP, not HTTPS) | SDK → API | P1 |
 | T-02 | Attacker with write access to ClickHouse modifies historical trace records to obscure a past failure | ClickHouse | P1 |
-| T-03 | Malicious OSS contributor introduces backdoor in the `traceroot` PyPI package during a supply-chain attack | SDK / CI | P0 |
+| T-03 | Malicious OSS contributor introduces a backdoor in a published Python or TypeScript SDK during a supply-chain attack | SDK / CI | P0 |
 | T-04 | Prompt injection via crafted trace payloads manipulates the AI debugger's reasoning or output | TS agent service / Daytona sandbox | P1 |
 
 ### 2.3 Repudiation
@@ -128,7 +129,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 | S-01 | API key authentication required on all ingestion endpoints |
 | S-02 | Better Auth session management; GitHub integration callbacks validate state/origin and require workspace admin membership |
 | T-01, I-01–02 | HTTPS enforced on SaaS; SDK defaults to HTTPS for `TRACEROOT_HOST_URL` |
-| T-03 | PyPI package published from CI; contributors sign CLA |
+| T-03 | PyPI and npm packages published from CI; contributors sign CLA |
 | I-01 | (no mitigation in place — see Known Gaps) |
 | I-03 | Tenant isolation by `project_id` in ClickHouse queries |
 | E-02 | Daytona sandbox is ephemeral and containerised, limiting blast radius |
@@ -168,7 +169,7 @@ Use this checklist when reviewing a PR or doing a quarterly security review.
 
 ### Supply Chain
 - [ ] All GitHub Actions workflows pin dependencies to commit SHAs
-- [ ] PyPI releases are built and published exclusively from CI
+- [ ] PyPI and npm releases are built and published exclusively from CI
 - [ ] Contributors agree to the CLA before merge
 
 ### Sandboxing
