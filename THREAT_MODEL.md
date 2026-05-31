@@ -129,7 +129,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 | S-01 | API key authentication required on all ingestion endpoints |
 | S-02 | Better Auth session management; GitHub integration callbacks validate state/origin and require workspace admin membership |
 | T-01, I-01–02 | HTTPS enforced on SaaS; SDK defaults to HTTPS for `TRACEROOT_HOST_URL` |
-| T-03 | PyPI and npm packages published from CI; contributors sign CLA |
+| T-03 | SDK packages are published from CI in their respective SDK repositories (`traceroot-py` for PyPI, `traceroot-ts` for npm); contributors sign CLA |
 | I-01 | (no mitigation in place — see Known Gaps) |
 | I-03 | Tenant isolation by `project_id` in ClickHouse queries |
 | E-02 | Daytona sandbox is ephemeral and containerised, limiting blast radius |
