@@ -16,7 +16,7 @@ TraceRoot is an open-source observability and self-healing platform for AI agent
 | Component | Technology | Description |
 |---|---|---|
 | **Browser client** | Next.js (TypeScript) | Web UI — trace explorer, debugger, onboarding |
-| **REST API** | FastAPI (Python) | Core backend — auth, trace ingestion, agent runner |
+| **REST API** | FastAPI (Python) | Core backend — trace ingestion, trace reads, and internal service APIs; user-scoped reads are authorised via Next.js session headers |
 | **Celery worker** | Python / Redis | Async task queue — trace ingestion and detector trigger evaluation |
 | **TS agent service** | TypeScript (`frontend/packages/agent/`) | Drives the Daytona sandbox for AI debugging; runs `executors/daytona.ts` and `tools/sandbox.ts` |
 | **ClickHouse** | ClickHouse DB | Columnar store for traces and spans |
@@ -24,11 +24,11 @@ TraceRoot is an open-source observability and self-healing platform for AI agent
 | **Object storage** | AWS S3 | Trace payload storage for large spans |
 | **Python SDK** | `traceroot` PyPI package | Installed in user's agent; instruments LLM calls via OpenTelemetry |
 | **Daytona sandbox** | Containerised runtime | Isolated environment for AI agentic debugging with access to user source code |
-| **GitHub integration** | GitHub OAuth + API | Reads commits, PRs, issues for root cause correlation |
+| **GitHub integration** | GitHub App + OAuth linking flow | Uses short-lived installation tokens to read commits, PRs, and issues for root cause correlation |
 
 ### Deployment Surfaces
 
-- **SaaS** (`app.traceroot.ai`): TraceRoot-managed, multi-tenant on AWS. Users authenticate via GitHub OAuth.
+- **SaaS** (`app.traceroot.ai`): TraceRoot-managed, multi-tenant on AWS. Users authenticate through the Next.js app with Better Auth (email/password or Google); GitHub is connected as a workspace integration.
 - **Self-hosted (Docker)**: Single-tenant. User runs the full stack locally or on their own cloud.
 - **Self-hosted (Kubernetes / Terraform)**: Production-grade deploy on AWS with Helm charts.
 - **SDK only**: User installs the Python SDK and points it at either SaaS or their own host.
@@ -46,14 +46,14 @@ TraceRoot is an open-source observability and self-healing platform for AI agent
         |
         v
 [ Celery Worker ]            (trace ingestion + detector trigger evaluation only)
-        
+
 [ TS Agent Service ]         <-- separate process (frontend/packages/agent/)
         |  sandbox API
         v
 [ Daytona Sandbox ]          <-- trust boundary: ephemeral container, no persistent state
         |  GitHub API
         v
-[ User's GitHub Repo ]       <-- trust boundary: OAuth token scope
+[ User's GitHub Repo ]       <-- trust boundary: GitHub App installation token scope
 ```
 
 ---
@@ -67,7 +67,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 | ID | Threat | Component | Priority |
 |---|---|---|---|
 | S-01 | Attacker uses a stolen `TRACEROOT_API_KEY` to ingest fake traces or read another tenant's data | REST API | P0 |
-| S-02 | Attacker forges a GitHub OAuth callback to hijack a user's session | Browser client / FastAPI | P1 |
+| S-02 | Attacker forges an auth or integration callback to hijack a session or attach the wrong GitHub installation | Browser client / Next.js API routes | P1 |
 | S-03 | Malicious SDK version published to PyPI impersonates the official `traceroot` package (typosquatting) | PyPI / SDK | P1 |
 | S-04 | In self-hosted mode, internal services (Redis, ClickHouse) accept connections without authentication if misconfigured | Self-hosted infra | P2 |
 
@@ -92,7 +92,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 | ID | Threat | Component | Priority |
 |---|---|---|---|
 | I-01 | LLM provider API keys (OpenAI, Anthropic, etc.) captured in trace payloads and stored unmasked | SDK / ClickHouse / S3 | P0 |
-| I-02 | GitHub OAuth tokens stored or logged in plaintext | FastAPI / logs | P0 |
+| I-02 | GitHub App private key or short-lived installation tokens stored or logged in plaintext | Next.js API routes / TS agent service / logs | P0 |
 | I-03 | Trace payloads contain PII (user queries, agent outputs) accessible cross-tenant in SaaS | ClickHouse (multi-tenant) | P0 |
 | I-04 | Stripe billing data exposed via API endpoint lacking authorisation check | REST API | P1 |
 | I-05 | Source code copied into Daytona sandbox persists after session and is accessible to other jobs | Daytona sandbox | P1 |
@@ -114,7 +114,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 |---|---|---|---|
 | E-01 | Regular user accesses another tenant's traces by guessing or enumerating trace IDs (IDOR) | REST API / ClickHouse | P0 |
 | E-02 | Prompt injection in trace data causes the AI debugger to execute arbitrary commands in the Daytona sandbox | Daytona sandbox | P0 |
-| E-03 | Compromised GitHub OAuth token used to access private repos beyond the original scope granted | GitHub integration | P1 |
+| E-03 | Compromised GitHub App credential or installation token used to access private repos beyond the original installation scope | GitHub integration | P1 |
 | E-04 | Self-hosted Redis instance without AUTH allows any process on the network to enqueue arbitrary Celery tasks | Self-hosted infra / Redis | P1 |
 
 ---
@@ -126,10 +126,10 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 | Threat ID(s) | Mitigation |
 |---|---|
 | S-01 | API key authentication required on all ingestion endpoints |
-| S-02 | GitHub OAuth with state parameter; session tokens stored server-side |
+| S-02 | Better Auth session management; GitHub integration callbacks validate state/origin and require workspace admin membership |
 | T-01, I-01–02 | HTTPS enforced on SaaS; SDK defaults to HTTPS for `TRACEROOT_HOST_URL` |
 | T-03 | PyPI package published from CI; contributors sign CLA |
-| I-01 | Sensitive fields (API keys) noted in SECURITY.md as "encrypted at rest" |
+| I-01 | Workspace BYOK model-provider keys are encrypted at rest; project API keys are stored as hashes rather than plaintext |
 | I-03 | Tenant isolation by `project_id` in ClickHouse queries |
 | E-02 | Daytona sandbox is ephemeral and containerised, limiting blast radius |
 
@@ -157,11 +157,11 @@ Use this checklist when reviewing a PR or doing a quarterly security review.
 ### Authentication & Authorisation
 - [ ] Every API endpoint has an explicit authentication check
 - [ ] Every API endpoint that accesses tenant data has an explicit `project_id` ownership check
-- [ ] GitHub OAuth state parameter is validated on callback
+- [ ] Auth and integration callbacks validate state/origin and workspace membership
 - [ ] Redis and ClickHouse require credentials in all deployment modes
 
 ### Data Handling
-- [ ] No LLM provider API keys or GitHub tokens stored or logged in plaintext
+- [ ] No LLM provider keys, GitHub App credentials, or short-lived GitHub tokens are stored or logged in plaintext
 - [ ] Trace payloads are scrubbed for secrets before storage and before AI prompt injection
 - [ ] PII in trace data is scoped to the owning tenant and cannot be accessed cross-tenant
 - [ ] S3 bucket policies restrict access to internal services only
@@ -192,7 +192,7 @@ Use this checklist when reviewing a PR or doing a quarterly security review.
 | Data Asset | Location | Sensitivity |
 |---|---|---|
 | LLM provider API keys (OpenAI, Anthropic, Gemini, etc.) | SDK env → trace payloads → ClickHouse | Critical |
-| GitHub OAuth tokens | FastAPI session / DB | Critical |
+| GitHub App private key and short-lived installation tokens | Next.js API routes / TS agent service / environment | Critical |
 | Agent trace payloads (may contain PII, business logic) | ClickHouse + S3 | High |
 | Stripe billing / subscription data | Backend DB | High |
 | Session tokens | Browser cookies / server | High |
