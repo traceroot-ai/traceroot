@@ -129,7 +129,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 | S-02 | Better Auth session management; GitHub integration callbacks validate state/origin and require workspace admin membership |
 | T-01, I-01–02 | HTTPS enforced on SaaS; SDK defaults to HTTPS for `TRACEROOT_HOST_URL` |
 | T-03 | PyPI package published from CI; contributors sign CLA |
-| I-01 | Workspace BYOK model-provider keys are encrypted at rest; project API keys are stored as hashes rather than plaintext |
+| I-01 | (no mitigation in place — see Known Gaps) |
 | I-03 | Tenant isolation by `project_id` in ClickHouse queries |
 | E-02 | Daytona sandbox is ephemeral and containerised, limiting blast radius |
 
