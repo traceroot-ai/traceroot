@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { Span } from "@/types/api";
-import { enrichSpansWithPending } from "./index";
+import { enrichSpansWithPending, getTraceDuration } from "./index";
+import type { TraceDetail } from "@/types/api";
 
 // Minimal span factory — only fields relevant to enrichSpansWithPending.
 function makeSpan(overrides: Partial<Span> & { span_id: string }): Span {
@@ -179,5 +180,86 @@ describe("enrichSpansWithPending", () => {
 
     expect(s1s).toHaveLength(1);
     expect(s1s[0].pending).toBeFalsy();
+  });
+});
+
+describe("getTraceDuration", () => {
+  const traceOf = (spans: Span[]) => ({ spans }) as unknown as TraceDetail;
+
+  it("uses the full span extent when descendants outlive the root (streaming handler)", () => {
+    // Root HTTP handler returns its stream after 250ms, but the detached agent
+    // work keeps running for ~58s under the same trace. The window must cover
+    // the descendants, not collapse to the root's own 250ms.
+    const root = makeSpan({
+      span_id: "root",
+      span_start_time: "2024-01-01T00:00:00.000Z",
+      span_end_time: "2024-01-01T00:00:00.250Z",
+    });
+    const child = makeSpan({
+      span_id: "child",
+      parent_span_id: "root",
+      span_start_time: "2024-01-01T00:00:00.240Z",
+      span_end_time: "2024-01-01T00:00:58.000Z",
+    });
+
+    expect(getTraceDuration(traceOf([root, child]))).toBe(58_000);
+  });
+
+  it("equals the root duration for a normal trace where the root encloses its children", () => {
+    const root = makeSpan({
+      span_id: "root",
+      span_start_time: "2024-01-01T00:00:00.000Z",
+      span_end_time: "2024-01-01T00:00:05.000Z",
+    });
+    const child = makeSpan({
+      span_id: "child",
+      parent_span_id: "root",
+      span_start_time: "2024-01-01T00:00:01.000Z",
+      span_end_time: "2024-01-01T00:00:04.000Z",
+    });
+
+    expect(getTraceDuration(traceOf([root, child]))).toBe(5_000);
+  });
+
+  it("never returns less than the root's own duration (live root, children closed early)", () => {
+    // Root still open (in-progress) — its duration measures against now() and
+    // must remain the floor even if every child has already finished.
+    const root = makeSpan({
+      span_id: "root",
+      span_start_time: "2024-01-01T00:00:00.000Z",
+      span_end_time: null,
+    });
+    const child = makeSpan({
+      span_id: "child",
+      parent_span_id: "root",
+      span_start_time: "2024-01-01T00:00:00.100Z",
+      span_end_time: "2024-01-01T00:00:00.300Z",
+    });
+
+    const closedChildExtent = 300; // ms, if we ignored the open root
+    expect(getTraceDuration(traceOf([root, child]))!).toBeGreaterThan(closedChildExtent);
+  });
+
+  it("falls back to the span extent when there is no root (orphan spans)", () => {
+    // Every span's parent is missing (e.g. partial trace) — no root to anchor
+    // on, so the window is just the extent across the orphans.
+    const a = makeSpan({
+      span_id: "a",
+      parent_span_id: "missing-1",
+      span_start_time: "2024-01-01T00:00:00.000Z",
+      span_end_time: "2024-01-01T00:00:02.000Z",
+    });
+    const b = makeSpan({
+      span_id: "b",
+      parent_span_id: "missing-2",
+      span_start_time: "2024-01-01T00:00:01.000Z",
+      span_end_time: "2024-01-01T00:00:07.000Z",
+    });
+
+    expect(getTraceDuration(traceOf([a, b]))).toBe(7_000);
+  });
+
+  it("returns null for an empty trace", () => {
+    expect(getTraceDuration(traceOf([]))).toBeNull();
   });
 });
