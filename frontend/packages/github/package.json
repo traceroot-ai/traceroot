@@ -23,6 +23,6 @@
     "@types/jsonwebtoken": "^9.0.0",
     "@types/node": "^22.19.9",
     "typescript": "^5.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.0"
   }
 }
