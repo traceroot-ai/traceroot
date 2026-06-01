@@ -3,7 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "demo": "tsx agent.ts"
+    "demo": "tsx agent.ts",
+    "demo:streaming": "tsx agent-streaming.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.0.0",

@@ -115,27 +115,31 @@ export function getSpanDuration(span: Span): number | null {
 }
 
 /**
- * Calculate trace duration from all spans.
- * Prefer the root span's own start/end to avoid skew from child spans with
- * bad timestamps (e.g. LangGraph task spans). Falls back to min(start)..max(end)
- * across non-pending spans; in-progress spans measure against now() so live
- * traces grow.
+ * Calculate trace duration as the full span extent: max(end) − min(start)
+ * across all spans (in-progress spans measure against now() so live traces grow).
+ *
+ * We don't use the root span's own duration as the window: a root span can
+ * finish well before its descendants (e.g. a streaming handler that returns its
+ * response while work continues in the background), and dividing the timeline by
+ * that short duration pushes every child bar far past the viewport. The root
+ * duration is kept only as a floor so a still-open root doesn't collapse the
+ * window. Matches the backend trace-list query (min start → max end).
  */
 export function getTraceDuration(trace: TraceDetail): number | null {
   const allSpans = enrichSpansWithPending(trace.spans);
   if (!allSpans.length) return null;
-
-  const root = allSpans.find((s) => !s.parent_span_id);
-  if (root) {
-    return getSpanDuration(root);
-  }
 
   const now = Date.now();
   const minStart = Math.min(...allSpans.map((s) => parseTimestamp(s.span_start_time)));
   const maxEnd = Math.max(
     ...allSpans.map((s) => (s.span_end_time ? parseTimestamp(s.span_end_time) : now)),
   );
-  return Math.max(0, maxEnd - minStart);
+  const extent = Math.max(0, maxEnd - minStart);
+
+  const root = allSpans.find((s) => !s.parent_span_id);
+  const rootDuration = root ? (getSpanDuration(root) ?? 0) : 0;
+
+  return Math.max(rootDuration, extent);
 }
 
 /**
