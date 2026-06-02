@@ -115,7 +115,7 @@ Output your findings in this format:
     "Content-Type": "application/json",
     "x-workspace-id": params.workspaceId,
   };
-  console.log("[detector-rca]", "project.rcaModel=", params.rcaModel);
+
   const resolved = await resolveProjectModel(params.rcaModel, params.workspaceId);
   const msgBody: {
     message: string;
