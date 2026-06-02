@@ -1,4 +1,19 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const modelProviderFindMany = vi.fn();
+
+vi.mock("@traceroot/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@traceroot/core")>();
+  return {
+    ...actual,
+    prisma: {
+      ...actual.prisma,
+      modelProvider: {
+        findMany: (...a: any[]) => modelProviderFindMany(...a),
+      },
+    },
+  };
+});
 
 describe("RCA prompt construction", () => {
   it("includes detector name and summary", () => {
@@ -102,5 +117,55 @@ describe("SSE parsing logic", () => {
       }
     }
     expect(result).toBe("");
+  });
+});
+
+describe("resolveProjectModel", () => {
+  beforeEach(() => {
+    modelProviderFindMany.mockReset();
+  });
+
+  it("resolves a system model correctly", async () => {
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const res = await resolveProjectModel("claude-sonnet-4-5", "ws-123");
+    expect(res).toEqual({
+      model: "claude-sonnet-4-5",
+      providerName: "anthropic",
+      source: "system",
+    });
+    expect(modelProviderFindMany).not.toHaveBeenCalled();
+  });
+
+  it("resolves an enabled BYOK model correctly", async () => {
+    modelProviderFindMany.mockResolvedValue([
+      {
+        provider: "deepseek-byok",
+        customModels: ["deepseek/deepseek-chat-v3", "deepseek-chat"],
+      },
+    ]);
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const res = await resolveProjectModel("deepseek/deepseek-chat-v3", "ws-123");
+    expect(res).toEqual({
+      model: "deepseek/deepseek-chat-v3",
+      providerName: "deepseek-byok",
+      source: "byok",
+    });
+    expect(modelProviderFindMany).toHaveBeenCalledWith({
+      where: { workspaceId: "ws-123", enabled: true },
+      select: { provider: true, customModels: true },
+    });
+  });
+
+  it("returns null for unknown/disabled models", async () => {
+    modelProviderFindMany.mockResolvedValue([]);
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const res = await resolveProjectModel("unknown-model", "ws-123");
+    expect(res).toBeNull();
+  });
+
+  it("returns null for empty/undefined models", async () => {
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    expect(await resolveProjectModel(null, "ws-123")).toBeNull();
+    expect(await resolveProjectModel(undefined, "ws-123")).toBeNull();
   });
 });

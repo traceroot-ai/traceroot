@@ -1,5 +1,5 @@
 import { Worker, type Job } from "bullmq";
-import { prisma, SYSTEM_MODELS, PlanType } from "@traceroot/core";
+import { prisma, SYSTEM_MODELS, PlanType, ModelSource } from "@traceroot/core";
 import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
 import { DETECTOR_RCA_QUEUE, createRedisConnection } from "../queues/detector-run-queue.js";
 import { sendCombinedAlertEmail } from "../notifications/email.js";
@@ -9,15 +9,38 @@ const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:810
 
 // Resolve a project-configured rca_model id to the agent service body fields.
 // Returns null when the model is unset or unknown (caller should omit fields).
-function resolveSystemModel(
+export async function resolveProjectModel(
   rcaModel: string | null | undefined,
-): { model: string; providerName: string; source: "system" } | null {
+  workspaceId: string,
+): Promise<{ model: string; providerName: string; source: ModelSource } | null> {
   if (!rcaModel) return null;
   for (const group of SYSTEM_MODELS) {
     if (group.models.some((m) => m.id === rcaModel)) {
-      return { model: rcaModel, providerName: group.piAIProvider, source: "system" };
+      return { model: rcaModel, providerName: group.piAIProvider, source: ModelSource.SYSTEM };
     }
   }
+
+  try {
+    const dbProviders = await prisma.modelProvider.findMany({
+      where: { workspaceId, enabled: true },
+      select: {
+        provider: true,
+        customModels: true,
+      },
+    });
+
+    for (const p of dbProviders) {
+      if (p.customModels.some((m) => m.trim() === rcaModel)) {
+        return { model: rcaModel, providerName: p.provider, source: ModelSource.BYOK };
+      }
+    }
+  } catch (err) {
+    console.error(
+      `[detector-rca] Failed to query model providers for workspace ${workspaceId}:`,
+      err,
+    );
+  }
+
   console.warn(`[detector-rca] Unknown rca_model "${rcaModel}", falling back to default`);
   return null;
 }
@@ -92,14 +115,14 @@ Output your findings in this format:
     "Content-Type": "application/json",
     "x-workspace-id": params.workspaceId,
   };
-
-  const resolved = resolveSystemModel(params.rcaModel);
+  console.log("[detector-rca]", "project.rcaModel=", params.rcaModel);
+  const resolved = await resolveProjectModel(params.rcaModel, params.workspaceId);
   const msgBody: {
     message: string;
     traceId: string;
     model?: string;
     providerName?: string;
-    source?: "system";
+    source?: ModelSource;
   } = { message: prompt, traceId: params.traceId };
   if (resolved) {
     msgBody.model = resolved.model;
