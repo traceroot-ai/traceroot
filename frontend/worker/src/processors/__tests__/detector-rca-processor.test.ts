@@ -140,6 +140,7 @@ describe("resolveProjectModel", () => {
     modelProviderFindMany.mockResolvedValue([
       {
         provider: "deepseek-byok",
+        adapter: "deepseek",
         customModels: ["deepseek/deepseek-chat-v3", "deepseek-chat"],
       },
     ]);
@@ -152,7 +153,73 @@ describe("resolveProjectModel", () => {
     });
     expect(modelProviderFindMany).toHaveBeenCalledWith({
       where: { workspaceId: "ws-123", enabled: true },
-      select: { provider: true, customModels: true },
+      select: { provider: true, adapter: true, customModels: true },
+    });
+  });
+
+  it("disambiguates based on model ID prefix matching provider adapter", async () => {
+    modelProviderFindMany.mockResolvedValue([
+      {
+        provider: "my-openrouter",
+        adapter: "openrouter",
+        customModels: ["deepseek/deepseek-chat-v3"],
+      },
+      {
+        provider: "my-deepseek",
+        adapter: "deepseek",
+        customModels: ["deepseek/deepseek-chat-v3"],
+      },
+    ]);
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const res = await resolveProjectModel("deepseek/deepseek-chat-v3", "ws-123");
+    expect(res).toEqual({
+      model: "deepseek/deepseek-chat-v3",
+      providerName: "my-deepseek",
+      source: "byok",
+    });
+  });
+
+  it("disambiguates based on model ID in curated catalog matching provider adapter", async () => {
+    modelProviderFindMany.mockResolvedValue([
+      {
+        provider: "my-openai",
+        adapter: "openai",
+        customModels: ["deepseek-chat"],
+      },
+      {
+        provider: "my-deepseek",
+        adapter: "deepseek",
+        customModels: ["deepseek-chat"],
+      },
+    ]);
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const res = await resolveProjectModel("deepseek-chat", "ws-123");
+    expect(res).toEqual({
+      model: "deepseek-chat",
+      providerName: "my-deepseek",
+      source: "byok",
+    });
+  });
+
+  it("falls back to the first provider if no adapter matches prefix or catalog", async () => {
+    modelProviderFindMany.mockResolvedValue([
+      {
+        provider: "provider-1",
+        adapter: "openai",
+        customModels: ["custom-model-id"],
+      },
+      {
+        provider: "provider-2",
+        adapter: "google",
+        customModels: ["custom-model-id"],
+      },
+    ]);
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const res = await resolveProjectModel("custom-model-id", "ws-123");
+    expect(res).toEqual({
+      model: "custom-model-id",
+      providerName: "provider-1",
+      source: "byok",
     });
   });
 
