@@ -66,6 +66,12 @@ export default function DetectorsPage() {
     });
   };
 
+  const handleRowClick = (detectorId: string) => {
+    const currentUrl = `/projects/${projectId}/detectors/${window.location.search}`;
+    sessionStorage.setItem("detectorsReturnUrl", currentUrl);
+    router.push(`/projects/${projectId}/detectors/${detectorId}`);
+  };
+
   const openPanel = (detectorId: string) => setSelectedDetectorId(detectorId);
   const closePanel = () => setSelectedDetectorId(null);
 
@@ -195,7 +201,7 @@ export default function DetectorsPage() {
                   return (
                     <tr
                       key={detector.id}
-                      onClick={() => router.push(`/projects/${projectId}/detectors/${detector.id}`)}
+                      onClick={() => handleRowClick(detector.id)}
                       className={cn(
                         "cursor-pointer border-b border-border/50 transition-colors last:border-0",
                         selectedDetectorId === detector.id ? "bg-muted" : "hover:bg-muted/50",
