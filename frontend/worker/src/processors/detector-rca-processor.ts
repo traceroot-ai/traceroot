@@ -1,5 +1,5 @@
 import { Worker, type Job } from "bullmq";
-import { prisma, SYSTEM_MODELS, PlanType, ModelSource } from "@traceroot/core";
+import { prisma, SYSTEM_MODELS, PlanType, ModelSource, ADAPTER_MODELS } from "@traceroot/core";
 import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
 import { DETECTOR_RCA_QUEUE, createRedisConnection } from "../queues/detector-run-queue.js";
 import { sendCombinedAlertEmail } from "../notifications/email.js";
@@ -25,10 +25,35 @@ export async function resolveProjectModel(
       where: { workspaceId, enabled: true },
       select: {
         provider: true,
+        adapter: true,
         customModels: true,
       },
     });
 
+    // First pass: try to find a precise match using adapter prefix or curated catalogs
+    for (const p of dbProviders) {
+      if (p.customModels.some((m) => m.trim() === rcaModel)) {
+        // 1. Prefix match (e.g. "deepseek/deepseek-chat-v3" -> prefix is "deepseek")
+        const hasSlash = rcaModel.includes("/");
+        const prefix = hasSlash ? rcaModel.split("/")[0].toLowerCase() : null;
+        if (prefix && p.adapter.toLowerCase() === prefix) {
+          return { model: rcaModel, providerName: p.provider, source: ModelSource.BYOK };
+        }
+
+        // 2. Curated catalog match (e.g. "deepseek-chat" belongs to curated deepseek adapter catalog)
+        if (!hasSlash) {
+          const curatedAdapter = Object.keys(ADAPTER_MODELS).find((adapterKey) => {
+            const catalog = ADAPTER_MODELS[adapterKey as keyof typeof ADAPTER_MODELS];
+            return catalog?.some((m) => m.id === rcaModel);
+          });
+          if (curatedAdapter && p.adapter.toLowerCase() === curatedAdapter.toLowerCase()) {
+            return { model: rcaModel, providerName: p.provider, source: ModelSource.BYOK };
+          }
+        }
+      }
+    }
+
+    // Second pass: fallback to the first provider containing the model
     for (const p of dbProviders) {
       if (p.customModels.some((m) => m.trim() === rcaModel)) {
         return { model: rcaModel, providerName: p.provider, source: ModelSource.BYOK };
