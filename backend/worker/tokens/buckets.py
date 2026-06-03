@@ -57,6 +57,10 @@ _SCOPE_CONVENTIONS: tuple[tuple[str, InputConvention], ...] = (
 # a silent ~2x overcharge.
 _DEFAULT_CONVENTION = InputConvention.INCLUSIVE
 
+# Bound the dedup set so a high-cardinality (or adversarial) stream of unknown
+# scope names cannot grow it without limit. Real emitters are few; this ceiling
+# is far above any legitimate count.
+_MAX_WARNED_SCOPES = 1024
 _warned_scopes: set[str] = set()
 
 
@@ -69,7 +73,7 @@ def _convention_for_scope(scope_name: str | None) -> InputConvention:
     # Unknown / missing scope: warn once per scope so a future emitter surfaces
     # instead of silently mispricing.
     key = scope_name or "<missing>"
-    if key not in _warned_scopes:
+    if key not in _warned_scopes and len(_warned_scopes) < _MAX_WARNED_SCOPES:
         _warned_scopes.add(key)
         logger.warning(
             "Pricing tokens from unknown instrumentation scope %r; assuming "
@@ -90,23 +94,31 @@ def normalize_token_usage(
 ) -> TokenBuckets:
     """Convert gross instrumentor counts into disjoint priced buckets.
 
-    All returned bucket values are clamped to be non-negative, defensive
-    against inconsistent emitter data where cache counts exceed the reported
-    input total.
+    All returned bucket values are clamped to be non-negative. For the
+    INCLUSIVE convention the cache buckets are additionally capped to the gross
+    input, so inconsistent emitter data (cache counts exceeding the reported
+    input) can never price more tokens than were reported.
 
     The reconciliation invariant ``input_uncached + cache_read + cache_write
-    == input_tokens`` holds only for the INCLUSIVE convention; for EXCLUSIVE
-    the input is not reduced, so the sum of the returned buckets will exceed
-    the raw input count.
+    == input_tokens`` holds for the INCLUSIVE convention (after the non-negative
+    clamp); for EXCLUSIVE the input is not reduced, so the sum of the returned
+    buckets will exceed the raw input count.
     """
     convention = _convention_for_scope(scope_name)
+    gross_input = max(input_tokens, 0)
     cache_read = max(cache_read_tokens, 0)
     cache_write = max(cache_write_tokens, 0)
     output = max(output_tokens, 0)
     if convention is InputConvention.INCLUSIVE:
-        input_uncached = max(input_tokens - cache_read - cache_write, 0)
+        # Cap cache to the gross input so inconsistent emitter data (cache counts
+        # exceeding the reported input) can never price more tokens than were
+        # reported. This keeps the reconciliation invariant
+        # input_uncached + cache_read + cache_write == gross_input intact.
+        cache_read = min(cache_read, gross_input)
+        cache_write = min(cache_write, gross_input - cache_read)
+        input_uncached = gross_input - cache_read - cache_write
     else:  # EXCLUSIVE — input already excludes cache
-        input_uncached = max(input_tokens, 0)
+        input_uncached = gross_input
     return TokenBuckets(
         input_uncached=input_uncached,
         output=output,
