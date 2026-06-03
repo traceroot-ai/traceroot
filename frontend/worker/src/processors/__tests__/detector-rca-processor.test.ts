@@ -153,6 +153,7 @@ describe("resolveProjectModel", () => {
     });
     expect(modelProviderFindMany).toHaveBeenCalledWith({
       where: { workspaceId: "ws-123", enabled: true },
+      orderBy: { id: "asc" },
       select: { provider: true, adapter: true, customModels: true },
     });
   });
@@ -221,6 +222,18 @@ describe("resolveProjectModel", () => {
       providerName: "provider-1",
       source: "byok",
     });
+  });
+
+  it("proves deterministic provider selection by verifying orderBy in findMany when multiple providers share customModel", async () => {
+    // Assert that the findMany query is requested with a stable orderBy: { id: "asc" }
+    modelProviderFindMany.mockResolvedValue([]);
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    await resolveProjectModel("custom-model-id", "ws-123");
+    expect(modelProviderFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: { id: "asc" },
+      }),
+    );
   });
 
   it("returns null for unknown/disabled models", async () => {
