@@ -24,6 +24,9 @@ class SpanResponse(BaseModel):
     input_tokens: int | None
     output_tokens: int | None
     total_tokens: int | None
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    reasoning_tokens: int | None = None
     input: str | None
     output: str | None
     metadata: str | None
