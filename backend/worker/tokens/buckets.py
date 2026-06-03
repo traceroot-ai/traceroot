@@ -2,10 +2,13 @@
 
 Every instrumentor traceroot ingests reports a GROSS (cache-inclusive) input
 count — the cache read/write tokens are a *breakdown of* the input, not
-additive to it. Verified firsthand from installed source (see
-issue-956-token-cost-worklog.html §2): OpenInference Anthropic/OpenAI
-and pydantic-ai/genai-prices both behave this way; the OpenTelemetry
-GenAI semconv mandates it ("input_tokens SHOULD include ... cached tokens").
+additive to it. Verified firsthand from installed source: OpenInference
+Anthropic/OpenAI and pydantic-ai/genai-prices both behave this way, and the
+OpenTelemetry GenAI semconv *requires* it: ``gen_ai.usage.input_tokens`` MUST be
+the total prompt — for Anthropic, ``input_tokens + cache_read_input_tokens +
+cache_creation_input_tokens`` — with the cache fields a subset breakdown of the
+total, not additive on top. Spec:
+https://opentelemetry.io/docs/specs/semconv/gen-ai/anthropic/
 
 We therefore subtract cache from the input to get disjoint buckets, so the
 downstream cost math can price each physical token exactly once with zero
