@@ -6,7 +6,6 @@ import {
   Users,
   Layers,
   ChevronRight,
-  CircleStop,
   CircleDollarSign,
   AlertCircle,
   GitBranch,
@@ -14,9 +13,8 @@ import {
   FileCode,
 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
-import { formatDuration, formatDate, formatTokenFlow, buildUrlWithFilters } from "@/lib/utils";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { TokenUsageBreakdown } from "./TokenUsageBreakdown";
+import { formatDuration, formatDate, buildUrlWithFilters } from "@/lib/utils";
+import { TokenChip } from "./TokenChip";
 import { SpanStatus } from "@traceroot/core";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
@@ -123,32 +121,14 @@ export function SpanInfoPanel({
             </div>
           )}
           {isTrace && traceTokenUsage && (
-            <TooltipProvider delayDuration={150}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                    <CircleStop className="h-3 w-3 text-muted-foreground" />
-                    <span className="font-medium">
-                      {formatTokenFlow(
-                        traceTokenUsage.inputTokens,
-                        traceTokenUsage.outputTokens,
-                        traceTokenUsage.totalTokens,
-                      )}
-                    </span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent className="border bg-popover p-3 text-popover-foreground shadow-md">
-                  <TokenUsageBreakdown
-                    inputTokens={traceTokenUsage.inputTokens}
-                    outputTokens={traceTokenUsage.outputTokens}
-                    totalTokens={traceTokenUsage.totalTokens}
-                    cacheReadTokens={traceTokenUsage.cacheReadTokens}
-                    cacheWriteTokens={traceTokenUsage.cacheWriteTokens}
-                    reasoningTokens={traceTokenUsage.reasoningTokens}
-                  />
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <TokenChip
+              inputTokens={traceTokenUsage.inputTokens}
+              outputTokens={traceTokenUsage.outputTokens}
+              totalTokens={traceTokenUsage.totalTokens}
+              cacheReadTokens={traceTokenUsage.cacheReadTokens}
+              cacheWriteTokens={traceTokenUsage.cacheWriteTokens}
+              reasoningTokens={traceTokenUsage.reasoningTokens}
+            />
           )}
           {isTrace && traceTotalCost && (
             <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
@@ -162,32 +142,14 @@ export function SpanInfoPanel({
             </div>
           )}
           {!isTrace && selection.span.total_tokens != null && (
-            <TooltipProvider delayDuration={150}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                    <CircleStop className="h-3 w-3 text-muted-foreground" />
-                    <span className="font-medium">
-                      {formatTokenFlow(
-                        selection.span.input_tokens,
-                        selection.span.output_tokens,
-                        selection.span.total_tokens,
-                      )}
-                    </span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent className="border bg-popover p-3 text-popover-foreground shadow-md">
-                  <TokenUsageBreakdown
-                    inputTokens={selection.span.input_tokens}
-                    outputTokens={selection.span.output_tokens}
-                    totalTokens={selection.span.total_tokens}
-                    cacheReadTokens={selection.span.cache_read_tokens}
-                    cacheWriteTokens={selection.span.cache_write_tokens}
-                    reasoningTokens={selection.span.reasoning_tokens}
-                  />
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <TokenChip
+              inputTokens={selection.span.input_tokens}
+              outputTokens={selection.span.output_tokens}
+              totalTokens={selection.span.total_tokens}
+              cacheReadTokens={selection.span.cache_read_tokens}
+              cacheWriteTokens={selection.span.cache_write_tokens}
+              reasoningTokens={selection.span.reasoning_tokens}
+            />
           )}
           {!isTrace && selection.span.cost != null && Number.isFinite(selection.span.cost) && (
             <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
