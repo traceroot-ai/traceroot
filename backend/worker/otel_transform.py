@@ -499,21 +499,14 @@ def transform_otel_to_clickhouse(
                             if api_total_tokens is not None
                             else input_tokens + output_tokens
                         )
-                        # Stored token columns stay GROSS (display continuity; PR B
-                        # adds first-class cache columns). Only cost changes here.
                         span_record["input_tokens"] = input_tokens
                         span_record["output_tokens"] = output_tokens
                         span_record["total_tokens"] = total_tokens
 
-                        # Persist the breakdown as first-class columns (#958).
-                        # cache_read/cache_write are a breakdown of gross input;
-                        # reasoning is a subset of output. Display-only.
-                        span_record["cache_read_tokens"] = int_or_zero(api_cache_read_tokens)
-                        span_record["cache_write_tokens"] = int_or_zero(api_cache_write_tokens)
-                        span_record["reasoning_tokens"] = int_or_zero(api_reasoning_tokens)
-
-                        # Cost: normalize counts into disjoint buckets keyed on the
-                        # instrumentation scope, then price each bucket once.
+                        # Normalize counts into disjoint buckets keyed on the
+                        # instrumentation scope. The SAME buckets feed both the
+                        # stored breakdown columns and the cost, so the displayed
+                        # split always reconciles and matches what was priced (#958).
                         from worker.tokens.buckets import normalize_token_usage
                         from worker.tokens.pricing import (
                             cost_from_buckets,
@@ -526,6 +519,14 @@ def transform_otel_to_clickhouse(
                             output_tokens=output_tokens,
                             cache_read_tokens=int_or_zero(api_cache_read_tokens),
                             cache_write_tokens=int_or_zero(api_cache_write_tokens),
+                        )
+                        # Persist the breakdown as first-class columns. cache_read/
+                        # cache_write come from the disjoint buckets; reasoning is a
+                        # subset of output, capped to it so the output split reconciles.
+                        span_record["cache_read_tokens"] = buckets.cache_read
+                        span_record["cache_write_tokens"] = buckets.cache_write
+                        span_record["reasoning_tokens"] = min(
+                            int_or_zero(api_reasoning_tokens), output_tokens
                         )
                         cost = cost_from_buckets(get_model_price(model_name), buckets)
                         if cost is not None:
