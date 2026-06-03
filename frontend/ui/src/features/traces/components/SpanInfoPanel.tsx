@@ -160,7 +160,7 @@ export function SpanInfoPanel({
                     </span>
                   </div>
                 </TooltipTrigger>
-                <TooltipContent>
+                <TooltipContent className="border bg-popover p-3 text-popover-foreground shadow-md">
                   <TokenUsageBreakdown
                     inputTokens={selection.span.input_tokens}
                     outputTokens={selection.span.output_tokens}
