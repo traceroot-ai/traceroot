@@ -14,7 +14,7 @@ import {
   FileCode,
 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
-import { formatDuration, formatDate, formatTokens, buildUrlWithFilters } from "@/lib/utils";
+import { formatDuration, formatDate, formatTokenFlow, buildUrlWithFilters } from "@/lib/utils";
 import { SpanStatus } from "@traceroot/core";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
@@ -123,10 +123,12 @@ export function SpanInfoPanel({
           {isTrace && traceTokenUsage && (
             <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
               <CircleStop className="h-3 w-3 text-muted-foreground" />
-              <span className="font-medium">{formatTokens(traceTokenUsage.totalTokens)}</span>
-              <span className="text-muted-foreground">
-                ({formatTokens(traceTokenUsage.inputTokens)} in /{" "}
-                {formatTokens(traceTokenUsage.outputTokens)} out)
+              <span className="font-medium">
+                {formatTokenFlow(
+                  traceTokenUsage.inputTokens,
+                  traceTokenUsage.outputTokens,
+                  traceTokenUsage.totalTokens,
+                )}
               </span>
             </div>
           )}
@@ -144,10 +146,12 @@ export function SpanInfoPanel({
           {!isTrace && selection.span.total_tokens != null && (
             <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
               <CircleStop className="h-3 w-3 text-muted-foreground" />
-              <span className="font-medium">{formatTokens(selection.span.total_tokens)}</span>
-              <span className="text-muted-foreground">
-                ({formatTokens(selection.span.input_tokens)} in /{" "}
-                {formatTokens(selection.span.output_tokens)} out)
+              <span className="font-medium">
+                {formatTokenFlow(
+                  selection.span.input_tokens,
+                  selection.span.output_tokens,
+                  selection.span.total_tokens,
+                )}
               </span>
             </div>
           )}
