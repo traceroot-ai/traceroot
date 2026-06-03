@@ -23,6 +23,7 @@ export async function resolveProjectModel(
   try {
     const dbProviders = await prisma.modelProvider.findMany({
       where: { workspaceId, enabled: true },
+      orderBy: { id: "asc" },
       select: {
         provider: true,
         adapter: true,
