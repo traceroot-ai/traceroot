@@ -234,3 +234,45 @@ def test_reasoning_tokens_do_not_change_cost():
     # (.get so the assertion holds whether or not pricing data is available —
     # both sides are equal either way; what matters is reasoning can't change it.)
     assert spans_with[0].get("cost") == spans_without[0].get("cost")
+
+
+def test_cache_columns_capped_to_input_when_emitter_inconsistent():
+    """Malformed emitter (cache > input): stored cache reconciles with input."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.input_tokens", 1000),
+            _attr("gen_ai.usage.output_tokens", 200),
+            _attr("gen_ai.usage.cache_read_input_tokens", 900),
+            _attr("gen_ai.usage.cache_creation_input_tokens", 300),
+        ]
+    )
+    _t, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+    s = spans[0]
+    # Capped: cache_read clamped, cache_write fills the remainder, never exceeding input.
+    assert s["cache_read_tokens"] == 900
+    assert s["cache_write_tokens"] == 100
+    # Reconciles with gross input: cache_read + cache_write + uncached == input.
+    assert s["cache_read_tokens"] + s["cache_write_tokens"] <= s["input_tokens"]
+
+
+def test_reasoning_capped_to_output():
+    """Reasoning is a subset of output; a larger reported value is capped."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "o1-2024-12-17"),
+            _attr("gen_ai.usage.input_tokens", 100),
+            _attr("gen_ai.usage.output_tokens", 200),
+            _attr("gen_ai.usage.reasoning_tokens", 500),
+        ]
+    )
+    _t, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+    assert spans[0]["reasoning_tokens"] == 200
+
+
+def test_cache_detail_key_without_model_is_not_persisted():
+    """Cache columns require a priced LLM span; an orphan cache attr on a span
+    with no model produces no cache columns (documented contract)."""
+    payload = _otel_payload([_attr("gen_ai.usage.details.cache_read_tokens", 128)])
+    _t, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+    assert spans[0].get("cache_read_tokens") is None
