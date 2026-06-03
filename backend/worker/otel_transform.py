@@ -85,8 +85,19 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
 
 
 def int_or_zero(value: Any) -> int:
-    """Convert a present OTEL numeric attribute to int; missing -> 0."""
-    return int(value) if value is not None else 0
+    """Convert a present OTEL numeric attribute to int; missing/invalid -> 0.
+
+    ``first_present`` returns falsy-but-present values (e.g. an empty string for
+    an attribute that exists with a non-numeric value), so guard the cast — a
+    single malformed attribute must not crash ingestion of the whole batch.
+    """
+    if value is None or value == "":
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        logger.warning("Non-numeric OTEL token attribute %r; treating as 0", value)
+        return 0
 
 
 def decode_otel_id(b64_value: str | None) -> str | None:

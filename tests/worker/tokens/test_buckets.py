@@ -75,3 +75,43 @@ def test_missing_scope_does_not_crash(caplog):
         )
     assert b == TokenBuckets(input_uncached=100, output=20, cache_read=0, cache_write=0)
     assert any("unknown instrumentation scope" in r.message.lower() for r in caplog.records)
+
+
+def test_cache_capped_to_gross_input_prevents_overbill():
+    # Inconsistent emitter data: cache counts exceed the gross input. Cache must
+    # be capped so the priced buckets never sum to more than the reported input.
+    b = normalize_token_usage(
+        "openinference.instrumentation.anthropic",
+        input_tokens=100,
+        output_tokens=5,
+        cache_read_tokens=80,
+        cache_write_tokens=80,
+    )
+    # cache_read capped to gross (80 <= 100); cache_write capped to the remainder (20).
+    assert b == TokenBuckets(input_uncached=0, output=5, cache_read=80, cache_write=20)
+    assert b.input_uncached + b.cache_read + b.cache_write == 100
+
+
+def test_cache_read_alone_capped_to_gross_input():
+    b = normalize_token_usage(
+        "openinference.instrumentation.openai",
+        input_tokens=50,
+        output_tokens=1,
+        cache_read_tokens=900,
+        cache_write_tokens=0,
+    )
+    assert b == TokenBuckets(input_uncached=0, output=1, cache_read=50, cache_write=0)
+    assert b.input_uncached + b.cache_read + b.cache_write == 50
+
+
+def test_warned_scopes_set_is_bounded():
+    # Unknown scope names must not grow the dedup set without bound.
+    for i in range(buckets_mod._MAX_WARNED_SCOPES + 50):
+        normalize_token_usage(
+            f"unknown.scope.{i}",
+            input_tokens=10,
+            output_tokens=0,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
+        )
+    assert len(buckets_mod._warned_scopes) <= buckets_mod._MAX_WARNED_SCOPES

@@ -11,9 +11,32 @@ from worker.otel_transform import (
     decode_otel_id,
     extract_attribute_value,
     get_span_kind,
+    int_or_zero,
     nanos_to_datetime,
     transform_otel_to_clickhouse,
 )
+
+
+class TestIntOrZero:
+    """int_or_zero must never crash ingestion on present-but-non-numeric values."""
+
+    def test_none_and_missing_become_zero(self):
+        assert int_or_zero(None) == 0
+
+    def test_empty_string_becomes_zero(self):
+        # first_present returns "" for a present-but-empty attribute; int("") would raise.
+        assert int_or_zero("") == 0
+
+    def test_non_numeric_string_becomes_zero(self):
+        assert int_or_zero("abc") == 0
+
+    def test_numeric_string_parses(self):
+        assert int_or_zero("4528") == 4528
+
+    def test_ints_and_floats_parse(self):
+        assert int_or_zero(42) == 42
+        assert int_or_zero(3.9) == 3
+
 
 # ── decode_otel_id ──────────────────────────────────────────────────────
 
