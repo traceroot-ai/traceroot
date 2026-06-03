@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -8,11 +8,7 @@ import { AddButton } from "@/components/ui/add-button";
 import { DeleteIconButton } from "@/components/ui/delete-button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -117,10 +113,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
           <h2 className="text-lg font-semibold">Project API Keys</h2>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+              <Info className="text-muted-foreground h-3.5 w-3.5 cursor-help" />
             </TooltipTrigger>
             <TooltipContent>
-              API keys authenticate your application with TraceRoot. Use them in the SDK to send traces, or in the env block below.
+              API keys authenticate your application with TraceRoot. Use them in the SDK to send
+              traces, or in the env block below.
             </TooltipContent>
           </Tooltip>
         </div>
@@ -129,7 +126,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
 
       <div className="border">
         <div className="flex items-center justify-between border-b px-4 py-2">
-          <span className="text-xs text-muted-foreground">.env</span>
+          <span className="text-muted-foreground text-xs">.env</span>
           <CopyButton value={envBlockContent} className="h-6 w-6" />
         </div>
         <div className="bg-muted px-4 py-3 font-mono text-xs">
@@ -232,9 +229,9 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             </DialogDescription>
           </DialogHeader>
           <div className="py-2">
-            <p className="mb-2 text-sm text-muted-foreground">
+            <p className="text-muted-foreground mb-2 text-sm">
               Type{" "}
-              <span className="font-mono font-semibold text-foreground">
+              <span className="text-foreground font-mono font-semibold">
                 {keyToDelete?.name || "delete"}
               </span>{" "}
               to confirm:
@@ -269,27 +266,27 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
 
       <div className="border">
         {isLoading ? (
-          <div className="px-3 py-3 text-[13px] text-muted-foreground">Loading API keys...</div>
+          <div className="text-muted-foreground px-3 py-3 text-[13px]">Loading API keys...</div>
         ) : accessKeys.length === 0 ? (
-          <div className="px-3 py-3 text-[13px] text-muted-foreground">
+          <div className="text-muted-foreground px-3 py-3 text-[13px]">
             No API keys yet. Create one to start using the SDK.
           </div>
         ) : (
           <table className="w-full text-[13px]">
             <thead>
-              <tr className="border-b bg-muted/30 text-left">
-                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Name</th>
-                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Key</th>
-                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">Created</th>
-                <th className="px-3 py-2 text-[12px] font-medium text-muted-foreground">
+              <tr className="bg-muted/30 border-b text-left">
+                <th className="text-muted-foreground px-3 py-2 text-[12px] font-medium">Name</th>
+                <th className="text-muted-foreground px-3 py-2 text-[12px] font-medium">Key</th>
+                <th className="text-muted-foreground px-3 py-2 text-[12px] font-medium">Created</th>
+                <th className="text-muted-foreground px-3 py-2 text-[12px] font-medium">
                   Last Used
                 </th>
-                <th className="w-10 px-3 py-2 text-[12px] font-medium text-muted-foreground"></th>
+                <th className="text-muted-foreground w-10 px-3 py-2 text-[12px] font-medium"></th>
               </tr>
             </thead>
             <tbody>
               {accessKeys.map((key: AccessKey) => (
-                <tr key={key.id} className="border-b last:border-b-0 hover:bg-muted/20">
+                <tr key={key.id} className="hover:bg-muted/20 border-b last:border-b-0">
                   <td className="px-3 py-2">
                     <button
                       onClick={() => setEditingKey({ id: key.id, name: key.name || "" })}
@@ -303,10 +300,10 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                       {formatKeyHint(key.key_hint)}
                     </code>
                   </td>
-                  <td className="px-3 py-2 text-muted-foreground">
+                  <td className="text-muted-foreground px-3 py-2">
                     {formatRelativeTime(key.create_time)}
                   </td>
-                  <td className="px-3 py-2 text-muted-foreground">
+                  <td className="text-muted-foreground px-3 py-2">
                     {key.last_use_time ? formatRelativeTime(key.last_use_time) : "Never"}
                   </td>
                   <td className="px-3 py-2">
