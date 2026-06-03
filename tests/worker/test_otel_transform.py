@@ -3,6 +3,8 @@
 import base64
 from datetime import datetime
 
+import pytest
+
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker.otel_transform import (
     attributes_to_dict,
@@ -382,6 +384,100 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["output_tokens"] == 50
         assert spans[0]["total_tokens"] == 150
         assert spans[0]["cost"] is not None
+
+    @pytest.mark.parametrize(
+        ("scope_name", "input_attr", "cache_read_attr", "cache_write_attr"),
+        [
+            # OpenInference Anthropic — the verified dominant path. Cache is under
+            # llm.token_count.prompt_details.* and the prompt is GROSS.
+            (
+                "openinference.instrumentation.anthropic",
+                "llm.token_count.prompt",
+                "llm.token_count.prompt_details.cache_read",
+                "llm.token_count.prompt_details.cache_write",
+            ),
+            # pydantic-ai native gen_ai.usage.* keys.
+            (
+                "pydantic-ai",
+                "gen_ai.usage.input_tokens",
+                "gen_ai.usage.cache_read.input_tokens",
+                "gen_ai.usage.cache_creation.input_tokens",
+            ),
+        ],
+    )
+    def test_cache_heavy_span_subtracts_before_pricing(
+        self, scope_name, input_attr, cache_read_attr, cache_write_attr
+    ):
+        """Cost must price each token once: gross input is reduced by cache."""
+        from unittest.mock import patch
+
+        prices = {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+        }
+        # gross input = 1000, of which 900 cache-read + 50 cache-write => 50 uncached
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.request.model", "claude-3-5-sonnet"),
+                        make_attr(input_attr, 1000),
+                        make_attr("llm.token_count.completion", 0)
+                        if input_attr.startswith("llm.")
+                        else make_attr("gen_ai.usage.output_tokens", 0),
+                        make_attr(cache_read_attr, 900),
+                        make_attr(cache_write_attr, 50),
+                    ],
+                )
+            ],
+            scope_name=scope_name,
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        expected = (
+            50 * prices["input"]
+            + 0 * prices["output"]
+            + 900 * prices["cacheRead"]
+            + 50 * prices["cacheWrite"]
+        )
+        assert spans[0]["cost"] == pytest.approx(expected)
+        # Stored input_tokens stays GROSS (display continuity; PR B revisits).
+        assert spans[0]["input_tokens"] == 1000
+
+    def test_cache_heavy_costs_less_than_uncached_equivalent(self):
+        """Monotonicity: caching must DISCOUNT, never surcharge."""
+        from unittest.mock import patch
+
+        prices = {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+        }
+
+        def cost_for(attrs):
+            payload = make_otel_payload(
+                [make_span("aa" * 16, "bb" * 8, attributes=attrs)],
+                scope_name="openinference.instrumentation.anthropic",
+            )
+            with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+                _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+            return spans[0]["cost"]
+
+        base = [
+            make_attr("gen_ai.request.model", "claude-3-5-sonnet"),
+            make_attr("llm.token_count.prompt", 1000),
+            make_attr("llm.token_count.completion", 0),
+        ]
+        cached = base + [
+            make_attr("llm.token_count.prompt_details.cache_read", 950),
+        ]
+        assert cost_for(cached) < cost_for(base)
 
     def test_text_estimation_fallback(self):
         """Falls back to text-based token estimation when no API counts."""
