@@ -3,8 +3,8 @@
 Every instrumentor traceroot ingests reports a GROSS (cache-inclusive) input
 count — the cache read/write tokens are a *breakdown of* the input, not
 additive to it. Verified firsthand from installed source (see
-issue-956-token-cost-worklog.html §2): OpenInference Anthropic/OpenAI,
-pydantic-ai/genai-prices, and Langfuse all behave this way; the OpenTelemetry
+issue-956-token-cost-worklog.html §2): OpenInference Anthropic/OpenAI
+and pydantic-ai/genai-prices both behave this way; the OpenTelemetry
 GenAI semconv mandates it ("input_tokens SHOULD include ... cached tokens").
 
 We therefore subtract cache from the input to get disjoint buckets, so the
