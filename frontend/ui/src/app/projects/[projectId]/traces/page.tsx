@@ -20,6 +20,7 @@ import {
 import type { TraceListItem } from "@/types/api";
 import { useTraces } from "@/features/traces/hooks";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
 import { formatContentPreview } from "@/features/traces/utils";
 import { useSession as useAuthSession } from "@/lib/auth-client";
@@ -54,7 +55,12 @@ export default function TracesPage() {
   } = useListPageState();
 
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
-  const [autoRefresh, setAutoRefresh] = useState(false);
+  // Persisted per-project so a live view survives reloads, navigation, and re-login.
+  // Default false: a project the user never toggled behaves exactly as before.
+  const [autoRefresh, setAutoRefresh] = useLocalStorage(
+    `traceroot:traces:live:v1:${projectId}`,
+    false,
+  );
 
   // Fetch traces with combined query options + user filter from URL
   const { data, isLoading, error } = useTraces(
