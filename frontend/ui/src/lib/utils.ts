@@ -78,8 +78,9 @@ export function formatTokens(count: number | null | undefined): string {
 /**
  * Standardized token display: `input → output (total)` with compact
  * thousands formatting, e.g. `12.3K → 4.1K (16.4K)`. When `total` is
- * omitted it is derived from input + output. Used everywhere tokens
- * are shown so the format stays consistent (issue #957).
+ * omitted it is derived from input + output. Used by the trace list and
+ * the span detail panel so the in/out/total format stays consistent
+ * (issue #957).
  */
 export function formatTokenFlow(
   input: number | null | undefined,
