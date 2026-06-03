@@ -1,11 +1,2 @@
-# Auto detect text files and force LF line endings
+# Normalize all text files to LF line endings (fixes CRLF churn on Windows)
 * text=auto eol=lf
-
-# Specific overrides (optional, but good to have)
-*.ts text eol=lf
-*.tsx text eol=lf
-*.js text eol=lf
-*.jsx text eol=lf
-*.json text eol=lf
-*.css text eol=lf
-*.md text eol=lf
