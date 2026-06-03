@@ -75,6 +75,17 @@ export function formatTokens(count: number | null | undefined): string {
   return _compactTokenFormatter.format(count);
 }
 
+const _exactTokenFormatter = new Intl.NumberFormat("en-US");
+
+/**
+ * Exact, comma-grouped token count pinned to en-US (e.g. `4,514`), for the
+ * precise usage breakdown. Unlike formatTokens this is not compact. Null/
+ * undefined render as `0`. (issue #958)
+ */
+export function formatExactTokens(count: number | null | undefined): string {
+  return _exactTokenFormatter.format(count ?? 0);
+}
+
 /**
  * Standardized token display: `input → output (total)` with compact
  * thousands formatting, e.g. `12.3K → 4.1K (16.4K)`. When `total` is

@@ -1,3 +1,5 @@
+import { formatExactTokens } from "@/lib/utils";
+
 interface TokenUsageBreakdownProps {
   inputTokens: number | null | undefined;
   outputTokens: number | null | undefined;
@@ -11,7 +13,7 @@ function Row({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex justify-between gap-8 text-muted-foreground">
       <span>{label}</span>
-      <span className="tabular-nums">{value.toLocaleString()}</span>
+      <span className="tabular-nums">{formatExactTokens(value)}</span>
     </div>
   );
 }
@@ -50,7 +52,7 @@ export function TokenUsageBreakdown({
 
       <div className="flex justify-between gap-8 border-b border-border/60 pb-1 font-medium">
         <span>Input usage</span>
-        <span className="tabular-nums">{input.toLocaleString()}</span>
+        <span className="tabular-nums">{formatExactTokens(input)}</span>
       </div>
       <div className="mt-1 space-y-0.5">
         {cacheRead > 0 && <Row label="input_cached_tokens" value={cacheRead} />}
@@ -60,7 +62,7 @@ export function TokenUsageBreakdown({
 
       <div className="mt-2 flex justify-between gap-8 border-b border-border/60 pb-1 font-medium">
         <span>Output usage</span>
-        <span className="tabular-nums">{output.toLocaleString()}</span>
+        <span className="tabular-nums">{formatExactTokens(output)}</span>
       </div>
       <div className="mt-1 space-y-0.5">
         {reasoning > 0 && <Row label="reasoning_tokens" value={reasoning} />}
@@ -69,7 +71,7 @@ export function TokenUsageBreakdown({
 
       <div className="mt-2 flex justify-between gap-8 border-t border-border/60 pt-1 font-semibold">
         <span>Total usage</span>
-        <span className="tabular-nums">{total.toLocaleString()}</span>
+        <span className="tabular-nums">{formatExactTokens(total)}</span>
       </div>
     </div>
   );

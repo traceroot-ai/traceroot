@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatTokenFlow } from "../utils";
+import { formatTokenFlow, formatExactTokens } from "../utils";
 
 describe("formatTokenFlow", () => {
   it("renders input → output (total) with compact formatting", () => {
@@ -12,5 +12,16 @@ describe("formatTokenFlow", () => {
 
   it("treats null/undefined inputs as zero", () => {
     expect(formatTokenFlow(null, undefined)).toBe("0 → 0 (0)");
+  });
+});
+
+describe("formatExactTokens", () => {
+  it("formats exact counts with en-US grouping", () => {
+    expect(formatExactTokens(4514)).toBe("4,514");
+    expect(formatExactTokens(1000000)).toBe("1,000,000");
+  });
+  it("treats null/undefined as 0", () => {
+    expect(formatExactTokens(null)).toBe("0");
+    expect(formatExactTokens(undefined)).toBe("0");
   });
 });
