@@ -946,65 +946,76 @@ class TestFalsyPrecedence:
 
 
 class TestCacheTokenMetadata:
-    """gen_ai.usage.details.cache_* are filtered by the gen_ai. prefix guard but
-    have no first-class column — verify the explicit rescue loop preserves them."""
+    """gen_ai.usage.details.cache_* are a fallback alias for the cache buckets.
+    Since #958 they are promoted to first-class span columns (cache_read_tokens /
+    cache_write_tokens), NOT rescued into metadata. These tests pin that the
+    fallback keys land in the columns and stay out of metadata."""
 
-    def test_cache_read_tokens_preserved_in_metadata(self):
+    @staticmethod
+    def _llm_attrs(*extra):
+        # The cache columns are only populated on a priced LLM span (model +
+        # API token counts), so include those alongside the cache detail keys.
+        return [
+            make_attr("gen_ai.request.model", "claude-3-5-sonnet-20241022"),
+            make_attr("gen_ai.usage.input_tokens", 1000),
+            make_attr("gen_ai.usage.output_tokens", 200),
+            *extra,
+        ]
+
+    def test_cache_read_tokens_promoted_to_column(self):
         import json
 
-        trace_hex = "aa" * 16
-        span_hex = "bb" * 8
         payload = make_otel_payload(
             [
                 make_span(
-                    trace_hex,
-                    span_hex,
-                    attributes=[make_attr("gen_ai.usage.details.cache_read_tokens", 128)],
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=self._llm_attrs(
+                        make_attr("gen_ai.usage.details.cache_read_tokens", 128)
+                    ),
                 )
             ]
         )
         _, spans = transform_otel_to_clickhouse(payload, "proj-1")
-        metadata = json.loads(spans[0]["metadata"])
-        assert metadata["gen_ai.usage.details.cache_read_tokens"] == 128
+        assert spans[0]["cache_read_tokens"] == 128
+        # Not duplicated into metadata.
+        metadata = json.loads(spans[0]["metadata"]) if spans[0].get("metadata") else {}
+        assert "gen_ai.usage.details.cache_read_tokens" not in metadata
 
-    def test_cache_write_tokens_preserved_in_metadata(self):
+    def test_cache_write_tokens_promoted_to_column(self):
         import json
 
-        trace_hex = "aa" * 16
-        span_hex = "bb" * 8
         payload = make_otel_payload(
             [
                 make_span(
-                    trace_hex,
-                    span_hex,
-                    attributes=[make_attr("gen_ai.usage.details.cache_write_tokens", 64)],
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=self._llm_attrs(
+                        make_attr("gen_ai.usage.details.cache_write_tokens", 64)
+                    ),
                 )
             ]
         )
         _, spans = transform_otel_to_clickhouse(payload, "proj-1")
-        metadata = json.loads(spans[0]["metadata"])
-        assert metadata["gen_ai.usage.details.cache_write_tokens"] == 64
+        assert spans[0]["cache_write_tokens"] == 64
+        metadata = json.loads(spans[0]["metadata"]) if spans[0].get("metadata") else {}
+        assert "gen_ai.usage.details.cache_write_tokens" not in metadata
 
-    def test_both_cache_tokens_survive_as_integers(self):
-        import json
-
-        trace_hex = "aa" * 16
-        span_hex = "bb" * 8
+    def test_both_cache_tokens_promoted_as_integers(self):
         payload = make_otel_payload(
             [
                 make_span(
-                    trace_hex,
-                    span_hex,
-                    attributes=[
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=self._llm_attrs(
                         make_attr("gen_ai.usage.details.cache_read_tokens", 128),
                         make_attr("gen_ai.usage.details.cache_write_tokens", 64),
-                    ],
+                    ),
                 )
             ]
         )
         _, spans = transform_otel_to_clickhouse(payload, "proj-1")
-        metadata = json.loads(spans[0]["metadata"])
-        assert metadata["gen_ai.usage.details.cache_read_tokens"] == 128
-        assert metadata["gen_ai.usage.details.cache_write_tokens"] == 64
-        assert isinstance(metadata["gen_ai.usage.details.cache_read_tokens"], int)
-        assert isinstance(metadata["gen_ai.usage.details.cache_write_tokens"], int)
+        assert spans[0]["cache_read_tokens"] == 128
+        assert spans[0]["cache_write_tokens"] == 64
+        assert isinstance(spans[0]["cache_read_tokens"], int)
+        assert isinstance(spans[0]["cache_write_tokens"], int)
