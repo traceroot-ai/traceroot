@@ -292,3 +292,38 @@ class TestClaudeBedrockAndVertexIds:
     def test_unrelated_model_still_none(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             assert get_model_price("totally-not-a-real-model-2099") is None
+
+
+def test_cost_from_buckets_prices_each_bucket_once():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    prices = {
+        "input": 0.000003,
+        "output": 0.000015,
+        "cacheRead": 0.0000003,
+        "cacheWrite": 0.00000375,
+    }
+    buckets = TokenBuckets(input_uncached=60, output=50, cache_read=900, cache_write=40)
+    expected = 60 * 0.000003 + 50 * 0.000015 + 900 * 0.0000003 + 40 * 0.00000375
+    assert cost_from_buckets(prices, buckets) == pytest.approx(expected)
+
+
+def test_cost_from_buckets_treats_missing_cache_rates_as_zero():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    # Model with no cache rates (e.g. OpenAI has no cacheWrite).
+    prices = {"input": 0.0000025, "output": 0.00001}
+    buckets = TokenBuckets(input_uncached=100, output=50, cache_read=900, cache_write=0)
+    expected = 100 * 0.0000025 + 50 * 0.00001  # cache_read priced at 0 (no rate)
+    assert cost_from_buckets(prices, buckets) == pytest.approx(expected)
+
+
+def test_cost_from_buckets_returns_none_without_prices():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    buckets = TokenBuckets(input_uncached=100, output=50, cache_read=0, cache_write=0)
+    assert cost_from_buckets(None, buckets) is None
+    assert cost_from_buckets({}, buckets) is None
