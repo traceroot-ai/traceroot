@@ -98,10 +98,11 @@ export function formatTokenFlow(
   output: number | null | undefined,
   total?: number | null | undefined,
 ): string {
-  const i = input ?? 0;
-  const o = output ?? 0;
-  const t = total ?? i + o;
-  return `${formatTokens(i)} → ${formatTokens(o)} (${formatTokens(t)})`;
+  // Preserve the unknown-vs-zero distinction: a missing value renders as "-"
+  // (via formatTokens) rather than a misleading 0. The total is derived only
+  // when at least one side is present.
+  const derived = total ?? (input == null && output == null ? null : (input ?? 0) + (output ?? 0));
+  return `${formatTokens(input)} → ${formatTokens(output)} (${formatTokens(derived)})`;
 }
 
 /**

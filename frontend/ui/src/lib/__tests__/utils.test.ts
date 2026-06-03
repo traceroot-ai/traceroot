@@ -10,8 +10,10 @@ describe("formatTokenFlow", () => {
     expect(formatTokenFlow(1000, 500)).toBe("1K → 500 (1.5K)");
   });
 
-  it("treats null/undefined inputs as zero", () => {
-    expect(formatTokenFlow(null, undefined)).toBe("0 → 0 (0)");
+  it("renders missing values as '-' rather than a misleading zero", () => {
+    expect(formatTokenFlow(null, undefined)).toBe("- → - (-)");
+    // A present side still shows; total derives from the present value(s).
+    expect(formatTokenFlow(null, 500)).toBe("- → 500 (500)");
   });
 });
 
