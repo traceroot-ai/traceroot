@@ -14,14 +14,9 @@ import {
   FileCode,
 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
-import {
-  formatDuration,
-  formatDate,
-  formatTokens,
-  formatTokenFlow,
-  buildUrlWithFilters,
-} from "@/lib/utils";
+import { formatDuration, formatDate, formatTokenFlow, buildUrlWithFilters } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { TokenUsageBreakdown } from "./TokenUsageBreakdown";
 import { SpanStatus } from "@traceroot/core";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
@@ -150,56 +145,34 @@ export function SpanInfoPanel({
               {selection.span.model_name}
             </div>
           )}
-          {!isTrace &&
-            selection.span.total_tokens != null &&
-            (() => {
-              const cacheRead = selection.span.cache_read_tokens ?? 0;
-              const cacheWrite = selection.span.cache_write_tokens ?? 0;
-              const reasoning = selection.span.reasoning_tokens ?? 0;
-              const hasBreakdown = cacheRead > 0 || cacheWrite > 0 || reasoning > 0;
-              const chip = (
-                <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                  <CircleStop className="h-3 w-3 text-muted-foreground" />
-                  <span className="font-medium">
-                    {formatTokenFlow(
-                      selection.span.input_tokens,
-                      selection.span.output_tokens,
-                      selection.span.total_tokens,
-                    )}
-                  </span>
-                </div>
-              );
-              if (!hasBreakdown) return chip;
-              return (
-                <TooltipProvider delayDuration={150}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>{chip}</TooltipTrigger>
-                    <TooltipContent>
-                      <div className="flex flex-col gap-0.5 text-xs">
-                        {cacheRead > 0 && (
-                          <div className="flex justify-between gap-3">
-                            <span className="text-muted-foreground">Cache read</span>
-                            <span>{formatTokens(cacheRead)}</span>
-                          </div>
-                        )}
-                        {cacheWrite > 0 && (
-                          <div className="flex justify-between gap-3">
-                            <span className="text-muted-foreground">Cache write</span>
-                            <span>{formatTokens(cacheWrite)}</span>
-                          </div>
-                        )}
-                        {reasoning > 0 && (
-                          <div className="flex justify-between gap-3">
-                            <span className="text-muted-foreground">Reasoning</span>
-                            <span>{formatTokens(reasoning)}</span>
-                          </div>
-                        )}
-                      </div>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              );
-            })()}
+          {!isTrace && selection.span.total_tokens != null && (
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                    <CircleStop className="h-3 w-3 text-muted-foreground" />
+                    <span className="font-medium">
+                      {formatTokenFlow(
+                        selection.span.input_tokens,
+                        selection.span.output_tokens,
+                        selection.span.total_tokens,
+                      )}
+                    </span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <TokenUsageBreakdown
+                    inputTokens={selection.span.input_tokens}
+                    outputTokens={selection.span.output_tokens}
+                    totalTokens={selection.span.total_tokens}
+                    cacheReadTokens={selection.span.cache_read_tokens}
+                    cacheWriteTokens={selection.span.cache_write_tokens}
+                    reasoningTokens={selection.span.reasoning_tokens}
+                  />
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           {!isTrace && selection.span.cost != null && Number.isFinite(selection.span.cost) && (
             <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
               <CircleDollarSign className="h-3 w-3 text-muted-foreground" />
