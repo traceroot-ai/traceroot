@@ -160,3 +160,33 @@ def test_no_metadata_when_no_extra_attributes():
 
     assert len(spans) == 1
     assert "metadata" not in spans[0]
+
+
+def test_cache_and_reasoning_tokens_persisted_as_columns():
+    """Cache + reasoning token counts land in dedicated span columns, not metadata."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.input_tokens", 1000),
+            _attr("gen_ai.usage.output_tokens", 200),
+            _attr("gen_ai.usage.cache_read_input_tokens", 800),
+            _attr("gen_ai.usage.cache_creation_input_tokens", 50),
+            _attr("gen_ai.usage.reasoning_tokens", 120),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert len(spans) == 1
+    span = spans[0]
+    # Gross token columns are unchanged (display continuity).
+    assert span["input_tokens"] == 1000
+    assert span["output_tokens"] == 200
+    # New first-class breakdown columns.
+    assert span["cache_read_tokens"] == 800
+    assert span["cache_write_tokens"] == 50
+    assert span["reasoning_tokens"] == 120
+    # The breakdown must NOT be duplicated into metadata.
+    meta = json.loads(span["metadata"]) if span.get("metadata") else {}
+    assert "gen_ai.usage.details.cache_read_tokens" not in meta
+    assert "gen_ai.usage.details.cache_write_tokens" not in meta

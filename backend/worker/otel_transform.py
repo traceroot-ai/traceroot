@@ -477,6 +477,18 @@ def transform_otel_to_clickhouse(
                             "gen_ai.usage.details.cache_creation_input_tokens",
                         ],
                     )
+                    # Reasoning tokens (o-series / GPT-5): a SUBSET of output
+                    # tokens, already priced at the output rate, so this is
+                    # display-only and must NOT feed the cost buckets.
+                    api_reasoning_tokens = first_present(
+                        span_attrs,
+                        [
+                            "llm.token_count.completion_details.reasoning",
+                            "gen_ai.usage.reasoning_tokens",
+                            "gen_ai.usage.output_details.reasoning_tokens",
+                            "gen_ai.usage.details.reasoning_tokens",
+                        ],
+                    )
 
                     if api_input_tokens is not None or api_output_tokens is not None:
                         # Use API-provided counts (accurate).
@@ -492,6 +504,13 @@ def transform_otel_to_clickhouse(
                         span_record["input_tokens"] = input_tokens
                         span_record["output_tokens"] = output_tokens
                         span_record["total_tokens"] = total_tokens
+
+                        # Persist the breakdown as first-class columns (#958).
+                        # cache_read/cache_write are a breakdown of gross input;
+                        # reasoning is a subset of output. Display-only.
+                        span_record["cache_read_tokens"] = int_or_zero(api_cache_read_tokens)
+                        span_record["cache_write_tokens"] = int_or_zero(api_cache_write_tokens)
+                        span_record["reasoning_tokens"] = int_or_zero(api_reasoning_tokens)
 
                         # Cost: normalize counts into disjoint buckets keyed on the
                         # instrumentation scope, then price each bucket once.
@@ -544,19 +563,6 @@ def transform_otel_to_clickhouse(
                         for k, v in span_attrs.items()
                         if not _is_known_attribute(k) and v is not None
                     }
-                    # gen_ai.usage.details.* falls under the gen_ai. prefix and is therefore
-                    # excluded from generic metadata by _is_known_attribute(). Unlike
-                    # gen_ai.usage.input_tokens / output_tokens (promoted to dedicated token
-                    # fields), the cache-token breakdown has no first-class column. Rescue
-                    # these keys explicitly so they survive in metadata instead of being
-                    # silently dropped.
-                    for _cache_key in (
-                        "gen_ai.usage.details.cache_read_tokens",
-                        "gen_ai.usage.details.cache_write_tokens",
-                    ):
-                        _val = span_attrs.get(_cache_key)
-                        if _val is not None:
-                            extra_attrs[_cache_key] = int(_val)
                     if extra_attrs:
                         span_record["metadata"] = json.dumps(extra_attrs)
 
