@@ -50,7 +50,9 @@ def make_span(
     return span
 
 
-def make_otel_payload(spans: list[dict], scope_name: str = "test") -> dict:
+def make_otel_payload(
+    spans: list[dict], scope_name: str = "openinference.instrumentation.test"
+) -> dict:
     """Wrap span dicts into a full OTEL resourceSpans payload."""
     return {
         "resourceSpans": [

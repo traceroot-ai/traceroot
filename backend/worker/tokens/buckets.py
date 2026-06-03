@@ -93,6 +93,11 @@ def normalize_token_usage(
     All returned bucket values are clamped to be non-negative, defensive
     against inconsistent emitter data where cache counts exceed the reported
     input total.
+
+    The reconciliation invariant ``input_uncached + cache_read + cache_write
+    == input_tokens`` holds only for the INCLUSIVE convention; for EXCLUSIVE
+    the input is not reduced, so the sum of the returned buckets will exceed
+    the raw input count.
     """
     convention = _convention_for_scope(scope_name)
     cache_read = max(cache_read_tokens, 0)
