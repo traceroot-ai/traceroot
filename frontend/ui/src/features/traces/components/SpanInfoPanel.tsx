@@ -123,16 +123,32 @@ export function SpanInfoPanel({
             </div>
           )}
           {isTrace && traceTokenUsage && (
-            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-              <CircleStop className="h-3 w-3 text-muted-foreground" />
-              <span className="font-medium">
-                {formatTokenFlow(
-                  traceTokenUsage.inputTokens,
-                  traceTokenUsage.outputTokens,
-                  traceTokenUsage.totalTokens,
-                )}
-              </span>
-            </div>
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                    <CircleStop className="h-3 w-3 text-muted-foreground" />
+                    <span className="font-medium">
+                      {formatTokenFlow(
+                        traceTokenUsage.inputTokens,
+                        traceTokenUsage.outputTokens,
+                        traceTokenUsage.totalTokens,
+                      )}
+                    </span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent className="border bg-popover p-3 text-popover-foreground shadow-md">
+                  <TokenUsageBreakdown
+                    inputTokens={traceTokenUsage.inputTokens}
+                    outputTokens={traceTokenUsage.outputTokens}
+                    totalTokens={traceTokenUsage.totalTokens}
+                    cacheReadTokens={traceTokenUsage.cacheReadTokens}
+                    cacheWriteTokens={traceTokenUsage.cacheWriteTokens}
+                    reasoningTokens={traceTokenUsage.reasoningTokens}
+                  />
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
           {isTrace && traceTotalCost && (
             <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">

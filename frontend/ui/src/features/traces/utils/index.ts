@@ -252,6 +252,9 @@ export function getTraceTokenUsage(trace: TraceDetail): {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
 } | null {
   const spansWithTokens = trace.spans.filter((s) => s.total_tokens !== null);
   if (spansWithTokens.length === 0) return null;
@@ -259,5 +262,8 @@ export function getTraceTokenUsage(trace: TraceDetail): {
     inputTokens: spansWithTokens.reduce((sum, s) => sum + (s.input_tokens ?? 0), 0),
     outputTokens: spansWithTokens.reduce((sum, s) => sum + (s.output_tokens ?? 0), 0),
     totalTokens: spansWithTokens.reduce((sum, s) => sum + (s.total_tokens ?? 0), 0),
+    cacheReadTokens: spansWithTokens.reduce((sum, s) => sum + (s.cache_read_tokens ?? 0), 0),
+    cacheWriteTokens: spansWithTokens.reduce((sum, s) => sum + (s.cache_write_tokens ?? 0), 0),
+    reasoningTokens: spansWithTokens.reduce((sum, s) => sum + (s.reasoning_tokens ?? 0), 0),
   };
 }
