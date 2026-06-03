@@ -327,3 +327,19 @@ def test_cost_from_buckets_returns_none_without_prices():
     buckets = TokenBuckets(input_uncached=100, output=50, cache_read=0, cache_write=0)
     assert cost_from_buckets(None, buckets) is None
     assert cost_from_buckets({}, buckets) is None
+
+
+def test_calculate_cost_matches_cost_from_buckets_for_text_path():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import calculate_cost, cost_from_buckets
+
+    prices = {"input": 0.0000025, "output": 0.00001}
+    with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+        result = calculate_cost("gpt-4o", "hello world", "hi there")
+
+    in_tok = result["input_tokens"]
+    out_tok = result["output_tokens"]
+    expected = cost_from_buckets(
+        prices, TokenBuckets(input_uncached=in_tok, output=out_tok, cache_read=0, cache_write=0)
+    )
+    assert result["cost"] == pytest.approx(expected)
