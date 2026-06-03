@@ -159,9 +159,16 @@ def calculate_cost(
 
     prices = get_model_price(model)
     if prices:
-        # Prices are in USD per token — multiply directly
-        input_cost = Decimal(input_tokens) * Decimal(str(prices.get("input", 0)))
-        output_cost = Decimal(output_tokens) * Decimal(str(prices.get("output", 0)))
-        result["cost"] = float(input_cost + output_cost)
+        # Text estimation has no cache visibility, so cache buckets are zero.
+        # Routing through cost_from_buckets keeps one cost formula across paths.
+        result["cost"] = cost_from_buckets(
+            prices,
+            TokenBuckets(
+                input_uncached=input_tokens,
+                output=output_tokens,
+                cache_read=0,
+                cache_write=0,
+            ),
+        )
 
     return result
