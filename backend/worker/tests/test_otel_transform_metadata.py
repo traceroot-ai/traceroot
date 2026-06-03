@@ -190,3 +190,47 @@ def test_cache_and_reasoning_tokens_persisted_as_columns():
     meta = json.loads(span["metadata"]) if span.get("metadata") else {}
     assert "gen_ai.usage.details.cache_read_tokens" not in meta
     assert "gen_ai.usage.details.cache_write_tokens" not in meta
+
+
+def test_openinference_reasoning_key_persisted():
+    """The first-priority OpenInference reasoning key populates reasoning_tokens."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "o1-2024-12-17"),
+            _attr("gen_ai.usage.input_tokens", 500),
+            _attr("gen_ai.usage.output_tokens", 300),
+            # OpenInference completion-details key (leads the reasoning alias list).
+            _attr("llm.token_count.completion_details.reasoning", 220),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert spans[0]["reasoning_tokens"] == 220
+
+
+def test_reasoning_tokens_do_not_change_cost():
+    """Reasoning is a subset of output, already priced at the output rate, so it
+    must be display-only — the cost must be identical with and without it."""
+    base_attrs = [
+        _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+        _attr("gen_ai.usage.input_tokens", 1000),
+        _attr("gen_ai.usage.output_tokens", 200),
+        _attr("gen_ai.usage.cache_read_input_tokens", 800),
+        _attr("gen_ai.usage.cache_creation_input_tokens", 50),
+    ]
+
+    _t1, spans_without = transform_otel_to_clickhouse(
+        _otel_payload(base_attrs), project_id="proj-1"
+    )
+    _t2, spans_with = transform_otel_to_clickhouse(
+        _otel_payload(base_attrs + [_attr("gen_ai.usage.reasoning_tokens", 120)]),
+        project_id="proj-1",
+    )
+
+    # Reasoning is recorded for display...
+    assert spans_with[0]["reasoning_tokens"] == 120
+    # ...but does not perturb the cost vs. the same span without reasoning.
+    # (.get so the assertion holds whether or not pricing data is available —
+    # both sides are equal either way; what matters is reasoning can't change it.)
+    assert spans_with[0].get("cost") == spans_without[0].get("cost")
