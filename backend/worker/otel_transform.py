@@ -558,7 +558,7 @@ def transform_otel_to_clickhouse(
                         trace_attrs[trace_id]["session_id"] or span_session_id
                     )
 
-                # Eager trace creation (Langfuse-style):
+                # Eager trace creation:
                 # Create a "shallow" trace record on the FIRST span we see for
                 # a trace_id, so it appears in the UI immediately. When the root
                 # span arrives later, upgrade to a "full" trace with rich metadata.
