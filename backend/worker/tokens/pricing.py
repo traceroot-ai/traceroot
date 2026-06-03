@@ -16,6 +16,7 @@ import psycopg2
 
 from shared.config import settings
 
+from .buckets import TokenBuckets
 from .usage import count_tokens
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,29 @@ def get_model_price(model: str) -> dict[str, float] | None:
             continue
 
     return None
+
+
+def cost_from_buckets(prices: dict[str, float] | None, buckets: TokenBuckets) -> float | None:
+    """Price DISJOINT token buckets — the single source of truth for cost.
+
+    Each bucket is priced at its own rate exactly once. `prices` must already be
+    resolved (e.g. via get_model_price). Returns None when no prices are known,
+    so callers can leave cost unset rather than recording $0. Missing cacheRead /
+    cacheWrite rates are treated as 0 (e.g. OpenAI has no cache-write rate).
+
+    Both the inline ingest path (otel_transform.py) and calculate_cost() call
+    this, so the cost formula lives in exactly one place.
+    """
+    if not prices:
+        return None
+
+    cost = (
+        Decimal(buckets.input_uncached) * Decimal(str(prices.get("input", 0)))
+        + Decimal(buckets.output) * Decimal(str(prices.get("output", 0)))
+        + Decimal(buckets.cache_read) * Decimal(str(prices.get("cacheRead") or 0))
+        + Decimal(buckets.cache_write) * Decimal(str(prices.get("cacheWrite") or 0))
+    )
+    return float(cost)
 
 
 def calculate_cost(
