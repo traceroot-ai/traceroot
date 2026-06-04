@@ -268,9 +268,9 @@ export function getTraceTokenUsage(trace: TraceDetail): {
       acc.inputTokens += s.input_tokens ?? 0;
       acc.outputTokens += s.output_tokens ?? 0;
       acc.totalTokens += s.total_tokens ?? 0;
-      acc.cacheReadTokens += s.cache_read_tokens ?? 0;
-      acc.cacheWriteTokens += s.cache_write_tokens ?? 0;
-      acc.reasoningTokens += s.reasoning_tokens ?? 0;
+      acc.cacheReadTokens += s.usage_details?.cache_read_tokens ?? 0;
+      acc.cacheWriteTokens += s.usage_details?.cache_write_tokens ?? 0;
+      acc.reasoningTokens += s.usage_details?.reasoning_tokens ?? 0;
       return acc;
     },
     {

@@ -522,14 +522,18 @@ def transform_otel_to_clickhouse(
                         )
                         span_record["input_tokens"] = gross_input
                         span_record["total_tokens"] = gross_input + output_tokens
-                        # Persist the breakdown as first-class columns. cache_read/
+                        # Persist the breakdown as a generic usage_details map (one
+                        # ClickHouse Map column rather than a column per dimension, so
+                        # new provider token types need no migration). cache_read/
                         # cache_write come from the disjoint buckets; reasoning is a
                         # subset of output, capped to it so the output split reconciles.
-                        span_record["cache_read_tokens"] = buckets.cache_read
-                        span_record["cache_write_tokens"] = buckets.cache_write
-                        span_record["reasoning_tokens"] = min(
-                            int_or_zero(api_reasoning_tokens), output_tokens
-                        )
+                        span_record["usage_details"] = {
+                            "cache_read_tokens": buckets.cache_read,
+                            "cache_write_tokens": buckets.cache_write,
+                            "reasoning_tokens": min(
+                                int_or_zero(api_reasoning_tokens), output_tokens
+                            ),
+                        }
                         cost = cost_from_buckets(get_model_price(model_name), buckets)
                         if cost is not None:
                             span_record["cost"] = cost

@@ -1,16 +1,16 @@
 -- +goose Up
--- First-class columns for the token breakdown that issue #956 already extracts
--- at ingest but previously only used for cost. cache_read/cache_write are a
--- breakdown OF the gross input_tokens; reasoning_tokens is a subset OF
--- output_tokens. They are display-only and do not change cost. Nullable so
--- existing rows (and non-LLM spans) stay NULL rather than a misleading 0.
+-- First-class token breakdown that issue #956 already extracts at ingest but
+-- previously only used for cost. Stored as a generic map (langfuse-style) rather
+-- than fixed columns: providers emit a growing set of dimensions
+-- (cache_read/cache_write, cache-creation tiers, reasoning, audio, web-search…),
+-- and a map absorbs new keys with zero migration while staying queryable
+-- (usage_details['cache_read_tokens']) and aggregatable (sumMap(usage_details)).
+-- These are a breakdown OF the gross input_tokens / a subset OF output_tokens;
+-- display-only, they do not change cost. Map defaults to {} (never NULL), so
+-- existing rows and non-LLM spans carry an empty map.
 ALTER TABLE spans
-    ADD COLUMN IF NOT EXISTS cache_read_tokens Nullable(Int64),
-    ADD COLUMN IF NOT EXISTS cache_write_tokens Nullable(Int64),
-    ADD COLUMN IF NOT EXISTS reasoning_tokens Nullable(Int64);
+    ADD COLUMN IF NOT EXISTS usage_details Map(LowCardinality(String), Int64);
 
 -- +goose Down
 ALTER TABLE spans
-    DROP COLUMN IF EXISTS reasoning_tokens,
-    DROP COLUMN IF EXISTS cache_write_tokens,
-    DROP COLUMN IF EXISTS cache_read_tokens;
+    DROP COLUMN IF EXISTS usage_details;

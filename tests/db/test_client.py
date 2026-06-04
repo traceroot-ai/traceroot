@@ -112,7 +112,9 @@ class TestInsertSpansBatch:
         assert row[12] == 100  # input_tokens
         assert row[13] == 50  # output_tokens
         assert row[14] == 150  # total_tokens
-        assert len(columns) == 26
+        # 3 fixed breakdown columns collapsed into one usage_details map (net -2).
+        assert len(columns) == 24
+        assert "usage_details" in columns
 
     def test_optional_fields_none(self):
         """None values for optional fields (cost, tokens)."""

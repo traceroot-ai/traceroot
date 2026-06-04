@@ -150,9 +150,9 @@ export function SpanInfoPanel({
               inputTokens={selection.span.input_tokens}
               outputTokens={selection.span.output_tokens}
               totalTokens={selection.span.total_tokens}
-              cacheReadTokens={selection.span.cache_read_tokens}
-              cacheWriteTokens={selection.span.cache_write_tokens}
-              reasoningTokens={selection.span.reasoning_tokens}
+              cacheReadTokens={selection.span.usage_details?.cache_read_tokens}
+              cacheWriteTokens={selection.span.usage_details?.cache_write_tokens}
+              reasoningTokens={selection.span.usage_details?.reasoning_tokens}
             />
           )}
           {!isTrace && selection.span.cost != null && Number.isFinite(selection.span.cost) && (

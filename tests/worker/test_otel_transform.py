@@ -947,7 +947,7 @@ class TestFalsyPrecedence:
 
 class TestCacheTokenMetadata:
     """gen_ai.usage.details.cache_* are a fallback alias for the cache buckets.
-    Since #958 they are promoted to first-class span columns (cache_read_tokens /
+    Since #958 they are promoted into the usage_details map (cache_read_tokens /
     cache_write_tokens), NOT rescued into metadata. These tests pin that the
     fallback keys land in the columns and stay out of metadata."""
 
@@ -962,7 +962,7 @@ class TestCacheTokenMetadata:
             *extra,
         ]
 
-    def test_cache_read_tokens_promoted_to_column(self):
+    def test_cache_read_tokens_promoted_to_usage_details(self):
         import json
 
         payload = make_otel_payload(
@@ -977,12 +977,12 @@ class TestCacheTokenMetadata:
             ]
         )
         _, spans = transform_otel_to_clickhouse(payload, "proj-1")
-        assert spans[0]["cache_read_tokens"] == 128
+        assert spans[0]["usage_details"]["cache_read_tokens"] == 128
         # Not duplicated into metadata.
         metadata = json.loads(spans[0]["metadata"]) if spans[0].get("metadata") else {}
         assert "gen_ai.usage.details.cache_read_tokens" not in metadata
 
-    def test_cache_write_tokens_promoted_to_column(self):
+    def test_cache_write_tokens_promoted_to_usage_details(self):
         import json
 
         payload = make_otel_payload(
@@ -997,7 +997,7 @@ class TestCacheTokenMetadata:
             ]
         )
         _, spans = transform_otel_to_clickhouse(payload, "proj-1")
-        assert spans[0]["cache_write_tokens"] == 64
+        assert spans[0]["usage_details"]["cache_write_tokens"] == 64
         metadata = json.loads(spans[0]["metadata"]) if spans[0].get("metadata") else {}
         assert "gen_ai.usage.details.cache_write_tokens" not in metadata
 
@@ -1015,7 +1015,7 @@ class TestCacheTokenMetadata:
             ]
         )
         _, spans = transform_otel_to_clickhouse(payload, "proj-1")
-        assert spans[0]["cache_read_tokens"] == 128
-        assert spans[0]["cache_write_tokens"] == 64
-        assert isinstance(spans[0]["cache_read_tokens"], int)
-        assert isinstance(spans[0]["cache_write_tokens"], int)
+        assert spans[0]["usage_details"]["cache_read_tokens"] == 128
+        assert spans[0]["usage_details"]["cache_write_tokens"] == 64
+        assert isinstance(spans[0]["usage_details"]["cache_read_tokens"], int)
+        assert isinstance(spans[0]["usage_details"]["cache_write_tokens"], int)
