@@ -162,8 +162,8 @@ def test_no_metadata_when_no_extra_attributes():
     assert "metadata" not in spans[0]
 
 
-def test_cache_and_reasoning_tokens_persisted_as_columns():
-    """Cache + reasoning token counts land in dedicated span columns, not metadata."""
+def test_cache_and_reasoning_tokens_persisted_in_usage_details():
+    """Cache + reasoning token counts land in the usage_details map, not metadata."""
     payload = _otel_payload(
         [
             _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
@@ -182,10 +182,10 @@ def test_cache_and_reasoning_tokens_persisted_as_columns():
     # Gross token columns are unchanged (display continuity).
     assert span["input_tokens"] == 1000
     assert span["output_tokens"] == 200
-    # New first-class breakdown columns.
-    assert span["cache_read_tokens"] == 800
-    assert span["cache_write_tokens"] == 50
-    assert span["reasoning_tokens"] == 120
+    # New usage_details breakdown map.
+    assert span["usage_details"]["cache_read_tokens"] == 800
+    assert span["usage_details"]["cache_write_tokens"] == 50
+    assert span["usage_details"]["reasoning_tokens"] == 120
     # The breakdown must NOT be duplicated into metadata.
     meta = json.loads(span["metadata"]) if span.get("metadata") else {}
     assert "gen_ai.usage.details.cache_read_tokens" not in meta
@@ -206,7 +206,7 @@ def test_openinference_reasoning_key_persisted():
 
     _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
 
-    assert spans[0]["reasoning_tokens"] == 220
+    assert spans[0]["usage_details"]["reasoning_tokens"] == 220
 
 
 def test_reasoning_tokens_do_not_change_cost():
@@ -229,7 +229,7 @@ def test_reasoning_tokens_do_not_change_cost():
     )
 
     # Reasoning is recorded for display...
-    assert spans_with[0]["reasoning_tokens"] == 120
+    assert spans_with[0]["usage_details"]["reasoning_tokens"] == 120
     # ...but does not perturb the cost vs. the same span without reasoning.
     # (.get so the assertion holds whether or not pricing data is available —
     # both sides are equal either way; what matters is reasoning can't change it.)
@@ -252,8 +252,8 @@ def test_cache_columns_are_stored_uncapped():
     _t, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
     s = spans[0]
     # Stored uncapped: the columns reflect exactly what the emitter reported.
-    assert s["cache_read_tokens"] == 900
-    assert s["cache_write_tokens"] == 300
+    assert s["usage_details"]["cache_read_tokens"] == 900
+    assert s["usage_details"]["cache_write_tokens"] == 300
 
 
 def test_net_emitter_input_stored_as_reconstructed_gross():
@@ -274,8 +274,8 @@ def test_net_emitter_input_stored_as_reconstructed_gross():
     )
     _t, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
     s = spans[0]
-    assert s["cache_read_tokens"] == 29956
-    assert s["cache_write_tokens"] == 2560
+    assert s["usage_details"]["cache_read_tokens"] == 29956
+    assert s["usage_details"]["cache_write_tokens"] == 2560
     # input is the reconstructed gross (was understated at 2), reconciling with cache.
     assert s["input_tokens"] == 29956 + 2560
     assert s["total_tokens"] == s["input_tokens"] + 2342
@@ -292,12 +292,12 @@ def test_reasoning_capped_to_output():
         ]
     )
     _t, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
-    assert spans[0]["reasoning_tokens"] == 200
+    assert spans[0]["usage_details"]["reasoning_tokens"] == 200
 
 
 def test_cache_detail_key_without_model_is_not_persisted():
-    """Cache columns require a priced LLM span; an orphan cache attr on a span
-    with no model produces no cache columns (documented contract)."""
+    """usage_details requires a priced LLM span; an orphan cache attr on a span
+    with no model produces no usage_details (documented contract)."""
     payload = _otel_payload([_attr("gen_ai.usage.details.cache_read_tokens", 128)])
     _t, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
-    assert spans[0].get("cache_read_tokens") is None
+    assert "cache_read_tokens" not in (spans[0].get("usage_details") or {})
