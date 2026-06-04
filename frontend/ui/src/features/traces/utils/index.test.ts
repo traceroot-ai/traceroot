@@ -1,8 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { Span } from "@/types/api";
-import { enrichSpansWithPending, getTraceDuration } from "./index";
+import { enrichSpansWithPending, getSpanDuration, getTraceDuration } from "./index";
 import type { TraceDetail } from "@/types/api";
+
+// Pin a non-UTC timezone so timezone-naive timestamp regressions (a whole-second
+// "...:30" end parsed as local → 7h skew) are caught regardless of the CI
+// runner's zone. The Z-suffixed fixtures elsewhere in this file are unaffected.
+process.env.TZ = "America/Los_Angeles";
 
 // Minimal span factory — only fields relevant to enrichSpansWithPending.
 function makeSpan(overrides: Partial<Span> & { span_id: string }): Span {
@@ -261,5 +266,63 @@ describe("getTraceDuration", () => {
 
   it("returns null for an empty trace", () => {
     expect(getTraceDuration(traceOf([]))).toBeNull();
+  });
+});
+
+// Regression suite for the timezone-naive backend format. Production timestamps
+// arrive WITHOUT a `Z` (e.g. "2026-06-04T06:37:30.862000"), and Python drops the
+// fractional part when microseconds are zero (e.g. "2026-06-04T06:37:30"). A
+// whole-second tail "...:30" was mistaken for a "-HH:MM" offset and parsed as
+// local time, inflating one span — and the whole trace — to ~7h in non-UTC zones.
+describe("durations with timezone-naive backend timestamps", () => {
+  const traceOf = (spans: Span[]) => ({ spans }) as unknown as TraceDetail;
+
+  it("getSpanDuration: whole-second end is seconds, not 7h (the reported bug)", () => {
+    const span = makeSpan({
+      span_id: "websearch",
+      span_start_time: "2026-06-04T06:37:22.527000",
+      span_end_time: "2026-06-04T06:37:30", // microseconds were zero → no fraction
+    });
+    expect(getSpanDuration(span)).toBe(7_473);
+  });
+
+  it("getSpanDuration: fractional naive timestamps compute normally", () => {
+    const span = makeSpan({
+      span_id: "websearch2",
+      span_start_time: "2026-06-04T06:37:22.527000",
+      span_end_time: "2026-06-04T06:37:30.618000",
+    });
+    expect(getSpanDuration(span)).toBe(8_091);
+  });
+
+  it("getSpanDuration: a naive timestamp equals the same instant written with Z", () => {
+    const naive = makeSpan({
+      span_id: "naive",
+      span_start_time: "2026-06-04T06:37:22",
+      span_end_time: "2026-06-04T06:37:30",
+    });
+    const withZ = makeSpan({
+      span_id: "withZ",
+      span_start_time: "2026-06-04T06:37:22Z",
+      span_end_time: "2026-06-04T06:37:30Z",
+    });
+    expect(getSpanDuration(naive)).toBe(getSpanDuration(withZ));
+  });
+
+  it("getTraceDuration: a child's whole-second end does not blow the trace up to 7h", () => {
+    const root = makeSpan({
+      span_id: "root",
+      span_start_time: "2026-06-04T06:37:01.841000",
+      span_end_time: "2026-06-04T06:41:16.974000",
+    });
+    const child = makeSpan({
+      span_id: "child",
+      parent_span_id: "root",
+      span_start_time: "2026-06-04T06:37:22.527000",
+      span_end_time: "2026-06-04T06:37:30", // the buggy whole-second value
+    });
+    const dur = getTraceDuration(traceOf([root, child]))!;
+    expect(dur).toBe(255_133); // 06:41:16.974 − 06:37:01.841 ≈ 4m15s
+    expect(dur).toBeLessThan(3_600_000); // never an hour+
   });
 });
