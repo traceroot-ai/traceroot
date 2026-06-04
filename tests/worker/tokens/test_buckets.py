@@ -77,6 +77,19 @@ def test_missing_scope_does_not_crash(caplog):
     assert any("unknown instrumentation scope" in r.message.lower() for r in caplog.records)
 
 
+def test_non_string_scope_does_not_crash():
+    # scope.name comes from untrusted OTLP; a malformed non-string value must be
+    # guarded (treated as unknown) rather than crashing ingestion on .lower().
+    b = normalize_token_usage(
+        123,  # type: ignore[arg-type]
+        input_tokens=100,
+        output_tokens=10,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+    )
+    assert b == TokenBuckets(input_uncached=100, output=10, cache_read=0, cache_write=0)
+
+
 def test_cache_exceeding_input_is_kept_uncapped_for_net_emitters():
     # NET/exclusive emitters (e.g. claude-agent-sdk, whose instrumentor passes
     # Anthropic's exclusive input straight through) report a small input with the
