@@ -77,31 +77,33 @@ def test_missing_scope_does_not_crash(caplog):
     assert any("unknown instrumentation scope" in r.message.lower() for r in caplog.records)
 
 
-def test_cache_capped_to_gross_input_prevents_overbill():
-    # Inconsistent emitter data: cache counts exceed the gross input. Cache must
-    # be capped so the priced buckets never sum to more than the reported input.
+def test_cache_exceeding_input_is_kept_uncapped_for_net_emitters():
+    # NET/exclusive emitters (e.g. claude-agent-sdk, whose instrumentor passes
+    # Anthropic's exclusive input straight through) report a small input with the
+    # cache as separate ADDITIVE buckets that legitimately exceed it. Cache must
+    # NOT be capped to the input — it is priced in full; only the uncached bucket
+    # floors to zero.
     b = normalize_token_usage(
-        "openinference.instrumentation.anthropic",
-        input_tokens=100,
-        output_tokens=5,
-        cache_read_tokens=80,
-        cache_write_tokens=80,
+        "openinference.instrumentation.claude_agent_sdk",
+        input_tokens=2,
+        output_tokens=54,
+        cache_read_tokens=15801,
+        cache_write_tokens=4897,
     )
-    # cache_read capped to gross (80 <= 100); cache_write capped to the remainder (20).
-    assert b == TokenBuckets(input_uncached=0, output=5, cache_read=80, cache_write=20)
-    assert b.input_uncached + b.cache_read + b.cache_write == 100
+    assert b == TokenBuckets(input_uncached=0, output=54, cache_read=15801, cache_write=4897)
 
 
-def test_cache_read_alone_capped_to_gross_input():
+def test_inclusive_cache_subtracts_as_a_subset():
+    # GROSS emitters: cache is a subset of the input and subtracts out cleanly,
+    # leaving the uncached remainder.
     b = normalize_token_usage(
         "openinference.instrumentation.openai",
-        input_tokens=50,
+        input_tokens=1000,
         output_tokens=1,
         cache_read_tokens=900,
-        cache_write_tokens=0,
+        cache_write_tokens=40,
     )
-    assert b == TokenBuckets(input_uncached=0, output=1, cache_read=50, cache_write=0)
-    assert b.input_uncached + b.cache_read + b.cache_write == 50
+    assert b == TokenBuckets(input_uncached=60, output=1, cache_read=900, cache_write=40)
 
 
 def test_warned_scopes_set_is_bounded():

@@ -1,11 +1,18 @@
-"""Normalize gross (cache-inclusive) instrumentor token counts into DISJOINT
-priced buckets — each physical token in exactly one bucket, priced once.
+"""Normalize an instrumentor's token counts into DISJOINT priced buckets — each
+physical token in exactly one bucket, priced once.
 
-Every instrumentor traceroot ingests reports a GROSS input that already contains
-the cache read/write tokens (per the OpenTelemetry GenAI semconv, where
-``gen_ai.usage.input_tokens`` is the *total* prompt:
-https://opentelemetry.io/docs/specs/semconv/gen-ai/anthropic/). We subtract cache
-from the input so the downstream cost math prices each token exactly once.
+The reported input may be GROSS (cache-inclusive — the common case, e.g.
+OpenInference's ``llm.token_count.prompt``, which already contains the cache
+tokens) or NET (cache-exclusive — e.g. the claude-agent-sdk instrumentor, which
+passes Anthropic's exclusive ``input_tokens`` straight through with cache reported
+as separate additive buckets).
+
+A single rule handles both: subtract cache from the input to recover the uncached
+bucket, flooring at zero, and keep the cache buckets UNCAPPED. For gross emitters
+the cache is a subset that subtracts cleanly; for net emitters the cache simply
+exceeds the input, so the uncached bucket floors to zero while the additive cache
+is still priced in full. Each physical token is therefore priced exactly once
+without a per-emitter convention branch.
 """
 
 from __future__ import annotations
@@ -30,14 +37,10 @@ class TokenBuckets:
     cache_write: int = 0
 
 
-# Instrumentation scopes known to report a GROSS (cache-inclusive) input — every
-# emitter traceroot reads today. Matched by case-insensitive scope-name prefix.
-# An unrecognized scope is still treated as inclusive (the dominant convention)
-# but warned about once, so a future raw-passthrough emitter surfaces instead of
-# silently mispricing. Add a prefix here only after verifying the emitter is
-# cache-inclusive firsthand from its source (NOT from raw provider API docs — the
-# raw SDK field can be exclusive while the instrumented span is gross).
-_KNOWN_INCLUSIVE_SCOPE_PREFIXES: tuple[str, ...] = (
+# Instrumentation scopes traceroot recognizes today. Used only to surface an
+# UNKNOWN emitter once (so a new token convention gets a human look) — the pricing
+# math below is the same for every scope. Matched by case-insensitive prefix.
+_KNOWN_SCOPE_PREFIXES: tuple[str, ...] = (
     "openinference",  # Python OpenInference (openinference.instrumentation.*)
     "@arizeai/openinference",  # JS/TS OpenInference (@arizeai/openinference-instrumentation-*)
     "opentelemetry.instrumentation",
@@ -54,16 +57,15 @@ _warned_scopes: set[str] = set()
 
 
 def _warn_once_if_unknown_scope(scope_name: str | None) -> None:
-    """Warn (once per scope) if the emitter isn't a known cache-inclusive one."""
-    if scope_name and scope_name.lower().startswith(_KNOWN_INCLUSIVE_SCOPE_PREFIXES):
+    """Warn (once per scope) if the emitter isn't one traceroot recognizes."""
+    if scope_name and scope_name.lower().startswith(_KNOWN_SCOPE_PREFIXES):
         return
     key = scope_name or "<missing>"
     if key not in _warned_scopes and len(_warned_scopes) < _MAX_WARNED_SCOPES:
         _warned_scopes.add(key)
         logger.warning(
-            "Pricing tokens from unknown instrumentation scope %r; assuming "
-            "input is cache-inclusive (subtracting cache). Verify this emitter's "
-            "convention and add it to _KNOWN_INCLUSIVE_SCOPE_PREFIXES.",
+            "Pricing tokens from unknown instrumentation scope %r; verify its "
+            "token convention and add it to _KNOWN_SCOPE_PREFIXES.",
             key,
         )
 
@@ -76,20 +78,19 @@ def normalize_token_usage(
     cache_read_tokens: int,
     cache_write_tokens: int,
 ) -> TokenBuckets:
-    """Convert a gross (cache-inclusive) instrumentor count into disjoint buckets.
+    """Convert an instrumentor's token counts into disjoint priced buckets.
 
-    Cache is subtracted from the gross input so each physical token is priced
-    exactly once. All buckets are clamped non-negative, and cache is capped to the
-    gross input so inconsistent emitter data (cache counts exceeding the reported
-    input) can never price more tokens than were reported. The reconciliation
-    invariant ``input_uncached + cache_read + cache_write == input_tokens`` holds.
+    The uncached bucket is ``max(input - cache_read - cache_write, 0)``; cache is
+    kept uncapped. This is correct for GROSS emitters (cache is a subset of the
+    input, so it subtracts out) and for NET emitters such as claude-agent-sdk
+    (cache exceeds the input, so the uncached bucket floors to zero while the
+    additive cache is still priced in full). All buckets are clamped non-negative.
     """
     _warn_once_if_unknown_scope(scope_name)
-    gross_input = max(input_tokens, 0)
-    cache_read = min(max(cache_read_tokens, 0), gross_input)
-    cache_write = min(max(cache_write_tokens, 0), gross_input - cache_read)
+    cache_read = max(cache_read_tokens, 0)
+    cache_write = max(cache_write_tokens, 0)
     return TokenBuckets(
-        input_uncached=gross_input - cache_read - cache_write,
+        input_uncached=max(max(input_tokens, 0) - cache_read - cache_write, 0),
         output=max(output_tokens, 0),
         cache_read=cache_read,
         cache_write=cache_write,
