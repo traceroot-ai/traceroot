@@ -103,6 +103,15 @@ export const TREE_LAYOUT = {
   LEFT_PADDING: 8, // Left padding before first icon
 } as const;
 
+// Row overscan: how many rows @tanstack/react-virtual renders beyond the
+// viewport on each side. Shared by both virtualized views (SpanTreeView +
+// SpanTimelineView) so the scroll-synced, row-aligned panels buffer identically
+// and never drift. A larger buffer means fewer blank-row flashes during fast /
+// momentum scrolling, at a small extra-DOM cost — and rows here are fixed-height
+// and cheap (~18 nodes each), so we keep a generous buffer. 26 rows ≈ 730px,
+// past the point of visible flashing on a quick fling.
+export const TREE_OVERSCAN_ROWS = 26;
+
 /**
  * Calculate span duration in milliseconds.
  * In-progress spans (no end_time) measure against now() so live bars grow.
