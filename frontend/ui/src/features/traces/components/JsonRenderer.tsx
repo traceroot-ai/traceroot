@@ -1,6 +1,9 @@
 "use client";
 
+import { useState } from "react";
+
 import { InlineMedia, mediaSrc } from "./inline-media";
+import { shouldTruncate, truncateString } from "./json-render-utils";
 
 interface JsonRendererProps {
   value: unknown;
@@ -8,7 +11,90 @@ interface JsonRendererProps {
 }
 
 /**
- * Recursive JSON renderer with syntax highlighting
+ * A long string value rendered with an inline "show more"/"show less" toggle.
+ * Collapsed by default so a single very large field never floods the DOM.
+ */
+function TruncatableString({ value }: { value: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!shouldTruncate(value)) {
+    return (
+      <span className="whitespace-pre-wrap break-words text-green-700 dark:text-green-400">
+        &quot;{value}&quot;
+      </span>
+    );
+  }
+
+  return (
+    <span className="whitespace-pre-wrap break-words text-green-700 dark:text-green-400">
+      &quot;{expanded ? value : truncateString(value)}
+      {!expanded && <span className="text-muted-foreground">…</span>}&quot;
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        className="ml-1 align-baseline text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+      >
+        {expanded ? "show less" : `show more (${value.length} chars)`}
+      </button>
+    </span>
+  );
+}
+
+/**
+ * A nested object/array rendered collapsed by default. The summary line shows
+ * the bracket and entry count; clicking expands the children on demand so we
+ * never render thousands of nested rows up front.
+ */
+function CollapsibleNode({
+  open,
+  close,
+  count,
+  children,
+}: {
+  open: string;
+  close: string;
+  count: number;
+  children: React.ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className="text-left align-baseline hover:underline"
+      >
+        <span className="text-muted-foreground">{open}</span>
+        <span className="mx-0.5 text-[10px] text-muted-foreground">
+          {count} {count === 1 ? "item" : "items"}
+        </span>
+        <span className="text-muted-foreground">{close}</span>
+      </button>
+    );
+  }
+
+  return (
+    <span>
+      <button
+        type="button"
+        onClick={() => setExpanded(false)}
+        className="align-baseline text-muted-foreground hover:underline"
+      >
+        {open}
+      </button>
+      <div className="ml-3">{children}</div>
+      <span className="text-muted-foreground">{close}</span>
+    </span>
+  );
+}
+
+/**
+ * Recursive JSON renderer with syntax highlighting.
+ *
+ * Long string values are truncated behind a toggle and nested objects/arrays
+ * start collapsed, so selecting a span with a large I/O blob renders without a
+ * main-thread stall instead of materializing the entire expanded tree at once.
  */
 export function JsonRenderer({ value, depth = 0 }: JsonRendererProps) {
   if (value === null) {
@@ -41,11 +127,7 @@ export function JsonRenderer({ value, depth = 0 }: JsonRendererProps) {
         // Not valid JSON, render as plain string
       }
     }
-    return (
-      <span className="whitespace-pre-wrap break-words text-green-700 dark:text-green-400">
-        &quot;{value}&quot;
-      </span>
-    );
+    return <TruncatableString value={value} />;
   }
 
   if (Array.isArray(value)) {
@@ -54,18 +136,14 @@ export function JsonRenderer({ value, depth = 0 }: JsonRendererProps) {
     }
 
     return (
-      <span>
-        <span className="text-muted-foreground">[</span>
-        <div className="ml-3">
-          {value.map((item, index) => (
-            <div key={index}>
-              <JsonRenderer value={item} depth={depth + 1} />
-              {index < value.length - 1 && <span className="text-muted-foreground">,</span>}
-            </div>
-          ))}
-        </div>
-        <span className="text-muted-foreground">]</span>
-      </span>
+      <CollapsibleNode open="[" close="]" count={value.length}>
+        {value.map((item, index) => (
+          <div key={index}>
+            <JsonRenderer value={item} depth={depth + 1} />
+            {index < value.length - 1 && <span className="text-muted-foreground">,</span>}
+          </div>
+        ))}
+      </CollapsibleNode>
     );
   }
 
@@ -76,20 +154,16 @@ export function JsonRenderer({ value, depth = 0 }: JsonRendererProps) {
     }
 
     return (
-      <span>
-        <span className="text-muted-foreground">{"{"}</span>
-        <div className="ml-3">
-          {keys.map((key, index) => (
-            <div key={key}>
-              <span className="text-sky-600 dark:text-sky-400">{key}</span>
-              <span className="text-muted-foreground">: </span>
-              <JsonRenderer value={(value as Record<string, unknown>)[key]} depth={depth + 1} />
-              {index < keys.length - 1 && <span className="text-muted-foreground">,</span>}
-            </div>
-          ))}
-        </div>
-        <span className="text-muted-foreground">{"}"}</span>
-      </span>
+      <CollapsibleNode open="{" close="}" count={keys.length}>
+        {keys.map((key, index) => (
+          <div key={key}>
+            <span className="text-sky-600 dark:text-sky-400">{key}</span>
+            <span className="text-muted-foreground">: </span>
+            <JsonRenderer value={(value as Record<string, unknown>)[key]} depth={depth + 1} />
+            {index < keys.length - 1 && <span className="text-muted-foreground">,</span>}
+          </div>
+        ))}
+      </CollapsibleNode>
     );
   }
 
