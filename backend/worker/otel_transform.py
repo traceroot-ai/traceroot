@@ -440,6 +440,9 @@ def transform_otel_to_clickhouse(
                             "gen_ai.usage.cache_read_input_tokens",
                             "gen_ai.usage.input_cached_tokens",
                             "gen_ai.usage.details.cache_read_tokens",
+                            # pydantic-ai version variants (names differ by release):
+                            "gen_ai.usage.cache_read_tokens",
+                            "gen_ai.usage.details.cache_read_input_tokens",
                         ],
                     )
                     api_cache_write_tokens = first_present(
@@ -449,6 +452,8 @@ def transform_otel_to_clickhouse(
                             "gen_ai.usage.cache_creation.input_tokens",
                             "gen_ai.usage.cache_creation_input_tokens",
                             "gen_ai.usage.details.cache_write_tokens",
+                            # pydantic-ai version variant:
+                            "gen_ai.usage.details.cache_creation_input_tokens",
                         ],
                     )
 

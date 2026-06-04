@@ -115,3 +115,25 @@ def test_warned_scopes_set_is_bounded():
             cache_write_tokens=0,
         )
     assert len(buckets_mod._warned_scopes) <= buckets_mod._MAX_WARNED_SCOPES
+
+
+def test_js_openinference_scope_is_known_inclusive_no_warning(caplog):
+    # The JS/TS OpenInference instrumentors emit under the "@arizeai/openinference-*"
+    # scope, which must be recognized as cache-inclusive (same as Python's
+    # "openinference.*") so TS traces are priced explicitly and without a warning.
+    with caplog.at_level(logging.WARNING):
+        b = normalize_token_usage(
+            "@arizeai/openinference-instrumentation-openai",
+            input_tokens=1000,
+            output_tokens=50,
+            cache_read_tokens=900,
+            cache_write_tokens=40,
+        )
+    assert b == TokenBuckets(input_uncached=60, output=50, cache_read=900, cache_write=40)
+    assert not any("unknown instrumentation scope" in r.message.lower() for r in caplog.records)
+
+
+def test_token_buckets_fields_default_to_zero():
+    # Defaults make future token categories (reasoning/audio) purely additive.
+    assert TokenBuckets() == TokenBuckets(input_uncached=0, output=0, cache_read=0, cache_write=0)
+    assert TokenBuckets(output=5).cache_read == 0
