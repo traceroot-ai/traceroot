@@ -2,7 +2,7 @@
  * Pure policy for the span I/O renderer.
  *
  * Long string values are truncated to a bounded prefix by default (revealed
- * behind a "show more" toggle). Nested objects/arrays are expanded by default
+ * behind an inline "…expand" toggle). Nested objects/arrays are expanded by default
  * at shallow depths / small sizes, and collapsed (rendered as `{ N items }`)
  * once a node is deep or large. Together these keep a large (~300 KB)
  * input/output blob from rendering thousands of expanded DOM nodes up front —

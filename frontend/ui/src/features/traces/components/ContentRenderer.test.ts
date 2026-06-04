@@ -11,7 +11,7 @@ import {
 
 // These tests cover the pure policy that backs the span I/O renderer. The
 // renderer expands shallow/small objects by default but collapses deep or large
-// ones, and hides the tail of long strings behind a "show more" toggle, so
+// ones, and hides the tail of long strings behind an inline "…expand" toggle, so
 // selecting a span with a large (~300 KB) blob doesn't render thousands of
 // expanded DOM nodes up front while a normal span stays readable on first
 // paint. The vitest environment here is "node" (no DOM), so we assert the
