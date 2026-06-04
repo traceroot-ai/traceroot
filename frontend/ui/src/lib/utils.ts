@@ -112,8 +112,11 @@ export function formatTokenFlow(
 export function parseAsUTC(date: string | Date): Date {
   if (date instanceof Date) return date;
 
-  // If the string doesn't have timezone info, treat it as UTC
-  if (!date.endsWith("Z") && !date.includes("+") && !/\d{2}:\d{2}$/.test(date.slice(-6))) {
+  // If the string doesn't have timezone info, treat it as UTC.
+  // A real offset must carry a sign (e.g. "-07:00"); require [+-] so the trailing
+  // "MM:SS" of a whole-second timestamp (e.g. "2026-06-04T06:37:30", emitted when
+  // microseconds are zero) is NOT mistaken for an offset and parsed as local time.
+  if (!date.endsWith("Z") && !date.includes("+") && !/[+-]\d{2}:\d{2}$/.test(date.slice(-6))) {
     return new Date(date + "Z");
   }
   return new Date(date);
