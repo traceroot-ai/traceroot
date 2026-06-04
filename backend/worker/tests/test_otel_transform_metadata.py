@@ -236,8 +236,10 @@ def test_reasoning_tokens_do_not_change_cost():
     assert spans_with[0].get("cost") == spans_without[0].get("cost")
 
 
-def test_cache_columns_capped_to_input_when_emitter_inconsistent():
-    """Malformed emitter (cache > input): stored cache reconciles with input."""
+def test_cache_columns_are_stored_uncapped():
+    """Cache is an additive bucket stored uncapped — even when it exceeds the
+    reported input. Net/exclusive emitters (e.g. claude-agent-sdk) report a small
+    input with large additive cache; the uncached input just floors to zero."""
     payload = _otel_payload(
         [
             _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
@@ -249,11 +251,9 @@ def test_cache_columns_capped_to_input_when_emitter_inconsistent():
     )
     _t, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
     s = spans[0]
-    # Capped: cache_read clamped, cache_write fills the remainder, never exceeding input.
+    # Stored uncapped: the columns reflect exactly what the emitter reported.
     assert s["cache_read_tokens"] == 900
-    assert s["cache_write_tokens"] == 100
-    # Reconciles with gross input: cache_read + cache_write + uncached == input.
-    assert s["cache_read_tokens"] + s["cache_write_tokens"] <= s["input_tokens"]
+    assert s["cache_write_tokens"] == 300
 
 
 def test_reasoning_capped_to_output():
