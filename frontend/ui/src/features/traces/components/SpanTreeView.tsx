@@ -105,7 +105,7 @@ export function SpanTreeView({
                 </span>
 
                 {traceTokenUsage && (
-                  <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[80px]:inline-flex">
+                  <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[10px] font-medium text-muted-foreground @[130px]:inline-flex">
                     <CircleStop className="h-2.5 w-2.5" />
                     {formatTokenFlow(
                       traceTokenUsage.inputTokens,
@@ -116,7 +116,7 @@ export function SpanTreeView({
                 )}
 
                 {traceTotalCost != null && (
-                  <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[130px]:inline-flex">
+                  <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[190px]:inline-flex">
                     <CircleDollarSign className="h-2.5 w-2.5" />
                     {traceTotalCost.toFixed(4)}
                   </span>
@@ -204,7 +204,7 @@ export function SpanTreeView({
                       )}
 
                       {span.span_kind === SpanKind.LLM && span.total_tokens != null && (
-                        <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[80px]:inline-flex">
+                        <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[10px] font-medium text-muted-foreground @[130px]:inline-flex">
                           <CircleStop className="h-2.5 w-2.5" />
                           {formatTokenFlow(
                             span.input_tokens,
@@ -217,7 +217,7 @@ export function SpanTreeView({
                       {span.span_kind === SpanKind.LLM &&
                         span.cost != null &&
                         Number.isFinite(span.cost) && (
-                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[130px]:inline-flex">
+                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[190px]:inline-flex">
                             <CircleDollarSign className="h-2.5 w-2.5" />
                             {span.cost.toFixed(4)}
                           </span>

@@ -319,7 +319,11 @@ export function TraceViewerPanel({
             >
               <span className="text-[11px] font-medium text-muted-foreground">Trace Tree</span>
             </div>
-            <div ref={treeScrollRef} className="flex-1 overflow-y-auto" onScroll={handleTreeScroll}>
+            <div
+              ref={treeScrollRef}
+              className="flex-1 overflow-y-auto overflow-x-hidden"
+              onScroll={handleTreeScroll}
+            >
               {trace && (
                 <SpanTreeView
                   trace={trace}
