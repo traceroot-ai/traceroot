@@ -234,9 +234,7 @@ class TestGetTrace:
 class TestGetSpanIO:
     def test_200(self, client, mock_trace_reader):
         mock_trace_reader.get_span_io.return_value = SPAN_IO
-        response = client.get(
-            "/api/v1/projects/test-project/traces/abc123/spans/span-1/io"
-        )
+        response = client.get("/api/v1/projects/test-project/traces/abc123/spans/span-1/io")
         assert response.status_code == 200
         data = response.json()
         assert data["span_id"] == "span-1"
@@ -247,9 +245,7 @@ class TestGetSpanIO:
 
     def test_404(self, client, mock_trace_reader):
         mock_trace_reader.get_span_io.return_value = None
-        response = client.get(
-            "/api/v1/projects/test-project/traces/abc123/spans/nonexistent/io"
-        )
+        response = client.get("/api/v1/projects/test-project/traces/abc123/spans/nonexistent/io")
         assert response.status_code == 404
 
     def test_null_io_fields(self, client, mock_trace_reader):
@@ -261,9 +257,7 @@ class TestGetSpanIO:
             "output": None,
             "metadata": None,
         }
-        response = client.get(
-            "/api/v1/projects/test-project/traces/abc123/spans/span-1/io"
-        )
+        response = client.get("/api/v1/projects/test-project/traces/abc123/spans/span-1/io")
         assert response.status_code == 200
         data = response.json()
         assert data["input"] is None

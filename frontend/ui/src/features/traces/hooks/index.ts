@@ -69,11 +69,7 @@ export function useTrace(projectId: string, traceId: string, enabled: boolean = 
  * Hook for lazily fetching a single span's full I/O (input/output/metadata).
  * Only fetches when spanId is provided (i.e. user selected a span).
  */
-export function useSpanIO(
-  projectId: string,
-  traceId: string,
-  spanId: string | null,
-) {
+export function useSpanIO(projectId: string, traceId: string, spanId: string | null) {
   const { data: authSession, isPending } = useAuthSession();
   const sessionReady = !isPending && !!authSession?.user;
   const user: TraceApiUser | undefined = authSession?.user

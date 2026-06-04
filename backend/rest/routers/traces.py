@@ -91,4 +91,3 @@ async def get_span_io(
         )
 
     return result
-
