@@ -103,6 +103,12 @@ export const TREE_LAYOUT = {
   LEFT_PADDING: 8, // Left padding before first icon
 } as const;
 
+// Row overscan shared by both virtualized views (SpanTreeView + SpanTimelineView).
+// ~500px of buffer above/below the viewport keeps scrolling smooth on large
+// traces (500 / 28px ≈ 18 rows). Shared so the two scroll-synced, row-aligned
+// panels render the same buffer and never drift.
+export const TREE_OVERSCAN_ROWS = Math.ceil(500 / TREE_LAYOUT.ROW_HEIGHT);
+
 /**
  * Calculate span duration in milliseconds.
  * In-progress spans (no end_time) measure against now() so live bars grow.

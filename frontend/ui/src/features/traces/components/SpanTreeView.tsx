@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { forwardRef, useImperativeHandle, useMemo } from "react";
+import type { RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight, ChevronDown, CircleStop, CircleDollarSign } from "lucide-react";
 import { cn, formatDuration, formatTokens } from "@/lib/utils";
@@ -16,20 +17,18 @@ import {
   getTraceTotalCost,
   getTraceTokenUsage,
   TREE_LAYOUT,
+  TREE_OVERSCAN_ROWS,
 } from "../utils";
 import { SpanKindIcon } from "./SpanKindIcon";
 import { SpanTreeConnector } from "./SpanTreeConnector";
 
 const ROW_HEIGHT = TREE_LAYOUT.ROW_HEIGHT;
 
-// Overscan is measured in rows; ~500px of buffer above/below the viewport keeps
-// scrolling smooth on large traces (500 / 28px ≈ 18 rows).
-const OVERSCAN_ROWS = Math.ceil(500 / ROW_HEIGHT);
-
 // Virtualized row model: the trace root occupies index 0, visible spans follow.
-// This ordering must stay in sync with the parent's scroll-to-row math
-// (TraceViewerPanel.scrollTreeToRow uses rowIdx + 1 to skip the trace row).
-type TreeRow = { type: "trace" } | { type: "span"; row: SpanTreeRow };
+// This list is the single source of truth for both the virtualizer count and
+// the span→index mapping behind scroll-to-selected (see `scrollToSpan`), so no
+// row-height math lives in the parent anymore.
+export type TreeRow = { type: "trace" } | { type: "span"; row: SpanTreeRow };
 
 /**
  * Returns the flattened span rows that are currently visible, i.e. none of
@@ -52,6 +51,31 @@ export function getVisibleSpanRows(
   });
 }
 
+/**
+ * Builds the full virtualized row model: the trace root at index 0 followed by
+ * the collapse-filtered span rows in DFS order. When the trace root itself is
+ * collapsed, only the root row remains. Pure so the row model — and the
+ * span→index mapping that drives scroll-to-selected — can be unit-tested.
+ *
+ * The visible-span ORDER here must stay identical to SpanTimelineView's
+ * `flattenTreeWithMetrics`: the two panels are scroll-synced row-for-row, so any
+ * divergence silently misaligns them. A parity test guards this (SpanTreeView.test.ts).
+ */
+export function buildTreeRows(
+  spanRows: SpanTreeRow[],
+  spanById: Map<string, Span>,
+  collapsedIds: Set<string>,
+): TreeRow[] {
+  if (collapsedIds.has("trace")) return [{ type: "trace" }];
+  return [
+    { type: "trace" },
+    ...getVisibleSpanRows(spanRows, spanById, collapsedIds).map((row) => ({
+      type: "span" as const,
+      row,
+    })),
+  ];
+}
+
 interface SpanTreeViewProps {
   trace: TraceDetail;
   selection: TraceSelection;
@@ -61,6 +85,16 @@ interface SpanTreeViewProps {
   compact?: boolean;
   hoveredSpanId: string | null;
   onHoverChange: (id: string | null) => void;
+  /** The overflow-y-auto scroll container owned by TraceViewerPanel. */
+  scrollRef: RefObject<HTMLDivElement | null>;
+}
+
+export interface SpanTreeViewHandle {
+  /**
+   * Scroll the row for `spanId` into view, centered. No-op when the span is not
+   * currently visible (an ancestor is collapsed) or not present in the trace.
+   */
+  scrollToSpan: (spanId: string) => void;
 }
 
 /**
@@ -70,19 +104,23 @@ interface SpanTreeViewProps {
  *
  * Rows are virtualized: only the rows in (or near) the viewport are mounted, so
  * traces with many hundreds of spans stay responsive. The scroll container is
- * the overflow-y-auto wrapper owned by TraceViewerPanel, resolved here as this
- * component's parent element.
+ * the overflow-y-auto wrapper owned by TraceViewerPanel, passed in via the
+ * `scrollRef` prop (mirroring SpanTimelineView).
  */
-export function SpanTreeView({
-  trace,
-  selection,
-  onSelect,
-  collapsedIds,
-  onToggleCollapse,
-  compact = false,
-  hoveredSpanId,
-  onHoverChange,
-}: SpanTreeViewProps) {
+export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(function SpanTreeView(
+  {
+    trace,
+    selection,
+    onSelect,
+    collapsedIds,
+    onToggleCollapse,
+    compact = false,
+    hoveredSpanId,
+    onHoverChange,
+    scrollRef,
+  },
+  ref,
+) {
   // Enrich with placeholder spans for any missing ancestors — handles both
   // live-streaming gaps (parent not yet arrived) and permanently dropped spans.
   const spans = useMemo(() => enrichSpansWithPending(trace.spans), [trace.spans]);
@@ -107,37 +145,37 @@ export function SpanTreeView({
   const traceHasChildren = hasChildren(null);
   const traceIsCollapsed = collapsedIds.has("trace");
 
-  // Flattened, collapse-filtered row list. Index 0 is always the trace root;
-  // when the trace is collapsed its descendants are omitted entirely.
-  const visibleSpanRows = useMemo(
-    () => getVisibleSpanRows(spanRows, spanById, collapsedIds),
+  // Full virtualized row model: trace root at index 0, then collapse-filtered
+  // span rows in DFS order. Single source of truth for both the virtualizer
+  // count and the span→index mapping used by scrollToSpan.
+  const allRows = useMemo(
+    () => buildTreeRows(spanRows, spanById, collapsedIds),
     [spanRows, spanById, collapsedIds],
   );
-  const allRows = useMemo<TreeRow[]>(
-    () => [
-      { type: "trace" },
-      ...(traceIsCollapsed ? [] : visibleSpanRows.map((row) => ({ type: "span" as const, row }))),
-    ],
-    [traceIsCollapsed, visibleSpanRows],
-  );
-
-  // The scroll element is the overflow-y-auto wrapper owned by the parent
-  // (TraceViewerPanel). Resolve it from our own parent node via a ref callback
-  // so the virtualizer re-measures once the node is attached.
-  const [scrollEl, setScrollEl] = useState<HTMLElement | null>(null);
-  const rootRefCallback = useCallback((node: HTMLDivElement | null) => {
-    setScrollEl(node?.parentElement ?? null);
-  }, []);
 
   const rowVirtualizer = useVirtualizer({
     count: allRows.length,
-    getScrollElement: () => scrollEl,
+    getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
-    overscan: OVERSCAN_ROWS,
+    overscan: TREE_OVERSCAN_ROWS,
   });
 
+  // Imperative scroll-to-selected, invoked when a timeline click switches back
+  // to the tree. Delegates to the virtualizer (height-agnostic) instead of the
+  // old manual scrollTop math, and centers the row to match prior behaviour.
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToSpan: (spanId: string) => {
+        const index = allRows.findIndex((r) => r.type === "span" && r.row.span.span_id === spanId);
+        if (index !== -1) rowVirtualizer.scrollToIndex(index, { align: "center" });
+      },
+    }),
+    [allRows, rowVirtualizer],
+  );
+
   return (
-    <div ref={rootRefCallback} className="relative min-w-0">
+    <div className="relative min-w-0">
       <div
         style={{
           height: `${rowVirtualizer.getTotalSize()}px`,
@@ -313,4 +351,4 @@ export function SpanTreeView({
       </div>
     </div>
   );
-}
+});

@@ -3,7 +3,8 @@ import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { Span } from "@/types/api";
 import type { SpanTreeRow } from "../types";
 import { buildSpanTree } from "../utils";
-import { getVisibleSpanRows } from "./SpanTreeView";
+import { flattenTreeWithMetrics } from "../utils/timeline";
+import { getVisibleSpanRows, buildTreeRows } from "./SpanTreeView";
 
 // Minimal span factory — only fields relevant to the tree row model.
 function makeSpan(overrides: Partial<Span> & { span_id: string }): Span {
@@ -75,5 +76,80 @@ describe("getVisibleSpanRows", () => {
     const ids = visible.map((r) => r.span.span_id);
     expect(ids.indexOf("a1")).toBeLessThan(ids.indexOf("a2"));
     expect(ids.indexOf("a2")).toBeLessThan(ids.indexOf("b"));
+  });
+});
+
+// Maps the virtualized row model to a flat id list ("trace" for the root row)
+// so index assertions read clearly.
+const rowIds = (treeRows: ReturnType<typeof buildTreeRows>) =>
+  treeRows.map((r) => (r.type === "trace" ? "trace" : r.row.span.span_id));
+
+describe("buildTreeRows", () => {
+  it("places the trace root at index 0, with spans following in DFS order", () => {
+    const { spanById, rows } = makeTree();
+    const treeRows = buildTreeRows(rows, spanById, new Set());
+    expect(treeRows[0]).toEqual({ type: "trace" });
+    expect(rowIds(treeRows)).toEqual(["trace", "root", "a", "a1", "a2", "b"]);
+  });
+
+  it("drops descendants of a collapsed span", () => {
+    const { spanById, rows } = makeTree();
+    expect(rowIds(buildTreeRows(rows, spanById, new Set(["a"])))).toEqual([
+      "trace",
+      "root",
+      "a",
+      "b",
+    ]);
+  });
+
+  it("yields only the trace row when the trace root is collapsed", () => {
+    const { spanById, rows } = makeTree();
+    expect(buildTreeRows(rows, spanById, new Set(["trace"]))).toEqual([{ type: "trace" }]);
+  });
+
+  it("locates a span's virtualizer index past the trace-root offset", () => {
+    const { spanById, rows } = makeTree();
+    const treeRows = buildTreeRows(rows, spanById, new Set());
+    // scrollToSpan uses exactly this findIndex; "a" sits at [trace, root, a, ...]
+    const index = treeRows.findIndex((r) => r.type === "span" && r.row.span.span_id === "a");
+    expect(index).toBe(2);
+  });
+
+  it("returns -1 for a span hidden under a collapsed ancestor", () => {
+    const { spanById, rows } = makeTree();
+    const treeRows = buildTreeRows(rows, spanById, new Set(["a"]));
+    const index = treeRows.findIndex((r) => r.type === "span" && r.row.span.span_id === "a1");
+    expect(index).toBe(-1);
+  });
+});
+
+// The tree (buildTreeRows) and the timeline (flattenTreeWithMetrics) flatten the
+// same spans through two independent code paths but are rendered scroll-synced,
+// row-for-row. If their visible-span ORDER ever diverges the panels misalign
+// silently. This locks the invariant so a regression is a CI failure, not a
+// visual bug. (Trace-root collapse is handled per-panel, not in the flatteners,
+// so it is intentionally excluded here.)
+describe("buildTreeRows ↔ flattenTreeWithMetrics ordering parity", () => {
+  const visibleSpanIds = (collapsed: Set<string>) => {
+    const { spans, spanById, rows } = makeTree();
+    const treeIds = buildTreeRows(rows, spanById, collapsed).flatMap((r) =>
+      r.type === "span" ? [r.row.span.span_id] : [],
+    );
+    const timelineIds = flattenTreeWithMetrics(spans, collapsed, 1000, 800).map(
+      (item) => item.span.span_id,
+    );
+    return { treeIds, timelineIds };
+  };
+
+  it("agree on visible span order with nothing collapsed", () => {
+    const { treeIds, timelineIds } = visibleSpanIds(new Set());
+    expect(treeIds).toEqual(timelineIds);
+    expect(treeIds).toEqual(["root", "a", "a1", "a2", "b"]);
+  });
+
+  it("agree on visible span order when a subtree is collapsed", () => {
+    const { treeIds, timelineIds } = visibleSpanIds(new Set(["a"]));
+    expect(treeIds).toEqual(timelineIds);
+    expect(treeIds).toEqual(["root", "a", "b"]);
   });
 });
