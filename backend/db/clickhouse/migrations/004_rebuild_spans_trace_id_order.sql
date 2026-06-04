@@ -1,7 +1,9 @@
 -- +goose Up
 
 -- Clean up any leftover from a previous failed attempt.
+-- If a prior run failed between RENAME and DROP, spans_old may still exist.
 DROP TABLE IF EXISTS spans_v2;
+DROP TABLE IF EXISTS spans_old;
 
 -- Step 1: Create the replacement table with trace_id early in the sort key.
 -- This makes WHERE project_id = ? AND trace_id = ? an index seek instead of
@@ -57,14 +59,27 @@ INSERT INTO spans_v2 SELECT * FROM spans;
 -- immediately rather than waiting for background merges.
 ALTER TABLE spans_v2 MATERIALIZE PROJECTION spans_no_io_by_start_time;
 
--- Step 4: Atomic swap — briefly drops the old table and renames v2 in place.
+-- Step 4: Swap tables. The RENAME is not fully atomic for multi-table
+-- renames, so a brief write gap is possible.
 RENAME TABLE spans TO spans_old, spans_v2 TO spans;
+
+-- Step 5: Catch up any rows written to the old table between the backfill
+-- snapshot and the swap. We re-insert ALL rows rather than using a fixed
+-- time window because the backfill duration is unpredictable on large
+-- tables. ReplacingMergeTree(ch_update_time) deduplicates on the sort key
+-- during background merges, so duplicates are harmless — the row with the
+-- latest ch_update_time always wins.
+INSERT INTO spans
+SELECT * FROM spans_old;
+
+-- Step 6: Safe to drop now that all data has been carried over.
 DROP TABLE IF EXISTS spans_old;
 
 -- +goose Down
 
 -- Clean up any leftover from a previous failed attempt.
 DROP TABLE IF EXISTS spans_v2;
+DROP TABLE IF EXISTS spans_old;
 
 -- Recreate the original table with the old sort key.
 CREATE TABLE spans_v2
@@ -100,4 +115,8 @@ ORDER BY (project_id, span_kind, toDate(span_start_time), span_id);
 
 INSERT INTO spans_v2 SELECT * FROM spans;
 RENAME TABLE spans TO spans_old, spans_v2 TO spans;
+
+INSERT INTO spans
+SELECT * FROM spans_old;
+
 DROP TABLE IF EXISTS spans_old;
