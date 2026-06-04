@@ -35,5 +35,3 @@ See [openrouter.ai/models](https://openrouter.ai/models) for the full list.
 ## TraceRoot UI
 
 After running the example, open [app.traceroot.ai](https://app.traceroot.ai) to view the captured trace. You'll see the full agent span, nested LLM calls, and individual tool invocations with their inputs and outputs.
-
-![TraceRoot trace](./screenshot.png)
