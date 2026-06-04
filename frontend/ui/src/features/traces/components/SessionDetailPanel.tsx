@@ -70,14 +70,14 @@ function TraceCard({
           defaultOpen={true}
           onCopy={trace.input ? () => navigator.clipboard.writeText(trace.input!) : undefined}
         >
-          <ContentRenderer content={trace.input} />
+          <ContentRenderer key={trace.trace_id} content={trace.input} />
         </ExpandableSection>
         <ExpandableSection
           title="Output"
           defaultOpen={true}
           onCopy={trace.output ? () => navigator.clipboard.writeText(trace.output!) : undefined}
         >
-          <ContentRenderer content={trace.output} />
+          <ContentRenderer key={trace.trace_id} content={trace.output} />
         </ExpandableSection>
       </div>
     </div>

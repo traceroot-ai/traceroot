@@ -51,6 +51,10 @@ export function SpanInfoPanel({
     buildUrlWithFilters(basePath, { dateFilter, customStartDate, customEndDate, extraParams });
 
   const isTrace = selection.type === "trace";
+  // Identity of the current selection. Used to key the I/O renderers so their
+  // per-value "expand" state resets when you switch spans/traces (and persists
+  // within the same selection, e.g. across live updates).
+  const selectionId = isTrace ? trace.trace_id : selection.span.span_id;
   const name = isTrace ? trace.name : selection.span.name;
   const kind = isTrace ? "trace" : selection.span.span_kind;
   const duration = isTrace ? getTraceDuration(trace) : getSpanDuration(selection.span);
@@ -292,7 +296,7 @@ export function SpanInfoPanel({
           defaultOpen={true}
           onCopy={input ? () => copyToClipboard(input) : undefined}
         >
-          <ContentRenderer content={input} />
+          <ContentRenderer key={selectionId} content={input} />
         </ExpandableSection>
 
         {/* Output */}
@@ -301,7 +305,7 @@ export function SpanInfoPanel({
           defaultOpen={true}
           onCopy={output ? () => copyToClipboard(output) : undefined}
         >
-          <ContentRenderer content={output} />
+          <ContentRenderer key={selectionId} content={output} />
         </ExpandableSection>
 
         {/* Metadata */}
@@ -310,7 +314,7 @@ export function SpanInfoPanel({
           defaultOpen={true}
           onCopy={metadata ? () => copyToClipboard(metadata) : undefined}
         >
-          <ContentRenderer content={metadata} />
+          <ContentRenderer key={selectionId} content={metadata} />
         </ExpandableSection>
       </div>
     </div>
