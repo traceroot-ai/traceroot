@@ -23,10 +23,11 @@ function Row({ label, value }: { label: string; value: number }) {
  *
  * Input usage (gross input_tokens) splits into its cache components and the
  * remaining uncached input; output usage splits into reasoning and plain
- * output. Cache/reasoning sub-rows only render when non-zero; the uncached
- * `input`/`output` leaf rows always render so the section totals reconcile.
- * Values are shown exactly (comma-grouped), not compactly — this is the
- * precise breakdown behind the compact `x → y (z)` chip.
+ * output. The cache sub-rows always render — even at zero — so it's clear we
+ * track cache tokens; reasoning renders only when non-zero (it's specific to
+ * reasoning models). The uncached `input`/`output` leaf rows always render so
+ * the section totals reconcile. Values are shown exactly (comma-grouped), not
+ * compactly — this is the precise breakdown behind the compact `x → y (z)` chip.
  */
 export function TokenUsageBreakdown({
   inputTokens,
@@ -55,8 +56,9 @@ export function TokenUsageBreakdown({
         <span className="tabular-nums">{formatExactTokens(input)}</span>
       </div>
       <div className="mt-1 space-y-0.5">
-        {cacheRead > 0 && <Row label="input_cached_tokens" value={cacheRead} />}
-        {cacheWrite > 0 && <Row label="cache_creation_tokens" value={cacheWrite} />}
+        {/* Always shown (even at zero) so it's clear cache tokens are tracked. */}
+        <Row label="input_cached_tokens" value={cacheRead} />
+        <Row label="cache_creation_tokens" value={cacheWrite} />
         <Row label="input" value={uncachedInput} />
       </div>
 
