@@ -84,6 +84,27 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
     return None
 
 
+def first_present_number(attrs: dict[str, Any], keys: list[str]) -> Any:
+    """Like ``first_present`` but for numeric token attributes: skip keys whose
+    value is missing or malformed (empty / non-numeric) so a malformed
+    high-priority attribute cannot suppress a valid lower-priority fallback.
+
+    Validity mirrors ``int_or_zero`` (the value must coerce via ``int``); a present
+    but unusable value is skipped rather than short-circuiting the candidate list.
+    Returns the first usable value, or None if none qualify.
+    """
+    for key in keys:
+        value = attrs.get(key)
+        if value is None or value == "":
+            continue
+        try:
+            int(value)
+        except (TypeError, ValueError):
+            continue
+        return value
+    return None
+
+
 def int_or_zero(value: Any) -> int:
     """Convert a present OTEL numeric attribute to int; missing/invalid -> 0.
 
@@ -409,7 +430,7 @@ def transform_otel_to_clickhouse(
 
                     # Try API-provided token counts first (from instrumentors).
                     # OpenInference: llm.token_count.*  ·  GenAI semconv: gen_ai.usage.*
-                    api_input_tokens = first_present(
+                    api_input_tokens = first_present_number(
                         span_attrs,
                         [
                             "llm.token_count.prompt",
@@ -417,7 +438,7 @@ def transform_otel_to_clickhouse(
                             "gen_ai.usage.prompt_tokens",
                         ],
                     )
-                    api_output_tokens = first_present(
+                    api_output_tokens = first_present_number(
                         span_attrs,
                         [
                             "llm.token_count.completion",
@@ -425,14 +446,14 @@ def transform_otel_to_clickhouse(
                             "gen_ai.usage.completion_tokens",
                         ],
                     )
-                    api_total_tokens = first_present(
+                    api_total_tokens = first_present_number(
                         span_attrs,
                         ["llm.token_count.total", "gen_ai.usage.total_tokens"],
                     )
                     # Cache buckets. The OpenInference keys (prompt_details.*) are the
                     # verified path for Anthropic/OpenAI and MUST be listed first —
                     # they are the same family as llm.token_count.prompt (read above).
-                    api_cache_read_tokens = first_present(
+                    api_cache_read_tokens = first_present_number(
                         span_attrs,
                         [
                             "llm.token_count.prompt_details.cache_read",
@@ -445,7 +466,7 @@ def transform_otel_to_clickhouse(
                             "gen_ai.usage.details.cache_read_input_tokens",
                         ],
                     )
-                    api_cache_write_tokens = first_present(
+                    api_cache_write_tokens = first_present_number(
                         span_attrs,
                         [
                             "llm.token_count.prompt_details.cache_write",

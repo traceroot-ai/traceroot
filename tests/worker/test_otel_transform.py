@@ -10,11 +10,35 @@ from worker.otel_transform import (
     attributes_to_dict,
     decode_otel_id,
     extract_attribute_value,
+    first_present_number,
     get_span_kind,
     int_or_zero,
     nanos_to_datetime,
     transform_otel_to_clickhouse,
 )
+
+
+class TestFirstPresentNumber:
+    """A malformed high-priority token attr must not suppress a valid fallback."""
+
+    def test_malformed_high_priority_falls_through_to_valid_fallback(self):
+        # "" (present-but-empty) and "abc" (non-numeric) must be skipped so the
+        # valid lower-priority key is used — otherwise the cache/token count is
+        # silently undercounted and the cost is wrong.
+        attrs = {"high": "", "mid": "abc", "low": 1000}
+        assert first_present_number(attrs, ["high", "mid", "low"]) == 1000
+
+    def test_valid_zero_is_not_skipped(self):
+        # 0 is a legitimate token count and must win over lower-priority keys.
+        attrs = {"high": 0, "low": 500}
+        assert first_present_number(attrs, ["high", "low"]) == 0
+
+    def test_all_missing_or_malformed_returns_none(self):
+        attrs = {"high": "", "mid": None, "low": "x"}
+        assert first_present_number(attrs, ["high", "mid", "low"]) is None
+
+    def test_numeric_string_is_usable(self):
+        assert first_present_number({"k": "4528"}, ["k"]) == "4528"
 
 
 class TestIntOrZero:
@@ -485,6 +509,35 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["cost"] == pytest.approx(expected)
         # Stored input_tokens stays GROSS (display continuity; PR B revisits).
         assert spans[0]["input_tokens"] == 1000
+
+    def test_malformed_high_priority_token_attr_falls_through_to_valid_key(self):
+        """A present-but-malformed high-priority token attr must not suppress a
+        valid lower-priority fallback (else usage is undercounted and cost wrong)."""
+        from unittest.mock import patch
+
+        prices = {"input": 0.000003, "output": 0.000015, "cacheRead": 0.0, "cacheWrite": 0.0}
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.request.model", "claude-3-5-sonnet"),
+                        # high-priority key present but malformed (empty string)...
+                        make_attr("llm.token_count.prompt", ""),
+                        # ...valid count only on a lower-priority fallback key.
+                        make_attr("gen_ai.usage.input_tokens", 1000),
+                        make_attr("gen_ai.usage.output_tokens", 200),
+                    ],
+                )
+            ],
+            scope_name="openinference.instrumentation.anthropic",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        # The fallback's 1000 (not 0) must be used.
+        assert spans[0]["input_tokens"] == 1000
+        assert spans[0]["cost"] == pytest.approx(1000 * prices["input"] + 200 * prices["output"])
 
     def test_cache_heavy_costs_less_than_uncached_equivalent(self):
         """Monotonicity: caching must DISCOUNT, never surcharge."""
