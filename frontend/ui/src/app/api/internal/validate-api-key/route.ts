@@ -39,10 +39,12 @@ export async function POST(request: NextRequest) {
       project: {
         select: {
           id: true,
+          name: true,
           deleteTime: true,
           workspace: {
             select: {
               id: true,
+              name: true,
               billingPlan: true,
               ingestionBlocked: true,
             },
@@ -77,7 +79,11 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     valid: true,
     projectId: accessKey.projectId,
+    projectName: accessKey.project.name,
     workspaceId: accessKey.project.workspace.id,
+    workspaceName: accessKey.project.workspace.name,
+    keyName: accessKey.name ?? null,
+    keyHint: accessKey.keyHint,
     billingPlan,
     ingestionBlocked: accessKey.project.workspace.ingestionBlocked,
     expiresAt: accessKey.expireTime?.toISOString() ?? null,

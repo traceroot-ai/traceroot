@@ -41,6 +41,50 @@ class TestAuthenticateApiKey:
         assert result.billing_plan == "pro"
         assert result.ingestion_blocked is False
 
+    @respx.mock
+    async def test_valid_key_with_identity(self):
+        """When validate-api-key returns names/hint, AuthResult captures them."""
+        respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
+            return_value=Response(
+                200,
+                json={
+                    "valid": True,
+                    "projectId": "proj-123",
+                    "projectName": "My Project",
+                    "workspaceId": "ws-456",
+                    "workspaceName": "My Workspace",
+                    "keyName": "CI key",
+                    "keyHint": "tr_ab…yz",
+                    "billingPlan": "pro",
+                    "ingestionBlocked": False,
+                },
+            )
+        )
+        result = await authenticate_api_key("Bearer test-api-key")
+        assert result.project_name == "My Project"
+        assert result.workspace_name == "My Workspace"
+        assert result.key_name == "CI key"
+        assert result.key_hint == "tr_ab…yz"
+
+    @respx.mock
+    async def test_valid_key_without_identity_defaults_to_none(self):
+        """Identity fields are optional: absent in the response means None (no crash)."""
+        respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
+            return_value=Response(
+                200,
+                json={
+                    "valid": True,
+                    "projectId": "proj-123",
+                    "workspaceId": "ws-456",
+                    "billingPlan": "pro",
+                    "ingestionBlocked": False,
+                },
+            )
+        )
+        result = await authenticate_api_key("Bearer test-api-key")
+        assert result.project_name is None
+        assert result.key_hint is None
+
     async def test_missing_header(self):
         with pytest.raises(HTTPException) as exc_info:
             await authenticate_api_key(None)
