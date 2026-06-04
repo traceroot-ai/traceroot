@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from rest.routers.internal import router as internal_router
 from rest.routers.live import router as live_router
 from rest.routers.public.traces import router as public_traces_router
+from rest.routers.public.traces_read import router as public_traces_read_router
 from rest.routers.public.whoami import router as public_whoami_router
 from rest.routers.sessions import router as sessions_router
 from rest.routers.traces import router as traces_router
@@ -54,6 +55,7 @@ app.include_router(public_traces_router, prefix="/api/v1")
 
 # Public read API for API-key clients (e.g. the CLI)
 app.include_router(public_whoami_router, prefix="/api/v1")
+app.include_router(public_traces_read_router, prefix="/api/v1")
 
 # Internal API for worker/service communication (protected by secret)
 app.include_router(internal_router, prefix="/api/v1")

@@ -2,6 +2,9 @@
 
 from pydantic import BaseModel
 
+from rest.schemas.common import PaginationMeta
+from rest.schemas.traces import TraceDetailResponse, TraceListItem
+
 
 class WhoamiResponse(BaseModel):
     """Identity a project API key resolves to, for `login` / `status`.
@@ -19,3 +22,22 @@ class WhoamiResponse(BaseModel):
     key_hint: str | None
     host: str
     ui_base_url: str
+
+
+class PublicTraceListItem(TraceListItem):
+    """A trace list item plus a backend-built link to its UI detail view."""
+
+    trace_url: str
+
+
+class PublicTraceListResponse(BaseModel):
+    """Paginated list of traces for the public API."""
+
+    data: list[PublicTraceListItem]
+    meta: PaginationMeta
+
+
+class PublicTraceDetailResponse(TraceDetailResponse):
+    """Full trace payload plus a backend-built link to its UI detail view."""
+
+    trace_url: str
