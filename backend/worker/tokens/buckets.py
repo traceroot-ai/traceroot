@@ -1,64 +1,50 @@
-"""Normalize provider/instrumentor token counts into DISJOINT priced buckets.
+"""Normalize gross (cache-inclusive) instrumentor token counts into DISJOINT
+priced buckets — each physical token in exactly one bucket, priced once.
 
-Every instrumentor traceroot ingests reports a GROSS (cache-inclusive) input
-count — the cache read/write tokens are a *breakdown of* the input, not
-additive to it. Verified firsthand from installed source: OpenInference
-Anthropic/OpenAI and pydantic-ai/genai-prices both behave this way, and the
-OpenTelemetry GenAI semconv *requires* it: ``gen_ai.usage.input_tokens`` MUST be
-the total prompt — for Anthropic, ``input_tokens + cache_read_input_tokens +
-cache_creation_input_tokens`` — with the cache fields a subset breakdown of the
-total, not additive on top. Spec:
-https://opentelemetry.io/docs/specs/semconv/gen-ai/anthropic/
-
-We therefore subtract cache from the input to get disjoint buckets, so the
-downstream cost math can price each physical token exactly once with zero
-provider branches. The convention is keyed on the OTel instrumentation *scope*
-(the emitter), not the provider name — that is where the convention actually
-varies. Today every known emitter is inclusive, so the table collapses to
-"subtract everywhere"; the EXCLUSIVE branch + unknown-scope warning are the
-extension point for a hypothetical future raw-passthrough emitter.
+Every instrumentor traceroot ingests reports a GROSS input that already contains
+the cache read/write tokens (per the OpenTelemetry GenAI semconv, where
+``gen_ai.usage.input_tokens`` is the *total* prompt:
+https://opentelemetry.io/docs/specs/semconv/gen-ai/anthropic/). We subtract cache
+from the input so the downstream cost math prices each token exactly once.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from enum import Enum
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class TokenBuckets:
-    """Disjoint token buckets — each physical token is in exactly one bucket."""
+    """Disjoint token buckets — each physical token is in exactly one bucket.
 
-    input_uncached: int
-    output: int
-    cache_read: int
-    cache_write: int
+    Fields default to ``0`` so new token categories (e.g. reasoning, audio) can be
+    added as purely additive changes without touching existing call sites.
+    """
+
+    input_uncached: int = 0
+    output: int = 0
+    cache_read: int = 0
+    cache_write: int = 0
 
 
-class InputConvention(Enum):
-    INCLUSIVE = "inclusive"  # input already contains cache -> subtract
-    EXCLUSIVE = "exclusive"  # input excludes cache -> additive (no known emitter)
-
-
-# Matched by scope-name prefix (case-insensitive). Every emitter traceroot
-# reads today is INCLUSIVE. Add an EXCLUSIVE entry here only after verifying a
-# new emitter firsthand from its source (NOT from raw provider API docs — the
+# Instrumentation scopes known to report a GROSS (cache-inclusive) input — every
+# emitter traceroot reads today. Matched by case-insensitive scope-name prefix.
+# An unrecognized scope is still treated as inclusive (the dominant convention)
+# but warned about once, so a future raw-passthrough emitter surfaces instead of
+# silently mispricing. Add a prefix here only after verifying the emitter is
+# cache-inclusive firsthand from its source (NOT from raw provider API docs — the
 # raw SDK field can be exclusive while the instrumented span is gross).
-_SCOPE_CONVENTIONS: tuple[tuple[str, InputConvention], ...] = (
-    ("openinference", InputConvention.INCLUSIVE),
-    ("opentelemetry.instrumentation", InputConvention.INCLUSIVE),
-    ("pydantic", InputConvention.INCLUSIVE),  # pydantic-ai / pydantic_ai
-    ("logfire", InputConvention.INCLUSIVE),
-    ("traceroot", InputConvention.INCLUSIVE),
+_KNOWN_INCLUSIVE_SCOPE_PREFIXES: tuple[str, ...] = (
+    "openinference",  # Python OpenInference (openinference.instrumentation.*)
+    "@arizeai/openinference",  # JS/TS OpenInference (@arizeai/openinference-instrumentation-*)
+    "opentelemetry.instrumentation",
+    "pydantic",  # pydantic-ai / pydantic_ai
+    "logfire",
+    "traceroot",
 )
-
-# Safe default: the dominant convention is inclusive, so an unrecognized emitter
-# is far more likely to be gross than net. We subtract and warn rather than risk
-# a silent ~2x overcharge.
-_DEFAULT_CONVENTION = InputConvention.INCLUSIVE
 
 # Bound the dedup set so a high-cardinality (or adversarial) stream of unknown
 # scope names cannot grow it without limit. Real emitters are few; this ceiling
@@ -67,24 +53,19 @@ _MAX_WARNED_SCOPES = 1024
 _warned_scopes: set[str] = set()
 
 
-def _convention_for_scope(scope_name: str | None) -> InputConvention:
-    if scope_name:
-        lowered = scope_name.lower()
-        for prefix, convention in _SCOPE_CONVENTIONS:
-            if lowered.startswith(prefix):
-                return convention
-    # Unknown / missing scope: warn once per scope so a future emitter surfaces
-    # instead of silently mispricing.
+def _warn_once_if_unknown_scope(scope_name: str | None) -> None:
+    """Warn (once per scope) if the emitter isn't a known cache-inclusive one."""
+    if scope_name and scope_name.lower().startswith(_KNOWN_INCLUSIVE_SCOPE_PREFIXES):
+        return
     key = scope_name or "<missing>"
     if key not in _warned_scopes and len(_warned_scopes) < _MAX_WARNED_SCOPES:
         _warned_scopes.add(key)
         logger.warning(
             "Pricing tokens from unknown instrumentation scope %r; assuming "
             "input is cache-inclusive (subtracting cache). Verify this emitter's "
-            "convention and add it to _SCOPE_CONVENTIONS.",
+            "convention and add it to _KNOWN_INCLUSIVE_SCOPE_PREFIXES.",
             key,
         )
-    return _DEFAULT_CONVENTION
 
 
 def normalize_token_usage(
@@ -95,36 +76,21 @@ def normalize_token_usage(
     cache_read_tokens: int,
     cache_write_tokens: int,
 ) -> TokenBuckets:
-    """Convert gross instrumentor counts into disjoint priced buckets.
+    """Convert a gross (cache-inclusive) instrumentor count into disjoint buckets.
 
-    All returned bucket values are clamped to be non-negative. For the
-    INCLUSIVE convention the cache buckets are additionally capped to the gross
-    input, so inconsistent emitter data (cache counts exceeding the reported
-    input) can never price more tokens than were reported.
-
-    The reconciliation invariant ``input_uncached + cache_read + cache_write
-    == input_tokens`` holds for the INCLUSIVE convention (after the non-negative
-    clamp); for EXCLUSIVE the input is not reduced, so the sum of the returned
-    buckets will exceed the raw input count.
+    Cache is subtracted from the gross input so each physical token is priced
+    exactly once. All buckets are clamped non-negative, and cache is capped to the
+    gross input so inconsistent emitter data (cache counts exceeding the reported
+    input) can never price more tokens than were reported. The reconciliation
+    invariant ``input_uncached + cache_read + cache_write == input_tokens`` holds.
     """
-    convention = _convention_for_scope(scope_name)
+    _warn_once_if_unknown_scope(scope_name)
     gross_input = max(input_tokens, 0)
-    cache_read = max(cache_read_tokens, 0)
-    cache_write = max(cache_write_tokens, 0)
-    output = max(output_tokens, 0)
-    if convention is InputConvention.INCLUSIVE:
-        # Cap cache to the gross input so inconsistent emitter data (cache counts
-        # exceeding the reported input) can never price more tokens than were
-        # reported. This keeps the reconciliation invariant
-        # input_uncached + cache_read + cache_write == gross_input intact.
-        cache_read = min(cache_read, gross_input)
-        cache_write = min(cache_write, gross_input - cache_read)
-        input_uncached = gross_input - cache_read - cache_write
-    else:  # EXCLUSIVE — input already excludes cache
-        input_uncached = gross_input
+    cache_read = min(max(cache_read_tokens, 0), gross_input)
+    cache_write = min(max(cache_write_tokens, 0), gross_input - cache_read)
     return TokenBuckets(
-        input_uncached=input_uncached,
-        output=output,
+        input_uncached=gross_input - cache_read - cache_write,
+        output=max(output_tokens, 0),
         cache_read=cache_read,
         cache_write=cache_write,
     )

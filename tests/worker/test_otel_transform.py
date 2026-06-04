@@ -426,6 +426,20 @@ class TestTransformOtelToClickhouse:
                 "gen_ai.usage.cache_read.input_tokens",
                 "gen_ai.usage.cache_creation.input_tokens",
             ),
+            # pydantic-ai version variants whose cache key names differ — must
+            # still be detected so cache isn't silently missed (then overcharged).
+            (
+                "pydantic-ai",
+                "gen_ai.usage.input_tokens",
+                "gen_ai.usage.cache_read_tokens",
+                "gen_ai.usage.details.cache_creation_input_tokens",
+            ),
+            (
+                "pydantic-ai",
+                "gen_ai.usage.input_tokens",
+                "gen_ai.usage.details.cache_read_input_tokens",
+                "gen_ai.usage.details.cache_write_tokens",
+            ),
         ],
     )
     def test_cache_heavy_span_subtracts_before_pricing(
