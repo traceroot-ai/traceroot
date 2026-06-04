@@ -57,9 +57,9 @@ export function TokenUsageBreakdown({
       </div>
       <div className="mt-1 space-y-0.5">
         {/* Always shown (even at zero) so it's clear cache tokens are tracked. */}
-        <Row label="input_cached_tokens" value={cacheRead} />
-        <Row label="cache_creation_tokens" value={cacheWrite} />
-        <Row label="input" value={uncachedInput} />
+        <Row label="cache read" value={cacheRead} />
+        <Row label="cache write" value={cacheWrite} />
+        <Row label="uncached" value={uncachedInput} />
       </div>
 
       <div className="mt-2 flex justify-between gap-8 border-b border-border/60 pb-1 font-medium">
@@ -67,7 +67,7 @@ export function TokenUsageBreakdown({
         <span className="tabular-nums">{formatExactTokens(output)}</span>
       </div>
       <div className="mt-1 space-y-0.5">
-        {reasoning > 0 && <Row label="reasoning_tokens" value={reasoning} />}
+        {reasoning > 0 && <Row label="reasoning" value={reasoning} />}
         <Row label="output" value={plainOutput} />
       </div>
 
