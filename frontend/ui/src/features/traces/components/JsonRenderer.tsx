@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { InlineMedia, mediaSrc } from "./inline-media";
-import { shouldTruncate, truncateString } from "./json-render-utils";
+import { shouldAutoExpand, shouldTruncate, truncateString } from "./json-render-utils";
 
 interface JsonRendererProps {
   value: unknown;
@@ -41,22 +41,25 @@ function TruncatableString({ value }: { value: string }) {
 }
 
 /**
- * A nested object/array rendered collapsed by default. The summary line shows
- * the bracket and entry count; clicking expands the children on demand so we
- * never render thousands of nested rows up front.
+ * A nested object/array. Shallow, small nodes start expanded (`defaultExpanded`)
+ * so a normal span's I/O is readable on first paint; deep or large nodes start
+ * collapsed, showing the bracket and entry count, and expand their children on
+ * demand so we never render thousands of nested rows up front.
  */
 function CollapsibleNode({
   open,
   close,
   count,
+  defaultExpanded,
   children,
 }: {
   open: string;
   close: string;
   count: number;
+  defaultExpanded: boolean;
   children: React.ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
 
   if (!expanded) {
     return (
@@ -74,8 +77,10 @@ function CollapsibleNode({
     );
   }
 
+  // Block container, not a <span>: the children wrapper below is a <div>, which
+  // is invalid nested inside an inline <span> and warns during hydration.
   return (
-    <span>
+    <div className="inline">
       <button
         type="button"
         onClick={() => setExpanded(false)}
@@ -85,16 +90,17 @@ function CollapsibleNode({
       </button>
       <div className="ml-3">{children}</div>
       <span className="text-muted-foreground">{close}</span>
-    </span>
+    </div>
   );
 }
 
 /**
  * Recursive JSON renderer with syntax highlighting.
  *
- * Long string values are truncated behind a toggle and nested objects/arrays
- * start collapsed, so selecting a span with a large I/O blob renders without a
- * main-thread stall instead of materializing the entire expanded tree at once.
+ * Long string values are truncated behind a toggle, and deep or large nested
+ * objects/arrays start collapsed (shallow, small ones stay expanded), so
+ * selecting a span with a large I/O blob renders without a main-thread stall
+ * instead of materializing the entire expanded tree at once.
  */
 export function JsonRenderer({ value, depth = 0 }: JsonRendererProps) {
   if (value === null) {
@@ -136,7 +142,12 @@ export function JsonRenderer({ value, depth = 0 }: JsonRendererProps) {
     }
 
     return (
-      <CollapsibleNode open="[" close="]" count={value.length}>
+      <CollapsibleNode
+        open="["
+        close="]"
+        count={value.length}
+        defaultExpanded={shouldAutoExpand(depth, value.length)}
+      >
         {value.map((item, index) => (
           <div key={index}>
             <JsonRenderer value={item} depth={depth + 1} />
@@ -154,7 +165,12 @@ export function JsonRenderer({ value, depth = 0 }: JsonRendererProps) {
     }
 
     return (
-      <CollapsibleNode open="{" close="}" count={keys.length}>
+      <CollapsibleNode
+        open="{"
+        close="}"
+        count={keys.length}
+        defaultExpanded={shouldAutoExpand(depth, keys.length)}
+      >
         {keys.map((key, index) => (
           <div key={key}>
             <span className="text-sky-600 dark:text-sky-400">{key}</span>
