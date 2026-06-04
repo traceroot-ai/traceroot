@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   Workflow,
   X,
@@ -14,13 +13,13 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
-import { getTrace } from "@/lib/api";
 import type { Span } from "@/types/api";
 import type { TraceSelection } from "../types";
 import { SpanTreeView } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
 import { useLayout } from "@/components/layout/app-layout";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
+import { useTrace } from "../hooks";
 import { useTraceStream } from "../hooks/use-trace-stream";
 import { SpanTimelineView } from "./SpanTimelineView";
 import { buildSpanTree, enrichSpansWithPending, TREE_LAYOUT } from "../utils";
@@ -105,14 +104,7 @@ export function TraceViewerPanel({
     setAiPanelOpen(true);
   }, [autoOpenRca, rcaSessionId, traceId, setAiContext, setAiInitialSessionId, setAiPanelOpen]);
 
-  const {
-    data: trace,
-    isLoading,
-    error,
-  } = useQuery({
-    queryKey: ["trace", projectId, traceId],
-    queryFn: () => getTrace(projectId, traceId, ""),
-  });
+  const { data: trace, isPending, error } = useTrace(projectId, traceId);
 
   useTraceStream(projectId, traceId, true);
 
@@ -349,7 +341,7 @@ export function TraceViewerPanel({
                 minSize="320px"
                 className="min-w-0 overflow-hidden bg-background"
               >
-                {isLoading ? (
+                {isPending ? (
                   <div className="flex h-full items-center justify-center">
                     <p className="text-sm text-muted-foreground">Loading trace...</p>
                   </div>
