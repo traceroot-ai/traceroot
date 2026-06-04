@@ -3,15 +3,64 @@
 import base64
 from datetime import datetime
 
+import pytest
+
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker.otel_transform import (
     attributes_to_dict,
     decode_otel_id,
     extract_attribute_value,
+    first_present_number,
     get_span_kind,
+    int_or_zero,
     nanos_to_datetime,
     transform_otel_to_clickhouse,
 )
+
+
+class TestFirstPresentNumber:
+    """A malformed high-priority token attr must not suppress a valid fallback."""
+
+    def test_malformed_high_priority_falls_through_to_valid_fallback(self):
+        # "" (present-but-empty) and "abc" (non-numeric) must be skipped so the
+        # valid lower-priority key is used — otherwise the cache/token count is
+        # silently undercounted and the cost is wrong.
+        attrs = {"high": "", "mid": "abc", "low": 1000}
+        assert first_present_number(attrs, ["high", "mid", "low"]) == 1000
+
+    def test_valid_zero_is_not_skipped(self):
+        # 0 is a legitimate token count and must win over lower-priority keys.
+        attrs = {"high": 0, "low": 500}
+        assert first_present_number(attrs, ["high", "low"]) == 0
+
+    def test_all_missing_or_malformed_returns_none(self):
+        attrs = {"high": "", "mid": None, "low": "x"}
+        assert first_present_number(attrs, ["high", "mid", "low"]) is None
+
+    def test_numeric_string_is_usable(self):
+        assert first_present_number({"k": "4528"}, ["k"]) == "4528"
+
+
+class TestIntOrZero:
+    """int_or_zero must never crash ingestion on present-but-non-numeric values."""
+
+    def test_none_and_missing_become_zero(self):
+        assert int_or_zero(None) == 0
+
+    def test_empty_string_becomes_zero(self):
+        # first_present returns "" for a present-but-empty attribute; int("") would raise.
+        assert int_or_zero("") == 0
+
+    def test_non_numeric_string_becomes_zero(self):
+        assert int_or_zero("abc") == 0
+
+    def test_numeric_string_parses(self):
+        assert int_or_zero("4528") == 4528
+
+    def test_ints_and_floats_parse(self):
+        assert int_or_zero(42) == 42
+        assert int_or_zero(3.9) == 3
+
 
 # ── decode_otel_id ──────────────────────────────────────────────────────
 
@@ -382,6 +431,143 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["output_tokens"] == 50
         assert spans[0]["total_tokens"] == 150
         assert spans[0]["cost"] is not None
+
+    @pytest.mark.parametrize(
+        ("scope_name", "input_attr", "cache_read_attr", "cache_write_attr"),
+        [
+            # OpenInference Anthropic — the verified dominant path. Cache is under
+            # llm.token_count.prompt_details.* and the prompt is GROSS.
+            (
+                "openinference.instrumentation.anthropic",
+                "llm.token_count.prompt",
+                "llm.token_count.prompt_details.cache_read",
+                "llm.token_count.prompt_details.cache_write",
+            ),
+            # pydantic-ai native gen_ai.usage.* keys.
+            (
+                "pydantic-ai",
+                "gen_ai.usage.input_tokens",
+                "gen_ai.usage.cache_read.input_tokens",
+                "gen_ai.usage.cache_creation.input_tokens",
+            ),
+            # pydantic-ai version variants whose cache key names differ — must
+            # still be detected so cache isn't silently missed (then overcharged).
+            (
+                "pydantic-ai",
+                "gen_ai.usage.input_tokens",
+                "gen_ai.usage.cache_read_tokens",
+                "gen_ai.usage.details.cache_creation_input_tokens",
+            ),
+            (
+                "pydantic-ai",
+                "gen_ai.usage.input_tokens",
+                "gen_ai.usage.details.cache_read_input_tokens",
+                "gen_ai.usage.details.cache_write_tokens",
+            ),
+        ],
+    )
+    def test_cache_heavy_span_subtracts_before_pricing(
+        self, scope_name, input_attr, cache_read_attr, cache_write_attr
+    ):
+        """Cost must price each token once: gross input is reduced by cache."""
+        from unittest.mock import patch
+
+        prices = {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+        }
+        # gross input = 1000, of which 900 cache-read + 50 cache-write => 50 uncached
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.request.model", "claude-3-5-sonnet"),
+                        make_attr(input_attr, 1000),
+                        make_attr("llm.token_count.completion", 0)
+                        if input_attr.startswith("llm.")
+                        else make_attr("gen_ai.usage.output_tokens", 0),
+                        make_attr(cache_read_attr, 900),
+                        make_attr(cache_write_attr, 50),
+                    ],
+                )
+            ],
+            scope_name=scope_name,
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        expected = (
+            50 * prices["input"]
+            + 0 * prices["output"]
+            + 900 * prices["cacheRead"]
+            + 50 * prices["cacheWrite"]
+        )
+        assert spans[0]["cost"] == pytest.approx(expected)
+        # Stored input_tokens stays GROSS (display continuity; PR B revisits).
+        assert spans[0]["input_tokens"] == 1000
+
+    def test_malformed_high_priority_token_attr_falls_through_to_valid_key(self):
+        """A present-but-malformed high-priority token attr must not suppress a
+        valid lower-priority fallback (else usage is undercounted and cost wrong)."""
+        from unittest.mock import patch
+
+        prices = {"input": 0.000003, "output": 0.000015, "cacheRead": 0.0, "cacheWrite": 0.0}
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.request.model", "claude-3-5-sonnet"),
+                        # high-priority key present but malformed (empty string)...
+                        make_attr("llm.token_count.prompt", ""),
+                        # ...valid count only on a lower-priority fallback key.
+                        make_attr("gen_ai.usage.input_tokens", 1000),
+                        make_attr("gen_ai.usage.output_tokens", 200),
+                    ],
+                )
+            ],
+            scope_name="openinference.instrumentation.anthropic",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        # The fallback's 1000 (not 0) must be used.
+        assert spans[0]["input_tokens"] == 1000
+        assert spans[0]["cost"] == pytest.approx(1000 * prices["input"] + 200 * prices["output"])
+
+    def test_cache_heavy_costs_less_than_uncached_equivalent(self):
+        """Monotonicity: caching must DISCOUNT, never surcharge."""
+        from unittest.mock import patch
+
+        prices = {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+        }
+
+        def cost_for(attrs):
+            payload = make_otel_payload(
+                [make_span("aa" * 16, "bb" * 8, attributes=attrs)],
+                scope_name="openinference.instrumentation.anthropic",
+            )
+            with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+                _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+            return spans[0]["cost"]
+
+        base = [
+            make_attr("gen_ai.request.model", "claude-3-5-sonnet"),
+            make_attr("llm.token_count.prompt", 1000),
+            make_attr("llm.token_count.completion", 0),
+        ]
+        cached = base + [
+            make_attr("llm.token_count.prompt_details.cache_read", 950),
+        ]
+        assert cost_for(cached) < cost_for(base)
 
     def test_text_estimation_fallback(self):
         """Falls back to text-based token estimation when no API counts."""

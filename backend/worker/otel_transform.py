@@ -84,6 +84,43 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
     return None
 
 
+def first_present_number(attrs: dict[str, Any], keys: list[str]) -> Any:
+    """Like ``first_present`` but for numeric token attributes: skip keys whose
+    value is missing or malformed (empty / non-numeric) so a malformed
+    high-priority attribute cannot suppress a valid lower-priority fallback.
+
+    Validity mirrors ``int_or_zero`` (the value must coerce via ``int``); a present
+    but unusable value is skipped rather than short-circuiting the candidate list.
+    Returns the first usable value, or None if none qualify.
+    """
+    for key in keys:
+        value = attrs.get(key)
+        if value is None or value == "":
+            continue
+        try:
+            int(value)
+        except (TypeError, ValueError):
+            continue
+        return value
+    return None
+
+
+def int_or_zero(value: Any) -> int:
+    """Convert a present OTEL numeric attribute to int; missing/invalid -> 0.
+
+    ``first_present`` returns falsy-but-present values (e.g. an empty string for
+    an attribute that exists with a non-numeric value), so guard the cast — a
+    single malformed attribute must not crash ingestion of the whole batch.
+    """
+    if value is None or value == "":
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        logger.warning("Non-numeric OTEL token attribute %r; treating as 0", value)
+        return 0
+
+
 def decode_otel_id(b64_value: str | None) -> str | None:
     """Decode base64-encoded OTEL trace/span ID to hex string.
 
@@ -279,6 +316,7 @@ def transform_otel_to_clickhouse(
 
         for scope_span in scope_spans:
             otel_spans = scope_span.get("spans", [])
+            scope_name = (scope_span.get("scope") or {}).get("name")
 
             for otel_span in otel_spans:
                 # Decode IDs (camelCase: traceId, spanId, parentSpanId)
@@ -390,55 +428,91 @@ def transform_otel_to_clickhouse(
                 if model_name:
                     span_record["model_name"] = model_name
 
-                    # Try API-provided token counts first (from instrumentors)
-                    # OpenInference: llm.token_count.*
-                    # GenAI semconv: gen_ai.usage.*
-                    api_input_tokens = (
-                        span_attrs.get("llm.token_count.prompt")
-                        or span_attrs.get("gen_ai.usage.input_tokens")
-                        or span_attrs.get("gen_ai.usage.prompt_tokens")
+                    # Try API-provided token counts first (from instrumentors).
+                    # OpenInference: llm.token_count.*  ·  GenAI semconv: gen_ai.usage.*
+                    api_input_tokens = first_present_number(
+                        span_attrs,
+                        [
+                            "llm.token_count.prompt",
+                            "gen_ai.usage.input_tokens",
+                            "gen_ai.usage.prompt_tokens",
+                        ],
                     )
-                    api_output_tokens = (
-                        span_attrs.get("llm.token_count.completion")
-                        or span_attrs.get("gen_ai.usage.output_tokens")
-                        or span_attrs.get("gen_ai.usage.completion_tokens")
+                    api_output_tokens = first_present_number(
+                        span_attrs,
+                        [
+                            "llm.token_count.completion",
+                            "gen_ai.usage.output_tokens",
+                            "gen_ai.usage.completion_tokens",
+                        ],
                     )
-                    api_total_tokens = span_attrs.get("llm.token_count.total") or span_attrs.get(
-                        "gen_ai.usage.total_tokens"
+                    api_total_tokens = first_present_number(
+                        span_attrs,
+                        ["llm.token_count.total", "gen_ai.usage.total_tokens"],
+                    )
+                    # Cache buckets. The OpenInference keys (prompt_details.*) are the
+                    # verified path for Anthropic/OpenAI and MUST be listed first —
+                    # they are the same family as llm.token_count.prompt (read above).
+                    api_cache_read_tokens = first_present_number(
+                        span_attrs,
+                        [
+                            "llm.token_count.prompt_details.cache_read",
+                            "gen_ai.usage.cache_read.input_tokens",
+                            "gen_ai.usage.cache_read_input_tokens",
+                            "gen_ai.usage.input_cached_tokens",
+                            "gen_ai.usage.details.cache_read_tokens",
+                            # pydantic-ai version variants (names differ by release):
+                            "gen_ai.usage.cache_read_tokens",
+                            "gen_ai.usage.details.cache_read_input_tokens",
+                        ],
+                    )
+                    api_cache_write_tokens = first_present_number(
+                        span_attrs,
+                        [
+                            "llm.token_count.prompt_details.cache_write",
+                            "gen_ai.usage.cache_creation.input_tokens",
+                            "gen_ai.usage.cache_creation_input_tokens",
+                            "gen_ai.usage.details.cache_write_tokens",
+                            # pydantic-ai version variant:
+                            "gen_ai.usage.details.cache_creation_input_tokens",
+                        ],
                     )
 
                     if api_input_tokens is not None or api_output_tokens is not None:
-                        # Use API-provided counts (accurate)
-                        input_tokens = int(api_input_tokens) if api_input_tokens is not None else 0
-                        output_tokens = (
-                            int(api_output_tokens) if api_output_tokens is not None else 0
-                        )
+                        # Use API-provided counts (accurate).
+                        input_tokens = int_or_zero(api_input_tokens)
+                        output_tokens = int_or_zero(api_output_tokens)
                         total_tokens = (
-                            int(api_total_tokens)
+                            int_or_zero(api_total_tokens)
                             if api_total_tokens is not None
                             else input_tokens + output_tokens
                         )
+                        # Stored token columns stay GROSS (display continuity; PR B
+                        # adds first-class cache columns). Only cost changes here.
                         span_record["input_tokens"] = input_tokens
                         span_record["output_tokens"] = output_tokens
                         span_record["total_tokens"] = total_tokens
 
-                        # Calculate cost from actual token counts
-                        from worker.tokens.pricing import get_model_price
+                        # Cost: normalize counts into disjoint buckets keyed on the
+                        # instrumentation scope, then price each bucket once.
+                        from worker.tokens.buckets import normalize_token_usage
+                        from worker.tokens.pricing import (
+                            cost_from_buckets,
+                            get_model_price,
+                        )
 
-                        prices = get_model_price(model_name)
-                        if prices:
-                            from decimal import Decimal
-
-                            # Prices are in USD per token — multiply directly
-                            input_cost = Decimal(input_tokens) * Decimal(
-                                str(prices.get("input", 0))
-                            )
-                            output_cost = Decimal(output_tokens) * Decimal(
-                                str(prices.get("output", 0))
-                            )
-                            span_record["cost"] = float(input_cost + output_cost)
+                        buckets = normalize_token_usage(
+                            scope_name,
+                            input_tokens=input_tokens,
+                            output_tokens=output_tokens,
+                            cache_read_tokens=int_or_zero(api_cache_read_tokens),
+                            cache_write_tokens=int_or_zero(api_cache_write_tokens),
+                        )
+                        cost = cost_from_buckets(get_model_price(model_name), buckets)
+                        if cost is not None:
+                            span_record["cost"] = cost
                     else:
-                        # Fall back to text-based estimation
+                        # Fall back to text-based estimation.
                         from worker.tokens import calculate_cost
 
                         usage = calculate_cost(
@@ -521,7 +595,7 @@ def transform_otel_to_clickhouse(
                         trace_attrs[trace_id]["session_id"] or span_session_id
                     )
 
-                # Eager trace creation (Langfuse-style):
+                # Eager trace creation:
                 # Create a "shallow" trace record on the FIRST span we see for
                 # a trace_id, so it appears in the UI immediately. When the root
                 # span arrives later, upgrade to a "full" trace with rich metadata.
