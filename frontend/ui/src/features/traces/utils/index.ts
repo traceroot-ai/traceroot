@@ -103,11 +103,14 @@ export const TREE_LAYOUT = {
   LEFT_PADDING: 8, // Left padding before first icon
 } as const;
 
-// Row overscan shared by both virtualized views (SpanTreeView + SpanTimelineView).
-// ~500px of buffer above/below the viewport keeps scrolling smooth on large
-// traces (500 / 28px ≈ 18 rows). Shared so the two scroll-synced, row-aligned
-// panels render the same buffer and never drift.
-export const TREE_OVERSCAN_ROWS = Math.ceil(500 / TREE_LAYOUT.ROW_HEIGHT);
+// Row overscan: how many rows @tanstack/react-virtual renders beyond the
+// viewport on each side. Shared by both virtualized views (SpanTreeView +
+// SpanTimelineView) so the scroll-synced, row-aligned panels buffer identically
+// and never drift. A larger buffer means fewer blank-row flashes during fast /
+// momentum scrolling, at a small extra-DOM cost — and rows here are fixed-height
+// and cheap (~18 nodes each), so we keep a generous buffer. 26 rows ≈ 730px,
+// past the point of visible flashing on a quick fling.
+export const TREE_OVERSCAN_ROWS = 26;
 
 /**
  * Calculate span duration in milliseconds.
