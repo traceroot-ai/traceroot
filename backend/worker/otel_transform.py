@@ -493,8 +493,8 @@ def transform_otel_to_clickhouse(
                         span_record["output_tokens"] = output_tokens
                         span_record["total_tokens"] = total_tokens
 
-                        # Cost: normalize gross counts into disjoint buckets keyed on
-                        # the instrumentation scope, then price each bucket once.
+                        # Cost: normalize counts into disjoint buckets keyed on the
+                        # instrumentation scope, then price each bucket once.
                         from worker.tokens.buckets import normalize_token_usage
                         from worker.tokens.pricing import (
                             cost_from_buckets,
