@@ -15,15 +15,14 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
-import type { Span } from "@/types/api";
 import type { TraceSelection } from "../types";
-import { SpanTreeView } from "./SpanTreeView";
+import { SpanTreeView, type SpanTreeViewHandle } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
 import { useLayout } from "@/components/layout/app-layout";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { useTraceStream } from "../hooks/use-trace-stream";
 import { SpanTimelineView } from "./SpanTimelineView";
-import { buildSpanTree, enrichSpansWithPending, TREE_LAYOUT } from "../utils";
+import { TREE_LAYOUT } from "../utils";
 import { useTraceFindings, useRca } from "@/features/detectors/hooks/use-findings";
 
 interface TraceViewerPanelProps {
@@ -83,6 +82,9 @@ export function TraceViewerPanel({
   const treeScrollRef = useRef<HTMLDivElement>(null);
   const timelineScrollRef = useRef<HTMLDivElement>(null);
   const isSyncing = useRef(false);
+  // Imperative handle so a timeline click can scroll the tree to the span;
+  // the tree owns the virtualizer and resolves the row index itself.
+  const treeViewRef = useRef<SpanTreeViewHandle>(null);
 
   const [hoveredSpanId, setHoveredSpanId] = useState<string | null>(null);
 
@@ -139,49 +141,22 @@ export function TraceViewerPanel({
     });
   }, []);
 
-  // Scroll the tree panel to bring a row index into view (centered).
-  const scrollTreeToRow = useCallback((rowIndex: number) => {
-    const el = treeScrollRef.current;
-    if (!el) return;
-    const target = rowIndex * TREE_LAYOUT.ROW_HEIGHT;
-    const center = target - el.clientHeight / 2 + TREE_LAYOUT.ROW_HEIGHT / 2;
-    el.scrollTop = Math.max(0, center);
-  }, []);
-
-  const isSpanVisible = useCallback(
-    (span: Span, spanById: Map<string, Span>) => {
-      let currentId = span.parent_span_id;
-      while (currentId) {
-        if (collapsedIds.has(currentId)) return false;
-        currentId = spanById.get(currentId)?.parent_span_id ?? null;
-      }
-      return true;
-    },
-    [collapsedIds],
-  );
-
   /**
    * Called when the user clicks a bar in the timeline.
-   * Switches to tree mode so the user lands on the full span details view.
-   * Also scrolls the tree to show the selected span.
+   * Switches to tree mode so the user lands on the full span details view, then
+   * scrolls the tree to the selected span. The tree owns the virtualized row
+   * model, so it resolves the span's index and scroll position itself — this
+   * panel no longer duplicates the collapse-visibility walk or row-height math.
    */
-  const handleTimelineSelect = useCallback(
-    (sel: TraceSelection) => {
-      setSelection(sel);
-      setViewMode("tree");
-      if (sel.type === "span" && trace) {
-        const spans = enrichSpansWithPending(trace.spans);
-        const spanById = new Map(spans.map((s) => [s.span_id, s]));
-        const rows = buildSpanTree(spans).filter((row) => isSpanVisible(row.span, spanById));
-        const rowIdx = rows.findIndex((r) => r.span.span_id === sel.span.span_id);
-        if (rowIdx !== -1) {
-          // +1 because row 0 in the tree is the trace root
-          requestAnimationFrame(() => scrollTreeToRow(rowIdx + 1));
-        }
-      }
-    },
-    [trace, scrollTreeToRow, isSpanVisible],
-  );
+  const handleTimelineSelect = useCallback((sel: TraceSelection) => {
+    setSelection(sel);
+    setViewMode("tree");
+    if (sel.type === "span") {
+      // Defer a frame so the tree has its up-to-date (non-compact) row model
+      // before the virtualizer scrolls.
+      requestAnimationFrame(() => treeViewRef.current?.scrollToSpan(sel.span.span_id));
+    }
+  }, []);
 
   // Sync tree scroll → timeline
   const handleTreeScroll = useCallback(() => {
@@ -322,7 +297,9 @@ export function TraceViewerPanel({
             <div ref={treeScrollRef} className="flex-1 overflow-y-auto" onScroll={handleTreeScroll}>
               {trace && (
                 <SpanTreeView
+                  ref={treeViewRef}
                   trace={trace}
+                  scrollRef={treeScrollRef}
                   selection={selection}
                   onSelect={viewMode === "tree" ? setSelection : handleTimelineSelect}
                   collapsedIds={collapsedIds}
