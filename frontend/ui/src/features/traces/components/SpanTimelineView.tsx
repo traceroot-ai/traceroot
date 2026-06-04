@@ -105,8 +105,16 @@ export function SpanTimelineView({
   }, [traceDurationMs, timelineWidth]);
 
   const traceAggregates = useMemo(() => {
-    const inputTokens = trace.spans.reduce((sum, s) => sum + (s.input_tokens || 0), 0);
-    const outputTokens = trace.spans.reduce((sum, s) => sum + (s.output_tokens || 0), 0);
+    // Only coerce input/output to a number when at least one span reports it, so
+    // a total-only trace renders "-" instead of a misleading 0.
+    const hasInput = trace.spans.some((s) => s.input_tokens != null);
+    const hasOutput = trace.spans.some((s) => s.output_tokens != null);
+    const inputTokens = hasInput
+      ? trace.spans.reduce((sum, s) => sum + (s.input_tokens || 0), 0)
+      : null;
+    const outputTokens = hasOutput
+      ? trace.spans.reduce((sum, s) => sum + (s.output_tokens || 0), 0)
+      : null;
     const totalTokens = trace.spans.reduce((sum, s) => sum + (s.total_tokens || 0), 0);
     const totalCost = trace.spans.reduce((sum, s) => sum + (s.cost || 0), 0);
     return { inputTokens, outputTokens, totalTokens, totalCost };
