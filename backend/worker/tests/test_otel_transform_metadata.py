@@ -256,6 +256,31 @@ def test_cache_columns_are_stored_uncapped():
     assert s["cache_write_tokens"] == 300
 
 
+def test_net_emitter_input_stored_as_reconstructed_gross():
+    """A net/exclusive emitter (e.g. claude-agent-sdk) reports only the non-cached
+    tokens in prompt, with cache as separate additive buckets — so the reported
+    input alone (2) understates the true total. The stored input_tokens is the
+    GROSS reconstructed from the disjoint buckets, so it reconciles with the cache
+    breakdown (cache_read + cache_write + uncached) instead of looking tiny next to
+    a large cache."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-haiku-4-5-20251001"),
+            _attr("llm.token_count.prompt", 2),  # exclusive / net input
+            _attr("llm.token_count.completion", 2342),
+            _attr("llm.token_count.prompt_details.cache_read", 29956),
+            _attr("llm.token_count.prompt_details.cache_write", 2560),
+        ]
+    )
+    _t, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+    s = spans[0]
+    assert s["cache_read_tokens"] == 29956
+    assert s["cache_write_tokens"] == 2560
+    # input is the reconstructed gross (was understated at 2), reconciling with cache.
+    assert s["input_tokens"] == 29956 + 2560
+    assert s["total_tokens"] == s["input_tokens"] + 2342
+
+
 def test_reasoning_capped_to_output():
     """Reasoning is a subset of output; a larger reported value is capped."""
     payload = _otel_payload(
