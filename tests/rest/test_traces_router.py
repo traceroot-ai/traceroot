@@ -26,6 +26,7 @@ TRACE_LIST_ITEM = {
     "output": "world",
 }
 
+# Skeleton: spans have NO input/output/metadata (fetched via /spans/{id}/io)
 TRACE_DETAIL = {
     "trace_id": "abc123",
     "project_id": "test-project",
@@ -54,11 +55,16 @@ TRACE_DETAIL = {
             "input_tokens": None,
             "output_tokens": None,
             "total_tokens": None,
-            "input": None,
-            "output": None,
-            "metadata": None,
         }
     ],
+}
+
+SPAN_IO = {
+    "span_id": "span-1",
+    "trace_id": "abc123",
+    "input": '{"messages": [{"role": "user", "content": "hello"}]}',
+    "output": '{"role": "assistant", "content": "world"}',
+    "metadata": '{"model": "gpt-4o"}',
 }
 
 
@@ -182,6 +188,16 @@ class TestGetTrace:
         assert len(data["spans"]) == 1
         assert data["spans"][0]["span_id"] == "span-1"
 
+    def test_skeleton_spans_omit_io(self, client, mock_trace_reader):
+        """Skeleton response must NOT include input/output/metadata on spans."""
+        mock_trace_reader.get_trace.return_value = TRACE_DETAIL
+        response = client.get("/api/v1/projects/test-project/traces/abc123")
+        assert response.status_code == 200
+        span = response.json()["spans"][0]
+        assert "input" not in span
+        assert "output" not in span
+        assert "metadata" not in span
+
     def test_404(self, client, mock_trace_reader):
         mock_trace_reader.get_trace.return_value = None
         response = client.get("/api/v1/projects/test-project/traces/nonexistent")
@@ -213,3 +229,43 @@ class TestGetTrace:
         assert len(spans) == 2
         assert spans[1]["model_name"] == "gpt-4o"
         assert spans[1]["cost"] == 0.005
+
+
+class TestGetSpanIO:
+    def test_200(self, client, mock_trace_reader):
+        mock_trace_reader.get_span_io.return_value = SPAN_IO
+        response = client.get(
+            "/api/v1/projects/test-project/traces/abc123/spans/span-1/io"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["span_id"] == "span-1"
+        assert data["trace_id"] == "abc123"
+        assert "messages" in data["input"]
+        assert "assistant" in data["output"]
+        assert data["metadata"] == '{"model": "gpt-4o"}'
+
+    def test_404(self, client, mock_trace_reader):
+        mock_trace_reader.get_span_io.return_value = None
+        response = client.get(
+            "/api/v1/projects/test-project/traces/abc123/spans/nonexistent/io"
+        )
+        assert response.status_code == 404
+
+    def test_null_io_fields(self, client, mock_trace_reader):
+        """Span with no I/O should still return 200 with null fields."""
+        mock_trace_reader.get_span_io.return_value = {
+            "span_id": "span-1",
+            "trace_id": "abc123",
+            "input": None,
+            "output": None,
+            "metadata": None,
+        }
+        response = client.get(
+            "/api/v1/projects/test-project/traces/abc123/spans/span-1/io"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["input"] is None
+        assert data["output"] is None
+        assert data["metadata"] is None

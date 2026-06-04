@@ -166,7 +166,12 @@ class TraceReaderService:
         }
 
     def get_trace(self, project_id: str, trace_id: str) -> dict | None:
-        """Get single trace with all spans."""
+        """Get single trace with span skeletons (no per-span I/O).
+
+        Returns trace metadata plus lightweight span skeletons that omit
+        input/output/metadata. This keeps the payload sub-MB even for
+        large traces. Per-span I/O is fetched on demand via get_span_io().
+        """
         # Fetch trace
         trace_query = """
             SELECT
@@ -199,14 +204,15 @@ class TraceReaderService:
             "metadata": row[10],
         }
 
-        # Fetch spans. Duration is derived on the client from start/end so
-        # in-progress spans can grow against `now()` for live traces.
+        # Fetch span skeletons — omit input/output/metadata to keep the
+        # payload lightweight. Duration is derived on the client from
+        # start/end so in-progress spans can grow against `now()` for
+        # live traces.
         spans_query = """
             SELECT
                 span_id, trace_id, parent_span_id, name, span_kind,
                 span_start_time, span_end_time, status, status_message,
                 model_name, cost, input_tokens, output_tokens, total_tokens,
-                input, output, metadata,
                 git_source_file, git_source_line, git_source_function
             FROM spans FINAL
             WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
@@ -235,17 +241,46 @@ class TraceReaderService:
                     "input_tokens": int(row[11]) if row[11] is not None else None,
                     "output_tokens": int(row[12]) if row[12] is not None else None,
                     "total_tokens": int(row[13]) if row[13] is not None else None,
-                    "input": row[14],
-                    "output": row[15],
-                    "metadata": row[16],
-                    "git_source_file": row[17],
-                    "git_source_line": int(row[18]) if row[18] is not None else None,
-                    "git_source_function": row[19],
+                    "git_source_file": row[14],
+                    "git_source_line": int(row[15]) if row[15] is not None else None,
+                    "git_source_function": row[16],
                 }
             )
 
         trace["spans"] = spans
         return trace
+
+    def get_span_io(self, project_id: str, trace_id: str, span_id: str) -> dict | None:
+        """Fetch full input/output/metadata for a single span.
+
+        Called on demand when the user expands a span in the UI.
+        """
+        query = """
+            SELECT span_id, trace_id, input, output, metadata
+            FROM spans FINAL
+            WHERE project_id = {project_id:String}
+              AND trace_id = {trace_id:String}
+              AND span_id = {span_id:String}
+            LIMIT 1
+        """
+        result = self._client.query(
+            query,
+            parameters={
+                "project_id": project_id,
+                "trace_id": trace_id,
+                "span_id": span_id,
+            },
+        )
+        if not result.result_rows:
+            return None
+        row = result.result_rows[0]
+        return {
+            "span_id": row[0],
+            "trace_id": row[1],
+            "input": row[2],
+            "output": row[3],
+            "metadata": row[4],
+        }
 
     def list_sessions(
         self,

@@ -8,7 +8,7 @@ from rest.schemas.common import PaginationMeta
 
 
 class SpanResponse(BaseModel):
-    """Single span in a trace."""
+    """Single span in a trace (full payload including I/O)."""
 
     span_id: str
     trace_id: str
@@ -30,6 +30,43 @@ class SpanResponse(BaseModel):
     git_source_file: str | None = None
     git_source_line: int | None = None
     git_source_function: str | None = None
+
+
+class SpanSkeletonResponse(BaseModel):
+    """Span skeleton — tree-building fields only, no I/O blobs.
+
+    Used by the trace-detail endpoint so the initial payload stays sub-MB
+    regardless of trace size. Full I/O is fetched per-span on demand via
+    the dedicated ``/spans/{span_id}/io`` endpoint.
+    """
+
+    span_id: str
+    trace_id: str
+    parent_span_id: str | None
+    name: str
+    span_kind: str
+    span_start_time: datetime
+    span_end_time: datetime | None
+    status: str
+    status_message: str | None
+    model_name: str | None
+    cost: float | None
+    input_tokens: int | None
+    output_tokens: int | None
+    total_tokens: int | None
+    git_source_file: str | None = None
+    git_source_line: int | None = None
+    git_source_function: str | None = None
+
+
+class SpanIOResponse(BaseModel):
+    """Full I/O payload for a single span, fetched on demand."""
+
+    span_id: str
+    trace_id: str
+    input: str | None
+    output: str | None
+    metadata: str | None
 
 
 class TraceListItem(BaseModel):
@@ -59,7 +96,7 @@ class TraceListResponse(BaseModel):
 
 
 class TraceDetailResponse(BaseModel):
-    """Single trace with all spans."""
+    """Single trace with span skeletons (no per-span I/O)."""
 
     trace_id: str
     project_id: str
@@ -72,4 +109,4 @@ class TraceDetailResponse(BaseModel):
     input: str | None
     output: str | None
     metadata: str | None
-    spans: list[SpanResponse]
+    spans: list[SpanSkeletonResponse]

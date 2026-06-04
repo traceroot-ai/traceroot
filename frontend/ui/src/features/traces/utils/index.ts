@@ -38,7 +38,7 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
   for (const span of spans) {
     if (!span.parent_span_id) continue;
 
-    const meta = parseMetadata(span.metadata);
+    const meta = parseMetadata(span.metadata ?? null);
     const idsPath = meta["traceroot.span.ids_path"] as string[] | undefined;
     const namePath = meta["traceroot.span.path"] as string[] | undefined;
 
@@ -78,9 +78,6 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
         input_tokens: null,
         output_tokens: null,
         total_tokens: null,
-        input: null,
-        output: null,
-        metadata: null,
         git_source_file: null,
         git_source_line: null,
         git_source_function: null,

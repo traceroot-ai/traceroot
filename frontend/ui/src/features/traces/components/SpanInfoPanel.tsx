@@ -12,6 +12,7 @@ import {
   GitBranch,
   GitCommitHorizontal,
   FileCode,
+  Loader2,
 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { formatDuration, formatDate, formatTokens, buildUrlWithFilters } from "@/lib/utils";
@@ -22,6 +23,7 @@ import { getSpanDuration, getTraceDuration, getTraceTotalCost, getTraceTokenUsag
 import { SpanKindIcon } from "./SpanKindIcon";
 import { ContentRenderer } from "./ContentRenderer";
 import { ExpandableSection } from "@/components/ui/expandable-section";
+import { useSpanIO } from "../hooks";
 
 interface SpanInfoPanelProps {
   projectId: string;
@@ -55,9 +57,20 @@ export function SpanInfoPanel({
   const kind = isTrace ? "trace" : selection.span.span_kind;
   const duration = isTrace ? getTraceDuration(trace) : getSpanDuration(selection.span);
   const timestamp = isTrace ? trace.trace_start_time : selection.span.span_start_time;
-  const input = isTrace ? trace.input : selection.span.input;
-  const output = isTrace ? trace.output : selection.span.output;
-  const rawMetadata = isTrace ? trace.metadata : selection.span.metadata;
+
+  // Lazily fetch span I/O on demand (only when a span is selected)
+  const selectedSpanId = !isTrace ? selection.span.span_id : null;
+  const { data: spanIO, isLoading: isLoadingIO } = useSpanIO(
+    projectId,
+    trace.trace_id,
+    selectedSpanId,
+  );
+
+  // For trace-level: I/O comes from the trace object directly.
+  // For span-level: I/O comes from the lazy-fetched spanIO data.
+  const input = isTrace ? trace.input : (spanIO?.input ?? null);
+  const output = isTrace ? trace.output : (spanIO?.output ?? null);
+  const rawMetadata = isTrace ? trace.metadata : (spanIO?.metadata ?? null);
   const metadata = (() => {
     if (!rawMetadata) return rawMetadata;
     try {
@@ -292,7 +305,14 @@ export function SpanInfoPanel({
           defaultOpen={true}
           onCopy={input ? () => copyToClipboard(input) : undefined}
         >
-          <ContentRenderer content={input} />
+          {!isTrace && isLoadingIO ? (
+            <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Loading…
+            </div>
+          ) : (
+            <ContentRenderer content={input} />
+          )}
         </ExpandableSection>
 
         {/* Output */}
@@ -301,7 +321,14 @@ export function SpanInfoPanel({
           defaultOpen={true}
           onCopy={output ? () => copyToClipboard(output) : undefined}
         >
-          <ContentRenderer content={output} />
+          {!isTrace && isLoadingIO ? (
+            <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Loading…
+            </div>
+          ) : (
+            <ContentRenderer content={output} />
+          )}
         </ExpandableSection>
 
         {/* Metadata */}
@@ -310,7 +337,14 @@ export function SpanInfoPanel({
           defaultOpen={true}
           onCopy={metadata ? () => copyToClipboard(metadata) : undefined}
         >
-          <ContentRenderer content={metadata} />
+          {!isTrace && isLoadingIO ? (
+            <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Loading…
+            </div>
+          ) : (
+            <ContentRenderer content={metadata} />
+          )}
         </ExpandableSection>
       </div>
     </div>

@@ -3,7 +3,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { useSession as useAuthSession } from "@/lib/auth-client";
-import { getTraces, getTrace } from "@/lib/api";
+import { getTraces, getTrace, getSpanIO } from "@/lib/api";
 import { getSessions, getSession, type SessionDetailOptions } from "@/lib/api/sessions";
 import { getUsers, type UserQueryOptions } from "@/lib/api/users";
 import type { SessionQueryOptions, TraceQueryOptions } from "@/types/api";
@@ -62,6 +62,27 @@ export function useTrace(projectId: string, traceId: string, enabled: boolean = 
     queryKey: ["trace", projectId, traceId],
     queryFn: () => getTrace(projectId, traceId, "", user),
     enabled: sessionReady && enabled,
+  });
+}
+
+/**
+ * Hook for lazily fetching a single span's full I/O (input/output/metadata).
+ * Only fetches when spanId is provided (i.e. user selected a span).
+ */
+export function useSpanIO(
+  projectId: string,
+  traceId: string,
+  spanId: string | null,
+) {
+  const { data: authSession, isPending } = useAuthSession();
+  const sessionReady = !isPending && !!authSession?.user;
+  const user: TraceApiUser | undefined = authSession?.user
+    ? { id: authSession.user.id, email: authSession.user.email }
+    : undefined;
+  return useQuery({
+    queryKey: ["spanIO", projectId, traceId, spanId],
+    queryFn: () => getSpanIO(projectId, traceId, spanId!, user),
+    enabled: sessionReady && !!spanId,
   });
 }
 

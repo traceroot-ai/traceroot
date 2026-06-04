@@ -108,7 +108,7 @@ export interface TraceListItem {
   total_cost?: number;
 }
 
-export interface Span {
+export interface SpanSkeleton {
   span_id: string;
   trace_id: string;
   parent_span_id: string | null;
@@ -123,14 +123,22 @@ export interface Span {
   input_tokens: number | null;
   output_tokens: number | null;
   total_tokens: number | null;
-  input: string | null;
-  output: string | null;
-  metadata: string | null;
   git_source_file: string | null;
   git_source_line: number | null;
   git_source_function: string | null;
   pending?: boolean;
 }
+
+export interface SpanIO {
+  span_id: string;
+  trace_id: string;
+  input: string | null;
+  output: string | null;
+  metadata: string | null;
+}
+
+/** Full span = skeleton + lazily loaded I/O. */
+export type Span = SpanSkeleton & Partial<SpanIO>;
 
 export interface TraceDetail {
   trace_id: string;
@@ -146,7 +154,7 @@ export interface TraceDetail {
   input: string | null;
   output: string | null;
   metadata: string | null;
-  spans: Span[];
+  spans: SpanSkeleton[];
 }
 
 export interface TraceListResponse {
