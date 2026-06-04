@@ -3,7 +3,12 @@
 import { useState } from "react";
 
 import { InlineMedia, mediaSrc } from "./inline-media";
-import { shouldAutoExpand, shouldTruncate, truncateString } from "./json-render-utils";
+import {
+  STRING_TRUNCATE_AT,
+  shouldAutoExpand,
+  shouldTruncate,
+  truncateString,
+} from "./json-render-utils";
 
 interface JsonRendererProps {
   value: unknown;
@@ -11,13 +16,18 @@ interface JsonRendererProps {
 }
 
 /**
- * A long string value rendered with an inline "show more"/"show less" toggle.
- * Collapsed by default so a single very large field never floods the DOM.
+ * A long string value, truncated by default with a "…expand (N more characters)"
+ * control on its own line (blank line above) so it's easy to spot. Expand-only:
+ * there is no "collapse" affordance — the value re-collapses when the selected
+ * span/trace changes, because the renderer is keyed by selection at the panel.
+ * Truncated by default so a single very large field never floods the DOM. The
+ * control inherits the surrounding font size and has no underline.
  */
 function TruncatableString({ value }: { value: string }) {
   const [expanded, setExpanded] = useState(false);
 
-  if (!shouldTruncate(value)) {
+  // Full value once expanded, or when it was never long enough to truncate.
+  if (expanded || !shouldTruncate(value)) {
     return (
       <span className="whitespace-pre-wrap break-words text-green-700 dark:text-green-400">
         &quot;{value}&quot;
@@ -25,17 +35,22 @@ function TruncatableString({ value }: { value: string }) {
     );
   }
 
+  const hiddenCount = value.length - STRING_TRUNCATE_AT;
+
+  // The surrounding span is whitespace-pre-wrap, so the explicit newlines put
+  // the control on its own line, with a blank line above, to make it easy to spot.
   return (
     <span className="whitespace-pre-wrap break-words text-green-700 dark:text-green-400">
-      &quot;{expanded ? value : truncateString(value)}
-      {!expanded && <span className="text-muted-foreground">…</span>}&quot;
+      &quot;{truncateString(value)}
+      {"\n\n"}
       <button
         type="button"
-        onClick={() => setExpanded((prev) => !prev)}
-        className="ml-1 align-baseline text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+        onClick={() => setExpanded(true)}
+        className="cursor-pointer align-baseline text-muted-foreground hover:text-foreground"
       >
-        {expanded ? "show less" : `show more (${value.length} chars)`}
+        ...expand ({hiddenCount} more characters)
       </button>
+      {"\n"}&quot;
     </span>
   );
 }
@@ -66,7 +81,7 @@ function CollapsibleNode({
       <button
         type="button"
         onClick={() => setExpanded(true)}
-        className="text-left align-baseline hover:underline"
+        className="cursor-pointer text-left align-baseline"
       >
         <span className="text-muted-foreground">{open}</span>
         <span className="mx-0.5 text-[10px] text-muted-foreground">
@@ -84,7 +99,7 @@ function CollapsibleNode({
       <button
         type="button"
         onClick={() => setExpanded(false)}
-        className="align-baseline text-muted-foreground hover:underline"
+        className="cursor-pointer align-baseline text-muted-foreground"
       >
         {open}
       </button>
