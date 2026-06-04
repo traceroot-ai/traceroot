@@ -57,10 +57,14 @@ _warned_scopes: set[str] = set()
 
 
 def _warn_once_if_unknown_scope(scope_name: str | None) -> None:
-    """Warn (once per scope) if the emitter isn't one traceroot recognizes."""
-    if scope_name and scope_name.lower().startswith(_KNOWN_SCOPE_PREFIXES):
+    """Warn (once per scope) if the emitter isn't one traceroot recognizes.
+
+    ``scope_name`` is typed ``str | None`` but comes from untrusted OTLP, so a
+    malformed (non-string) value is guarded — it must never crash ingestion.
+    """
+    if isinstance(scope_name, str) and scope_name.lower().startswith(_KNOWN_SCOPE_PREFIXES):
         return
-    key = scope_name or "<missing>"
+    key = scope_name if isinstance(scope_name, str) and scope_name else "<missing>"
     if key not in _warned_scopes and len(_warned_scopes) < _MAX_WARNED_SCOPES:
         _warned_scopes.add(key)
         logger.warning(
