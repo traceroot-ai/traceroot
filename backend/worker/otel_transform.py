@@ -446,10 +446,6 @@ def transform_otel_to_clickhouse(
                             "gen_ai.usage.completion_tokens",
                         ],
                     )
-                    api_total_tokens = first_present_number(
-                        span_attrs,
-                        ["llm.token_count.total", "gen_ai.usage.total_tokens"],
-                    )
                     # Cache buckets. The OpenInference keys (prompt_details.*) are the
                     # verified path for Anthropic/OpenAI and MUST be listed first —
                     # they are the same family as llm.token_count.prompt (read above).
@@ -494,14 +490,7 @@ def transform_otel_to_clickhouse(
                         # Use API-provided counts (accurate).
                         input_tokens = int_or_zero(api_input_tokens)
                         output_tokens = int_or_zero(api_output_tokens)
-                        total_tokens = (
-                            int_or_zero(api_total_tokens)
-                            if api_total_tokens is not None
-                            else input_tokens + output_tokens
-                        )
-                        span_record["input_tokens"] = input_tokens
                         span_record["output_tokens"] = output_tokens
-                        span_record["total_tokens"] = total_tokens
 
                         # Normalize counts into disjoint buckets keyed on the
                         # instrumentation scope. The SAME buckets feed both the
@@ -520,6 +509,19 @@ def transform_otel_to_clickhouse(
                             cache_read_tokens=int_or_zero(api_cache_read_tokens),
                             cache_write_tokens=int_or_zero(api_cache_write_tokens),
                         )
+                        # Store a GROSS (cache-inclusive) input reconstructed from the
+                        # disjoint buckets, so the input column always reconciles with
+                        # its cache breakdown. Net/exclusive emitters (e.g.
+                        # claude-agent-sdk) report only the non-cached tokens in
+                        # llm.token_count.prompt with cache as separate additive
+                        # buckets, so the reported input alone (e.g. 2) understates the
+                        # true total; summing the buckets recovers it. Gross emitters
+                        # are unchanged (cache is already a subset of the input).
+                        gross_input = (
+                            buckets.input_uncached + buckets.cache_read + buckets.cache_write
+                        )
+                        span_record["input_tokens"] = gross_input
+                        span_record["total_tokens"] = gross_input + output_tokens
                         # Persist the breakdown as first-class columns. cache_read/
                         # cache_write come from the disjoint buckets; reasoning is a
                         # subset of output, capped to it so the output split reconciles.
