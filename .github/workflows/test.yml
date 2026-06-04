@@ -98,3 +98,71 @@ jobs:
 
       - name: Print coverage summary
         run: cat code-coverage-results.md >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Coverage gate  (diff-cover >= 80% on changed lines)
+  # ---------------------------------------------------------------------------
+  # Enforces coverage on *changed lines only* (not whole-project), so the gate
+  # ratchets quality forward on new code without requiring a backfill. Reuses
+  # the coverage-backend.xml (Cobertura) already produced by backend-tests --
+  # diff-cover reads Cobertura directly, so no change to coverage generation.
+  # Pattern adapted from the OpenHuman project's CI (tinyhumansai/openhuman).
+  coverage-gate:
+    name: Coverage Gate (diff-cover >= 80%)
+    runs-on: ubuntu-24.04
+    needs: [backend-tests]
+    # Intentionally PR-only: diff-coverage compares changed lines against the PR
+    # base branch, and the gate already runs before a PR can enter the merge
+    # queue. On merge_group events github.base_ref is empty, so the compare-ref
+    # logic below would have no base to diff against -- supporting it would need
+    # github.event.merge_group.base_ref instead.
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # diff-cover needs history for the merge-base with the PR base; a
+          # shallow checkout silently breaks the comparison.
+          fetch-depth: 0
+
+      - name: Fetch PR base branch
+        run: git fetch origin "${{ github.base_ref }}" --depth=200
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install diff-cover
+        run: pip install 'diff-cover>=9.2.0'
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-backend
+
+      - name: Enforce >= 80% coverage on changed lines
+        run: |
+          set -euo pipefail
+          diff-cover coverage-backend.xml \
+            --compare-branch="origin/${{ github.base_ref }}" \
+            --fail-under=80 \
+            --format markdown:diff-coverage.md,html:diff-coverage.html
+
+      - name: Print diff-coverage summary
+        if: always()
+        run: |
+          if [ -f diff-coverage.md ]; then
+            cat diff-coverage.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload diff-coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diff-coverage-report
+          path: |
+            diff-coverage.md
+            diff-coverage.html
+          retention-days: 14
+          if-no-files-found: warn
