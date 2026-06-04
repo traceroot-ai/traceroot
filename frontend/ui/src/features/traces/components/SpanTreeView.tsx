@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { ChevronRight, ChevronDown, CircleStop, CircleDollarSign } from "lucide-react";
-import { cn, formatDuration, formatTokens } from "@/lib/utils";
+import { cn, formatDuration, formatTokenFlow } from "@/lib/utils";
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { TraceDetail, Span } from "@/types/api";
 import type { TraceSelection } from "../types";
@@ -107,7 +107,11 @@ export function SpanTreeView({
                 {traceTokenUsage && (
                   <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[80px]:inline-flex">
                     <CircleStop className="h-2.5 w-2.5" />
-                    {formatTokens(traceTokenUsage.totalTokens)}
+                    {formatTokenFlow(
+                      traceTokenUsage.inputTokens,
+                      traceTokenUsage.outputTokens,
+                      traceTokenUsage.totalTokens,
+                    )}
                   </span>
                 )}
 
@@ -202,7 +206,11 @@ export function SpanTreeView({
                       {span.span_kind === SpanKind.LLM && span.total_tokens != null && (
                         <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[80px]:inline-flex">
                           <CircleStop className="h-2.5 w-2.5" />
-                          {formatTokens(span.total_tokens)}
+                          {formatTokenFlow(
+                            span.input_tokens,
+                            span.output_tokens,
+                            span.total_tokens,
+                          )}
                         </span>
                       )}
 
