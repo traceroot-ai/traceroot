@@ -63,5 +63,7 @@ async def get_trace(auth: Auth, trace_id: str):
             detail="Trace not found",
         )
 
-    trace["trace_url"] = build_trace_url(settings.traceroot_ui_url, auth.project_id, trace_id)
+    trace["trace_url"] = build_trace_url(
+        settings.traceroot_public_ui_url, auth.project_id, trace_id
+    )
     return trace
