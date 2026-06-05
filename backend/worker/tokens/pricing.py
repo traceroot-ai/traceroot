@@ -144,7 +144,7 @@ def cost_from_buckets(prices: dict[str, float] | None, buckets: TokenBuckets) ->
 def cost_breakdown_from_buckets(
     prices: dict[str, float] | None, buckets: TokenBuckets
 ) -> dict[str, float] | None:
-    """Per-category dollar breakdown behind a span's single `cost` (issue #1069).
+    """Per-category dollar breakdown behind a span's single `cost`.
 
     Returns a dict keyed input_uncached_cost / cache_read_cost / cache_write_cost /
     output_cost, or None when no prices are known (same contract as

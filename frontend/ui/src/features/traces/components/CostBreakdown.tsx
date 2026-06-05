@@ -16,7 +16,7 @@ function Row({ label, value }: { label: string; value: number }) {
 
 /**
  * Hierarchical "Cost breakdown" panel — the dollar analogue of
- * TokenUsageBreakdown (issue #1069). Input cost splits into uncached input,
+ * TokenUsageBreakdown. Input cost splits into uncached input,
  * cache read and cache write; output cost is shown on its own (reasoning is part
  * of output, already priced at the output rate). The Total is the sum of the
  * categories and reconciles to the span/trace cost chip when prices are unchanged.

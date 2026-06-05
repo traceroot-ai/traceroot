@@ -8,7 +8,7 @@ interface CostChipProps {
 }
 
 /**
- * Cost chip ($ icon + amount) with a hover Cost breakdown panel (issue #1069).
+ * Cost chip ($ icon + amount) with a hover Cost breakdown panel.
  * Mirrors TokenChip. Renders nothing when cost is absent/non-finite; renders a
  * plain chip (no popup) when no per-category breakdown is available.
  */
