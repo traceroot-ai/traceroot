@@ -213,6 +213,8 @@ services:
       S3_BUCKET_NAME: ${S3_BUCKET_NAME:-traceroot}
       S3_REGION: ${S3_REGION:-us-east-1}
       TRACEROOT_UI_URL: http://web:3000
+      # Host/browser-usable UI URL for client-facing links (trace_url, whoami).
+      TRACEROOT_PUBLIC_UI_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       # --- Secrets ---
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-internal-secret}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
