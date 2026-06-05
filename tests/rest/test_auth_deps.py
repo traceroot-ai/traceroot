@@ -4,6 +4,8 @@ Tests authenticate_api_key (public API auth) and get_project_access (user auth)
 with mocked httpx calls.
 """
 
+import logging
+
 import httpx
 import pytest
 import respx
@@ -126,6 +128,38 @@ class TestAuthenticateApiKey:
         with pytest.raises(HTTPException) as exc_info:
             await authenticate_api_key("Bearer test-key")
         assert exc_info.value.status_code == 503
+
+    @respx.mock
+    async def test_malformed_200_invalid_json_returns_503(self):
+        """A 200 with a non-JSON body is a malformed upstream response → controlled 503."""
+        respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
+            return_value=Response(200, content=b"<html>not json</html>")
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_api_key("Bearer test-key")
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Authentication service error"
+
+    @respx.mock
+    async def test_200_missing_required_fields_returns_503(self):
+        """A valid-looking 200 missing required fields is malformed → controlled 503."""
+        respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
+            return_value=Response(200, json={"valid": True})  # no projectId/workspaceId/billingPlan
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_api_key("Bearer test-key")
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Authentication service error"
+
+    @respx.mock
+    async def test_token_not_logged_on_malformed_response(self, caplog):
+        """The raw API token must never appear in logs, even on the error path."""
+        respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
+            return_value=Response(200, content=b"oops")
+        )
+        with caplog.at_level(logging.DEBUG), pytest.raises(HTTPException):
+            await authenticate_api_key("Bearer tr_supersecrettoken")
+        assert "tr_supersecrettoken" not in caplog.text
 
 
 # ── get_project_access ──────────────────────────────────────────────────
