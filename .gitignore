@@ -81,9 +81,6 @@ dmypy.json
 # Sphinx documentation
 docs/_build/
 
-# Local planning/spec artifacts (brainstorming, writing-plans). Never committed.
-docs/superpowers/
-
 # PyBuilder
 .pybuilder/
 target/
