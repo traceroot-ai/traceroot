@@ -62,7 +62,7 @@ def test_render_is_deterministic():
 
 
 def test_committed_artifact_matches_generated():
-    """Drift guard: regenerate with `python scripts/dump_public_openapi.py`."""
+    """Drift guard: regenerate with `python scripts/sync_public_openapi.py`."""
     assert ARTIFACT.exists(), f"missing artifact: {ARTIFACT}"
     assert ARTIFACT.read_text(encoding="utf-8") == render(_schema())
 

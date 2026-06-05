@@ -1,8 +1,8 @@
 """Generate or verify the committed public OpenAPI artifact.
 
-  uv run python scripts/dump_public_openapi.py            # write the artifact
-  uv run python scripts/dump_public_openapi.py --check    # exit 1 if it drifts
-  uv run python scripts/dump_public_openapi.py <path>     # write to a custom path
+  uv run python scripts/sync_public_openapi.py            # write the artifact
+  uv run python scripts/sync_public_openapi.py --check    # exit 1 if it drifts
+  uv run python scripts/sync_public_openapi.py <path>     # write to a custom path
 
 The schema-building logic lives in `rest.openapi_public` so it is importable and
 testable; this file is just the CLI + the canonical artifact location.
@@ -32,7 +32,7 @@ def main(argv: list[str]) -> int:
         if ARTIFACT.read_text(encoding="utf-8") != rendered:
             print(
                 "Public OpenAPI artifact is stale. Regenerate with "
-                "`uv run python scripts/dump_public_openapi.py`.",
+                "`uv run python scripts/sync_public_openapi.py`.",
                 file=sys.stderr,
             )
             return 1
