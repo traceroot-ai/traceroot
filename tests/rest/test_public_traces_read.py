@@ -185,6 +185,13 @@ class TestPublicGetTrace:
         resp = client.get("/api/v1/public/traces/nonexistent", headers=AUTH_HEADER)
         assert resp.status_code == 404
 
+    def test_reader_error_returns_generic_500(self, client, mock_reader):
+        """A reader failure surfaces as a controlled 500, matching `list_traces`."""
+        mock_reader.get_trace.side_effect = Exception("ClickHouse down")
+        resp = client.get("/api/v1/public/traces/abc123", headers=AUTH_HEADER)
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Failed to get trace"
+
 
 class TestPublicTraceReadAuth:
     def test_missing_api_key_returns_401(self):

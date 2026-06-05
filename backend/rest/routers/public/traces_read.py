@@ -47,8 +47,15 @@ async def list_traces(
 @router.get("/{trace_id}", response_model=PublicTraceDetailResponse)
 async def get_trace(auth: Auth, trace_id: str):
     """Get a single trace (full payload, including spans) for the key's project."""
-    service = get_trace_reader_service()
-    trace = service.get_trace(project_id=auth.project_id, trace_id=trace_id)
+    try:
+        service = get_trace_reader_service()
+        trace = service.get_trace(project_id=auth.project_id, trace_id=trace_id)
+    except Exception as e:
+        logger.exception(f"Error getting trace: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get trace",
+        ) from e
 
     if not trace:
         raise HTTPException(
