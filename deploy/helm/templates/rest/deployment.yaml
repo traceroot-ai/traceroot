@@ -68,6 +68,14 @@ spec:
                   key: {{ .Values.secrets.keys.internalApiSecret }}
             - name: TRACEROOT_UI_URL
               value: "http://{{ include "traceroot.fullname" . }}-web:{{ .Values.web.port }}"
+            # Host/browser-usable public UI URL for client-facing links the public
+            # API returns (trace_url, whoami.ui_base_url). Reuses the public app URL
+            # operators already set (betterAuth.url) — no new required value. When
+            # unset, the backend falls back to NEXT_PUBLIC_APP_URL / localhost.
+            {{- if .Values.betterAuth.url }}
+            - name: TRACEROOT_PUBLIC_UI_URL
+              value: {{ .Values.betterAuth.url | quote }}
+            {{- end }}
             - name: CORS_ORIGINS
               value: '["{{ .Values.betterAuth.url }}"]'
             {{- with .Values.additionalEnv }}
