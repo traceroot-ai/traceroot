@@ -228,19 +228,33 @@ jobs:
         with:
           name: coverage-frontend
 
-      - name: Enforce >= 80% coverage on changed lines
+      - name: Enforce >= 80% backend coverage on changed lines
         run: |
           set -euo pipefail
-          diff-cover coverage-backend.xml coverage-frontend.lcov \
+          diff-cover coverage-backend.xml \
             --compare-branch="origin/${{ github.base_ref }}" \
             --fail-under=80 \
-            --format markdown:diff-coverage.md,html:diff-coverage.html
+            --format markdown:diff-coverage-backend.md,html:diff-coverage-backend.html
+
+      - name: Enforce >= 80% frontend coverage on changed lines
+        if: success() || failure()
+        run: |
+          set -euo pipefail
+          diff-cover coverage-frontend.lcov \
+            --compare-branch="origin/${{ github.base_ref }}" \
+            --fail-under=80 \
+            --format markdown:diff-coverage-frontend.md,html:diff-coverage-frontend.html
 
       - name: Print diff-coverage summary
         if: always()
         run: |
-          if [ -f diff-coverage.md ]; then
-            cat diff-coverage.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -f diff-coverage-backend.md ]; then
+            echo "### Backend Coverage" >> "$GITHUB_STEP_SUMMARY"
+            cat diff-coverage-backend.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f diff-coverage-frontend.md ]; then
+            echo "### Frontend Coverage" >> "$GITHUB_STEP_SUMMARY"
+            cat diff-coverage-frontend.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload diff-coverage report
@@ -249,7 +263,9 @@ jobs:
         with:
           name: diff-coverage-report
           path: |
-            diff-coverage.md
-            diff-coverage.html
+            diff-coverage-backend.md
+            diff-coverage-backend.html
+            diff-coverage-frontend.md
+            diff-coverage-frontend.html
           retention-days: 14
           if-no-files-found: warn
