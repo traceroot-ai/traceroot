@@ -236,7 +236,7 @@ export function SpanTimelineView({
                   {(traceAggregates.totalTokens > 0 || traceAggregates.totalCost > 0) && (
                     <span className="absolute right-2 z-20 inline-flex items-center gap-2 whitespace-nowrap text-[10px] font-medium text-muted-foreground">
                       {traceAggregates.totalTokens > 0 && (
-                        <span className="inline-flex items-center gap-0.5">
+                        <span className="inline-flex items-center gap-0.5 font-sans font-medium">
                           <CircleStop className="h-2.5 w-2.5" />
                           {formatTokenFlow(
                             traceAggregates.inputTokens,
@@ -308,7 +308,7 @@ export function SpanTimelineView({
                 {(showTokens || showCost) && (
                   <span className="absolute right-2 z-20 inline-flex items-center gap-2 whitespace-nowrap text-[10px] text-muted-foreground">
                     {showTokens && (
-                      <span className="inline-flex items-center gap-0.5">
+                      <span className="inline-flex items-center gap-0.5 font-sans font-medium">
                         <CircleStop className="h-2.5 w-2.5" />
                         {formatTokenFlow(span.input_tokens, span.output_tokens, span.total_tokens)}
                       </span>
