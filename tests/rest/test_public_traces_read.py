@@ -197,6 +197,18 @@ class TestPublicGetTrace:
         assert data["spans"][0]["span_id"] == "span-1"
         assert data["trace_url"] == "http://localhost:3000/projects/proj-A/traces?traceId=abc123"
 
+    def test_trace_url_uses_public_ui_url_not_internal(self, client, mock_reader, monkeypatch):
+        """Get trace_url must use the host-usable public UI URL, never the
+        internal backend-to-web URL (which can be a Docker service host)."""
+        from shared.config import settings
+
+        monkeypatch.setattr(settings, "traceroot_ui_url", "http://web:3000")
+        monkeypatch.setattr(settings, "traceroot_public_ui_url", "http://localhost:3000")
+        mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
+        url = client.get("/api/v1/public/traces/abc123", headers=AUTH_HEADER).json()["trace_url"]
+        assert url == "http://localhost:3000/projects/proj-A/traces?traceId=abc123"
+        assert "web:3000" not in url
+
     def test_404_when_trace_missing(self, client, mock_reader):
         mock_reader.get_trace.return_value = None
         resp = client.get("/api/v1/public/traces/nonexistent", headers=AUTH_HEADER)
