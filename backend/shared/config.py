@@ -68,8 +68,12 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
 
-    # Internal communication (Python <-> Next.js)
+    # Internal backend-to-web URL for server-to-server calls (e.g. validate-api-key);
+    # may be a Docker-internal host like http://web:3000.
     traceroot_ui_url: str = "http://localhost:3000"
+    # Host/browser-usable UI URL used in links handed to clients (whoami.ui_base_url,
+    # trace_url). Must NOT be a Docker-internal service URL.
+    traceroot_public_ui_url: str = "http://localhost:3000"
     internal_api_secret: str = ""
 
     # Service-specific settings
