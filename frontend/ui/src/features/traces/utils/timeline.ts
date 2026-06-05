@@ -17,6 +17,19 @@ export interface FlatTimelineItem {
 /**
  * Flattens a flat array of spans into a DFS-ordered list for virtualized rendering,
  * pre-computing pixel offsets and widths for the Gantt bars.
+ *
+ * The visible-span ORDER produced here must stay identical to SpanTreeView's
+ * `buildTreeRows`/`getVisibleSpanRows` — the timeline and tree panels are
+ * scroll-synced row-for-row, so any divergence in which spans are emitted (or
+ * their order) silently misaligns them. The collapse skip below mirrors the
+ * tree's ancestor-collapse filter, and a parity test guards it in
+ * SpanTreeView.test.ts.
+ *
+ * TODO: unify this visible-span derivation with SpanTreeView's
+ * getVisibleSpanRows/buildTreeRows so the collapse logic lives in one place.
+ * Deferred because this flattener also computes pixel metrics and works on raw
+ * Span[] (not SpanTreeRow[]), so the merge is non-trivial. The parity test
+ * protects the invariant until then.
  */
 export function flattenTreeWithMetrics(
   spans: Span[],

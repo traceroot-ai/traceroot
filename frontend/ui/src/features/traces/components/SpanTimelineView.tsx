@@ -6,7 +6,12 @@ import { CircleStop, CircleDollarSign } from "lucide-react";
 import { cn, formatDuration, formatTokenFlow } from "@/lib/utils";
 import { SpanStatus, SpanKind } from "@traceroot/core";
 import { flattenTreeWithMetrics } from "../utils/timeline";
-import { TREE_LAYOUT, enrichSpansWithPending, getTraceDuration } from "../utils";
+import {
+  TREE_LAYOUT,
+  TREE_OVERSCAN_ROWS,
+  enrichSpansWithPending,
+  getTraceDuration,
+} from "../utils";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
 
@@ -140,7 +145,7 @@ export function SpanTimelineView({
     count: allRows.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
-    overscan: 12,
+    overscan: TREE_OVERSCAN_ROWS,
   });
 
   return (
