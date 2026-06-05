@@ -73,3 +73,41 @@ def test_drift_is_detectable():
     tampered = json.loads(generated)
     tampered["info"]["title"] = "Tampered"
     assert render(tampered) != generated
+
+
+def test_ingestion_documents_protobuf_request_body():
+    post = _schema()["paths"]["/api/v1/public/traces"]["post"]
+    assert "requestBody" in post
+    content = post["requestBody"]["content"]
+    assert "application/x-protobuf" in content
+    assert content["application/x-protobuf"]["schema"] == {"type": "string", "format": "binary"}
+
+
+def _public_operations(schema):
+    for item in schema["paths"].values():
+        for method, op in item.items():
+            if method in {"get", "post", "put", "patch", "delete"}:
+                yield op
+
+
+def test_all_public_ops_require_bearer_auth():
+    schema = _schema()
+    assert schema["components"]["securitySchemes"]["BearerAuth"] == {
+        "type": "http",
+        "scheme": "bearer",
+    }
+    for op in _public_operations(schema):
+        assert op.get("security") == [{"BearerAuth": []}]
+        # the misleading optional Authorization header param is gone
+        header_names = [p.get("name", "").lower() for p in op.get("parameters", [])]
+        assert "authorization" not in header_names
+        assert "401" in op["responses"]
+
+
+def test_read_endpoints_document_error_responses():
+    paths = _schema()["paths"]
+    assert set(paths["/api/v1/public/traces"]["get"]["responses"]) >= {"200", "401", "500"}
+    for p in ("/api/v1/public/traces/{trace_id}", "/api/v1/public/traces/{trace_id}/export"):
+        responses = paths[p]["get"]["responses"]
+        assert set(responses) >= {"200", "401", "404", "500"}
+        assert responses["404"]["description"] == "Trace not found"
