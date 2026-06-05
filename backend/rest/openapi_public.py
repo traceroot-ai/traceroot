@@ -13,6 +13,66 @@ from typing import Any
 PUBLIC_PREFIX = "/api/v1/public/"
 TITLE = "TraceRoot Public API"
 
+_HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
+_BEARER_SCHEME = {"type": "http", "scheme": "bearer"}
+_ERROR_SCHEMA = {"type": "object", "properties": {"detail": {"type": "string"}}}
+
+
+def _error_response(description: str) -> dict[str, Any]:
+    return {"description": description, "content": {"application/json": {"schema": _ERROR_SCHEMA}}}
+
+
+def _apply_public_contract(schema: dict[str, Any]) -> None:
+    """Document contract details FastAPI can't infer from the raw-Request /
+    manual-HTTPException public routes: bearer auth (required), the protobuf
+    ingestion body, and the real 401/404/500 error responses.
+    """
+    schema.setdefault("components", {}).setdefault("securitySchemes", {})["BearerAuth"] = (
+        _BEARER_SCHEME
+    )
+
+    for item in schema["paths"].values():
+        for method, op in item.items():
+            if method not in _HTTP_METHODS:
+                continue
+            # Auth is required on every public endpoint: represent it once as a
+            # bearer requirement and drop the misleading optional header param.
+            op["security"] = [{"BearerAuth": []}]
+            params = [
+                p
+                for p in op.get("parameters", [])
+                if not (
+                    p.get("in") == "header" and (p.get("name") or "").lower() == "authorization"
+                )
+            ]
+            if params:
+                op["parameters"] = params
+            else:
+                op.pop("parameters", None)
+            op.setdefault("responses", {}).setdefault(
+                "401", _error_response("Authentication failed")
+            )
+
+    # Public ingestion accepts an OTLP protobuf body (read from the raw request).
+    ingest = schema["paths"].get("/api/v1/public/traces", {}).get("post")
+    if ingest is not None:
+        ingest["requestBody"] = {
+            "required": True,
+            "content": {
+                "application/x-protobuf": {"schema": {"type": "string", "format": "binary"}}
+            },
+        }
+
+    # Trace read/export error contract (matches the route code).
+    list_op = schema["paths"].get("/api/v1/public/traces", {}).get("get")
+    if list_op is not None:
+        list_op["responses"].setdefault("500", _error_response("Failed to list traces"))
+    for path in ("/api/v1/public/traces/{trace_id}", "/api/v1/public/traces/{trace_id}/export"):
+        op = schema["paths"].get(path, {}).get("get")
+        if op is not None:
+            op["responses"].setdefault("404", _error_response("Trace not found"))
+            op["responses"].setdefault("500", _error_response("Failed to get trace"))
+
 
 def _collect_refs(node: Any, acc: set[str]) -> None:
     """Collect component schema names referenced by `$ref` anywhere under `node`."""
@@ -56,12 +116,14 @@ def build_public_schema(app: Any) -> dict[str, Any]:
     if referenced:
         components["schemas"] = {n: all_schemas[n] for n in referenced if n in all_schemas}
 
-    return {
+    schema = {
         "openapi": full["openapi"],
         "info": {"title": TITLE, "version": full["info"]["version"]},
         "paths": paths,
         "components": components,
     }
+    _apply_public_contract(schema)
+    return schema
 
 
 def render(schema: dict[str, Any]) -> str:
