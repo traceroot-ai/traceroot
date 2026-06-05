@@ -11,7 +11,12 @@ import logging
 from fastapi import APIRouter, HTTPException, Query, status
 
 from rest.routers.public.deps import Auth
-from rest.schemas.public import PublicTraceDetailResponse, PublicTraceListResponse
+from rest.routers.public.serialize import export_bundle, public_trace_detail
+from rest.schemas.public import (
+    PublicTraceDetailResponse,
+    PublicTraceExportResponse,
+    PublicTraceListResponse,
+)
 from rest.services.trace_reader import get_trace_reader_service
 from rest.url_utils import build_trace_url
 from shared.config import settings
@@ -47,21 +52,39 @@ async def list_traces(
 @router.get("/{trace_id}", response_model=PublicTraceDetailResponse)
 async def get_trace(auth: Auth, trace_id: str):
     """Get a single trace (full payload, including spans) for the key's project."""
+    trace = _require_trace(auth.project_id, trace_id)
+    return public_trace_detail(trace, auth.project_id)
+
+
+@router.get("/{trace_id}/export", response_model=PublicTraceExportResponse)
+async def export_trace(auth: Auth, trace_id: str):
+    """Export the V1 bundle (trace + spans + git_context + manifest) for the key's project.
+
+    `bundle.trace` is identical to the `traces get` payload for the same trace.
+    """
+    trace = _require_trace(auth.project_id, trace_id)
+    return export_bundle(trace, auth.project_id)
+
+
+def _require_trace(project_id: str, trace_id: str) -> dict:
+    """Fetch a trace scoped to the project, or raise 404 (500 on reader failure).
+
+    Centralizing the read here keeps `get` and `export` consistent: a reader
+    failure is a controlled 500 (matching `list_traces`), a missing/cross-project
+    trace is a 404, and internal exception text is never leaked to clients.
+    """
     try:
         service = get_trace_reader_service()
-        trace = service.get_trace(project_id=auth.project_id, trace_id=trace_id)
+        trace = service.get_trace(project_id=project_id, trace_id=trace_id)
     except Exception as e:
         logger.exception(f"Error getting trace: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get trace",
         ) from e
-
     if not trace:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Trace not found",
         )
-
-    trace["trace_url"] = build_trace_url(settings.traceroot_ui_url, auth.project_id, trace_id)
     return trace
