@@ -126,6 +126,9 @@ export interface Span {
   // Generic token breakdown map (cache_read_tokens, cache_write_tokens,
   // reasoning_tokens, …) — new provider dimensions appear here with no type change.
   usage_details?: Record<string, number>;
+  // Per-category dollar breakdown (issue #1069): input_uncached_cost,
+  // cache_read_cost, cache_write_cost, output_cost. Empty when no known prices.
+  cost_details?: Record<string, number>;
   input: string | null;
   output: string | null;
   metadata: string | null;
