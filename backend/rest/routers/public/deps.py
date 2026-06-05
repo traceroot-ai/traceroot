@@ -93,7 +93,23 @@ async def authenticate_api_key(
             detail="Authentication service error",
         )
 
-    data = response.json()
+    # A 200 with a malformed body (non-JSON, or a non-object) is an auth-service
+    # error, not a client error — surface a controlled 503, never an uncaught 500.
+    try:
+        data = response.json()
+    except ValueError as e:
+        logger.error(f"Malformed JSON from auth service: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        ) from e
+
+    if not isinstance(data, dict):
+        logger.error("Auth service returned a non-object JSON body")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
 
     if not data.get("valid"):
         raise HTTPException(
@@ -101,10 +117,22 @@ async def authenticate_api_key(
             detail=data.get("error", "Invalid API key"),
         )
 
+    # A valid:true response missing required fields is also malformed → 503.
+    try:
+        project_id = data["projectId"]
+        workspace_id = data["workspaceId"]
+        billing_plan = data["billingPlan"]
+    except KeyError as e:
+        logger.error(f"Auth service response missing required field: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        ) from e
+
     return AuthResult(
-        project_id=data["projectId"],
-        workspace_id=data["workspaceId"],
-        billing_plan=data["billingPlan"],
+        project_id=project_id,
+        workspace_id=workspace_id,
+        billing_plan=billing_plan,
         ingestion_blocked=data.get("ingestionBlocked", False),
         project_name=data.get("projectName"),
         workspace_name=data.get("workspaceName"),
