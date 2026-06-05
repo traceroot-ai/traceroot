@@ -13,7 +13,8 @@ import {
   formatDuration,
   formatDate,
   formatCost,
-  formatTokens,
+  formatTokenFlow,
+  formatExactTokens,
   cn,
   buildUrlWithFilters,
 } from "@/lib/utils";
@@ -294,7 +295,7 @@ export default function TracesPage() {
                               {trace.error_count}
                             </span>
                           ) : (
-                            <span className="text-[10px] text-muted-foreground">0</span>
+                            <span className="text-[12px] text-muted-foreground">0</span>
                           )}
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5 text-center text-[12px] text-muted-foreground">
@@ -314,10 +315,9 @@ export default function TracesPage() {
                           {(trace.total_input_tokens ?? 0) + (trace.total_output_tokens ?? 0) >
                           0 ? (
                             <span
-                              title={`${(trace.total_input_tokens ?? 0).toLocaleString()} / ${(trace.total_output_tokens ?? 0).toLocaleString()}`}
+                              title={`${formatExactTokens(trace.total_input_tokens)} → ${formatExactTokens(trace.total_output_tokens)} (${formatExactTokens((trace.total_input_tokens ?? 0) + (trace.total_output_tokens ?? 0))})`}
                             >
-                              {formatTokens(trace.total_input_tokens ?? 0)} /{" "}
-                              {formatTokens(trace.total_output_tokens ?? 0)}
+                              {formatTokenFlow(trace.total_input_tokens, trace.total_output_tokens)}
                             </span>
                           ) : (
                             "-"

@@ -11,7 +11,14 @@ import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useUsers } from "@/features/traces/hooks";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useSession as useAuthSession } from "@/lib/auth-client";
-import { formatDate, formatCost, formatTokens, cn, buildUrlWithFilters } from "@/lib/utils";
+import {
+  formatDate,
+  formatCost,
+  formatTokens,
+  formatExactTokens,
+  cn,
+  buildUrlWithFilters,
+} from "@/lib/utils";
 import type { UserListItem } from "@/lib/api/users";
 import type { UserQueryOptions } from "@/lib/api/users";
 
@@ -179,7 +186,7 @@ export default function UsersPage() {
                         <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
                           {(user.total_input_tokens ?? 0) + (user.total_output_tokens ?? 0) > 0 ? (
                             <span
-                              title={`${(user.total_input_tokens ?? 0).toLocaleString()} / ${(user.total_output_tokens ?? 0).toLocaleString()}`}
+                              title={`${formatExactTokens(user.total_input_tokens)} / ${formatExactTokens(user.total_output_tokens)}`}
                             >
                               {formatTokens(user.total_input_tokens ?? 0)} /{" "}
                               {formatTokens(user.total_output_tokens ?? 0)}

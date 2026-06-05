@@ -123,6 +123,9 @@ export interface Span {
   input_tokens: number | null;
   output_tokens: number | null;
   total_tokens: number | null;
+  // Generic token breakdown map (cache_read_tokens, cache_write_tokens,
+  // reasoning_tokens, …) — new provider dimensions appear here with no type change.
+  usage_details?: Record<string, number>;
   input: string | null;
   output: string | null;
   metadata: string | null;
