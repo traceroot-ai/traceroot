@@ -41,3 +41,15 @@ def test_takes_only_base_project_trace_and_carries_no_credentials():
     lowered = url.lower()
     for forbidden in ("bearer", "api_key", "apikey", "token", "authorization", "secret"):
         assert forbidden not in lowered
+
+
+def test_public_ui_url_setting_is_independent_of_internal(monkeypatch):
+    """Client-facing links use the public UI URL, which can differ from the
+    Docker-internal traceroot_ui_url used for backend-to-web calls."""
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "traceroot_ui_url", "http://web:3000")
+    monkeypatch.setattr(settings, "traceroot_public_ui_url", "http://localhost:3000")
+    url = build_trace_url(settings.traceroot_public_ui_url, "proj1", "abc123")
+    assert url == "http://localhost:3000/projects/proj1/traces?traceId=abc123"
+    assert "web:3000" not in url
