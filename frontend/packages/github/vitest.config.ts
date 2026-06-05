@@ -1,5 +1,4 @@
 import { defineConfig } from "vitest/config";
-import path from "path";
 export default defineConfig({
   test: {
     environment: "node",
@@ -8,11 +7,6 @@ export default defineConfig({
       reporter: ["lcov"],
       reportsDirectory: "./coverage",
       reportOnFailure: true,
-    },
-  },
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
     },
   },
 });
