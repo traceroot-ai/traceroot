@@ -7,6 +7,7 @@ Environment variables are loaded from .env by entrypoints (rest/main.py,
 worker/celery_app.py) before this module is first imported.
 """
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -68,8 +69,16 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
 
-    # Internal communication (Python <-> Next.js)
+    # Internal backend-to-web URL for server-to-server calls (e.g. validate-api-key);
+    # may be a Docker-internal host like http://web:3000.
     traceroot_ui_url: str = "http://localhost:3000"
+    # Host/browser-usable UI URL used in links handed to clients (whoami.ui_base_url,
+    # trace_url). Falls back to NEXT_PUBLIC_APP_URL so operators need not set a second
+    # var. Must NOT be a Docker-internal service URL.
+    traceroot_public_ui_url: str = Field(
+        "http://localhost:3000",
+        validation_alias=AliasChoices("TRACEROOT_PUBLIC_UI_URL", "NEXT_PUBLIC_APP_URL"),
+    )
     internal_api_secret: str = ""
 
     # Service-specific settings
