@@ -184,6 +184,19 @@ class TestExportBundle:
             == "http://localhost:3000/projects/proj-A/traces?traceId=abc123"
         )
 
+    def test_trace_url_uses_public_ui_url_not_internal(self, client, mock_reader, monkeypatch):
+        """Export trace_url must use the host-usable public UI URL, never the
+        internal backend-to-web URL (which can be a Docker service host)."""
+        from shared.config import settings
+
+        monkeypatch.setattr(settings, "traceroot_ui_url", "http://web:3000")
+        monkeypatch.setattr(settings, "traceroot_public_ui_url", "http://localhost:3000")
+        mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
+        body = client.get("/api/v1/public/traces/abc123/export", headers=AUTH).json()
+        url = body["trace"]["trace_url"]
+        assert url == "http://localhost:3000/projects/proj-A/traces?traceId=abc123"
+        assert "web:3000" not in url
+
     def test_404_when_missing(self, client, mock_reader):
         mock_reader.get_trace.return_value = None
         resp = client.get("/api/v1/public/traces/nope/export", headers=AUTH)
@@ -207,3 +220,60 @@ class TestExportAuth:
             headers={"Authorization": "Bearer bad"},
         )
         assert resp.status_code == 401
+
+
+TRACE_LIST_ITEM = {
+    "trace_id": "abc123",
+    "project_id": "proj-A",
+    "name": "test-trace",
+    "trace_start_time": datetime(2024, 1, 15, 12, 0, 0),
+    "user_id": "user-1",
+    "session_id": None,
+    "span_count": 3,
+    "duration_ms": 1500.0,
+    "error_count": 0,
+    "input": "hello",
+    "output": "world",
+}
+
+
+class TestPublicUrlAcrossStack:
+    """Top-of-stack guard: every client-facing URL the public API emits —
+    whoami ``ui_base_url`` and the list/get/export ``trace_url`` — is built from
+    the public UI URL, never the internal backend-to-web URL (``web:3000``)."""
+
+    def test_all_public_urls_use_public_ui_url(self, client, mock_reader, monkeypatch):
+        from shared.config import settings
+
+        monkeypatch.setattr(settings, "traceroot_ui_url", "http://web:3000")
+        monkeypatch.setattr(settings, "traceroot_public_ui_url", "http://localhost:3000")
+        app.dependency_overrides[authenticate_api_key] = lambda: AuthResult(
+            project_id="proj-A",
+            workspace_id="ws-1",
+            billing_plan="pro",
+            ingestion_blocked=False,
+            project_name="P",
+            workspace_name="W",
+            key_name="k",
+            key_hint="tr_ab…yz",
+        )
+        mock_reader.list_traces.return_value = {
+            "data": [dict(TRACE_LIST_ITEM)],
+            "meta": {"page": 0, "limit": 50, "total": 1},
+        }
+        mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
+
+        whoami = client.get("/api/v1/public/whoami", headers=AUTH).json()
+        listed = client.get("/api/v1/public/traces", headers=AUTH).json()
+        got = client.get("/api/v1/public/traces/abc123", headers=AUTH).json()
+        exported = client.get("/api/v1/public/traces/abc123/export", headers=AUTH).json()
+
+        urls = [
+            whoami["ui_base_url"],
+            listed["data"][0]["trace_url"],
+            got["trace_url"],
+            exported["trace"]["trace_url"],
+        ]
+        for url in urls:
+            assert url.startswith("http://localhost:3000")
+            assert "web:3000" not in url

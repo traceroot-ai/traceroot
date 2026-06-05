@@ -13,7 +13,9 @@ def public_trace_detail(trace: dict, project_id: str) -> dict:
     """The public `traces get` payload: the trace dict + a backend-built trace_url."""
     return {
         **trace,
-        "trace_url": build_trace_url(settings.traceroot_ui_url, project_id, trace["trace_id"]),
+        "trace_url": build_trace_url(
+            settings.traceroot_public_ui_url, project_id, trace["trace_id"]
+        ),
     }
 
 
