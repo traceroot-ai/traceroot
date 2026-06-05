@@ -298,8 +298,9 @@ export function getTraceTokenUsage(trace: TraceDetail): {
   };
 }
 
-// Cost breakdown categories stored in cost_details (issue #1069). Kept in one
-// place so summarize + trace aggregation agree on the key set.
+// Cost breakdown categories stored in cost_details (issue #1069). Used by
+// getTraceCostBreakdown to aggregate across spans; summarizeCostDetails reads
+// these same keys explicitly.
 const COST_DETAIL_KEYS = [
   "input_uncached_cost",
   "cache_read_cost",
