@@ -44,7 +44,7 @@ async def list_traces(
 
     for item in result["data"]:
         item["trace_url"] = build_trace_url(
-            settings.traceroot_ui_url, auth.project_id, item["trace_id"]
+            settings.traceroot_public_ui_url, auth.project_id, item["trace_id"]
         )
     return result
 
