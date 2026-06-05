@@ -4,6 +4,34 @@ from datetime import datetime
 
 from db.clickhouse import get_clickhouse_client
 from rest.sql_utils import escape_ilike, to_utc_naive
+from worker.tokens.buckets import TokenBuckets
+from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
+
+
+def span_cost_details(
+    model_name: str | None,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    usage_details: dict[str, int],
+) -> dict[str, float]:
+    """Per-category dollar breakdown for a stored span (issue #1069).
+
+    Rebuilds the disjoint token buckets from the stored GROSS input_tokens and the
+    cache counts in usage_details, then prices each bucket with the model's current
+    rates. Display-only: the values sum to the span's stored `cost` when rates are
+    unchanged. Returns {} when the model has no known prices.
+    """
+    if not model_name:
+        return {}
+    cache_read = int(usage_details.get("cache_read_tokens", 0) or 0)
+    cache_write = int(usage_details.get("cache_write_tokens", 0) or 0)
+    buckets = TokenBuckets(
+        input_uncached=max((input_tokens or 0) - cache_read - cache_write, 0),
+        output=output_tokens or 0,
+        cache_read=cache_read,
+        cache_write=cache_write,
+    )
+    return cost_breakdown_from_buckets(get_model_price(model_name), buckets) or {}
 
 
 class TraceReaderService:
@@ -237,6 +265,12 @@ class TraceReaderService:
                     "output_tokens": int(row[12]) if row[12] is not None else None,
                     "total_tokens": int(row[13]) if row[13] is not None else None,
                     "usage_details": dict(row[14]) if row[14] else {},
+                    "cost_details": span_cost_details(
+                        row[9],  # model_name
+                        int(row[11]) if row[11] is not None else None,  # input_tokens
+                        int(row[12]) if row[12] is not None else None,  # output_tokens
+                        dict(row[14]) if row[14] else {},  # usage_details
+                    ),
                     "input": row[15],
                     "output": row[16],
                     "metadata": row[17],

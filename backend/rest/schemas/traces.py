@@ -27,6 +27,10 @@ class SpanResponse(BaseModel):
     # Generic token breakdown (e.g. cache_read_tokens, cache_write_tokens,
     # reasoning_tokens) — a map so new provider dimensions need no schema change.
     usage_details: dict[str, int] = {}
+    # Per-category dollar breakdown derived at read time (issue #1069):
+    # input_uncached_cost, cache_read_cost, cache_write_cost, output_cost.
+    # Empty when the model has no known prices. Display-only; sums to `cost`.
+    cost_details: dict[str, float] = {}
     input: str | None
     output: str | None
     metadata: str | None
