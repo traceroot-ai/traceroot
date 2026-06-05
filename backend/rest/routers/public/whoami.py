@@ -29,5 +29,5 @@ async def whoami(auth: Auth, request: Request) -> WhoamiResponse:
         key_name=auth.key_name,
         key_hint=auth.key_hint,
         host=str(request.base_url).rstrip("/"),
-        ui_base_url=settings.traceroot_ui_url.rstrip("/"),
+        ui_base_url=settings.traceroot_public_ui_url.rstrip("/"),
     )
