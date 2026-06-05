@@ -298,7 +298,7 @@ export function getTraceTokenUsage(trace: TraceDetail): {
   };
 }
 
-// Cost breakdown categories stored in cost_details (issue #1069). Used by
+// Cost breakdown categories stored in cost_details. Used by
 // getTraceCostBreakdown to aggregate across spans; summarizeCostDetails reads
 // these same keys explicitly.
 const COST_DETAIL_KEYS = [
@@ -310,7 +310,7 @@ const COST_DETAIL_KEYS = [
 
 /**
  * Group a span's (or a merged trace's) per-category cost_details into the
- * input/output sections shown in the cost breakdown popup (issue #1069). Input
+ * input/output sections shown in the cost breakdown popup. Input
  * cost is the sum of uncached, cache-read and cache-write costs; total is input +
  * output. Missing keys default to 0.
  */

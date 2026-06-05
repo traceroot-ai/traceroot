@@ -1,4 +1,4 @@
-"""Unit tests for read-path cost derivation (issue #1069).
+"""Unit tests for read-path cost derivation.
 
 Pure logic — get_model_price is patched, so no DB/ClickHouse is needed.
 """

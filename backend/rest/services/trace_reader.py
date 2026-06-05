@@ -14,7 +14,7 @@ def span_cost_details(
     output_tokens: int | None,
     usage_details: dict[str, int],
 ) -> dict[str, float]:
-    """Per-category dollar breakdown for a stored span (issue #1069).
+    """Per-category dollar breakdown for a stored span.
 
     Rebuilds the disjoint token buckets from the stored GROSS input_tokens and the
     cache counts in usage_details, then prices each bucket with the model's current
