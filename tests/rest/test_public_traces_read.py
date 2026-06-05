@@ -147,6 +147,23 @@ class TestPublicListTraces:
         assert item["trace_url"] == "http://localhost:3000/projects/proj-A/traces?traceId=abc123"
         assert "status" not in item
 
+    def test_trace_url_uses_public_ui_url_not_internal(self, client, mock_reader, monkeypatch):
+        """List trace_url must use the host-usable public UI URL, never the
+        internal backend-to-web URL (which can be a Docker service host)."""
+        from shared.config import settings
+
+        monkeypatch.setattr(settings, "traceroot_ui_url", "http://web:3000")
+        monkeypatch.setattr(settings, "traceroot_public_ui_url", "http://localhost:3000")
+        mock_reader.list_traces.return_value = {
+            "data": [dict(TRACE_LIST_ITEM)],
+            "meta": {"page": 0, "limit": 50, "total": 1},
+        }
+        resp = client.get("/api/v1/public/traces", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        url = resp.json()["data"][0]["trace_url"]
+        assert url == "http://localhost:3000/projects/proj-A/traces?traceId=abc123"
+        assert "web:3000" not in url
+
     def test_limit_over_200_rejected(self, client, mock_reader):
         resp = client.get("/api/v1/public/traces?limit=500", headers=AUTH_HEADER)
         assert resp.status_code == 422
