@@ -6,7 +6,6 @@ import {
   Users,
   Layers,
   ChevronRight,
-  CircleStop,
   CircleDollarSign,
   AlertCircle,
   GitBranch,
@@ -14,7 +13,8 @@ import {
   FileCode,
 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
-import { formatDuration, formatDate, formatTokens, buildUrlWithFilters } from "@/lib/utils";
+import { formatDuration, formatDate, buildUrlWithFilters } from "@/lib/utils";
+import { TokenChip } from "./TokenChip";
 import { SpanStatus } from "@traceroot/core";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
@@ -125,14 +125,14 @@ export function SpanInfoPanel({
             </div>
           )}
           {isTrace && traceTokenUsage && (
-            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-              <CircleStop className="h-3 w-3 text-muted-foreground" />
-              <span className="font-medium">{formatTokens(traceTokenUsage.totalTokens)}</span>
-              <span className="text-muted-foreground">
-                ({formatTokens(traceTokenUsage.inputTokens)} in /{" "}
-                {formatTokens(traceTokenUsage.outputTokens)} out)
-              </span>
-            </div>
+            <TokenChip
+              inputTokens={traceTokenUsage.inputTokens}
+              outputTokens={traceTokenUsage.outputTokens}
+              totalTokens={traceTokenUsage.totalTokens}
+              cacheReadTokens={traceTokenUsage.cacheReadTokens}
+              cacheWriteTokens={traceTokenUsage.cacheWriteTokens}
+              reasoningTokens={traceTokenUsage.reasoningTokens}
+            />
           )}
           {isTrace && traceTotalCost && (
             <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
@@ -146,14 +146,14 @@ export function SpanInfoPanel({
             </div>
           )}
           {!isTrace && selection.span.total_tokens != null && (
-            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-              <CircleStop className="h-3 w-3 text-muted-foreground" />
-              <span className="font-medium">{formatTokens(selection.span.total_tokens)}</span>
-              <span className="text-muted-foreground">
-                ({formatTokens(selection.span.input_tokens)} in /{" "}
-                {formatTokens(selection.span.output_tokens)} out)
-              </span>
-            </div>
+            <TokenChip
+              inputTokens={selection.span.input_tokens}
+              outputTokens={selection.span.output_tokens}
+              totalTokens={selection.span.total_tokens}
+              cacheReadTokens={selection.span.usage_details?.cache_read_tokens}
+              cacheWriteTokens={selection.span.usage_details?.cache_write_tokens}
+              reasoningTokens={selection.span.usage_details?.reasoning_tokens}
+            />
           )}
           {!isTrace && selection.span.cost != null && Number.isFinite(selection.span.cost) && (
             <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">

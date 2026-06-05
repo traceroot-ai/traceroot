@@ -446,10 +446,6 @@ def transform_otel_to_clickhouse(
                             "gen_ai.usage.completion_tokens",
                         ],
                     )
-                    api_total_tokens = first_present_number(
-                        span_attrs,
-                        ["llm.token_count.total", "gen_ai.usage.total_tokens"],
-                    )
                     # Cache buckets. The OpenInference keys (prompt_details.*) are the
                     # verified path for Anthropic/OpenAI and MUST be listed first —
                     # they are the same family as llm.token_count.prompt (read above).
@@ -477,24 +473,29 @@ def transform_otel_to_clickhouse(
                             "gen_ai.usage.details.cache_creation_input_tokens",
                         ],
                     )
+                    # Reasoning tokens (o-series / GPT-5): a SUBSET of output
+                    # tokens, already priced at the output rate, so this is
+                    # display-only and must NOT feed the cost buckets.
+                    api_reasoning_tokens = first_present(
+                        span_attrs,
+                        [
+                            "llm.token_count.completion_details.reasoning",
+                            "gen_ai.usage.reasoning_tokens",
+                            "gen_ai.usage.output_details.reasoning_tokens",
+                            "gen_ai.usage.details.reasoning_tokens",
+                        ],
+                    )
 
                     if api_input_tokens is not None or api_output_tokens is not None:
                         # Use API-provided counts (accurate).
                         input_tokens = int_or_zero(api_input_tokens)
                         output_tokens = int_or_zero(api_output_tokens)
-                        total_tokens = (
-                            int_or_zero(api_total_tokens)
-                            if api_total_tokens is not None
-                            else input_tokens + output_tokens
-                        )
-                        # Stored token columns stay GROSS (display continuity; PR B
-                        # adds first-class cache columns). Only cost changes here.
-                        span_record["input_tokens"] = input_tokens
                         span_record["output_tokens"] = output_tokens
-                        span_record["total_tokens"] = total_tokens
 
-                        # Cost: normalize counts into disjoint buckets keyed on the
-                        # instrumentation scope, then price each bucket once.
+                        # Normalize counts into disjoint buckets keyed on the
+                        # instrumentation scope. The SAME buckets feed both the
+                        # stored breakdown columns and the cost, so the displayed
+                        # split always reconciles and matches what was priced (#958).
                         from worker.tokens.buckets import normalize_token_usage
                         from worker.tokens.pricing import (
                             cost_from_buckets,
@@ -508,6 +509,31 @@ def transform_otel_to_clickhouse(
                             cache_read_tokens=int_or_zero(api_cache_read_tokens),
                             cache_write_tokens=int_or_zero(api_cache_write_tokens),
                         )
+                        # Store a GROSS (cache-inclusive) input reconstructed from the
+                        # disjoint buckets, so the input column always reconciles with
+                        # its cache breakdown. Net/exclusive emitters (e.g.
+                        # claude-agent-sdk) report only the non-cached tokens in
+                        # llm.token_count.prompt with cache as separate additive
+                        # buckets, so the reported input alone (e.g. 2) understates the
+                        # true total; summing the buckets recovers it. Gross emitters
+                        # are unchanged (cache is already a subset of the input).
+                        gross_input = (
+                            buckets.input_uncached + buckets.cache_read + buckets.cache_write
+                        )
+                        span_record["input_tokens"] = gross_input
+                        span_record["total_tokens"] = gross_input + output_tokens
+                        # Persist the breakdown as a generic usage_details map (one
+                        # ClickHouse Map column rather than a column per dimension, so
+                        # new provider token types need no migration). cache_read/
+                        # cache_write come from the disjoint buckets; reasoning is a
+                        # subset of output, capped to it so the output split reconciles.
+                        span_record["usage_details"] = {
+                            "cache_read_tokens": buckets.cache_read,
+                            "cache_write_tokens": buckets.cache_write,
+                            "reasoning_tokens": min(
+                                int_or_zero(api_reasoning_tokens), output_tokens
+                            ),
+                        }
                         cost = cost_from_buckets(get_model_price(model_name), buckets)
                         if cost is not None:
                             span_record["cost"] = cost
@@ -544,19 +570,6 @@ def transform_otel_to_clickhouse(
                         for k, v in span_attrs.items()
                         if not _is_known_attribute(k) and v is not None
                     }
-                    # gen_ai.usage.details.* falls under the gen_ai. prefix and is therefore
-                    # excluded from generic metadata by _is_known_attribute(). Unlike
-                    # gen_ai.usage.input_tokens / output_tokens (promoted to dedicated token
-                    # fields), the cache-token breakdown has no first-class column. Rescue
-                    # these keys explicitly so they survive in metadata instead of being
-                    # silently dropped.
-                    for _cache_key in (
-                        "gen_ai.usage.details.cache_read_tokens",
-                        "gen_ai.usage.details.cache_write_tokens",
-                    ):
-                        _val = span_attrs.get(_cache_key)
-                        if _val is not None:
-                            extra_attrs[_cache_key] = int(_val)
                     if extra_attrs:
                         span_record["metadata"] = json.dumps(extra_attrs)
 

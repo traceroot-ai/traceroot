@@ -24,6 +24,9 @@ class SpanResponse(BaseModel):
     input_tokens: int | None
     output_tokens: int | None
     total_tokens: int | None
+    # Generic token breakdown (e.g. cache_read_tokens, cache_write_tokens,
+    # reasoning_tokens) — a map so new provider dimensions need no schema change.
+    usage_details: dict[str, int] = {}
     input: str | None
     output: str | None
     metadata: str | None

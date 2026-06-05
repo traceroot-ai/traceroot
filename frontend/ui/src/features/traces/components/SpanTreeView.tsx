@@ -4,7 +4,7 @@ import { forwardRef, useImperativeHandle, useMemo } from "react";
 import type { RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight, ChevronDown, CircleStop, CircleDollarSign } from "lucide-react";
-import { cn, formatDuration, formatTokens } from "@/lib/utils";
+import { cn, formatDuration, formatTokenFlow } from "@/lib/utils";
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { TraceDetail, Span } from "@/types/api";
 import type { TraceSelection, SpanTreeRow } from "../types";
@@ -221,14 +221,18 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                         </span>
 
                         {traceTokenUsage && (
-                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[80px]:inline-flex">
+                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[10px] font-medium text-muted-foreground @[130px]:inline-flex">
                             <CircleStop className="h-2.5 w-2.5" />
-                            {formatTokens(traceTokenUsage.totalTokens)}
+                            {formatTokenFlow(
+                              traceTokenUsage.inputTokens,
+                              traceTokenUsage.outputTokens,
+                              traceTokenUsage.totalTokens,
+                            )}
                           </span>
                         )}
 
                         {traceTotalCost != null && (
-                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[130px]:inline-flex">
+                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[190px]:inline-flex">
                             <CircleDollarSign className="h-2.5 w-2.5" />
                             {traceTotalCost.toFixed(4)}
                           </span>
@@ -314,16 +318,20 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                       )}
 
                       {span.span_kind === SpanKind.LLM && span.total_tokens != null && (
-                        <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[80px]:inline-flex">
+                        <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[10px] font-medium text-muted-foreground @[130px]:inline-flex">
                           <CircleStop className="h-2.5 w-2.5" />
-                          {formatTokens(span.total_tokens)}
+                          {formatTokenFlow(
+                            span.input_tokens,
+                            span.output_tokens,
+                            span.total_tokens,
+                          )}
                         </span>
                       )}
 
                       {span.span_kind === SpanKind.LLM &&
                         span.cost != null &&
                         Number.isFinite(span.cost) && (
-                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[130px]:inline-flex">
+                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[190px]:inline-flex">
                             <CircleDollarSign className="h-2.5 w-2.5" />
                             {span.cost.toFixed(4)}
                           </span>

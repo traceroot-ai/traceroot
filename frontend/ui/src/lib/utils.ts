@@ -75,6 +75,36 @@ export function formatTokens(count: number | null | undefined): string {
   return _compactTokenFormatter.format(count);
 }
 
+const _exactTokenFormatter = new Intl.NumberFormat("en-US");
+
+/**
+ * Exact, comma-grouped token count pinned to en-US (e.g. `4,514`), for the
+ * precise usage breakdown. Unlike formatTokens this is not compact. Null/
+ * undefined render as `0`. (issue #958)
+ */
+export function formatExactTokens(count: number | null | undefined): string {
+  return _exactTokenFormatter.format(count ?? 0);
+}
+
+/**
+ * Standardized token display: `input → output (total)` with compact
+ * thousands formatting, e.g. `12.3K → 4.1K (16.4K)`. When `total` is
+ * omitted it is derived from input + output. Used by the trace list and
+ * the span detail panel so the in/out/total format stays consistent
+ * (issue #957).
+ */
+export function formatTokenFlow(
+  input: number | null | undefined,
+  output: number | null | undefined,
+  total?: number | null | undefined,
+): string {
+  // Preserve the unknown-vs-zero distinction: a missing value renders as "-"
+  // (via formatTokens) rather than a misleading 0. The total is derived only
+  // when at least one side is present.
+  const derived = total ?? (input == null && output == null ? null : (input ?? 0) + (output ?? 0));
+  return `${formatTokens(input)} → ${formatTokens(output)} (${formatTokens(derived)})`;
+}
+
 /**
  * Parse a date string as UTC.
  * Backend sends timestamps without timezone marker, but they are UTC.
