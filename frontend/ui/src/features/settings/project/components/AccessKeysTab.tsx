@@ -8,7 +8,7 @@ import { AddButton } from "@/components/ui/add-button";
 import { DeleteIconButton } from "@/components/ui/delete-button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -111,15 +111,17 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <h2 className="text-lg font-semibold">Project API Keys</h2>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground" />
-            </TooltipTrigger>
-            <TooltipContent>
-              API keys authenticate your application with TraceRoot. Use them in the SDK to send
-              traces, or in the env block below.
-            </TooltipContent>
-          </Tooltip>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent>
+                API keys authenticate your application with TraceRoot. Use them in the SDK to send
+                traces, or in the env block below.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
         <AddButton onClick={() => setShowCreateDialog(true)}>Create new API key</AddButton>
       </div>
