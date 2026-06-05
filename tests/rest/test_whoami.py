@@ -55,6 +55,22 @@ class TestWhoami:
             assert field in data
         assert data["ui_base_url"]  # non-empty
 
+    def test_ui_base_url_uses_public_setting_not_internal(self, monkeypatch):
+        """ui_base_url must come from the host-usable public UI URL, never the
+        internal backend-to-web URL (which can be a Docker service host)."""
+        from shared.config import settings
+
+        monkeypatch.setattr(settings, "traceroot_ui_url", "http://web:3000")
+        monkeypatch.setattr(settings, "traceroot_public_ui_url", "http://localhost:3000")
+        app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth()
+        client = TestClient(app)
+        data = client.get(
+            "/api/v1/public/whoami",
+            headers={"Authorization": "Bearer tr_secrettoken"},
+        ).json()
+        assert data["ui_base_url"] == "http://localhost:3000"
+        assert "web:3000" not in data["ui_base_url"]
+
     def test_does_not_return_full_token(self):
         """The full API token must never appear in the response."""
         app.dependency_overrides[authenticate_api_key] = lambda: make_identity_auth()
