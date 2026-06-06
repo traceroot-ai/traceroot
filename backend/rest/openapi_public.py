@@ -7,6 +7,7 @@ routes plus `/health` are excluded. Output is rendered with sorted keys so the
 committed artifact diffs cleanly and a drift check is meaningful.
 """
 
+import copy
 import json
 from typing import Any
 
@@ -95,7 +96,13 @@ def build_public_schema(app: Any) -> dict[str, Any]:
     the public artifact.
     """
     full = app.openapi()
-    paths = {p: item for p, item in full["paths"].items() if p.startswith(PUBLIC_PREFIX)}
+    # app.openapi() returns FastAPI's *cached* document; its path-item and
+    # component-schema dicts are shared with it. _apply_public_contract mutates
+    # path operations in place, so deep-copy everything that enters (and may be
+    # mutated in) the public document to avoid corrupting the cached full schema.
+    paths = {
+        p: copy.deepcopy(item) for p, item in full["paths"].items() if p.startswith(PUBLIC_PREFIX)
+    }
 
     all_schemas = (full.get("components") or {}).get("schemas", {})
     referenced: set[str] = set()
@@ -114,7 +121,9 @@ def build_public_schema(app: Any) -> dict[str, Any]:
 
     components: dict[str, Any] = {}
     if referenced:
-        components["schemas"] = {n: all_schemas[n] for n in referenced if n in all_schemas}
+        components["schemas"] = {
+            n: copy.deepcopy(all_schemas[n]) for n in referenced if n in all_schemas
+        }
 
     schema = {
         "openapi": full["openapi"],

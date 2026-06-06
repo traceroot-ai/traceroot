@@ -1,6 +1,7 @@
 """Tests for the public-only OpenAPI schema generation + drift guard."""
 
 import json
+from copy import deepcopy
 from pathlib import Path
 
 from rest.main import app
@@ -55,6 +56,29 @@ def test_components_are_pruned_to_public_only():
     assert "IngestResponse" in components
     # internal-only models must not leak into the public schema
     assert "HealthResponse" not in components
+
+
+def test_build_does_not_mutate_cached_app_schema():
+    """build_public_schema must not mutate FastAPI's cached full OpenAPI schema.
+
+    app.openapi() returns a cached document whose path-item/operation dicts are
+    shared; the public contract must be applied to copies, not those originals.
+    """
+    # Force a pristine cache: earlier tests may have already built the schema.
+    app.openapi_schema = None
+    before = deepcopy(app.openapi())
+
+    public = build_public_schema(app)
+
+    after = app.openapi()
+    assert after == before, "build_public_schema mutated FastAPI's cached schema"
+    # Sanity: the public schema still applies its contract (filtering + stripping).
+    assert all(p.startswith(PUBLIC_PREFIX) for p in public["paths"])
+    whoami = public["paths"]["/api/v1/public/whoami"]["get"]
+    assert whoami["security"] == [{"BearerAuth": []}]
+    # And the full schema's same operation is untouched (no leaked bearer security).
+    full_whoami = after["paths"]["/api/v1/public/whoami"]["get"]
+    assert "security" not in full_whoami
 
 
 def test_render_is_deterministic():
