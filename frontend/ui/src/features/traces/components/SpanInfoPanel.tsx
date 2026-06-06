@@ -18,10 +18,17 @@ import { TokenChip } from "./TokenChip";
 import { SpanStatus } from "@traceroot/core";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
+import type { BackendFinding } from "@/features/detectors/hooks/use-findings";
 import { getSpanDuration, getTraceDuration, getTraceTotalCost, getTraceTokenUsage } from "../utils";
 import { SpanKindIcon } from "./SpanKindIcon";
 import { ContentRenderer } from "./ContentRenderer";
 import { ExpandableSection } from "@/components/ui/expandable-section";
+
+interface DetectorFindingEntry {
+  detectorId: string;
+  detectorName: string;
+  summary: string;
+}
 
 interface SpanInfoPanelProps {
   projectId: string;
@@ -31,6 +38,7 @@ interface SpanInfoPanelProps {
   dateFilter?: { id: string; isCustom?: boolean };
   customStartDate?: Date | null;
   customEndDate?: Date | null;
+  finding?: BackendFinding;
 }
 
 /**
@@ -44,6 +52,7 @@ export function SpanInfoPanel({
   dateFilter,
   customStartDate,
   customEndDate,
+  finding,
 }: SpanInfoPanelProps) {
   const router = useRouter();
 
@@ -82,6 +91,23 @@ export function SpanInfoPanel({
   // Error status
   const hasError = isTrace ? false : selection.span.status === SpanStatus.ERROR;
   const statusMessage = !isTrace ? selection.span.status_message : null;
+
+  const findingEntries: DetectorFindingEntry[] | null = (() => {
+    if (!isTrace || !finding) return null;
+    try {
+      const parsed = JSON.parse(finding.payload);
+      if (!Array.isArray(parsed)) return null;
+      return parsed
+        .filter((e): e is DetectorFindingEntry => !!e && typeof e === "object")
+        .map((e) => ({
+          detectorId: String(e.detectorId ?? ""),
+          detectorName: String(e.detectorName ?? "Detector"),
+          summary: String(e.summary ?? ""),
+        }));
+    } catch {
+      return null;
+    }
+  })();
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -288,6 +314,51 @@ export function SpanInfoPanel({
               {statusMessage}
             </p>
           </div>
+        )}
+
+        {/* Detector Findings — trace-level only */}
+        {isTrace && finding && (
+          <ExpandableSection title="Detector Findings" defaultOpen={true}>
+            <div className="space-y-2">
+              <div className="text-[11px] text-muted-foreground">
+                Detected {formatDate(finding.timestamp)}
+              </div>
+              {findingEntries && findingEntries.length > 0 ? (
+                findingEntries.map((entry, idx) => (
+                  <button
+                    key={`${entry.detectorId}-${idx}`}
+                    type="button"
+                    onClick={() => {
+                      if (!entry.detectorId) return;
+                      onClose?.();
+                      router.push(`/projects/${projectId}/detectors/${entry.detectorId}`);
+                    }}
+                    disabled={!entry.detectorId}
+                    className="block w-full rounded-md border border-red-200 bg-red-50 p-3 text-left transition-colors hover:bg-red-100 disabled:cursor-default disabled:hover:bg-red-50 dark:border-red-900 dark:bg-red-950/50 dark:hover:bg-red-950/70 dark:disabled:hover:bg-red-950/50"
+                  >
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-400">
+                        <AlertCircle className="h-3 w-3" />
+                        <span>{entry.detectorName}</span>
+                      </div>
+                      {entry.detectorId && (
+                        <ChevronRight className="h-3 w-3 text-red-700 dark:text-red-400" />
+                      )}
+                    </div>
+                    <p className="whitespace-pre-wrap break-words text-xs text-red-600 dark:text-red-400">
+                      {entry.summary}
+                    </p>
+                  </button>
+                ))
+              ) : (
+                <div className="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
+                  <p className="whitespace-pre-wrap break-words text-xs text-red-600 dark:text-red-400">
+                    {finding.summary}
+                  </p>
+                </div>
+              )}
+            </div>
+          </ExpandableSection>
         )}
 
         {/* Input */}
