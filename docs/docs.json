@@ -168,7 +168,8 @@
               "integrations/anthropic",
               "integrations/gemini",
               "integrations/mistral",
-              "integrations/openai"
+              "integrations/openai",
+              "integrations/openrouter"
             ]
           },
           {
