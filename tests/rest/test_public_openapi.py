@@ -107,13 +107,14 @@ def test_ingestion_documents_protobuf_request_body():
     assert content["application/x-protobuf"]["schema"] == {"type": "string", "format": "binary"}
 
 
-def test_ingestion_documents_500_response():
-    # The runtime route raises HTTPException(500) on S3 upload failure, so the
-    # public contract must document it — consistent with the read endpoints.
+def test_ingestion_documents_runtime_error_responses():
+    # The ingest route raises 400 (bad/empty/undecodable body), 402 (plan limit),
+    # 415 (wrong Content-Type) and 500 (S3 storage failure) at runtime.
     post = _schema()["paths"]["/api/v1/public/traces"]["post"]
-    assert "500" in post["responses"]
+    for code in ("400", "402", "415", "500"):
+        assert code in post["responses"], code
     # existing responses are preserved
-    assert set(post["responses"]) >= {"200", "401", "422", "500"}
+    assert set(post["responses"]) >= {"200", "401", "422", "400", "402", "415", "500"}
 
 
 def _public_operations(schema):
@@ -121,6 +122,13 @@ def _public_operations(schema):
         for method, op in item.items():
             if method in {"get", "post", "put", "patch", "delete"}:
                 yield op
+
+
+def test_all_public_ops_document_503():
+    # Every public op depends on the shared auth dependency, which raises 503 when
+    # the auth service is unavailable — so the contract must document 503.
+    for op in _public_operations(_schema()):
+        assert "503" in op["responses"]
 
 
 def test_all_public_ops_require_bearer_auth():

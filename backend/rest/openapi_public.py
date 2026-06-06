@@ -50,12 +50,15 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
                 op["parameters"] = params
             else:
                 op.pop("parameters", None)
-            op.setdefault("responses", {}).setdefault(
-                "401", _error_response("Authentication failed")
-            )
+            # Every public op depends on the shared API-key auth dependency, which
+            # raises 401 (bad/invalid key) and 503 (auth service unavailable).
+            responses = op.setdefault("responses", {})
+            responses.setdefault("401", _error_response("Authentication failed"))
+            responses.setdefault("503", _error_response("Authentication service unavailable"))
 
     # Public ingestion accepts an OTLP protobuf body (read from the raw request)
-    # and raises 500 on storage failure (S3 upload), matching the route code.
+    # and documents its runtime error contract: 400 (bad/empty/undecodable body),
+    # 402 (plan limit), 415 (wrong Content-Type), 500 (S3 storage failure).
     ingest = schema["paths"].get("/api/v1/public/traces", {}).get("post")
     if ingest is not None:
         ingest["requestBody"] = {
@@ -64,7 +67,11 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
                 "application/x-protobuf": {"schema": {"type": "string", "format": "binary"}}
             },
         }
-        ingest["responses"].setdefault("500", _error_response("Storage error"))
+        ingest_responses = ingest["responses"]
+        ingest_responses.setdefault("400", _error_response("Invalid request body"))
+        ingest_responses.setdefault("402", _error_response("Free plan limit exceeded"))
+        ingest_responses.setdefault("415", _error_response("Unsupported media type"))
+        ingest_responses.setdefault("500", _error_response("Storage error"))
 
     # Trace read/export error contract (matches the route code).
     list_op = schema["paths"].get("/api/v1/public/traces", {}).get("get")
