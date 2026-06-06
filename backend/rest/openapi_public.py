@@ -54,7 +54,8 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
                 "401", _error_response("Authentication failed")
             )
 
-    # Public ingestion accepts an OTLP protobuf body (read from the raw request).
+    # Public ingestion accepts an OTLP protobuf body (read from the raw request)
+    # and raises 500 on storage failure (S3 upload), matching the route code.
     ingest = schema["paths"].get("/api/v1/public/traces", {}).get("post")
     if ingest is not None:
         ingest["requestBody"] = {
@@ -63,6 +64,7 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
                 "application/x-protobuf": {"schema": {"type": "string", "format": "binary"}}
             },
         }
+        ingest["responses"].setdefault("500", _error_response("Storage error"))
 
     # Trace read/export error contract (matches the route code).
     list_op = schema["paths"].get("/api/v1/public/traces", {}).get("get")
