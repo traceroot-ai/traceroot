@@ -139,7 +139,8 @@ jobs:
               sed -i "s|^SF:|SF:${pkg}/|g" "$lcov_file"
               cat "$lcov_file" >> coverage-frontend.lcov
             else
-              echo "No coverage file found for $pkg — skipping"
+              echo "::error::No coverage file found for $pkg. This will bypass the coverage gate for changed files in this package."
+              exit 1
             fi
           done
 
