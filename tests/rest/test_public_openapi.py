@@ -107,6 +107,15 @@ def test_ingestion_documents_protobuf_request_body():
     assert content["application/x-protobuf"]["schema"] == {"type": "string", "format": "binary"}
 
 
+def test_ingestion_documents_500_response():
+    # The runtime route raises HTTPException(500) on S3 upload failure, so the
+    # public contract must document it — consistent with the read endpoints.
+    post = _schema()["paths"]["/api/v1/public/traces"]["post"]
+    assert "500" in post["responses"]
+    # existing responses are preserved
+    assert set(post["responses"]) >= {"200", "401", "422", "500"}
+
+
 def _public_operations(schema):
     for item in schema["paths"].values():
         for method, op in item.items():
