@@ -243,6 +243,7 @@ jobs:
           set -euo pipefail
           diff-cover coverage-frontend.lcov \
             --compare-branch="origin/${{ github.base_ref }}" \
+            --exclude "**/*vitest.config.ts" \
             --fail-under=80 \
             --format markdown:diff-coverage-frontend.md,html:diff-coverage-frontend.html
 
