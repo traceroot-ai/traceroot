@@ -8,6 +8,7 @@ export default defineConfig({
       reporter: ["lcov"],
       reportsDirectory: "./coverage",
       reportOnFailure: true,
+      exclude: ["**/*.test.ts", "**/*.spec.ts", "**/*.d.ts", "**/types.ts"],
     },
   },
   resolve: {
