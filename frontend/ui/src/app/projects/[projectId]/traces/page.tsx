@@ -43,6 +43,12 @@ export default function TracesPage() {
   const { isPending: authPending } = useAuthSession();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
+  // Set when a trace is opened in a new tab via the panel's "open in new tab"
+  // button, so the panel mounts already expanded to full width. Held as state
+  // (not a derived value) so it only seeds the first trace opened from the URL:
+  // once the user closes the panel, opening another trace defaults back to the
+  // unexpanded width rather than re-expanding from the lingering URL param.
+  const [startFullscreen, setStartFullscreen] = useState(searchParams.get("fullscreen") === "1");
 
   // Use URL-synced state management hook (shares date filter with other pages)
   const {
@@ -354,7 +360,10 @@ export default function TracesPage() {
         <TraceViewerPanel
           projectId={projectId}
           traceId={selectedTraceId}
-          onClose={() => setSelectedTraceId(null)}
+          onClose={() => {
+            setSelectedTraceId(null);
+            setStartFullscreen(false);
+          }}
           onNavigate={(direction) => {
             const currentIndex = traces.findIndex(
               (t: TraceListItem) => t.trace_id === selectedTraceId,
@@ -373,6 +382,7 @@ export default function TracesPage() {
           dateFilter={state.dateFilter}
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
+          initialFullscreen={startFullscreen}
         />
       )}
     </div>
