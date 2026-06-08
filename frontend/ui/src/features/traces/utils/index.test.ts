@@ -8,6 +8,7 @@ import {
   summarizeCostDetails,
   getTraceCostBreakdown,
 } from "./index";
+import { mergeSpans } from "../hooks/use-trace-stream";
 import type { TraceDetail } from "@/types/api";
 
 // Pin a non-UTC timezone so timezone-naive timestamp regressions (a whole-second
@@ -390,5 +391,137 @@ describe("getTraceCostBreakdown", () => {
   it("returns null when no span has cost_details", () => {
     const trace = { spans: [makeSpan({ span_id: "a" })] } as unknown as TraceDetail;
     expect(getTraceCostBreakdown(trace)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Two-phase loading: skeleton spans (no input/output/metadata) and full
+// live-SSE spans (with I/O + metadata) must both flow through the merge +
+// enrichment path without errors. This guards the live-tracing compat.
+// ---------------------------------------------------------------------------
+
+// Skeleton span: exactly what the trace-detail endpoint now ships — tree fields
+// only, NO input/output/metadata keys at all (they're undefined).
+function makeSkeletonSpan(overrides: Partial<Span> & { span_id: string }): Span {
+  return {
+    trace_id: "trace-1",
+    parent_span_id: null,
+    name: overrides.span_id,
+    span_kind: SpanKind.SPAN,
+    span_start_time: "2024-01-01T00:00:00.000Z",
+    span_end_time: "2024-01-01T00:00:01.000Z",
+    status: SpanStatus.OK,
+    status_message: null,
+    model_name: null,
+    cost: null,
+    input_tokens: null,
+    output_tokens: null,
+    total_tokens: null,
+    git_source_file: null,
+    git_source_line: null,
+    git_source_function: null,
+    ...overrides,
+  };
+}
+
+describe("two-phase loading compatibility", () => {
+  it("enrichSpansWithPending handles skeleton spans with no metadata key", () => {
+    // Skeleton spans omit metadata entirely (undefined, not null).
+    const root = makeSkeletonSpan({ span_id: "root" });
+    const child = makeSkeletonSpan({ span_id: "child", parent_span_id: "root" });
+    expect(child.metadata).toBeUndefined();
+
+    const result = enrichSpansWithPending([root, child]);
+    // No placeholders synthesized (no ids_path metadata), no crash.
+    expect(result.map((s) => s.span_id).sort()).toEqual(["child", "root"]);
+    expect(result.every((s) => !s.pending)).toBe(true);
+  });
+
+  it("enrichSpansWithPending still synthesizes ancestors from live spans carrying metadata", () => {
+    // A full live-SSE span carries metadata with ids_path/path; enrichment must
+    // still create the missing parent placeholder even though OTHER spans are
+    // metadata-less skeletons.
+    const rootId = "demo-session-id";
+    const liveChild = makeSpan({
+      span_id: "llm-completion",
+      parent_span_id: rootId,
+      metadata: metadataWith([rootId], ["demo_session", "llm_completion"]),
+      input: '{"prompt":"x"}',
+      output: '{"completion":"y"}',
+    });
+    const skeletonSibling = makeSkeletonSpan({ span_id: "other", parent_span_id: rootId });
+
+    const result = enrichSpansWithPending([liveChild, skeletonSibling]);
+    const placeholder = result.find((s) => s.span_id === rootId);
+    expect(placeholder).toBeDefined();
+    expect(placeholder!.pending).toBe(true);
+    expect(placeholder!.name).toBe("demo_session");
+  });
+
+  it("getTraceDuration works over a mix of skeleton and full live spans", () => {
+    const trace = {
+      spans: [
+        makeSkeletonSpan({
+          span_id: "root",
+          span_start_time: "2024-01-01T00:00:00.000Z",
+          span_end_time: "2024-01-01T00:00:02.000Z",
+        }),
+        makeSpan({
+          span_id: "live",
+          parent_span_id: "root",
+          span_start_time: "2024-01-01T00:00:00.500Z",
+          span_end_time: "2024-01-01T00:00:03.000Z",
+          input: "live-input",
+        }),
+      ],
+    } as unknown as TraceDetail;
+    // 3s extent (max end − min start).
+    expect(getTraceDuration(trace)).toBe(3000);
+  });
+});
+
+describe("mergeSpans (live-SSE compat)", () => {
+  it("replaces skeleton spans with full live spans carrying I/O + metadata", () => {
+    // Initial cache state: skeletons from the trace-detail endpoint (no I/O).
+    const skeletons = [makeSkeletonSpan({ span_id: "a" }), makeSkeletonSpan({ span_id: "b" })];
+    // A live-SSE event delivers a full span (with I/O + metadata) for "a"
+    // plus a brand-new span "c".
+    const live = [
+      makeSpan({
+        span_id: "a",
+        input: "full-input",
+        output: "full-output",
+        metadata: metadataWith(["root"], ["root", "a"]),
+      }),
+      makeSpan({ span_id: "c", input: "c-input" }),
+    ];
+
+    const merged = mergeSpans(skeletons, live);
+    const ids = merged.map((s) => s.span_id).sort();
+    expect(ids).toEqual(["a", "b", "c"]);
+    // "a" now carries full I/O (live span replaced the skeleton).
+    const a = merged.find((s) => s.span_id === "a")!;
+    expect(a.input).toBe("full-input");
+    expect(a.metadata).toContain("ids_path");
+    // "b" remains a skeleton (no I/O keys).
+    const b = merged.find((s) => s.span_id === "b")!;
+    expect(b.input).toBeUndefined();
+  });
+
+  it("merged skeleton+live spans enrich without error", () => {
+    const skeletons = [makeSkeletonSpan({ span_id: "root" })];
+    const live = [
+      makeSpan({
+        span_id: "child",
+        parent_span_id: "mid",
+        metadata: metadataWith(["root", "mid"], ["root", "mid", "child"]),
+        input: "x",
+      }),
+    ];
+    const enriched = enrichSpansWithPending(mergeSpans(skeletons, live));
+    // The missing intermediate "mid" is synthesized from the live span's metadata.
+    expect(enriched.find((s) => s.span_id === "mid")?.pending).toBe(true);
+    expect(enriched.find((s) => s.span_id === "root")).toBeDefined();
+    expect(enriched.find((s) => s.span_id === "child")).toBeDefined();
   });
 });
