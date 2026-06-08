@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query, status
 
 from rest.routers.deps import ProjectAccess
-from rest.schemas.traces import TraceDetailResponse, TraceListResponse
+from rest.schemas.traces import SpanIOResponse, TraceDetailResponse, TraceListResponse
 from rest.services.trace_reader import get_trace_reader_service
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ async def get_trace(
     trace_id: str,
     _access: ProjectAccess,  # Validates user has access to project
 ):
-    """Get a single trace with all spans."""
+    """Get a single trace with span skeletons (no per-span I/O)."""
     service = get_trace_reader_service()
     trace = service.get_trace(project_id=project_id, trace_id=trace_id)
 
@@ -67,3 +67,27 @@ async def get_trace(
         )
 
     return trace
+
+
+@router.get("/{trace_id}/spans/{span_id}/io", response_model=SpanIOResponse)
+async def get_span_io(
+    project_id: str,
+    trace_id: str,
+    span_id: str,
+    _access: ProjectAccess,  # Validates user has access to project
+):
+    """Get full input/output/metadata for a single span on demand."""
+    service = get_trace_reader_service()
+    result = service.get_span_io(
+        project_id=project_id,
+        trace_id=trace_id,
+        span_id=span_id,
+    )
+
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Span not found",
+        )
+
+    return result

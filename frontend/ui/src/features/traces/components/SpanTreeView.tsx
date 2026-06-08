@@ -1,8 +1,11 @@
 "use client";
 
-import { forwardRef, useImperativeHandle, useMemo } from "react";
+import { forwardRef, useImperativeHandle, useMemo, useCallback, useRef, useEffect } from "react";
 import type { RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useQueryClient } from "@tanstack/react-query";
+import { useSession as useAuthSession } from "@/lib/auth-client";
+import { getSpanIO } from "@/lib/api";
 import { ChevronRight, ChevronDown, CircleStop, CircleDollarSign } from "lucide-react";
 import { cn, formatDuration, formatTokenFlow } from "@/lib/utils";
 import { SpanKind, SpanStatus } from "@traceroot/core";
@@ -19,10 +22,16 @@ import {
   TREE_LAYOUT,
   TREE_OVERSCAN_ROWS,
 } from "../utils";
+import { spanIOQueryKey, SPAN_IO_STALE_TIME_MS } from "../hooks";
 import { SpanKindIcon } from "./SpanKindIcon";
 import { SpanTreeConnector } from "./SpanTreeConnector";
 
 const ROW_HEIGHT = TREE_LAYOUT.ROW_HEIGHT;
+
+// Debounce hover-prefetch so an incidental cursor sweep across rows doesn't fire a
+// request per row — only an intentional hover (cursor resting past this delay)
+// prefetches. (Reference: peer tools debounce prefetch ~100-250ms.)
+const SPAN_IO_PREFETCH_DEBOUNCE_MS = 150;
 
 // Virtualized row model: the trace root occupies index 0, visible spans follow.
 // This list is the single source of truth for both the virtualizer count and
@@ -132,6 +141,50 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
     const children = childrenByParent.get(spanId) || [];
     return children.length > 0;
   };
+
+  // Prefetch a span's I/O on hover so the click → SpanInfoPanel render is
+  // instant. Skips placeholder (pending) spans, which have no row in ClickHouse.
+  const queryClient = useQueryClient();
+  const { data: authSession } = useAuthSession();
+  const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const runSpanIOPrefetch = useCallback(
+    (span: Span) => {
+      if (span.pending) return;
+      const user = authSession?.user
+        ? { id: authSession.user.id, email: authSession.user.email }
+        : undefined;
+      queryClient.prefetchQuery({
+        queryKey: spanIOQueryKey(trace.project_id, trace.trace_id, span.span_id),
+        queryFn: () => getSpanIO(trace.project_id, trace.trace_id, span.span_id, user),
+        staleTime: SPAN_IO_STALE_TIME_MS,
+      });
+    },
+    [queryClient, authSession, trace.project_id, trace.trace_id],
+  );
+
+  // Schedule the prefetch after a short hover delay; cancel on leave / unmount so a
+  // quick cursor pass-over doesn't fire a request.
+  const scheduleSpanIOPrefetch = useCallback(
+    (span: Span) => {
+      if (span.pending) return;
+      if (prefetchTimerRef.current) clearTimeout(prefetchTimerRef.current);
+      prefetchTimerRef.current = setTimeout(
+        () => runSpanIOPrefetch(span),
+        SPAN_IO_PREFETCH_DEBOUNCE_MS,
+      );
+    },
+    [runSpanIOPrefetch],
+  );
+
+  const cancelSpanIOPrefetch = useCallback(() => {
+    if (prefetchTimerRef.current) {
+      clearTimeout(prefetchTimerRef.current);
+      prefetchTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => cancelSpanIOPrefetch(), [cancelSpanIOPrefetch]);
 
   const toggleCollapse = (spanId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -277,10 +330,12 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
               onMouseEnter={(e) => {
                 e.stopPropagation();
                 onHoverChange(span.span_id);
+                scheduleSpanIOPrefetch(span);
               }}
               onMouseLeave={(e) => {
                 e.stopPropagation();
                 onHoverChange(null);
+                cancelSpanIOPrefetch();
               }}
               onClick={() => onSelect({ type: "span", span })}
             >
