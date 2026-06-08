@@ -42,6 +42,13 @@ interface TraceViewerPanelProps {
   autoOpenRca?: boolean;
   /** When true, the panel mounts already expanded to full width (e.g. opened in a new tab). */
   initialFullscreen?: boolean;
+  /**
+   * Base path the "open in new tab" button targets, so the trace pops out back
+   * into the page it was opened from. Defaults to the project traces page; the
+   * detector page passes its own path so the popped-out trace stays in the
+   * detector tab.
+   */
+  newTabPath?: string;
 }
 
 /**
@@ -68,6 +75,7 @@ export function TraceViewerPanel({
   customEndDate,
   autoOpenRca,
   initialFullscreen,
+  newTabPath,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   const [viewMode, setViewMode] = useState<"tree" | "timeline">("tree");
@@ -268,7 +276,7 @@ export function TraceViewerPanel({
               size="sm"
               onClick={() =>
                 window.open(
-                  buildUrlWithFilters(`/projects/${projectId}/traces`, {
+                  buildUrlWithFilters(newTabPath ?? `/projects/${projectId}/traces`, {
                     dateFilter,
                     customStartDate,
                     customEndDate,
