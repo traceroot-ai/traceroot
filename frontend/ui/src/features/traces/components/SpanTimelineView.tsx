@@ -332,7 +332,7 @@ export function SpanTimelineView({
                     className={cn(
                       "absolute z-10 overflow-hidden rounded-[2px] border border-solid transition-colors",
                       isError
-                        ? "border-red-300 bg-red-100 dark:bg-red-950/60"
+                        ? "border-red-300 bg-red-100 dark:border-red-800 dark:bg-red-950/60"
                         : getSpanKindColor(span.span_kind).surface,
                       item.metrics.isInProgress && "animate-pulse border-dashed opacity-70",
                       isSelected && "ring-1 ring-border",
