@@ -10,8 +10,8 @@ import {
   BotMessageSquare,
   ListTree,
   SquareGanttChart,
-  Maximize2,
-  Minimize2,
+  Expand,
+  Shrink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -273,7 +273,7 @@ export function TraceViewerPanel({
               className="h-7 w-7 p-0"
               title={isFullscreen ? "Restore default size" : "Expand to full screen"}
             >
-              {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              {isFullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
             </Button>
             <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
               <X className="h-4 w-4" />
