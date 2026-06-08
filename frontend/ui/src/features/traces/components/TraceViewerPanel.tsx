@@ -254,23 +254,6 @@ export function TraceViewerPanel({
             >
               <ArrowDown className="h-4 w-4" />
             </Button>
-            <div className="w-2" />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setAiContext({ traceId });
-                // Bot button always opens a fresh chat; an active RCA session
-                // would otherwise hijack the next message into the worker's
-                // session instead of starting a new one.
-                setAiInitialSessionId(undefined);
-                setAiPanelOpen(!aiPanelOpen);
-              }}
-              className="h-7 w-7 p-0"
-              title="AI Assistant"
-            >
-              <BotMessageSquare className="h-4 w-4" />
-            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -298,6 +281,26 @@ export function TraceViewerPanel({
               title="Open in new tab"
             >
               <SquareArrowOutUpRight className="h-4 w-4" />
+            </Button>
+            <div className="w-2" />
+            {/* AI Assistant sits immediately left of Close, separated by a gap
+                from the navigation/view controls, so the agent button stays the
+                rightmost action regardless of the other header controls. */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setAiContext({ traceId });
+                // Bot button always opens a fresh chat; an active RCA session
+                // would otherwise hijack the next message into the worker's
+                // session instead of starting a new one.
+                setAiInitialSessionId(undefined);
+                setAiPanelOpen(!aiPanelOpen);
+              }}
+              className="h-7 w-7 p-0"
+              title="AI Assistant"
+            >
+              <BotMessageSquare className="h-4 w-4" />
             </Button>
             <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
               <X className="h-4 w-4" />
