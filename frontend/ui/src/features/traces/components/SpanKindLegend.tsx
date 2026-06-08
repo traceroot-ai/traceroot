@@ -18,16 +18,21 @@ const LEGEND_KINDS: { kind: string; label: string }[] = [
 export function SpanKindLegend() {
   return (
     <Popover>
-      <PopoverTrigger className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-        <span className="flex gap-0.5">
-          {LEGEND_KINDS.map(({ kind }) => (
-            <span
-              key={kind}
-              className={cn("h-2 w-2 rounded-[1px] border", getSpanKindColor(kind).surface)}
-            />
-          ))}
-        </span>
-        Legend
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <span className="flex gap-0.5">
+            {LEGEND_KINDS.map(({ kind }) => (
+              <span
+                key={kind}
+                className={cn("h-2 w-2 rounded-[1px] border", getSpanKindColor(kind).surface)}
+              />
+            ))}
+          </span>
+          Legend
+        </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-auto p-2">
         <div className="flex flex-col gap-1.5">
@@ -40,7 +45,7 @@ export function SpanKindLegend() {
             </div>
           ))}
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-            <span className="h-3 w-3 rounded-[2px] border border-red-300 bg-red-100 dark:bg-red-950/60" />
+            <span className="h-3 w-3 rounded-[2px] border border-red-300 bg-red-100 dark:border-red-800 dark:bg-red-950/60" />
             Error
           </div>
         </div>
