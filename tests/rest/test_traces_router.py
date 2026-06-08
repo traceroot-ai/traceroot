@@ -272,6 +272,13 @@ class TestGetSpanIO:
         response = client.get("/api/v1/projects/test-project/traces/abc123/spans/missing/io")
         assert response.status_code == 404
 
+    def test_500_on_service_error(self, client, mock_trace_reader):
+        """An unexpected reader error maps to the controlled 500 contract."""
+        mock_trace_reader.get_span_io.side_effect = RuntimeError("clickhouse down")
+        response = client.get("/api/v1/projects/test-project/traces/abc123/spans/span-1/io")
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to get span I/O"
+
     def test_null_io_fields_serialize(self, client, mock_trace_reader):
         """A span row that exists but has empty I/O still returns 200 with nulls."""
         mock_trace_reader.get_span_io.return_value = {
