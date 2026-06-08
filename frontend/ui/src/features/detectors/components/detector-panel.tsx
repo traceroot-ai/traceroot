@@ -13,6 +13,7 @@ import {
 } from "@/features/ai-assistant/components/model-selector";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 
 interface DetectorPanelProps {
   detectorId: string;
@@ -46,6 +47,7 @@ export function DetectorPanel({
     adapter: "",
   });
   const [editConditions, setEditConditions] = useState<TriggerCondition[]>([]);
+  const [editEnableRca, setEditEnableRca] = useState(true);
 
   const populate = (d: typeof detector) => {
     if (!d) return;
@@ -59,6 +61,7 @@ export function DetectorPanel({
       adapter: "",
     });
     setEditConditions((d.trigger?.conditions ?? []) as TriggerCondition[]);
+    setEditEnableRca(d.enableRca ?? true);
   };
 
   // When the loaded detector matches the requested id, populate edit state.
@@ -75,6 +78,7 @@ export function DetectorPanel({
       setEditSampleRate(100);
       setEditModelSelection({ model: "", provider: "", source: "system", adapter: "" });
       setEditConditions([]);
+      setEditEnableRca(true);
     }
   }, [detectorId, detector]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -99,6 +103,7 @@ export function DetectorPanel({
         name: editName,
         prompt: editPrompt,
         sampleRate: editSampleRate,
+        enableRca: editEnableRca,
         triggerConditions: editConditions,
         detectionModel: editModelSelection.model || undefined,
         detectionProvider: editModelSelection.provider || undefined,
@@ -204,6 +209,23 @@ export function DetectorPanel({
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Used for deep analysis when findings are triggered. Shared across all detectors.
               </p>
+              <div className="mt-3 flex items-start justify-between gap-3">
+                <label
+                  htmlFor="edit-enable-rca"
+                  className="cursor-pointer text-[11px] text-muted-foreground"
+                >
+                  <span className="font-medium text-foreground">
+                    Run root cause analysis on findings
+                  </span>
+                  <br />
+                  Uses the agent model when this detector fires. Turn off to reduce cost.
+                </label>
+                <Switch
+                  id="edit-enable-rca"
+                  checked={editEnableRca}
+                  onCheckedChange={setEditEnableRca}
+                />
+              </div>
             </div>
           </div>
         </div>
