@@ -22,7 +22,6 @@ import { useLayout } from "@/components/layout/app-layout";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { useTraceStream } from "../hooks/use-trace-stream";
 import { SpanTimelineView } from "./SpanTimelineView";
-import { SpanKindLegend } from "./SpanKindLegend";
 import { TREE_LAYOUT } from "../utils";
 import { useTraceFindings, useRca } from "@/features/detectors/hooks/use-findings";
 
@@ -290,11 +289,10 @@ export function TraceViewerPanel({
             className="flex min-w-0 flex-col bg-muted/30"
           >
             <div
-              className="flex flex-shrink-0 items-center justify-between border-b border-border bg-muted/10 px-3"
+              className="flex flex-shrink-0 items-center border-b border-border bg-muted/10 px-3"
               style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
             >
               <span className="text-[11px] font-medium text-muted-foreground">Trace Tree</span>
-              <SpanKindLegend />
             </div>
             <div
               ref={treeScrollRef}
