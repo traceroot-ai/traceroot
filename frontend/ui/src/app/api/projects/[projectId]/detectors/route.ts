@@ -143,7 +143,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   if (enableRca !== undefined && typeof enableRca !== "boolean") {
     return errorResponse("enableRca must be a boolean", 400);
   }
-  const resolvedEnableRca = enableRca === undefined ? true : enableRca;
+  const resolvedEnableRca = enableRca ?? true;
 
   const detector = await prisma.detector.create({
     data: {

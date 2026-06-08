@@ -23,12 +23,17 @@ const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
  * collapse with detector_findings.findingId rather than producing duplicate
  * run rows for the same (detector, trace).
  */
-function deterministicRunId(projectId: string, traceId: string, detectorId: string): string {
+/** Hash a string to a uuid-shaped id (first 128 bits of sha256, 8-4-4-4-12). */
+function hashToUuid(input: string): string {
   return createHash("sha256")
-    .update(`${projectId}:${traceId}:${detectorId}`)
+    .update(input)
     .digest("hex")
     .slice(0, 32)
     .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
+}
+
+function deterministicRunId(projectId: string, traceId: string, detectorId: string): string {
+  return hashToUuid(`${projectId}:${traceId}:${detectorId}`);
 }
 
 /**
@@ -53,11 +58,7 @@ export function shouldRunRca(
  * lands on the same row instead of duplicating it.
  */
 export function traceFindingId(projectId: string, traceId: string): string {
-  return createHash("sha256")
-    .update(`${projectId}:${traceId}`)
-    .digest("hex")
-    .slice(0, 32)
-    .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
+  return hashToUuid(`${projectId}:${traceId}`);
 }
 
 /**

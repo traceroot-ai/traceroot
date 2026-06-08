@@ -7,13 +7,13 @@ import { useProject } from "@/features/projects/hooks";
 import { TriggerEditor } from "./trigger-editor";
 import type { TriggerCondition } from "./trigger-editor";
 import { AgentModelLink } from "./agent-model-link";
+import { RcaToggle } from "./rca-toggle";
 import {
   ModelSelector,
   type ModelSelection,
 } from "@/features/ai-assistant/components/model-selector";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 
 interface DetectorPanelProps {
   detectorId: string;
@@ -209,23 +209,11 @@ export function DetectorPanel({
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Used for deep analysis when findings are triggered. Shared across all detectors.
               </p>
-              <div className="mt-3 flex flex-col gap-2">
-                <label
-                  htmlFor="edit-enable-rca"
-                  className="cursor-pointer text-[11px] text-muted-foreground"
-                >
-                  <span className="font-medium text-foreground">
-                    Run root cause analysis on findings
-                  </span>
-                  <br />
-                  Uses the agent model when this detector fires. Turn off to reduce cost.
-                </label>
-                <Switch
-                  id="edit-enable-rca"
-                  checked={editEnableRca}
-                  onCheckedChange={setEditEnableRca}
-                />
-              </div>
+              <RcaToggle
+                id="edit-enable-rca"
+                checked={editEnableRca}
+                onCheckedChange={setEditEnableRca}
+              />
             </div>
           </div>
         </div>
