@@ -31,6 +31,20 @@ function deterministicRunId(projectId: string, traceId: string, detectorId: stri
     .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
 }
 
+/**
+ * Decide whether to run the per-trace RCA. RCA is shared across all detectors
+ * that fired on a trace; we run it when AT LEAST ONE triggered detector has
+ * RCA enabled. A triggered detector missing from `detectors` defaults to "run"
+ * so an unexpected gap never silently suppresses analysis.
+ */
+export function shouldRunRca(
+  triggered: { detectorId: string }[],
+  detectors: { id: string; enableRca: boolean }[],
+): boolean {
+  const rcaEnabledById = new Map(detectors.map((d) => [d.id, d.enableRca]));
+  return triggered.some((t) => rcaEnabledById.get(t.detectorId) !== false);
+}
+
 let rcaQueue: Queue<DetectorRcaJob>;
 
 async function downloadSpansJsonl(projectId: string, traceId: string): Promise<string> {
@@ -328,35 +342,44 @@ async function processTrace(
     `[Detector] Finding ${findingId} created for trace ${traceId} (${triggered.length} detector(s) triggered)`,
   );
 
-  // Always run RCA for any finding — one combined job per trace.
+  // RCA is shared per trace. Run it only when at least one triggered detector
+  // has RCA enabled; otherwise skip both the seed row and the queue job so a
+  // noisy RCA-disabled detector doesn't incur agent-model cost. Consumers
+  // null-check an absent DetectorRca record, so skipping the row is safe.
   const rcaFindings: DetectorRcaFinding[] = triggered.map((r) => ({
     detectorId: r.detectorId,
     detectorName: r.detectorName,
     summary: r.summary,
   }));
 
-  await prisma.detectorRca
-    .upsert({
-      where: { findingId },
-      create: { findingId, projectId, status: "pending" },
-      update: { projectId, status: "pending" },
-    })
-    .catch((e) =>
-      console.error(`[Detector] Failed to seed DetectorRca for finding ${findingId}:`, e),
-    );
+  if (shouldRunRca(triggered, detectors)) {
+    await prisma.detectorRca
+      .upsert({
+        where: { findingId },
+        create: { findingId, projectId, status: "pending" },
+        update: { projectId, status: "pending" },
+      })
+      .catch((e) =>
+        console.error(`[Detector] Failed to seed DetectorRca for finding ${findingId}:`, e),
+      );
 
-  await rcaQueue.add(
-    `rca-${findingId}`,
-    {
-      findingId,
-      projectId,
-      traceId,
-      workspaceId,
-      projectName,
-      findings: rcaFindings,
-    },
-    { jobId: `rca-${findingId}`, removeOnComplete: 100, removeOnFail: 50 },
-  );
+    await rcaQueue.add(
+      `rca-${findingId}`,
+      {
+        findingId,
+        projectId,
+        traceId,
+        workspaceId,
+        projectName,
+        findings: rcaFindings,
+      },
+      { jobId: `rca-${findingId}`, removeOnComplete: 100, removeOnFail: 50 },
+    );
+  } else {
+    console.log(
+      `[Detector] All triggered detectors have RCA disabled; skipping RCA for finding ${findingId}`,
+    );
+  }
 }
 
 export function startDetectorRunWorker(): Worker<DetectorRunJob> {
