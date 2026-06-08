@@ -6,7 +6,6 @@ import {
   Users,
   Layers,
   ChevronRight,
-  CircleDollarSign,
   AlertCircle,
   GitBranch,
   GitCommitHorizontal,
@@ -15,10 +14,17 @@ import {
 import { CopyButton } from "@/components/ui/copy-button";
 import { formatDuration, formatDate, buildUrlWithFilters } from "@/lib/utils";
 import { TokenChip } from "./TokenChip";
+import { CostChip } from "./CostChip";
 import { SpanStatus } from "@traceroot/core";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
-import { getSpanDuration, getTraceDuration, getTraceTotalCost, getTraceTokenUsage } from "../utils";
+import {
+  getSpanDuration,
+  getTraceDuration,
+  getTraceTotalCost,
+  getTraceTokenUsage,
+  getTraceCostBreakdown,
+} from "../utils";
 import { SpanKindIcon } from "./SpanKindIcon";
 import { ContentRenderer } from "./ContentRenderer";
 import { ExpandableSection } from "@/components/ui/expandable-section";
@@ -77,6 +83,7 @@ export function SpanInfoPanel({
 
   // Trace-level aggregates
   const traceTotalCost = isTrace ? getTraceTotalCost(trace) : null;
+  const traceCostDetails = isTrace ? getTraceCostBreakdown(trace) : null;
   const traceTokenUsage = isTrace ? getTraceTokenUsage(trace) : null;
 
   // Error status
@@ -134,11 +141,8 @@ export function SpanInfoPanel({
               reasoningTokens={traceTokenUsage.reasoningTokens}
             />
           )}
-          {isTrace && traceTotalCost && (
-            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-              <CircleDollarSign className="h-3 w-3 text-muted-foreground" />
-              <span className="font-medium">{traceTotalCost.toFixed(6)}</span>
-            </div>
+          {isTrace && traceTotalCost != null && (
+            <CostChip cost={traceTotalCost} costDetails={traceCostDetails} />
           )}
           {!isTrace && selection.span.model_name && (
             <div className="inline-flex items-center rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground">
@@ -155,11 +159,8 @@ export function SpanInfoPanel({
               reasoningTokens={selection.span.usage_details?.reasoning_tokens}
             />
           )}
-          {!isTrace && selection.span.cost != null && Number.isFinite(selection.span.cost) && (
-            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-              <CircleDollarSign className="h-3 w-3 text-muted-foreground" />
-              <span className="font-medium">{selection.span.cost.toFixed(6)}</span>
-            </div>
+          {!isTrace && (
+            <CostChip cost={selection.span.cost} costDetails={selection.span.cost_details} />
           )}
         </div>
 
