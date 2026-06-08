@@ -45,6 +45,36 @@ export function shouldRunRca(
   return triggered.some((t) => rcaEnabledById.get(t.detectorId) !== false);
 }
 
+/**
+ * Deterministic finding id for a trace — a hash of (projectId, traceId) only.
+ * It does NOT depend on which/how many detectors fired, so every detector that
+ * triggers on the same trace maps to the SAME finding, and therefore the SAME
+ * RCA job (`rca-${findingId}`): exactly one RCA per trace, and a BullMQ retry
+ * lands on the same row instead of duplicating it.
+ */
+export function traceFindingId(projectId: string, traceId: string): string {
+  return createHash("sha256")
+    .update(`${projectId}:${traceId}`)
+    .digest("hex")
+    .slice(0, 32)
+    .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
+}
+
+/**
+ * Build the per-trace RCA payload from every detector that fired. The single
+ * RCA job carries all triggered detectors' summaries, so one agent analyzes the
+ * whole trace rather than one agent per detector.
+ */
+export function buildRcaFindings(
+  triggered: { detectorId: string; detectorName: string; summary: string }[],
+): DetectorRcaFinding[] {
+  return triggered.map((r) => ({
+    detectorId: r.detectorId,
+    detectorName: r.detectorName,
+    summary: r.summary,
+  }));
+}
+
 let rcaQueue: Queue<DetectorRcaJob>;
 
 async function downloadSpansJsonl(projectId: string, traceId: string): Promise<string> {
@@ -301,11 +331,7 @@ async function processTrace(
   // a duplicate. ClickHouse-level dedup of finding rows is a follow-up
   // (ReplacingMergeTree on finding_id), but Postgres DetectorRca + the RCA
   // queue jobId are now both keyed by this stable id.
-  const findingId = createHash("sha256")
-    .update(`${projectId}:${traceId}`)
-    .digest("hex")
-    .slice(0, 32)
-    .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
+  const findingId = traceFindingId(projectId, traceId);
   const combinedSummary = triggered.map((r) => `[${r.detectorName}] ${r.summary}`).join("\n");
   const payload = JSON.stringify(
     triggered.map((r) => ({
@@ -346,11 +372,7 @@ async function processTrace(
   // has RCA enabled; otherwise skip both the seed row and the queue job so a
   // noisy RCA-disabled detector doesn't incur agent-model cost. Consumers
   // null-check an absent DetectorRca record, so skipping the row is safe.
-  const rcaFindings: DetectorRcaFinding[] = triggered.map((r) => ({
-    detectorId: r.detectorId,
-    detectorName: r.detectorName,
-    summary: r.summary,
-  }));
+  const rcaFindings: DetectorRcaFinding[] = buildRcaFindings(triggered);
 
   if (shouldRunRca(triggered, detectors)) {
     await prisma.detectorRca
