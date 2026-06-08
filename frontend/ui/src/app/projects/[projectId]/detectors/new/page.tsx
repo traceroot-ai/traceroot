@@ -169,7 +169,7 @@ export default function NewDetectorPage() {
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     Used for deep analysis when findings are triggered. Shared across all detectors.
                   </p>
-                  <div className="mt-3 flex items-start justify-between gap-3">
+                  <div className="mt-3 flex flex-col gap-2">
                     <label
                       htmlFor="enable-rca"
                       className="cursor-pointer text-[11px] text-muted-foreground"
