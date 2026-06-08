@@ -87,14 +87,18 @@ export function SpanKindIcon({
   const Icon = getSpanKindIcon(kind);
   const iconSizeClass = size === "md" ? "h-4 w-4" : "h-3 w-3";
 
-  // In tree view, show icon with white background box
+  // In tree view, show icon in a box tinted by span kind
   if (inTree) {
+    const color = getSpanKindColor(kind);
     return (
       <div
-        className="flex flex-shrink-0 items-center justify-center rounded border bg-background"
+        className={cn(
+          "flex flex-shrink-0 items-center justify-center rounded border",
+          color.surface,
+        )}
         style={{ width: TREE_LAYOUT.ICON_BOX_SIZE, height: TREE_LAYOUT.ICON_BOX_SIZE }}
       >
-        <Icon className="h-3 w-3 text-muted-foreground" />
+        <Icon className={cn("h-3 w-3", color.glyph)} />
       </div>
     );
   }
