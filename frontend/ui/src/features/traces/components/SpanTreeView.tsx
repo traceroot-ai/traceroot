@@ -151,9 +151,11 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
   const runSpanIOPrefetch = useCallback(
     (span: Span) => {
       if (span.pending) return;
-      const user = authSession?.user
-        ? { id: authSession.user.id, email: authSession.user.email }
-        : undefined;
+      // Skip prefetch until the auth session is ready: prefetching with no user
+      // would trigger a fallback session fetch per hover and could cache an
+      // unauthenticated result under the shared span-io query key.
+      if (!authSession?.user) return;
+      const user = { id: authSession.user.id, email: authSession.user.email };
       queryClient.prefetchQuery({
         queryKey: spanIOQueryKey(trace.project_id, trace.trace_id, span.span_id),
         queryFn: () => getSpanIO(trace.project_id, trace.trace_id, span.span_id, user),

@@ -78,16 +78,25 @@ async def get_span_io(
 ):
     """Get full input/output/metadata for a single span on demand."""
     service = get_trace_reader_service()
-    result = service.get_span_io(
-        project_id=project_id,
-        trace_id=trace_id,
-        span_id=span_id,
-    )
-
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Span not found",
+    try:
+        result = service.get_span_io(
+            project_id=project_id,
+            trace_id=trace_id,
+            span_id=span_id,
         )
 
-    return result
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Span not found",
+            )
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting span I/O: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get span I/O",
+        ) from e
