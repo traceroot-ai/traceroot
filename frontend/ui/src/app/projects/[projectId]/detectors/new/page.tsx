@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   ModelSelector,
   type ModelSelection,
@@ -44,6 +45,7 @@ export default function NewDetectorPage() {
     source: "system",
     adapter: "",
   });
+  const [enableRca, setEnableRca] = useState(true);
 
   const handleTemplateChange = (templateId: string) => {
     const template = DETECTOR_TEMPLATES.find((t) => t.id === templateId);
@@ -64,6 +66,7 @@ export default function NewDetectorPage() {
       prompt,
       outputSchema: template.outputSchema,
       sampleRate,
+      enableRca,
       triggerConditions,
       detectionModel: modelSelection.model || undefined,
       detectionProvider: modelSelection.provider || undefined,
@@ -166,6 +169,19 @@ export default function NewDetectorPage() {
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     Used for deep analysis when findings are triggered. Shared across all detectors.
                   </p>
+                  <div className="mt-3 flex items-start justify-between gap-3">
+                    <label
+                      htmlFor="enable-rca"
+                      className="cursor-pointer text-[11px] text-muted-foreground"
+                    >
+                      <span className="font-medium text-foreground">
+                        Run root cause analysis on findings
+                      </span>
+                      <br />
+                      Uses the agent model when this detector fires. Turn off to reduce cost.
+                    </label>
+                    <Switch id="enable-rca" checked={enableRca} onCheckedChange={setEnableRca} />
+                  </div>
                 </div>
               </div>
             </div>
