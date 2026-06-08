@@ -72,8 +72,14 @@ export function TraceViewerPanel({
   // intentionally persists while navigating between traces, since the panel
   // instance stays mounted across ↑/↓ navigation.
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const { aiPanelOpen, setAiPanelOpen, setAiContext, setAiInitialSessionId, registerAiHost } =
-    useLayout();
+  const {
+    aiPanelOpen,
+    setAiPanelOpen,
+    setAiContext,
+    setAiInitialSessionId,
+    registerAiHost,
+    sidebarCollapsed,
+  } = useLayout();
 
   // Claim the AI slot for this viewer so AppLayout's project rail steps aside.
   // `registerAiHost()` returns its own cleanup, which we return from the effect
@@ -189,7 +195,14 @@ export function TraceViewerPanel({
     <div
       className={cn(
         "animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 border-l border-border bg-background shadow-xl transition-[width] duration-200",
-        isFullscreen ? "w-full" : "w-[70%]",
+        // Fullscreen stops at the left navbar's right edge (so it isn't covered)
+        // rather than spanning the whole viewport. Width = 100% minus the
+        // sidebar's width, which differs when the sidebar is collapsed.
+        isFullscreen
+          ? sidebarCollapsed
+            ? "w-[calc(100%-3.5rem)]"
+            : "w-[calc(100%-10rem)]"
+          : "w-[70%]",
       )}
     >
       <div className="flex h-full flex-col bg-background">
