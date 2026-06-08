@@ -12,8 +12,9 @@ import {
   SquareGanttChart,
   Expand,
   Shrink,
+  SquareArrowOutUpRight,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, buildUrlWithFilters } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
@@ -39,6 +40,15 @@ interface TraceViewerPanelProps {
   customEndDate?: Date | null;
   /** When true, auto-opens chat with RCA loaded on mount (detector findings page only) */
   autoOpenRca?: boolean;
+  /** When true, the panel mounts already expanded to full width (e.g. opened in a new tab). */
+  initialFullscreen?: boolean;
+  /**
+   * Base path the "open in new tab" button targets, so the trace pops out back
+   * into the page it was opened from. Defaults to the project traces page; the
+   * detector page passes its own path so the popped-out trace stays in the
+   * detector tab.
+   */
+  newTabPath?: string;
 }
 
 /**
@@ -64,14 +74,17 @@ export function TraceViewerPanel({
   customStartDate,
   customEndDate,
   autoOpenRca,
+  initialFullscreen,
+  newTabPath,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   const [viewMode, setViewMode] = useState<"tree" | "timeline">("tree");
   // Fullscreen widens the slide-in overlay from ~70% to the full viewport.
+  // Seeded from initialFullscreen so a trace opened in a new tab lands expanded.
   // Local + resets when the panel unmounts (i.e. on close/reopen); it
   // intentionally persists while navigating between traces, since the panel
   // instance stays mounted across ↑/↓ navigation.
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(initialFullscreen ?? false);
   const {
     aiPanelOpen,
     setAiPanelOpen,
@@ -249,7 +262,38 @@ export function TraceViewerPanel({
             >
               <ArrowDown className="h-4 w-4" />
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsFullscreen((v) => !v)}
+              className="h-7 w-7 p-0"
+              title={isFullscreen ? "Restore default size" : "Expand to full screen"}
+            >
+              {isFullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                window.open(
+                  buildUrlWithFilters(newTabPath ?? `/projects/${projectId}/traces`, {
+                    dateFilter,
+                    customStartDate,
+                    customEndDate,
+                    extraParams: { traceId, fullscreen: "1" },
+                  }),
+                  "_blank",
+                )
+              }
+              className="h-7 w-7 p-0"
+              title="Open in new tab"
+            >
+              <SquareArrowOutUpRight className="h-4 w-4" />
+            </Button>
             <div className="w-2" />
+            {/* AI Assistant sits immediately left of Close, separated by a gap
+                from the navigation/view controls, so the agent button stays the
+                rightmost action regardless of the other header controls. */}
             <Button
               variant="outline"
               size="sm"
@@ -265,15 +309,6 @@ export function TraceViewerPanel({
               title="AI Assistant"
             >
               <BotMessageSquare className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsFullscreen((v) => !v)}
-              className="h-7 w-7 p-0"
-              title={isFullscreen ? "Restore default size" : "Expand to full screen"}
-            >
-              {isFullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
             </Button>
             <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
               <X className="h-4 w-4" />
