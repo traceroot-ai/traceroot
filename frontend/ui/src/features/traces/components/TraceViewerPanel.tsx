@@ -194,15 +194,16 @@ export function TraceViewerPanel({
   return (
     <div
       className={cn(
-        "animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 border-l border-border bg-background shadow-xl transition-[width] duration-200",
-        // Fullscreen stops at the left navbar's right edge (so it isn't covered)
-        // rather than spanning the whole viewport. Width = 100% minus the
-        // sidebar's width, which differs when the sidebar is collapsed.
+        "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-xl transition-[width,top] duration-200",
+        // Fullscreen stays clear of the chrome it would otherwise cover: it
+        // starts below the top breadcrumb/header bar (h-14) and to the right of
+        // the left navbar. Width = 100% minus the sidebar's width, which differs
+        // when the sidebar is collapsed.
         isFullscreen
           ? sidebarCollapsed
-            ? "w-[calc(100%-3.5rem)]"
-            : "w-[calc(100%-10rem)]"
-          : "w-[70%]",
+            ? "top-14 w-[calc(100%-3.5rem)]"
+            : "top-14 w-[calc(100%-10rem)]"
+          : "top-0 w-[70%]",
       )}
     >
       <div className="flex h-full flex-col bg-background">
