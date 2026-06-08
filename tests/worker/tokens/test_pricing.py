@@ -343,3 +343,46 @@ def test_calculate_cost_matches_cost_from_buckets_for_text_path():
         prices, TokenBuckets(input_uncached=in_tok, output=out_tok, cache_read=0, cache_write=0)
     )
     assert result["cost"] == pytest.approx(expected)
+
+
+def test_cost_breakdown_from_buckets_sums_to_cost_from_buckets():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_breakdown_from_buckets, cost_from_buckets
+
+    prices = {
+        "input": 0.000003,
+        "output": 0.000015,
+        "cacheRead": 0.0000003,
+        "cacheWrite": 0.00000375,
+    }
+    buckets = TokenBuckets(input_uncached=2000, output=1500, cache_read=6000, cache_write=2000)
+    breakdown = cost_breakdown_from_buckets(prices, buckets)
+    assert breakdown == {
+        "input_uncached_cost": pytest.approx(2000 * 0.000003),
+        "cache_read_cost": pytest.approx(6000 * 0.0000003),
+        "cache_write_cost": pytest.approx(2000 * 0.00000375),
+        "output_cost": pytest.approx(1500 * 0.000015),
+    }
+    assert sum(breakdown.values()) == pytest.approx(cost_from_buckets(prices, buckets))
+
+
+def test_cost_breakdown_from_buckets_treats_missing_cache_rates_as_zero():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_breakdown_from_buckets
+
+    prices = {"input": 0.0000025, "output": 0.00001}  # OpenAI: no cache rates
+    buckets = TokenBuckets(input_uncached=4000, output=1000, cache_read=4000, cache_write=0)
+    breakdown = cost_breakdown_from_buckets(prices, buckets)
+    assert breakdown["cache_read_cost"] == 0.0
+    assert breakdown["cache_write_cost"] == 0.0
+    assert breakdown["input_uncached_cost"] == pytest.approx(4000 * 0.0000025)
+    assert breakdown["output_cost"] == pytest.approx(1000 * 0.00001)
+
+
+def test_cost_breakdown_from_buckets_returns_none_without_prices():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_breakdown_from_buckets
+
+    buckets = TokenBuckets(input_uncached=100, output=50)
+    assert cost_breakdown_from_buckets(None, buckets) is None
+    assert cost_breakdown_from_buckets({}, buckets) is None

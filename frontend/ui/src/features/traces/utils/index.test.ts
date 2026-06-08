@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { Span } from "@/types/api";
-import { enrichSpansWithPending, getSpanDuration, getTraceDuration } from "./index";
+import {
+  enrichSpansWithPending,
+  getSpanDuration,
+  getTraceDuration,
+  summarizeCostDetails,
+  getTraceCostBreakdown,
+} from "./index";
 import type { TraceDetail } from "@/types/api";
 
 // Pin a non-UTC timezone so timezone-naive timestamp regressions (a whole-second
@@ -324,5 +330,65 @@ describe("durations with timezone-naive backend timestamps", () => {
     const dur = getTraceDuration(traceOf([root, child]))!;
     expect(dur).toBe(255_133); // 06:41:16.974 − 06:37:01.841 ≈ 4m15s
     expect(dur).toBeLessThan(3_600_000); // never an hour+
+  });
+});
+
+describe("summarizeCostDetails", () => {
+  it("groups categories and totals input + output", () => {
+    const s = summarizeCostDetails({
+      input_uncached_cost: 0.006,
+      cache_read_cost: 0.0018,
+      cache_write_cost: 0.0075,
+      output_cost: 0.0225,
+    });
+    expect(s.inputCost).toBeCloseTo(0.0153, 6);
+    expect(s.outputCost).toBeCloseTo(0.0225, 6);
+    expect(s.total).toBeCloseTo(0.0378, 6);
+  });
+
+  it("defaults missing/undefined details to zero", () => {
+    const s = summarizeCostDetails(undefined);
+    expect(s.inputCost).toBe(0);
+    expect(s.outputCost).toBe(0);
+    expect(s.total).toBe(0);
+  });
+});
+
+describe("getTraceCostBreakdown", () => {
+  it("sums each category across spans", () => {
+    const trace = {
+      spans: [
+        makeSpan({
+          span_id: "a",
+          cost_details: {
+            input_uncached_cost: 0.006,
+            cache_read_cost: 0.0018,
+            cache_write_cost: 0.0075,
+            output_cost: 0.0225,
+          },
+        }),
+        makeSpan({
+          span_id: "b",
+          cost_details: {
+            input_uncached_cost: 0.01,
+            cache_read_cost: 0.005,
+            cache_write_cost: 0,
+            output_cost: 0.01,
+          },
+        }),
+      ],
+    } as unknown as TraceDetail;
+
+    const merged = getTraceCostBreakdown(trace);
+    expect(merged).not.toBeNull();
+    expect(merged!.input_uncached_cost).toBeCloseTo(0.016, 6);
+    expect(merged!.cache_read_cost).toBeCloseTo(0.0068, 6);
+    expect(merged!.cache_write_cost).toBeCloseTo(0.0075, 6);
+    expect(merged!.output_cost).toBeCloseTo(0.0325, 6);
+  });
+
+  it("returns null when no span has cost_details", () => {
+    const trace = { spans: [makeSpan({ span_id: "a" })] } as unknown as TraceDetail;
+    expect(getTraceCostBreakdown(trace)).toBeNull();
   });
 });
