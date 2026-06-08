@@ -3,7 +3,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { useSession as useAuthSession } from "@/lib/auth-client";
-import { getTraces, getTrace } from "@/lib/api";
+import { getTraces, getTrace, getSpanIO } from "@/lib/api";
 import { getSessions, getSession, type SessionDetailOptions } from "@/lib/api/sessions";
 import { getUsers, type UserQueryOptions } from "@/lib/api/users";
 import type { SessionQueryOptions, TraceQueryOptions } from "@/types/api";
@@ -62,6 +62,38 @@ export function useTrace(projectId: string, traceId: string, enabled: boolean = 
     queryKey: ["trace", projectId, traceId],
     queryFn: () => getTrace(projectId, traceId, "", user),
     enabled: sessionReady && enabled,
+  });
+}
+
+// Per-span I/O is cached for 5 minutes: the blobs are immutable once a span
+// completes, and this lets a hover-prefetch satisfy the subsequent click
+// without a refetch. Shared by useSpanIO and the SpanTreeView hover prefetch.
+export const SPAN_IO_STALE_TIME_MS = 5 * 60 * 1000;
+
+/**
+ * React Query key for a single span's lazily-fetched I/O. Exported so the
+ * SpanTreeView hover-prefetch and the useSpanIO hook key identically.
+ */
+export function spanIOQueryKey(projectId: string, traceId: string, spanId: string) {
+  return ["span-io", projectId, traceId, spanId] as const;
+}
+
+/**
+ * Hook for lazily fetching a single span's full I/O (input/output/metadata).
+ * Only fetches when spanId is provided (i.e. the user selected a span); the
+ * trace-detail skeleton no longer ships per-span I/O.
+ */
+export function useSpanIO(projectId: string, traceId: string, spanId: string | null) {
+  const { data: authSession, isPending } = useAuthSession();
+  const sessionReady = !isPending && !!authSession?.user;
+  const user: TraceApiUser | undefined = authSession?.user
+    ? { id: authSession.user.id, email: authSession.user.email }
+    : undefined;
+  return useQuery({
+    queryKey: spanIOQueryKey(projectId, traceId, spanId ?? ""),
+    queryFn: () => getSpanIO(projectId, traceId, spanId!, user),
+    enabled: sessionReady && !!spanId,
+    staleTime: SPAN_IO_STALE_TIME_MS,
   });
 }
 
