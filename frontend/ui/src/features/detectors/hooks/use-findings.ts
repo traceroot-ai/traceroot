@@ -8,6 +8,44 @@ export interface BackendFinding {
   timestamp: string;
   summary: string;
   payload: string;
+  /**
+   * Stored RCA status for this finding, enriched by the findings proxy route.
+   * null = no DetectorRca row (RCA skipped — disabled on every detector that
+   * fired); absent = enrichment unavailable.
+   */
+  rca_status?: "pending" | "running" | "done" | "failed" | null;
+}
+
+/** How a finding's `rca_status` renders in the "Agent analysis" column. */
+export interface RcaStatusPresentation {
+  label: string;
+  className: string;
+  title?: string;
+}
+
+/**
+ * Single source of truth for the agent-analysis status vocabulary:
+ * absent field (enrichment unavailable) -> "—", null (no stored RCA row) ->
+ * "Skipped", terminal/in-flight statuses -> their labels. An unrecognized
+ * future status renders as its raw value rather than a misleading "Running…".
+ */
+export function describeRcaStatus(status: BackendFinding["rca_status"]): RcaStatusPresentation {
+  if (status === undefined) {
+    return { label: "—", className: "font-mono text-[11px] text-muted-foreground" };
+  }
+  if (status === null) {
+    return {
+      label: "Skipped",
+      className: "text-muted-foreground",
+      title: "Root cause analysis was off for the detector(s) that fired",
+    };
+  }
+  if (status === "failed") return { label: "Failed", className: "text-destructive" };
+  if (status === "done") return { label: "Done", className: "text-foreground" };
+  if (status === "pending" || status === "running") {
+    return { label: "Running…", className: "text-muted-foreground" };
+  }
+  return { label: status, className: "text-muted-foreground" };
 }
 
 /** Pagination metadata returned alongside data arrays. */
