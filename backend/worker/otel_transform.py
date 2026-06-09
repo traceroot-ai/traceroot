@@ -296,11 +296,11 @@ def transform_otel_to_clickhouse(
     traces: dict[str, dict] = {}  # trace_id -> trace record
     spans: list[dict] = []
 
-    # Track user_id/session_id per trace, collected from ANY span
+    # Track user_id/session_id/git info per trace, collected from ANY span
     # Priority: root span values > first child span values
     trace_attrs: dict[
         str, dict[str, str | None]
-    ] = {}  # trace_id -> {"user_id": ..., "session_id": ...}
+    ] = {}  # trace_id -> {"user_id": ..., "session_id": ..., "git_ref": ..., "git_repo": ...}
 
     # Best-known root name per trace: (ids_path_length, name).
     # Shortest ids_path = closest to root. Used to correct eager trace names
@@ -583,30 +583,33 @@ def transform_otel_to_clickhouse(
 
                 spans.append(span_record)
 
-                # Collect user_id/session_id from ANY span (not just root)
+                # Collect user_id/session_id/git info from ANY span (not just root)
                 # Priority: root span values overwrite, child span values only set if empty
                 span_user_id = _extract_user_id(span_attrs)
                 span_session_id = _extract_session_id(span_attrs)
+                span_git_ref = span_attrs.get("traceroot.git.ref")
+                span_git_repo = span_attrs.get("traceroot.git.repo")
 
                 if trace_id not in trace_attrs:
-                    trace_attrs[trace_id] = {"user_id": None, "session_id": None}
+                    trace_attrs[trace_id] = {
+                        "user_id": None,
+                        "session_id": None,
+                        "git_ref": None,
+                        "git_repo": None,
+                    }
 
                 if not parent_span_id:
                     # Root span: always use its values if present (overwrites child values)
-                    trace_attrs[trace_id]["user_id"] = (
-                        span_user_id or trace_attrs[trace_id]["user_id"]
-                    )
-                    trace_attrs[trace_id]["session_id"] = (
-                        span_session_id or trace_attrs[trace_id]["session_id"]
-                    )
+                    trace_attrs[trace_id]["user_id"] = span_user_id or trace_attrs[trace_id]["user_id"]
+                    trace_attrs[trace_id]["session_id"] = span_session_id or trace_attrs[trace_id]["session_id"]
+                    trace_attrs[trace_id]["git_ref"] = span_git_ref or trace_attrs[trace_id]["git_ref"]
+                    trace_attrs[trace_id]["git_repo"] = span_git_repo or trace_attrs[trace_id]["git_repo"]
                 else:
                     # Child span: only set if not already set (first child wins)
-                    trace_attrs[trace_id]["user_id"] = (
-                        trace_attrs[trace_id]["user_id"] or span_user_id
-                    )
-                    trace_attrs[trace_id]["session_id"] = (
-                        trace_attrs[trace_id]["session_id"] or span_session_id
-                    )
+                    trace_attrs[trace_id]["user_id"] = trace_attrs[trace_id]["user_id"] or span_user_id
+                    trace_attrs[trace_id]["session_id"] = trace_attrs[trace_id]["session_id"] or span_session_id
+                    trace_attrs[trace_id]["git_ref"] = trace_attrs[trace_id]["git_ref"] or span_git_ref
+                    trace_attrs[trace_id]["git_repo"] = trace_attrs[trace_id]["git_repo"] or span_git_repo
 
                 # Eager trace creation:
                 # Create a "shallow" trace record on the FIRST span we see for
@@ -625,6 +628,10 @@ def transform_otel_to_clickhouse(
                         "user_id": trace_attrs[trace_id]["user_id"],
                         "session_id": trace_attrs[trace_id]["session_id"],
                     }
+                    if trace_attrs[trace_id]["git_ref"]:
+                        traces[trace_id]["git_ref"] = trace_attrs[trace_id]["git_ref"]
+                    if trace_attrs[trace_id]["git_repo"]:
+                        traces[trace_id]["git_repo"] = trace_attrs[trace_id]["git_repo"]
 
                 # Track the best-known root name for this trace using the span
                 # closest to the root (shortest ids_path). Batches may contain
@@ -648,9 +655,6 @@ def transform_otel_to_clickhouse(
 
                 if not parent_span_id:
                     # Root span arrived — upgrade to full trace with rich metadata
-                    git_ref = span_attrs.get("traceroot.git.ref")
-                    git_repo = span_attrs.get("traceroot.git.repo")
-
                     traces[trace_id].update(
                         {
                             "trace_start_time": start_time,
@@ -662,10 +666,10 @@ def transform_otel_to_clickhouse(
 
                     if environment is not None:
                         traces[trace_id]["environment"] = environment
-                    if git_ref is not None:
-                        traces[trace_id]["git_ref"] = git_ref
-                    if git_repo is not None:
-                        traces[trace_id]["git_repo"] = git_repo
+                    if trace_attrs[trace_id]["git_ref"] is not None:
+                        traces[trace_id]["git_ref"] = trace_attrs[trace_id]["git_ref"]
+                    if trace_attrs[trace_id]["git_repo"] is not None:
+                        traces[trace_id]["git_repo"] = trace_attrs[trace_id]["git_repo"]
 
                     # Extract trace-level metadata
                     trace_metadata = span_attrs.get("traceroot.trace.metadata")
@@ -696,7 +700,7 @@ def transform_otel_to_clickhouse(
         if trace_id in traces:
             traces[trace_id]["name"] = best_name
 
-    # Update trace records with user_id/session_id collected from child spans
+    # Update trace records with user_id/session_id/git info collected from child spans
     # (in case child spans with these attrs came after the root span was processed)
     for trace_id, attrs in trace_attrs.items():
         if trace_id in traces:
@@ -704,5 +708,9 @@ def transform_otel_to_clickhouse(
                 traces[trace_id]["user_id"] = attrs["user_id"]
             if attrs["session_id"] and not traces[trace_id].get("session_id"):
                 traces[trace_id]["session_id"] = attrs["session_id"]
+            if attrs["git_ref"] and not traces[trace_id].get("git_ref"):
+                traces[trace_id]["git_ref"] = attrs["git_ref"]
+            if attrs["git_repo"] and not traces[trace_id].get("git_repo"):
+                traces[trace_id]["git_repo"] = attrs["git_repo"]
 
     return list(traces.values()), spans
