@@ -28,9 +28,13 @@ export function SidebarUpgradeButton({ projectId, collapsed }: SidebarUpgradeBut
         <TooltipTrigger asChild>
           <button
             className={cn(
-              "flex w-full items-center gap-2 py-2 text-[13px] transition-colors hover:bg-muted/50",
+              "flex w-full items-center gap-2 py-2 text-[13px] transition-colors hover:bg-muted/50 disabled:opacity-50",
               collapsed ? "justify-center px-2" : "px-3",
             )}
+            // Wait for the workspace record so the dialog acts on the real plan;
+            // opening it with the FREE fallback could route a subscribed
+            // workspace to checkout instead of change-plan.
+            disabled={!workspace}
             onClick={() => setShowPricingDialog(true)}
           >
             <Sparkles className="h-3.5 w-3.5 shrink-0" />
