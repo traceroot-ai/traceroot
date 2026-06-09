@@ -8,7 +8,12 @@ import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { formatDate, cn } from "@/lib/utils";
 import { useDetector } from "@/features/detectors/hooks/use-detectors";
-import { useFindings, useRuns, type BackendFinding } from "@/features/detectors/hooks/use-findings";
+import {
+  useFindings,
+  useRuns,
+  describeRcaStatus,
+  type BackendFinding,
+} from "@/features/detectors/hooks/use-findings";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
 
@@ -304,22 +309,14 @@ export default function DetectorDetailPage() {
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-3 py-1.5 text-[12px]">
-                      {f.rca_status === undefined ? (
-                        <span className="font-mono text-[11px] text-muted-foreground">—</span>
-                      ) : f.rca_status === null ? (
-                        <span
-                          className="text-muted-foreground"
-                          title="Root cause analysis was off for the detector(s) that fired"
-                        >
-                          Skipped
-                        </span>
-                      ) : f.rca_status === "failed" ? (
-                        <span className="text-destructive">Failed</span>
-                      ) : f.rca_status === "done" ? (
-                        <span className="text-foreground">Done</span>
-                      ) : (
-                        <span className="text-muted-foreground">Running…</span>
-                      )}
+                      {(() => {
+                        const rca = describeRcaStatus(f.rca_status);
+                        return (
+                          <span className={rca.className} title={rca.title}>
+                            {rca.label}
+                          </span>
+                        );
+                      })()}
                     </td>
                   </tr>
                 ))}

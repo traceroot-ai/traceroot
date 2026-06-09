@@ -99,6 +99,13 @@ describe("shouldRunRca: fail-open and robustness", () => {
     expect(shouldRunRca(fired("a"), [det("a", false), det("b", true)])).toBe(false);
   });
 
+  it("duplicate detector rows: the last occurrence wins in the lookup", () => {
+    // Can't happen via the DB (id is the primary key) but pins the Map
+    // semantics so a future data-shape change fails loudly here.
+    expect(shouldRunRca(fired("a"), [det("a", true), det("a", false)])).toBe(false);
+    expect(shouldRunRca(fired("a"), [det("a", false), det("a", true)])).toBe(true);
+  });
+
   it("scales: 50 off + 1 on, only the on fired -> runs; only offs fired -> skips", () => {
     const offs = Array.from({ length: 50 }, (_, i) => det(`off${i}`, false));
     const detectors = [...offs, det("on", true)];
@@ -139,6 +146,16 @@ describe("traceFindingId: one finding (and one RCA job) per trace", () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
   });
+
+  it("is order-sensitive: swapping project and trace yields a different id", () => {
+    expect(traceFindingId("a", "b")).not.toBe(traceFindingId("b", "a"));
+  });
+
+  it("stays uuid-shaped and deterministic even for empty inputs", () => {
+    const uuidShape = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    expect(traceFindingId("", "")).toMatch(uuidShape);
+    expect(traceFindingId("", "")).toBe(traceFindingId("", ""));
+  });
 });
 
 // ---- 3. buildRcaFindings ---------------------------------------------------
@@ -170,5 +187,13 @@ describe("buildRcaFindings: one RCA payload aggregates every fired detector", ()
 
   it("returns an empty payload for no fired detectors", () => {
     expect(buildRcaFindings([])).toEqual([]);
+  });
+
+  it("keeps one entry per fired item even for repeated detector ids", () => {
+    const twice = [
+      { detectorId: "a", detectorName: "Failure", summary: "first" },
+      { detectorId: "a", detectorName: "Failure", summary: "second" },
+    ];
+    expect(buildRcaFindings(twice).map((f) => f.summary)).toEqual(["first", "second"]);
   });
 });
