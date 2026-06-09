@@ -8,6 +8,12 @@ export interface BackendFinding {
   timestamp: string;
   summary: string;
   payload: string;
+  /**
+   * Stored RCA status for this finding, enriched by the findings proxy route.
+   * null = no DetectorRca row (RCA skipped — disabled on every detector that
+   * fired); absent = enrichment unavailable.
+   */
+  rca_status?: "pending" | "running" | "done" | "failed" | null;
 }
 
 /** Pagination metadata returned alongside data arrays. */

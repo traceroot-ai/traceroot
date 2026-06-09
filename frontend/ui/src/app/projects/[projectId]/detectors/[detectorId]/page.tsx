@@ -265,8 +265,11 @@ export default function DetectorDetailPage() {
                   <th className="w-[280px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Trace ID
                   </th>
-                  <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Summary
+                  </th>
+                  <th className="w-[110px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                    Agent analysis
                   </th>
                 </tr>
               </thead>
@@ -295,10 +298,28 @@ export default function DetectorDetailPage() {
                         {f.trace_id}
                       </span>
                     </td>
-                    <td className="max-w-[400px] px-3 py-1.5 text-[12px] text-foreground">
+                    <td className="max-w-[400px] border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
                       <span className="block truncate" title={f.summary}>
                         {f.summary.length > 100 ? f.summary.slice(0, 100) + "…" : f.summary}
                       </span>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-[12px]">
+                      {f.rca_status === undefined ? (
+                        <span className="font-mono text-[11px] text-muted-foreground">—</span>
+                      ) : f.rca_status === null ? (
+                        <span
+                          className="text-muted-foreground"
+                          title="Root cause analysis was off for the detector(s) that fired"
+                        >
+                          Skipped
+                        </span>
+                      ) : f.rca_status === "failed" ? (
+                        <span className="text-destructive">Failed</span>
+                      ) : f.rca_status === "done" ? (
+                        <span className="text-foreground">Done</span>
+                      ) : (
+                        <span className="text-muted-foreground">Running…</span>
+                      )}
                     </td>
                   </tr>
                 ))}
