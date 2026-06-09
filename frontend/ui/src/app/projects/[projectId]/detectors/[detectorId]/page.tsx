@@ -8,7 +8,12 @@ import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { formatDate, cn } from "@/lib/utils";
 import { useDetector } from "@/features/detectors/hooks/use-detectors";
-import { useFindings, useRuns, type BackendFinding } from "@/features/detectors/hooks/use-findings";
+import {
+  useFindings,
+  useRuns,
+  describeRcaStatus,
+  type BackendFinding,
+} from "@/features/detectors/hooks/use-findings";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
 
@@ -265,8 +270,11 @@ export default function DetectorDetailPage() {
                   <th className="w-[280px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Trace ID
                   </th>
-                  <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                     Summary
+                  </th>
+                  <th className="w-[110px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
+                    Agent analysis
                   </th>
                 </tr>
               </thead>
@@ -295,10 +303,20 @@ export default function DetectorDetailPage() {
                         {f.trace_id}
                       </span>
                     </td>
-                    <td className="max-w-[400px] px-3 py-1.5 text-[12px] text-foreground">
+                    <td className="max-w-[400px] border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
                       <span className="block truncate" title={f.summary}>
                         {f.summary.length > 100 ? f.summary.slice(0, 100) + "…" : f.summary}
                       </span>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-[12px]">
+                      {(() => {
+                        const rca = describeRcaStatus(f.rca_status);
+                        return (
+                          <span className={rca.className} title={rca.title}>
+                            {rca.label}
+                          </span>
+                        );
+                      })()}
                     </td>
                   </tr>
                 ))}

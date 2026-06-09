@@ -8,6 +8,7 @@ export interface Detector {
   prompt: string;
   outputSchema: Array<{ name: string; type: string }>;
   sampleRate: number;
+  enableRca: boolean;
   detectionModel: string | null;
   detectionProvider: string | null;
   detectionSource: "system" | "byok" | null;
@@ -39,6 +40,7 @@ export interface CreateDetectorInput {
   prompt: string;
   outputSchema: Array<{ name: string; type: string }>;
   sampleRate?: number;
+  enableRca?: boolean;
   triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
   detectionModel?: string;
   detectionProvider?: string;
@@ -83,6 +85,7 @@ export interface UpdateDetectorInput {
   name?: string;
   prompt?: string;
   sampleRate?: number;
+  enableRca?: boolean;
   triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
   detectionModel?: string;
   detectionProvider?: string;
