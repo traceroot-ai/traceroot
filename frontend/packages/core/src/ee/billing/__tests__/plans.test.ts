@@ -3,10 +3,12 @@ import {
   AI_RUN_QUOTAS,
   RCA_RUN_QUOTAS,
   DETECTOR_RUN_QUOTAS,
+  USAGE_CONFIG,
   PlanType,
   isAiRunBlocked,
   isRcaRunBlocked,
   isDetectorRunBlocked,
+  isIngestionBlocked,
 } from "../plans.js";
 
 describe("RCA_RUN_QUOTAS", () => {
@@ -60,6 +62,40 @@ describe("DETECTOR_RUN_QUOTAS", () => {
     expect(DETECTOR_RUN_QUOTAS[PlanType.STARTER].included).toBe(Infinity);
     expect(DETECTOR_RUN_QUOTAS[PlanType.PRO].included).toBe(Infinity);
     expect(DETECTOR_RUN_QUOTAS[PlanType.ENTERPRISE].included).toBe(Infinity);
+  });
+});
+
+describe("isIngestionBlocked", () => {
+  beforeEach(() => {
+    vi.stubEnv("ENABLE_BILLING", "true");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("Free: blocked at exactly the 50k span cap (hard cap)", () => {
+    const cap = USAGE_CONFIG.includedUnits;
+    expect(isIngestionBlocked(PlanType.FREE, 0)).toBe(false);
+    expect(isIngestionBlocked(PlanType.FREE, cap - 1)).toBe(false);
+    expect(isIngestionBlocked(PlanType.FREE, cap)).toBe(true);
+    expect(isIngestionBlocked(PlanType.FREE, cap + 100_000)).toBe(true);
+  });
+
+  // Regression: the free→paid upgrade case. A workspace that tripped the Free
+  // cap (ingestion_blocked=true) and upgraded must NOT remain blocked — paid
+  // ingestion overage is billed via Stripe, never hard-blocked. Mirrors the
+  // paid-plan unblock branch already present for AI/RCA/detector.
+  it("Paid plans: never blocked, even far above the free cap", () => {
+    const wayOverFreeCap = USAGE_CONFIG.includedUnits * 100;
+    expect(isIngestionBlocked(PlanType.STARTER, wayOverFreeCap)).toBe(false);
+    expect(isIngestionBlocked(PlanType.PRO, wayOverFreeCap)).toBe(false);
+    expect(isIngestionBlocked(PlanType.ENTERPRISE, wayOverFreeCap)).toBe(false);
+  });
+
+  it("respects ENABLE_BILLING=false (unblocks all)", () => {
+    vi.stubEnv("ENABLE_BILLING", "false");
+    expect(isIngestionBlocked(PlanType.FREE, 9_999_999)).toBe(false);
   });
 });
 
