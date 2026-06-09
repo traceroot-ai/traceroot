@@ -42,7 +42,6 @@ export function ProjectBreadcrumb({ projectId, current }: ProjectBreadcrumbProps
 
   useEffect(() => {
     const breadcrumbItems: BreadcrumbItem[] = [
-      { label: "Workspaces", href: "/workspaces" },
       {
         label: workspace?.name || "...",
         href: project?.workspace_id ? `/workspaces/${project.workspace_id}/projects` : undefined,
@@ -50,8 +49,9 @@ export function ProjectBreadcrumb({ projectId, current }: ProjectBreadcrumbProps
           id: ws.id,
           label: ws.name,
           href: workspaceSwitchHref(pathname, ws.id),
+          settingsHref: `/workspaces/${ws.id}/settings`,
         })),
-        selectedId: project?.workspace_id,
+        menuHeader: { label: "Workspaces", href: "/workspaces" },
         createNew: { label: "New workspace", onSelect: () => setCreateWorkspaceOpen(true) },
       },
       {
@@ -61,8 +61,12 @@ export function ProjectBreadcrumb({ projectId, current }: ProjectBreadcrumbProps
           id: p.id,
           label: p.name,
           href: projectSwitchHref(pathname, p.id),
+          settingsHref: `/projects/${p.id}/settings`,
         })),
-        selectedId: projectId,
+        menuHeader: {
+          label: "Projects",
+          href: `/workspaces/${project?.workspace_id}/projects`,
+        },
         createNew: { label: "New project", onSelect: () => setCreateProjectOpen(true) },
       },
     ];

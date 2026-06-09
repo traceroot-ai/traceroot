@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Check, ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ChevronDown, Plus, Settings, Slash } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -14,6 +15,8 @@ export interface BreadcrumbDropdownOption {
   id: string;
   label: string;
   href: string;
+  /** Optional settings page for the entity, shown as a gear on the row. */
+  settingsHref?: string;
 }
 
 export interface BreadcrumbItem {
@@ -21,8 +24,8 @@ export interface BreadcrumbItem {
   href?: string;
   /** When provided (and non-empty), the segment renders as a dropdown selector. */
   options?: BreadcrumbDropdownOption[];
-  /** Option id shown as the current selection at the top of the dropdown. */
-  selectedId?: string;
+  /** Bold first menu item linking to the entity list page (e.g. "Workspaces"). */
+  menuHeader?: { label: string; href: string };
   /** Optional create action at the bottom of the dropdown (e.g. "New workspace"). */
   createNew?: { label: string; onSelect: () => void };
 }
@@ -44,27 +47,26 @@ interface BreadcrumbProps {
  * ```
  *
  * Items with `options` render as a dropdown selector instead of a plain
- * link; selecting an option navigates to its href. Dropdown segments
- * stretch to the full header height so the panel opens flush with the
- * top bar, with the current selection pinned at the top of the panel.
+ * link: a bold header link, a scrollable entity list with per-entity
+ * settings shortcuts, and an optional create action.
  */
 export function Breadcrumb({ items }: BreadcrumbProps) {
   return (
-    <div className="flex h-full min-w-0 items-stretch gap-0.5 text-[13px]">
+    <div className="flex min-w-0 items-center gap-1.5 text-[13px]">
       {items.map((item, index) => (
-        <span key={index} className="flex min-w-0 items-center gap-0.5">
-          {index > 0 && <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />}
+        <span key={index} className="flex min-w-0 items-center gap-1.5">
+          {index > 0 && <Slash className="h-3 w-3 shrink-0 text-muted-foreground/50" />}
           {item.options && item.options.length > 0 ? (
             <BreadcrumbDropdown item={item} />
           ) : item.href ? (
             <Link
               href={item.href}
-              className="flex h-full items-center px-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="text-muted-foreground transition-colors hover:text-foreground"
             >
               {item.label}
             </Link>
           ) : (
-            <span className="truncate px-1.5 py-1 font-medium">{item.label}</span>
+            <span className="truncate font-medium">{item.label}</span>
           )}
         </span>
       ))}
@@ -73,38 +75,61 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
 }
 
 function BreadcrumbDropdown({ item }: { item: BreadcrumbItem }) {
-  const selected = item.options?.find((option) => option.id === item.selectedId);
-  const others = item.options?.filter((option) => option.id !== item.selectedId);
+  const router = useRouter();
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="group flex h-full min-w-0 items-center gap-1 px-2 font-medium outline-none transition-colors hover:bg-accent focus-visible:bg-accent data-[state=open]:bg-accent">
+      <DropdownMenuTrigger className="flex min-w-0 items-center gap-1 font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring">
         <span className="truncate">{item.label}</span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-180" />
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" sideOffset={0} className="w-64 rounded-none p-0 shadow-lg">
-        {selected && (
+      <DropdownMenuContent align="start" className="rounded-none">
+        {item.menuHeader && (
           <>
-            <div className="flex items-center gap-2 bg-accent/50 px-3 py-2.5 text-[13px] font-medium">
-              <span className="flex-1 truncate">{selected.label}</span>
-              <Check className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            </div>
-            <DropdownMenuSeparator className="m-0" />
+            <DropdownMenuItem asChild className="rounded-none text-[13px] font-semibold">
+              <Link href={item.menuHeader.href}>{item.menuHeader.label}</Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
           </>
         )}
-        {others?.map((option) => (
-          <DropdownMenuItem key={option.id} asChild className="rounded-none px-3 py-2 text-[13px]">
-            <Link href={option.href}>
-              <span className="flex-1 truncate">{option.label}</span>
-            </Link>
-          </DropdownMenuItem>
-        ))}
+        <div className="max-h-36 overflow-y-auto">
+          {item.options?.map((option) => (
+            <DropdownMenuItem key={option.id} asChild className="rounded-none text-[13px]">
+              <Link href={option.href} className="flex justify-between">
+                <span className="max-w-36 truncate" title={option.label}>
+                  {option.label}
+                </span>
+                {option.settingsHref && (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      router.push(option.settingsHref!);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        router.push(option.settingsHref!);
+                      }
+                    }}
+                    className="-my-0.5 ml-4 flex h-6 w-6 items-center justify-center text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+                  >
+                    <Settings size={12} />
+                  </span>
+                )}
+              </Link>
+            </DropdownMenuItem>
+          ))}
+        </div>
         {item.createNew && (
           <>
-            <DropdownMenuSeparator className="m-0" />
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               onSelect={item.createNew.onSelect}
-              className="rounded-none px-3 py-2 text-[13px] text-muted-foreground"
+              className="rounded-none text-[13px]"
             >
               <Plus className="h-3.5 w-3.5 shrink-0" />
               {item.createNew.label}

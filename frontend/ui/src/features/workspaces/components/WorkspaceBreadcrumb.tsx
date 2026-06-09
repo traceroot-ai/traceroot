@@ -35,7 +35,6 @@ export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrum
 
   useEffect(() => {
     const breadcrumbItems: BreadcrumbItem[] = [
-      { label: "Workspaces", href: "/workspaces" },
       {
         label: workspace?.name || "...",
         href: current ? `/workspaces/${workspaceId}/projects` : undefined,
@@ -43,8 +42,9 @@ export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrum
           id: ws.id,
           label: ws.name,
           href: workspaceSwitchHref(pathname, ws.id),
+          settingsHref: `/workspaces/${ws.id}/settings`,
         })),
-        selectedId: workspaceId,
+        menuHeader: { label: "Workspaces", href: "/workspaces" },
         createNew: { label: "New workspace", onSelect: () => setCreateWorkspaceOpen(true) },
       },
     ];
