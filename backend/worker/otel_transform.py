@@ -600,16 +600,32 @@ def transform_otel_to_clickhouse(
 
                 if not parent_span_id:
                     # Root span: always use its values if present (overwrites child values)
-                    trace_attrs[trace_id]["user_id"] = span_user_id or trace_attrs[trace_id]["user_id"]
-                    trace_attrs[trace_id]["session_id"] = span_session_id or trace_attrs[trace_id]["session_id"]
-                    trace_attrs[trace_id]["git_ref"] = span_git_ref or trace_attrs[trace_id]["git_ref"]
-                    trace_attrs[trace_id]["git_repo"] = span_git_repo or trace_attrs[trace_id]["git_repo"]
+                    trace_attrs[trace_id]["user_id"] = (
+                        span_user_id or trace_attrs[trace_id]["user_id"]
+                    )
+                    trace_attrs[trace_id]["session_id"] = (
+                        span_session_id or trace_attrs[trace_id]["session_id"]
+                    )
+                    trace_attrs[trace_id]["git_ref"] = (
+                        span_git_ref or trace_attrs[trace_id]["git_ref"]
+                    )
+                    trace_attrs[trace_id]["git_repo"] = (
+                        span_git_repo or trace_attrs[trace_id]["git_repo"]
+                    )
                 else:
                     # Child span: only set if not already set (first child wins)
-                    trace_attrs[trace_id]["user_id"] = trace_attrs[trace_id]["user_id"] or span_user_id
-                    trace_attrs[trace_id]["session_id"] = trace_attrs[trace_id]["session_id"] or span_session_id
-                    trace_attrs[trace_id]["git_ref"] = trace_attrs[trace_id]["git_ref"] or span_git_ref
-                    trace_attrs[trace_id]["git_repo"] = trace_attrs[trace_id]["git_repo"] or span_git_repo
+                    trace_attrs[trace_id]["user_id"] = (
+                        trace_attrs[trace_id]["user_id"] or span_user_id
+                    )
+                    trace_attrs[trace_id]["session_id"] = (
+                        trace_attrs[trace_id]["session_id"] or span_session_id
+                    )
+                    trace_attrs[trace_id]["git_ref"] = (
+                        trace_attrs[trace_id]["git_ref"] or span_git_ref
+                    )
+                    trace_attrs[trace_id]["git_repo"] = (
+                        trace_attrs[trace_id]["git_repo"] or span_git_repo
+                    )
 
                 # Eager trace creation:
                 # Create a "shallow" trace record on the FIRST span we see for
