@@ -6,22 +6,30 @@ import {
   Users,
   Layers,
   ChevronRight,
-  CircleDollarSign,
   AlertCircle,
   GitBranch,
   GitCommitHorizontal,
   FileCode,
+  Loader2,
 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { formatDuration, formatDate, buildUrlWithFilters } from "@/lib/utils";
 import { TokenChip } from "./TokenChip";
+import { CostChip } from "./CostChip";
 import { SpanStatus } from "@traceroot/core";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
-import { getSpanDuration, getTraceDuration, getTraceTotalCost, getTraceTokenUsage } from "../utils";
+import {
+  getSpanDuration,
+  getTraceDuration,
+  getTraceTotalCost,
+  getTraceTokenUsage,
+  getTraceCostBreakdown,
+} from "../utils";
 import { SpanKindIcon } from "./SpanKindIcon";
 import { ContentRenderer } from "./ContentRenderer";
 import { ExpandableSection } from "@/components/ui/expandable-section";
+import { useSpanIO } from "../hooks";
 
 interface SpanInfoPanelProps {
   projectId: string;
@@ -59,9 +67,18 @@ export function SpanInfoPanel({
   const kind = isTrace ? "trace" : selection.span.span_kind;
   const duration = isTrace ? getTraceDuration(trace) : getSpanDuration(selection.span);
   const timestamp = isTrace ? trace.trace_start_time : selection.span.span_start_time;
-  const input = isTrace ? trace.input : selection.span.input;
-  const output = isTrace ? trace.output : selection.span.output;
-  const rawMetadata = isTrace ? trace.metadata : selection.span.metadata;
+  // Per-span I/O is fetched lazily (the trace skeleton no longer ships it).
+  // Trace-level I/O still lives on the trace object and needs no fetch.
+  const selectedSpanId = isTrace ? null : selection.span.span_id;
+  const { data: spanIO, isLoading: isLoadingIO } = useSpanIO(
+    projectId,
+    trace.trace_id,
+    selectedSpanId,
+  );
+
+  const input = isTrace ? trace.input : (spanIO?.input ?? null);
+  const output = isTrace ? trace.output : (spanIO?.output ?? null);
+  const rawMetadata = isTrace ? trace.metadata : (spanIO?.metadata ?? null);
   const metadata = (() => {
     if (!rawMetadata) return rawMetadata;
     try {
@@ -77,6 +94,7 @@ export function SpanInfoPanel({
 
   // Trace-level aggregates
   const traceTotalCost = isTrace ? getTraceTotalCost(trace) : null;
+  const traceCostDetails = isTrace ? getTraceCostBreakdown(trace) : null;
   const traceTokenUsage = isTrace ? getTraceTokenUsage(trace) : null;
 
   // Error status
@@ -86,6 +104,18 @@ export function SpanInfoPanel({
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
   };
+
+  // Show a spinner while a selected span's I/O is in flight; trace-level I/O is
+  // already loaded so it never spins.
+  const renderIOContent = (content: string | null) =>
+    !isTrace && isLoadingIO ? (
+      <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Loading…
+      </div>
+    ) : (
+      <ContentRenderer key={selectionId} content={content} />
+    );
 
   return (
     <div className="h-full overflow-y-auto">
@@ -134,11 +164,8 @@ export function SpanInfoPanel({
               reasoningTokens={traceTokenUsage.reasoningTokens}
             />
           )}
-          {isTrace && traceTotalCost && (
-            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-              <CircleDollarSign className="h-3 w-3 text-muted-foreground" />
-              <span className="font-medium">{traceTotalCost.toFixed(6)}</span>
-            </div>
+          {isTrace && traceTotalCost != null && (
+            <CostChip cost={traceTotalCost} costDetails={traceCostDetails} />
           )}
           {!isTrace && selection.span.model_name && (
             <div className="inline-flex items-center rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground">
@@ -155,11 +182,8 @@ export function SpanInfoPanel({
               reasoningTokens={selection.span.usage_details?.reasoning_tokens}
             />
           )}
-          {!isTrace && selection.span.cost != null && Number.isFinite(selection.span.cost) && (
-            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-              <CircleDollarSign className="h-3 w-3 text-muted-foreground" />
-              <span className="font-medium">{selection.span.cost.toFixed(6)}</span>
-            </div>
+          {!isTrace && (
+            <CostChip cost={selection.span.cost} costDetails={selection.span.cost_details} />
           )}
         </div>
 
@@ -296,7 +320,7 @@ export function SpanInfoPanel({
           defaultOpen={true}
           onCopy={input ? () => copyToClipboard(input) : undefined}
         >
-          <ContentRenderer key={selectionId} content={input} />
+          {renderIOContent(input)}
         </ExpandableSection>
 
         {/* Output */}
@@ -305,7 +329,7 @@ export function SpanInfoPanel({
           defaultOpen={true}
           onCopy={output ? () => copyToClipboard(output) : undefined}
         >
-          <ContentRenderer key={selectionId} content={output} />
+          {renderIOContent(output)}
         </ExpandableSection>
 
         {/* Metadata */}
@@ -314,7 +338,7 @@ export function SpanInfoPanel({
           defaultOpen={true}
           onCopy={metadata ? () => copyToClipboard(metadata) : undefined}
         >
-          <ContentRenderer key={selectionId} content={metadata} />
+          {renderIOContent(metadata)}
         </ExpandableSection>
       </div>
     </div>

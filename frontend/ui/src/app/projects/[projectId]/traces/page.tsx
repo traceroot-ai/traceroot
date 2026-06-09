@@ -43,6 +43,12 @@ export default function TracesPage() {
   const { isPending: authPending } = useAuthSession();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
+  // Set when a trace is opened in a new tab via the panel's "open in new tab"
+  // button, so the panel mounts already expanded to full width. Held as state
+  // (not a derived value) so it only seeds the first trace opened from the URL:
+  // once the user closes the panel, opening another trace defaults back to the
+  // unexpanded width rather than re-expanding from the lingering URL param.
+  const [startFullscreen, setStartFullscreen] = useState(searchParams.get("fullscreen") === "1");
 
   // Use URL-synced state management hook (shares date filter with other pages)
   const {
@@ -349,35 +355,35 @@ export default function TracesPage() {
         </div>
       </div>
 
-      {/* Detail panel - overlays header, takes 70% width, slides in from right */}
+      {/* Detail panel — TraceViewerPanel renders its own fixed slide-in overlay */}
       {selectedTraceId && (
-        <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl">
-          <TraceViewerPanel
-            projectId={projectId}
-            traceId={selectedTraceId}
-            onClose={() => setSelectedTraceId(null)}
-            onNavigate={(direction) => {
-              const currentIndex = traces.findIndex(
-                (t: TraceListItem) => t.trace_id === selectedTraceId,
-              );
-              if (direction === "up" && currentIndex > 0) {
-                setSelectedTraceId(traces[currentIndex - 1].trace_id);
-              } else if (direction === "down" && currentIndex < traces.length - 1) {
-                setSelectedTraceId(traces[currentIndex + 1].trace_id);
-              }
-            }}
-            canNavigateUp={
-              traces.findIndex((t: TraceListItem) => t.trace_id === selectedTraceId) > 0
+        <TraceViewerPanel
+          projectId={projectId}
+          traceId={selectedTraceId}
+          onClose={() => {
+            setSelectedTraceId(null);
+            setStartFullscreen(false);
+          }}
+          onNavigate={(direction) => {
+            const currentIndex = traces.findIndex(
+              (t: TraceListItem) => t.trace_id === selectedTraceId,
+            );
+            if (direction === "up" && currentIndex > 0) {
+              setSelectedTraceId(traces[currentIndex - 1].trace_id);
+            } else if (direction === "down" && currentIndex < traces.length - 1) {
+              setSelectedTraceId(traces[currentIndex + 1].trace_id);
             }
-            canNavigateDown={
-              traces.findIndex((t: TraceListItem) => t.trace_id === selectedTraceId) <
-              traces.length - 1
-            }
-            dateFilter={state.dateFilter}
-            customStartDate={state.customStartDate}
-            customEndDate={state.customEndDate}
-          />
-        </div>
+          }}
+          canNavigateUp={traces.findIndex((t: TraceListItem) => t.trace_id === selectedTraceId) > 0}
+          canNavigateDown={
+            traces.findIndex((t: TraceListItem) => t.trace_id === selectedTraceId) <
+            traces.length - 1
+          }
+          dateFilter={state.dateFilter}
+          customStartDate={state.customStartDate}
+          customEndDate={state.customEndDate}
+          initialFullscreen={startFullscreen}
+        />
       )}
     </div>
   );

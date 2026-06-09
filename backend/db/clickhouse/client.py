@@ -25,6 +25,14 @@ class ClickHouseClient:
             username=ch.user,
             password=ch.password,
             database=ch.database,
+            # Disable the sticky server-side session so this shared singleton client
+            # can serve concurrent queries (the two-phase trace view fans out a
+            # skeleton + many per-span /io requests at once). Otherwise clickhouse-
+            # connect raises "concurrent queries within the same session". Our usage
+            # is stateless reads/inserts/DDL — no temp tables or session SETs — so
+            # this is a no-op semantically — just the standard sessionless, pooled
+            # shared-client pattern used by mature ClickHouse-backed services.
+            autogenerate_session_id=False,
         )
         return cls(client)
 

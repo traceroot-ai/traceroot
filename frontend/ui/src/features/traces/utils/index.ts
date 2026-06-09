@@ -38,7 +38,9 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
   for (const span of spans) {
     if (!span.parent_span_id) continue;
 
-    const meta = parseMetadata(span.metadata);
+    // Skeleton spans omit metadata (parseMetadata(null|undefined) → {}); live
+    // SSE spans still carry it, so enrichment keeps working from live events.
+    const meta = parseMetadata(span.metadata ?? null);
     const idsPath = meta["traceroot.span.ids_path"] as string[] | undefined;
     const namePath = meta["traceroot.span.path"] as string[] | undefined;
 
@@ -296,4 +298,60 @@ export function getTraceTokenUsage(trace: TraceDetail): {
     inputTokens: hasInput ? acc.inputTokens : null,
     outputTokens: hasOutput ? acc.outputTokens : null,
   };
+}
+
+// Cost breakdown categories stored in cost_details. Used by
+// getTraceCostBreakdown to aggregate across spans; summarizeCostDetails reads
+// these same keys explicitly.
+const COST_DETAIL_KEYS = [
+  "input_uncached_cost",
+  "cache_read_cost",
+  "cache_write_cost",
+  "output_cost",
+] as const;
+
+/**
+ * Group a span's (or a merged trace's) per-category cost_details into the
+ * input/output sections shown in the cost breakdown popup. Input
+ * cost is the sum of uncached, cache-read and cache-write costs; total is input +
+ * output. Missing keys default to 0.
+ */
+export function summarizeCostDetails(details: Record<string, number> | undefined | null): {
+  inputUncachedCost: number;
+  cacheReadCost: number;
+  cacheWriteCost: number;
+  inputCost: number;
+  outputCost: number;
+  total: number;
+} {
+  const inputUncachedCost = details?.input_uncached_cost ?? 0;
+  const cacheReadCost = details?.cache_read_cost ?? 0;
+  const cacheWriteCost = details?.cache_write_cost ?? 0;
+  const outputCost = details?.output_cost ?? 0;
+  const inputCost = inputUncachedCost + cacheReadCost + cacheWriteCost;
+  return {
+    inputUncachedCost,
+    cacheReadCost,
+    cacheWriteCost,
+    inputCost,
+    outputCost,
+    total: inputCost + outputCost,
+  };
+}
+
+/**
+ * Sum each cost_details category across a trace's spans for the trace-level cost
+ * popup (mirrors getTraceTokenUsage). Returns null when no span reports a
+ * breakdown, so the trace cost chip renders without a popup.
+ */
+export function getTraceCostBreakdown(trace: TraceDetail): Record<string, number> | null {
+  const spansWithDetails = trace.spans.filter(
+    (s) => s.cost_details && Object.keys(s.cost_details).length > 0,
+  );
+  if (spansWithDetails.length === 0) return null;
+  const merged: Record<string, number> = {};
+  for (const key of COST_DETAIL_KEYS) {
+    merged[key] = spansWithDetails.reduce((sum, s) => sum + (s.cost_details?.[key] ?? 0), 0);
+  }
+  return merged;
 }

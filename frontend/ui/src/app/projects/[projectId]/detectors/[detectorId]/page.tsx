@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, Flag, History } from "lucide-react";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
@@ -20,8 +20,15 @@ const tabs = [
 export default function DetectorDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const projectId = params.projectId as string;
   const detectorId = params.detectorId as string;
+
+  // Deep-link params: set when a trace is popped out into a new tab from the
+  // panel's "open in new tab" button, so it reopens here in the detector tab.
+  const traceIdFromUrl = searchParams.get("traceId");
+  const [startFullscreen, setStartFullscreen] = useState(searchParams.get("fullscreen") === "1");
+  const [didAutoOpen, setDidAutoOpen] = useState(false);
 
   const [activeTab, setActiveTab] = useState("findings");
   const [selectedFinding, setSelectedFinding] = useState<BackendFinding | null>(null);
@@ -64,6 +71,18 @@ export default function DetectorDetailPage() {
       setSelectedFinding(null);
     }
   }, [findings, selectedFinding]);
+
+  // Deep-link: when arriving with ?traceId=... (popped out from another tab),
+  // open that finding's trace once the findings list has loaded. Runs once, so
+  // closing the panel doesn't reopen it.
+  useEffect(() => {
+    if (didAutoOpen || !traceIdFromUrl) return;
+    const match = findings.find((f) => f.trace_id === traceIdFromUrl);
+    if (match) {
+      setSelectedFinding(match);
+      setDidAutoOpen(true);
+    }
+  }, [didAutoOpen, traceIdFromUrl, findings]);
 
   const selectedIndex = selectedFinding
     ? findings.findIndex((f) => f.finding_id === selectedFinding.finding_id)
@@ -297,22 +316,25 @@ export default function DetectorDetailPage() {
         />
       </div>
 
-      {/* Detail panel — fixed overlay sliding in from right, same pattern as traces page */}
+      {/* Detail panel — TraceViewerPanel renders its own fixed slide-in overlay */}
       {selectedFinding && (
-        <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl">
-          <TraceViewerPanel
-            projectId={projectId}
-            traceId={selectedFinding.trace_id}
-            onClose={() => setSelectedFinding(null)}
-            onNavigate={handleNavigate}
-            canNavigateUp={selectedIndex > 0}
-            canNavigateDown={selectedIndex < findings.length - 1}
-            dateFilter={state.dateFilter}
-            customStartDate={state.customStartDate}
-            customEndDate={state.customEndDate}
-            autoOpenRca={true}
-          />
-        </div>
+        <TraceViewerPanel
+          projectId={projectId}
+          traceId={selectedFinding.trace_id}
+          onClose={() => {
+            setSelectedFinding(null);
+            setStartFullscreen(false);
+          }}
+          onNavigate={handleNavigate}
+          canNavigateUp={selectedIndex > 0}
+          canNavigateDown={selectedIndex < findings.length - 1}
+          dateFilter={state.dateFilter}
+          customStartDate={state.customStartDate}
+          customEndDate={state.customEndDate}
+          autoOpenRca={true}
+          initialFullscreen={startFullscreen}
+          newTabPath={`/projects/${projectId}/detectors/${detectorId}`}
+        />
       )}
     </div>
   );
