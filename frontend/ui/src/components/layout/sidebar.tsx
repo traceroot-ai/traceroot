@@ -23,6 +23,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 import { GitHubStarWidget } from "@/components/layout/GitHubStarWidget";
+import { SidebarUpgradeButton } from "@/components/layout/SidebarUpgradeButton";
+import { getProjectContext } from "@/components/layout/project-context";
 import { clientEnv } from "@/env.client";
 
 function getInitials(name?: string | null, email?: string | null): string {
@@ -224,6 +226,11 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
 
         {/* Bottom section */}
         <div>
+          {/* Upgrade button - only show when in project context */}
+          {isProject && projectId && (
+            <SidebarUpgradeButton projectId={projectId} collapsed={collapsed} />
+          )}
+
           {/* Star widget */}
           {!collapsed && <GitHubStarWidget />}
 
