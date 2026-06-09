@@ -7,6 +7,7 @@ import { useTheme } from "next-themes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   LayoutGrid,
+  LayoutDashboard,
   LifeBuoy,
   ChevronRight,
   Github,
@@ -170,6 +171,26 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 {collapsed && (
                   <TooltipContent side="right" sideOffset={16}>
                     Detectors
+                  </TooltipContent>
+                )}
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/projects/${projectId}/dashboard`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.includes("/dashboard") ? "bg-muted" : "hover:bg-muted/50",
+                    )}
+                  >
+                    <LayoutDashboard className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && "Dashboard"}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    Dashboard
                   </TooltipContent>
                 )}
               </Tooltip>
