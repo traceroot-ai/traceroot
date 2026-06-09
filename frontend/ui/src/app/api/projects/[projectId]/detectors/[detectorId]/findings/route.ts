@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { prisma } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, errorResponse } from "@/lib/auth-helpers";
 import { env } from "@/env";
 
@@ -54,5 +55,35 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   }
 
   const data: unknown = await response.json();
+
+  // Enrich each finding with its stored RCA status (one batched Postgres
+  // lookup) so the findings table can show whether the agent analysis ran.
+  // Same source of truth as the trace viewer's Alert gating: a DetectorRca row
+  // exists iff RCA ran; an absent row means it was skipped (RCA disabled on
+  // every detector that fired). Best-effort: on lookup failure the field is
+  // simply absent and the UI renders "—" rather than a misleading "Skipped".
+  if (response.ok && data !== null && typeof data === "object") {
+    const findings = (data as { data?: unknown }).data;
+    if (Array.isArray(findings)) {
+      const ids = findings
+        .map((f) => (f as { finding_id?: unknown }).finding_id)
+        .filter((id): id is string => typeof id === "string");
+      if (ids.length > 0) {
+        try {
+          const rcas = await prisma.detectorRca.findMany({
+            where: { findingId: { in: ids } },
+            select: { findingId: true, status: true },
+          });
+          const statusByFinding = new Map(rcas.map((r) => [r.findingId, r.status]));
+          for (const f of findings as Array<Record<string, unknown>>) {
+            f.rca_status = statusByFinding.get(f.finding_id as string) ?? null;
+          }
+        } catch (err) {
+          console.error("[findings proxy] RCA status lookup failed:", err);
+        }
+      }
+    }
+  }
+
   return Response.json(data, { status: response.status });
 }
