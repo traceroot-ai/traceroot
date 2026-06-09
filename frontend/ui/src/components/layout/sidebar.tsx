@@ -22,18 +22,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 import { GitHubStarWidget } from "@/components/layout/GitHubStarWidget";
+import { SidebarUpgradeButton } from "@/components/layout/SidebarUpgradeButton";
+import { getProjectContext } from "@/components/layout/project-context";
 import { clientEnv } from "@/env.client";
-
-// Check if we're in a project context by looking at the path structure
-function getProjectContext(pathname: string): { isProject: boolean; projectId: string | null } {
-  // Check if path starts with /projects/[projectId]
-  const projectMatch = pathname.match(/^\/projects\/([^/]+)/);
-  if (projectMatch) {
-    return { isProject: true, projectId: projectMatch[1] };
-  }
-
-  return { isProject: false, projectId: null };
-}
 
 function getInitials(name?: string | null, email?: string | null): string {
   if (name) {
@@ -203,6 +194,11 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
 
         {/* Bottom section */}
         <div>
+          {/* Upgrade button - only show when in project context */}
+          {isProject && projectId && (
+            <SidebarUpgradeButton projectId={projectId} collapsed={collapsed} />
+          )}
+
           {/* Star widget */}
           {!collapsed && <GitHubStarWidget />}
 
