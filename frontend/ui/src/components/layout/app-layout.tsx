@@ -130,7 +130,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 shrink-0"
+                  className="h-auto w-10 shrink-0 self-stretch rounded-none"
                   onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
                 >
                   <PanelLeft className="h-4 w-4" />
