@@ -116,11 +116,14 @@ export function TraceViewerPanel({
 
   // Detector findings → Alert button + auto-open RCA chat when entered from
   // the findings page. The trace-level finding (at most one per trace) carries
-  // the RCA session the worker already populated.
+  // the RCA session the worker already populated. The Alert button opens that
+  // analysis, so it only renders when an RCA record exists — a finding from an
+  // RCA-disabled detector has no analysis to open (gate on the record, not the
+  // sessionId, so the button doesn't flicker while the RCA is still pending).
   const { data: traceFindingsData } = useTraceFindings(projectId, traceId);
   const traceFinding = traceFindingsData?.findings?.[0];
-  const hasFindings = !!traceFinding;
   const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
+  const hasRca = !!traceFinding && !!rcaData?.rca;
   const rcaSessionId = rcaData?.rca?.sessionId ?? undefined;
 
   // Auto-open chat with RCA session loaded when arriving from /detectors.
@@ -228,7 +231,7 @@ export function TraceViewerPanel({
             <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
           </div>
           <div className="flex items-center gap-1">
-            {hasFindings && (
+            {hasRca && (
               <button
                 type="button"
                 onClick={() => {
