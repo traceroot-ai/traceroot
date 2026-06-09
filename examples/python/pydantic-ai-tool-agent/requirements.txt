@@ -2,4 +2,4 @@ pydantic-ai>=0.2.0
 openai>=1.0.0
 python-dotenv>=1.0.0
 
-traceroot>=0.1.6
+traceroot==0.1.7
