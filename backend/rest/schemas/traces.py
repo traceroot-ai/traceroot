@@ -7,8 +7,17 @@ from pydantic import BaseModel
 from rest.schemas.common import PaginationMeta
 
 
-class SpanResponse(BaseModel):
-    """Single span in a trace."""
+class SpanSkeletonResponse(BaseModel):
+    """Span skeleton — tree-building / display fields only, no I/O blobs.
+
+    Used by the trace-detail endpoint so the initial payload stays sub-MB
+    regardless of trace size. Full I/O (input/output/metadata) is fetched
+    per-span on demand via the dedicated ``/spans/{span_id}/io`` endpoint.
+
+    Note: the token/cost breakdown maps (``usage_details``/``cost_details``)
+    stay on the skeleton — they are small and drive the tree's token/cost
+    chips. Only the large free-text I/O blobs are omitted.
+    """
 
     span_id: str
     trace_id: str
@@ -24,15 +33,21 @@ class SpanResponse(BaseModel):
     input_tokens: int | None
     output_tokens: int | None
     total_tokens: int | None
-    # Generic token breakdown (e.g. cache_read_tokens, cache_write_tokens,
-    # reasoning_tokens) — a map so new provider dimensions need no schema change.
     usage_details: dict[str, int] = {}
-    input: str | None
-    output: str | None
-    metadata: str | None
+    cost_details: dict[str, float] = {}
     git_source_file: str | None = None
     git_source_line: int | None = None
     git_source_function: str | None = None
+
+
+class SpanIOResponse(BaseModel):
+    """Full I/O payload for a single span, fetched on demand."""
+
+    span_id: str
+    trace_id: str
+    input: str | None
+    output: str | None
+    metadata: str | None
 
 
 class TraceListItem(BaseModel):
@@ -62,7 +77,7 @@ class TraceListResponse(BaseModel):
 
 
 class TraceDetailResponse(BaseModel):
-    """Single trace with all spans."""
+    """Single trace with span skeletons (no per-span I/O)."""
 
     trace_id: str
     project_id: str
@@ -75,4 +90,4 @@ class TraceDetailResponse(BaseModel):
     input: str | None
     output: str | None
     metadata: str | None
-    spans: list[SpanResponse]
+    spans: list[SpanSkeletonResponse]
