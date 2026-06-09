@@ -33,7 +33,7 @@ export function ProjectBreadcrumb({ projectId, current }: ProjectBreadcrumbProps
       { label: "Workspaces", href: "/workspaces" },
       {
         label: workspace?.name || "...",
-        href: `/workspaces/${project?.workspace_id}/projects`,
+        href: project?.workspace_id ? `/workspaces/${project.workspace_id}/projects` : undefined,
       },
       {
         label: project?.name || "...",
