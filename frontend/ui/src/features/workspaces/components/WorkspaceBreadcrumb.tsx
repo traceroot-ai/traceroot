@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
 import { Breadcrumb, BreadcrumbItem } from "@/components/layout/breadcrumb";
 import { useWorkspace, useWorkspaces } from "../hooks";
 import { workspaceSwitchHref } from "../utils";
+import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
 
 interface WorkspaceBreadcrumbProps {
   workspaceId: string;
@@ -16,8 +17,8 @@ interface WorkspaceBreadcrumbProps {
 /**
  * Breadcrumb component for workspace context pages.
  * Automatically fetches workspace data and sets the header.
- * The workspace segment is a dropdown selector for quick switching;
- * selecting a workspace keeps the current sub-page.
+ * The workspace segment is a dropdown selector for quick switching and
+ * creation; selecting a workspace keeps the current sub-page.
  *
  * Usage:
  * ```tsx
@@ -30,6 +31,7 @@ export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrum
   const pathname = usePathname();
   const { data: workspace } = useWorkspace(workspaceId);
   const { data: workspaces } = useWorkspaces();
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
 
   useEffect(() => {
     const breadcrumbItems: BreadcrumbItem[] = [
@@ -43,6 +45,7 @@ export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrum
           href: workspaceSwitchHref(pathname, ws.id),
         })),
         selectedId: workspaceId,
+        createNew: { label: "New workspace", onSelect: () => setCreateWorkspaceOpen(true) },
       },
     ];
 
@@ -54,5 +57,5 @@ export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrum
     return () => setHeaderContent(null);
   }, [setHeaderContent, workspace, workspaces, workspaceId, current, pathname]);
 
-  return null;
+  return <CreateWorkspaceDialog open={createWorkspaceOpen} onOpenChange={setCreateWorkspaceOpen} />;
 }
