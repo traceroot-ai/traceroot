@@ -1,0 +1,43 @@
+{
+  "name": "traceroot-cli",
+  "version": "0.1.0",
+  "description": "TraceRoot CLI — read-only CLI for inspecting traces, spans, and service health",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "traceroot": "./bin/traceroot.mjs"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src test",
+    "lint:fix": "eslint src test --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build",
+    "pretest": "npm run build"
+  },
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.5.0",
+    "typescript": "^5.8.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^3.2.0"
+  }
+}

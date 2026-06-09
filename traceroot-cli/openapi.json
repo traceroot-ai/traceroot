@@ -1,0 +1,24 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "TraceRoot Public API",
+    "version": "0.1.0",
+    "description": "Vendored snapshot of the TraceRoot public OpenAPI schema.\nThis file is updated by scripts/update-openapi.sh (see #1084)."
+  },
+  "paths": {},
+  "components": {
+    "schemas": {},
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "PAT"
+      }
+    }
+  },
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ]
+}
