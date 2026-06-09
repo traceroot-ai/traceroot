@@ -59,7 +59,7 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
           ) : item.href ? (
             <Link
               href={item.href}
-              className="px-1.5 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="flex h-full items-center px-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               {item.label}
             </Link>
