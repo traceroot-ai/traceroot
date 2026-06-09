@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createWorkspace } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -37,13 +38,15 @@ export function CreateWorkspaceDialog({
   };
   const [name, setName] = useState("");
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const createMutation = useMutation({
     mutationFn: (name: string) => createWorkspace(name),
-    onSuccess: () => {
+    onSuccess: (workspace) => {
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       setOpen(false);
       setName("");
+      router.push(`/workspaces/${workspace.id}/projects`);
     },
   });
 
