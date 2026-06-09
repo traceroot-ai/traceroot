@@ -39,7 +39,7 @@ export function PricingDialog({
     if (action.type === "none") return;
 
     if (action.type === "contact-sales") {
-      window.open("https://cal.com/traceroot/30min", "_blank");
+      window.open("https://cal.com/traceroot/30min", "_blank", "noopener,noreferrer");
       return;
     }
 
