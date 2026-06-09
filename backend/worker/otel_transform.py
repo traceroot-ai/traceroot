@@ -559,11 +559,15 @@ def transform_otel_to_clickhouse(
                     if existing is None or depth < existing[0]:
                         _trace_name_candidates[trace_id] = (depth, candidate_name)
 
+                git_ref = span_attrs.get("traceroot.git.ref")
+                git_repo = span_attrs.get("traceroot.git.repo")
+                if git_ref is not None and traces[trace_id].get("git_ref") is None:
+                    traces[trace_id]["git_ref"] = git_ref
+                if git_repo is not None and traces[trace_id].get("git_repo") is None:
+                    traces[trace_id]["git_repo"] = git_repo
+
                 if not parent_span_id:
                     # Root span arrived — upgrade to full trace with rich metadata
-                    git_ref = span_attrs.get("traceroot.git.ref")
-                    git_repo = span_attrs.get("traceroot.git.repo")
-
                     traces[trace_id].update(
                         {
                             "trace_start_time": start_time,
@@ -575,10 +579,6 @@ def transform_otel_to_clickhouse(
 
                     if environment is not None:
                         traces[trace_id]["environment"] = environment
-                    if git_ref is not None:
-                        traces[trace_id]["git_ref"] = git_ref
-                    if git_repo is not None:
-                        traces[trace_id]["git_repo"] = git_repo
 
                     # Extract trace-level metadata
                     trace_metadata = span_attrs.get("traceroot.trace.metadata")
