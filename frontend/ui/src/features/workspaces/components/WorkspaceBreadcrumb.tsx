@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
 import { Breadcrumb, BreadcrumbItem } from "@/components/layout/breadcrumb";
-import { useWorkspace } from "../hooks";
+import { useWorkspace, useWorkspaces } from "../hooks";
+import { workspaceSwitchHref } from "../utils";
 
 interface WorkspaceBreadcrumbProps {
   workspaceId: string;
@@ -14,6 +16,8 @@ interface WorkspaceBreadcrumbProps {
 /**
  * Breadcrumb component for workspace context pages.
  * Automatically fetches workspace data and sets the header.
+ * The workspace segment is a dropdown selector for quick switching;
+ * selecting a workspace keeps the current sub-page.
  *
  * Usage:
  * ```tsx
@@ -23,7 +27,9 @@ interface WorkspaceBreadcrumbProps {
  */
 export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrumbProps) {
   const { setHeaderContent } = useLayout();
+  const pathname = usePathname();
   const { data: workspace } = useWorkspace(workspaceId);
+  const { data: workspaces } = useWorkspaces();
 
   useEffect(() => {
     const breadcrumbItems: BreadcrumbItem[] = [
@@ -31,6 +37,12 @@ export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrum
       {
         label: workspace?.name || "...",
         href: current ? `/workspaces/${workspaceId}/projects` : undefined,
+        options: workspaces?.map((ws) => ({
+          id: ws.id,
+          label: ws.name,
+          href: workspaceSwitchHref(pathname, ws.id),
+        })),
+        selectedId: workspaceId,
       },
     ];
 
@@ -40,7 +52,7 @@ export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrum
 
     setHeaderContent(<Breadcrumb items={breadcrumbItems} />);
     return () => setHeaderContent(null);
-  }, [setHeaderContent, workspace, workspaceId, current]);
+  }, [setHeaderContent, workspace, workspaces, workspaceId, current, pathname]);
 
   return null;
 }
