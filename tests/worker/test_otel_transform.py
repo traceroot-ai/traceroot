@@ -326,6 +326,51 @@ class TestTransformOtelToClickhouse:
         assert traces[0].get("git_repo") == "traceroot-ai/traceroot"
         assert traces[0].get("git_ref") == "main"
 
+    def test_git_repo_ref_from_root_span(self):
+        """Root span git_ref/git_repo populate the trace record."""
+        trace_hex = "aa" * 16
+        root_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    root_hex,
+                    attributes=[
+                        make_attr("traceroot.git.repo", "traceroot-ai/traceroot"),
+                        make_attr("traceroot.git.ref", "main"),
+                    ],
+                ),
+            ]
+        )
+        traces, _ = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert traces[0].get("git_repo") == "traceroot-ai/traceroot"
+        assert traces[0].get("git_ref") == "main"
+
+    def test_git_repo_ref_child_arrives_before_root_in_same_batch(self):
+        """Child span sets git attrs; root span in same batch should not overwrite with None."""
+        trace_hex = "aa" * 16
+        root_hex = "bb" * 8
+        child_hex = "cc" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    child_hex,
+                    parent_span_id_hex=root_hex,
+                    attributes=[
+                        make_attr("traceroot.git.repo", "traceroot-ai/traceroot"),
+                        make_attr("traceroot.git.ref", "main"),
+                    ],
+                ),
+                make_span(trace_hex, root_hex),
+            ]
+        )
+        traces, _ = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert traces[0].get("git_repo") == "traceroot-ai/traceroot"
+        assert traces[0].get("git_ref") == "main"
+
     def test_skip_span_with_missing_ids(self):
         """Spans without traceId/spanId are skipped."""
         payload = {
