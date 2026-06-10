@@ -2,14 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { println, eprintln, printError, printWarn, notImplemented, fatal } from "../src/output.js";
 
 describe("output helpers", () => {
-  let stdoutSpy: ReturnType<typeof vi.spyOn>;
-  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let stdoutSpy: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let stderrSpy: any;
 
   beforeEach(() => {
     stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    vi.spyOn(process, "exit").mockImplementation((_code?: number) => {
-      throw new Error(`process.exit(${_code ?? "undefined"})`);
+    vi.spyOn(process, "exit").mockImplementation((code?: string | number | null) => {
+      throw new Error(`process.exit(${code ?? "undefined"})`);
     });
   });
 

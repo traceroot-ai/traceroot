@@ -87,10 +87,10 @@ traceroot-cli/
 
 | Issue                      | Topic                                    |
 | -------------------------- | ---------------------------------------- |
-| [#1082](../../issues/1082) | This scaffold                            |
-| [#1083](../../issues/1083) | Config, auth resolution, output contract |
-| [#1084](../../issues/1084) | OpenAPI codegen                          |
-| [#1089](../../issues/1089) | Epic                                     |
+| [#1082](https://github.com/traceroot-ai/traceroot/issues/1082) | This scaffold                            |
+| [#1083](https://github.com/traceroot-ai/traceroot/issues/1083) | Config, auth resolution, output contract |
+| [#1084](https://github.com/traceroot-ai/traceroot/issues/1084) | OpenAPI codegen                          |
+| [#1089](https://github.com/traceroot-ai/traceroot/issues/1089) | Epic                                     |
 
 ## License
 
