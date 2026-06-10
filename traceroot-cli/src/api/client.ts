@@ -69,9 +69,17 @@ export class ApiClient {
     if (!response.ok) {
       let errBody: unknown;
       try {
-        errBody = await response.json();
+        // Read as text first — response.json() consumes the body stream,
+        // making a subsequent .text() call throw.  Non-JSON bodies (HTML
+        // error pages, plain text) are common from proxies and gateways.
+        const raw = await response.text();
+        try {
+          errBody = JSON.parse(raw);
+        } catch {
+          errBody = raw;
+        }
       } catch {
-        errBody = await response.text();
+        // Body already consumed or network error — leave as undefined.
       }
       throw new ApiError(response.status, response.statusText, errBody);
     }
