@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createProject } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -19,21 +20,37 @@ import {
 interface CreateProjectDialogProps {
   workspaceId: string;
   trigger?: React.ReactNode;
+  /** Controlled mode: when provided, no trigger is rendered. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function CreateProjectDialog({ workspaceId, trigger }: CreateProjectDialogProps) {
-  const [open, setOpen] = useState(false);
+export function CreateProjectDialog({
+  workspaceId,
+  trigger,
+  open: controlledOpen,
+  onOpenChange,
+}: CreateProjectDialogProps) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : uncontrolledOpen;
+  const setOpen = (next: boolean) => {
+    if (!isControlled) setUncontrolledOpen(next);
+    onOpenChange?.(next);
+  };
   const [name, setName] = useState("");
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const createMutation = useMutation({
     mutationFn: (name: string) => createProject(workspaceId, name),
-    onSuccess: () => {
+    onSuccess: (project) => {
       queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] });
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       queryClient.invalidateQueries({ queryKey: ["projects", workspaceId] });
       setOpen(false);
       setName("");
+      router.push(`/projects/${project.id}/traces`);
     },
   });
 
@@ -46,7 +63,9 @@ export function CreateProjectDialog({ workspaceId, trigger }: CreateProjectDialo
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger || <AddButton>New Project</AddButton>}</DialogTrigger>
+      {!isControlled && (
+        <DialogTrigger asChild>{trigger || <AddButton>New Project</AddButton>}</DialogTrigger>
+      )}
       <DialogContent>
         <form onSubmit={handleSubmit}>
           <DialogHeader>

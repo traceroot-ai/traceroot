@@ -17,11 +17,3 @@ export interface WorkspaceCardProps {
     create_time: string;
   };
 }
-
-/**
- * Props for CreateWorkspaceDialog component
- */
-export interface CreateWorkspaceDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}
