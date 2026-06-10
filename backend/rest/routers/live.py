@@ -20,10 +20,16 @@ router = APIRouter(prefix="/projects/{project_id}/traces/{trace_id}", tags=["Liv
 
 HEARTBEAT_INTERVAL = 15  # seconds
 MAX_STREAM_SECONDS = 600  # 10 minutes — hard ceiling for idle connections
+TRACE_COMPLETE_QUIET_SECONDS = 5
 
 
 def _is_trace_complete_in_clickhouse(project_id: str, trace_id: str) -> bool:
-    """Return True if ClickHouse has a root span (no parent) with an end_time for this trace."""
+    """Return True if ClickHouse has a root span with an end time for this trace.
+
+    This is a completion candidate, not proof that no more descendant spans can
+    arrive. Some streaming handlers finish the root span before background work
+    emits its children.
+    """
     from db.clickhouse.client import get_clickhouse_client
 
     ch_client = get_clickhouse_client()
@@ -51,12 +57,12 @@ async def live_trace_stream(
 
     The client receives:
     - `event: spans` with span data as each batch is ingested
-    - `event: trace_complete` when the root span finishes
+    - `event: trace_complete` after root completion and a short quiet window
     - Heartbeat comments every 15s to keep the connection alive
 
-    For traces that are already complete when the client connects, this
-    endpoint detects that via ClickHouse and emits trace_complete immediately,
-    after forwarding any span events that arrived on Redis concurrently.
+    A root span with an end time is treated as a completion candidate. The
+    stream stays open for a short quiet window so late descendant spans still
+    reach the client before trace_complete closes the frontend stream.
     """
 
     async def event_generator():
@@ -72,50 +78,66 @@ async def live_trace_stream(
             await pubsub.subscribe(channel)
             logger.info(f"SSE client subscribed to {channel}")
 
-            # Check whether the trace is already done in ClickHouse.
+            # Check whether ClickHouse already has a root span with an end time.
+            # That starts the quiet window, but it does not immediately close the
+            # stream: distributed traces can still receive descendant spans after
+            # the root wrapper has finished.
             already_complete = await asyncio.to_thread(
                 _is_trace_complete_in_clickhouse, project_id, trace_id
             )
 
-            if already_complete:
-                # Forward any span events that were published to Redis while we
-                # were doing the ClickHouse check (concurrent Celery tasks).
-                # These spans are guaranteed to be in ClickHouse already because
-                # process_s3_traces always writes to ClickHouse before publishing
-                # to Redis.
-                while True:
-                    msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=0)
-                    if msg is None:
-                        break
-                    if msg["type"] == "message":
-                        data = json.loads(msg["data"])
-                        if data.get("type") == "spans":
-                            yield f"event: spans\ndata: {msg['data']}\n\n"
+            completion_deadline = (
+                time.monotonic() + TRACE_COMPLETE_QUIET_SECONDS
+                if already_complete
+                else None
+            )
 
-                yield "event: trace_complete\ndata: {}\n\n"
-                return
-
-            # Live trace: stream normally until trace_complete or timeout.
+            # Live trace: stream until a completion candidate remains quiet long
+            # enough, or until the hard timeout.
             deadline = time.monotonic() + MAX_STREAM_SECONDS
 
             while time.monotonic() < deadline:
                 if await request.is_disconnected():
                     break
 
+                now = time.monotonic()
+                if completion_deadline is not None:
+                    quiet_remaining = completion_deadline - now
+                    if quiet_remaining <= 0:
+                        yield "event: trace_complete\ndata: {}\n\n"
+                        return
+                    timeout = min(HEARTBEAT_INTERVAL, quiet_remaining)
+                else:
+                    timeout = HEARTBEAT_INTERVAL
+
                 message = await pubsub.get_message(
                     ignore_subscribe_messages=True,
-                    timeout=HEARTBEAT_INTERVAL,
+                    timeout=timeout,
                 )
 
                 if message is not None and message["type"] == "message":
                     data = json.loads(message["data"])
                     event_type = data.get("type", "spans")
 
+                    if event_type == "trace_complete":
+                        completion_deadline = (
+                            time.monotonic() + TRACE_COMPLETE_QUIET_SECONDS
+                        )
+                        continue
+
                     yield f"event: {event_type}\ndata: {message['data']}\n\n"
 
-                    if event_type == "trace_complete":
-                        break
+                    if event_type == "spans" and completion_deadline is not None:
+                        completion_deadline = (
+                            time.monotonic() + TRACE_COMPLETE_QUIET_SECONDS
+                        )
                 else:
+                    if (
+                        completion_deadline is not None
+                        and time.monotonic() >= completion_deadline
+                    ):
+                        yield "event: trace_complete\ndata: {}\n\n"
+                        return
                     yield ": heartbeat\n\n"
             else:
                 yield "event: stream_timeout\ndata: {}\n\n"
