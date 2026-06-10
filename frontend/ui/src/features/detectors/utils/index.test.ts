@@ -97,6 +97,21 @@ describe("mergeDetectorIntoForm", () => {
     expect(merged.name).toBe("Renamed");
   });
 
+  it("keeps the user's edited conditions while applying server values elsewhere", () => {
+    const userConditions = [{ field: "status", op: "eq", value: "error" }];
+    const form = { ...baseForm, conditions: userConditions };
+    const merged = mergeDetectorIntoForm(baseForm, next, form);
+    expect(merged.conditions).toEqual(userConditions);
+    expect(merged.enableRca).toBe(false);
+  });
+
+  it("takes the server's conditions when the form left them untouched", () => {
+    const serverConditions = [{ field: "latency", op: "gt", value: 5000 }];
+    const serverNext = { ...baseForm, conditions: serverConditions };
+    const merged = mergeDetectorIntoForm(baseForm, serverNext, { ...baseForm });
+    expect(merged.conditions).toEqual(serverConditions);
+  });
+
   it("keeps all three detection fields when the user touched the model selector", () => {
     const form = { ...baseForm, detectionModel: "model-b" };
     const serverNext = {

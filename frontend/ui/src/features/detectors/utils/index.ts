@@ -25,7 +25,7 @@ export function detectorToFormValues(d: Detector): DetectorFormValues {
     detectionModel: d.detectionModel ?? "",
     detectionProvider: d.detectionProvider ?? "",
     detectionSource: d.detectionSource === "byok" ? "byok" : "system",
-    conditions: (d.trigger?.conditions ?? []) as DetectorFormValues["conditions"],
+    conditions: d.trigger?.conditions ?? [],
   };
 }
 
