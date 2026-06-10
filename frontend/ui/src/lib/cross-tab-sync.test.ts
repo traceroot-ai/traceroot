@@ -49,12 +49,15 @@ describe("isQueryInvalidationMessage", () => {
     expect(isQueryInvalidationMessage({ type: "invalidate", queryKey: ["detectors"] })).toBe(true);
   });
 
-  it.each([null, "invalidate", { type: "invalidate" }, { type: "other", queryKey: [] }])(
-    "rejects malformed data: %j",
-    (data) => {
-      expect(isQueryInvalidationMessage(data)).toBe(false);
-    },
-  );
+  it.each([
+    null,
+    "invalidate",
+    { type: "invalidate" },
+    { type: "other", queryKey: ["detectors"] },
+    { type: "invalidate", queryKey: [] },
+  ])("rejects malformed data: %j", (data) => {
+    expect(isQueryInvalidationMessage(data)).toBe(false);
+  });
 });
 
 describe("broadcastQueryInvalidation", () => {

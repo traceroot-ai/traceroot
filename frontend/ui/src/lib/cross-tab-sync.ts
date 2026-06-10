@@ -13,7 +13,10 @@ export function isQueryInvalidationMessage(data: unknown): data is QueryInvalida
     typeof data === "object" &&
     data !== null &&
     (data as { type?: unknown }).type === "invalidate" &&
-    Array.isArray((data as { queryKey?: unknown }).queryKey)
+    Array.isArray((data as { queryKey?: unknown }).queryKey) &&
+    // An empty key would prefix-match every query and refetch the whole
+    // cache; no legitimate broadcaster sends it.
+    (data as { queryKey: unknown[] }).queryKey.length > 0
   );
 }
 
