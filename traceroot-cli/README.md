@@ -85,8 +85,8 @@ traceroot-cli/
 
 ## Related issues
 
-| Issue                      | Topic                                    |
-| -------------------------- | ---------------------------------------- |
+| Issue                                                          | Topic                                    |
+| -------------------------------------------------------------- | ---------------------------------------- |
 | [#1082](https://github.com/traceroot-ai/traceroot/issues/1082) | This scaffold                            |
 | [#1083](https://github.com/traceroot-ai/traceroot/issues/1083) | Config, auth resolution, output contract |
 | [#1084](https://github.com/traceroot-ai/traceroot/issues/1084) | OpenAPI codegen                          |
