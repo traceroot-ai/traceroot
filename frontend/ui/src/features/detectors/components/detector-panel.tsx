@@ -91,11 +91,12 @@ export function DetectorPanel({
     setEditConditions(values.conditions as TriggerCondition[]);
   };
 
-  // Snapshot of the server state the form was last populated from. Save
-  // diffs against it so only user-changed fields are PATCHed, and refetches
-  // merge against it so untouched fields update live (e.g. another tab
-  // toggling RCA) without clobbering in-progress edits.
-  const loadedRef = useRef<DetectorFormValues | null>(null);
+  // Snapshot of the server state the form was last populated from, tagged
+  // with the detector id it belongs to. Save diffs against it so only
+  // user-changed fields are PATCHed, and refetches merge against it so
+  // untouched fields update live (e.g. another tab toggling RCA) without
+  // clobbering in-progress edits.
+  const loadedRef = useRef<{ id: string; values: DetectorFormValues } | null>(null);
 
   // When the loaded detector matches the requested id, populate or merge.
   // Otherwise clear: the panel's Next/Prev arrow can change `detectorId`
@@ -106,8 +107,22 @@ export function DetectorPanel({
     if (detector && detector.id === detectorId) {
       const next = detectorToFormValues(detector);
       const previous = loadedRef.current;
-      applyForm(previous ? mergeDetectorIntoForm(previous, next, readForm()) : next);
-      loadedRef.current = next;
+      if (previous && previous.id === detector.id) {
+        // Skip when the payload is unchanged. This also covers StrictMode's
+        // dev double-invoke: the re-run sees identical data while the form
+        // state from the first run hasn't committed yet, and merging then
+        // would read empty initial values and blank the form.
+        if (JSON.stringify(next) !== JSON.stringify(previous.values)) {
+          applyForm(mergeDetectorIntoForm(previous.values, next, readForm()));
+          loadedRef.current = { id: detector.id, values: next };
+        }
+      } else {
+        // First load, or navigation to a different detector (possibly served
+        // instantly from the query cache): populate fresh. Merging across
+        // detectors would leak one detector's edits into another.
+        applyForm(next);
+        loadedRef.current = { id: detector.id, values: next };
+      }
     } else {
       applyForm(emptyForm);
       loadedRef.current = null;
@@ -127,10 +142,13 @@ export function DetectorPanel({
     // Guard against saving while the new detector's data is still loading.
     // Edit state would be the previous detector's, but the mutation targets
     // the current detectorId; without this guard, stale values would
-    // overwrite the new detector. The Save button is also disabled in this
-    // state — this is defense-in-depth.
-    if (!detector || detector.id !== detectorId || !loadedRef.current) return;
-    const patch = buildDetectorPatch(loadedRef.current, readForm());
+    // overwrite the new detector. The Save button is also disabled for the
+    // detector check — this is defense-in-depth. The snapshot check below
+    // handles the one-frame window before the populate effect has run.
+    if (!detector || detector.id !== detectorId) return;
+    const loaded = loadedRef.current;
+    if (!loaded || loaded.id !== detectorId) return;
+    const patch = buildDetectorPatch(loaded.values, readForm());
     if (Object.keys(patch).length === 0) {
       onClose();
       return;

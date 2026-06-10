@@ -73,7 +73,9 @@ export function buildDetectorPatch(
  * snapshot) takes the server's new value; a touched field keeps the user's.
  * The three detection fields move as a group because the model selector sets
  * them together — merging them independently could pair a model with a
- * provider nobody chose.
+ * provider nobody chose. Known tradeoff: a field edited back to its original
+ * value is indistinguishable from untouched, so a concurrent remote change
+ * to that field will be adopted rather than preserved as-was.
  */
 export function mergeDetectorIntoForm(
   previous: DetectorFormValues,
