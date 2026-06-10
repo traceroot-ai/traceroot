@@ -79,7 +79,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
       <div
         className={cn(
           "flex h-screen shrink-0 flex-col border-r bg-background transition-all duration-200",
-          collapsed ? "w-14" : "w-40",
+          collapsed ? "w-14" : "w-48",
         )}
       >
         {isImpersonating && (

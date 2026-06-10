@@ -65,7 +65,7 @@ export function GitHubStarWidget() {
           <X className="h-3 w-3" />
         </button>
       </div>
-      <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
+      <p className="mb-2 text-balance text-[11px] leading-snug text-muted-foreground">
         Open source and shipping fast.
         <br />
         Made with ❤️ by contributors.
@@ -76,7 +76,7 @@ export function GitHubStarWidget() {
         rel="noopener noreferrer"
         className="flex w-full overflow-hidden rounded border border-border text-[11px] font-medium transition-colors hover:bg-muted/50"
       >
-        <span className="flex items-center gap-1 px-1.5 py-1">
+        <span className="flex flex-1 items-center justify-center gap-1 px-1.5 py-1">
           <Github className="h-3 w-3 shrink-0" />
           traceroot
         </span>
