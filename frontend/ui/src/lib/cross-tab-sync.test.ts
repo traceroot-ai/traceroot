@@ -31,6 +31,14 @@ class FakeBroadcastChannel {
   }
 }
 
+// The implementation no-ops outside the browser (Node also has a global
+// BroadcastChannel), so active-path tests must stub `window` alongside the
+// fake channel.
+function stubBrowserEnvironment() {
+  vi.stubGlobal("window", {});
+  vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
+}
+
 afterEach(() => {
   FakeBroadcastChannel.instances = [];
   vi.unstubAllGlobals();
@@ -51,7 +59,7 @@ describe("isQueryInvalidationMessage", () => {
 
 describe("broadcastQueryInvalidation", () => {
   it("posts the message on the shared channel and closes it", () => {
-    vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
+    stubBrowserEnvironment();
     broadcastQueryInvalidation(["detectors"]);
     const channel = FakeBroadcastChannel.instances[0];
     expect(channel.name).toBe(QUERY_SYNC_CHANNEL);
@@ -60,14 +68,21 @@ describe("broadcastQueryInvalidation", () => {
   });
 
   it("is a no-op when BroadcastChannel is unavailable", () => {
+    vi.stubGlobal("window", {});
     vi.stubGlobal("BroadcastChannel", undefined);
     expect(() => broadcastQueryInvalidation(["detectors"])).not.toThrow();
+  });
+
+  it("does not open a channel outside the browser even when BroadcastChannel exists", () => {
+    vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
+    broadcastQueryInvalidation(["detectors"]);
+    expect(FakeBroadcastChannel.instances).toHaveLength(0);
   });
 });
 
 describe("subscribeToQueryInvalidations", () => {
   it("invokes the callback for valid messages and ignores junk", () => {
-    vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
+    stubBrowserEnvironment();
     const received: unknown[] = [];
     subscribeToQueryInvalidations((queryKey) => received.push(queryKey));
     const channel = FakeBroadcastChannel.instances[0];
@@ -77,13 +92,14 @@ describe("subscribeToQueryInvalidations", () => {
   });
 
   it("returns an unsubscribe function that closes the channel", () => {
-    vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
+    stubBrowserEnvironment();
     const unsubscribe = subscribeToQueryInvalidations(() => {});
     unsubscribe();
     expect(FakeBroadcastChannel.instances[0].closed).toBe(true);
   });
 
   it("returns a no-op unsubscribe when BroadcastChannel is unavailable", () => {
+    vi.stubGlobal("window", {});
     vi.stubGlobal("BroadcastChannel", undefined);
     expect(() => subscribeToQueryInvalidations(() => {})()).not.toThrow();
   });

@@ -25,7 +25,10 @@ export function isQueryInvalidationMessage(data: unknown): data is QueryInvalida
  * silently does nothing.
  */
 export function broadcastQueryInvalidation(queryKey: QueryKey): void {
-  if (typeof BroadcastChannel === "undefined") return;
+  // The window check matters: Node also has a global BroadcastChannel, so
+  // without it a server-side call would open a real worker_threads channel
+  // instead of the documented no-op.
+  if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return;
   try {
     const channel = new BroadcastChannel(QUERY_SYNC_CHANNEL);
     const message: QueryInvalidationMessage = { type: "invalidate", queryKey };
@@ -43,7 +46,7 @@ export function broadcastQueryInvalidation(queryKey: QueryKey): void {
 export function subscribeToQueryInvalidations(
   onInvalidate: (queryKey: QueryKey) => void,
 ): () => void {
-  if (typeof BroadcastChannel === "undefined") return () => {};
+  if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return () => {};
   let channel: BroadcastChannel;
   try {
     channel = new BroadcastChannel(QUERY_SYNC_CHANNEL);
