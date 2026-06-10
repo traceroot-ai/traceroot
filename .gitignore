@@ -190,6 +190,7 @@ traceroot.db
 # ===================
 
 /coverage
+**/coverage/
 /certs/
 test-results/
 web/test-results/*

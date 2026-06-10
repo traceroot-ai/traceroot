@@ -227,13 +227,13 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
 
         {/* Bottom section */}
         <div>
+          {/* Star widget */}
+          {!collapsed && <GitHubStarWidget />}
+
           {/* Upgrade button - only show when in project context */}
           {isProject && projectId && (
             <SidebarUpgradeButton projectId={projectId} collapsed={collapsed} />
           )}
-
-          {/* Star widget */}
-          {!collapsed && <GitHubStarWidget />}
 
           {/* GitHub link */}
           <Tooltip>
