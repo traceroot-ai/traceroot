@@ -32,11 +32,13 @@ class MockPubSub:
     def __init__(self, messages: list):
         self._messages = list(messages)
         self._idx = 0
+        self.get_message_calls = 0
         self.subscribe = AsyncMock()
         self.unsubscribe = AsyncMock()
         self.close = AsyncMock()
 
     async def get_message(self, *, ignore_subscribe_messages=True, timeout=0):
+        self.get_message_calls += 1
         if self._idx < len(self._messages):
             msg = self._messages[self._idx]
             self._idx += 1
@@ -81,6 +83,23 @@ class TestAlreadyCompleteTrace:
         assert resp.status_code == 200
         events = parse_sse_events(resp.text)
         assert events == ["event: trace_complete"]
+
+    def test_expired_quiet_window_closes_without_redis_poll(self, client):
+        """If the quiet deadline has already elapsed, completion is emitted directly."""
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        with (
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", -1),
+            patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=True),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            resp = client.get(ENDPOINT)
+
+        events = parse_sse_events(resp.text)
+        assert events == ["event: trace_complete"]
+        assert pubsub.get_message_calls == 0
 
     def test_drains_concurrent_redis_spans_before_trace_complete(self, client):
         """Spans published to Redis between subscribe and ClickHouse check must be
