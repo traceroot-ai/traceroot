@@ -61,7 +61,7 @@ function renderNode(
  * ANSI escape sequences.  Keeps printable Unicode, tabs, and spaces. */
 function sanitize(s: string): string {
   // eslint-disable-next-line no-control-regex
-  return s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+  return s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\n\r]/g, "");
 }
 
 function formatLabel(node: SpanNode): string {

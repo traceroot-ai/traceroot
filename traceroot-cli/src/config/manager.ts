@@ -50,7 +50,7 @@ export function writeConfig(config: TraceRootConfig): void {
   // Write atomically via a temp file so an interrupted write never leaves
   // a truncated config.  renameSync is atomic on the same filesystem.
   const data = JSON.stringify(config, null, 2) + "\n";
-  const tmp = CONFIG_FILE + ".tmp";
+  const tmp = CONFIG_FILE + ".tmp." + Date.now() + "." + process.pid;
   const fd = openSync(tmp, "w", 0o600);
   try {
     writeSync(fd, data, 0, "utf8");
