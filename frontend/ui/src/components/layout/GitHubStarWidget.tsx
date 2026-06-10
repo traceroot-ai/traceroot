@@ -65,7 +65,7 @@ export function GitHubStarWidget() {
           <X className="h-3 w-3" />
         </button>
       </div>
-      <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
+      <p className="mb-2 pr-6 text-[11px] leading-snug text-muted-foreground">
         Open source and shipping fast.
         <br />
         Made with ❤️ by contributors.
