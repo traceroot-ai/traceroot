@@ -64,6 +64,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
   // Project/workspace context from the matched dynamic route params
   const projectId = params?.projectId ?? null;
   const workspaceId = params?.workspaceId ?? null;
+  const { isProject } = getProjectContext(pathname);
 
   // Settings target depends on context: project settings inside a project,
   // workspace settings inside a workspace, hidden elsewhere
