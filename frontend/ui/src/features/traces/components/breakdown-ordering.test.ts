@@ -5,8 +5,9 @@ import { TokenUsageBreakdown } from "./TokenUsageBreakdown";
 import { CostBreakdown } from "./CostBreakdown";
 
 // Both panels split input into the same three categories; they must render
-// them in the same order (uncached, then cache read, then cache write) so the
-// token and dollar views line up when read side by side.
+// them with the same labels in the same order (uncached, then cache read,
+// then cache write) so the token and dollar views line up when read side by
+// side.
 function labelOrder(markup: string, labels: string[]): number[] {
   return labels.map((label) => markup.indexOf(`>${label}<`));
 }
@@ -39,11 +40,7 @@ describe("breakdown row ordering", () => {
         },
       }),
     );
-    const [uncached, read, write] = labelOrder(markup, [
-      "uncached input",
-      "cache read",
-      "cache write",
-    ]);
+    const [uncached, read, write] = labelOrder(markup, ["uncached", "cache read", "cache write"]);
     expect(uncached).toBeGreaterThan(-1);
     expect(read).toBeGreaterThan(uncached);
     expect(write).toBeGreaterThan(read);
