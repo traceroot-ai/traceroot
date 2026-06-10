@@ -87,9 +87,7 @@ async def live_trace_stream(
             )
 
             completion_deadline = (
-                time.monotonic() + TRACE_COMPLETE_QUIET_SECONDS
-                if already_complete
-                else None
+                time.monotonic() + TRACE_COMPLETE_QUIET_SECONDS if already_complete else None
             )
 
             # Live trace: stream until a completion candidate remains quiet long
@@ -120,22 +118,15 @@ async def live_trace_stream(
                     event_type = data.get("type", "spans")
 
                     if event_type == "trace_complete":
-                        completion_deadline = (
-                            time.monotonic() + TRACE_COMPLETE_QUIET_SECONDS
-                        )
+                        completion_deadline = time.monotonic() + TRACE_COMPLETE_QUIET_SECONDS
                         continue
 
                     yield f"event: {event_type}\ndata: {message['data']}\n\n"
 
                     if event_type == "spans" and completion_deadline is not None:
-                        completion_deadline = (
-                            time.monotonic() + TRACE_COMPLETE_QUIET_SECONDS
-                        )
+                        completion_deadline = time.monotonic() + TRACE_COMPLETE_QUIET_SECONDS
                 else:
-                    if (
-                        completion_deadline is not None
-                        and time.monotonic() >= completion_deadline
-                    ):
+                    if completion_deadline is not None and time.monotonic() >= completion_deadline:
                         yield "event: trace_complete\ndata: {}\n\n"
                         return
                     yield ": heartbeat\n\n"
