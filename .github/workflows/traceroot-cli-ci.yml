@@ -1,0 +1,43 @@
+name: traceroot-cli CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "traceroot-cli/**"
+      - ".github/workflows/traceroot-cli-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "traceroot-cli/**"
+      - ".github/workflows/traceroot-cli-ci.yml"
+
+jobs:
+  build:
+    name: Build, Lint & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: traceroot-cli
+    strategy:
+      matrix:
+        node-version: ["20", "22"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: traceroot-cli/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - run: npm run lint
+
+      - run: npm run format:check
+
+      - run: npm test
