@@ -75,6 +75,20 @@ describe("buildDetectorPatch", () => {
     expect(patch).toEqual({});
   });
 
+  it("includes a changed detection model, provider, and source", () => {
+    const patch = buildDetectorPatch(baseForm, {
+      ...baseForm,
+      detectionModel: "model-b",
+      detectionProvider: "provider-b",
+      detectionSource: "byok",
+    });
+    expect(patch).toEqual({
+      detectionModel: "model-b",
+      detectionProvider: "provider-b",
+      detectionSource: "byok",
+    });
+  });
+
   it("sends changed trigger conditions as triggerConditions", () => {
     const conditions = [{ field: "status", op: "eq", value: "error" }];
     const patch = buildDetectorPatch(baseForm, { ...baseForm, conditions });

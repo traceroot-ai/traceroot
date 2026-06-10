@@ -81,6 +81,19 @@ describe("broadcastQueryInvalidation", () => {
     broadcastQueryInvalidation(["detectors"]);
     expect(FakeBroadcastChannel.instances).toHaveLength(0);
   });
+
+  it("swallows a throwing channel constructor", () => {
+    vi.stubGlobal("window", {});
+    vi.stubGlobal(
+      "BroadcastChannel",
+      class {
+        constructor() {
+          throw new Error("denied");
+        }
+      },
+    );
+    expect(() => broadcastQueryInvalidation(["detectors"])).not.toThrow();
+  });
 });
 
 describe("subscribeToQueryInvalidations", () => {
@@ -104,6 +117,19 @@ describe("subscribeToQueryInvalidations", () => {
   it("returns a no-op unsubscribe when BroadcastChannel is unavailable", () => {
     vi.stubGlobal("window", {});
     vi.stubGlobal("BroadcastChannel", undefined);
+    expect(() => subscribeToQueryInvalidations(() => {})()).not.toThrow();
+  });
+
+  it("returns a no-op unsubscribe when the channel constructor throws", () => {
+    vi.stubGlobal("window", {});
+    vi.stubGlobal(
+      "BroadcastChannel",
+      class {
+        constructor() {
+          throw new Error("denied");
+        }
+      },
+    );
     expect(() => subscribeToQueryInvalidations(() => {})()).not.toThrow();
   });
 });
