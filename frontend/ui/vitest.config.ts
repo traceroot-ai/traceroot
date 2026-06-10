@@ -1,6 +1,9 @@
 import { defineConfig } from "vitest/config";
 import path from "path";
 export default defineConfig({
+  // Next.js sets tsconfig "jsx": "preserve", which esbuild would pass through
+  // untransformed; component tests need the automatic runtime instead.
+  esbuild: { jsx: "automatic" },
   test: {
     environment: "node",
     coverage: {
@@ -8,7 +11,7 @@ export default defineConfig({
       reporter: ["lcov"],
       reportsDirectory: "./coverage",
       reportOnFailure: true,
-      exclude: ["**/*.test.ts", "**/*.spec.ts", "**/*.d.ts", "**/types.ts"],
+      exclude: ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.d.ts", "**/types.ts"],
     },
   },
   resolve: {
