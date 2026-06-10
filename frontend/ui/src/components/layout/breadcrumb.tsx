@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Plus, Settings, Slash } from "lucide-react";
@@ -76,9 +77,17 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
 
 function BreadcrumbDropdown({ item }: { item: BreadcrumbItem }) {
   const router = useRouter();
+  const [open, setOpen] = useState(false);
+
+  // The gear stops propagation so the row's select (and its navigation)
+  // doesn't fire, which also skips the menu's auto-close - close explicitly.
+  const openSettings = (href: string) => {
+    setOpen(false);
+    router.push(href);
+  };
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger className="flex min-w-0 items-center gap-1 font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring">
         <span className="truncate">{item.label}</span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -106,13 +115,13 @@ function BreadcrumbDropdown({ item }: { item: BreadcrumbItem }) {
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      router.push(option.settingsHref!);
+                      openSettings(option.settingsHref!);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
                         e.stopPropagation();
-                        router.push(option.settingsHref!);
+                        openSettings(option.settingsHref!);
                       }
                     }}
                     className="-my-0.5 ml-4 flex h-6 w-6 items-center justify-center text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
