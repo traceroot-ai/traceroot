@@ -23,7 +23,7 @@
     "@earendil-works/pi-ai": "0.74.0",
     "@hono/node-server": "^1.19.13",
     "@traceroot/core": "workspace:*",
-    "hono": "^4.12.18"
+    "hono": "^4.12.21"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -31,6 +31,6 @@
     "tsx": "^4.21.0",
     "typescript": "^5.0.0",
     "vite-node": "^6.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.2.6"
   }
 }

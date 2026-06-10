@@ -23,6 +23,7 @@ import {
   isAiRunBlocked,
   isRcaRunBlocked,
   isDetectorRunBlocked,
+  isIngestionBlocked,
   DETECTOR_HOSTED_LLM_FREE_THRESHOLD,
   AI_RUN_QUOTAS,
   RCA_RUN_QUOTAS,
@@ -294,15 +295,19 @@ async function processWorkspace(
   // 4. Update blocking flags
   // =========================================================================
 
-  // 4a. Event ingestion blocking (free plan only)
-  if (isFreePlan) {
-    const shouldBeBlocked = totalEvents >= USAGE_CONFIG.includedUnits;
-    if (workspace.ingestionBlocked !== shouldBeBlocked) {
-      updateData.ingestionBlocked = shouldBeBlocked;
-      console.log(
-        `[Billing] Workspace ${workspace.id}: ${totalEvents}/${USAGE_CONFIG.includedUnits} events, blocked: ${shouldBeBlocked}`,
-      );
-    }
+  // 4a. Event ingestion blocking.
+  // Computed for ALL plans (not gated on isFreePlan): free plans hard-cap at
+  // the included span allowance, paid plans always resolve to false. Evaluating
+  // this unconditionally is what clears a stale block when a previously-blocked
+  // free workspace upgrades — gating it behind `if (isFreePlan)` left the flag
+  // stuck true forever (paid plans never re-entered the branch). Mirrors the
+  // paid-plan unblock already done for AI (4c) and RCA (4c-ter).
+  const shouldBlockIngestion = isIngestionBlocked(plan, totalEvents);
+  if (workspace.ingestionBlocked !== shouldBlockIngestion) {
+    updateData.ingestionBlocked = shouldBlockIngestion;
+    console.log(
+      `[Billing] Workspace ${workspace.id}: ${totalEvents}/${USAGE_CONFIG.includedUnits} events, ingestion_blocked: ${shouldBlockIngestion}`,
+    );
   }
 
   // 4b. AI run blocking

@@ -292,3 +292,97 @@ class TestClaudeBedrockAndVertexIds:
     def test_unrelated_model_still_none(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             assert get_model_price("totally-not-a-real-model-2099") is None
+
+
+def test_cost_from_buckets_prices_each_bucket_once():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    prices = {
+        "input": 0.000003,
+        "output": 0.000015,
+        "cacheRead": 0.0000003,
+        "cacheWrite": 0.00000375,
+    }
+    buckets = TokenBuckets(input_uncached=60, output=50, cache_read=900, cache_write=40)
+    expected = 60 * 0.000003 + 50 * 0.000015 + 900 * 0.0000003 + 40 * 0.00000375
+    assert cost_from_buckets(prices, buckets) == pytest.approx(expected)
+
+
+def test_cost_from_buckets_treats_missing_cache_rates_as_zero():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    # Model with no cache rates (e.g. OpenAI has no cacheWrite).
+    prices = {"input": 0.0000025, "output": 0.00001}
+    buckets = TokenBuckets(input_uncached=100, output=50, cache_read=900, cache_write=0)
+    expected = 100 * 0.0000025 + 50 * 0.00001  # cache_read priced at 0 (no rate)
+    assert cost_from_buckets(prices, buckets) == pytest.approx(expected)
+
+
+def test_cost_from_buckets_returns_none_without_prices():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    buckets = TokenBuckets(input_uncached=100, output=50, cache_read=0, cache_write=0)
+    assert cost_from_buckets(None, buckets) is None
+    assert cost_from_buckets({}, buckets) is None
+
+
+def test_calculate_cost_matches_cost_from_buckets_for_text_path():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import calculate_cost, cost_from_buckets
+
+    prices = {"input": 0.0000025, "output": 0.00001}
+    with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+        result = calculate_cost("gpt-4o", "hello world", "hi there")
+
+    in_tok = result["input_tokens"]
+    out_tok = result["output_tokens"]
+    expected = cost_from_buckets(
+        prices, TokenBuckets(input_uncached=in_tok, output=out_tok, cache_read=0, cache_write=0)
+    )
+    assert result["cost"] == pytest.approx(expected)
+
+
+def test_cost_breakdown_from_buckets_sums_to_cost_from_buckets():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_breakdown_from_buckets, cost_from_buckets
+
+    prices = {
+        "input": 0.000003,
+        "output": 0.000015,
+        "cacheRead": 0.0000003,
+        "cacheWrite": 0.00000375,
+    }
+    buckets = TokenBuckets(input_uncached=2000, output=1500, cache_read=6000, cache_write=2000)
+    breakdown = cost_breakdown_from_buckets(prices, buckets)
+    assert breakdown == {
+        "input_uncached_cost": pytest.approx(2000 * 0.000003),
+        "cache_read_cost": pytest.approx(6000 * 0.0000003),
+        "cache_write_cost": pytest.approx(2000 * 0.00000375),
+        "output_cost": pytest.approx(1500 * 0.000015),
+    }
+    assert sum(breakdown.values()) == pytest.approx(cost_from_buckets(prices, buckets))
+
+
+def test_cost_breakdown_from_buckets_treats_missing_cache_rates_as_zero():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_breakdown_from_buckets
+
+    prices = {"input": 0.0000025, "output": 0.00001}  # OpenAI: no cache rates
+    buckets = TokenBuckets(input_uncached=4000, output=1000, cache_read=4000, cache_write=0)
+    breakdown = cost_breakdown_from_buckets(prices, buckets)
+    assert breakdown["cache_read_cost"] == 0.0
+    assert breakdown["cache_write_cost"] == 0.0
+    assert breakdown["input_uncached_cost"] == pytest.approx(4000 * 0.0000025)
+    assert breakdown["output_cost"] == pytest.approx(1000 * 0.00001)
+
+
+def test_cost_breakdown_from_buckets_returns_none_without_prices():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_breakdown_from_buckets
+
+    buckets = TokenBuckets(input_uncached=100, output=50)
+    assert cost_breakdown_from_buckets(None, buckets) is None
+    assert cost_breakdown_from_buckets({}, buckets) is None

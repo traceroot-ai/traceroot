@@ -85,6 +85,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     detectionModel,
     detectionProvider,
     detectionSource,
+    enableRca,
   } = body as Record<string, unknown>;
 
   // Required fields must be non-empty strings (trim catches whitespace-only).
@@ -137,6 +138,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   const resolvedProvider =
     typeof detectionProvider === "string" && detectionProvider ? detectionProvider : null;
 
+  // enableRca: optional boolean, defaults true (RCA on). Reject non-booleans
+  // so "false"/0 can't silently coerce.
+  if (enableRca !== undefined && typeof enableRca !== "boolean") {
+    return errorResponse("enableRca must be a boolean", 400);
+  }
+  const resolvedEnableRca = enableRca ?? true;
+
   const detector = await prisma.detector.create({
     data: {
       projectId,
@@ -145,6 +153,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       prompt,
       outputSchema: (outputSchema as object) ?? [],
       sampleRate: resolvedSampleRate,
+      enableRca: resolvedEnableRca,
       detectionModel: resolvedModel,
       detectionProvider: resolvedProvider,
       detectionSource: sourceStr,

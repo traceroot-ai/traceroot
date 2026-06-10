@@ -35,6 +35,7 @@ export {
   isBillingEnabled,
   // Free plan blocking
   isFreePlanBlocked,
+  isIngestionBlocked,
   isAiRunBlocked,
   isRcaRunBlocked,
   isDetectorRunBlocked,

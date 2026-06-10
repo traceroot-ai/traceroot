@@ -16,6 +16,7 @@ import psycopg2
 
 from shared.config import settings
 
+from .buckets import TokenBuckets
 from .usage import count_tokens
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,57 @@ def get_model_price(model: str) -> dict[str, float] | None:
     return None
 
 
+def _bucket_cost_terms(
+    prices: dict[str, float] | None, buckets: TokenBuckets
+) -> dict[str, Decimal] | None:
+    """Per-category cost terms as exact Decimals, or None when no prices are known.
+
+    The single place the cost formula lives: each disjoint bucket priced once.
+    Missing cacheRead / cacheWrite rates are treated as 0 (e.g. OpenAI has no
+    cache-write rate). Both the total (cost_from_buckets) and the display-side
+    breakdown (cost_breakdown_from_buckets) derive from this, so they cannot diverge.
+    """
+    if not prices:
+        return None
+
+    return {
+        "input_uncached_cost": Decimal(buckets.input_uncached)
+        * Decimal(str(prices.get("input", 0))),
+        "cache_read_cost": Decimal(buckets.cache_read) * Decimal(str(prices.get("cacheRead") or 0)),
+        "cache_write_cost": Decimal(buckets.cache_write)
+        * Decimal(str(prices.get("cacheWrite") or 0)),
+        "output_cost": Decimal(buckets.output) * Decimal(str(prices.get("output", 0))),
+    }
+
+
+def cost_from_buckets(prices: dict[str, float] | None, buckets: TokenBuckets) -> float | None:
+    """Price DISJOINT token buckets — the single source of truth for total cost.
+
+    Returns None when no prices are known, so callers can leave cost unset rather
+    than recording $0. Both the inline ingest path (otel_transform.py) and
+    calculate_cost() call this, so the cost formula lives in exactly one place.
+    """
+    terms = _bucket_cost_terms(prices, buckets)
+    if terms is None:
+        return None
+    return float(sum(terms.values()))
+
+
+def cost_breakdown_from_buckets(
+    prices: dict[str, float] | None, buckets: TokenBuckets
+) -> dict[str, float] | None:
+    """Per-category dollar breakdown behind a span's single `cost`.
+
+    Returns a dict keyed input_uncached_cost / cache_read_cost / cache_write_cost /
+    output_cost, or None when no prices are known (same contract as
+    cost_from_buckets). Summing the values reproduces cost_from_buckets. Display-only.
+    """
+    terms = _bucket_cost_terms(prices, buckets)
+    if terms is None:
+        return None
+    return {key: float(value) for key, value in terms.items()}
+
+
 def calculate_cost(
     model: str,
     input_text: str | None,
@@ -135,9 +187,16 @@ def calculate_cost(
 
     prices = get_model_price(model)
     if prices:
-        # Prices are in USD per token — multiply directly
-        input_cost = Decimal(input_tokens) * Decimal(str(prices.get("input", 0)))
-        output_cost = Decimal(output_tokens) * Decimal(str(prices.get("output", 0)))
-        result["cost"] = float(input_cost + output_cost)
+        # Text estimation has no cache visibility, so cache buckets are zero.
+        # Routing through cost_from_buckets keeps one cost formula across paths.
+        result["cost"] = cost_from_buckets(
+            prices,
+            TokenBuckets(
+                input_uncached=input_tokens,
+                output=output_tokens,
+                cache_read=0,
+                cache_write=0,
+            ),
+        )
 
     return result
