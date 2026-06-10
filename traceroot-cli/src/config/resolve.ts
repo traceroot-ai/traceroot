@@ -11,6 +11,8 @@
  */
 
 import { readConfig } from "./manager.js";
+import { DEFAULT_API_URL } from "./schema.js";
+import type { TraceRootConfig } from "./schema.js";
 import { fatal } from "../output.js";
 
 export interface ResolvedAuth {
@@ -26,7 +28,15 @@ export interface ResolvedAuth {
  * Returns null when no token is available (user is unauthenticated).
  */
 export function resolveAuth(): ResolvedAuth | null {
-  const config = readConfig();
+  // Try to read config but never let a broken config file block env-auth.
+  // TRACEROOT_TOKEN has highest precedence and must work even when
+  // ~/.traceroot/config.json is missing or unreadable.
+  let config: TraceRootConfig;
+  try {
+    config = readConfig();
+  } catch {
+    config = { apiUrl: DEFAULT_API_URL };
+  }
   const apiUrl = process.env["TRACEROOT_API_URL"] || config.apiUrl;
   const workspace = process.env["TRACEROOT_WORKSPACE"] || config.workspace;
 

@@ -24,7 +24,7 @@ describe("renderTable", () => {
 
   it("includes a separator row between header and data", () => {
     const result = renderTable([{ id: "1", name: "span-a" }], COLUMNS);
-    expect(result).toMatch(/[-]+/);
+    expect(result).toMatch(/^[ -]+$/m);
   });
 
   it("includes row data in the output", () => {
