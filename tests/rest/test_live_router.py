@@ -19,6 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rest.main import app
+from rest.routers import live as live_router
 from rest.routers.deps import ProjectAccessInfo, get_project_access
 
 PROJECT_ID = "project-123"
@@ -66,6 +67,18 @@ def parse_sse_events(text: str) -> list[str]:
     return [line for line in text.splitlines() if line.startswith("event:")]
 
 
+async def collect_stream_chunks(response) -> list[str]:
+    chunks = []
+    async for chunk in response.body_iterator:
+        chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+    return chunks
+
+
+class ConnectedRequest:
+    async def is_disconnected(self):
+        return False
+
+
 class TestAlreadyCompleteTrace:
     def test_emits_trace_complete_after_quiet_window(self, client):
         """A root span with end_time starts the quiet window, then emits completion."""
@@ -100,6 +113,27 @@ class TestAlreadyCompleteTrace:
         events = parse_sse_events(resp.text)
         assert events == ["event: trace_complete"]
         assert pubsub.get_message_calls == 0
+
+    async def test_direct_generator_closes_when_quiet_deadline_expires(self):
+        """Direct generator coverage for the already-complete quiet deadline."""
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        with (
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", -1),
+            patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=True),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            response = await live_router.live_trace_stream(
+                ConnectedRequest(),
+                PROJECT_ID,
+                TRACE_ID,
+                ProjectAccessInfo(project_id=PROJECT_ID, user_id="u1", role="ADMIN"),
+            )
+            chunks = await collect_stream_chunks(response)
+
+        assert chunks == ["event: trace_complete\ndata: {}\n\n"]
 
     def test_drains_concurrent_redis_spans_before_trace_complete(self, client):
         """Spans published to Redis between subscribe and ClickHouse check must be
@@ -141,6 +175,28 @@ class TestAlreadyCompleteTrace:
 
         events = parse_sse_events(resp.text)
         assert events.count("event: trace_complete") == 1
+
+    async def test_direct_generator_complete_message_starts_quiet_window(self):
+        """A live trace_complete message starts a quiet window before closing."""
+        complete_msg = redis_message({"type": "trace_complete"})
+        pubsub = MockPubSub([complete_msg])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        with (
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.01),
+            patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=False),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            response = await live_router.live_trace_stream(
+                ConnectedRequest(),
+                PROJECT_ID,
+                TRACE_ID,
+                ProjectAccessInfo(project_id=PROJECT_ID, user_id="u1", role="ADMIN"),
+            )
+            chunks = await collect_stream_chunks(response)
+
+        assert chunks == ["event: trace_complete\ndata: {}\n\n"]
 
 
 class TestLiveTrace:
