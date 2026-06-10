@@ -72,7 +72,7 @@ class TestAlreadyCompleteTrace:
         mock_redis.pubsub.return_value = pubsub
 
         with (
-            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.01),
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
             patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=True),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
@@ -96,7 +96,7 @@ class TestAlreadyCompleteTrace:
         mock_redis.pubsub.return_value = pubsub
 
         with (
-            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.01),
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
             patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=True),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
@@ -114,7 +114,7 @@ class TestAlreadyCompleteTrace:
         mock_redis.pubsub.return_value = pubsub
 
         with (
-            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.01),
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
             patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=True),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
@@ -135,7 +135,7 @@ class TestLiveTrace:
         mock_redis.pubsub.return_value = pubsub
 
         with (
-            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.01),
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
             patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=False),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
@@ -155,7 +155,7 @@ class TestLiveTrace:
         mock_redis.pubsub.return_value = pubsub
 
         with (
-            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.01),
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
             patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=False),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
@@ -174,7 +174,7 @@ class TestLiveTrace:
         mock_redis.pubsub.return_value = pubsub
 
         with (
-            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.01),
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
             patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=False),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
