@@ -1,4 +1,4 @@
-import { prisma } from "../lib/prisma.js";
+import { prisma } from "../lib/prisma.ts";
 import standardModels from "../standard-model-prices.json" with { type: "json" };
 
 interface StandardModelEntry {
