@@ -41,6 +41,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     name: project.name,
     trace_ttl_days: project.traceTtlDays,
     rca_model: project.rcaModel,
+    rca_provider: project.rcaProvider,
+    rca_source: project.rcaSource,
     alert_emails: project.alertConfig?.emailAddresses ?? [],
     access_key_count: project._count.accessKeys,
     create_time: project.createTime,

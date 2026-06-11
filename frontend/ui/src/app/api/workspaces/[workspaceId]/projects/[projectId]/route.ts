@@ -12,6 +12,8 @@ const updateProjectSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long").optional(),
   trace_ttl_days: z.number().int().min(1).max(365).nullable().optional(),
   rca_model: z.string().min(1).max(200).nullable().optional(),
+  rca_provider: z.string().min(1).max(200).nullable().optional(),
+  rca_source: z.string().min(1).max(200).nullable().optional(),
   alert_emails: z.array(z.string().email().max(254)).max(50).optional(),
 });
 
@@ -59,6 +61,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     name: project.name,
     trace_ttl_days: project.traceTtlDays,
     rca_model: project.rcaModel,
+    rca_provider: project.rcaProvider,
+    rca_source: project.rcaSource,
     alert_emails: project.alertConfig?.emailAddresses ?? [],
     access_keys: project.accessKeys.map((k) => ({
       id: k.id,
@@ -109,7 +113,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     return errorResponse(result.error.issues[0].message, 400);
   }
 
-  const { name, trace_ttl_days, rca_model, alert_emails } = result.data;
+  const { name, trace_ttl_days, rca_model, rca_provider, rca_source, alert_emails } = result.data;
 
   // Check for duplicate name if name is being changed
   if (name && name !== existingProject.name) {
@@ -133,6 +137,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       ...(name !== undefined && { name }),
       ...(trace_ttl_days !== undefined && { traceTtlDays: trace_ttl_days }),
       ...(rca_model !== undefined && { rcaModel: rca_model }),
+      ...(rca_provider !== undefined && { rcaProvider: rca_provider }),
+      ...(rca_source !== undefined && { rcaSource: rca_source }),
       ...(alert_emails !== undefined && {
         alertConfig: {
           upsert: {
@@ -151,6 +157,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     name: project.name,
     trace_ttl_days: project.traceTtlDays,
     rca_model: project.rcaModel,
+    rca_provider: project.rcaProvider,
+    rca_source: project.rcaSource,
     alert_emails: project.alertConfig?.emailAddresses ?? [],
     update_time: project.updateTime,
   });

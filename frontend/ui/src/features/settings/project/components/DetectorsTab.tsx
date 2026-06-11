@@ -34,7 +34,12 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
 
   useEffect(() => {
     if (project) {
-      setAgentModelSelection((prev) => ({ ...prev, model: project.rca_model ?? "" }));
+      setAgentModelSelection((prev) => ({
+        ...prev,
+        model: project.rca_model ?? "",
+        provider: project.rca_provider ?? "",
+        source: (project.rca_source as "system" | "byok") ?? "system",
+      }));
       setEmailAddresses(project.alert_emails ?? []);
     }
   }, [project]);
@@ -44,6 +49,8 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
       if (!project) throw new Error("Project not found");
       return updateProject(project.workspace_id!, projectId, {
         rca_model: selection.model || null,
+        rca_provider: selection.provider || null,
+        rca_source: selection.source === "byok" ? "byok" : "system",
       });
     },
     onSuccess: () => {
@@ -63,7 +70,10 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
     },
   });
 
-  const isModelDirty = agentModelSelection.model !== (project?.rca_model ?? "");
+  const isModelDirty =
+    agentModelSelection.model !== (project?.rca_model ?? "") ||
+    agentModelSelection.provider !== (project?.rca_provider ?? "") ||
+    agentModelSelection.source !== (project?.rca_source ?? "system");
   const savedEmails = project?.alert_emails ?? [];
   const isEmailsDirty =
     emailAddresses.length !== savedEmails.length ||

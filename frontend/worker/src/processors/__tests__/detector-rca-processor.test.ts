@@ -125,9 +125,20 @@ describe("resolveProjectModel", () => {
     modelProviderFindMany.mockReset();
   });
 
+  it("resolves model directly when rcaProvider and rcaSource are provided", async () => {
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const res = await resolveProjectModel("my-custom-model", "my-provider", "byok", "ws-123");
+    expect(res).toEqual({
+      model: "my-custom-model",
+      providerName: "my-provider",
+      source: "byok",
+    });
+    expect(modelProviderFindMany).not.toHaveBeenCalled();
+  });
+
   it("resolves a system model correctly", async () => {
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("claude-sonnet-4-5", "ws-123");
+    const res = await resolveProjectModel("claude-sonnet-4-5", null, null, "ws-123");
     expect(res).toEqual({
       model: "claude-sonnet-4-5",
       providerName: "anthropic",
@@ -145,7 +156,7 @@ describe("resolveProjectModel", () => {
       },
     ]);
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("deepseek/deepseek-chat-v3", "ws-123");
+    const res = await resolveProjectModel("deepseek/deepseek-chat-v3", null, null, "ws-123");
     expect(res).toEqual({
       model: "deepseek/deepseek-chat-v3",
       providerName: "deepseek-byok",
@@ -172,7 +183,7 @@ describe("resolveProjectModel", () => {
       },
     ]);
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("deepseek/deepseek-chat-v3", "ws-123");
+    const res = await resolveProjectModel("deepseek/deepseek-chat-v3", null, null, "ws-123");
     expect(res).toEqual({
       model: "deepseek/deepseek-chat-v3",
       providerName: "my-deepseek",
@@ -194,7 +205,7 @@ describe("resolveProjectModel", () => {
       },
     ]);
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("deepseek-chat", "ws-123");
+    const res = await resolveProjectModel("deepseek-chat", null, null, "ws-123");
     expect(res).toEqual({
       model: "deepseek-chat",
       providerName: "my-deepseek",
@@ -216,7 +227,7 @@ describe("resolveProjectModel", () => {
       },
     ]);
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("custom-model-id", "ws-123");
+    const res = await resolveProjectModel("custom-model-id", null, null, "ws-123");
     expect(res).toEqual({
       model: "custom-model-id",
       providerName: "provider-1",
@@ -228,7 +239,7 @@ describe("resolveProjectModel", () => {
     // Assert that the findMany query is requested with a stable orderBy: { id: "asc" }
     modelProviderFindMany.mockResolvedValue([]);
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    await resolveProjectModel("custom-model-id", "ws-123");
+    await resolveProjectModel("custom-model-id", null, null, "ws-123");
     expect(modelProviderFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         orderBy: { id: "asc" },
@@ -239,13 +250,13 @@ describe("resolveProjectModel", () => {
   it("returns null for unknown/disabled models", async () => {
     modelProviderFindMany.mockResolvedValue([]);
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("unknown-model", "ws-123");
+    const res = await resolveProjectModel("unknown-model", null, null, "ws-123");
     expect(res).toBeNull();
   });
 
   it("returns null for empty/undefined models", async () => {
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    expect(await resolveProjectModel(null, "ws-123")).toBeNull();
-    expect(await resolveProjectModel(undefined, "ws-123")).toBeNull();
+    expect(await resolveProjectModel(null, null, null, "ws-123")).toBeNull();
+    expect(await resolveProjectModel(undefined, null, null, "ws-123")).toBeNull();
   });
 });
