@@ -130,7 +130,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
             {!collapsed && (
               <>
                 <span className="font-semibold">TraceRoot</span>
-                <span className="text-xs text-muted-foreground font-normal">
+                <span className="text-xs font-normal text-muted-foreground">
                   {process.env.NEXT_PUBLIC_APP_VERSION}
                 </span>
               </>
