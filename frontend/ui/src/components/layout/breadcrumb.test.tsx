@@ -52,4 +52,15 @@ describe("BreadcrumbDropdown focus return", () => {
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     expect(document.activeElement).toBe(trigger);
   });
+
+  it("refocuses the trigger when the menu is opened and closed with the keyboard", async () => {
+    render(<Breadcrumb items={[workspaceItem]} />);
+    const trigger = screen.getByRole("button");
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    const menu = await screen.findByRole("menu");
+    fireEvent.keyDown(menu, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    expect(document.activeElement).toBe(trigger);
+  });
 });
