@@ -76,7 +76,7 @@ describe("AddDetectorsStep", () => {
       expect.objectContaining({
         template: "failure",
         name: "Failure Detector",
-        sampleRate: 100,
+        sampleRate: 25,
         enableRca: true,
         detectionSource: "system",
       }),
