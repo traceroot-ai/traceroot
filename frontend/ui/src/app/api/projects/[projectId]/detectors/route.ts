@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
+import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import {
   requireAuth,
   requireProjectAccess,
@@ -80,7 +81,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     template,
     prompt,
     outputSchema,
-    sampleRate = 100,
+    sampleRate,
     triggerConditions,
     detectionModel,
     detectionProvider,
@@ -99,8 +100,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return errorResponse("prompt must be a non-empty string", 400);
   }
 
-  // Validate sampleRate (integer 0-100). Fall back to 100 only when omitted.
-  let resolvedSampleRate = 100;
+  // Validate sampleRate (integer 0-100). Fall back to the default only when
+  // omitted — kept light so new detectors don't run an LLM call on every trace.
+  let resolvedSampleRate: number = DEFAULT_DETECTOR_SAMPLE_RATE;
   if (sampleRate !== undefined) {
     if (
       typeof sampleRate !== "number" ||

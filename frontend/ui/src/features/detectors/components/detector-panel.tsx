@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Eye, X, Copy, Check, ArrowUp, ArrowDown } from "lucide-react";
 import { useDetector, useUpdateDetector } from "../hooks/use-detectors";
+import { DEFAULT_DETECTOR_SAMPLE_RATE } from "../templates";
 import { useProject } from "@/features/projects/hooks";
 import { TriggerEditor } from "./trigger-editor";
 import type { TriggerCondition } from "./trigger-editor";
@@ -45,7 +46,7 @@ export function DetectorPanel({
 
   const [editName, setEditName] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
-  const [editSampleRate, setEditSampleRate] = useState(100);
+  const [editSampleRate, setEditSampleRate] = useState(DEFAULT_DETECTOR_SAMPLE_RATE);
   const [editModelSelection, setEditModelSelection] = useState<ModelSelection>({
     model: "",
     provider: "",
@@ -58,7 +59,7 @@ export function DetectorPanel({
   const emptyForm: DetectorFormValues = {
     name: "",
     prompt: "",
-    sampleRate: 100,
+    sampleRate: DEFAULT_DETECTOR_SAMPLE_RATE,
     enableRca: true,
     detectionModel: "",
     detectionProvider: "",
