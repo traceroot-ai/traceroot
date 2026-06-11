@@ -127,7 +127,14 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
         >
           <Link href="/" className="flex items-center gap-2">
             <Logo />
-            {!collapsed && <span className="font-semibold">TraceRoot</span>}
+            {!collapsed && (
+              <>
+                <span className="font-semibold">TraceRoot</span>
+                <span className="text-xs text-muted-foreground font-normal">
+                  {process.env.NEXT_PUBLIC_APP_VERSION}
+                </span>
+              </>
+            )}
           </Link>
         </div>
 
