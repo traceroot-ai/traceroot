@@ -8,7 +8,7 @@ import {
   ModelSelector,
   type ModelSelection,
 } from "@/features/ai-assistant/components/model-selector";
-import { DETECTOR_TEMPLATES } from "@/features/detectors/templates";
+import { DETECTOR_TEMPLATES, buildTemplateDetectorInput } from "@/features/detectors/templates";
 import { useCreateDetector } from "@/features/detectors/hooks/use-detectors";
 import type { CreateDetectorInput } from "@/features/detectors/hooks/use-detectors";
 import { TriggerEditor } from "@/features/detectors/components/trigger-editor";
@@ -61,10 +61,9 @@ export default function NewDetectorPage() {
     e.preventDefault();
     const template = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate)!;
     const input: CreateDetectorInput = {
+      ...buildTemplateDetectorInput(template),
       name,
-      template: selectedTemplate,
       prompt,
-      outputSchema: template.outputSchema,
       sampleRate,
       enableRca,
       triggerConditions,
