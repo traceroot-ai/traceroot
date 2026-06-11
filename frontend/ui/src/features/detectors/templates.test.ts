@@ -22,7 +22,7 @@ describe("buildTemplateDetectorInput", () => {
       prompt: failure.prompt,
       outputSchema: failure.outputSchema,
       triggerConditions: failure.defaultConditions,
-      sampleRate: 100,
+      sampleRate: 25,
       enableRca: true,
       detectionSource: "system",
     });
