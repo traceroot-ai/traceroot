@@ -37,11 +37,14 @@ describe("AddDetectorsStep", () => {
     expect(screen.getByText("checkout-agent")).toBeDefined();
   });
 
-  it("shows the description of the last-toggled template", () => {
+  it("shows the description of the hovered template", () => {
     renderStep();
-    fireEvent.click(pill("Safety"));
+    fireEvent.mouseEnter(pill("Safety"));
     expect(screen.getByText(getTemplate("safety")!.description)).toBeDefined();
-    fireEvent.click(pill("Failure"));
+    fireEvent.mouseEnter(pill("Failure"));
+    expect(screen.getByText(getTemplate("failure")!.description)).toBeDefined();
+    // clicking selects but does not move the description
+    fireEvent.click(pill("Safety"));
     expect(screen.getByText(getTemplate("failure")!.description)).toBeDefined();
   });
 
