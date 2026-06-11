@@ -53,6 +53,17 @@ describe("BreadcrumbDropdown focus return", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("does not refocus the trigger when a keyboard-opened menu is dismissed by clicking outside", async () => {
+    render(<Breadcrumb items={[workspaceItem]} />);
+    const trigger = screen.getByRole("button");
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    await screen.findByRole("menu");
+    fireEvent.pointerDown(document.body, { button: 0, pointerType: "mouse" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    expect(document.activeElement).not.toBe(trigger);
+  });
+
   it("refocuses the trigger when the menu is opened and closed with the keyboard", async () => {
     render(<Breadcrumb items={[workspaceItem]} />);
     const trigger = screen.getByRole("button");

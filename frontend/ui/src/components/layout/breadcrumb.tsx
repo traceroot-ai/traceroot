@@ -112,6 +112,7 @@ function BreadcrumbDropdown({ item }: { item: BreadcrumbItem }) {
         className="rounded-none"
         onKeyDownCapture={trackKeyboard}
         onPointerDownCapture={trackPointer}
+        onPointerDownOutside={trackPointer}
         onCloseAutoFocus={(event) => {
           if (!usedKeyboard.current) event.preventDefault();
         }}
