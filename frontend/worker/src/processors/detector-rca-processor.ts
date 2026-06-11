@@ -11,9 +11,20 @@ const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:810
 // Returns null when the model is unset or unknown (caller should omit fields).
 export async function resolveProjectModel(
   rcaModel: string | null | undefined,
+  rcaProvider: string | null | undefined,
+  rcaSource: string | null | undefined,
   workspaceId: string,
 ): Promise<{ model: string; providerName: string; source: ModelSource } | null> {
   if (!rcaModel) return null;
+
+  if (rcaSource && rcaProvider) {
+    return {
+      model: rcaModel,
+      providerName: rcaProvider,
+      source: rcaSource === "byok" ? ModelSource.BYOK : ModelSource.SYSTEM,
+    };
+  }
+
   for (const group of SYSTEM_MODELS) {
     if (group.models.some((m) => m.id === rcaModel)) {
       return { model: rcaModel, providerName: group.piAIProvider, source: ModelSource.SYSTEM };
@@ -79,6 +90,8 @@ async function runRcaSession(params: {
   findings: DetectorRcaJob["findings"];
   hasGitHub: boolean;
   rcaModel?: string | null;
+  rcaProvider?: string | null;
+  rcaSource?: string | null;
 }): Promise<{ result: string; sessionId: string }> {
   const sessionRes = await fetch(
     `${AGENT_SERVICE_URL}/api/v1/projects/${params.projectId}/sessions`,
@@ -142,7 +155,12 @@ Output your findings in this format:
     "x-workspace-id": params.workspaceId,
   };
 
-  const resolved = await resolveProjectModel(params.rcaModel, params.workspaceId);
+  const resolved = await resolveProjectModel(
+    params.rcaModel,
+    params.rcaProvider,
+    params.rcaSource,
+    params.workspaceId,
+  );
   const msgBody: {
     message: string;
     traceId: string;
@@ -329,6 +347,8 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
           where: { id: projectId },
           select: {
             rcaModel: true,
+            rcaProvider: true,
+            rcaSource: true,
             alertConfig: {
               select: { emailAddresses: true, slackChannelId: true, slackChannelName: true },
             },
@@ -362,6 +382,8 @@ export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
           findings,
           hasGitHub,
           rcaModel: project?.rcaModel,
+          rcaProvider: project?.rcaProvider,
+          rcaSource: project?.rcaSource,
         });
 
         await prisma.detectorRca.update({
