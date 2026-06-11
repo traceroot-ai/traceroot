@@ -32,7 +32,7 @@ export default function NewDetectorPage() {
   const [name, setName] = useState(INITIAL_TEMPLATE.label + " Detector");
   const [nameEdited, setNameEdited] = useState(false);
   const [prompt, setPrompt] = useState(INITIAL_TEMPLATE.prompt);
-  const [sampleRate, setSampleRate] = useState(100);
+  const [sampleRate, setSampleRate] = useState(25);
   // Seeded from the template's defaultConditions so a user who picks
   // "Failure" and clicks Create gets the trigger filters the template
   // intends, not an unfiltered detector that fires on every trace.
