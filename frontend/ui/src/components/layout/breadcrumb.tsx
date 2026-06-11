@@ -79,11 +79,9 @@ function BreadcrumbDropdown({ item }: { item: BreadcrumbItem }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   // Radix refocuses the trigger when the menu closes, and browsers treat that
-  // programmatic focus as :focus-visible — a pure mouse interaction would
-  // leave a keyboard focus ring on the workspace/project breadcrumb trigger
-  // after pure mouse use. Track the last input modality and prevent the focus
-  // return for pointer-driven closes; keyboard closes keep the focus return
-  // and ring.
+  // programmatic focus as :focus-visible, leaving a focus ring after mouse-only
+  // interaction. Track the last input modality and prevent focus return for
+  // pointer-driven closes; keyboard closes keep it.
   const usedKeyboard = useRef(false);
   const trackKeyboard = () => {
     usedKeyboard.current = true;
@@ -102,7 +100,7 @@ function BreadcrumbDropdown({ item }: { item: BreadcrumbItem }) {
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
-        className="flex min-w-0 items-center gap-1 font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="-mx-1 -my-0.5 flex min-w-0 items-center gap-1 rounded px-1 py-0.5 font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring"
         onKeyDownCapture={trackKeyboard}
         onPointerDownCapture={trackPointer}
       >
