@@ -80,7 +80,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     template,
     prompt,
     outputSchema,
-    sampleRate = 100,
+    sampleRate,
     triggerConditions,
     detectionModel,
     detectionProvider,
@@ -99,8 +99,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return errorResponse("prompt must be a non-empty string", 400);
   }
 
-  // Validate sampleRate (integer 0-100). Fall back to 100 only when omitted.
-  let resolvedSampleRate = 100;
+  // Validate sampleRate (integer 0-100). Fall back to 25 only when omitted —
+  // a lighter default so new detectors don't run an LLM call on every trace.
+  let resolvedSampleRate = 25;
   if (sampleRate !== undefined) {
     if (
       typeof sampleRate !== "number" ||
