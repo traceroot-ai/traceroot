@@ -218,7 +218,7 @@ export function TraceViewerPanel({
         isFullscreen
           ? sidebarCollapsed
             ? "top-14 w-[calc(100%-3.5rem)]"
-            : "top-14 w-[calc(100%-10rem)]"
+            : "top-14 w-[calc(100%-12rem)]"
           : "top-0 w-[70%]",
       )}
     >
