@@ -41,6 +41,17 @@ from shared.enums import SpanKind, SpanStatus
 
 logger = logging.getLogger(__name__)
 
+# Scopes whose LLM spans intentionally leave per-turn token counts unset (usage is
+# aggregated onto a few result spans). Skip text-based estimation for them, else the
+# deliberately-empty spans get fabricated counts. Python only — the TypeScript scope
+# ("@traceroot-ai/claude-agent-sdk") reports real per-turn usage and is excluded.
+_SKIP_TEXT_TOKEN_ESTIMATION_SCOPES = frozenset({"traceroot.claude-agent-sdk"})
+
+
+def _scope_skips_text_token_estimation(scope_name: str | None) -> bool:
+    return scope_name in _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES
+
+
 # Attributes that are already extracted into dedicated fields
 _KNOWN_ATTRIBUTE_PREFIXES = {
     "traceroot.span.input",
@@ -537,8 +548,9 @@ def transform_otel_to_clickhouse(
                         cost = cost_from_buckets(get_model_price(model_name), buckets)
                         if cost is not None:
                             span_record["cost"] = cost
-                    else:
-                        # Fall back to text-based estimation.
+                    elif not _scope_skips_text_token_estimation(scope_name):
+                        # Fall back to text-based estimation — unless this scope leaves
+                        # tokens deliberately unset (see _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES).
                         from worker.tokens import calculate_cost
 
                         usage = calculate_cost(
