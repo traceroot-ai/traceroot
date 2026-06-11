@@ -191,7 +191,7 @@ describe("resolveProjectModel", () => {
     });
   });
 
-  it("disambiguates based on model ID in curated catalog matching provider adapter", async () => {
+  it("no longer disambiguates based on model ID in curated catalog matching provider adapter", async () => {
     modelProviderFindMany.mockResolvedValue([
       {
         provider: "my-openai",
@@ -208,7 +208,7 @@ describe("resolveProjectModel", () => {
     const res = await resolveProjectModel("deepseek-chat", null, null, "ws-123");
     expect(res).toEqual({
       model: "deepseek-chat",
-      providerName: "my-deepseek",
+      providerName: "my-openai",
       source: "byok",
     });
   });
