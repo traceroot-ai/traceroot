@@ -393,6 +393,7 @@ const openai = new OpenAI();`,
     href: "https://traceroot.ai/docs/integrations/openrouter",
     category: "provider",
     logo: "/logo/integrations/openrouter.svg",
+    logoDark: "/logo/integrations/openrouter-dark.svg",
     languages: {
       python: {
         installCommand: "pip install traceroot openai",
