@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { QUICK_ADD_TEMPLATES, buildTemplateDetectorInput, getTemplate } from "./templates";
+import { DETECTOR_QUICK_ADD_TEMPLATES, buildTemplateDetectorInput, getTemplate } from "./templates";
 
-describe("QUICK_ADD_TEMPLATES", () => {
+describe("DETECTOR_QUICK_ADD_TEMPLATES", () => {
   it("excludes the blank template and keeps the rest in order", () => {
-    expect(QUICK_ADD_TEMPLATES.map((t) => t.id)).toEqual([
+    expect(DETECTOR_QUICK_ADD_TEMPLATES.map((t) => t.id)).toEqual([
       "failure",
       "hallucination",
       "logic",

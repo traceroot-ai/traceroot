@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
-  QUICK_ADD_TEMPLATES,
+  DETECTOR_QUICK_ADD_TEMPLATES,
   buildTemplateDetectorInput,
   getTemplate,
 } from "@/features/detectors/templates";
@@ -23,7 +23,7 @@ interface AddDetectorsStepProps {
  */
 export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetectorsStepProps) {
   const [selected, setSelected] = useState<string[]>([]);
-  const [previewedId, setPreviewedId] = useState(QUICK_ADD_TEMPLATES[0].id);
+  const [previewedId, setPreviewedId] = useState(DETECTOR_QUICK_ADD_TEMPLATES[0].id);
   const [failedLabels, setFailedLabels] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const createMutation = useCreateDetector(projectId);
@@ -69,7 +69,7 @@ export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetector
         </div>
         <div className="p-3">
           <div className="flex flex-wrap gap-1.5">
-            {QUICK_ADD_TEMPLATES.map((t) => (
+            {DETECTOR_QUICK_ADD_TEMPLATES.map((t) => (
               <Button
                 key={t.id}
                 type="button"
