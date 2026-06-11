@@ -154,7 +154,7 @@ function OnboardingContent() {
           <h1 className="text-lg font-semibold">Setup</h1>
           <p className="text-[13px] text-muted-foreground">
             {createdProject
-              ? "Workspace and project created — one more thing"
+              ? `${isProjectOnlyMode ? "Project" : "Workspace and project"} created — one more thing`
               : "Set up your workspace and first project"}
           </p>
         </div>
