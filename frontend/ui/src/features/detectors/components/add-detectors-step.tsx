@@ -23,13 +23,12 @@ interface AddDetectorsStepProps {
  */
 export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetectorsStepProps) {
   const [selected, setSelected] = useState<string[]>([]);
-  const [lastToggledId, setLastToggledId] = useState(QUICK_ADD_TEMPLATES[0].id);
+  const [previewedId, setPreviewedId] = useState(QUICK_ADD_TEMPLATES[0].id);
   const [failedLabels, setFailedLabels] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const createMutation = useCreateDetector(projectId);
 
   const toggle = (templateId: string) => {
-    setLastToggledId(templateId);
     setSelected((prev) =>
       prev.includes(templateId) ? prev.filter((id) => id !== templateId) : [...prev, templateId],
     );
@@ -77,6 +76,8 @@ export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetector
                 size="sm"
                 variant={selected.includes(t.id) ? "default" : "outline"}
                 onClick={() => toggle(t.id)}
+                onMouseEnter={() => setPreviewedId(t.id)}
+                onFocus={() => setPreviewedId(t.id)}
                 disabled={submitting}
                 className="h-7 text-[12px]"
               >
@@ -85,7 +86,7 @@ export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetector
             ))}
           </div>
           <p className="mt-2 min-h-[1rem] text-[12px] text-muted-foreground">
-            {getTemplate(lastToggledId)?.description ?? ""}
+            {getTemplate(previewedId)?.description ?? ""}
           </p>
         </div>
       </div>
