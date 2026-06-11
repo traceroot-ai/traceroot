@@ -12,8 +12,8 @@ import { useCreateDetector } from "@/features/detectors/hooks/use-detectors";
 interface AddDetectorsStepProps {
   projectId: string;
   projectName: string;
-  /** Called when the step is finished: number of detectors created (0 on skip). */
-  onDone: (createdCount: number) => void;
+  /** Called when the step is finished, whether detectors were created or it was skipped. */
+  onDone: () => void;
 }
 
 /**
@@ -25,7 +25,6 @@ export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetector
   const [selected, setSelected] = useState<string[]>([]);
   const [lastToggledId, setLastToggledId] = useState(QUICK_ADD_TEMPLATES[0].id);
   const [failedLabels, setFailedLabels] = useState<string[]>([]);
-  const [createdCount, setCreatedCount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const createMutation = useCreateDetector(projectId);
 
@@ -38,7 +37,7 @@ export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetector
 
   const handleContinue = async () => {
     if (selected.length === 0) {
-      onDone(createdCount);
+      onDone();
       return;
     }
     setSubmitting(true);
@@ -49,12 +48,10 @@ export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetector
       ),
     );
     const failed = selected.filter((_, i) => results[i].status === "rejected");
-    const total = createdCount + selected.length - failed.length;
     if (failed.length === 0) {
-      onDone(total);
+      onDone();
       return;
     }
-    setCreatedCount(total);
     setSelected(failed);
     setFailedLabels(failed.map((id) => getTemplate(id)?.label ?? id));
     setSubmitting(false);
@@ -100,7 +97,7 @@ export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetector
       <div className="flex items-center justify-between pt-1">
         <button
           type="button"
-          onClick={() => onDone(createdCount)}
+          onClick={onDone}
           disabled={submitting}
           className="text-[12px] text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50"
         >
