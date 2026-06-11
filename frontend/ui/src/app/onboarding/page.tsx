@@ -121,7 +121,7 @@ function OnboardingContent() {
 
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
 
-      setCreatedProject({ id: project.id, name: projectName });
+      setCreatedProject({ id: project.id, name: project.name });
       setIsLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");

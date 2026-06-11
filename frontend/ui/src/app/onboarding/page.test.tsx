@@ -36,11 +36,11 @@ vi.mock("@/features/detectors/components/add-detectors-step", () => ({
   }: {
     projectId: string;
     projectName: string;
-    onDone: (n: number) => void;
+    onDone: () => void;
   }) => (
     <div data-testid="add-detectors-step" data-project-id={projectId}>
       <span>{projectName}</span>
-      <button onClick={() => onDone(0)}>mock-done</button>
+      <button onClick={onDone}>mock-done</button>
     </div>
   ),
 }));

@@ -45,18 +45,18 @@ describe("AddDetectorsStep", () => {
     expect(screen.getByText(getTemplate("failure")!.description)).toBeDefined();
   });
 
-  it("calls onDone(0) without posting when continuing with nothing selected", () => {
+  it("calls onDone without posting when continuing with nothing selected", () => {
     const { onDone } = renderStep();
     fireEvent.click(continueButton());
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
-    expect(onDone).toHaveBeenCalledWith(0);
+    expect(onDone).toHaveBeenCalledTimes(1);
   });
 
-  it("calls onDone(0) on skip", () => {
+  it("calls onDone on skip", () => {
     const { onDone } = renderStep();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
-    expect(onDone).toHaveBeenCalledWith(0);
+    expect(onDone).toHaveBeenCalledTimes(1);
   });
 
   it("creates one detector per selected template with the shared defaults", async () => {
@@ -66,7 +66,7 @@ describe("AddDetectorsStep", () => {
     fireEvent.click(pill("Safety"));
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(onDone).toHaveBeenCalledWith(2));
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     expect(mocks.mutateAsync).toHaveBeenCalledTimes(2);
     const payloads = mocks.mutateAsync.mock.calls.map((c) => c[0]);
     expect(payloads).toContainEqual(
@@ -89,7 +89,7 @@ describe("AddDetectorsStep", () => {
     fireEvent.click(pill("Failure")); // toggle back off
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(onDone).toHaveBeenCalledWith(1));
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     expect(mocks.mutateAsync).toHaveBeenCalledTimes(1);
     expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({ template: "safety" });
   });
@@ -113,7 +113,7 @@ describe("AddDetectorsStep", () => {
     mocks.mutateAsync.mockResolvedValue({ id: "det-2" });
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(onDone).toHaveBeenCalledWith(2));
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     expect(mocks.mutateAsync).toHaveBeenCalledTimes(1);
     expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({ template: "safety" });
   });
