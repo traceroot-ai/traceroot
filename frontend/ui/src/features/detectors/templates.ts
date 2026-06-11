@@ -121,7 +121,7 @@ export function buildTemplateDetectorInput(template: DetectorTemplate): CreateDe
     prompt: template.prompt,
     outputSchema: template.outputSchema,
     triggerConditions: template.defaultConditions,
-    sampleRate: 100,
+    sampleRate: 25,
     enableRca: true,
     detectionSource: "system",
   };
