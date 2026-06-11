@@ -78,7 +78,7 @@ importers:
         specifier: ^4.21.0
         version: 4.21.0
       typescript:
-        specifier: ^5.0.0
+        specifier: ^5.7.0
         version: 5.9.3
       vite-node:
         specifier: ^6.0.0
@@ -112,7 +112,7 @@ importers:
         specifier: ^14.0.0
         version: 14.25.0
       typescript:
-        specifier: ^5.0.0
+        specifier: ^5.7.0
         version: 5.9.3
       vitest:
         specifier: ^3.2.6
@@ -134,7 +134,7 @@ importers:
         specifier: ^3.2.6
         version: 3.2.6(vitest@3.2.6(@types/debug@4.1.12)(@types/node@22.19.15)(jiti@2.6.1)(jsdom@29.1.1(@noble/hashes@2.2.0))(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2))
       typescript:
-        specifier: ^5.0.0
+        specifier: ^5.7.0
         version: 5.9.3
       vitest:
         specifier: ^3.2.6
@@ -162,7 +162,7 @@ importers:
         specifier: ^3.2.6
         version: 3.2.6(vitest@3.2.6(@types/debug@4.1.12)(@types/node@22.19.15)(jiti@2.6.1)(jsdom@29.1.1(@noble/hashes@2.2.0))(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.8.2))
       typescript:
-        specifier: ^5.0.0
+        specifier: ^5.7.0
         version: 5.9.3
       vitest:
         specifier: ^3.2.6
@@ -353,7 +353,7 @@ importers:
         specifier: ^4.21.0
         version: 4.21.0
       typescript:
-        specifier: ^5.0.0
+        specifier: ^5.7.0
         version: 5.9.3
       vitest:
         specifier: ^3.2.6
