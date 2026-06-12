@@ -152,4 +152,40 @@ describe("buildTreeRows ↔ flattenTreeWithMetrics ordering parity", () => {
     expect(treeIds).toEqual(timelineIds);
     expect(treeIds).toEqual(["root", "a", "b"]);
   });
+
+  it("stabilizes sibling order when spans share the same start time", () => {
+    const spans = [
+      makeSpan({ span_id: "root" }),
+      makeSpan({
+        span_id: "b-child",
+        parent_span_id: "root",
+        span_start_time: "2024-01-01T00:00:00.100Z",
+        span_end_time: "2024-01-01T00:00:00.400Z",
+      }),
+      makeSpan({
+        span_id: "a-child",
+        parent_span_id: "root",
+        span_start_time: "2024-01-01T00:00:00.100Z",
+        span_end_time: "2024-01-01T00:00:00.300Z",
+      }),
+      makeSpan({
+        span_id: "c-child",
+        parent_span_id: "root",
+        span_start_time: "2024-01-01T00:00:00.100Z",
+        span_end_time: null,
+      }),
+    ];
+
+    const spanById = new Map(spans.map((s) => [s.span_id, s]));
+    const rows = buildSpanTree(spans);
+    const treeIds = buildTreeRows(rows, spanById, new Set()).flatMap((r) =>
+      r.type === "span" ? [r.row.span.span_id] : [],
+    );
+    const timelineIds = flattenTreeWithMetrics(spans, new Set(), 1000, 800).map(
+      (item) => item.span.span_id,
+    );
+
+    expect(treeIds).toEqual(["root", "a-child", "b-child", "c-child"]);
+    expect(timelineIds).toEqual(treeIds);
+  });
 });
