@@ -122,6 +122,7 @@ async def authenticate_api_key(
         project_id = data["projectId"]
         workspace_id = data["workspaceId"]
         billing_plan = data["billingPlan"]
+        ingestion_blocked = data["ingestionBlocked"]
     except KeyError as e:
         logger.error(f"Auth service response missing required field: {e}")
         raise HTTPException(
@@ -129,11 +130,21 @@ async def authenticate_api_key(
             detail="Authentication service error",
         ) from e
 
+    # ingestionBlocked gates billing enforcement, so fail closed on a malformed
+    # value: a non-bool (or the missing case above) must not be read as "not
+    # blocked", which would silently bypass the free-plan ingestion limit.
+    if not isinstance(ingestion_blocked, bool):
+        logger.error("Auth service returned a non-boolean ingestionBlocked")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
+
     return AuthResult(
         project_id=project_id,
         workspace_id=workspace_id,
         billing_plan=billing_plan,
-        ingestion_blocked=data.get("ingestionBlocked", False),
+        ingestion_blocked=ingestion_blocked,
         project_name=data.get("projectName"),
         workspace_name=data.get("workspaceName"),
         key_name=data.get("keyName"),
