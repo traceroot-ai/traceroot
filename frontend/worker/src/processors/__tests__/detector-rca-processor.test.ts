@@ -1,18 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const modelProviderFindMany = vi.fn();
+const fetchProviderConfigMock = vi.fn();
+const resolvePiModelMock = vi.fn();
 
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
   return {
     ...actual,
-    prisma: {
-      ...actual.prisma,
-      modelProvider: {
-        findMany: (...a: any[]) => modelProviderFindMany(...a),
-      },
-    },
+    fetchProviderConfig: (...args: any[]) => fetchProviderConfigMock(...args),
+    resolvePiModel: (...args: any[]) => resolvePiModelMock(...args),
   };
+});
+
+afterEach(() => {
+  fetchProviderConfigMock.mockReset();
+  resolvePiModelMock.mockReset();
 });
 
 describe("RCA prompt construction", () => {
@@ -121,140 +123,64 @@ describe("SSE parsing logic", () => {
 });
 
 describe("resolveProjectModel", () => {
-  beforeEach(() => {
-    modelProviderFindMany.mockReset();
-  });
-
-  it("resolves model directly when rcaProvider and rcaSource are provided", async () => {
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("my-custom-model", "my-provider", "byok", "ws-123");
-    expect(res).toEqual({
-      model: "my-custom-model",
-      providerName: "my-provider",
-      source: "byok",
+  it("resolves a BYOK model via fetchProviderConfig and resolvePiModel", async () => {
+    fetchProviderConfigMock.mockResolvedValue({
+      adapter: "openai",
+      key: "sk-xxx",
+      baseUrl: null,
+      config: null,
     });
-    expect(modelProviderFindMany).not.toHaveBeenCalled();
+    resolvePiModelMock.mockReturnValue({ id: "gpt-5.3", provider: "openai" });
+
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const res = await resolveProjectModel("gpt-5.3", "my-openai", "byok", "ws-123");
+
+    expect(fetchProviderConfigMock).toHaveBeenCalledWith("ws-123", "my-openai");
+    expect(resolvePiModelMock).toHaveBeenCalledWith("gpt-5.3", expect.any(Object));
+    expect(res).toEqual({ model: "gpt-5.3", providerName: "openai", source: "byok" });
   });
 
-  it("resolves a system model correctly", async () => {
+  it("returns null when BYOK provider is not found or disabled", async () => {
+    fetchProviderConfigMock.mockResolvedValue(null);
+
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const res = await resolveProjectModel("gpt-5.3", "missing-provider", "byok", "ws-123");
+
+    expect(res).toBeNull();
+    expect(resolvePiModelMock).not.toHaveBeenCalled();
+  });
+
+  it("resolves a system model via resolvePiModel", async () => {
+    resolvePiModelMock.mockReturnValue({ id: "claude-sonnet-4-5", provider: "anthropic" });
+
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
     const res = await resolveProjectModel("claude-sonnet-4-5", null, null, "ws-123");
+
+    expect(resolvePiModelMock).toHaveBeenCalledWith("claude-sonnet-4-5", null);
     expect(res).toEqual({
       model: "claude-sonnet-4-5",
       providerName: "anthropic",
       source: "system",
     });
-    expect(modelProviderFindMany).not.toHaveBeenCalled();
   });
 
-  it("resolves an enabled BYOK model correctly", async () => {
-    modelProviderFindMany.mockResolvedValue([
-      {
-        provider: "deepseek-byok",
-        adapter: "deepseek",
-        customModels: ["deepseek/deepseek-chat-v3", "deepseek-chat"],
-      },
-    ]);
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("deepseek/deepseek-chat-v3", null, null, "ws-123");
-    expect(res).toEqual({
-      model: "deepseek/deepseek-chat-v3",
-      providerName: "deepseek-byok",
-      source: "byok",
-    });
-    expect(modelProviderFindMany).toHaveBeenCalledWith({
-      where: { workspaceId: "ws-123", enabled: true },
-      orderBy: { id: "asc" },
-      select: { provider: true, adapter: true, customModels: true },
-    });
-  });
-
-  it("disambiguates based on model ID prefix matching provider adapter", async () => {
-    modelProviderFindMany.mockResolvedValue([
-      {
-        provider: "my-openrouter",
-        adapter: "openrouter",
-        customModels: ["deepseek/deepseek-chat-v3"],
-      },
-      {
-        provider: "my-deepseek",
-        adapter: "deepseek",
-        customModels: ["deepseek/deepseek-chat-v3"],
-      },
-    ]);
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("deepseek/deepseek-chat-v3", null, null, "ws-123");
-    expect(res).toEqual({
-      model: "deepseek/deepseek-chat-v3",
-      providerName: "my-deepseek",
-      source: "byok",
-    });
-  });
-
-  it("no longer disambiguates based on model ID in curated catalog matching provider adapter", async () => {
-    modelProviderFindMany.mockResolvedValue([
-      {
-        provider: "my-openai",
-        adapter: "openai",
-        customModels: ["deepseek-chat"],
-      },
-      {
-        provider: "my-deepseek",
-        adapter: "deepseek",
-        customModels: ["deepseek-chat"],
-      },
-    ]);
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("deepseek-chat", null, null, "ws-123");
-    expect(res).toEqual({
-      model: "deepseek-chat",
-      providerName: "my-openai",
-      source: "byok",
-    });
-  });
-
-  it("falls back to the first provider if no adapter matches prefix or catalog", async () => {
-    modelProviderFindMany.mockResolvedValue([
-      {
-        provider: "provider-1",
-        adapter: "openai",
-        customModels: ["custom-model-id"],
-      },
-      {
-        provider: "provider-2",
-        adapter: "google",
-        customModels: ["custom-model-id"],
-      },
-    ]);
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("custom-model-id", null, null, "ws-123");
-    expect(res).toEqual({
-      model: "custom-model-id",
-      providerName: "provider-1",
-      source: "byok",
-    });
-  });
-
-  it("proves deterministic provider selection by verifying orderBy in findMany when multiple providers share customModel", async () => {
-    // Assert that the findMany query is requested with a stable orderBy: { id: "asc" }
-    modelProviderFindMany.mockResolvedValue([]);
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    await resolveProjectModel("custom-model-id", null, null, "ws-123");
-    expect(modelProviderFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orderBy: { id: "asc" },
-      }),
-    );
-  });
-
-  it("returns null for unknown/disabled models", async () => {
-    modelProviderFindMany.mockResolvedValue([]);
+  it("returns null for unknown models not in system catalog", async () => {
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
     const res = await resolveProjectModel("unknown-model", null, null, "ws-123");
+
     expect(res).toBeNull();
+    expect(fetchProviderConfigMock).not.toHaveBeenCalled();
   });
 
-  it("returns null for empty/undefined models", async () => {
+  it("falls back to null when rcaSource is byok but rcaProvider is missing", async () => {
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const res = await resolveProjectModel("some-model", null, "byok", "ws-123");
+
+    expect(res).toBeNull();
+    expect(fetchProviderConfigMock).not.toHaveBeenCalled();
+  });
+
+  it("returns null for empty or undefined models", async () => {
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
     expect(await resolveProjectModel(null, null, null, "ws-123")).toBeNull();
     expect(await resolveProjectModel(undefined, null, null, "ws-123")).toBeNull();
