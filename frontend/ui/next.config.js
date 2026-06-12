@@ -5,7 +5,7 @@ const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
   env: {
-    NEXT_PUBLIC_APP_VERSION: process.env.APP_VERSION || require("./package.json").version,
+    NEXT_PUBLIC_APP_VERSION: process.env.APP_VERSION || `v${require("./package.json").version}`,
   },
   transpilePackages: ["@traceroot/core", "@traceroot/github", "@traceroot/slack"],
   // Include monorepo root so standalone output traces deps outside ui/

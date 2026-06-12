@@ -19,6 +19,6 @@ describe("next.config.js env block", () => {
     delete process.env.APP_VERSION;
     const config = await import("../../next.config.js");
     const pkg = await import("../../package.json");
-    expect(config.default.env.NEXT_PUBLIC_APP_VERSION).toBe(pkg.default.version);
+    expect(config.default.env.NEXT_PUBLIC_APP_VERSION).toBe(`v${pkg.default.version}`);
   });
 });
