@@ -469,7 +469,7 @@ async def get_spans_jsonl(trace_id: str, project_id: str):
                ORDER BY ch_update_time DESC
                LIMIT 1 BY span_id
            )
-           ORDER BY span_start_time""",
+           ORDER BY span_start_time ASC, span_end_time ASC, span_id ASC""",
         parameters={"trace_id": trace_id, "project_id": project_id},
     )
 

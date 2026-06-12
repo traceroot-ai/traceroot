@@ -452,7 +452,7 @@ class TraceReaderService:
                 ORDER BY ch_update_time DESC
                 LIMIT 1 BY span_id
             )
-            ORDER BY span_start_time ASC
+            ORDER BY span_start_time ASC, span_end_time ASC, span_id ASC
         """
         spans_result = self._client.query(
             spans_query,

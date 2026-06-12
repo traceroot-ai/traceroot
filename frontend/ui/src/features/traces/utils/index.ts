@@ -10,6 +10,18 @@ export function parseTimestamp(ts: string): number {
   return parseAsUTC(ts.trim()).getTime();
 }
 
+export function compareSpansForStableDisplay(a: Span, b: Span): number {
+  const startDelta = parseTimestamp(a.span_start_time) - parseTimestamp(b.span_start_time);
+  if (startDelta !== 0) return startDelta;
+
+  const aEnd = a.span_end_time ? parseTimestamp(a.span_end_time) : Number.POSITIVE_INFINITY;
+  const bEnd = b.span_end_time ? parseTimestamp(b.span_end_time) : Number.POSITIVE_INFINITY;
+  const endDelta = aEnd - bEnd;
+  if (endDelta !== 0) return endDelta;
+
+  return a.span_id.localeCompare(b.span_id);
+}
+
 function parseMetadata(metadata: string | null): Record<string, unknown> {
   if (!metadata) return {};
   try {
@@ -169,7 +181,7 @@ export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
   // Sort children within each parent by start_time so connector lines
   // (isTerminal / parentLevels) are stable regardless of SSE arrival order.
   for (const children of childrenByParent.values()) {
-    children.sort((a, b) => parseTimestamp(a.span_start_time) - parseTimestamp(b.span_start_time));
+    children.sort(compareSpansForStableDisplay);
   }
 
   const rows: SpanTreeRow[] = [];
@@ -189,9 +201,7 @@ export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
   // 1. Connector lines are correct across all top-level items.
   // 2. Orphans are always visible, not silently dropped when root exists.
   const orphans = spans.filter((s) => s.parent_span_id !== null && !spanIds.has(s.parent_span_id));
-  const topLevel = [...(childrenByParent.get(null) ?? []), ...orphans].sort(
-    (a, b) => parseTimestamp(a.span_start_time) - parseTimestamp(b.span_start_time),
-  );
+  const topLevel = [...(childrenByParent.get(null) ?? []), ...orphans].sort(compareSpansForStableDisplay);
   topLevel.forEach((span, idx) => {
     traverse(span, 0, idx === topLevel.length - 1, []);
   });
