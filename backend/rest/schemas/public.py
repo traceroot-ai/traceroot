@@ -3,7 +3,7 @@
 from pydantic import BaseModel
 
 from rest.schemas.common import PaginationMeta
-from rest.schemas.traces import TraceDetailResponse, TraceListItem
+from rest.schemas.traces import SpanResponse, TraceDetailResponse, TraceListItem
 
 
 class WhoamiResponse(BaseModel):
@@ -41,3 +41,38 @@ class PublicTraceDetailResponse(TraceDetailResponse):
     """Full trace payload plus a backend-built link to its UI detail view."""
 
     trace_url: str
+
+
+class GitSource(BaseModel):
+    """A single span's source location (trace-resident git metadata)."""
+
+    span_id: str
+    file: str | None
+    line: int | None
+    function: str | None
+
+
+class GitContext(BaseModel):
+    """git_context.json: repo/ref + per-span source locations."""
+
+    git_repo: str | None
+    git_ref: str | None
+    sources: list[GitSource]
+
+
+class ExportManifest(BaseModel):
+    """manifest.json: index of the bundle's parts."""
+
+    trace_id: str
+    project_id: str
+    bundle_version: str
+    files: list[str]
+
+
+class PublicTraceExportResponse(BaseModel):
+    """V1 export bundle: trace (== `traces get`) + spans + git_context + manifest."""
+
+    manifest: ExportManifest
+    trace: PublicTraceDetailResponse
+    spans: list[SpanResponse]
+    git_context: GitContext
