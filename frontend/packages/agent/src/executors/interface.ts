@@ -13,6 +13,11 @@ export interface ExecResult {
 export interface ExecOptions {
   timeout?: number;
   signal?: AbortSignal;
+  /**
+   * Extra environment variables for the command. Daytona's SDK passes these
+   * out-of-band (base64-encoded) so secrets never appear in argv/`ps`.
+   */
+  env?: Record<string, string>;
 }
 
 /**
