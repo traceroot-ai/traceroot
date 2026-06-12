@@ -60,7 +60,7 @@ pythonpath = ["backend"]
 [tool.coverage.run]
 source = ["backend"]
 branch = true
-omit = ["tests/*"]
+omit = ["tests/*", "*/tests/*"]
 
 [tool.coverage.report]
 show_missing = true

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Plus, Settings, Slash } from "lucide-react";
@@ -78,6 +78,17 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
 function BreadcrumbDropdown({ item }: { item: BreadcrumbItem }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  // Radix refocuses the trigger when the menu closes, and browsers treat that
+  // programmatic focus as :focus-visible, leaving a focus ring after mouse-only
+  // interaction. Track the last input modality and prevent focus return for
+  // pointer-driven closes; keyboard closes keep it.
+  const usedKeyboard = useRef(false);
+  const trackKeyboard = () => {
+    usedKeyboard.current = true;
+  };
+  const trackPointer = () => {
+    usedKeyboard.current = false;
+  };
 
   // The gear stops propagation so the row's select (and its navigation)
   // doesn't fire, which also skips the menu's auto-close - close explicitly.
@@ -88,11 +99,24 @@ function BreadcrumbDropdown({ item }: { item: BreadcrumbItem }) {
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger className="flex min-w-0 items-center gap-1 font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring">
+      <DropdownMenuTrigger
+        className="-mx-1 -my-0.5 flex min-w-0 items-center gap-1 rounded px-1 py-0.5 font-medium outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        onKeyDownCapture={trackKeyboard}
+        onPointerDownCapture={trackPointer}
+      >
         <span className="truncate">{item.label}</span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="rounded-none">
+      <DropdownMenuContent
+        align="start"
+        className="rounded-none"
+        onKeyDownCapture={trackKeyboard}
+        onPointerDownCapture={trackPointer}
+        onPointerDownOutside={trackPointer}
+        onCloseAutoFocus={(event) => {
+          if (!usedKeyboard.current) event.preventDefault();
+        }}
+      >
         {item.menuHeader && (
           <>
             <DropdownMenuItem asChild className="rounded-none text-[13px] font-semibold">
