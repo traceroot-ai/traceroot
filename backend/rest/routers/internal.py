@@ -396,7 +396,7 @@ async def get_spans_jsonl(trace_id: str, project_id: str):
     result = ch.query(
         """SELECT * FROM spans FINAL
            WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}
-           ORDER BY span_start_time""",
+           ORDER BY span_start_time ASC, span_end_time ASC, span_id ASC""",
         parameters={"trace_id": trace_id, "project_id": project_id},
     )
 

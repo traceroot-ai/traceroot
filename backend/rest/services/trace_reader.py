@@ -251,7 +251,7 @@ class TraceReaderService:
                 git_source_file, git_source_line, git_source_function
             FROM spans FINAL
             WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
-            ORDER BY span_start_time ASC
+            ORDER BY span_start_time ASC, span_end_time ASC, span_id ASC
         """
         spans_result = self._client.query(
             spans_query,
