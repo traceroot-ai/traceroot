@@ -1,12 +1,6 @@
 import { Worker, type Job } from "bullmq";
-import {
-  prisma,
-  SYSTEM_MODELS,
-  PlanType,
-  ModelSource,
-  fetchProviderConfig,
-  resolvePiModel,
-} from "@traceroot/core";
+import { prisma, SYSTEM_MODELS, PlanType, ModelSource } from "@traceroot/core";
+import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
 import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
 import { DETECTOR_RCA_QUEUE, createRedisConnection } from "../queues/detector-run-queue.js";
 import { sendCombinedAlertEmail } from "../notifications/email.js";
