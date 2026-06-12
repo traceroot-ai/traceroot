@@ -393,6 +393,8 @@ async def get_spans_jsonl(trace_id: str, project_id: str):
     from fastapi.responses import PlainTextResponse
 
     ch = get_clickhouse_client()
+    # span_start_time is ms-precision, so sub-ms parallel siblings tie; the
+    # span_end_time + span_id tie-breakers keep the jsonl export deterministic.
     result = ch.query(
         """SELECT * FROM spans FINAL
            WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}

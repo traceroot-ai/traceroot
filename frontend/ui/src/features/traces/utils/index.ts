@@ -10,6 +10,19 @@ export function parseTimestamp(ts: string): number {
   return parseAsUTC(ts.trim()).getTime();
 }
 
+/**
+ * Total ordering for sibling spans that is stable across fetches/streams of the
+ * same trace. `span_start_time` is stored at millisecond precision (ClickHouse
+ * DateTime64(3)), so sub-millisecond-fast parallel siblings (e.g. parallel tool
+ * calls) collapse to an identical start and would otherwise order arbitrarily.
+ *
+ * Tie-break start → end → span_id, mirroring the backend
+ * `ORDER BY span_start_time ASC, span_end_time ASC, span_id ASC` so the tree and
+ * timeline views agree with each other and with the server. In-progress spans
+ * have no end time; sorting them as +Infinity places them after completed
+ * siblings that share a start, and keeps two end-less siblings equal so the
+ * span_id tie-break decides. span_id is the final, always-present discriminator.
+ */
 export function compareSpansForStableDisplay(a: Span, b: Span): number {
   const startDelta = parseTimestamp(a.span_start_time) - parseTimestamp(b.span_start_time);
   if (startDelta !== 0) return startDelta;
@@ -178,8 +191,10 @@ export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
     childrenByParent.get(pid)!.push(span);
   });
 
-  // Sort children within each parent by start_time so connector lines
-  // (isTerminal / parentLevels) are stable regardless of SSE arrival order.
+  // Sort children within each parent so connector lines (isTerminal /
+  // parentLevels) are stable regardless of SSE arrival order. start_time alone
+  // ties for sub-ms parallel spans, so compareSpansForStableDisplay falls back
+  // to end_time then span_id.
   for (const children of childrenByParent.values()) {
     children.sort(compareSpansForStableDisplay);
   }
@@ -197,7 +212,7 @@ export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
   }
 
   // Combine true roots with orphan spans (parent not yet arrived) into a single
-  // top-level list sorted by start_time. This ensures:
+  // top-level list, stably sorted (start → end → span_id). This ensures:
   // 1. Connector lines are correct across all top-level items.
   // 2. Orphans are always visible, not silently dropped when root exists.
   const orphans = spans.filter((s) => s.parent_span_id !== null && !spanIds.has(s.parent_span_id));

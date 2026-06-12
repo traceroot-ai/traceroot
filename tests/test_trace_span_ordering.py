@@ -1,3 +1,11 @@
+"""Regression guard for deterministic sibling span ordering (issue #1161).
+
+span_start_time is stored at millisecond precision, so sub-ms parallel siblings
+tie. The span query must carry span_end_time + span_id tie-breakers so two reads
+of the same trace return identical order. The ClickHouse client is stubbed, so
+this asserts the ORDER BY clause directly rather than exercising a live DB.
+"""
+
 from rest.services.trace_reader import TraceReaderService
 
 
