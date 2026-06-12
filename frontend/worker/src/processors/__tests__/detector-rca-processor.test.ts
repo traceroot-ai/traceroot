@@ -3,14 +3,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const fetchProviderConfigMock = vi.fn();
 const resolvePiModelMock = vi.fn();
 
-vi.mock("@traceroot/core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@traceroot/core")>();
-  return {
-    ...actual,
-    fetchProviderConfig: (...args: any[]) => fetchProviderConfigMock(...args),
-    resolvePiModel: (...args: any[]) => resolvePiModelMock(...args),
-  };
-});
+vi.mock("@traceroot/core/model-resolver", async () => ({
+  fetchProviderConfig: (...args: any[]) => fetchProviderConfigMock(...args),
+  resolvePiModel: (...args: any[]) => resolvePiModelMock(...args),
+}));
 
 afterEach(() => {
   fetchProviderConfigMock.mockReset();
