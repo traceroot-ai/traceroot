@@ -152,6 +152,51 @@ class TestAuthenticateApiKey:
         assert exc_info.value.detail == "Authentication service error"
 
     @respx.mock
+    async def test_200_missing_ingestion_blocked_returns_503(self):
+        """ingestionBlocked gates billing enforcement: a valid:true response that
+        omits it is malformed → 503 (fail closed). Never silently default to "not
+        blocked", which would bypass the free-plan ingestion limit.
+        """
+        respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
+            return_value=Response(
+                200,
+                json={
+                    "valid": True,
+                    "projectId": "proj-123",
+                    "workspaceId": "ws-456",
+                    "billingPlan": "free",
+                    # ingestionBlocked deliberately omitted
+                },
+            )
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_api_key("Bearer test-key")
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Authentication service error"
+
+    @respx.mock
+    async def test_200_non_bool_ingestion_blocked_returns_503(self):
+        """A non-boolean ingestionBlocked is malformed → 503; don't coerce truthiness
+        (e.g. null/"false"/0 must not be read as "not blocked").
+        """
+        respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
+            return_value=Response(
+                200,
+                json={
+                    "valid": True,
+                    "projectId": "proj-123",
+                    "workspaceId": "ws-456",
+                    "billingPlan": "free",
+                    "ingestionBlocked": None,
+                },
+            )
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_api_key("Bearer test-key")
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Authentication service error"
+
+    @respx.mock
     async def test_token_not_logged_on_malformed_response(self, caplog):
         """The raw API token must never appear in logs, even on the error path."""
         respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
