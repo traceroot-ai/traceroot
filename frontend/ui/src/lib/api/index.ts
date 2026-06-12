@@ -58,7 +58,7 @@ export {
 } from "./model-providers";
 
 // Trace APIs
-export { getTraces, getTrace } from "./traces";
+export { getTraces, getTrace, getSpanIO } from "./traces";
 
 // Re-export all types from types/api.ts for backward compatibility
 export type {
@@ -72,6 +72,7 @@ export type {
   AccessKeyCreatedResponse,
   TraceListItem,
   Span,
+  SpanIO,
   TraceDetail,
   TraceListResponse,
   TraceQueryOptions,

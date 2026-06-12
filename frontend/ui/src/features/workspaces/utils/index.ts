@@ -32,3 +32,13 @@ export function getRoleLabel(role: Role): string {
 export function isAdminRole(role: Role): boolean {
   return role === Role.ADMIN;
 }
+
+/**
+ * Build the destination URL for switching to another workspace, preserving
+ * the current workspace sub-page (e.g. settings) where possible.
+ */
+export function workspaceSwitchHref(pathname: string, targetWorkspaceId: string): string {
+  const match = pathname.match(/^\/workspaces\/[^/]+\/(.+)/);
+  if (!match) return `/workspaces/${targetWorkspaceId}/projects`;
+  return `/workspaces/${targetWorkspaceId}/${match[1]}`;
+}

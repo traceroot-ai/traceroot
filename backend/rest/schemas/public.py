@@ -3,7 +3,7 @@
 from pydantic import BaseModel
 
 from rest.schemas.common import PaginationMeta
-from rest.schemas.traces import SpanResponse, TraceDetailResponse, TraceListItem
+from rest.schemas.traces import SpanSkeletonResponse, TraceDetailResponse, TraceListItem
 
 
 class WhoamiResponse(BaseModel):
@@ -74,5 +74,8 @@ class PublicTraceExportResponse(BaseModel):
 
     manifest: ExportManifest
     trace: PublicTraceDetailResponse
-    spans: list[SpanResponse]
+    # Same span shape as `trace.spans` (the documented export.spans == detail.spans
+    # invariant). Skeletons omit per-span I/O blobs, matching what the reader's
+    # get_trace returns; full per-span I/O is fetched on demand via the span IO route.
+    spans: list[SpanSkeletonResponse]
     git_context: GitContext

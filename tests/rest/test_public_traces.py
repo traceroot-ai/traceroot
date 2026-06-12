@@ -108,6 +108,7 @@ class TestIngestTraces:
             headers={"Content-Encoding": "gzip", "Content-Type": "application/x-protobuf"},
         )
         assert response.status_code == 400
+        assert response.json()["detail"] == "Invalid gzip payload"
 
     def test_s3_failure_returns_500(self, client):
         test_client, mock_s3, _ = client

@@ -15,6 +15,7 @@ load_dotenv()
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from rest.routers.internal import router as internal_router
 from rest.routers.live import router as live_router
@@ -32,6 +33,11 @@ app = FastAPI(
     description="Observability platform for LLM applications",
     version="0.1.0",
 )
+
+# Compress responses (e.g. large trace payloads). Added before CORS so that
+# CORS remains the outermost middleware and its headers apply to every
+# response, including gzipped ones.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # CORS configuration
 app.add_middleware(

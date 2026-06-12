@@ -8,12 +8,17 @@ import {
   ModelSelector,
   type ModelSelection,
 } from "@/features/ai-assistant/components/model-selector";
-import { DETECTOR_TEMPLATES } from "@/features/detectors/templates";
+import {
+  DEFAULT_DETECTOR_SAMPLE_RATE,
+  DETECTOR_TEMPLATES,
+  buildTemplateDetectorInput,
+} from "@/features/detectors/templates";
 import { useCreateDetector } from "@/features/detectors/hooks/use-detectors";
 import type { CreateDetectorInput } from "@/features/detectors/hooks/use-detectors";
 import { TriggerEditor } from "@/features/detectors/components/trigger-editor";
 import type { TriggerCondition } from "@/features/detectors/components/trigger-editor";
 import { AgentModelLink } from "@/features/detectors/components/agent-model-link";
+import { RcaToggle } from "@/features/detectors/components/rca-toggle";
 import { useProject } from "@/features/projects/hooks";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 
@@ -31,7 +36,7 @@ export default function NewDetectorPage() {
   const [name, setName] = useState(INITIAL_TEMPLATE.label + " Detector");
   const [nameEdited, setNameEdited] = useState(false);
   const [prompt, setPrompt] = useState(INITIAL_TEMPLATE.prompt);
-  const [sampleRate, setSampleRate] = useState(100);
+  const [sampleRate, setSampleRate] = useState(DEFAULT_DETECTOR_SAMPLE_RATE);
   // Seeded from the template's defaultConditions so a user who picks
   // "Failure" and clicks Create gets the trigger filters the template
   // intends, not an unfiltered detector that fires on every trace.
@@ -44,6 +49,7 @@ export default function NewDetectorPage() {
     source: "system",
     adapter: "",
   });
+  const [enableRca, setEnableRca] = useState(true);
 
   const handleTemplateChange = (templateId: string) => {
     const template = DETECTOR_TEMPLATES.find((t) => t.id === templateId);
@@ -59,11 +65,11 @@ export default function NewDetectorPage() {
     e.preventDefault();
     const template = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate)!;
     const input: CreateDetectorInput = {
+      ...buildTemplateDetectorInput(template),
       name,
-      template: selectedTemplate,
       prompt,
-      outputSchema: template.outputSchema,
       sampleRate,
+      enableRca,
       triggerConditions,
       detectionModel: modelSelection.model || undefined,
       detectionProvider: modelSelection.provider || undefined,
@@ -166,6 +172,7 @@ export default function NewDetectorPage() {
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     Used for deep analysis when findings are triggered. Shared across all detectors.
                   </p>
+                  <RcaToggle id="enable-rca" checked={enableRca} onCheckedChange={setEnableRca} />
                 </div>
               </div>
             </div>

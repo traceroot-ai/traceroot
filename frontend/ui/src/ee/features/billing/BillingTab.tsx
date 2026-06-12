@@ -2,20 +2,11 @@
 
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowRight, ExternalLink, AlertCircle, CalendarClock } from "lucide-react";
+import { ExternalLink, AlertCircle, CalendarClock } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
 import {
   PLANS,
   PlanType,
-  isUpgrade,
   EVENT_QUOTAS,
   AI_RUN_QUOTAS,
   RCA_RUN_QUOTAS,
@@ -23,6 +14,7 @@ import {
 } from "@traceroot/core";
 import type { UsageStats, AIUsageByModel } from "@/types/api";
 import { formatRcaQuotaLabel, formatDetectorScanLabel } from "./usage-labels";
+import { PricingDialog } from "./PricingDialog";
 
 function formatCost(cost: number): string {
   if (cost < 0.01) return cost > 0 ? "< $0.01" : "$0.00";
@@ -107,13 +99,7 @@ function UsageSection({
     </div>
   );
 }
-import {
-  createCheckoutSession,
-  changePlan,
-  getPortalUrl,
-  getSubscriptionInfo,
-  type SubscriptionInfo,
-} from "./api";
+import { getPortalUrl, getSubscriptionInfo, type SubscriptionInfo } from "./api";
 
 interface BillingTabProps {
   workspaceId: string;
@@ -155,39 +141,6 @@ export function BillingTab({
       });
   }, [workspaceId, hasSubscription]);
 
-  async function handlePlanSelect(newPlan: PlanType) {
-    if (newPlan === currentPlan) return;
-
-    // Enterprise = contact sales
-    if (newPlan === PlanType.ENTERPRISE) {
-      window.open("https://cal.com/traceroot/30min", "_blank");
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      if (!hasSubscription && newPlan !== PlanType.FREE) {
-        // No subscription yet, need to go through checkout
-        const { url } = await createCheckoutSession(workspaceId, newPlan);
-        window.location.href = url;
-      } else {
-        // Has subscription, use change-plan (upgrade, downgrade, or cancel to free)
-        const result = await changePlan(workspaceId, newPlan);
-        if (result.success) {
-          setShowPricingDialog(false);
-          // Reload to reflect new plan
-          window.location.reload();
-        }
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to change plan");
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
   async function handleOpenPortal() {
     setIsLoading(true);
     try {
@@ -198,14 +151,6 @@ export function BillingTab({
     } finally {
       setIsLoading(false);
     }
-  }
-
-  function getButtonText(planId: PlanType): string {
-    if (planId === currentPlan) return "Current Plan";
-    if (planId === PlanType.ENTERPRISE) return "Contact Sales";
-    if (planId === PlanType.FREE) return "Downgrade";
-    if (isUpgrade(currentPlan, planId)) return "Upgrade";
-    return "Downgrade";
   }
 
   return (
@@ -398,86 +343,13 @@ export function BillingTab({
       />
 
       {/* Pricing Dialog */}
-      <Dialog open={showPricingDialog} onOpenChange={setShowPricingDialog}>
-        <DialogContent className="max-w-5xl">
-          <DialogHeader>
-            <DialogTitle>Choose a plan</DialogTitle>
-            <DialogDescription>Select a plan that best fits your needs.</DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-              {(Object.entries(PLANS) as [PlanType, (typeof PLANS)[PlanType]][]).map(
-                ([planId, plan]) => {
-                  const isCurrentPlan = planId === currentPlan;
-                  const isEnterprise = planId === PlanType.ENTERPRISE;
-
-                  return (
-                    <div
-                      key={planId}
-                      className={cn(
-                        "flex flex-col border",
-                        plan.highlighted && "border-foreground shadow-md",
-                      )}
-                    >
-                      {/* Plan header */}
-                      <div className="border-b px-4 pb-3 pt-4">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-lg font-semibold">{plan.name}</h3>
-                          {plan.badge && (
-                            <span className="rounded-full bg-muted px-2 py-1 text-xs">
-                              {plan.badge}
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-1 text-sm text-muted-foreground">{plan.description}</p>
-                      </div>
-
-                      {/* Price */}
-                      <div className="border-b px-4 py-3">
-                        <div>
-                          {plan.price !== null ? (
-                            <>
-                              <span className="text-2xl font-bold">${plan.price}</span>
-                              <span className="text-muted-foreground"> per month</span>
-                            </>
-                          ) : (
-                            <span className="text-2xl font-bold">Custom</span>
-                          )}
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">{plan.support} support</p>
-                      </div>
-
-                      {/* Features */}
-                      <div className="flex-1 px-4 py-3">
-                        <ul className="space-y-2">
-                          {plan.features.map((feature, index) => (
-                            <li key={index} className="text-sm">
-                              {feature}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {/* CTA Button */}
-                      <div className="px-4 pb-4">
-                        <Button
-                          variant={plan.highlighted ? "default" : "outline"}
-                          className="w-full justify-between"
-                          disabled={isCurrentPlan || (isLoading && !isEnterprise)}
-                          onClick={() => handlePlanSelect(planId)}
-                        >
-                          {getButtonText(planId)}
-                          {!isCurrentPlan && <ArrowRight className="h-4 w-4" />}
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                },
-              )}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <PricingDialog
+        open={showPricingDialog}
+        onOpenChange={setShowPricingDialog}
+        workspaceId={workspaceId}
+        currentPlan={currentPlan}
+        hasSubscription={hasSubscription}
+      />
     </div>
   );
 }

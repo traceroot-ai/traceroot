@@ -259,7 +259,7 @@
           },
           "spans": {
             "items": {
-              "$ref": "#/components/schemas/SpanResponse"
+              "$ref": "#/components/schemas/SpanSkeletonResponse"
             },
             "title": "Spans",
             "type": "array"
@@ -318,7 +318,7 @@
           },
           "spans": {
             "items": {
-              "$ref": "#/components/schemas/SpanResponse"
+              "$ref": "#/components/schemas/SpanSkeletonResponse"
             },
             "title": "Spans",
             "type": "array"
@@ -498,8 +498,8 @@
         "title": "PublicTraceListResponse",
         "type": "object"
       },
-      "SpanResponse": {
-        "description": "Single span in a trace.",
+      "SpanSkeletonResponse": {
+        "description": "Span skeleton \u2014 tree-building / display fields only, no I/O blobs.\n\nUsed by the trace-detail endpoint so the initial payload stays sub-MB\nregardless of trace size. Full I/O (input/output/metadata) is fetched\nper-span on demand via the dedicated ``/spans/{span_id}/io`` endpoint.\n\nNote: the token/cost breakdown maps (``usage_details``/``cost_details``)\nstay on the skeleton \u2014 they are small and drive the tree's token/cost\nchips. Only the large free-text I/O blobs are omitted.",
         "properties": {
           "cost": {
             "anyOf": [
@@ -511,6 +511,14 @@
               }
             ],
             "title": "Cost"
+          },
+          "cost_details": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "default": {},
+            "title": "Cost Details",
+            "type": "object"
           },
           "git_source_file": {
             "anyOf": [
@@ -545,17 +553,6 @@
             ],
             "title": "Git Source Line"
           },
-          "input": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Input"
-          },
           "input_tokens": {
             "anyOf": [
               {
@@ -566,17 +563,6 @@
               }
             ],
             "title": "Input Tokens"
-          },
-          "metadata": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Metadata"
           },
           "model_name": {
             "anyOf": [
@@ -592,17 +578,6 @@
           "name": {
             "title": "Name",
             "type": "string"
-          },
-          "output": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Output"
           },
           "output_tokens": {
             "anyOf": [
@@ -680,6 +655,14 @@
           "trace_id": {
             "title": "Trace Id",
             "type": "string"
+          },
+          "usage_details": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "default": {},
+            "title": "Usage Details",
+            "type": "object"
           }
         },
         "required": [
@@ -696,16 +679,20 @@
           "cost",
           "input_tokens",
           "output_tokens",
-          "total_tokens",
-          "input",
-          "output",
-          "metadata"
+          "total_tokens"
         ],
-        "title": "SpanResponse",
+        "title": "SpanSkeletonResponse",
         "type": "object"
       },
       "ValidationError": {
         "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
           "loc": {
             "items": {
               "anyOf": [
