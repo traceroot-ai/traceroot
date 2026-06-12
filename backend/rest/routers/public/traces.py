@@ -130,7 +130,7 @@ async def ingest_traces(
             logger.warning(f"Failed to decompress gzip: {e}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to decompress gzip: {e}",
+                detail="Invalid gzip payload",
             ) from e
 
     # 3. Decode protobuf to camelCase JSON (OTLP standard format)

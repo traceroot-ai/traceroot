@@ -1,3 +1,5 @@
+import type { CreateDetectorInput } from "@/features/detectors/hooks/use-detectors";
+
 export interface DetectorTemplate {
   id: string;
   label: string;
@@ -104,4 +106,29 @@ Report identified=true only for clear, concrete safety violations.`,
 
 export function getTemplate(id: string): DetectorTemplate | undefined {
   return DETECTOR_TEMPLATES.find((t) => t.id === id);
+}
+
+// Templates offered for one-click creation in the project-creation flow.
+// Blank needs a custom prompt, so it is only available on the full new-detector form.
+export const DETECTOR_QUICK_ADD_TEMPLATES = DETECTOR_TEMPLATES.filter((t) => t.id !== "blank");
+
+// Single source of truth for the default detector sampling rate. The Prisma
+// column default (packages/core/prisma/schema.prisma) cannot import this —
+// schema files only take literals — so a drift-guard test in templates.test.ts
+// asserts the two stay equal.
+export const DEFAULT_DETECTOR_SAMPLE_RATE = 25;
+
+// Default create payload for a template — shared by the new-detector form and the
+// project-creation quick-add step so the two creation paths cannot drift.
+export function buildTemplateDetectorInput(template: DetectorTemplate): CreateDetectorInput {
+  return {
+    name: `${template.label} Detector`,
+    template: template.id,
+    prompt: template.prompt,
+    outputSchema: template.outputSchema,
+    triggerConditions: template.defaultConditions,
+    sampleRate: DEFAULT_DETECTOR_SAMPLE_RATE,
+    enableRca: true,
+    detectionSource: "system",
+  };
 }

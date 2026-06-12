@@ -3,10 +3,16 @@
 import { useState, useMemo, useRef, useEffect, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { CircleStop, CircleDollarSign } from "lucide-react";
-import { cn, formatDuration, formatTokens } from "@/lib/utils";
+import { cn, formatDuration, formatTokenFlow } from "@/lib/utils";
 import { SpanStatus, SpanKind } from "@traceroot/core";
 import { flattenTreeWithMetrics } from "../utils/timeline";
-import { TREE_LAYOUT, enrichSpansWithPending, getTraceDuration } from "../utils";
+import {
+  TREE_LAYOUT,
+  TREE_OVERSCAN_ROWS,
+  enrichSpansWithPending,
+  getTraceDuration,
+} from "../utils";
+import { getSpanKindColor } from "./SpanKindIcon";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
 
@@ -105,9 +111,19 @@ export function SpanTimelineView({
   }, [traceDurationMs, timelineWidth]);
 
   const traceAggregates = useMemo(() => {
+    // Only coerce input/output to a number when at least one span reports it, so
+    // a total-only trace renders "-" instead of a misleading 0.
+    const hasInput = trace.spans.some((s) => s.input_tokens != null);
+    const hasOutput = trace.spans.some((s) => s.output_tokens != null);
+    const inputTokens = hasInput
+      ? trace.spans.reduce((sum, s) => sum + (s.input_tokens || 0), 0)
+      : null;
+    const outputTokens = hasOutput
+      ? trace.spans.reduce((sum, s) => sum + (s.output_tokens || 0), 0)
+      : null;
     const totalTokens = trace.spans.reduce((sum, s) => sum + (s.total_tokens || 0), 0);
     const totalCost = trace.spans.reduce((sum, s) => sum + (s.cost || 0), 0);
-    return { totalTokens, totalCost };
+    return { inputTokens, outputTokens, totalTokens, totalCost };
   }, [trace.spans]);
 
   const traceIsCollapsed = collapsedIds.has("trace");
@@ -130,7 +146,7 @@ export function SpanTimelineView({
     count: allRows.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW_HEIGHT,
-    overscan: 12,
+    overscan: TREE_OVERSCAN_ROWS,
   });
 
   return (
@@ -221,9 +237,13 @@ export function SpanTimelineView({
                   {(traceAggregates.totalTokens > 0 || traceAggregates.totalCost > 0) && (
                     <span className="absolute right-2 z-20 inline-flex items-center gap-2 whitespace-nowrap text-[10px] font-medium text-muted-foreground">
                       {traceAggregates.totalTokens > 0 && (
-                        <span className="inline-flex items-center gap-0.5">
+                        <span className="inline-flex items-center gap-0.5 font-sans font-medium">
                           <CircleStop className="h-2.5 w-2.5" />
-                          {formatTokens(traceAggregates.totalTokens)}
+                          {formatTokenFlow(
+                            traceAggregates.inputTokens,
+                            traceAggregates.outputTokens,
+                            traceAggregates.totalTokens,
+                          )}
                         </span>
                       )}
                       {traceAggregates.totalCost > 0 && (
@@ -289,9 +309,9 @@ export function SpanTimelineView({
                 {(showTokens || showCost) && (
                   <span className="absolute right-2 z-20 inline-flex items-center gap-2 whitespace-nowrap text-[10px] text-muted-foreground">
                     {showTokens && (
-                      <span className="inline-flex items-center gap-0.5">
+                      <span className="inline-flex items-center gap-0.5 font-sans font-medium">
                         <CircleStop className="h-2.5 w-2.5" />
-                        {formatTokens(span.total_tokens!)}
+                        {formatTokenFlow(span.input_tokens, span.output_tokens, span.total_tokens)}
                       </span>
                     )}
                     {showCost && (
@@ -312,10 +332,11 @@ export function SpanTimelineView({
                     className={cn(
                       "absolute z-10 overflow-hidden rounded-[2px] border border-solid transition-colors",
                       isError
-                        ? "border-red-300 bg-red-100 dark:bg-red-950/60"
-                        : "border-foreground/40 bg-foreground/[0.08]",
+                        ? "border-red-300 bg-red-100 dark:border-red-800 dark:bg-red-950/60"
+                        : getSpanKindColor(span.span_kind).surface,
                       item.metrics.isInProgress && "animate-pulse border-dashed opacity-70",
-                      isSelected && "ring-1 ring-border",
+                      // Tinted bars wash out a neutral ring; foreground/50 stays legible on every kind
+                      isSelected && "ring-1 ring-foreground/50",
                     )}
                     style={{
                       left: `${item.metrics.startOffsetPx}px`,

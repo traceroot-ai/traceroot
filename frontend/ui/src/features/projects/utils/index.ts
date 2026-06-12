@@ -14,6 +14,21 @@ export function formatProjectDate(dateString: string): string {
 }
 
 /**
+ * Build the destination URL for switching to another project, preserving the
+ * current sub-page where sensible. Settings sub-pages exist for every project
+ * so they are kept; entity-specific segments (e.g. a detector id) are dropped.
+ */
+export function projectSwitchHref(pathname: string, targetProjectId: string): string {
+  const match = pathname.match(/^\/projects\/[^/]+\/([^/]+)(?:\/([^/]+))?/);
+  if (!match) return `/projects/${targetProjectId}/traces`;
+  const [, subPage, nested] = match;
+  if (subPage === "settings" && nested) {
+    return `/projects/${targetProjectId}/settings/${nested}`;
+  }
+  return `/projects/${targetProjectId}/${subPage}`;
+}
+
+/**
  * Get display text for trace TTL
  */
 export function formatTraceTtl(days: number | null): string {

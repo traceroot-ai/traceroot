@@ -4,6 +4,34 @@ from datetime import datetime
 
 from db.clickhouse import get_clickhouse_client
 from rest.sql_utils import escape_ilike, to_utc_naive
+from worker.tokens.buckets import TokenBuckets
+from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
+
+
+def span_cost_details(
+    model_name: str | None,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    usage_details: dict[str, int],
+) -> dict[str, float]:
+    """Per-category dollar breakdown for a stored span.
+
+    Rebuilds the disjoint token buckets from the stored GROSS input_tokens and the
+    cache counts in usage_details, then prices each bucket with the model's current
+    rates. Display-only: the values sum to the span's stored `cost` when rates are
+    unchanged. Returns {} when the model has no known prices.
+    """
+    if not model_name:
+        return {}
+    cache_read = int(usage_details.get("cache_read_tokens", 0) or 0)
+    cache_write = int(usage_details.get("cache_write_tokens", 0) or 0)
+    buckets = TokenBuckets(
+        input_uncached=max((input_tokens or 0) - cache_read - cache_write, 0),
+        output=output_tokens or 0,
+        cache_read=cache_read,
+        cache_write=cache_write,
+    )
+    return cost_breakdown_from_buckets(get_model_price(model_name), buckets) or {}
 
 
 class TraceReaderService:
@@ -166,7 +194,17 @@ class TraceReaderService:
         }
 
     def get_trace(self, project_id: str, trace_id: str) -> dict | None:
-        """Get single trace with all spans."""
+        """Get single trace with span skeletons (no per-span I/O).
+
+        Returns trace metadata plus lightweight span skeletons that omit the
+        large free-text input/output/metadata blobs. This keeps the payload
+        sub-MB even for large traces. Per-span I/O is fetched on demand via
+        get_span_io(). Columnar storage means dropping those columns from the
+        SELECT avoids reading them entirely — no schema change needed.
+
+        Trace-level input/output/metadata (on the trace row) are kept: they're
+        small and already present.
+        """
         # Fetch trace
         trace_query = """
             SELECT
@@ -199,14 +237,17 @@ class TraceReaderService:
             "metadata": row[10],
         }
 
-        # Fetch spans. Duration is derived on the client from start/end so
-        # in-progress spans can grow against `now()` for live traces.
+        # Fetch span skeletons — omit the large input/output/metadata blobs to
+        # keep the payload lightweight (fetched per-span on demand instead).
+        # usage_details is kept (small map) to derive cost_details. Duration is
+        # derived on the client from start/end so in-progress spans can grow
+        # against `now()` for live traces.
         spans_query = """
             SELECT
                 span_id, trace_id, parent_span_id, name, span_kind,
                 span_start_time, span_end_time, status, status_message,
                 model_name, cost, input_tokens, output_tokens, total_tokens,
-                input, output, metadata,
+                usage_details,
                 git_source_file, git_source_line, git_source_function
             FROM spans FINAL
             WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
@@ -235,17 +276,54 @@ class TraceReaderService:
                     "input_tokens": int(row[11]) if row[11] is not None else None,
                     "output_tokens": int(row[12]) if row[12] is not None else None,
                     "total_tokens": int(row[13]) if row[13] is not None else None,
-                    "input": row[14],
-                    "output": row[15],
-                    "metadata": row[16],
-                    "git_source_file": row[17],
-                    "git_source_line": int(row[18]) if row[18] is not None else None,
-                    "git_source_function": row[19],
+                    "usage_details": dict(row[14]) if row[14] else {},
+                    "cost_details": span_cost_details(
+                        row[9],  # model_name
+                        int(row[11]) if row[11] is not None else None,  # input_tokens
+                        int(row[12]) if row[12] is not None else None,  # output_tokens
+                        dict(row[14]) if row[14] else {},  # usage_details
+                    ),
+                    "git_source_file": row[15],
+                    "git_source_line": int(row[16]) if row[16] is not None else None,
+                    "git_source_function": row[17],
                 }
             )
 
         trace["spans"] = spans
         return trace
+
+    def get_span_io(self, project_id: str, trace_id: str, span_id: str) -> dict | None:
+        """Fetch full input/output/metadata for a single span on demand.
+
+        Called when the user selects a span in the UI. Returns None when the
+        span does not exist (router translates that to a 404).
+        """
+        query = """
+            SELECT span_id, trace_id, input, output, metadata
+            FROM spans FINAL
+            WHERE project_id = {project_id:String}
+              AND trace_id = {trace_id:String}
+              AND span_id = {span_id:String}
+            LIMIT 1
+        """
+        result = self._client.query(
+            query,
+            parameters={
+                "project_id": project_id,
+                "trace_id": trace_id,
+                "span_id": span_id,
+            },
+        )
+        if not result.result_rows:
+            return None
+        row = result.result_rows[0]
+        return {
+            "span_id": row[0],
+            "trace_id": row[1],
+            "input": row[2],
+            "output": row[3],
+            "metadata": row[4],
+        }
 
     def list_sessions(
         self,
