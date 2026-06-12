@@ -14,19 +14,23 @@ class _StubClient:
         self.calls.append((query, parameters))
         normalized = " ".join(query.split())
         if "FROM traces FINAL" in normalized:
-            return _StubResult([[
-                "trace-1",
-                "project-1",
-                "Trace Name",
-                "2024-01-01T00:00:00.000Z",
-                "user-1",
-                "session-1",
-                "main",
-                "repo",
-                None,
-                None,
-                None,
-            ]])
+            return _StubResult(
+                [
+                    [
+                        "trace-1",
+                        "project-1",
+                        "Trace Name",
+                        "2024-01-01T00:00:00.000Z",
+                        "user-1",
+                        "session-1",
+                        "main",
+                        "repo",
+                        None,
+                        None,
+                        None,
+                    ]
+                ]
+            )
         if "FROM spans FINAL" in normalized:
             return _StubResult([])
         raise AssertionError(f"Unexpected query: {query}")
