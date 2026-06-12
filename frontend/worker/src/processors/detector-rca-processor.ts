@@ -1,5 +1,12 @@
 import { Worker, type Job } from "bullmq";
-import { prisma, SYSTEM_MODELS, PlanType, ModelSource } from "@traceroot/core";
+import {
+  prisma,
+  SYSTEM_MODELS,
+  PlanType,
+  ModelSource,
+  fetchProviderConfig,
+  resolvePiModel,
+} from "@traceroot/core";
 import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
 import { DETECTOR_RCA_QUEUE, createRedisConnection } from "../queues/detector-run-queue.js";
 import { sendCombinedAlertEmail } from "../notifications/email.js";
@@ -7,7 +14,10 @@ import { sendCombinedAlertSlack } from "../notifications/slack.js";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 
-// Resolve a project-configured rca_model id to the agent service body fields.
+// Resolve a project-configured rca_model to the agent service body fields.
+// Uses the same pattern as sandbox-eval.ts: reads the provider from saved
+// config (BYOK) or the shared system-model resolver — no fragile prefix
+// matching or adapter guessing.
 // Returns null when the model is unset or unknown (caller should omit fields).
 export async function resolveProjectModel(
   rcaModel: string | null | undefined,
@@ -17,54 +27,25 @@ export async function resolveProjectModel(
 ): Promise<{ model: string; providerName: string; source: ModelSource } | null> {
   if (!rcaModel) return null;
 
-  if (rcaSource && rcaProvider) {
-    return {
-      model: rcaModel,
-      providerName: rcaProvider,
-      source: rcaSource === "byok" ? ModelSource.BYOK : ModelSource.SYSTEM,
-    };
+  // 1. BYOK: read provider from saved config (same pattern as sandbox-eval.ts L126-136)
+  if (rcaSource === "byok" && rcaProvider) {
+    const providerConfig = await fetchProviderConfig(workspaceId, rcaProvider);
+    if (!providerConfig) {
+      console.warn(
+        `[detector-rca] BYOK provider "${rcaProvider}" not found or disabled in workspace ${workspaceId}`,
+      );
+      return null;
+    }
+    const model = resolvePiModel(rcaModel, providerConfig);
+    return { model: model.id, providerName: model.provider, source: ModelSource.BYOK };
   }
 
+  // 2. System model: validate against catalog, then use shared resolver
   for (const group of SYSTEM_MODELS) {
     if (group.models.some((m) => m.id === rcaModel)) {
-      return { model: rcaModel, providerName: group.piAIProvider, source: ModelSource.SYSTEM };
+      const model = resolvePiModel(rcaModel, null);
+      return { model: model.id, providerName: model.provider, source: ModelSource.SYSTEM };
     }
-  }
-
-  try {
-    const dbProviders = await prisma.modelProvider.findMany({
-      where: { workspaceId, enabled: true },
-      orderBy: { id: "asc" },
-      select: {
-        provider: true,
-        adapter: true,
-        customModels: true,
-      },
-    });
-
-    // First pass: try to find a precise match using adapter prefix
-    for (const p of dbProviders) {
-      if (p.customModels.some((m) => m.trim() === rcaModel)) {
-        // 1. Prefix match (e.g. "deepseek/deepseek-chat-v3" -> prefix is "deepseek")
-        const hasSlash = rcaModel.includes("/");
-        const prefix = hasSlash ? rcaModel.split("/")[0].toLowerCase() : null;
-        if (prefix && p.adapter.toLowerCase() === prefix) {
-          return { model: rcaModel, providerName: p.provider, source: ModelSource.BYOK };
-        }
-      }
-    }
-
-    // Second pass: fallback to the first provider containing the model
-    for (const p of dbProviders) {
-      if (p.customModels.some((m) => m.trim() === rcaModel)) {
-        return { model: rcaModel, providerName: p.provider, source: ModelSource.BYOK };
-      }
-    }
-  } catch (err) {
-    console.error(
-      `[detector-rca] Failed to query model providers for workspace ${workspaceId}:`,
-      err,
-    );
   }
 
   console.warn(`[detector-rca] Unknown rca_model "${rcaModel}", falling back to default`);
