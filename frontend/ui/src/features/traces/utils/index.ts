@@ -201,7 +201,9 @@ export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
   // 1. Connector lines are correct across all top-level items.
   // 2. Orphans are always visible, not silently dropped when root exists.
   const orphans = spans.filter((s) => s.parent_span_id !== null && !spanIds.has(s.parent_span_id));
-  const topLevel = [...(childrenByParent.get(null) ?? []), ...orphans].sort(compareSpansForStableDisplay);
+  const topLevel = [...(childrenByParent.get(null) ?? []), ...orphans].sort(
+    compareSpansForStableDisplay,
+  );
   topLevel.forEach((span, idx) => {
     traverse(span, 0, idx === topLevel.length - 1, []);
   });

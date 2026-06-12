@@ -1,5 +1,10 @@
 import type { Span } from "@/types/api";
-import { buildChildrenMap, compareSpansForStableDisplay, getSpanDuration, parseTimestamp } from "../utils";
+import {
+  buildChildrenMap,
+  compareSpansForStableDisplay,
+  getSpanDuration,
+  parseTimestamp,
+} from "../utils";
 
 export interface TimelineMetrics {
   startOffsetPx: number;
