@@ -461,7 +461,9 @@ async def get_spans_jsonl(trace_id: str, project_id: str):
     ch = get_clickhouse_client()
     # Dedup ReplacingMergeTree rows without FINAL (FINAL scans all parts and
     # defeats the trace_id-first sort key / no-IO projection): keep the latest
-    # version per span_id, then order for output.
+    # version per span_id, then order for output. span_start_time is only
+    # ms-precision, so sub-ms parallel siblings need span_end_time + span_id as
+    # stable tie-breakers for deterministic export ordering.
     result = ch.query(
         """SELECT * FROM (
                SELECT * FROM spans

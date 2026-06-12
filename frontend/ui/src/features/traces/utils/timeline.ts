@@ -58,11 +58,13 @@ export function flattenTreeWithMetrics(
   const childrenMap = buildChildrenMap(spans);
   const spanIds = new Set(spans.map((s) => s.span_id));
 
+  // Stable sibling order (start → end → span_id) — must match SpanTreeView's
+  // buildSpanTree so the scroll-synced timeline and tree panels stay row-aligned.
   for (const children of childrenMap.values()) {
     children.sort(compareSpansForStableDisplay);
   }
 
-  // True roots + orphan spans (parent not yet arrived), sorted by time
+  // True roots + orphan spans (parent not yet arrived), same stable order.
   const trueRoots = childrenMap.get(null) ?? [];
   const orphans = spans.filter((s) => s.parent_span_id !== null && !spanIds.has(s.parent_span_id));
   const topLevel = [...trueRoots, ...orphans].sort(compareSpansForStableDisplay);
