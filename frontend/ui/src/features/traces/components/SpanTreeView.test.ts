@@ -154,6 +154,9 @@ describe("buildTreeRows ↔ flattenTreeWithMetrics ordering parity", () => {
   });
 
   it("stabilizes sibling order when spans share the same start time", () => {
+    // All three children share a start time, so the tie-break is end_time then
+    // span_id: a-child (.300) < b-child (.400) < c-child (in-progress → +Inf).
+    // Input is deliberately not in that order, and both views must agree.
     const spans = [
       makeSpan({ span_id: "root" }),
       makeSpan({
