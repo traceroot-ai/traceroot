@@ -61,6 +61,7 @@ async function resolveLegacyByok(
     const dbProviders = await prisma.modelProvider.findMany({
       where: { workspaceId, enabled: true },
       select: { provider: true, customModels: true },
+      orderBy: { id: "asc" },
     });
 
     for (const p of dbProviders) {
