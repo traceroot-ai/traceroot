@@ -11,6 +11,7 @@ import {
   findDateFilterOption,
   type DateFilterOption,
 } from "@/lib/date-filter";
+import { persistDateFilter, readPersistedDateFilter } from "@/lib/date-filter-persistence";
 
 interface UseUrlDateFilterReturn {
   dateFilter: DateFilterOption;
@@ -27,6 +28,7 @@ interface UseUrlDateFilterReturn {
 export function useUrlDateFilter(
   onFilterChange?: () => void,
   defaultId?: string,
+  persistKey?: string,
 ): UseUrlDateFilterReturn {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -114,11 +116,12 @@ export function useUrlDateFilter(
 
       if (!option.isCustom) {
         updateUrl(option.id, null, null);
+        if (persistKey) persistDateFilter(persistKey, option, null, null);
       }
 
       onFilterChangeRef.current?.();
     },
-    [updateUrl],
+    [updateUrl, persistKey],
   );
 
   const setCustomRange = useCallback(
@@ -129,11 +132,43 @@ export function useUrlDateFilter(
       const customOption = DATE_FILTER_OPTIONS.find((o) => o.isCustom)!;
       setDateFilterState(customOption);
       updateUrl("custom", start, end);
+      if (persistKey) persistDateFilter(persistKey, customOption, start, end);
 
       onFilterChangeRef.current?.();
     },
-    [updateUrl],
+    [updateUrl, persistKey],
   );
+
+  // Restore a persisted date filter (opt-in via persistKey) into state. Runs
+  // once per persistKey, and only when the URL carries no explicit date_filter
+  // so a shared or bookmarked link always wins. State (not the URL) drives the
+  // query, so this never mutates a clean URL or adds a history entry. Re-runs
+  // when persistKey changes — e.g. switching projects, where the page component
+  // is reused rather than remounted — falling back to the page default so the
+  // previous project's filter never lingers. See issue #951.
+  const restoredKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!persistKey || restoredKeyRef.current === persistKey) return;
+    restoredKeyRef.current = persistKey;
+    if (searchParams.get("date_filter")) return;
+
+    const restored = readPersistedDateFilter(persistKey);
+    if (restored) {
+      setDateFilterState(restored.option);
+      setCustomStartDateState(restored.customStart);
+      setCustomEndDateState(restored.customEnd);
+    } else {
+      // No stored preference for this key — reset to the page default so a
+      // project switch doesn't carry over the previous project's filter.
+      setDateFilterState(defaultId ? findDateFilterOption(defaultId) : DEFAULT_DATE_FILTER);
+      setCustomStartDateState(null);
+      setCustomEndDateState(null);
+    }
+    setFilterVersion((v) => v + 1);
+    // Reset pagination: a narrower restored window may make the current page
+    // index out of range, otherwise stranding the user on an empty page.
+    onFilterChangeRef.current?.();
+  }, [persistKey, searchParams, defaultId]);
 
   // Calculate timestamps
   const timestamps = useMemo(() => {
