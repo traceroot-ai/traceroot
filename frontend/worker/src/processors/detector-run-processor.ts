@@ -1,5 +1,6 @@
-import { Worker, Queue, type Job } from "bullmq";
+import { Worker, Queue, DelayedError, type Job } from "bullmq";
 import { createHash } from "crypto";
+import type { Redis } from "ioredis";
 import { prisma, PlanType } from "@traceroot/core";
 import type {
   DetectorRunJob,
@@ -16,6 +17,79 @@ import { writeDetectorRun, writeDetectorFinding } from "../detection/clickhouse-
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
+
+/** A trace counts as quiescent once no span has arrived for this long. */
+export const QUIESCENCE_SECONDS = 20;
+/** Re-check delays while waiting for a trace to settle; stays at the last entry. */
+export const BOUNCE_DELAYS_MS = [30_000, 60_000, 120_000];
+/** Hard cap on total wait (measured from job.timestamp) before evaluating anyway. */
+export const MAX_WAIT_MS = 10 * 60_000;
+/** Consecutive quiet checks with an unchanged dangling set before giving up waiting. */
+export const NO_PROGRESS_LIMIT = 3;
+
+export type PartialReason = "cap_expired" | "no_progress" | null;
+
+export interface SettleStatus {
+  root_present: boolean;
+  span_count: number;
+  dangling_count: number;
+  dangling_hash: string;
+  last_arrival_age_seconds: number;
+}
+
+export type SettleDecision =
+  | { action: "evaluate"; partialReason: PartialReason }
+  | { action: "bounce"; partialReason: null; nextData: DetectorRunJob; delayMs: number };
+
+/**
+ * Pure settle-gate decision: evaluate now (and with what disclosure), or
+ * bounce the job back to the delayed set and re-check later.
+ */
+export function decideSettleAction(
+  settle: SettleStatus,
+  jobData: DetectorRunJob,
+  elapsedMs: number,
+): SettleDecision {
+  const quiet = settle.last_arrival_age_seconds >= QUIESCENCE_SECONDS;
+  const settled = settle.root_present && settle.dangling_count === 0 && quiet;
+  if (settled) return { action: "evaluate", partialReason: null };
+
+  if (elapsedMs >= MAX_WAIT_MS) return { action: "evaluate", partialReason: "cap_expired" };
+
+  // No-progress early-out: dropped spans or partially-instrumented systems
+  // leave parents that will never arrive; waiting out the full cap on every
+  // such trace would make the worst case the normal path.
+  const sameDanglingSet =
+    settle.dangling_count > 0 && quiet && settle.dangling_hash === jobData.lastDanglingHash;
+  const sameHashCount = sameDanglingSet ? (jobData.sameHashCount ?? 0) + 1 : 0;
+  if (sameHashCount >= NO_PROGRESS_LIMIT) {
+    return { action: "evaluate", partialReason: "no_progress" };
+  }
+
+  const bounces = jobData.bounces ?? 0;
+  return {
+    action: "bounce",
+    partialReason: null,
+    nextData: {
+      ...jobData,
+      bounces: bounces + 1,
+      lastDanglingHash: settle.dangling_hash,
+      sameHashCount,
+    },
+    delayMs: BOUNCE_DELAYS_MS[Math.min(bounces, BOUNCE_DELAYS_MS.length - 1)],
+  };
+}
+
+async function fetchSettleStatus(projectId: string, traceId: string): Promise<SettleStatus> {
+  const response = await fetch(
+    `${BACKEND_URL}/api/v1/internal/traces/${traceId}/settle-status?project_id=${projectId}`,
+    { headers: { "X-Internal-Secret": INTERNAL_API_SECRET } },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to fetch settle status for trace ${traceId}: HTTP ${response.status}`);
+  }
+  return (await response.json()) as SettleStatus;
+}
 
 /**
  * Deterministic run id keyed on (projectId, traceId, detectorId).
@@ -76,7 +150,23 @@ export function buildRcaFindings(
   }));
 }
 
-let rcaQueue: Queue<DetectorRcaJob>;
+let rcaQueue: Queue<DetectorRcaJob> | null = null;
+function getRcaQueue(): Queue<DetectorRcaJob> {
+  if (!rcaQueue) {
+    rcaQueue = new Queue<DetectorRcaJob>(DETECTOR_RCA_QUEUE, {
+      connection: createRedisConnection(),
+    });
+  }
+  return rcaQueue;
+}
+
+// Dedicated connection for the post-eval state key (not a BullMQ connection,
+// which is reserved for queue traffic).
+let lockRedis: Redis | null = null;
+function getLockRedis(): Redis {
+  if (!lockRedis) lockRedis = createRedisConnection();
+  return lockRedis;
+}
 
 async function downloadSpansJsonl(projectId: string, traceId: string): Promise<string> {
   const response = await fetch(
@@ -132,8 +222,9 @@ async function runSingleDetector(params: {
   projectId: string;
   spansJsonl: string;
   workspaceId: string;
+  partialReason: PartialReason;
 }): Promise<SingleDetectorOutcome> {
-  const { detector, traceId, projectId, spansJsonl, workspaceId } = params;
+  const { detector, traceId, projectId, spansJsonl, workspaceId, partialReason } = params;
   const runId = deterministicRunId(projectId, traceId, detector.id);
 
   let result: Awaited<ReturnType<typeof runDetectionForTrace>>;
@@ -151,6 +242,7 @@ async function runSingleDetector(params: {
         detectionSource: detector.detectionSource,
       },
       workspaceId,
+      partialReason,
     });
   } catch (e) {
     console.error(`[Detector] Run failed for detector ${detector.id} on trace ${traceId}:`, e);
@@ -208,10 +300,16 @@ async function runSingleDetector(params: {
   };
 }
 
-async function processTrace(
+export interface ProcessTraceOptions {
+  partialReason: PartialReason;
+  isReeval: boolean;
+}
+
+export async function processTrace(
   traceId: string,
   projectId: string,
   detectorIds: string[],
+  options: ProcessTraceOptions,
 ): Promise<void> {
   console.log(`[Detector] Processing trace ${traceId} with ${detectorIds.length} detector(s)`);
 
@@ -235,6 +333,74 @@ async function processTrace(
     return;
   }
 
+  await evaluateTrace(traceId, projectId, detectorIds, spansJsonl, options);
+
+  // Post-eval state for the Python enqueue side, which reads this key to
+  // decide the single allowed re-evaluation when later spans arrive.
+  const spanCount = spansJsonl.split("\n").filter((line) => line.trim() !== "").length;
+  try {
+    await getLockRedis().set(
+      `detector-enq:${projectId}:${traceId}`,
+      JSON.stringify({
+        state: "evaluated",
+        detector_ids: detectorIds,
+        span_count: spanCount,
+        reevals: options.isReeval ? 1 : 0,
+      }),
+      "EX",
+      3600,
+    );
+  } catch (err) {
+    console.error(`[Detector] Failed to write evaluated state for trace ${traceId}:`, err);
+  }
+}
+
+/**
+ * On a clean re-evaluation, withdraw the finding the first evaluation wrote
+ * (if any) with a newer-timestamp tombstone row: ReplacingMergeTree plus the
+ * read-side retracted filter make the stale finding disappear.
+ */
+async function retractStaleFinding(projectId: string, traceId: string): Promise<void> {
+  const findingId = traceFindingId(projectId, traceId);
+  let exists: boolean;
+  try {
+    const response = await fetch(
+      `${BACKEND_URL}/api/v1/internal/traces/${traceId}/findings?project_id=${projectId}`,
+      { headers: { "X-Internal-Secret": INTERNAL_API_SECRET } },
+    );
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const body = (await response.json()) as { findings?: Array<{ finding_id: string }> };
+    exists = (body.findings ?? []).some((f) => f.finding_id === findingId);
+  } catch (err) {
+    console.error(`[Detector] Failed to check existing findings for trace ${traceId}:`, err);
+    return;
+  }
+  if (!exists) return;
+
+  try {
+    await writeDetectorFinding({
+      findingId,
+      projectId,
+      traceId,
+      summary: "",
+      payload: "",
+      retracted: true,
+    });
+    console.log(`[Detector] retracted finding=${findingId} trace=${traceId}`);
+  } catch (err) {
+    console.error(`[Detector] Failed to write retraction for finding ${findingId}:`, err);
+  }
+}
+
+async function evaluateTrace(
+  traceId: string,
+  projectId: string,
+  detectorIds: string[],
+  spansJsonl: string,
+  options: ProcessTraceOptions,
+): Promise<void> {
   const [detectors, project] = await Promise.all([
     prisma.detector.findMany({
       where: { id: { in: detectorIds }, enabled: true },
@@ -287,6 +453,7 @@ async function processTrace(
         projectId,
         spansJsonl,
         workspaceId,
+        partialReason: options.partialReason,
       });
     }),
   );
@@ -324,7 +491,12 @@ async function processTrace(
     .map((o) => o.triggered)
     .filter((t): t is TriggeredResult => t !== null);
 
-  if (triggered.length === 0) return;
+  if (triggered.length === 0) {
+    if (options.isReeval) {
+      await retractStaleFinding(projectId, traceId);
+    }
+    return;
+  }
 
   // ONE finding per trace — aggregate all triggered detector summaries.
   // findingId is a deterministic hash of (projectId, traceId) so a job retry
@@ -334,12 +506,15 @@ async function processTrace(
   // queue jobId are now both keyed by this stable id.
   const findingId = traceFindingId(projectId, traceId);
   const combinedSummary = triggered.map((r) => `[${r.detectorName}] ${r.summary}`).join("\n");
+  // The read side parses the payload as a JSON array (JSONExtractArrayRaw),
+  // so the partial marker lives on each entry rather than on a wrapper object.
   const payload = JSON.stringify(
     triggered.map((r) => ({
       detectorId: r.detectorId,
       detectorName: r.detectorName,
       summary: r.summary,
       data: r.data,
+      ...(options.partialReason ? { partial: true } : {}),
     })),
   );
 
@@ -375,7 +550,11 @@ async function processTrace(
   // null-check an absent DetectorRca record, so skipping the row is safe.
   const rcaFindings: DetectorRcaFinding[] = buildRcaFindings(triggered);
 
-  if (shouldRunRca(triggered, detectors)) {
+  if (options.isReeval) {
+    // Exactly one RCA per finding: the re-eval overwrites the finding row
+    // (same deterministic findingId) but must not spawn a second RCA.
+    console.log(`[Detector] re-eval overwrite finding=${findingId}`);
+  } else if (shouldRunRca(triggered, detectors)) {
     await prisma.detectorRca
       .upsert({
         where: { findingId },
@@ -386,7 +565,7 @@ async function processTrace(
         console.error(`[Detector] Failed to seed DetectorRca for finding ${findingId}:`, e),
       );
 
-    await rcaQueue.add(
+    await getRcaQueue().add(
       `rca-${findingId}`,
       {
         findingId,
@@ -405,21 +584,54 @@ async function processTrace(
   }
 }
 
+/**
+ * Worker entry point: gate evaluation on the trace having settled, bouncing
+ * the job through the delayed set until it has (or a forced-evaluation
+ * condition fires). Exported for tests.
+ */
+export async function handleDetectorRunJob(
+  job: Job<DetectorRunJob>,
+  token?: string,
+): Promise<void> {
+  const { traceId, detectorIds, projectId } = job.data;
+  if (!detectorIds || detectorIds.length === 0) return;
+
+  // A settle-status fetch failure is transient: throw and let the normal
+  // BullMQ retry policy handle it.
+  const settle = await fetchSettleStatus(projectId, traceId);
+  const decision = decideSettleAction(settle, job.data, Date.now() - job.timestamp);
+
+  if (decision.action === "bounce") {
+    await job.updateData(decision.nextData);
+    console.log(
+      `[Detector] settle-bounce trace=${traceId} bounces=${decision.nextData.bounces} ` +
+        `dangling=${settle.dangling_count} age=${settle.last_arrival_age_seconds}s`,
+    );
+    // moveToDelayed + DelayedError is BullMQ's supported re-delay pattern;
+    // unlike a thrown failure, it does not consume an attempt.
+    await job.moveToDelayed(Date.now() + decision.delayMs, token);
+    throw new DelayedError();
+  }
+
+  if (decision.partialReason === "cap_expired") {
+    console.log(`[Detector] settle-cap-expired trace=${traceId}`);
+  } else if (decision.partialReason === "no_progress") {
+    console.log(`[Detector] settle-early-out trace=${traceId} reason=no_progress`);
+  }
+
+  await processTrace(traceId, projectId, detectorIds, {
+    partialReason: decision.partialReason,
+    isReeval: Boolean(job.data.reeval),
+  });
+}
+
 export function startDetectorRunWorker(): Worker<DetectorRunJob> {
   const connection = createRedisConnection();
-  rcaQueue = new Queue<DetectorRcaJob>(DETECTOR_RCA_QUEUE, {
-    connection: createRedisConnection(),
-  });
 
-  const worker = new Worker<DetectorRunJob>(
-    DETECTOR_RUN_QUEUE,
-    async (job: Job<DetectorRunJob>) => {
-      const { traceId, detectorIds, projectId } = job.data;
-      if (!detectorIds || detectorIds.length === 0) return;
-      await processTrace(traceId, projectId, detectorIds);
-    },
-    { connection, concurrency: 10 },
-  );
+  const worker = new Worker<DetectorRunJob>(DETECTOR_RUN_QUEUE, handleDetectorRunJob, {
+    connection,
+    concurrency: 10,
+  });
 
   worker.on("failed", (job, err) => {
     console.error(`[Detector] Job ${job?.id} failed:`, err.message);

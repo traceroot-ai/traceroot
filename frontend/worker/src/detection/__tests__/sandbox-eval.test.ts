@@ -25,7 +25,7 @@ vi.mock("@traceroot/core/model-resolver", () => ({
   findByokKeyForPiProvider: mockFindByokKey,
 }));
 
-import { runDetectionForTrace } from "../sandbox-eval.js";
+import { runDetectionForTrace, SAFETY_TRUNCATE_CHARS } from "../sandbox-eval.js";
 
 const DETECTOR = {
   id: "det-1",
@@ -230,6 +230,61 @@ describe("runDetectionForTrace", () => {
 
     expect(result.identified).toBe(false);
     expect(result.error).toBe("API rate limit");
+  });
+
+  describe("incomplete-input disclosure", () => {
+    function cleanSubmitResponse() {
+      return {
+        content: [
+          {
+            type: "toolCall",
+            name: "submit_result",
+            arguments: { identified: false, summary: "clean", data: {} },
+          },
+        ],
+        usage: ZERO_USAGE,
+        stopReason: "toolUse",
+      };
+    }
+
+    async function userTextFor(spansJsonl: string, partialReason?: string | null) {
+      mockComplete.mockResolvedValueOnce(cleanSubmitResponse());
+      await runDetectionForTrace({
+        traceId: "t",
+        spansJsonl,
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+        partialReason,
+      });
+      const ctxArg = mockComplete.mock.calls[0][1] as { messages: { content: string }[] };
+      return ctxArg.messages[0].content;
+    }
+
+    it("discloses an in-flight trace when partialReason is set", async () => {
+      const userText = await userTextFor("{}", "cap_expired");
+      expect(userText).toContain("may be INCOMPLETE");
+      expect(userText).toContain("trace still in flight when evaluated");
+      expect(userText).not.toContain("truncated at");
+    });
+
+    it("discloses truncation when input exceeds the safety cap", async () => {
+      const userText = await userTextFor("x".repeat(SAFETY_TRUNCATE_CHARS + 1));
+      expect(userText).toContain("may be INCOMPLETE");
+      expect(userText).toContain(`span list truncated at ${SAFETY_TRUNCATE_CHARS} chars`);
+      expect(userText).not.toContain("in flight");
+    });
+
+    it("joins both reasons into the single note", async () => {
+      const userText = await userTextFor("x".repeat(SAFETY_TRUNCATE_CHARS + 1), "no_progress");
+      expect(userText).toContain("trace still in flight when evaluated");
+      expect(userText).toContain(`span list truncated at ${SAFETY_TRUNCATE_CHARS} chars`);
+      expect(userText.match(/INCOMPLETE/g)).toHaveLength(1);
+    });
+
+    it("omits the note for a settled, untruncated trace", async () => {
+      const userText = await userTextFor("{}", null);
+      expect(userText).not.toContain("INCOMPLETE");
+    });
   });
 
   describe("inference cost + source attribution", () => {
