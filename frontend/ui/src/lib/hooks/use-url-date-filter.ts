@@ -149,8 +149,12 @@ export function useUrlDateFilter(
   const restoredKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!persistKey || restoredKeyRef.current === persistKey) return;
-    restoredKeyRef.current = persistKey;
+    // An explicit date_filter in the URL wins — and must NOT consume the
+    // restore latch for this key, so that a later clean URL (e.g. navigating to
+    // the bare list, or clearing the param) still restores the saved
+    // preference rather than keeping a stale shared-link value.
     if (searchParams.get("date_filter")) return;
+    restoredKeyRef.current = persistKey;
 
     const restored = readPersistedDateFilter(persistKey);
     if (restored) {
