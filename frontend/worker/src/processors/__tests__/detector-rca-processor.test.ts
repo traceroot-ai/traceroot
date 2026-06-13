@@ -105,6 +105,16 @@ describe("resolveProjectModel", () => {
     expect(await resolveProjectModel(null, null, null, "ws-123")).toBeNull();
     expect(await resolveProjectModel(undefined, null, null, "ws-123")).toBeNull();
   });
+
+  it("handles errors in legacy BYOK provider lookup gracefully", async () => {
+    modelProviderFindMany.mockRejectedValue(new Error("DB down"));
+
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const res = await resolveProjectModel("unknown-custom-model", null, null, "ws-123");
+
+    expect(res).toBeNull();
+    expect(modelProviderFindMany).toHaveBeenCalled();
+  });
 });
 
 const mockFetch = vi.fn();
@@ -193,6 +203,68 @@ describe("processRcaJob", () => {
     expect(projectFindUnique).toHaveBeenCalledWith(
       expect.objectContaining({
         select: expect.objectContaining({ rcaProvider: true, rcaSource: true }),
+      }),
+    );
+  });
+
+  it("skips RCA when workspace is free plan and rcaBlocked", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
+      billingPlan: "free",
+      rcaBlocked: true,
+    } as any);
+    const detectorRcaUpdate = vi.spyOn(p.detectorRca, "update").mockResolvedValue({} as any);
+    const projectFindUnique = vi.spyOn(p.project, "findUnique");
+
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await processRcaJob({
+      data: {
+        findingId: "f1",
+        projectId: "p1",
+        traceId: "t1",
+        workspaceId: "ws1",
+        projectName: "test",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+      },
+    } as any);
+
+    expect(detectorRcaUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { findingId: "f1" },
+        data: expect.objectContaining({ status: "failed" }),
+      }),
+    );
+    expect(projectFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("marks RCA as failed and rethrows on error", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
+      billingPlan: "pro",
+      rcaBlocked: false,
+    } as any);
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+    const detectorRcaUpdate = vi.spyOn(p.detectorRca, "update").mockResolvedValue({} as any);
+    vi.spyOn(p.project, "findUnique").mockRejectedValue(new Error("Prisma error"));
+
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(
+      processRcaJob({
+        data: {
+          findingId: "f1",
+          projectId: "p1",
+          traceId: "t1",
+          workspaceId: "ws1",
+          projectName: "test",
+          findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        },
+      } as any),
+    ).rejects.toThrow("Prisma error");
+
+    expect(detectorRcaUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { findingId: "f1" },
+        data: { status: "failed" },
       }),
     );
   });
