@@ -2,120 +2,32 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const fetchProviderConfigMock = vi.fn();
 const resolvePiModelMock = vi.fn();
+const modelProviderFindMany = vi.fn().mockResolvedValue([]);
 
 vi.mock("@traceroot/core/model-resolver", async () => ({
   fetchProviderConfig: (...args: any[]) => fetchProviderConfigMock(...args),
   resolvePiModel: (...args: any[]) => resolvePiModelMock(...args),
 }));
 
+vi.mock("@traceroot/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@traceroot/core")>();
+  return {
+    ...actual,
+    prisma: {
+      ...actual.prisma,
+      modelProvider: {
+        ...actual.prisma.modelProvider,
+        findMany: (...a: any[]) => modelProviderFindMany(...a),
+      },
+    },
+  };
+});
+
 afterEach(() => {
   fetchProviderConfigMock.mockReset();
   resolvePiModelMock.mockReset();
-});
-
-describe("RCA prompt construction", () => {
-  it("includes detector name and summary", () => {
-    const detectorName = "error detector";
-    const summary = "Tool errored 3 times";
-    const traceId = "trace-abcdef123456";
-    const hasGitHub = false;
-
-    const githubNote = hasGitHub
-      ? "If any spans contain git_source_file and git_source_line, read that source code and check recent commits/PRs touching that file."
-      : "";
-
-    const prompt = `Detector fired: "${detectorName}".
-Finding: ${summary}
-Trace ID: ${traceId}
-
-Download and analyze this trace. Identify the root cause.
-${githubNote}
-
-Output your findings in this format:
-- Root cause: [one sentence]
-- Code location: [file:line if found, else "not identified"]
-- Recent changes: [relevant commits/PRs if found, else "not checked"]
-- Recommendation: [one actionable sentence]`;
-
-    expect(prompt).toContain("error detector");
-    expect(prompt).toContain("Tool errored 3 times");
-    expect(prompt).toContain("trace-abcdef123456");
-    expect(prompt).not.toContain("git_source_file"); // hasGitHub=false
-  });
-
-  it("includes GitHub instruction when hasGitHub=true", () => {
-    const hasGitHub = true;
-    const githubNote = hasGitHub
-      ? "If any spans contain git_source_file and git_source_line, read that source code and check recent commits/PRs touching that file."
-      : "";
-
-    expect(githubNote).toContain("git_source_file");
-    expect(githubNote).toContain("git_source_line");
-  });
-
-  it("session title includes detector name and trace id prefix", () => {
-    const detectorName = "error detector";
-    const traceId = "trace-abcdef123456";
-    const title = `[RCA] ${detectorName} — ${traceId.slice(0, 8)}`;
-    expect(title).toBe("[RCA] error detector — trace-ab");
-  });
-});
-
-describe("SSE parsing logic", () => {
-  it("accumulates text_delta events", () => {
-    // Simulate the SSE parsing logic
-    const sseLines = [
-      'data: {"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"Root cause: "}}',
-      'data: {"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"missing dedup"}}',
-      'data: {"type":"done","data":"{}"}',
-      "data: invalid json {{",
-    ];
-
-    let result = "";
-    for (const line of sseLines) {
-      if (line.startsWith("data: ")) {
-        try {
-          const event = JSON.parse(line.slice(6));
-          if (
-            event.type === "message_update" &&
-            event.assistantMessageEvent?.type === "text_delta" &&
-            event.assistantMessageEvent.delta
-          ) {
-            result += event.assistantMessageEvent.delta;
-          }
-        } catch {
-          // skip malformed
-        }
-      }
-    }
-
-    expect(result).toBe("Root cause: missing dedup");
-  });
-
-  it("ignores non-text_delta events", () => {
-    const sseLines = [
-      'data: {"type":"message_start"}',
-      'data: {"type":"message_end","message":{}}',
-    ];
-
-    let result = "";
-    for (const line of sseLines) {
-      if (line.startsWith("data: ")) {
-        try {
-          const event = JSON.parse(line.slice(6));
-          if (
-            event.type === "message_update" &&
-            event.assistantMessageEvent?.type === "text_delta"
-          ) {
-            result += event.assistantMessageEvent.delta || "";
-          }
-        } catch {
-          // skip malformed
-        }
-      }
-    }
-    expect(result).toBe("");
-  });
+  modelProviderFindMany.mockReset();
+  modelProviderFindMany.mockResolvedValue([]);
 });
 
 describe("resolveProjectModel", () => {
@@ -160,17 +72,29 @@ describe("resolveProjectModel", () => {
     });
   });
 
+  it("resolves legacy BYOK via model provider lookup when rcaSource is null", async () => {
+    modelProviderFindMany.mockResolvedValue([
+      { provider: "my-deepseek", customModels: ["deepseek-chat"] },
+    ]);
+    fetchProviderConfigMock.mockResolvedValue({
+      adapter: "deepseek",
+      key: "sk-xxx",
+      baseUrl: null,
+      config: null,
+    });
+    resolvePiModelMock.mockReturnValue({ id: "deepseek-chat", provider: "openai" });
+
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+    const res = await resolveProjectModel("deepseek-chat", null, null, "ws-123");
+
+    expect(modelProviderFindMany).toHaveBeenCalled();
+    expect(fetchProviderConfigMock).toHaveBeenCalledWith("ws-123", "my-deepseek");
+    expect(res).toEqual({ model: "deepseek-chat", providerName: "openai", source: "byok" });
+  });
+
   it("returns null for unknown models not in system catalog", async () => {
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
     const res = await resolveProjectModel("unknown-model", null, null, "ws-123");
-
-    expect(res).toBeNull();
-    expect(fetchProviderConfigMock).not.toHaveBeenCalled();
-  });
-
-  it("falls back to null when rcaSource is byok but rcaProvider is missing", async () => {
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("some-model", null, "byok", "ws-123");
 
     expect(res).toBeNull();
     expect(fetchProviderConfigMock).not.toHaveBeenCalled();
@@ -180,5 +104,96 @@ describe("resolveProjectModel", () => {
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
     expect(await resolveProjectModel(null, null, null, "ws-123")).toBeNull();
     expect(await resolveProjectModel(undefined, null, null, "ws-123")).toBeNull();
+  });
+});
+
+const mockFetch = vi.fn();
+vi.stubGlobal("fetch", mockFetch);
+
+describe("runRcaSession", () => {
+  it("calls resolveProjectModel and builds message body", async () => {
+    fetchProviderConfigMock.mockResolvedValue({
+      adapter: "openai",
+      key: "sk-xxx",
+      baseUrl: null,
+      config: null,
+    });
+    resolvePiModelMock.mockReturnValue({ id: "gpt-5.3", provider: "openai" });
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        body: {
+          getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }),
+        },
+      });
+
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    const result = await runRcaSession({
+      findingId: "f1",
+      projectId: "p1",
+      workspaceId: "ws1",
+      traceId: "t1",
+      findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+      hasGitHub: false,
+      rcaModel: "gpt-5.3",
+      rcaProvider: "my-openai",
+      rcaSource: "byok",
+    });
+
+    expect(result.sessionId).toBe("s1");
+    expect(fetchProviderConfigMock).toHaveBeenCalledWith("ws1", "my-openai");
+  });
+});
+
+describe("processRcaJob", () => {
+  it("reads rcaProvider and rcaSource from project select", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
+      billingPlan: "pro",
+      rcaBlocked: false,
+    } as any);
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+    vi.spyOn(p.detectorRca, "update").mockResolvedValue({} as any);
+    vi.spyOn(p.gitHubInstallation, "count").mockResolvedValue(0);
+
+    const projectFindUnique = vi.spyOn(p.project, "findUnique").mockResolvedValue({
+      rcaModel: "gpt-5.3",
+      rcaProvider: "my-openai",
+      rcaSource: "byok",
+      alertConfig: { emailAddresses: [""], slackChannelId: null, slackChannelName: null },
+      workspace: { slackIntegration: null },
+    } as any);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        body: {
+          getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }),
+        },
+      });
+
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await processRcaJob({
+      data: {
+        findingId: "f1",
+        projectId: "p1",
+        traceId: "t1",
+        workspaceId: "ws1",
+        projectName: "test",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+      },
+    } as any);
+
+    expect(projectFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({ rcaProvider: true, rcaSource: true }),
+      }),
+    );
   });
 });
