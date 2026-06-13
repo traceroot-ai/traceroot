@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { render, cleanup, fireEvent } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   sidebarCollapsed: false,
@@ -84,5 +84,46 @@ describe("TraceViewerPanel layout", () => {
     const panel = renderPanel({ initialFullscreen: false });
     expect(panel.className).toContain("w-[70%]");
     expect(panel.className).toContain("top-0");
+  });
+});
+
+
+describe("TraceViewerPanel keyboard", () => {
+  it("calls onClose when Escape is pressed", () => {
+    const onClose = vi.fn();
+    render(
+      <TraceViewerPanel
+        projectId="proj-1"
+        traceId="trace-1"
+        onClose={onClose}
+        onNavigate={vi.fn()}
+        canNavigateUp={false}
+        canNavigateDown={false}
+      />,
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call onClose when Escape is pressed inside a dialog", () => {
+    const onClose = vi.fn();
+    const { container } = render(
+      <>
+        <TraceViewerPanel
+          projectId="proj-1"
+          traceId="trace-1"
+          onClose={onClose}
+          onNavigate={vi.fn()}
+          canNavigateUp={false}
+          canNavigateDown={false}
+        />
+        <div role="dialog">
+          <button id="nested-btn">inside dialog</button>
+        </div>
+      </>,
+    );
+    (container.querySelector("#nested-btn") as HTMLElement).focus();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

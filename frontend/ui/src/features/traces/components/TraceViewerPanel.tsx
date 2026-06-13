@@ -161,6 +161,25 @@ export function TraceViewerPanel({
     });
   }, [viewMode]);
 
+
+// #1179 — close panel with Escape key
+useEffect(() => {
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== "Escape") return;
+    // Let nested popovers/selects/dialogs handle Escape first
+    const activeEl = document.activeElement;
+    if (
+      activeEl instanceof HTMLElement &&
+      activeEl.closest('[role="dialog"], [role="listbox"], [data-radix-popper-content-wrapper]')
+    ) {
+      return;
+    }
+    onClose();
+  };
+  document.addEventListener("keydown", handleKeyDown);
+  return () => document.removeEventListener("keydown", handleKeyDown);
+}, [onClose]);
+
   const handleToggleCollapse = useCallback((id: string) => {
     setCollapsedIds((prev) => {
       const next = new Set(prev);

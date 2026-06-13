@@ -72,6 +72,7 @@ export function CreateWorkspaceDialog({
           </DialogHeader>
           <div className="py-4">
             <Input
+              autoFocus
               placeholder="Workspace name"
               value={name}
               onChange={(e) => setName(e.target.value)}
