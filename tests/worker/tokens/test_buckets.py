@@ -148,6 +148,36 @@ def test_js_openinference_scope_is_known_inclusive_no_warning(caplog):
     assert not any("unknown instrumentation scope" in r.message.lower() for r in caplog.records)
 
 
+def test_vercel_ai_scope_is_known_inclusive_no_warning(caplog):
+    # The Vercel AI SDK tracer scope is exactly "ai"; its inputTokens total is
+    # GROSS (noCache + cacheRead + cacheWrite components), so the standard
+    # subtraction applies and no unknown-scope warning should fire.
+    with caplog.at_level(logging.WARNING):
+        b = normalize_token_usage(
+            "ai",
+            input_tokens=28466,
+            output_tokens=120,
+            cache_read_tokens=22041,
+            cache_write_tokens=6422,
+        )
+    assert b == TokenBuckets(input_uncached=3, output=120, cache_read=22041, cache_write=6422)
+    assert not any("unknown instrumentation scope" in r.message.lower() for r in caplog.records)
+
+
+def test_ai_prefixed_scope_still_warns(caplog):
+    # "ai" is matched exactly, not as a prefix — an unrelated ai*-named scope
+    # must still surface the unknown-emitter warning.
+    with caplog.at_level(logging.WARNING):
+        normalize_token_usage(
+            "aiohttp.client",
+            input_tokens=10,
+            output_tokens=1,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
+        )
+    assert any("unknown instrumentation scope" in r.message.lower() for r in caplog.records)
+
+
 def test_token_buckets_fields_default_to_zero():
     # Defaults make future token categories (reasoning/audio) purely additive.
     assert TokenBuckets() == TokenBuckets(input_uncached=0, output=0, cache_read=0, cache_write=0)

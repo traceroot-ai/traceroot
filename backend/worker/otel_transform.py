@@ -448,6 +448,12 @@ def transform_otel_to_clickhouse(
                             "llm.token_count.prompt",
                             "gen_ai.usage.input_tokens",
                             "gen_ai.usage.prompt_tokens",
+                            # Vercel AI SDK raw attrs (its OpenInference span
+                            # processor normalizes totals only on LLM-kind
+                            # spans, so outer agent spans keep the raw keys):
+                            "ai.usage.inputTokens",
+                            # generateObject still emits only this spelling:
+                            "ai.usage.promptTokens",
                         ],
                     )
                     api_output_tokens = first_present_number(
@@ -456,6 +462,10 @@ def transform_otel_to_clickhouse(
                             "llm.token_count.completion",
                             "gen_ai.usage.output_tokens",
                             "gen_ai.usage.completion_tokens",
+                            # Vercel AI SDK raw attrs:
+                            "ai.usage.outputTokens",
+                            # generateObject still emits only this spelling:
+                            "ai.usage.completionTokens",
                         ],
                     )
                     # Cache buckets. The OpenInference keys (prompt_details.*) are the
@@ -472,6 +482,10 @@ def transform_otel_to_clickhouse(
                             # pydantic-ai version variants (names differ by release):
                             "gen_ai.usage.cache_read_tokens",
                             "gen_ai.usage.details.cache_read_input_tokens",
+                            # Vercel AI SDK: cache detail is NEVER normalized to
+                            # llm.*/gen_ai.* — it exists only under ai.usage.*:
+                            "ai.usage.cachedInputTokens",
+                            "ai.usage.inputTokenDetails.cacheReadTokens",
                         ],
                     )
                     api_cache_write_tokens = first_present_number(
@@ -483,6 +497,8 @@ def transform_otel_to_clickhouse(
                             "gen_ai.usage.details.cache_write_tokens",
                             # pydantic-ai version variant:
                             "gen_ai.usage.details.cache_creation_input_tokens",
+                            # Vercel AI SDK raw attr (never normalized upstream):
+                            "ai.usage.inputTokenDetails.cacheWriteTokens",
                         ],
                     )
                     # Reasoning tokens (o-series / GPT-5): a SUBSET of output
@@ -495,6 +511,9 @@ def transform_otel_to_clickhouse(
                             "gen_ai.usage.reasoning_tokens",
                             "gen_ai.usage.output_details.reasoning_tokens",
                             "gen_ai.usage.details.reasoning_tokens",
+                            # Vercel AI SDK raw attrs (aliases of the same value):
+                            "ai.usage.outputTokenDetails.reasoningTokens",
+                            "ai.usage.reasoningTokens",
                         ],
                     )
 
