@@ -160,26 +160,25 @@ export function TraceViewerPanel({
       timelineScrollRef.current.scrollTop = treeScrollRef.current.scrollTop;
     });
   }, [viewMode]);
-
-
-// #1179 — close panel with Escape key
-useEffect(() => {
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key !== "Escape") return;
-    // Let nested popovers/selects/dialogs handle Escape first
-    const activeEl = document.activeElement;
-    if (
-      activeEl instanceof HTMLElement &&
-      activeEl.closest('[role="dialog"], [role="listbox"], [data-radix-popper-content-wrapper]')
-    ) {
-      return;
-    }
-    onClose();
-  };
-  document.addEventListener("keydown", handleKeyDown);
-  return () => document.removeEventListener("keydown", handleKeyDown);
-}, [onClose]);
-
+  // Close the panel on Escape, unless a nested overlay (dialog/select/popover) owns focus and should consume it first.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // Let nested popovers/selects/dialogs handle Escape first
+      const activeEl = document.activeElement;
+      if (
+        activeEl instanceof HTMLElement &&
+        activeEl.closest(
+          '[role="dialog"], [role="listbox"], [role="menu"], [data-radix-popper-content-wrapper]',
+        )
+      ) {
+        return;
+      }
+      onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
   const handleToggleCollapse = useCallback((id: string) => {
     setCollapsedIds((prev) => {
       const next = new Set(prev);
