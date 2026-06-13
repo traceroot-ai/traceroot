@@ -105,6 +105,8 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
         traces, spans = transform_otel_to_clickhouse(otel_data, project_id)
         logger.info(f"Transformed {len(traces)} traces and {len(spans)} spans from {s3_key}")
 
+        traces_with_root = {s["trace_id"] for s in spans if s.get("parent_span_id") is None}
+
         # 3. Insert into ClickHouse
         if traces or spans:
             ch_client = get_clickhouse_client()
@@ -114,7 +116,6 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
                 # OR the trace is genuinely new (no existing ClickHouse record).
                 # Intermediate batches without the root span must not overwrite a
                 # correctly-named trace record with a wrong name.
-                traces_with_root = {s["trace_id"] for s in spans if s.get("parent_span_id") is None}
                 traces_without_root = [t for t in traces if t["trace_id"] not in traces_with_root]
                 if traces_without_root:
                     ids = [t["trace_id"] for t in traces_without_root]
@@ -138,16 +139,18 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
                 ch_client.insert_spans_batch(spans)
                 logger.info(f"Inserted {len(spans)} spans into ClickHouse")
 
-        # Trigger detector runs for ingested traces (fire-and-forget, non-blocking).
-        # Union over traces AND spans so late-arriving spans for an existing
-        # trace (no fresh trace row in this batch) still enqueue detection;
-        # the worker dedups against eval history.
+        # Trigger detector runs (fire-and-forget, non-blocking). The batch that
+        # carries a trace's root span triggers detection exactly once — a Redis
+        # lock keyed on (project, trace) dedups against ingest-task retries and
+        # duplicate root delivery. Later batches for an already-known trace only
+        # feed the bounded re-eval check (at most one re-eval when the span
+        # count grew after evaluation).
         if traces or spans:
             try:
                 from worker.detector_tasks import enqueue_detector_runs
 
                 trace_ids = list({t["trace_id"] for t in traces} | {s["trace_id"] for s in spans})
-                enqueue_detector_runs(project_id, trace_ids)
+                enqueue_detector_runs(project_id, trace_ids, traces_with_root)
             except Exception as e:
                 logger.error(f"Failed to call detector tasks: {e}", exc_info=True)
 

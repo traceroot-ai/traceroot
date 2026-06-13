@@ -40,6 +40,11 @@ export async function writeDetectorFinding(params: {
   traceId: string;
   summary: string;
   payload: string;
+  /**
+   * A retraction is a newer ReplacingMergeTree row with retracted=1 for the
+   * same finding id; read paths filter retracted=0, withdrawing the finding.
+   */
+  retracted?: boolean;
 }): Promise<void> {
   await internalPost("/api/v1/internal/detector-findings", params);
 }
