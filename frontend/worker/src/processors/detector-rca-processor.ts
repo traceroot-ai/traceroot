@@ -42,7 +42,42 @@ export async function resolveProjectModel(
     }
   }
 
+  // 3. Legacy BYOK fallback for pre-existing configs
+  const legacy = await resolveLegacyByok(rcaModel, workspaceId);
+  if (legacy) return legacy;
+
   console.warn(`[detector-rca] Unknown rca_model "${rcaModel}", falling back to default`);
+  return null;
+}
+
+// 3. Legacy BYOK fallback: projects that saved a BYOK model before
+//    rcaSource and rcaProvider fields existed have both set to NULL.
+//    Try to resolve the model from the workspace's enabled providers.
+async function resolveLegacyByok(
+  rcaModel: string,
+  workspaceId: string,
+): Promise<{ model: string; providerName: string; source: ModelSource } | null> {
+  try {
+    const dbProviders = await prisma.modelProvider.findMany({
+      where: { workspaceId, enabled: true },
+      select: { provider: true, customModels: true },
+    });
+
+    for (const p of dbProviders) {
+      if (p.customModels.some((m) => m.trim() === rcaModel)) {
+        const providerConfig = await fetchProviderConfig(workspaceId, p.provider);
+        if (providerConfig) {
+          const model = resolvePiModel(rcaModel, providerConfig);
+          return { model: model.id, providerName: model.provider, source: ModelSource.BYOK };
+        }
+      }
+    }
+  } catch (err) {
+    console.error(
+      `[detector-rca] Failed to resolve legacy BYOK for workspace ${workspaceId}:`,
+      err,
+    );
+  }
   return null;
 }
 
