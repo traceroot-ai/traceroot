@@ -5,6 +5,12 @@ export interface DetectorRunJob {
   traceId: string;
   detectorIds: string[];
   projectId: string;
+  /** Set on the single allowed re-evaluation job for a trace. */
+  reeval?: boolean;
+  /** Settle-gate bookkeeping, written back by the worker on each bounce. */
+  bounces?: number;
+  lastDanglingHash?: string;
+  sameHashCount?: number;
 }
 
 export interface DetectorRcaFinding {

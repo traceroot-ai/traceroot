@@ -142,13 +142,21 @@ def decode_otel_id(b64_value: str | None) -> str | None:
         b64_value: Base64-encoded ID string, or None
 
     Returns:
-        Hex string representation, or None if input is None/empty
+        Hex string representation, or None if input is None/empty or the ID is
+        all zero bytes
     """
     if not b64_value:
         return None
     try:
         decoded = base64.b64decode(b64_value)
-        return decoded.hex()
+        hex_id = decoded.hex()
+        # Some emitters send all-zero bytes for "no parent" instead of omitting
+        # the field; the OTLP spec treats all-zero IDs as invalid/absent. Without
+        # this, a zero-filled parent_span_id hides the root span (detection never
+        # triggers) and reads as a permanently-dangling parent.
+        if set(hex_id) == {"0"}:
+            return None
+        return hex_id
     except Exception as e:
         logger.warning(f"Failed to decode OTEL ID '{b64_value}': {e}")
         return b64_value  # Return as-is if decoding fails

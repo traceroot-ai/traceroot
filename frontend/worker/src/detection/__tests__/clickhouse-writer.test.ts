@@ -82,4 +82,20 @@ describe("writeDetectorFinding", () => {
       expect.objectContaining({ method: "POST" }),
     );
   });
+
+  it("sends the retracted field in the POST body", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+
+    await writeDetectorFinding({
+      findingId: "finding-1",
+      projectId: "proj-1",
+      traceId: "trace-1",
+      summary: "",
+      payload: "",
+      retracted: true,
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.retracted).toBe(true);
+  });
 });
