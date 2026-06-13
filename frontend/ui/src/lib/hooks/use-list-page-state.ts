@@ -47,16 +47,22 @@ interface UseListPageStateReturn {
 }
 
 export function useListPageState(
-  options: { defaultLimit?: number; defaultDateFilterId?: string } = {},
+  options: {
+    defaultLimit?: number;
+    defaultDateFilterId?: string;
+    dateFilterPersistKey?: string;
+  } = {},
 ): UseListPageStateReturn {
-  const { defaultLimit = 50, defaultDateFilterId } = options;
+  const { defaultLimit = 50, defaultDateFilterId, dateFilterPersistKey } = options;
 
   // URL-synced pagination hook - persists page/limit in URL
   const pagination = useUrlPagination(defaultLimit);
 
-  // URL-synced date filter hook - resets page on change
+  // URL-synced date filter hook - resets page on change. When a persist key is
+  // given, the selection is also remembered in localStorage so it survives
+  // returning to the page by any route (sidebar, back, reload).
   const { dateFilter, customStartDate, customEndDate, setDateFilter, setCustomRange, timestamps } =
-    useUrlDateFilter(pagination.resetPage, defaultDateFilterId);
+    useUrlDateFilter(pagination.resetPage, defaultDateFilterId, dateFilterPersistKey);
 
   // Search hook - resets page on change
   const { keyword, setKeyword, searchQuery } = useKeywordSearch(pagination.resetPage);
