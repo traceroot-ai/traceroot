@@ -37,7 +37,10 @@ export default function DetectorsPage() {
     updateKeyword,
     updateLimit,
     goToPage,
-  } = useListPageState({ defaultDateFilterId: "14d" });
+  } = useListPageState({
+    defaultDateFilterId: "14d",
+    dateFilterPersistKey: `detectors:${projectId}`,
+  });
 
   const { data: project } = useProject(projectId);
 
