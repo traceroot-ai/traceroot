@@ -105,15 +105,22 @@ jobs:
           # Run test:coverage in each package
           cd frontend
 
+          FAIL=0
           for pkg in ui worker packages/core packages/agent packages/slack packages/github; do
             echo "::group::test:coverage — $pkg"
             cd "$pkg"
-            pnpm test:coverage || true
+            pnpm test:coverage || FAIL=1
             cd -
             echo "::endgroup::"
           done
 
+          if [ "$FAIL" -eq 1 ]; then
+            echo "::error::One or more frontend test suites failed."
+            exit 1
+          fi
+
       - name: Fix lcov source paths and merge
+        if: always()
         run: |
           set -euo pipefail
 
@@ -147,6 +154,7 @@ jobs:
           echo "Merged frontend lcov lines: $(wc -l < coverage-frontend.lcov)"
 
       - name: Upload coverage artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-frontend
@@ -199,7 +207,7 @@ jobs:
     # queue. On merge_group events github.base_ref is empty, so the compare-ref
     # logic below would have no base to diff against -- supporting it would need
     # github.event.merge_group.base_ref instead.
-    if: github.event_name == 'pull_request'
+    if: always() && github.event_name == 'pull_request'
 
     steps:
       - uses: actions/checkout@v4
