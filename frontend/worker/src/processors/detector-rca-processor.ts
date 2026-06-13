@@ -82,7 +82,7 @@ async function resolveLegacyByok(
   return null;
 }
 
-async function runRcaSession(params: {
+export async function runRcaSession(params: {
   findingId: string;
   projectId: string;
   workspaceId: string;
@@ -273,141 +273,141 @@ export async function runFanOut({
   await Promise.allSettled(tasks);
 }
 
+export async function processRcaJob(job: Job<DetectorRcaJob>) {
+  const { findingId, projectId, traceId, workspaceId, projectName, findings } = job.data;
+
+  // Free-plan RCA cap enforcement — read the cached `rcaBlocked` flag
+  // set by the hourly billing job (same pattern as `detectorBlocked` in
+  // detector-run-processor). Worst-case overshoot: ~1h of RCA runs
+  // between cron passes.
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { billingPlan: true, rcaBlocked: true },
+  });
+  if (ws?.rcaBlocked && (ws.billingPlan as PlanType) === PlanType.FREE) {
+    // detector-run-processor pre-seeds a DetectorRca row with
+    // status="pending" before enqueuing; mark it terminal so the UI
+    // doesn't show a permanently-stuck "in progress" RCA.
+    await prisma.detectorRca
+      .update({
+        where: { findingId },
+        data: {
+          status: "failed",
+          result: "Skipped — Free plan RCA quota exceeded. Upgrade to continue.",
+          completedAt: new Date(),
+        },
+      })
+      .catch(() => {}); // best-effort; row may not exist if pre-seed failed
+    console.log(
+      `[RCA] Workspace ${workspaceId} is rca-blocked (Free plan cap exceeded); ` +
+        `skipping RCA for finding ${findingId}`,
+    );
+    return;
+  }
+
+  await prisma.detectorRca.upsert({
+    where: { findingId },
+    create: { findingId, projectId, status: "running" },
+    update: { projectId, status: "running" },
+  });
+
+  // emailAddresses is captured inside the try below; declare here so the
+  // outer catch's fallback alert can still use it (defaults to []).
+  let emailAddresses: string[] = [];
+
+  let slackChannelId: string | null = null;
+
+  let slackBotTokenEnc: string | null = null;
+
+  // Always send a combined alert (success: with RCA result; failure: null).
+  // Detector findings should never fail silently on configured channels.
+  const sendAlert = async (rcaResult: string | null) => {
+    const summary = findings.map((f) => `[${f.detectorName}] ${f.summary}`).join("\n");
+    const detectorName = findings.map((f) => f.detectorName).join(", ");
+    const common = { detectorName, projectName, summary, rcaResult, traceId, projectId };
+    await runFanOut({
+      workspaceId,
+      emailAddresses,
+      slackChannelId,
+      slackBotTokenEnc,
+      common,
+    });
+  };
+
+  try {
+    // Pull project-scoped rca_model and alert recipients in one read.
+    // Inside the try so a Prisma failure routes through the catch's
+    // failure-state + fallback-alert handling.
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: {
+        rcaModel: true,
+        rcaProvider: true,
+        rcaSource: true,
+        alertConfig: {
+          select: { emailAddresses: true, slackChannelId: true, slackChannelName: true },
+        },
+        workspace: {
+          select: {
+            slackIntegration: {
+              select: { channelId: true, channelName: true, botToken: true },
+            },
+          },
+        },
+      },
+    });
+    emailAddresses = project?.alertConfig?.emailAddresses ?? [];
+
+    const slack = project?.workspace?.slackIntegration ?? null;
+    slackChannelId = project?.alertConfig?.slackChannelId ?? slack?.channelId ?? null;
+    slackBotTokenEnc = slack?.botToken ?? null;
+
+    // Workspace-level GitHub installations now drive the GitHub tool.
+    // Any installation in this workspace is enough to flip the tool on.
+    const ghCount = await prisma.gitHubInstallation.count({
+      where: { workspaceId },
+    });
+    const hasGitHub = ghCount > 0;
+
+    const { result: rcaResult } = await runRcaSession({
+      findingId,
+      projectId,
+      workspaceId,
+      traceId,
+      findings,
+      hasGitHub,
+      rcaModel: project?.rcaModel,
+      rcaProvider: project?.rcaProvider,
+      rcaSource: project?.rcaSource,
+    });
+
+    await prisma.detectorRca.update({
+      where: { findingId },
+      data: {
+        status: "done",
+        result: rcaResult,
+        completedAt: new Date(),
+      },
+    });
+
+    await sendAlert(rcaResult);
+  } catch (e) {
+    await prisma.detectorRca
+      .update({ where: { findingId }, data: { status: "failed" } })
+      .catch(() => {}); // best-effort
+
+    await sendAlert(null);
+
+    throw e; // re-throw so BullMQ marks job as failed
+  }
+}
+
 export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
   const connection = createRedisConnection();
-
-  const worker = new Worker<DetectorRcaJob>(
-    DETECTOR_RCA_QUEUE,
-    async (job: Job<DetectorRcaJob>) => {
-      const { findingId, projectId, traceId, workspaceId, projectName, findings } = job.data;
-
-      // Free-plan RCA cap enforcement — read the cached `rcaBlocked` flag
-      // set by the hourly billing job (same pattern as `detectorBlocked` in
-      // detector-run-processor). Worst-case overshoot: ~1h of RCA runs
-      // between cron passes.
-      const ws = await prisma.workspace.findUnique({
-        where: { id: workspaceId },
-        select: { billingPlan: true, rcaBlocked: true },
-      });
-      if (ws?.rcaBlocked && (ws.billingPlan as PlanType) === PlanType.FREE) {
-        // detector-run-processor pre-seeds a DetectorRca row with
-        // status="pending" before enqueuing; mark it terminal so the UI
-        // doesn't show a permanently-stuck "in progress" RCA.
-        await prisma.detectorRca
-          .update({
-            where: { findingId },
-            data: {
-              status: "failed",
-              result: "Skipped — Free plan RCA quota exceeded. Upgrade to continue.",
-              completedAt: new Date(),
-            },
-          })
-          .catch(() => {}); // best-effort; row may not exist if pre-seed failed
-        console.log(
-          `[RCA] Workspace ${workspaceId} is rca-blocked (Free plan cap exceeded); ` +
-            `skipping RCA for finding ${findingId}`,
-        );
-        return;
-      }
-
-      await prisma.detectorRca.upsert({
-        where: { findingId },
-        create: { findingId, projectId, status: "running" },
-        update: { projectId, status: "running" },
-      });
-
-      // emailAddresses is captured inside the try below; declare here so the
-      // outer catch's fallback alert can still use it (defaults to []).
-      let emailAddresses: string[] = [];
-
-      let slackChannelId: string | null = null;
-
-      let slackBotTokenEnc: string | null = null;
-
-      // Always send a combined alert (success: with RCA result; failure: null).
-      // Detector findings should never fail silently on configured channels.
-      const sendAlert = async (rcaResult: string | null) => {
-        const summary = findings.map((f) => `[${f.detectorName}] ${f.summary}`).join("\n");
-        const detectorName = findings.map((f) => f.detectorName).join(", ");
-        const common = { detectorName, projectName, summary, rcaResult, traceId, projectId };
-        await runFanOut({
-          workspaceId,
-          emailAddresses,
-          slackChannelId,
-          slackBotTokenEnc,
-          common,
-        });
-      };
-
-      try {
-        // Pull project-scoped rca_model and alert recipients in one read.
-        // Inside the try so a Prisma failure routes through the catch's
-        // failure-state + fallback-alert handling.
-        const project = await prisma.project.findUnique({
-          where: { id: projectId },
-          select: {
-            rcaModel: true,
-            rcaProvider: true,
-            rcaSource: true,
-            alertConfig: {
-              select: { emailAddresses: true, slackChannelId: true, slackChannelName: true },
-            },
-            workspace: {
-              select: {
-                slackIntegration: {
-                  select: { channelId: true, channelName: true, botToken: true },
-                },
-              },
-            },
-          },
-        });
-        emailAddresses = project?.alertConfig?.emailAddresses ?? [];
-
-        const slack = project?.workspace?.slackIntegration ?? null;
-        slackChannelId = project?.alertConfig?.slackChannelId ?? slack?.channelId ?? null;
-        slackBotTokenEnc = slack?.botToken ?? null;
-
-        // Workspace-level GitHub installations now drive the GitHub tool.
-        // Any installation in this workspace is enough to flip the tool on.
-        const ghCount = await prisma.gitHubInstallation.count({
-          where: { workspaceId },
-        });
-        const hasGitHub = ghCount > 0;
-
-        const { result: rcaResult } = await runRcaSession({
-          findingId,
-          projectId,
-          workspaceId,
-          traceId,
-          findings,
-          hasGitHub,
-          rcaModel: project?.rcaModel,
-          rcaProvider: project?.rcaProvider,
-          rcaSource: project?.rcaSource,
-        });
-
-        await prisma.detectorRca.update({
-          where: { findingId },
-          data: {
-            status: "done",
-            result: rcaResult,
-            completedAt: new Date(),
-          },
-        });
-
-        await sendAlert(rcaResult);
-      } catch (e) {
-        await prisma.detectorRca
-          .update({ where: { findingId }, data: { status: "failed" } })
-          .catch(() => {}); // best-effort
-
-        await sendAlert(null);
-
-        throw e; // re-throw so BullMQ marks job as failed
-      }
-    },
-    { connection, concurrency: 3 },
-  );
+  const worker = new Worker<DetectorRcaJob>(DETECTOR_RCA_QUEUE, processRcaJob, {
+    connection,
+    concurrency: 3,
+  });
 
   worker.on("failed", (job, err) => {
     console.error(`[RCA] Job ${job?.id} failed:`, err.message);
