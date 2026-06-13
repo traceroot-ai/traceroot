@@ -87,7 +87,6 @@ describe("TraceViewerPanel layout", () => {
   });
 });
 
-
 describe("TraceViewerPanel keyboard", () => {
   it("calls onClose when Escape is pressed", () => {
     const onClose = vi.fn();
