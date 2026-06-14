@@ -17,7 +17,7 @@ import { formatDuration, formatDate, buildUrlWithFilters } from "@/lib/utils";
 import { TokenChip } from "./TokenChip";
 import { CostChip } from "./CostChip";
 import { SpanStatus } from "@traceroot/core";
-import type { TraceDetail } from "@/types/api";
+import type { TraceDetail, Span } from "@/types/api";
 import type { TraceSelection } from "../types";
 import {
   getSpanDuration,
@@ -39,6 +39,48 @@ interface SpanInfoPanelProps {
   dateFilter?: { id: string; isCustom?: boolean };
   customStartDate?: Date | null;
   customEndDate?: Date | null;
+}
+
+const ERROR_ATTRIBUTE_KEYS = [
+  "exception.message",
+  "exception.type",
+  "error.message",
+  "error.type",
+  "ai.response.finishReason",
+  "gen_ai.response.finish_reasons",
+];
+
+function extractErrorSignal(metadata: string | null): { key: string; value: string } | null {
+  if (!metadata) return null;
+  try {
+    const parsed = JSON.parse(metadata) as Record<string, unknown>;
+    for (const key of ERROR_ATTRIBUTE_KEYS) {
+      const val = parsed[key];
+      if (typeof val === "string" && val) return { key, value: val };
+      if (Array.isArray(val) && val.length > 0) return { key, value: String(val[0]) };
+    }
+  } catch {
+    // ignore malformed metadata
+  }
+  return null;
+}
+
+// BFS through all descendants to find the best span with error context.
+// Prefers any descendant with a status_message, otherwise returns the first
+// descendant so its metadata can be fetched and inspected.
+function findBestErrorDescendant(spans: Span[], rootSpanId: string): Span | null {
+  const descendants: Span[] = [];
+  const queue = [rootSpanId];
+  const visited = new Set<string>();
+  while (queue.length > 0) {
+    const parentId = queue.shift()!;
+    if (visited.has(parentId)) continue;
+    visited.add(parentId);
+    const children = spans.filter((s) => s.parent_span_id === parentId);
+    descendants.push(...children);
+    queue.push(...children.map((c) => c.span_id));
+  }
+  return descendants.find((s) => !!s.status_message) ?? descendants[0] ?? null;
 }
 
 /**
@@ -100,6 +142,25 @@ export function SpanInfoPanel({
   // Error status
   const hasError = isTrace ? false : selection.span.status === SpanStatus.ERROR;
   const statusMessage = !isTrace ? selection.span.status_message : null;
+
+  // Fallback error signal: when status=ERROR but status_message is null,
+  // walk all descendants (BFS) and surface the first useful error attribute.
+  const fallbackChildSpan =
+    !isTrace && hasError && !statusMessage
+      ? findBestErrorDescendant(trace.spans, selection.span.span_id)
+      : null;
+  const { data: fallbackChildIO } = useSpanIO(
+    projectId,
+    trace.trace_id,
+    fallbackChildSpan?.span_id ?? null,
+  );
+  const fallbackSignal =
+    hasError && !statusMessage
+      ? (fallbackChildSpan?.status_message
+          ? { key: "status_message", value: fallbackChildSpan.status_message }
+          : extractErrorSignal(fallbackChildIO?.metadata ?? null))
+      : null;
+  const fallbackError = fallbackSignal?.value ?? null;
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -272,12 +333,28 @@ export function SpanInfoPanel({
       {/* Content */}
       <div className="space-y-3 p-4">
         {/* Error message */}
-        {statusMessage && (
+        {(statusMessage || fallbackError) && (
           <div className="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
             <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-400">
               <AlertCircle className="h-3 w-3" />
               Error
+              {!statusMessage && fallbackChildSpan && (
+                <span className="ml-1 font-normal opacity-75">
+                  (from &quot;{fallbackChildSpan.name}&quot;)
+                </span>
+              )}
             </div>
+            {!statusMessage && fallbackError && (
+              <p className="mb-2 text-xs italic text-red-500 dark:text-red-500">
+                No error message on this span — showing the closest failure signal from a descendant span.
+              </p>
+            )}
+            {!statusMessage && fallbackSignal && (
+              <p className="mb-1 text-xs text-red-500 dark:text-red-500">
+                <span className="font-medium">Source:</span>{" "}
+                <span className="font-mono">{fallbackSignal.key}</span>
+              </p>
+            )}
             {/* Source location info */}
             {!isTrace && (trace.git_repo || trace.git_ref || selection.span.git_source_file) && (
               <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -309,7 +386,7 @@ export function SpanInfoPanel({
               </div>
             )}
             <p className="whitespace-pre-wrap break-all font-mono text-xs text-red-600 dark:text-red-400">
-              {statusMessage}
+              {statusMessage ?? fallbackError}
             </p>
           </div>
         )}
