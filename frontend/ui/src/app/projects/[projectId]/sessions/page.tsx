@@ -40,7 +40,9 @@ export default function SessionsPage() {
   const { isPending: authPending } = useAuthSession();
   const sessionIdFromUrl = searchParams.get("sessionId");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(sessionIdFromUrl);
-  const [isPanelFullscreen, setIsPanelFullscreen] = useState(searchParams.get("fullscreen") === "1");
+  const [isPanelFullscreen, setIsPanelFullscreen] = useState(
+    searchParams.get("fullscreen") === "1",
+  );
 
   const {
     state,
