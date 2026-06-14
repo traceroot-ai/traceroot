@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useEffect } from "react";
+import { useMemo, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -13,6 +13,9 @@ import {
   Clock,
   ChevronRight,
   BotMessageSquare,
+  Expand,
+  Shrink,
+  SquareArrowOutUpRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
@@ -36,6 +39,8 @@ interface SessionDetailPanelProps {
   dateFilter?: { id: string; isCustom?: boolean };
   customStartDate?: Date | null;
   customEndDate?: Date | null;
+  initialFullscreen?: boolean;
+  onFullscreenChange?: (v: boolean) => void;
 }
 
 function TraceCard({
@@ -94,8 +99,17 @@ export function SessionDetailPanel({
   dateFilter,
   customStartDate,
   customEndDate,
+  initialFullscreen,
+  onFullscreenChange,
 }: SessionDetailPanelProps) {
   const router = useRouter();
+  const [isFullscreen, setIsFullscreen] = useState(initialFullscreen ?? false);
+
+  const handleFullscreenToggle = () => {
+    const next = !isFullscreen;
+    setIsFullscreen(next);
+    onFullscreenChange?.(next);
+  };
   const { aiPanelOpen, setAiPanelOpen, setAiContext, registerAiHost } = useLayout();
   const { isPending: authPending } = useAuthSession();
 
@@ -171,6 +185,30 @@ export function SessionDetailPanel({
           <Button
             variant="outline"
             size="sm"
+            onClick={handleFullscreenToggle}
+            className="h-7 w-7 p-0"
+            title={isFullscreen ? "Restore default size" : "Expand to full screen"}
+          >
+            {isFullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              window.open(
+                buildUrl(`/projects/${projectId}/sessions`, { sessionId, fullscreen: "1" }),
+                "_blank",
+              )
+            }
+            className="h-7 w-7 p-0"
+            title="Open in new tab"
+          >
+            <SquareArrowOutUpRight className="h-4 w-4" />
+          </Button>
+          <div className="w-2" />
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => {
               setAiContext({
                 traceId: data?.traces[0]?.trace_id,
@@ -178,7 +216,7 @@ export function SessionDetailPanel({
               });
               setAiPanelOpen(!aiPanelOpen);
             }}
-            className="ml-2 h-7 w-7 p-0"
+            className="h-7 w-7 p-0"
             title="AI Assistant"
           >
             <BotMessageSquare className="h-4 w-4" />

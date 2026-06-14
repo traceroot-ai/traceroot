@@ -36,10 +36,11 @@ export default function SessionsPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const projectId = params.projectId as string;
-  const { setHideAiButton } = useLayout();
+  const { setHideAiButton, sidebarCollapsed } = useLayout();
   const { isPending: authPending } = useAuthSession();
   const sessionIdFromUrl = searchParams.get("sessionId");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(sessionIdFromUrl);
+  const [isPanelFullscreen, setIsPanelFullscreen] = useState(searchParams.get("fullscreen") === "1");
 
   const {
     state,
@@ -234,11 +235,23 @@ export default function SessionsPage() {
 
       {/* Detail panel - overlays right side, slides in from right (like traces) */}
       {selectedSessionId && (
-        <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl">
+        <div
+          className={cn(
+            "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-xl transition-[width,top] duration-200",
+            isPanelFullscreen
+              ? sidebarCollapsed
+                ? "top-14 w-[calc(100%-3.5rem)]"
+                : "top-14 w-[calc(100%-12rem)]"
+              : "top-0 w-[70%]",
+          )}
+        >
           <SessionDetailPanel
             projectId={projectId}
             sessionId={selectedSessionId}
-            onClose={() => setSelectedSessionId(null)}
+            onClose={() => {
+              setSelectedSessionId(null);
+              setIsPanelFullscreen(false);
+            }}
             onNavigate={(direction) => {
               const currentIndex = sessions.findIndex(
                 (s: SessionListItem) => s.session_id === selectedSessionId,
@@ -259,6 +272,8 @@ export default function SessionsPage() {
             dateFilter={state.dateFilter}
             customStartDate={state.customStartDate}
             customEndDate={state.customEndDate}
+            initialFullscreen={isPanelFullscreen}
+            onFullscreenChange={setIsPanelFullscreen}
           />
         </div>
       )}
