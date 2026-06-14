@@ -156,9 +156,9 @@ export function SpanInfoPanel({
   );
   const fallbackSignal =
     hasError && !statusMessage
-      ? (fallbackChildSpan?.status_message
-          ? { key: "status_message", value: fallbackChildSpan.status_message }
-          : extractErrorSignal(fallbackChildIO?.metadata ?? null))
+      ? fallbackChildSpan?.status_message
+        ? { key: "status_message", value: fallbackChildSpan.status_message }
+        : extractErrorSignal(fallbackChildIO?.metadata ?? null)
       : null;
   const fallbackError = fallbackSignal?.value ?? null;
 
@@ -346,7 +346,8 @@ export function SpanInfoPanel({
             </div>
             {!statusMessage && fallbackError && (
               <p className="mb-2 text-xs italic text-red-500 dark:text-red-500">
-                No error message on this span — showing the closest failure signal from a descendant span.
+                No error message on this span — showing the closest failure signal from a descendant
+                span.
               </p>
             )}
             {!statusMessage && fallbackSignal && (
