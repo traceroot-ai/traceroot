@@ -50,7 +50,7 @@ const ERROR_ATTRIBUTE_KEYS = [
   "gen_ai.response.finish_reasons",
 ];
 
-function extractErrorSignal(metadata: string | null): { key: string; value: string } | null {
+export function extractErrorSignal(metadata: string | null): { key: string; value: string } | null {
   if (!metadata) return null;
   try {
     const parsed = JSON.parse(metadata) as Record<string, unknown>;
@@ -68,7 +68,7 @@ function extractErrorSignal(metadata: string | null): { key: string; value: stri
 // BFS through all descendants to find the best span with error context.
 // Prefers any descendant with a status_message, otherwise returns the first
 // descendant so its metadata can be fetched and inspected.
-function findBestErrorDescendant(spans: Span[], rootSpanId: string): Span | null {
+export function findBestErrorDescendant(spans: Span[], rootSpanId: string): Span | null {
   const descendants: Span[] = [];
   const queue = [rootSpanId];
   const visited = new Set<string>();
