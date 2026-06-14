@@ -174,7 +174,7 @@ describe("DaytonaExecutor", () => {
       await executor.cloneRepo("https://github.com/foo/bar.git", "/repos/bar", {
         ref: "main",
         username: "x-access-token",
-        password: "ghp_secret",
+        password: "dummy_token",
       });
 
       // askpass script uploaded
@@ -191,13 +191,13 @@ describe("DaytonaExecutor", () => {
       expect(cmd).toContain('"$GIT_DEST"');
       expect(cmd).not.toContain("https://github.com/foo/bar.git");
       // token is NEVER in the command string
-      expect(cmd).not.toContain("ghp_secret");
+      expect(cmd).not.toContain("dummy_token");
       // creds + structured args flow through env
       expect(env).toMatchObject({
         GIT_ASKPASS: "/tmp/git-askpass.sh",
         GIT_TERMINAL_PROMPT: "0",
         GIT_USERNAME: "x-access-token",
-        GIT_PASSWORD: "ghp_secret",
+        GIT_PASSWORD: "dummy_token",
         GIT_URL: "https://github.com/foo/bar.git",
         GIT_DEST: "/repos/bar",
         GIT_REF: "main",
@@ -212,7 +212,7 @@ describe("DaytonaExecutor", () => {
       const hostile = 'main"; rm -rf / #';
       await executor.cloneRepo("https://github.com/foo/bar.git", "/repos/bar", {
         ref: hostile,
-        password: "ghp_xxx",
+        password: "dummy_token",
       });
 
       const [cmd, , env] = cloneCall();
@@ -224,7 +224,7 @@ describe("DaytonaExecutor", () => {
     it("defaults username to x-access-token", async () => {
       await executor.init();
       await executor.cloneRepo("https://github.com/foo/bar.git", "/repos/bar", {
-        password: "ghp_xxx",
+        password: "dummy_token",
       });
       const [, , env] = cloneCall();
       expect(env.GIT_USERNAME).toBe("x-access-token");
@@ -234,7 +234,7 @@ describe("DaytonaExecutor", () => {
       await executor.init();
       await executor.cloneRepo("https://github.com/foo/bar.git", "/repos/bar", {
         ref: "main",
-        password: "ghp_xxx",
+        password: "dummy_token",
       });
       const [cmd, , env] = cloneCall();
       expect(cmd).toContain('--branch "$GIT_REF"');
@@ -247,7 +247,7 @@ describe("DaytonaExecutor", () => {
       const sha = "29b242d1b96aab9ac17e37350e6c7dc54033f61b";
       await executor.cloneRepo("https://github.com/foo/bar.git", "/repos/bar", {
         ref: sha,
-        password: "ghp_xxx",
+        password: "dummy_token",
       });
       const [cmd, , env] = cloneCall();
       expect(cmd).not.toContain("--branch");
@@ -259,7 +259,7 @@ describe("DaytonaExecutor", () => {
       await executor.init();
       await executor.cloneRepo("https://github.com/foo/bar.git", "/repos/bar", {
         ref: "29b242d",
-        password: "ghp_xxx",
+        password: "dummy_token",
       });
       const [cmd, , env] = cloneCall();
       expect(cmd).not.toContain("--branch");
@@ -270,7 +270,7 @@ describe("DaytonaExecutor", () => {
     it("shallow-clones the default branch when no ref is given", async () => {
       await executor.init();
       await executor.cloneRepo("https://github.com/foo/bar.git", "/repos/bar", {
-        password: "ghp_xxx",
+        password: "dummy_token",
       });
       const [cmd] = cloneCall();
       expect(cmd).toContain("--depth 1");
@@ -284,12 +284,12 @@ describe("DaytonaExecutor", () => {
       // chmod + clone both return non-zero; only the clone's exit is checked.
       mockSandbox.process.executeCommand.mockResolvedValue({
         exitCode: 128,
-        result: "fatal: could not read Password ghp_secret",
+        result: "fatal: could not read Password dummy_token",
       });
 
       await expect(
         executor.cloneRepo("https://github.com/foo/bar.git", "/repos/bar", {
-          password: "ghp_secret",
+          password: "dummy_token",
         }),
       ).rejects.toThrow(/git clone failed.*\[REDACTED\]/s);
     });
