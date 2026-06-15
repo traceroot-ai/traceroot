@@ -104,13 +104,25 @@ class TestPrimaryEnqueue:
                 "traceId": TRACE,
                 "detectorIds": ["d-pass"],
                 "projectId": PROJECT,
-                "reeval": False,
             },
         )
         state = _lock_state(fake_redis)
         assert state["state"] == "pending"
         assert state["detector_ids"] == ["d-pass"]
         assert state["token"]
+
+    def test_non_root_batch_enqueues_nothing(self, fake_redis, mock_add_job, monkeypatch):
+        """GROUND TRUTH (exactly-once): only the root-bearing batch enqueues. A
+        later batch whose trace is NOT in traces_with_root claims nothing and
+        adds no job, so a multi-batch trace is never enqueued more than once."""
+        _patch_detectors(monkeypatch, [_detector("d1")])
+        _patch_summaries(monkeypatch, {})
+
+        # TRACE is in the batch but NOT root-bearing this batch.
+        dt.enqueue_detector_runs(PROJECT, [TRACE], set())
+
+        mock_add_job.assert_not_called()
+        assert _lock_state(fake_redis) is None
 
     def test_duplicate_root_delivery_noops(self, fake_redis, mock_add_job, monkeypatch):
         """Second root delivery loses the NX claim — exactly one job ever added."""
@@ -247,112 +259,6 @@ class TestDeterministicSampling:
 # ── Re-eval path: late batches ──────────────────────────────────────────
 
 
-@pytest.fixture()
-def mock_ch(monkeypatch):
-    mock = MagicMock()
-    monkeypatch.setattr("db.clickhouse.client.get_clickhouse_client", lambda: mock)
-    return mock
-
-
-def _set_evaluated(fake_redis, span_count=5, reevals=0, detector_ids=("d1",)):
-    fake_redis.set(
-        dt._lock_key(PROJECT, TRACE),
-        json.dumps(
-            {
-                "state": "evaluated",
-                "detector_ids": list(detector_ids),
-                "span_count": span_count,
-                "reevals": reevals,
-            }
-        ),
-    )
-
-
-def _ch_counts(mock_ch, counts: dict):
-    result = MagicMock()
-    result.result_rows = list(counts.items())
-    mock_ch.query.return_value = result
-
-
-class TestReevalPath:
-    def test_span_growth_triggers_single_reeval(self, fake_redis, mock_add_job, mock_ch):
-        _set_evaluated(fake_redis, span_count=5, detector_ids=["d1", "d2"])
-        _ch_counts(mock_ch, {TRACE: 8})
-
-        dt.enqueue_detector_runs(PROJECT, [TRACE], set())
-
-        mock_add_job.assert_called_once_with(
-            f"{PROJECT}--{TRACE}--r1",
-            {
-                "traceId": TRACE,
-                "detectorIds": ["d1", "d2"],
-                "projectId": PROJECT,
-                "reeval": True,
-            },
-        )
-        state = _lock_state(fake_redis)
-        assert state == {
-            "state": "reevaluating",
-            "detector_ids": ["d1", "d2"],
-            "span_count": 8,
-            "reevals": 1,
-        }
-
-        # A further late batch sees state "reevaluating" -> no second re-eval.
-        dt.enqueue_detector_runs(PROJECT, [TRACE], set())
-        assert mock_add_job.call_count == 1
-
-    def test_reevals_already_consumed_blocks_reeval(self, fake_redis, mock_add_job, mock_ch):
-        _set_evaluated(fake_redis, span_count=5, reevals=1)
-        dt.enqueue_detector_runs(PROJECT, [TRACE], set())
-        mock_add_job.assert_not_called()
-        mock_ch.query.assert_not_called()
-
-    def test_no_span_growth_noops(self, fake_redis, mock_add_job, mock_ch):
-        _set_evaluated(fake_redis, span_count=5)
-        _ch_counts(mock_ch, {TRACE: 5})
-
-        dt.enqueue_detector_runs(PROJECT, [TRACE], set())
-
-        mock_add_job.assert_not_called()
-        assert _lock_state(fake_redis)["state"] == "evaluated"
-
-    def test_absent_lock_noops(self, fake_redis, mock_add_job, mock_ch):
-        dt.enqueue_detector_runs(PROJECT, [TRACE], set())
-        mock_add_job.assert_not_called()
-        mock_ch.query.assert_not_called()
-
-    def test_pending_lock_noops(self, fake_redis, mock_add_job, mock_ch):
-        fake_redis.set(
-            dt._lock_key(PROJECT, TRACE),
-            json.dumps({"state": "pending", "detector_ids": ["d1"], "token": "t"}),
-        )
-        dt.enqueue_detector_runs(PROJECT, [TRACE], set())
-        mock_add_job.assert_not_called()
-
-    def test_corrupt_lock_value_does_not_drop_other_traces(self, fake_redis, mock_add_job, mock_ch):
-        corrupt = "bb" * 16
-        fake_redis.set(dt._lock_key(PROJECT, corrupt), b"not-json")
-        _set_evaluated(fake_redis, span_count=5)
-        _ch_counts(mock_ch, {TRACE: 9})
-
-        dt.enqueue_detector_runs(PROJECT, [corrupt, TRACE], set())
-
-        assert mock_add_job.call_count == 1
-        assert mock_add_job.call_args[0][0] == f"{PROJECT}--{TRACE}--r1"
-
-    def test_reeval_enqueue_failure_is_logged_not_raised(self, fake_redis, mock_add_job, mock_ch):
-        _set_evaluated(fake_redis, span_count=5)
-        _ch_counts(mock_ch, {TRACE: 9})
-        mock_add_job.side_effect = RuntimeError("queue down")
-
-        dt.enqueue_detector_runs(PROJECT, [TRACE], set())
-
-        # The re-eval budget is consumed even though the add failed; BullMQ
-        # job retries are the worker's concern, not a second enqueue.
-        assert _lock_state(fake_redis)["state"] == "reevaluating"
-
-
 # ── BullMQ helper ───────────────────────────────────────────────────────
 
 
@@ -376,7 +282,7 @@ class TestAddBullmqJob:
 
         monkeypatch.setattr("bullmq.Queue", FakeQueue)
 
-        data = {"traceId": TRACE, "detectorIds": ["d1"], "projectId": PROJECT, "reeval": False}
+        data = {"traceId": TRACE, "detectorIds": ["d1"], "projectId": PROJECT}
         dt._add_bullmq_job(f"{PROJECT}--{TRACE}", data)
 
         assert len(queues) == 1
@@ -397,25 +303,6 @@ class TestAddBullmqJob:
                 },
             )
         ]
-
-
-# ── ClickHouse span-count helper ────────────────────────────────────────
-
-
-class TestGetTraceSpanCounts:
-    def test_batched_group_by_query(self, mock_ch):
-        _ch_counts(mock_ch, {TRACE: 7, "bb" * 16: 3})
-
-        counts = dt._get_trace_span_counts(PROJECT, [TRACE, "bb" * 16])
-
-        assert counts == {TRACE: 7, "bb" * 16: 3}
-        mock_ch.query.assert_called_once()
-        params = mock_ch.query.call_args.kwargs["parameters"]
-        assert params == {"project_id": PROJECT, "trace_ids": [TRACE, "bb" * 16]}
-
-    def test_empty_input_skips_query(self, mock_ch):
-        assert dt._get_trace_span_counts(PROJECT, []) == {}
-        mock_ch.query.assert_not_called()
 
 
 # ── Top-level guard ─────────────────────────────────────────────────────

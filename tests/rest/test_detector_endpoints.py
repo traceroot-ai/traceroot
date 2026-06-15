@@ -175,9 +175,8 @@ class TestListDetectorFindings:
         )
         assert resp.status_code == 422
 
-    def test_data_query_dedups_both_sides_and_filters_retracted(self, client, mock_ch, secret):
-        """Pre-merge ReplacingMergeTree duplicates must not fan out the JOIN,
-        and retracted findings must be excluded."""
+    def test_data_query_dedups_both_sides(self, client, mock_ch, secret):
+        """Pre-merge ReplacingMergeTree duplicates must not fan out the JOIN."""
         mock_ch.query.side_effect = [self._fake_data(), self._fake_count(1)]
         client.get(
             "/api/v1/internal/detector-findings",
@@ -187,9 +186,8 @@ class TestListDetectorFindings:
         data_sql = mock_ch.query.call_args_list[0].args[0]
         assert "(SELECT * FROM detector_findings FINAL) AS f" in data_sql
         assert "(SELECT * FROM detector_runs FINAL) AS r" in data_sql
-        assert "f.retracted = 0" in data_sql
 
-    def test_count_query_matches_data_query_dedup_and_retraction(self, client, mock_ch, secret):
+    def test_count_query_matches_data_query_dedup(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [self._fake_data(), self._fake_count(1)]
         client.get(
             "/api/v1/internal/detector-findings",
@@ -199,7 +197,6 @@ class TestListDetectorFindings:
         count_sql = mock_ch.query.call_args_list[1].args[0]
         assert "(SELECT * FROM detector_findings FINAL) AS f" in count_sql
         assert "(SELECT * FROM detector_runs FINAL) AS r" in count_sql
-        assert "f.retracted = 0" in count_sql
 
 
 # =============================================================================
@@ -301,7 +298,7 @@ class TestWriteDetectorFinding:
             "payload": "{}",
         }
 
-    def test_defaults_to_not_retracted(self, client, mock_ch, secret):
+    def test_writes_finding_row(self, client, mock_ch, secret):
         resp = client.post(
             "/api/v1/internal/detector-findings",
             json=self._body(),
@@ -309,19 +306,8 @@ class TestWriteDetectorFinding:
         )
         assert resp.status_code == 200
         sql = mock_ch.query.call_args.args[0]
-        params = mock_ch.query.call_args.kwargs["parameters"]
-        assert "retracted" in sql
-        assert params["retracted"] == 0
-
-    def test_explicit_retraction_writes_1(self, client, mock_ch, secret):
-        resp = client.post(
-            "/api/v1/internal/detector-findings",
-            json={**self._body(), "retracted": True},
-            headers={"X-Internal-Secret": secret},
-        )
-        assert resp.status_code == 200
-        params = mock_ch.query.call_args.kwargs["parameters"]
-        assert params["retracted"] == 1
+        assert "INSERT INTO detector_findings" in sql
+        assert "retracted" not in sql
 
 
 # =============================================================================
@@ -330,7 +316,7 @@ class TestWriteDetectorFinding:
 
 
 class TestGetTraceFindings:
-    def test_excludes_retracted_and_dedups(self, client, mock_ch, secret):
+    def test_dedups_with_final(self, client, mock_ch, secret):
         ts = datetime(2026, 5, 1, 12, 0, 0)
         mock_ch.query.return_value = _make_query_result(
             rows=[("f1", "p1", "trace-aaa", "summary text", "{}", ts)],
@@ -352,7 +338,6 @@ class TestGetTraceFindings:
         assert resp.json()["findings"][0]["finding_id"] == "f1"
         sql = mock_ch.query.call_args.args[0]
         assert "FROM detector_findings FINAL" in sql
-        assert "retracted = 0" in sql
 
 
 # =============================================================================
@@ -471,10 +456,9 @@ class TestListDetectorCounts:
         )
         assert resp.status_code == 422
 
-    def test_runs_deduplicated_and_findings_join_respects_retraction(self, client, mock_ch, secret):
-        """run_count must dedup pre-merge run rows; finding_count must come
-        from the joined (deduplicated, project-filtered) findings so a
-        retracted finding stops counting while its run still does."""
+    def test_runs_deduplicated_and_finding_count(self, client, mock_ch, secret):
+        """run_count must dedup pre-merge run rows; finding_count counts runs
+        that carry a finding_id (findings are never withdrawn)."""
         mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 10, 3)])]
         resp = client.get(
             "/api/v1/internal/detector-counts",
@@ -488,20 +472,13 @@ class TestListDetectorCounts:
         sql = mock_ch.query.call_args.args[0]
         # Runs deduplicated before counting.
         assert "(SELECT * FROM detector_runs FINAL) AS r" in sql
-        # Findings side: deduplicated, project-filtered, joined on finding_id.
-        assert "FROM detector_findings FINAL" in sql
-        assert "LEFT JOIN" in sql
-        assert "ON r.finding_id = f.finding_id" in sql
-        # Finding count requires the finding to exist AND not be retracted —
-        # the run row's finding_id alone no longer counts.
-        assert "countIf(f.finding_id != '' AND f.retracted = 0)" in sql
-        assert "finding_id IS NOT NULL" not in sql
+        # Finding count comes straight off the run's finding_id; no findings JOIN.
+        assert "countIf(r.finding_id IS NOT NULL)" in sql
+        assert "retracted" not in sql
+        assert "LEFT JOIN" not in sql
 
-    def test_retracted_finding_drops_from_finding_count_not_run_count(
-        self, client, mock_ch, secret
-    ):
-        # Simulated ClickHouse result after a retraction: the detector still
-        # has its runs, but the retracted finding no longer matches countIf.
+    def test_detector_with_runs_but_no_findings(self, client, mock_ch, secret):
+        # A detector that ran 10 times but never triggered: 0 findings, 10 runs.
         mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 10, 0)])]
         resp = client.get(
             "/api/v1/internal/detector-counts",
