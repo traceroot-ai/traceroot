@@ -1,0 +1,80 @@
+---
+title: Get Started
+description: Install the TraceRoot CLI and inspect your first trace
+---
+
+## 1. Install
+
+Requires **Node.js ≥ 20**.
+
+<Tabs>
+  <Tab title="npx (no install)">
+    ```bash
+    npx traceroot-cli --help
+    ```
+  </Tab>
+  <Tab title="npm (global)">
+    ```bash
+    npm install -g traceroot-cli
+    traceroot --help
+    ```
+  </Tab>
+</Tabs>
+
+## 2. Authenticate
+
+Sign in with your project API key. `traceroot login` validates the key, then saves it to a project-local `./.traceroot/config.json` (mode `0600`, auto-gitignored) so later commands need no flags.
+
+```bash
+traceroot login --api-key tr_... --host https://app.traceroot.ai
+```
+
+Create API keys with [TraceRoot Cloud](https://app.traceroot.ai) or your [self-hosted](/developer/self-hosting) dashboard. For CI or scripts, set environment variables instead of running `login`:
+
+```bash .env
+TRACEROOT_API_KEY=tr_...
+TRACEROOT_HOST_URL=https://app.traceroot.ai
+```
+
+<Note>
+  The CLI reuses the same `TRACEROOT_API_KEY` and `TRACEROOT_HOST_URL` variables as the SDKs, so an existing `.env` already works.
+</Note>
+
+## 3. Confirm who you are
+
+```bash
+traceroot status
+```
+
+This prints the workspace, project, host, and key hint your credentials resolve to.
+
+## 4. List and inspect traces
+
+```bash
+# List recent traces, newest first
+traceroot traces list --limit 10
+
+# Inspect one: span tree, duration, and a link to open it in TraceRoot
+traceroot traces get <trace-id>
+```
+
+## 5. Export a trace
+
+Write a full trace bundle to disk to share or feed into another tool:
+
+```bash
+traceroot traces export <trace-id> --output ./my-trace
+```
+
+---
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Commands" icon="terminal" href="/cli/commands">
+    Every command and flag, plus the JSON output contract.
+  </Card>
+  <Card title="Tracing" icon="route" href="/tracing/get-started">
+    Instrument your app so traces show up for the CLI to read.
+  </Card>
+</CardGroup>
