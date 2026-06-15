@@ -1,5 +1,17 @@
 [
   {
+    "id": "tr-claude-opus-4-8",
+    "modelName": "claude-opus-4-8",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-8(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-8(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-8-opus(@[\\d-]+)?)$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.000005,
+      "output": 0.000025,
+      "cacheRead": 0.0000005,
+      "cacheWrite": 0.00000625
+    }
+  },
+  {
     "id": "tr-claude-opus-4-7",
     "modelName": "claude-opus-4-7",
     "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-7(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-7(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-7-opus(@[\\d-]+)?)$",
@@ -14,7 +26,7 @@
   {
     "id": "tr-claude-opus-4-6",
     "modelName": "claude-opus-4-6",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-6(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-6(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-6-opus(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-6(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-6(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-6-opus(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000005,
@@ -38,7 +50,7 @@
   {
     "id": "tr-claude-opus-4-5",
     "modelName": "claude-opus-4-5",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-5(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-opus(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-5(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-opus(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000005,
@@ -74,7 +86,7 @@
   {
     "id": "tr-gpt-5-5",
     "modelName": "gpt-5.5",
-    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.5)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.5)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.000005,
@@ -86,7 +98,7 @@
   {
     "id": "tr-gpt-5-5-pro",
     "modelName": "gpt-5.5-pro",
-    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.5-pro)(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.5-pro)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
       "input": 0.00003,

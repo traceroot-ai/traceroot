@@ -62,7 +62,10 @@ def real_cache() -> list[dict]:
 OPENAI_MODEL_CASES = [
     ("gpt-5.5", "gpt-5.5"),
     ("openai/gpt-5.5", "gpt-5.5"),
+    ("azure/gpt-5.5", "gpt-5.5"),
+    ("gpt-5.5-2026-03-15", "gpt-5.5"),
     ("gpt-5.5-pro", "gpt-5.5-pro"),
+    ("azure/gpt-5.5-pro", "gpt-5.5-pro"),
     ("gpt-5.4", "gpt-5.4"),
     ("gpt-5.4-mini", "gpt-5.4-mini"),
     ("gpt-5.4-nano", "gpt-5.4-nano"),
@@ -241,10 +244,22 @@ class TestCalculateCost:
 
 # (model_id, expected modelName) for IDs the worker must price correctly.
 CLAUDE_BEDROCK_VERTEX_CASES = [
+    # Opus 4.8 — plain, [1m] variant, Bedrock, Vertex
+    ("claude-opus-4-8", "claude-opus-4-8"),
+    ("claude-opus-4-8[1m]", "claude-opus-4-8"),
+    ("anthropic/claude-opus-4-8", "claude-opus-4-8"),
+    ("us.anthropic.claude-opus-4-8-20260601-v1:0", "claude-opus-4-8"),
+    ("eu.anthropic.claude-opus-4-8-20260601-v1:0", "claude-opus-4-8"),
+    ("claude-4-8-opus@20260601", "claude-opus-4-8"),
+    # Opus 4.7
     ("claude-opus-4-7", "claude-opus-4-7"),
     ("claude-opus-4-7[1m]", "claude-opus-4-7"),
     ("us.anthropic.claude-opus-4-7-20260514-v1:0", "claude-opus-4-7"),
     ("claude-4-7-opus@20260514", "claude-opus-4-7"),
+    # Opus 4.6 — [1m] variant (previously missing)
+    ("claude-opus-4-6[1m]", "claude-opus-4-6"),
+    # Opus 4.5 — [1m] variant (previously missing)
+    ("claude-opus-4-5[1m]", "claude-opus-4-5"),
     # Bedrock — with cross-region inference profile prefixes
     ("us.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("eu.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
