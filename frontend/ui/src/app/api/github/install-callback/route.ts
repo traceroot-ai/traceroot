@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { prisma } from "@traceroot/core";
 import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
+import { sanitizeRedirectPath } from "@/lib/safe-redirect";
 import {
   GITHUB_INSTALL_STATE_COOKIE,
   GITHUB_INSTALLATION_ID_COOKIE,
@@ -88,7 +89,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Redirect to return URL
-    const returnTo = request.cookies.get(GITHUB_RETURN_TO_COOKIE)?.value || "/";
+    const returnTo = sanitizeRedirectPath(request.cookies.get(GITHUB_RETURN_TO_COOKIE)?.value);
     const response = NextResponse.redirect(new URL(returnTo, env.BETTER_AUTH_URL));
 
     // Clear state cookies
