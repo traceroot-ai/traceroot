@@ -97,7 +97,7 @@ export function TraceViewerPanel({
     registerAiHost,
     sidebarCollapsed,
   } = useLayout();
-  const { currentSessionId } = useAiChatContext();
+  const { getCurrentSessionId } = useAiChatContext();
 
   // Claim the AI slot for this viewer so AppLayout's project rail steps aside.
   // `registerAiHost()` returns its own cleanup, which we return from the effect
@@ -297,7 +297,8 @@ export function TraceViewerPanel({
                 const extraParams: Record<string, string> = { traceId, fullscreen: "1" };
                 if (aiPanelOpen) {
                   extraParams.ai = "1";
-                  if (currentSessionId) extraParams.sessionId = currentSessionId;
+                  const sessionId = getCurrentSessionId();
+                  if (sessionId) extraParams.sessionId = sessionId;
                 }
                 window.open(
                   buildUrlWithFilters(newTabPath ?? `/projects/${projectId}/traces`, {
