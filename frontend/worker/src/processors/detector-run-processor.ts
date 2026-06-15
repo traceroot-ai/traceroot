@@ -550,9 +550,17 @@ async function evaluateTrace(
   // null-check an absent DetectorRca record, so skipping the row is safe.
   const rcaFindings: DetectorRcaFinding[] = buildRcaFindings(triggered);
 
-  if (options.isReeval) {
-    // Exactly one RCA per finding: the re-eval overwrites the finding row
-    // (same deterministic findingId) but must not spawn a second RCA.
+  // A re-eval that triggers for the first time (the initial eval was clean)
+  // has no prior RCA and must still create one. Suppress only when an RCA
+  // already exists, so overwriting the finding row doesn't spawn a duplicate.
+  const rcaExists =
+    options.isReeval &&
+    (await prisma.detectorRca.findUnique({
+      where: { findingId },
+      select: { findingId: true },
+    })) !== null;
+
+  if (rcaExists) {
     console.log(`[Detector] re-eval overwrite finding=${findingId}`);
   } else if (shouldRunRca(triggered, detectors)) {
     await prisma.detectorRca
