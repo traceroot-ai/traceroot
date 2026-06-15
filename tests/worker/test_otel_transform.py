@@ -574,25 +574,91 @@ class TestTransformOtelToClickhouse:
         )
         assert spans[0]["cost"] == pytest.approx(expected)
 
-    def test_vercel_outer_span_raw_totals_used_as_api_counts(self):
-        """Outer ai.generateText spans carry llm.model_name (set by the
-        OpenInference vercel processor) but token totals only under raw
-        ai.usage.* — those must be picked up as API-provided counts."""
+    def test_vercel_agent_wrapper_raw_totals_not_double_counted(self):
+        """The ai.generateText AGENT wrapper carries ai.usage.* GROSS totals that
+        restate the SUM of its LLM doGenerate children (the SDK aggregates them
+        onto the wrapper). The wrapper must NOT be priced from those totals, or
+        the trace is charged twice. Only the LLM children — which carry the
+        normalized llm.*/gen_ai.* keys — count.
+
+        Span shapes are taken verbatim from a live ai@6 +
+        @arizeai/openinference-vercel run: wrapper in/out = 203/178 = sum of the
+        two children (67/46 + 136/132)."""
         from unittest.mock import patch
 
-        prices = {
-            "input": 0.000003,
-            "output": 0.000015,
-            "cacheRead": 0.0000003,
-            "cacheWrite": 0.00000375,
-        }
+        prices = {"input": 0.000003, "output": 0.000015, "cacheRead": 0.0, "cacheWrite": 0.0}
+
+        def llm_child(span_id_hex, prompt, completion):
+            return make_span(
+                "aa" * 16,
+                span_id_hex,
+                name="ai.generateText.doGenerate",
+                parent_span_id_hex="bb" * 8,
+                attributes=[
+                    make_attr("openinference.span.kind", "LLM"),
+                    make_attr("llm.model_name", "gpt-4o-mini"),
+                    make_attr("llm.token_count.prompt", prompt),
+                    make_attr("llm.token_count.completion", completion),
+                    # Vercel stamps its raw totals on the LLM span too; the
+                    # normalized keys above take priority, so these are redundant.
+                    make_attr("ai.usage.inputTokens", prompt),
+                    make_attr("ai.usage.outputTokens", completion),
+                ],
+            )
+
         payload = make_otel_payload(
             [
+                # AGENT wrapper: openinference.span.kind=AGENT (set by the vercel
+                # processor by function name) and ONLY raw ai.usage.* aggregates.
                 make_span(
                     "aa" * 16,
                     "bb" * 8,
                     name="ai.generateText",
                     attributes=[
+                        make_attr("openinference.span.kind", "AGENT"),
+                        make_attr("llm.model_name", "gpt-4o-mini"),
+                        make_attr("ai.usage.inputTokens", 203),
+                        make_attr("ai.usage.outputTokens", 178),
+                    ],
+                ),
+                llm_child("cc" * 8, 67, 46),
+                llm_child("dd" * 8, 136, 132),
+            ],
+            scope_name="ai",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        by_id = {s["span_id"]: s for s in spans}
+        wrapper = next(s for s in spans if s["name"] == "ai.generateText")
+        children = [s for s in spans if s["name"] == "ai.generateText.doGenerate"]
+
+        # Wrapper contributes nothing — its ai.usage.* aggregate is ignored.
+        assert (wrapper.get("input_tokens") or 0) == 0
+        assert (wrapper.get("output_tokens") or 0) == 0
+        assert (wrapper.get("cost") or 0) == 0
+        # Each LLM child is priced from its own (normalized) counts.
+        assert sorted(c["input_tokens"] for c in children) == [67, 136]
+        # Trace totals equal the children alone (203 in / 178 out), not 2x.
+        assert sum((s.get("input_tokens") or 0) for s in spans) == 203
+        assert sum((s.get("output_tokens") or 0) for s in spans) == 178
+        assert by_id  # spans were keyed by id without collision
+
+    def test_vercel_do_generate_raw_totals_used_when_normalized_absent(self):
+        """On an LLM doGenerate span that exposes ONLY the raw ai.usage.* totals
+        (no normalized llm.*/gen_ai.* keys), those totals are still adopted —
+        the LLM-kind gate keeps the fallback alive where it is the sole source."""
+        from unittest.mock import patch
+
+        prices = {"input": 0.000003, "output": 0.000015, "cacheRead": 0.0, "cacheWrite": 0.0}
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    name="ai.generateText.doGenerate",
+                    attributes=[
+                        make_attr("openinference.span.kind", "LLM"),
                         make_attr("llm.model_name", "claude-sonnet-4-5"),
                         make_attr("ai.usage.inputTokens", 28466),
                         make_attr("ai.usage.outputTokens", 120),
@@ -611,10 +677,45 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["usage_details"]["cache_read_tokens"] == 22041
         assert spans[0]["usage_details"]["cache_write_tokens"] == 6422
 
-    def test_vercel_generate_object_legacy_token_spellings_used(self):
-        """ai.generateObject spans emit only the legacy ai.usage.promptTokens /
-        completionTokens spellings (no inputTokens, no cache detail); totals
-        must still resolve as API counts."""
+    def test_vercel_gross_totals_dropped_on_non_llm_span(self):
+        """A non-LLM span (AGENT or CHAIN→SPAN) that carries ONLY the Vercel raw
+        ai.usage.* gross totals must contribute nothing. The gross-total keys are
+        consulted on LLM spans only, so api_input/output stay None → the
+        API-count branch is skipped, and the estimation branch is LLM-only too."""
+        from unittest.mock import patch
+
+        prices = {"input": 0.000003, "output": 0.000015, "cacheRead": 0.0, "cacheWrite": 0.0}
+        for oi_kind in ("AGENT", "CHAIN"):
+            payload = make_otel_payload(
+                [
+                    make_span(
+                        "aa" * 16,
+                        "bb" * 8,
+                        name="ai.someWrapper",
+                        attributes=[
+                            make_attr("openinference.span.kind", oi_kind),
+                            make_attr("llm.model_name", "gpt-4o-mini"),
+                            make_attr("ai.usage.inputTokens", 1234),
+                            make_attr("ai.usage.outputTokens", 567),
+                            make_attr("ai.usage.promptTokens", 1234),
+                            make_attr("ai.usage.completionTokens", 567),
+                        ],
+                    )
+                ],
+                scope_name="ai",
+            )
+            with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+                _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+            s = spans[0]
+            assert (s.get("input_tokens") or 0) == 0, f"oi_kind={oi_kind}"
+            assert (s.get("output_tokens") or 0) == 0, f"oi_kind={oi_kind}"
+            assert (s.get("cost") or 0) == 0, f"oi_kind={oi_kind}"
+
+    def test_vercel_generate_object_legacy_spellings_priced_on_llm_child_only(self):
+        """generateObject emits only the legacy ai.usage.promptTokens /
+        completionTokens spellings. The AGENT wrapper (ai.generateObject) and its
+        LLM child (ai.generateObject.doGenerate) both carry them, but only the
+        LLM child may be priced — the wrapper would double-count."""
         from unittest.mock import patch
 
         prices = {"input": 0.000003, "output": 0.000015, "cacheRead": 0.0, "cacheWrite": 0.0}
@@ -625,19 +726,38 @@ class TestTransformOtelToClickhouse:
                     "bb" * 8,
                     name="ai.generateObject",
                     attributes=[
+                        make_attr("openinference.span.kind", "AGENT"),
                         make_attr("llm.model_name", "gpt-4o"),
                         make_attr("ai.usage.promptTokens", 500),
                         make_attr("ai.usage.completionTokens", 80),
                     ],
-                )
+                ),
+                make_span(
+                    "aa" * 16,
+                    "cc" * 8,
+                    name="ai.generateObject.doGenerate",
+                    parent_span_id_hex="bb" * 8,
+                    attributes=[
+                        make_attr("openinference.span.kind", "LLM"),
+                        make_attr("llm.model_name", "gpt-4o"),
+                        make_attr("ai.usage.promptTokens", 500),
+                        make_attr("ai.usage.completionTokens", 80),
+                    ],
+                ),
             ],
             scope_name="ai",
         )
         with patch("worker.tokens.pricing.get_model_price", return_value=prices):
             _, spans = transform_otel_to_clickhouse(payload, "proj-1")
 
-        assert spans[0]["input_tokens"] == 500
-        assert spans[0]["output_tokens"] == 80
+        wrapper = next(s for s in spans if s["name"] == "ai.generateObject")
+        child = next(s for s in spans if s["name"] == "ai.generateObject.doGenerate")
+        # Legacy spellings adopted on the LLM child.
+        assert child["input_tokens"] == 500
+        assert child["output_tokens"] == 80
+        # AGENT wrapper not priced from the same totals.
+        assert (wrapper.get("input_tokens") or 0) == 0
+        assert sum((s.get("input_tokens") or 0) for s in spans) == 500
 
     def test_malformed_high_priority_token_attr_falls_through_to_valid_key(self):
         """A present-but-malformed high-priority token attr must not suppress a
