@@ -45,7 +45,7 @@ describe("resolveProjectModel", () => {
 
     expect(fetchProviderConfigMock).toHaveBeenCalledWith("ws-123", "my-openai");
     expect(resolvePiModelMock).toHaveBeenCalledWith("gpt-5.3", expect.any(Object));
-    expect(res).toEqual({ model: "gpt-5.3", providerName: "openai", source: "byok" });
+    expect(res).toEqual({ model: "gpt-5.3", providerName: "my-openai", source: "byok" });
   });
 
   it("returns null when BYOK provider is not found or disabled", async () => {
@@ -89,7 +89,7 @@ describe("resolveProjectModel", () => {
 
     expect(modelProviderFindMany).toHaveBeenCalled();
     expect(fetchProviderConfigMock).toHaveBeenCalledWith("ws-123", "my-deepseek");
-    expect(res).toEqual({ model: "deepseek-chat", providerName: "openai", source: "byok" });
+    expect(res).toEqual({ model: "deepseek-chat", providerName: "my-deepseek", source: "byok" });
   });
 
   it("returns null for unknown models not in system catalog", async () => {
