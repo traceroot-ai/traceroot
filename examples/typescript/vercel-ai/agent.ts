@@ -15,7 +15,7 @@
 
 import 'dotenv/config';
 
-import { generateText, tool } from 'ai';
+import { generateText, tool, stepCountIs } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
@@ -49,7 +49,7 @@ async function runAgent(query: string): Promise<string> {
   return observe({ name: 'vercel_ai_agent', type: 'agent' }, async () => {
     const result = await generateText({
       model: openai('gpt-4o-mini'),
-      maxSteps: 5,
+      stopWhen: stepCountIs(5),
       system:
         'You are a helpful AI assistant with access to weather and stock tools. ' +
         'Use the tools to answer user questions accurately.',
@@ -60,7 +60,7 @@ async function runAgent(query: string): Promise<string> {
       tools: {
         getWeather: tool({
           description: 'Get current weather for a city',
-          parameters: z.object({
+          inputSchema: z.object({
             city: z.string().describe('The city name'),
           }),
           execute: async ({ city }) => {
@@ -76,7 +76,7 @@ async function runAgent(query: string): Promise<string> {
         }),
         getStockPrice: tool({
           description: 'Get current stock price for a ticker symbol',
-          parameters: z.object({
+          inputSchema: z.object({
             symbol: z.string().describe('Stock ticker symbol e.g. AAPL'),
           }),
           execute: async ({ symbol }) => {
@@ -89,7 +89,7 @@ async function runAgent(query: string): Promise<string> {
         }),
         calculate: tool({
           description: 'Evaluate a mathematical expression',
-          parameters: z.object({
+          inputSchema: z.object({
             expression: z.string().describe("Math expression e.g. '2 + 2 * 3'"),
           }),
           execute: async ({ expression }) => {
