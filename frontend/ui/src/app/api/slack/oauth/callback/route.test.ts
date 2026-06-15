@@ -15,7 +15,12 @@ vi.mock("@traceroot/slack", async (importOriginal) => {
   };
 });
 vi.mock("@/env", () => ({
-  env: { SLACK_CLIENT_ID: "cid", SLACK_CLIENT_SECRET: "csec", SLACK_REDIRECT_URI: "http://x/cb" },
+  env: {
+    SLACK_CLIENT_ID: "cid",
+    SLACK_CLIENT_SECRET: "csec",
+    SLACK_REDIRECT_URI: "http://x/cb",
+    BETTER_AUTH_URL: "http://localhost:3000",
+  },
 }));
 
 global.fetch = fetchMock as any;
@@ -25,6 +30,7 @@ describe("GET /api/slack/oauth/callback", () => {
     verifyStateParam.mockReset();
     storeInstallation.mockReset();
     fetchMock.mockReset();
+    vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");
   });
 
   it("redirects with error on missing code/state", async () => {

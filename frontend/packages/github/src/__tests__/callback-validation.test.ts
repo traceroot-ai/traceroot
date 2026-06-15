@@ -79,7 +79,7 @@ describe("validateCallbackParams", () => {
     it("accepts when setup_action=install, has installation_id, and no stored state", () => {
       const params: CallbackParams = {
         code: "somecode",
-        state: "github-generated-state",
+        state: null,
         installationId: "12345",
         setupAction: "install",
         storedState: null,
@@ -180,9 +180,8 @@ describe("verifyInstallationId", () => {
     const installations = [{ id: 999, app_id: 123456 }];
     const result = verifyInstallationId("fake-id", installations, appId);
     expect(result.verified).toBe(false);
-    expect(result.error).toContain("Installation ID mismatch");
+    expect(result.error).toContain("does not belong to authenticated user");
     expect(result.error).toContain("fake-id");
-    expect(result.error).toContain("999");
   });
 
   it("handles string IDs from GitHub API", () => {
@@ -192,9 +191,9 @@ describe("verifyInstallationId", () => {
     expect(result.installationId).toBe("999");
   });
 
-  it("handles empty installations array", () => {
+  it("handles empty installations array and rejects claimed ID", () => {
     const result = verifyInstallationId("999", [], appId);
-    expect(result.verified).toBe(true);
-    expect(result.installationId).toBeUndefined();
+    expect(result.verified).toBe(false);
+    expect(result.error).toContain("does not belong to authenticated user");
   });
 });
