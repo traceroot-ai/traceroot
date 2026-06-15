@@ -117,10 +117,8 @@ export async function runDetectionForTrace(params: {
   spansJsonl: string;
   detector: DetectorConfig;
   workspaceId: string;
-  /** When set, the trace had not settled when evaluation was forced (e.g. "cap_expired"). */
-  partialReason?: string | null;
 }): Promise<EvalResult> {
-  const { traceId, spansJsonl, detector, workspaceId, partialReason } = params;
+  const { traceId, spansJsonl, detector, workspaceId } = params;
   const source = detector.detectionSource ?? null;
 
   // 1. BYOK config
@@ -162,12 +160,9 @@ RULES:
 - data fields are only required when identified=true.`;
 
   // Disclose incomplete input to the judge so it doesn't infer problems from
-  // missing spans. Two ways the span list can be incomplete: the trace was
-  // still in flight when evaluation was forced (partialReason), and/or the
-  // hard cap truncated it — truncation drops the LATEST spans, since
-  // spans-jsonl is start-time-ordered.
+  // missing spans: the hard cap truncates the LATEST spans (spans-jsonl is
+  // start-time-ordered), so tell the judge not to read meaning into absences.
   const incompleteReasons: string[] = [];
-  if (partialReason) incompleteReasons.push("trace still in flight when evaluated");
   if (spansJsonl.length > SAFETY_TRUNCATE_CHARS) {
     incompleteReasons.push(`span list truncated at ${SAFETY_TRUNCATE_CHARS} chars`);
   }

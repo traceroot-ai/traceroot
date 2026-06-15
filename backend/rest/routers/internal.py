@@ -3,7 +3,6 @@
 These endpoints are protected by X-Internal-Secret header and not exposed publicly.
 """
 
-import hashlib
 import hmac
 from datetime import datetime
 from typing import Annotated
@@ -216,9 +215,6 @@ class DetectorFindingPayload(BaseModel):
     trace_id: str = Field(alias="traceId")
     summary: str
     payload: str
-    # A retraction is a newer ReplacingMergeTree row with retracted=1 for the
-    # same (project_id, trace_id, finding_id); read paths filter retracted=0.
-    retracted: bool = False
 
 
 @router.post("/detector-runs", dependencies=[Depends(verify_internal_secret)])
@@ -248,17 +244,15 @@ async def write_detector_finding(body: DetectorFindingPayload):
     ch = get_clickhouse_client()
     ch.query(
         """INSERT INTO detector_findings
-           (finding_id, project_id, trace_id, summary, payload, retracted)
+           (finding_id, project_id, trace_id, summary, payload)
            VALUES ({finding_id:String}, {project_id:String},
-                   {trace_id:String}, {summary:String}, {payload:String},
-                   {retracted:UInt8})""",
+                   {trace_id:String}, {summary:String}, {payload:String})""",
         parameters={
             "finding_id": body.finding_id,
             "project_id": body.project_id,
             "trace_id": body.trace_id,
             "summary": body.summary,
             "payload": body.payload,
-            "retracted": 1 if body.retracted else 0,
         },
     )
     return {"ok": True}
@@ -423,10 +417,6 @@ async def get_spans_jsonl(trace_id: str, project_id: str):
 
 
 class TraceSettleStatusResponse(BaseModel):
-    root_present: bool
-    span_count: int
-    dangling_count: int
-    dangling_hash: str
     last_arrival_age_seconds: float
 
 
@@ -436,69 +426,26 @@ class TraceSettleStatusResponse(BaseModel):
     dependencies=[Depends(verify_internal_secret)],
 )
 async def get_trace_settle_status(trace_id: str, project_id: str):
-    """Report whether a trace looks fully ingested ("settled").
+    """Report how long a trace has been quiet — seconds since its last span.
 
-    OTel SDKs export spans only when they end, so finished descendants of a
-    still-open ancestor reference a parent_span_id that hasn't been ingested
-    yet — dangling parents mean the trace is still in flight, regardless of
-    how long it's been quiet. The detector worker combines this with a
-    quiet-window check and bounces the evaluation job until both pass.
-
-    `dangling_hash` lets the worker detect *progress*: the same dangling set
-    across polls hashes identically, a changed set means spans are arriving.
-    The age is computed inside ClickHouse (max(ch_create_time) vs now64) to
-    avoid clock skew between services.
+    The detector worker waits until this reaches EVALUATOR_DELAY before
+    evaluating (a quiescence debounce). The age is computed inside ClickHouse
+    (now64() vs max(ch_create_time)) to avoid clock skew between services. An
+    empty trace reports age 0, i.e. "not quiet yet".
     """
     ch = get_clickhouse_client()
 
-    # FINAL so pre-merge ReplacingMergeTree duplicates don't inflate the count.
     agg = ch.query(
         """SELECT
-               countIf(parent_span_id IS NULL) > 0 AS root_present,
-               count() AS span_count,
                greatest(0, date_diff('millisecond', max(ch_create_time), now64(3))) / 1000.0
                    AS last_arrival_age_seconds
-           FROM spans FINAL
+           FROM spans
            WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}""",
         parameters={"trace_id": trace_id, "project_id": project_id},
     )
-    row = agg.result_rows[0] if agg.result_rows else (0, 0, 0.0)
-    span_count = int(row[1])
-    if span_count == 0:
-        return TraceSettleStatusResponse(
-            root_present=False,
-            span_count=0,
-            dangling_count=0,
-            dangling_hash="",
-            last_arrival_age_seconds=0.0,
-        )
-
-    # Parent ids referenced by spans of this trace that don't resolve to an
-    # ingested span_id of the same trace. DISTINCT already absorbs duplicate
-    # rows, so no FINAL needed here.
-    dangling = ch.query(
-        """SELECT DISTINCT parent_span_id
-           FROM spans
-           WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}
-             AND parent_span_id IS NOT NULL
-             AND parent_span_id NOT IN (
-                 SELECT span_id FROM spans
-                 WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}
-             )""",
-        parameters={"trace_id": trace_id, "project_id": project_id},
-    )
-    dangling_ids = sorted(str(r[0]) for r in dangling.result_rows)
-    dangling_hash = (
-        hashlib.sha256(",".join(dangling_ids).encode()).hexdigest() if dangling_ids else ""
-    )
-
-    return TraceSettleStatusResponse(
-        root_present=bool(row[0]),
-        span_count=span_count,
-        dangling_count=len(dangling_ids),
-        dangling_hash=dangling_hash,
-        last_arrival_age_seconds=float(row[2]),
-    )
+    row = agg.result_rows[0] if agg.result_rows else None
+    age = float(row[0]) if row and row[0] is not None else 0.0
+    return TraceSettleStatusResponse(last_arrival_age_seconds=age)
 
 
 @router.get(
@@ -535,7 +482,6 @@ async def list_detector_findings(
     conditions: list[str] = [
         "r.project_id = {project_id:String}",
         "r.detector_id = {detector_id:String}",
-        "f.retracted = 0",
     ]
     params: dict = {
         "project_id": project_id,
@@ -603,15 +549,13 @@ async def list_detector_findings(
 async def get_trace_findings(trace_id: str, project_id: str):
     """List all detector findings for a specific trace.
 
-    FINAL collapses pre-merge ReplacingMergeTree duplicates; retracted=0 hides
-    findings withdrawn by a later clean re-evaluation.
+    FINAL collapses pre-merge ReplacingMergeTree duplicates.
     """
     ch = get_clickhouse_client()
     result = ch.query(
         """SELECT finding_id, project_id, trace_id, summary, payload, timestamp
            FROM detector_findings FINAL
            WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}
-             AND retracted = 0
            ORDER BY timestamp DESC""",
         parameters={"trace_id": trace_id, "project_id": project_id},
     )
@@ -641,10 +585,9 @@ async def list_detector_counts(
     """Aggregate finding and run counts per detector for a project, in one query.
 
     Runs are read with FINAL so pre-merge ReplacingMergeTree duplicates don't
-    inflate run_count. The finding count joins the deduplicated findings table
-    rather than counting `finding_id IS NOT NULL` on the run row: the run keeps
-    its finding_id after the finding is retracted, so only findings that still
-    exist with retracted=0 count.
+    inflate the counts. A run carries its finding_id when it triggered; since
+    findings are never withdrawn, counting runs with a non-null finding_id per
+    detector gives that detector's finding count.
 
     Detectors with zero runs in the window are absent from the result map; the
     frontend defaults absent entries to {findingCount: 0, runCount: 0}.
@@ -664,19 +607,12 @@ async def list_detector_counts(
         params["end_before"] = to_utc_naive(end_before)
 
     where_clause = " AND ".join(conditions)
-    # LEFT JOIN with join_use_nulls off yields '' (String default) for
-    # unmatched finding_id, hence the != '' presence check.
     query = f"""
         SELECT
             r.detector_id AS detector_id,
-            count()       AS run_count,
-            countIf(f.finding_id != '' AND f.retracted = 0) AS finding_count
+            count()                            AS run_count,
+            countIf(r.finding_id IS NOT NULL)  AS finding_count
         FROM (SELECT * FROM detector_runs FINAL) AS r
-        LEFT JOIN (
-            SELECT finding_id, retracted
-            FROM detector_findings FINAL
-            WHERE project_id = {{project_id:String}}
-        ) AS f ON r.finding_id = f.finding_id
         WHERE {where_clause}
         GROUP BY r.detector_id
     """

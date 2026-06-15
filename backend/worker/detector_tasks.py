@@ -6,10 +6,9 @@ Non-blocking: exceptions are caught and logged, never re-raised.
 
 Exactly-once triggering: the ingest batch carrying a trace's root span claims
 the trace via a Redis lock, evaluates trigger conditions plus deterministic
-sampling, and enqueues a single delayed BullMQ job (the delay is a settle
-window — the worker re-checks trace completeness at execution time). Later
-batches for an already-claimed trace only feed a bounded re-evaluation check:
-at most one re-eval, when the span count grew after evaluation.
+sampling, and enqueues a single delayed BullMQ job. The worker waits until the
+trace has been quiet for EVALUATOR_DELAY (no new span) before evaluating, so
+later batches need no extra enqueue work.
 """
 
 import asyncio
@@ -23,12 +22,14 @@ logger = logging.getLogger(__name__)
 # BullMQ queue name — must match TypeScript DETECTOR_RUN_QUEUE constant
 DETECTOR_RUN_QUEUE = "detector-run"
 
-# Lock TTL. After expiry a late batch is simply ignored by the re-eval check;
-# detection itself only ever fires from the root-bearing batch.
+# Lock TTL for the per-trace enqueue claim. Detection only ever fires from the
+# root-bearing batch; the NX lock makes that enqueue exactly-once.
 _LOCK_TTL_SECONDS = 3600
 
-# Settle window before the worker evaluates the trace.
-_DETECT_DELAY_MS = 60_000
+# Initial delay on the enqueued job; the worker then waits until the trace has
+# been quiet this long (no new span) before evaluating. Must match the
+# TypeScript EVALUATOR_DELAY constant.
+EVALUATOR_DELAY = 60_000  # ms
 
 # Token-checked release: delete the lock only when it still holds the exact
 # value this attempt wrote, so a failing attempt can never delete state
@@ -86,7 +87,7 @@ def _add_bullmq_job(job_id: str, data: dict) -> None:
                 data,
                 {
                     "jobId": job_id,
-                    "delay": _DETECT_DELAY_MS,
+                    "delay": EVALUATOR_DELAY,
                     "attempts": 3,
                     "removeOnComplete": 100,
                     "removeOnFail": 50,
@@ -162,32 +163,6 @@ def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dic
     return summaries
 
 
-def _get_trace_span_counts(project_id: str, trace_ids: list[str]) -> dict[str, int]:
-    """Query ClickHouse for the current span count of each trace."""
-    from db.clickhouse.client import get_clickhouse_client
-
-    if not trace_ids:
-        return {}
-
-    ch = get_clickhouse_client()
-
-    # FINAL so this count matches the deduped span_count the worker stored
-    # (from the spans-jsonl FINAL query); without it a pre-merge duplicate row
-    # could read as growth and fire a spurious re-eval.
-    result = ch.query(
-        """
-        SELECT trace_id, count() AS span_count
-        FROM spans FINAL
-        WHERE project_id = {project_id:String}
-          AND trace_id IN {trace_ids:Array(String)}
-        GROUP BY trace_id
-        """,
-        parameters={"project_id": project_id, "trace_ids": trace_ids},
-    )
-
-    return {row[0]: int(row[1]) for row in result.result_rows}
-
-
 def _get_active_detectors(project_id: str) -> list[dict]:
     """
     Fetch active detectors and their trigger conditions from PostgreSQL using psycopg2.
@@ -244,6 +219,9 @@ def _claim_and_enqueue(
     summary: dict,
 ) -> None:
     """Root-bearing batch: claim the trace and enqueue at most one detection job."""
+    # The lock's JSON payload (state/token/detector_ids) is diagnostic only —
+    # nothing reads it back now that re-eval is gone; the key is purely an NX
+    # dedup marker preventing a second enqueue for the same trace.
     key = _lock_key(project_id, trace_id)
     token = uuid.uuid4().hex
     last_written = json.dumps({"state": "deciding", "token": token})
@@ -277,7 +255,6 @@ def _claim_and_enqueue(
                 "traceId": trace_id,
                 "detectorIds": triggered_ids,
                 "projectId": project_id,
-                "reeval": False,
             },
         )
         redis_client.set(
@@ -293,79 +270,14 @@ def _claim_and_enqueue(
         raise
 
 
-def _check_reevals(redis_client, project_id: str, trace_ids: list[str]) -> None:
-    """Late batches for already-claimed traces: allow at most one re-eval.
-
-    Only traces the worker marked "evaluated" (with reevals still 0) qualify,
-    and only when their span count grew since evaluation.
-    """
-    candidates: dict[str, dict] = {}
-    for trace_id in trace_ids:
-        try:
-            raw = redis_client.get(_lock_key(project_id, trace_id))
-            if raw is None:
-                # Trace predates the lock scheme or the TTL expired.
-                continue
-            state = json.loads(raw)
-            if state.get("state") == "evaluated" and state.get("reevals", 0) == 0:
-                candidates[trace_id] = state
-        except Exception as trace_err:
-            logger.error(
-                f"Failed re-eval lock check for trace {trace_id}: {trace_err}",
-                exc_info=True,
-            )
-
-    if not candidates:
-        return
-
-    counts = _get_trace_span_counts(project_id, list(candidates))
-    for trace_id, state in candidates.items():
-        try:
-            old_count = int(state.get("span_count") or 0)
-            new_count = counts.get(trace_id, 0)
-            if new_count <= old_count:
-                continue
-
-            detector_ids = state.get("detector_ids") or []
-            redis_client.set(
-                _lock_key(project_id, trace_id),
-                json.dumps(
-                    {
-                        "state": "reevaluating",
-                        "detector_ids": detector_ids,
-                        "span_count": new_count,
-                        "reevals": 1,
-                    }
-                ),
-                ex=_LOCK_TTL_SECONDS,
-            )
-            _add_bullmq_job(
-                f"{project_id}--{trace_id}--r1",
-                {
-                    "traceId": trace_id,
-                    "detectorIds": detector_ids,
-                    "projectId": project_id,
-                    "reeval": True,
-                },
-            )
-            logger.info(
-                f"Enqueued detector re-eval for trace {trace_id}: "
-                f"span count {old_count} -> {new_count}"
-            )
-        except Exception as trace_err:
-            logger.error(
-                f"Failed to enqueue detector re-eval for trace {trace_id}: {trace_err}",
-                exc_info=True,
-            )
-
-
 def enqueue_detector_runs(
     project_id: str, trace_ids: list[str], traces_with_root: set[str]
 ) -> None:
     """
-    Called after trace ingestion. Traces whose root span arrived in this batch
-    are claimed and (conditions + sampling permitting) enqueued for detection;
-    the remaining trace IDs only feed the bounded re-eval check.
+    Called after trace ingestion. Only traces whose root span arrived in this
+    batch are claimed and (conditions + sampling permitting) enqueued for
+    detection; other trace IDs in the batch are ignored here (the worker waits
+    out the quiescence window before evaluating, so late spans need no enqueue).
 
     This function is intentionally non-raising — detector failures must not
     break trace ingestion.
@@ -374,34 +286,31 @@ def enqueue_detector_runs(
         return
 
     try:
-        redis_client = _get_redis()
         root_traces = [t for t in trace_ids if t in traces_with_root]
-        late_traces = [t for t in trace_ids if t not in traces_with_root]
+        if not root_traces:
+            return
 
-        if root_traces:
-            detectors = _get_active_detectors(project_id)
-            summaries = _get_trace_summaries(project_id, root_traces) if detectors else {}
-            for trace_id in root_traces:
-                # Per-trace try/except so a malformed condition (e.g. non-numeric
-                # `value` for a `>` op causing float() to ValueError, or a None
-                # sample_rate) only drops the offending trace — remaining traces
-                # in the batch still get enqueued.
-                try:
-                    _claim_and_enqueue(
-                        redis_client,
-                        project_id,
-                        trace_id,
-                        detectors,
-                        summaries.get(trace_id, {}),
-                    )
-                except Exception as trace_err:
-                    logger.error(
-                        f"Failed to enqueue detector run for trace {trace_id}: {trace_err}",
-                        exc_info=True,
-                    )
-
-        if late_traces:
-            _check_reevals(redis_client, project_id, late_traces)
+        redis_client = _get_redis()
+        detectors = _get_active_detectors(project_id)
+        summaries = _get_trace_summaries(project_id, root_traces) if detectors else {}
+        for trace_id in root_traces:
+            # Per-trace try/except so a malformed condition (e.g. non-numeric
+            # `value` for a `>` op causing float() to ValueError, or a None
+            # sample_rate) only drops the offending trace — remaining traces
+            # in the batch still get enqueued.
+            try:
+                _claim_and_enqueue(
+                    redis_client,
+                    project_id,
+                    trace_id,
+                    detectors,
+                    summaries.get(trace_id, {}),
+                )
+            except Exception as trace_err:
+                logger.error(
+                    f"Failed to enqueue detector run for trace {trace_id}: {trace_err}",
+                    exc_info=True,
+                )
 
     except Exception as e:
         # Non-blocking: log and return, never raise
