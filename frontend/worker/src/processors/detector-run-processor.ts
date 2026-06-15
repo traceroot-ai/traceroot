@@ -484,6 +484,10 @@ export function startDetectorRunWorker(): Worker<DetectorRunJob> {
   });
 
   worker.on("failed", (job, err) => {
+    // DelayedError is BullMQ's re-delay control signal (thrown on every
+    // quiescence re-check), not a real failure — ignore it so routine
+    // re-delays never pollute error monitoring.
+    if (err instanceof DelayedError) return;
     console.error(`[Detector] Job ${job?.id} failed:`, err.message);
   });
 
