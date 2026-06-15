@@ -9,7 +9,7 @@ import {
   isRcaRunBlocked,
   isDetectorRunBlocked,
   isIngestionBlocked,
-} from "../plans.js";
+} from "../plans.ts";
 
 describe("RCA_RUN_QUOTAS", () => {
   it("mirrors AI_RUN_QUOTAS shape and values per resolved decision", () => {

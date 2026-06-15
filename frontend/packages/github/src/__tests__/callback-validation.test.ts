@@ -3,7 +3,7 @@ import {
   validateCallbackParams,
   verifyInstallationId,
   type CallbackParams,
-} from "../callback-validation.js";
+} from "../callback-validation.ts";
 
 describe("validateCallbackParams", () => {
   describe("missing required parameters", () => {
