@@ -31,7 +31,10 @@ export async function resolveProjectModel(
       return null;
     }
     const model = resolvePiModel(rcaModel, providerConfig);
-    return { model: model.id, providerName: model.provider, source: ModelSource.BYOK };
+    // Forward the saved BYOK provider LABEL (e.g. "myopenai"), not the pi-ai
+    // provider name. The agent resolves BYOK via fetchProviderConfig(workspaceId,
+    // providerName), which keys on ModelProvider.provider (the user label).
+    return { model: model.id, providerName: rcaProvider, source: ModelSource.BYOK };
   }
 
   // 2. System model: validate against catalog, then use shared resolver
@@ -69,7 +72,8 @@ async function resolveLegacyByok(
         const providerConfig = await fetchProviderConfig(workspaceId, p.provider);
         if (providerConfig) {
           const model = resolvePiModel(rcaModel, providerConfig);
-          return { model: model.id, providerName: model.provider, source: ModelSource.BYOK };
+          // Forward the BYOK provider LABEL the agent expects (see step 1 above).
+          return { model: model.id, providerName: p.provider, source: ModelSource.BYOK };
         }
       }
     }
