@@ -428,9 +428,10 @@ def transform_otel_to_clickhouse(
                         json.dumps(span_output) if not isinstance(span_output, str) else span_output
                     )
 
-                # Model & token fields — extract whenever a model name is present,
-                # not just for LLM spans. Auto-instrumentors (OpenInference, GenAI)
-                # set model/token attrs on AGENT and CHAIN spans too.
+                # Model & token fields — extract API-provided counts whenever a model
+                # name is present, not just for LLM spans. Auto-instrumentors
+                # (OpenInference, GenAI) set model/token attrs on AGENT and CHAIN spans
+                # too. Text-based ESTIMATION, however, is LLM-spans-only (see below).
                 model_name = (
                     span_attrs.get("traceroot.llm.model")
                     or span_attrs.get("gen_ai.request.model")
@@ -548,9 +549,16 @@ def transform_otel_to_clickhouse(
                         cost = cost_from_buckets(get_model_price(model_name), buckets)
                         if cost is not None:
                             span_record["cost"] = cost
-                    elif not _scope_skips_text_token_estimation(scope_name):
-                        # Fall back to text-based estimation — unless this scope leaves
-                        # tokens deliberately unset (see _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES).
+                    elif span_kind == SpanKind.LLM and not _scope_skips_text_token_estimation(
+                        scope_name
+                    ):
+                        # Fall back to text-based estimation — only for LLM (completion)
+                        # spans. Wrapper AGENT/CHAIN spans restate text their LLM children
+                        # already account for (e.g. the Vercel AI SDK's ai.generateText
+                        # wrapper carries a model name and the conversation text but no
+                        # token counts), so estimating them double-counts the trace.
+                        # Scopes in _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES leave even their
+                        # LLM spans deliberately unset and are skipped as well.
                         from worker.tokens import calculate_cost
 
                         usage = calculate_cost(
