@@ -78,6 +78,13 @@ beforeEach(() => {
     workspaceId: "w1",
     workspace: { billingPlan: "pro", detectorBlocked: false },
   });
+  // The production code chains `.catch` on these side-effects, so the mocks
+  // must return resolved promises rather than the default `undefined`.
+  mockWriteRun.mockResolvedValue(undefined);
+  mockWriteFinding.mockResolvedValue(undefined);
+  mockQueueAdd.mockResolvedValue(undefined);
+  mockPrisma.aIMessage.createMany.mockResolvedValue(undefined);
+  mockPrisma.detectorRca.upsert.mockResolvedValue(undefined);
 });
 
 describe("handleDetectorRunJob — quiescence gate", () => {
