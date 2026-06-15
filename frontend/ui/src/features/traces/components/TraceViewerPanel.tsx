@@ -24,6 +24,7 @@ import { SpanTreeView, type SpanTreeViewHandle } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
 import { useLayout } from "@/components/layout/app-layout";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
+import { useAiChatContext } from "@/features/ai-assistant/components/ai-chat-context";
 import { useTraceStream } from "../hooks/use-trace-stream";
 import { SpanTimelineView } from "./SpanTimelineView";
 import { TREE_LAYOUT } from "../utils";
@@ -96,6 +97,7 @@ export function TraceViewerPanel({
     registerAiHost,
     sidebarCollapsed,
   } = useLayout();
+  const { currentSessionId } = useAiChatContext();
 
   // Claim the AI slot for this viewer so AppLayout's project rail steps aside.
   // `registerAiHost()` returns its own cleanup, which we return from the effect
@@ -224,7 +226,7 @@ export function TraceViewerPanel({
   return (
     <div
       className={cn(
-        "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-xl transition-[width,top] duration-200",
+        "animate-slide-in-right bottom-0 right-0 border-border bg-background shadow-xl fixed z-50 border-l transition-[width,top] duration-200",
         // Fullscreen stays clear of the chrome it would otherwise cover: it
         // starts below the top breadcrumb/header bar (h-14) and to the right of
         // the left navbar. Width = 100% minus the sidebar's width, which differs
@@ -236,15 +238,15 @@ export function TraceViewerPanel({
           : "top-0 w-[70%]",
       )}
     >
-      <div className="flex h-full flex-col bg-background">
+      <div className="bg-background flex h-full flex-col">
         {/* ── MAIN HEADER ── */}
-        <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
-          <div className="flex min-w-0 items-center gap-2">
+        <div className="h-12 border-border bg-muted/30 px-4 flex items-center justify-between border-b">
+          <div className="min-w-0 gap-2 flex items-center">
             <Workflow className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">Trace</span>
-            <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
+            <span className="font-mono text-xs text-muted-foreground truncate">{traceId}</span>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="gap-1 flex items-center">
             {hasRca && (
               <button
                 type="button"
@@ -253,7 +255,7 @@ export function TraceViewerPanel({
                   setAiInitialSessionId(rcaSessionId);
                   setAiPanelOpen(true);
                 }}
-                className="rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60"
+                className="rounded-md border-red-300 bg-red-50 px-2 py-1 font-medium text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60 border text-[11px] transition-colors"
                 title="Findings detected — open root cause analysis"
               >
                 Alert
@@ -291,17 +293,22 @@ export function TraceViewerPanel({
             <Button
               variant="outline"
               size="sm"
-              onClick={() =>
+              onClick={() => {
+                const extraParams: Record<string, string> = { traceId, fullscreen: "1" };
+                if (aiPanelOpen) {
+                  extraParams.ai = "1";
+                  if (currentSessionId) extraParams.sessionId = currentSessionId;
+                }
                 window.open(
                   buildUrlWithFilters(newTabPath ?? `/projects/${projectId}/traces`, {
                     dateFilter,
                     customStartDate,
                     customEndDate,
-                    extraParams: { traceId, fullscreen: "1" },
+                    extraParams,
                   }),
                   "_blank",
-                )
-              }
+                );
+              }}
               className="h-7 w-7 p-0"
               title="Open in new tab"
             >
@@ -334,12 +341,12 @@ export function TraceViewerPanel({
         </div>
 
         {/* ── VIEW TOGGLE SUB-HEADER ── */}
-        <div className="flex h-10 items-center border-b border-border">
-          <div className="flex items-center rounded-lg px-2 py-1">
+        <div className="h-10 border-border flex items-center border-b">
+          <div className="rounded-lg px-2 py-1 flex items-center">
             <button
               onClick={() => setViewMode("tree")}
               className={cn(
-                "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+                "gap-2 rounded-md px-3 py-1 text-xs font-medium flex items-center transition-all",
                 viewMode === "tree"
                   ? "bg-muted text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
@@ -350,7 +357,7 @@ export function TraceViewerPanel({
             <button
               onClick={() => setViewMode("timeline")}
               className={cn(
-                "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+                "gap-2 rounded-md px-3 py-1 text-xs font-medium flex items-center transition-all",
                 viewMode === "timeline"
                   ? "bg-muted text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",

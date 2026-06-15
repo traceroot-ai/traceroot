@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen, fireEvent, within } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, within, waitFor } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   useRuns: vi.fn(),
   searchParam: vi.fn((_key: string): string | null => null),
+  setAiPanelOpen: vi.fn(),
+  setAiContext: vi.fn(),
+  setAiInitialSessionId: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -29,6 +32,14 @@ vi.mock("@/lib/hooks/use-list-page-state", () => ({
 
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
   useDetector: () => ({ data: { name: "My Detector" } }),
+}));
+
+vi.mock("@/components/layout/app-layout", () => ({
+  useLayout: () => ({
+    setAiPanelOpen: mocks.setAiPanelOpen,
+    setAiContext: mocks.setAiContext,
+    setAiInitialSessionId: mocks.setAiInitialSessionId,
+  }),
 }));
 
 // Both tabs are the same table: the page calls useRuns twice — once with
@@ -273,5 +284,38 @@ describe("DetectorDetailPage", () => {
     render(<DetectorDetailPage />);
 
     expect(screen.getByText("No findings found")).toBeTruthy();
+  });
+});
+
+describe("DetectorDetailPage AI panel restoration", () => {
+  it("does not open AI panel when ai param is absent", async () => {
+    mocks.useRuns.mockImplementation(defaultUseRuns);
+    render(<DetectorDetailPage />);
+    await waitFor(() => {});
+    expect(mocks.setAiPanelOpen).not.toHaveBeenCalledWith(true);
+  });
+
+  it("opens AI panel and sets context when ai=1 and traceId are in the URL", async () => {
+    mocks.useRuns.mockImplementation(defaultUseRuns);
+    mocks.searchParam.mockImplementation((key: string) => {
+      if (key === "ai") return "1";
+      if (key === "traceId") return "trace-1";
+      return null;
+    });
+    render(<DetectorDetailPage />);
+    await waitFor(() => expect(mocks.setAiPanelOpen).toHaveBeenCalledWith(true));
+    expect(mocks.setAiContext).toHaveBeenCalledWith({ traceId: "trace-1" });
+  });
+
+  it("restores the chat session when sessionId is also in the URL", async () => {
+    mocks.useRuns.mockImplementation(defaultUseRuns);
+    mocks.searchParam.mockImplementation((key: string) => {
+      if (key === "ai") return "1";
+      if (key === "traceId") return "trace-1";
+      if (key === "sessionId") return "sess-42";
+      return null;
+    });
+    render(<DetectorDetailPage />);
+    await waitFor(() => expect(mocks.setAiInitialSessionId).toHaveBeenCalledWith("sess-42"));
   });
 });

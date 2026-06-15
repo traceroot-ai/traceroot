@@ -13,6 +13,7 @@ import { DetectorRunsTable } from "@/features/detectors/components/detector-runs
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
+import { useLayout } from "@/components/layout/app-layout";
 
 /**
  * Which trace the consolidated panel shows. `kind` selects RCA auto-open:
@@ -34,9 +35,13 @@ export default function DetectorDetailPage() {
   const projectId = params.projectId as string;
   const detectorId = params.detectorId as string;
 
+  const { setAiPanelOpen, setAiContext, setAiInitialSessionId } = useLayout();
+
   // Deep-link params: set when a trace is popped out into a new tab from the
   // panel's "open in new tab" button, so it reopens here in the detector tab.
   const traceIdFromUrl = searchParams.get("traceId");
+  const aiParam = searchParams.get("ai");
+  const sessionIdParam = searchParams.get("sessionId");
   const [startFullscreen, setStartFullscreen] = useState(searchParams.get("fullscreen") === "1");
   const [didAutoOpen, setDidAutoOpen] = useState(false);
 
@@ -127,6 +132,20 @@ export default function DetectorDetailPage() {
     }
   }, [didAutoOpen, traceIdFromUrl, activeRows]);
 
+  useEffect(() => {
+    if (aiParam !== "1" || !traceIdFromUrl) return;
+    setAiContext({ traceId: traceIdFromUrl });
+    if (sessionIdParam) setAiInitialSessionId(sessionIdParam);
+    setAiPanelOpen(true);
+  }, [
+    aiParam,
+    sessionIdParam,
+    traceIdFromUrl,
+    setAiContext,
+    setAiInitialSessionId,
+    setAiPanelOpen,
+  ]);
+
   const selectedIndex = selectedTrace
     ? activeRows.findIndex((r) => r.trace_id === selectedTrace.traceId)
     : -1;
@@ -145,7 +164,7 @@ export default function DetectorDetailPage() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
-        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <div className="gap-2 border-border px-4 py-3 flex items-center border-b">
           <button
             type="button"
             onClick={() => router.push(buildUrl(`/projects/${projectId}/detectors`))}
@@ -154,11 +173,11 @@ export default function DetectorDetailPage() {
             Detectors
           </button>
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-[13px] font-medium">{detector?.name ?? detectorId}</span>
+          <span className="font-medium text-[13px]">{detector?.name ?? detectorId}</span>
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-border bg-background">
+        <div className="border-border bg-background border-b">
           <div className="flex">
             {tabs.map((tab) => {
               const Icon = tab.icon;
@@ -169,10 +188,10 @@ export default function DetectorDetailPage() {
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
-                    "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
+                    "gap-1.5 px-3 py-1.5 font-medium flex items-center border-b-2 text-[13px] transition-colors",
                     isActive
                       ? "border-foreground bg-muted text-foreground"
-                      : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
