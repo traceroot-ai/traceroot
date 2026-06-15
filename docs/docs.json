@@ -97,6 +97,14 @@
             ]
           },
           {
+            "group": "CLI",
+            "pages": [
+              "cli/introduction",
+              "cli/get-started",
+              "cli/commands"
+            ]
+          },
+          {
             "group": "AI Agents",
             "pages": [
               "ai-agent/overview",

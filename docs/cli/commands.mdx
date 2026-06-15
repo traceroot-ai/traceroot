@@ -1,0 +1,85 @@
+---
+title: Commands
+description: Reference for every TraceRoot CLI command
+---
+
+Every command resolves an API key and host from the following sources, highest priority first:
+
+1. CLI flags — `--api-key`, `--host`
+2. An explicit env file — `--env-file <path>`
+3. Environment variables — `TRACEROOT_API_KEY`, `TRACEROOT_HOST_URL`
+4. The saved config file — `./.traceroot/config.json`
+5. An auto-discovered `./.env`
+
+Add `--json` to any command for a single machine-readable document on stdout. Run `traceroot <command> --help` for the full flag list.
+
+## `traceroot login`
+
+Authenticate and save credentials. Validates the key against the API before writing anything; on failure nothing is saved.
+
+```bash
+traceroot login --api-key tr_... --host https://app.traceroot.ai
+traceroot login   # interactive prompts, or non-interactive if a key already resolves
+```
+
+## `traceroot status`
+
+Show the identity your credentials resolve to — workspace, project, key hint, host, and where the credentials came from.
+
+```bash
+traceroot status
+traceroot status --json
+```
+
+## `traceroot traces list`
+
+List traces for your project, newest first.
+
+| Flag | Description |
+| :-- | :-- |
+| `--limit <n>` | Maximum number of traces to return. |
+| `--json` | Emit the raw API response as JSON on stdout. |
+
+```bash
+traceroot traces list
+traceroot traces list --limit 25
+traceroot traces list --json | jq '.data[].trace_id'
+```
+
+## `traceroot traces get <trace-id>`
+
+Show a single trace: header, span tree, derived duration, and an I/O preview, plus a link to open it in TraceRoot. `--json` emits the full, untruncated trace.
+
+```bash
+traceroot traces get 99224be337d725fd5e8f2e7b45dc22ef
+traceroot traces get <trace-id> --json
+```
+
+## `traceroot traces export <trace-id>`
+
+Write a trace bundle to a directory: `trace.json`, `spans.json`, `git_context.json`, and a `manifest.json` index. The bundle's `trace.json` is byte-for-byte the same as `traces get --json`.
+
+| Flag | Description |
+| :-- | :-- |
+| `--output <dir>` | Destination directory (default `./trace_<id>_<timestamp>/`). |
+| `--force` | Allow writing into a non-empty directory. |
+
+```bash
+traceroot traces export <trace-id>
+traceroot traces export <trace-id> --output ./out
+traceroot traces export <trace-id> --output ./out --force
+```
+
+## JSON output
+
+The CLI follows a strict, pipe-friendly output contract:
+
+- `--json` prints **exactly one JSON document to stdout** — nothing else.
+- Human-readable text, progress, and errors go to **stderr**.
+- Failures exit **non-zero** and write nothing to stdout.
+- Color is disabled when output isn't a TTY or `NO_COLOR` is set.
+
+```bash
+# stdout is pure JSON on success, empty on failure — safe to pipe into jq
+traceroot traces list --limit 5 --json | jq '.data[] | {id: .trace_id, name}'
+```
