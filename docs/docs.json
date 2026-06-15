@@ -97,14 +97,6 @@
             ]
           },
           {
-            "group": "CLI",
-            "pages": [
-              "cli/introduction",
-              "cli/get-started",
-              "cli/commands"
-            ]
-          },
-          {
             "group": "AI Agents",
             "pages": [
               "ai-agent/overview",
@@ -131,6 +123,14 @@
               "detectors/introduction",
               "detectors/get-started",
               "detectors/alerts"
+            ]
+          },
+          {
+            "group": "CLI",
+            "pages": [
+              "cli/introduction",
+              "cli/get-started",
+              "cli/commands"
             ]
           }
         ]
