@@ -1,5 +1,5 @@
 import { WebClient } from "@slack/web-api";
-import { installer } from "./installer.js";
+import { installer } from "./installer.ts";
 
 const RETRY = { retries: 3, maxRetryTime: 90_000 };
 

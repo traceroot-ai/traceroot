@@ -1,13 +1,13 @@
 // Database
-export { prisma } from "./lib/prisma.js";
+export { prisma } from "./lib/prisma.ts";
 export { PrismaClient } from "@prisma/client";
-export * from "./ee/billing/index.js";
+export * from "./ee/billing/index.ts";
 
 // Encryption
-export { encryptKey, decryptKey, maskKey } from "./lib/encryption.js";
+export { encryptKey, decryptKey, maskKey } from "./lib/encryption.ts";
 
 // BYOK key resolution
-export { resolveWorkspaceApiKey } from "./lib/workspace-api-key.js";
+export { resolveWorkspaceApiKey } from "./lib/workspace-api-key.ts";
 
 // Re-export Prisma types
 export type {
@@ -23,17 +23,17 @@ export type {
 } from "@prisma/client";
 
 // Constants & Zod schemas
-export * from "./constants.js";
-export * from "./schemas.js";
+export * from "./constants.ts";
+export * from "./schemas.ts";
 
 // LLM Providers
-export * from "./llm-providers.js";
+export * from "./llm-providers.ts";
 
 // Model Pricing (DB-backed)
-export * from "./model-pricing/index.js";
+export * from "./model-pricing/index.ts";
 
 // Shared types
-export * from "./types/index.js";
+export * from "./types/index.ts";
 
 // NOTE: pi-ai Model resolver lives at `@traceroot/core/model-resolver` (subpath).
 // We do NOT re-export it here — pulling pi-ai into the main barrel would bundle
