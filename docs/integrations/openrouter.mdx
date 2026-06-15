@@ -1,0 +1,125 @@
+---
+title: OpenRouter
+description: Trace OpenRouter calls through the OpenAI-compatible SDK
+---
+
+OpenRouter is OpenAI-compatible: use the standard `openai` SDK with the OpenRouter base URL (`https://openrouter.ai/api/v1`). TraceRoot captures these calls through the existing OpenAI instrumentation — no new OpenRouter-specific instrumentor or enum is required.
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    import openai
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.OPENAI])
+
+    client = openai.OpenAI(
+        api_key=os.environ["OPENROUTER_API_KEY"],
+        base_url="https://openrouter.ai/api/v1",
+    )
+    ```
+
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openAI: OpenAI },
+    });
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: 'https://openrouter.ai/api/v1',
+    });
+    ```
+
+  </Tab>
+</Tabs>
+
+## Usage
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import os
+    import openai
+
+    client = openai.OpenAI(
+        api_key=os.environ["OPENROUTER_API_KEY"],
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+    # This OpenRouter call is traced by TraceRoot's OpenAI integration
+    response = client.chat.completions.create(
+        model="openai/gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What is the capital of France?"},
+        ],
+    )
+
+    print(response.choices[0].message.content)
+    ```
+
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: 'https://openrouter.ai/api/v1',
+    });
+
+    // This OpenRouter call is traced by TraceRoot's OpenAI integration
+    const response = await openai.chat.completions.create({
+      model: 'openai/gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant.' },
+        { role: 'user', content: 'What is the capital of France?' },
+      ],
+    });
+
+    console.log(response.choices[0].message.content);
+    ```
+
+  </Tab>
+</Tabs>
+
+## What Gets Captured
+
+| Attribute  | Description                                                                                                              |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Model      | Any OpenRouter model string, such as `openai/gpt-4o-mini`, `anthropic/claude-sonnet-4`, or `meta-llama/llama-4-maverick` |
+| Messages   | Input messages array                                                                                                     |
+| Response   | Completion content                                                                                                       |
+| Tool calls | Function/tool call inputs and outputs when using the OpenAI SDK tool-calling API                                         |
+| Tokens     | Prompt, completion, and total tokens when returned by the provider                                                       |
+| Latency    | Request duration                                                                                                         |
+
+## Run the example
+
+Clone the repo and run a complete OpenRouter agent end-to-end.
+
+<CardGroup cols={2}>
+  <Card
+    title="Python"
+    icon="python"
+    href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/openrouter-tool-agent"
+  >
+    Run the Python OpenRouter tool-agent example
+  </Card>
+  <Card
+    title="TypeScript"
+    icon="js"
+    href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/openrouter"
+  >
+    Run the TypeScript OpenRouter example
+  </Card>
+</CardGroup>
