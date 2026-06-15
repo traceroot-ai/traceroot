@@ -13,7 +13,7 @@ const { mockRunDetection, mockWriteRun, mockWriteFinding, mockRedisSet, mockQueu
       detector: { findMany: vi.fn() },
       project: { findUnique: vi.fn() },
       aIMessage: { createMany: vi.fn() },
-      detectorRca: { upsert: vi.fn() },
+      detectorRca: { upsert: vi.fn(), findUnique: vi.fn() },
     },
   }));
 
@@ -259,6 +259,8 @@ beforeEach(() => {
   });
   mockPrisma.aIMessage.createMany.mockResolvedValue({ count: 1 });
   mockPrisma.detectorRca.upsert.mockResolvedValue({});
+  // Default: a prior RCA exists (the common re-eval case — first eval created it).
+  mockPrisma.detectorRca.findUnique.mockResolvedValue({ findingId: FINDING_ID });
 });
 
 describe("handleDetectorRunJob", () => {
@@ -379,13 +381,22 @@ describe("processTrace triggered path", () => {
     expect(payload.every((entry: { partial?: boolean }) => entry.partial === true)).toBe(true);
   });
 
-  it("re-eval overwrites the finding but spawns no second RCA", async () => {
+  it("re-eval overwrites the finding but spawns no second RCA when one exists", async () => {
     await processTrace("trace-1", "proj-1", ["det-1"], { partialReason: null, isReeval: true });
 
     expect(mockWriteFinding).toHaveBeenCalledTimes(1);
     expect(mockWriteFinding.mock.calls[0][0].findingId).toBe(FINDING_ID);
     expect(mockPrisma.detectorRca.upsert).not.toHaveBeenCalled();
     expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("re-eval that triggers for the first time still creates RCA (no prior RCA)", async () => {
+    mockPrisma.detectorRca.findUnique.mockResolvedValueOnce(null);
+    await processTrace("trace-1", "proj-1", ["det-1"], { partialReason: null, isReeval: true });
+
+    expect(mockWriteFinding).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.detectorRca.upsert).toHaveBeenCalledTimes(1);
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
   });
 });
 
