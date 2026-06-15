@@ -49,6 +49,16 @@ const MAX_ATTEMPTS = 2;
 const SAFETY_TRUNCATE_CHARS = 150_000;
 /** Default screening model for system source — cheap-and-fast, not the agent default. */
 const SYSTEM_DEFAULT_MODEL = "claude-haiku-4-5";
+/**
+ * Per-attempt wall-clock cap on the judge LLM call. pi-ai forwards an
+ * AbortSignal to the provider fetch but imposes no default timeout, and Node's
+ * fetch has none either — so a provider that accepts the connection but never
+ * responds (stalled socket / hung stream) leaves `complete()` pending forever.
+ * Such a call would pin a BullMQ worker slot indefinitely (an I/O-bound handler
+ * is never marked stalled, never retried), and enough of them drain the pool and
+ * halt the whole detector-run queue. Override with DETECTOR_EVAL_TIMEOUT_MS.
+ */
+const DETECTOR_EVAL_TIMEOUT_MS = Number(process.env.DETECTOR_EVAL_TIMEOUT_MS) || 60_000;
 
 /**
  * `tool_choice` value sent to every provider for detector eval.
@@ -180,10 +190,13 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), DETECTOR_EVAL_TIMEOUT_MS);
       const response = await complete(model, { systemPrompt, messages, tools: [submitTool] }, {
         apiKey,
         toolChoice: TOOL_CHOICE,
-      } as Record<string, unknown>);
+        signal: controller.signal,
+      } as Record<string, unknown>).finally(() => clearTimeout(timeout));
 
       inferenceCost += response.usage?.cost?.total ?? 0;
       inferenceInputTokens += response.usage?.input ?? 0;
@@ -234,7 +247,12 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
         timestamp: Date.now(),
       });
     } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
+      const isTimeout = err instanceof Error && err.name === "AbortError";
+      lastError = isTimeout
+        ? `detector eval timed out after ${DETECTOR_EVAL_TIMEOUT_MS}ms (model=${model.id}, api=${model.api})`
+        : err instanceof Error
+          ? err.message
+          : String(err);
       break;
     }
   }

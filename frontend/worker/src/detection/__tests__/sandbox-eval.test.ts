@@ -232,6 +232,63 @@ describe("runDetectionForTrace", () => {
     expect(result.error).toBe("API rate limit");
   });
 
+  it("passes an AbortSignal to complete() so the call is cancellable", async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "ok", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "t",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system" },
+      workspaceId: "ws-1",
+    });
+
+    const opts = mockComplete.mock.calls[0][2] as { signal?: AbortSignal };
+    expect(opts.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("aborts and returns a timeout error when the provider never responds", async () => {
+    vi.useFakeTimers();
+    try {
+      // Simulate a hung provider: the promise only settles if its signal aborts.
+      mockComplete.mockImplementationOnce((_model, _ctx, opts) => {
+        const { signal } = opts as { signal: AbortSignal };
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            const err = new Error("The operation was aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        });
+      });
+
+      const promise = runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      // Advance past the eval timeout; the AbortController fires and the call rejects.
+      await vi.advanceTimersByTimeAsync(60_000);
+      const result = await promise;
+
+      expect(result.identified).toBe(false);
+      expect(result.error).toMatch(/timed out/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   describe("inference cost + source attribution", () => {
     it("captures system source cost on happy path", async () => {
       mockComplete.mockResolvedValueOnce({
