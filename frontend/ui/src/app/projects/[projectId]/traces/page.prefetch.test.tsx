@@ -6,6 +6,7 @@ import React from "react";
 
 const prefetch = vi.fn();
 let fetching = false;
+let autoRefresh = false;
 vi.mock("@/features/traces/hooks", () => ({
   useTraces: () => ({
     data: {
@@ -38,7 +39,7 @@ vi.mock("@/lib/hooks/use-list-page-state", () => ({
     queryOptions: { page: 3, limit: 50, start_after: "S" },
   }),
 }));
-vi.mock("@/lib/hooks/use-local-storage", () => ({ useLocalStorage: () => [false, vi.fn()] }));
+vi.mock("@/lib/hooks/use-local-storage", () => ({ useLocalStorage: () => [autoRefresh, vi.fn()] }));
 vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({ data: { user: { id: "u1", email: "e" } }, isPending: false }),
 }));
@@ -76,6 +77,7 @@ afterEach(() => {
   cleanup();
   prefetch.mockReset();
   fetching = false;
+  autoRefresh = false;
 });
 
 describe("TracesPage prefetch wiring", () => {
@@ -91,5 +93,12 @@ describe("TracesPage prefetch wiring", () => {
     fetching = true;
     const { container } = render(<TracesPage />, { wrapper: Wrapper });
     expect(container.querySelector(".opacity-50")).not.toBeNull();
+  });
+
+  it("does not prefetch on hover when auto-refresh is enabled", () => {
+    autoRefresh = true;
+    render(<TracesPage />, { wrapper: Wrapper });
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /next page/i }));
+    expect(prefetch).not.toHaveBeenCalled();
   });
 });
