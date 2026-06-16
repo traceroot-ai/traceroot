@@ -189,14 +189,17 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
   let inferenceProvider: string | null = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // Per-attempt timeout: pi-ai forwards this signal to the provider fetch,
+    // which otherwise has no upper bound. Declared outside the try so the catch
+    // can distinguish a timeout (controller.signal.aborted) from a real error.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), DETECTOR_EVAL_TIMEOUT_MS);
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), DETECTOR_EVAL_TIMEOUT_MS);
       const response = await complete(model, { systemPrompt, messages, tools: [submitTool] }, {
         apiKey,
         toolChoice: TOOL_CHOICE,
         signal: controller.signal,
-      } as Record<string, unknown>).finally(() => clearTimeout(timeout));
+      } as Record<string, unknown>);
 
       inferenceCost += response.usage?.cost?.total ?? 0;
       inferenceInputTokens += response.usage?.input ?? 0;
@@ -247,13 +250,14 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
         timestamp: Date.now(),
       });
     } catch (err) {
-      const isTimeout = err instanceof Error && err.name === "AbortError";
-      lastError = isTimeout
+      lastError = controller.signal.aborted
         ? `detector eval timed out after ${DETECTOR_EVAL_TIMEOUT_MS}ms (model=${model.id}, api=${model.api})`
         : err instanceof Error
           ? err.message
           : String(err);
       break;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
