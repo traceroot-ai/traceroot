@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -32,14 +32,35 @@ export function ListPagination({
 }: ListPaginationProps) {
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
 
-  if (total <= 0) return null;
-
   // Defend against invalid `limit` propagating from URL/state (0, negative,
   // NaN, Infinity) — without this, `Math.ceil(total / 0)` is Infinity and
   // negative limits give negative `totalPages`, breaking nav controls.
   const safeLimit =
     Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : itemsPerPageOptions[0];
   const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+
+  // Transient string for the input. Lets the field be emptied mid-edit
+  // without React snapping it back to the last valid page number.
+  const [pageState, setPageState] = useState(String(page + 1));
+
+  // Keep the input in sync when the page changes externally
+  // Example: (prev/next/first/last buttons, or parent-driven updates).
+  useEffect(() => {
+    setPageState(String(page + 1));
+  }, [page]);
+
+  if (total <= 0) return null;
+
+  const handlePageInputChange = () => {
+    const val = parseInt(pageState, 10);
+    if (!isNaN(val)) {
+      const clamped = Math.min(Math.max(1, val), totalPages);
+      onPageChange(clamped - 1);
+      setPageState(String(clamped));
+    } else {
+      setPageState(String(page + 1)); // Reset to current page if invalid input
+    }
+  };
 
   return (
     <div className="flex items-center justify-end gap-6 border-t border-border bg-background px-4 py-2.5">
@@ -81,11 +102,12 @@ export function ListPagination({
           type="number"
           min={1}
           max={totalPages}
-          value={page + 1}
-          onChange={(e) => {
-            const val = parseInt(e.target.value, 10);
-            if (!isNaN(val) && val >= 1 && val <= totalPages) {
-              onPageChange(val - 1);
+          value={pageState}
+          onChange={(e) => setPageState(e.target.value)}
+          onBlur={handlePageInputChange}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.currentTarget.blur();
             }
           }}
           className="h-7 w-12 rounded border border-border bg-background px-2 py-1 text-center text-[12px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
