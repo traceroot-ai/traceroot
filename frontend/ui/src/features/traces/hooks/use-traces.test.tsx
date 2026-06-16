@@ -17,7 +17,7 @@ vi.mock("@/lib/api/users", () => ({ getUsers: vi.fn() }));
 vi.mock("./use-trace-list-state", () => ({ useTraceListState: vi.fn() }));
 vi.mock("./use-trace-stream", () => ({ useTraceStream: vi.fn() }));
 
-import { useTraces } from "./index";
+import { useTraces, usePrefetchTraces } from "./index";
 
 afterEach(() => {
   cleanup();
@@ -54,5 +54,28 @@ describe("useTraces", () => {
 
     resolveNext({ data: [{ trace_id: "b" }], total: 100 });
     await waitFor(() => expect(result.current.data?.data?.[0]?.trace_id).toBe("b"));
+  });
+});
+
+describe("usePrefetchTraces", () => {
+  it("prefetches the given page with the same key shape and auth user", async () => {
+    getTraces.mockResolvedValue({ data: [], total: 0 });
+    const { result } = renderHook(() => usePrefetchTraces("p1"), { wrapper: wrapper() });
+
+    result.current({ page: 3, limit: 50, user_id: "u1" });
+
+    await waitFor(() => expect(getTraces).toHaveBeenCalledTimes(1));
+    expect(getTraces).toHaveBeenCalledWith(
+      "p1",
+      "",
+      { page: 3, limit: 50, user_id: "u1" },
+      { id: "u1", email: "e@x.dev" },
+    );
+  });
+
+  it("does nothing without a projectId", () => {
+    const { result } = renderHook(() => usePrefetchTraces(""), { wrapper: wrapper() });
+    result.current({ page: 1, limit: 50 });
+    expect(getTraces).not.toHaveBeenCalled();
   });
 });
