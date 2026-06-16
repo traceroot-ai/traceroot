@@ -52,21 +52,46 @@ def _get_redis():
 
 
 def _lock_key(project_id: str, trace_id: str) -> str:
+    """Redis key for the per-trace enqueue claim (the NX dedup marker)."""
     return f"detector-enq:{project_id}:{trace_id}"
 
 
 def _release_lock_if_value(redis_client, key: str, expected: str) -> None:
+    """Delete the lock only if it still holds ``expected`` (token-checked release).
+
+    Stops a failing attempt from deleting state written by a successor, which
+    would break exactly-once. See ``_RELEASE_IF_VALUE_LUA``.
+    """
     redis_client.eval(_RELEASE_IF_VALUE_LUA, 1, key, expected)
 
 
-def _sample_passes(trace_id: str, detector_id: str, sample_rate: float) -> bool:
+def _sample_passes(trace_id: str, detector_id: str, sample_rate: float | None) -> bool:
     """Deterministic per-(trace, detector) sampling decision.
 
     Hash-based rather than random.random() so the decision is idempotent
     across batches and Celery retries — a replay can never re-roll the dice.
+
+    Args:
+        trace_id: Trace being considered.
+        detector_id: Detector whose sampling is being rolled.
+        sample_rate: Detector sample rate as a percentage. The schema constrains
+            this to an int in 1-100, but it is read straight from the DB, so we
+            guard against a missing or out-of-range value rather than trust it.
+
+    Returns:
+        True if this (trace, detector) pair falls within the sampled fraction.
     """
+    # Guard the externally-sourced rate: None / <= 0 never samples, >= 100
+    # always samples; only a value strictly inside (0, 100) rolls the hash.
+    if sample_rate is None:
+        return False
+    rate = min(max(sample_rate, 0.0), 100.0)
+    if rate <= 0.0:
+        return False
+    if rate >= 100.0:
+        return True
     digest = hashlib.sha256(f"{trace_id}:{detector_id}".encode()).digest()
-    return int.from_bytes(digest[:8], "big") / 2**64 < sample_rate / 100.0
+    return int.from_bytes(digest[:8], "big") / 2**64 < rate / 100.0
 
 
 def _add_bullmq_job(job_id: str, data: dict) -> None:
@@ -224,7 +249,28 @@ def _claim_and_enqueue(
     detectors: list[dict],
     summary: dict,
 ) -> None:
-    """Root-bearing batch: claim the trace and enqueue at most one detection job."""
+    """Root-bearing batch: claim the trace and enqueue at most one detection job.
+
+    Takes the NX claim for ``(project_id, trace_id)``; if it wins, evaluates the
+    trigger conditions plus deterministic sampling and enqueues a single delayed
+    BullMQ job for the detectors that fire. A lost claim (ingest-task retry
+    replay, duplicate root delivery, or a concurrent batch) is a no-op, keeping
+    enqueue exactly-once.
+
+    Args:
+        redis_client: Redis client for the NX claim and token-checked release.
+        project_id: Project that owns the trace.
+        trace_id: Trace whose root span arrived in this batch.
+        detectors: Active detectors, each a dict with ``id``, ``sample_rate``
+            and ``conditions``.
+        summary: Trace summary fields used for trigger evaluation (e.g.
+            ``environment``).
+
+    Returns:
+        None. On an enqueue failure the lock value this attempt wrote is
+        released (so a later batch can re-claim) and the error is re-raised to
+        the caller, which logs it per-trace without breaking ingestion.
+    """
     # The lock's JSON payload (state/token/detector_ids) is diagnostic only —
     # nothing reads it back now that re-eval is gone; the key is purely an NX
     # dedup marker preventing a second enqueue for the same trace.
