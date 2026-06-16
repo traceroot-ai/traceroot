@@ -1,7 +1,7 @@
 /**
  * Trace feature hooks
  */
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 import { getTraces, getTrace, getSpanIO } from "@/lib/api";
 import { getSessions, getSession, type SessionDetailOptions } from "@/lib/api/sessions";
@@ -34,6 +34,10 @@ export function tracesQueryKey(projectId: string, options: TraceQueryOptions = {
   ] as const;
 }
 
+/** Traces are mostly append-only; a short stale window stops redundant refetches
+ *  on revisit and lets a hover-prefetched page actually "stick" before navigation. */
+export const TRACES_LIST_STALE_TIME_MS = 30_000;
+
 /**
  * Hook for fetching paginated traces list
  */
@@ -54,6 +58,8 @@ export function useTraces(
     queryKey: tracesQueryKey(projectId, options),
     queryFn: () => getTraces(projectId, "", options, user),
     enabled: sessionReady && !!projectId,
+    placeholderData: keepPreviousData,
+    staleTime: TRACES_LIST_STALE_TIME_MS,
     ...queryOptions,
   });
 }
