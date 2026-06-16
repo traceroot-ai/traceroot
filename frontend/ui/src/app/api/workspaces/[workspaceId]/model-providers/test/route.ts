@@ -8,6 +8,26 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 
+// Connectivity checks must be bounded: a provider host — or a user-supplied
+// baseUrl — that accepts the socket but never responds would otherwise leave the
+// fetch (and this request handler) hanging indefinitely. Override via env.
+const TEST_CONNECTION_TIMEOUT_MS = Number(process.env.MODEL_PROVIDER_TEST_TIMEOUT_MS) || 10_000;
+
+async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TEST_CONNECTION_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (controller.signal.aborted) {
+      throw new Error(`Connection timed out after ${TEST_CONNECTION_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 const ADAPTER_VALUES = [
   LLMAdapter.OPENAI,
   LLMAdapter.ANTHROPIC,
@@ -83,7 +103,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const url = baseUrl
           ? `${baseUrl.replace(/\/$/, "")}/v1/models`
           : "https://api.openai.com/v1/models";
-        const res = await fetch(url, {
+        const res = await fetchWithTimeout(url, {
           headers: { Authorization: `Bearer ${apiKey}` },
         });
         if (!res.ok) {
@@ -99,7 +119,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "anthropic": {
-        const res = await fetch("https://api.anthropic.com/v1/messages", {
+        const res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: {
             "x-api-key": apiKey || "",
@@ -124,9 +144,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "google": {
-        const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models", {
-          headers: { "x-goog-api-key": apiKey || "" },
-        });
+        const res = await fetchWithTimeout(
+          "https://generativelanguage.googleapis.com/v1beta/models",
+          {
+            headers: { "x-goog-api-key": apiKey || "" },
+          },
+        );
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           return successResponse({
@@ -150,9 +173,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           });
         }
         const apiVersion = "2024-06-01";
-        const res = await fetch(`${baseUrl.replace(/\/$/, "")}/models?api-version=${apiVersion}`, {
-          headers: { "api-key": apiKey || "" },
-        });
+        const res = await fetchWithTimeout(
+          `${baseUrl.replace(/\/$/, "")}/models?api-version=${apiVersion}`,
+          {
+            headers: { "api-key": apiKey || "" },
+          },
+        );
         if (!res.ok) {
           return successResponse({
             success: false,
@@ -185,7 +211,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       case "deepseek": {
         const deepseekBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.deepseek;
-        const res = await fetch(`${deepseekBase.replace(/\/$/, "")}/models`, {
+        const res = await fetchWithTimeout(`${deepseekBase.replace(/\/$/, "")}/models`, {
           headers: { Authorization: `Bearer ${apiKey}` },
         });
         if (!res.ok) {
@@ -201,7 +227,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "openrouter": {
-        const res = await fetch("https://openrouter.ai/api/v1/models", {
+        const res = await fetchWithTimeout("https://openrouter.ai/api/v1/models", {
           headers: { Authorization: `Bearer ${apiKey}` },
         });
         if (!res.ok) {
@@ -215,7 +241,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       case "xai": {
         const xaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.xai;
-        const res = await fetch(`${xaiBase.replace(/\/$/, "")}/models`, {
+        const res = await fetchWithTimeout(`${xaiBase.replace(/\/$/, "")}/models`, {
           headers: { Authorization: `Bearer ${apiKey}` },
         });
         if (!res.ok) {
@@ -232,7 +258,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       case "moonshot": {
         const moonshotBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.moonshot;
-        const res = await fetch(`${moonshotBase.replace(/\/$/, "")}/models`, {
+        const res = await fetchWithTimeout(`${moonshotBase.replace(/\/$/, "")}/models`, {
           headers: { Authorization: `Bearer ${apiKey}` },
         });
         if (!res.ok) {
@@ -249,7 +275,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       case "zai": {
         const zaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.zai;
-        const res = await fetch(`${zaiBase.replace(/\/$/, "")}/models`, {
+        const res = await fetchWithTimeout(`${zaiBase.replace(/\/$/, "")}/models`, {
           headers: { Authorization: `Bearer ${apiKey}` },
         });
         if (!res.ok) {
