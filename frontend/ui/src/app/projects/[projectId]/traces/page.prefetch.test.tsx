@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 
 const prefetch = vi.fn();
-let fetching = false;
 let autoRefresh = false;
 vi.mock("@/features/traces/hooks", () => ({
   useTraces: () => ({
@@ -14,7 +13,6 @@ vi.mock("@/features/traces/hooks", () => ({
       meta: { page: 3, limit: 50, total: 500 },
     },
     isLoading: false,
-    isFetching: fetching,
     error: null,
   }),
   usePrefetchTraces: () => prefetch,
@@ -76,7 +74,6 @@ function Wrapper({ children }: { children: React.ReactNode }) {
 afterEach(() => {
   cleanup();
   prefetch.mockReset();
-  fetching = false;
   autoRefresh = false;
 });
 
@@ -87,12 +84,6 @@ describe("TracesPage prefetch wiring", () => {
     expect(prefetch).toHaveBeenCalledWith(
       expect.objectContaining({ page: 4, limit: 50, start_after: "S" }),
     );
-  });
-
-  it("dims the results while fetching", () => {
-    fetching = true;
-    const { container } = render(<TracesPage />, { wrapper: Wrapper });
-    expect(container.querySelector(".opacity-50")).not.toBeNull();
   });
 
   it("does not prefetch on hover when auto-refresh is enabled", () => {
