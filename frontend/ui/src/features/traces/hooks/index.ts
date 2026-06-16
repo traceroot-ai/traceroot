@@ -182,7 +182,9 @@ export function usePrefetchTraces(projectId: string) {
         staleTime: TRACES_LIST_STALE_TIME_MS,
       });
     },
-    [queryClient, projectId, user?.id, user?.email],
+    // `user` is a fresh object literal each render; key off its stable id/email
+    // so the callback isn't rebuilt every render.
+    [queryClient, projectId, user?.id, user?.email], // eslint-disable-line react-hooks/exhaustive-deps
   );
 }
 
