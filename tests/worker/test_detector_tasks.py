@@ -256,9 +256,6 @@ class TestDeterministicSampling:
         assert 0.26 < hits / n < 0.34
 
 
-# ── Re-eval path: late batches ──────────────────────────────────────────
-
-
 # ── BullMQ helper ───────────────────────────────────────────────────────
 
 
@@ -297,7 +294,8 @@ class TestAddBullmqJob:
                 {
                     "jobId": f"{PROJECT}--{TRACE}",
                     "delay": 60000,
-                    "attempts": 3,
+                    "attempts": 5,
+                    "backoff": {"type": "exponential", "delay": 5000},
                     "removeOnComplete": 100,
                     "removeOnFail": 50,
                 },

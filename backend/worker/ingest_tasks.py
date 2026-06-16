@@ -142,9 +142,9 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
         # Trigger detector runs (fire-and-forget, non-blocking). The batch that
         # carries a trace's root span triggers detection exactly once — a Redis
         # lock keyed on (project, trace) dedups against ingest-task retries and
-        # duplicate root delivery. Later batches for an already-known trace only
-        # feed the bounded re-eval check (at most one re-eval when the span
-        # count grew after evaluation).
+        # duplicate root delivery. Batches without the root span are ignored
+        # here; the worker waits out the quiescence window before evaluating,
+        # so late spans need no enqueue.
         if traces or spans:
             try:
                 from worker.detector_tasks import enqueue_detector_runs

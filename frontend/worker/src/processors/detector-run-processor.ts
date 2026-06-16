@@ -364,7 +364,7 @@ async function evaluateTrace(
 
   // ONE finding per trace — aggregate all triggered detector summaries.
   // findingId is a deterministic hash of (projectId, traceId) so a job retry
-  // (BullMQ attempts: 3) lands on the same finding/RCA row instead of creating
+  // lands on the same finding/RCA row instead of creating
   // a duplicate. ClickHouse-level dedup of finding rows is a follow-up
   // (ReplacingMergeTree on finding_id), but Postgres DetectorRca + the RCA
   // queue jobId are now both keyed by this stable id.

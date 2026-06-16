@@ -88,7 +88,13 @@ def _add_bullmq_job(job_id: str, data: dict) -> None:
                 {
                     "jobId": job_id,
                     "delay": EVALUATOR_DELAY,
-                    "attempts": 3,
+                    # The worker throws on a transient settle-status/eval
+                    # failure and relies on these retries. Back them off
+                    # exponentially (5s, 10s, 20s, 40s) so a brief backend or
+                    # ClickHouse blip doesn't burn every attempt in
+                    # milliseconds and silently drop the trace.
+                    "attempts": 5,
+                    "backoff": {"type": "exponential", "delay": 5000},
                     "removeOnComplete": 100,
                     "removeOnFail": 50,
                 },
