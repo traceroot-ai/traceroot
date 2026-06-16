@@ -31,9 +31,9 @@
 
 | Feature | 설명 |
 | ------- | ----------- |
-| Tracing | OpenTelemetry 호환 SDK를 통해 LLM 호출, 에이전트 액션, 툴 사용 내역을 수집합니다. 노이즈는 제거하고 중요한 시그널 중심으로 트레이스를 제공합니다. |
-| Agentic Debugging | 모든 트레이스를 이해하는 AI가 프로덕션 소스 코드가 연결된 샌드박스에서 정확한 실패 지점을 식별하고, GitHub 커밋·PR·이슈와 연관 분석합니다. 모든 모델 프로바이더에 대해 BYOK를 지원합니다. |
 | Detectors | LLM-as-a-Judge evaluator가 hallucination, 툴/로직 실패, 안전성 위반, intent drift를 모니터링합니다. 이상 징후를 탐지하고 이메일 및 Slack 알림과 함께 root cause analysis를 자동 수행합니다. |
+| Agentic Debugging | 모든 트레이스를 이해하는 AI가 프로덕션 소스 코드가 연결된 샌드박스에서 정확한 실패 지점을 식별하고, GitHub 커밋·PR·이슈와 연관 분석합니다. 모든 모델 프로바이더에 대해 BYOK를 지원합니다. |
+| Tracing | OpenTelemetry 호환 SDK를 통해 LLM 호출, 에이전트 액션, 툴 사용 내역을 수집합니다. 노이즈는 제거하고 중요한 시그널 중심으로 트레이스를 제공합니다. |
 
 ## Why TraceRoot?
 

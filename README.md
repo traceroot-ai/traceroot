@@ -31,9 +31,9 @@
 
 | Feature | Description |
 | ------- | ----------- |
-| Tracing | Capture LLM calls, agent actions, and tool usage via OpenTelemetry-compatible SDK. Intelligently surfaces the traces that matter — noise filtered, signal prioritized. |
-| Agentic Debugging | AI that sees all your traces, connects to a sandbox with your production source code, identifies the exact failing line, and correlates the failure with your GitHub commits, PRs, and issues. BYOK support for any model provider. |
 | Detectors | LLM-as-judge evaluator monitors incoming trace for hallucinations, tool/logic failures, safety violations, and intent drift — surfaces findings and auto-triggers root cause analysis with email and slack alerts. |
+| Agentic Debugging | AI that sees all your traces, connects to a sandbox with your production source code, identifies the exact failing line, and correlates the failure with your GitHub commits, PRs, and issues. BYOK support for any model provider. |
+| Tracing | Capture LLM calls, agent actions, and tool usage via OpenTelemetry-compatible SDK. Intelligently surfaces the traces that matter — noise filtered, signal prioritized. |
 
 ## Why TraceRoot?
 
@@ -57,7 +57,7 @@ Full documentation available at [traceroot.ai/docs](https://traceroot.ai/docs).
 
 ### TraceRoot Cloud
 
-The fastest way to get started. Ample storages and LLM tokens for testing, no credit card needed. Sign up [here](https://app.traceroot.ai)!
+The fastest way to get started. Ample storage and LLM tokens for testing, no credit card needed. Sign up [here](https://app.traceroot.ai)!
 
 ### Self-Hosting
 
@@ -68,7 +68,7 @@ The fastest way to get started. Ample storages and LLM tokens for testing, no cr
   git clone https://github.com/traceroot-ai/traceroot.git
   cd traceroot
 
-  # Hosted the infras in docker and app itself locally
+  # Host the infra in Docker and the app itself locally
   make dev
   ```
   For more details, see [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -80,7 +80,7 @@ The fastest way to get started. Ample storages and LLM tokens for testing, no cr
   git clone https://github.com/traceroot-ai/traceroot.git
   cd traceroot
 
-  # Hosted everything in docker
+  # Host everything in Docker
   make prod
   ```
 
