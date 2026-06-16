@@ -57,8 +57,14 @@ const SYSTEM_DEFAULT_MODEL = "claude-haiku-4-5";
  * Such a call would pin a BullMQ worker slot indefinitely (an I/O-bound handler
  * is never marked stalled, never retried), and enough of them drain the pool and
  * halt the whole detector-run queue. Override with DETECTOR_EVAL_TIMEOUT_MS.
+ * Ignore non-positive / non-finite overrides: 0 or a negative value would make
+ * setTimeout fire immediately and abort every eval, so fall back to the default.
  */
-const DETECTOR_EVAL_TIMEOUT_MS = Number(process.env.DETECTOR_EVAL_TIMEOUT_MS) || 60_000;
+const DETECTOR_EVAL_TIMEOUT_MS_OVERRIDE = Number(process.env.DETECTOR_EVAL_TIMEOUT_MS);
+const DETECTOR_EVAL_TIMEOUT_MS =
+  Number.isFinite(DETECTOR_EVAL_TIMEOUT_MS_OVERRIDE) && DETECTOR_EVAL_TIMEOUT_MS_OVERRIDE > 0
+    ? DETECTOR_EVAL_TIMEOUT_MS_OVERRIDE
+    : 60_000;
 
 /**
  * `tool_choice` value sent to every provider for detector eval.

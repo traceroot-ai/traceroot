@@ -284,6 +284,7 @@ describe("runDetectionForTrace", () => {
 
       expect(result.identified).toBe(false);
       expect(result.error).toMatch(/timed out/i);
+      expect(mockComplete).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
