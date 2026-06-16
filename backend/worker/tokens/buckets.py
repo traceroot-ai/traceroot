@@ -49,6 +49,14 @@ _KNOWN_SCOPE_PREFIXES: tuple[str, ...] = (
     "traceroot",
 )
 
+# Scopes recognized by EXACT name — too short to prefix-match safely (a bare
+# "ai" prefix would also swallow unrelated ai*-named scopes).
+_KNOWN_SCOPE_EXACT: frozenset[str] = frozenset(
+    {
+        "ai",  # Vercel AI SDK tracer; GROSS input with cache detail under ai.usage.*
+    }
+)
+
 # Bound the dedup set so a high-cardinality (or adversarial) stream of unknown
 # scope names cannot grow it without limit. Real emitters are few; this ceiling
 # is far above any legitimate count.
@@ -62,14 +70,16 @@ def _warn_once_if_unknown_scope(scope_name: str | None) -> None:
     ``scope_name`` is typed ``str | None`` but comes from untrusted OTLP, so a
     malformed (non-string) value is guarded — it must never crash ingestion.
     """
-    if isinstance(scope_name, str) and scope_name.lower().startswith(_KNOWN_SCOPE_PREFIXES):
-        return
+    if isinstance(scope_name, str):
+        lowered = scope_name.lower()
+        if lowered in _KNOWN_SCOPE_EXACT or lowered.startswith(_KNOWN_SCOPE_PREFIXES):
+            return
     key = scope_name if isinstance(scope_name, str) and scope_name else "<missing>"
     if key not in _warned_scopes and len(_warned_scopes) < _MAX_WARNED_SCOPES:
         _warned_scopes.add(key)
         logger.warning(
             "Pricing tokens from unknown instrumentation scope %r; verify its "
-            "token convention and add it to _KNOWN_SCOPE_PREFIXES.",
+            "token convention and add it to _KNOWN_SCOPE_PREFIXES or _KNOWN_SCOPE_EXACT.",
             key,
         )
 
