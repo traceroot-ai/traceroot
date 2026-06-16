@@ -201,6 +201,16 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
         signal: controller.signal,
       } as Record<string, unknown>);
 
+      // A timed-out call may RESOLVE with an aborted response (stopReason
+      // "aborted", empty content) rather than throwing. Treat that exactly like
+      // the thrown-abort case in catch: record a timeout and stop — do NOT fall
+      // through to the "no submit_result" retry, which would burn a second
+      // provider call and mislabel the failure.
+      if (controller.signal.aborted || response.stopReason === "aborted") {
+        lastError = `detector eval timed out after ${DETECTOR_EVAL_TIMEOUT_MS}ms (model=${model.id}, api=${model.api})`;
+        break;
+      }
+
       inferenceCost += response.usage?.cost?.total ?? 0;
       inferenceInputTokens += response.usage?.input ?? 0;
       inferenceOutputTokens += response.usage?.output ?? 0;

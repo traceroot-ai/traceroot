@@ -289,6 +289,40 @@ describe("runDetectionForTrace", () => {
     }
   });
 
+  it("classifies an aborted response (stopReason=aborted) as a timeout without retrying", async () => {
+    vi.useFakeTimers();
+    try {
+      // pi-ai may RESOLVE (not throw) with an aborted response once the signal
+      // fires: stopReason "aborted" + empty content. This must be treated as a
+      // timeout, not as a missing submit_result (which would retry).
+      mockComplete.mockImplementationOnce((_model, _ctx, opts) => {
+        const { signal } = opts as { signal: AbortSignal };
+        return new Promise((resolve) => {
+          signal.addEventListener("abort", () => {
+            resolve({ stopReason: "aborted", content: [], usage: ZERO_USAGE });
+          });
+        });
+      });
+
+      const promise = runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      const result = await promise;
+
+      expect(result.identified).toBe(false);
+      expect(result.error).toMatch(/timed out/i);
+      expect(result.error).not.toMatch(/did not call submit_result/i);
+      expect(mockComplete).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   describe("inference cost + source attribution", () => {
     it("captures system source cost on happy path", async () => {
       mockComplete.mockResolvedValueOnce({
