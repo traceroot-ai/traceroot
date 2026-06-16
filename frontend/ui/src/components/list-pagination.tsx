@@ -53,7 +53,7 @@ export function ListPagination({
 
   const handlePageInputChange = () => {
     const val = parseInt(pageState, 10);
-    if (!isNaN(val) && val >= 1 && val <= totalPages) {
+    if (!isNaN(val)) {
       const clamped = Math.min(Math.max(1, val), totalPages);
       onPageChange(clamped - 1);
       setPageState(String(clamped));
