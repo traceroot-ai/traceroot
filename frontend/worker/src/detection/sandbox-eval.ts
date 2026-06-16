@@ -46,7 +46,7 @@ const MAX_ATTEMPTS = 2;
  * stripping) is a future improvement when we see real customer complaints
  * about traces being truncated. For now, rely on this hard cap.
  */
-export const SAFETY_TRUNCATE_CHARS = 150_000;
+const SAFETY_TRUNCATE_CHARS = 150_000;
 /** Default screening model for system source — cheap-and-fast, not the agent default. */
 const SYSTEM_DEFAULT_MODEL = "claude-haiku-4-5";
 
@@ -159,20 +159,6 @@ RULES:
 - summary must be one sentence. If identified=true, describe what you found. If false, state why it is clean.
 - data fields are only required when identified=true.`;
 
-  // Disclose incomplete input to the judge so it doesn't infer problems from
-  // missing spans: the hard cap truncates the LATEST spans (spans-jsonl is
-  // start-time-ordered), so tell the judge not to read meaning into absences.
-  const incompleteReasons: string[] = [];
-  if (spansJsonl.length > SAFETY_TRUNCATE_CHARS) {
-    incompleteReasons.push(`span list truncated at ${SAFETY_TRUNCATE_CHARS} chars`);
-  }
-  const incompleteNote =
-    incompleteReasons.length > 0
-      ? `NOTE: The span list below may be INCOMPLETE (${incompleteReasons.join("; ")}). ` +
-        `Do not infer missing steps, absent error handling, or wrong conclusions from spans ` +
-        `that are absent; only report problems visible in the spans shown.\n`
-      : "";
-
   const userText = `DETECTOR: ${detector.name}
 
 WHAT TO DETECT:
@@ -181,7 +167,7 @@ ${detector.prompt}
 TRACE ID: ${traceId}
 
 SPANS (one JSON object per line):
-${incompleteNote}${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
+${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
 
   // 5. Single-shot complete() with retry-once-on-text-response
   const messages: Message[] = [{ role: "user", content: userText, timestamp: Date.now() }];
