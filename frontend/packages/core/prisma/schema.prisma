@@ -138,6 +138,8 @@ model Project {
   updateTime   DateTime  @default(now()) @map("update_time") @db.Timestamp(6)
   // Agent model for Step 2 deep analysis — project-scoped, shared across all detectors
   rcaModel     String?   @map("rca_model") @db.VarChar
+  rcaProvider  String?   @map("rca_provider") @db.VarChar
+  rcaSource    String?   @map("rca_source") @db.VarChar
   accessKeys   AccessKey[]
   aiSessions   AISession[]
   detectors    Detector[]

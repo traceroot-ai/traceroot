@@ -45,6 +45,8 @@ export interface Project {
   name: string;
   trace_ttl_days: number | null;
   rca_model?: string | null;
+  rca_provider?: string | null;
+  rca_source?: string | null;
   alert_emails?: string[];
   access_key_count?: number;
   delete_time?: string | null;
