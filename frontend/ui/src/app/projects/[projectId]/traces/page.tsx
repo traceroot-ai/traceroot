@@ -70,7 +70,7 @@ export default function TracesPage() {
   );
 
   // Fetch traces with combined query options + user filter from URL
-  const { data, isLoading, isFetching, error } = useTraces(
+  const { data, isLoading, error } = useTraces(
     projectId,
     {
       ...queryOptions,
@@ -238,7 +238,7 @@ export default function TracesPage() {
             </div>
           ) : (
             <div className="flex h-full flex-col">
-              <div className={cn("flex-1 overflow-auto", isFetching && "opacity-50")}>
+              <div className="flex-1 overflow-auto">
                 <table className="w-full">
                   <thead className="sticky top-0 bg-background">
                     <tr className="border-b border-border bg-muted/50">
