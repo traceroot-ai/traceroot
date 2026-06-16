@@ -31,9 +31,9 @@
 
 | 功能 | 描述 |
 | ---- | ---- |
-| 追踪（Tracing） | 通过兼容 OpenTelemetry 的 SDK 采集 LLM 调用、Agent 行为以及工具使用情况。智能浮现真正值得关注的追踪 —— 过滤噪声，优先呈现信号。 |
-| 智能调试（Agentic Debugging） | AI 可以看到你的所有追踪，连接到运行你生产源码的沙箱中，精确定位出错的代码行，并将故障与你的 GitHub commit、PR、issue 关联起来。支持 BYOK，可接入任意模型厂商。 |
 | 检测器（Detectors） | 由 LLM 充当评审，监控进入的追踪是否存在幻觉、工具/逻辑错误、安全违规以及意图漂移 —— 自动呈现发现项，并触发根因分析与邮件、Slack 告警。 |
+| 智能调试（Agentic Debugging） | AI 可以看到你的所有追踪，连接到运行你生产源码的沙箱中，精确定位出错的代码行，并将故障与你的 GitHub commit、PR、issue 关联起来。支持 BYOK，可接入任意模型厂商。 |
+| 追踪（Tracing） | 通过兼容 OpenTelemetry 的 SDK 采集 LLM 调用、Agent 行为以及工具使用情况。智能浮现真正值得关注的追踪 —— 过滤噪声，优先呈现信号。 |
 
 ## 为什么选择 TraceRoot？
 
