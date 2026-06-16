@@ -442,22 +442,30 @@ def transform_otel_to_clickhouse(
 
                     # Try API-provided token counts first (from instrumentors).
                     # OpenInference: llm.token_count.*  ·  GenAI semconv: gen_ai.usage.*
-                    api_input_tokens = first_present_number(
-                        span_attrs,
-                        [
-                            "llm.token_count.prompt",
-                            "gen_ai.usage.input_tokens",
-                            "gen_ai.usage.prompt_tokens",
-                        ],
-                    )
-                    api_output_tokens = first_present_number(
-                        span_attrs,
-                        [
-                            "llm.token_count.completion",
-                            "gen_ai.usage.output_tokens",
-                            "gen_ai.usage.completion_tokens",
-                        ],
-                    )
+                    input_token_keys = [
+                        "llm.token_count.prompt",
+                        "gen_ai.usage.input_tokens",
+                        "gen_ai.usage.prompt_tokens",
+                    ]
+                    output_token_keys = [
+                        "llm.token_count.completion",
+                        "gen_ai.usage.output_tokens",
+                        "gen_ai.usage.completion_tokens",
+                    ]
+                    if span_kind == SpanKind.LLM:
+                        # Vercel AI SDK raw GROSS totals are the only token source it
+                        # normalizes to neither llm.* nor gen_ai.*, so we read them as
+                        # a fallback. But they sit on BOTH the LLM doGenerate span AND
+                        # its AGENT/CHAIN wrapper (ai.generateText/ai.generateObject),
+                        # where they restate the SUM of the wrapper's LLM children.
+                        # Trust them only on the LLM span itself — otherwise the
+                        # wrapper is priced on top of its children (double count).
+                        # generateObject emits only the legacy *Tokens spelling; its
+                        # real usage still lands on an LLM .doGenerate child.
+                        input_token_keys += ["ai.usage.inputTokens", "ai.usage.promptTokens"]
+                        output_token_keys += ["ai.usage.outputTokens", "ai.usage.completionTokens"]
+                    api_input_tokens = first_present_number(span_attrs, input_token_keys)
+                    api_output_tokens = first_present_number(span_attrs, output_token_keys)
                     # Cache buckets. The OpenInference keys (prompt_details.*) are the
                     # verified path for Anthropic/OpenAI and MUST be listed first —
                     # they are the same family as llm.token_count.prompt (read above).
@@ -472,6 +480,10 @@ def transform_otel_to_clickhouse(
                             # pydantic-ai version variants (names differ by release):
                             "gen_ai.usage.cache_read_tokens",
                             "gen_ai.usage.details.cache_read_input_tokens",
+                            # Vercel AI SDK: cache detail is NEVER normalized to
+                            # llm.*/gen_ai.* — it exists only under ai.usage.*:
+                            "ai.usage.cachedInputTokens",
+                            "ai.usage.inputTokenDetails.cacheReadTokens",
                         ],
                     )
                     api_cache_write_tokens = first_present_number(
@@ -483,6 +495,8 @@ def transform_otel_to_clickhouse(
                             "gen_ai.usage.details.cache_write_tokens",
                             # pydantic-ai version variant:
                             "gen_ai.usage.details.cache_creation_input_tokens",
+                            # Vercel AI SDK raw attr (never normalized upstream):
+                            "ai.usage.inputTokenDetails.cacheWriteTokens",
                         ],
                     )
                     # Reasoning tokens (o-series / GPT-5): a SUBSET of output
@@ -495,6 +509,9 @@ def transform_otel_to_clickhouse(
                             "gen_ai.usage.reasoning_tokens",
                             "gen_ai.usage.output_details.reasoning_tokens",
                             "gen_ai.usage.details.reasoning_tokens",
+                            # Vercel AI SDK raw attrs (aliases of the same value):
+                            "ai.usage.outputTokenDetails.reasoningTokens",
+                            "ai.usage.reasoningTokens",
                         ],
                     )
 
