@@ -250,6 +250,14 @@ class TestDeterministicSampling:
         assert dt._sample_passes(TRACE, "det-1", 100) is True
         assert dt._sample_passes(TRACE, "det-1", 0) is False
 
+    def test_none_rate_never_samples(self):
+        assert dt._sample_passes(TRACE, "det-1", None) is False
+
+    def test_out_of_range_rate_is_clamped(self):
+        # Negative clamps to 0 (never), above 100 clamps to 100 (always).
+        assert dt._sample_passes(TRACE, "det-1", -5) is False
+        assert dt._sample_passes(TRACE, "det-1", 150) is True
+
     def test_distribution_close_to_rate(self):
         n = 2000
         hits = sum(dt._sample_passes(f"trace-{i}", "det-x", 30) for i in range(n))
