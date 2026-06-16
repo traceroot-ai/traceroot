@@ -52,15 +52,37 @@ def _get_redis():
 
 
 def _lock_key(project_id: str, trace_id: str) -> str:
-    """Redis key for the per-trace enqueue claim (the NX dedup marker)."""
+    """Build the Redis key for the per-trace enqueue claim (the NX dedup marker).
+
+    The key — not its value — is the exactly-once guard: a single ``SET NX`` on
+    it decides which batch is allowed to enqueue detection for the trace.
+
+    Args:
+        project_id (str): Project that owns the trace.
+        trace_id (str): Trace being claimed for enqueue.
+
+    Returns:
+        str: The namespaced Redis key for this ``(project, trace)`` claim.
+    """
     return f"detector-enq:{project_id}:{trace_id}"
 
 
 def _release_lock_if_value(redis_client, key: str, expected: str) -> None:
-    """Delete the lock only if it still holds ``expected`` (token-checked release).
+    """Delete the enqueue lock only if it still holds ``expected`` (token-checked release).
 
-    Stops a failing attempt from deleting state written by a successor, which
-    would break exactly-once. See ``_RELEASE_IF_VALUE_LUA``.
+    Runs a Lua compare-and-delete (see ``_RELEASE_IF_VALUE_LUA``) so a failing
+    attempt only ever clears the value it itself wrote. Without the token check
+    a slow failure could delete state a successor batch had already claimed,
+    breaking the exactly-once enqueue guarantee.
+
+    Args:
+        redis_client (redis.Redis): Redis client connected to the Celery broker.
+        key (str): The per-trace lock key from :func:`_lock_key`.
+        expected (str): The exact lock value this attempt wrote; the delete is a
+            no-op unless the current value still matches it.
+
+    Returns:
+        None.
     """
     redis_client.eval(_RELEASE_IF_VALUE_LUA, 1, key, expected)
 
@@ -72,14 +94,16 @@ def _sample_passes(trace_id: str, detector_id: str, sample_rate: float | None) -
     across batches and Celery retries — a replay can never re-roll the dice.
 
     Args:
-        trace_id: Trace being considered.
-        detector_id: Detector whose sampling is being rolled.
-        sample_rate: Detector sample rate as a percentage. The schema constrains
-            this to an int in 1-100, but it is read straight from the DB, so we
-            guard against a missing or out-of-range value rather than trust it.
+        trace_id (str): Trace being considered.
+        detector_id (str): Detector whose sampling is being rolled.
+        sample_rate (float | None): Detector sample rate as a percentage. The
+            schema constrains this to an int in 1-100, but it is read straight
+            from the DB, so we guard against a missing or out-of-range value
+            rather than trust it.
 
     Returns:
-        True if this (trace, detector) pair falls within the sampled fraction.
+        bool: True if this ``(trace, detector)`` pair falls within the sampled
+            fraction, False otherwise.
     """
     # Guard the externally-sourced rate: None / <= 0 never samples, >= 100
     # always samples; only a value strictly inside (0, 100) rolls the hash.
@@ -95,10 +119,21 @@ def _sample_passes(trace_id: str, detector_id: str, sample_rate: float | None) -
 
 
 def _add_bullmq_job(job_id: str, data: dict) -> None:
-    """Add a delayed job via the official BullMQ client (jobId gives dedup).
+    """Enqueue one delayed detection job via the official BullMQ client.
 
-    bullmq's API is asyncio; this runs from Celery task context where no loop
-    is running, so wrap the add in asyncio.run().
+    The ``job_id`` is BullMQ's dedup handle: re-adding the same id is a no-op, so
+    a replayed enqueue can never create a second job for the trace. bullmq's API
+    is asyncio while this runs from synchronous Celery task context with no
+    running loop, so the add is wrapped in ``asyncio.run()``.
+
+    Args:
+        job_id (str): Deterministic job id (``"{project}--{trace}"``) BullMQ uses
+            to dedup repeated adds for the same trace.
+        data (dict): Job payload handed to the worker — ``traceId``,
+            ``detectorIds`` and ``projectId``.
+
+    Returns:
+        None.
     """
     from bullmq import Queue
 
@@ -258,18 +293,19 @@ def _claim_and_enqueue(
     enqueue exactly-once.
 
     Args:
-        redis_client: Redis client for the NX claim and token-checked release.
-        project_id: Project that owns the trace.
-        trace_id: Trace whose root span arrived in this batch.
-        detectors: Active detectors, each a dict with ``id``, ``sample_rate``
-            and ``conditions``.
-        summary: Trace summary fields used for trigger evaluation (e.g.
+        redis_client (redis.Redis): Redis client for the NX claim and
+            token-checked release.
+        project_id (str): Project that owns the trace.
+        trace_id (str): Trace whose root span arrived in this batch.
+        detectors (list[dict]): Active detectors, each a dict with ``id``,
+            ``sample_rate`` and ``conditions``.
+        summary (dict): Trace summary fields used for trigger evaluation (e.g.
             ``environment``).
 
     Returns:
-        None. On an enqueue failure the lock value this attempt wrote is
-        released (so a later batch can re-claim) and the error is re-raised to
-        the caller, which logs it per-trace without breaking ingestion.
+        None: On an enqueue failure the lock value this attempt wrote is
+            released (so a later batch can re-claim) and the error is re-raised
+            to the caller, which logs it per-trace without breaking ingestion.
     """
     # The lock's JSON payload (state/token/detector_ids) is diagnostic only —
     # nothing reads it back now that re-eval is gone; the key is purely an NX

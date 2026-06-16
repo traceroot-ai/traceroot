@@ -547,9 +547,22 @@ async def list_detector_findings(
     dependencies=[Depends(verify_internal_secret)],
 )
 async def get_trace_findings(trace_id: str, project_id: str):
-    """List all detector findings for a specific trace.
+    """List all detector findings recorded for a single trace.
 
-    FINAL collapses pre-merge ReplacingMergeTree duplicates.
+    Queries the ``detector_findings`` table with ``FINAL`` so pre-merge
+    ReplacingMergeTree duplicates (a finding can be re-written under the same
+    deterministic ``finding_id`` on a retry) collapse to one row per finding.
+    Timestamps are normalised to ISO-8601 strings for JSON serialisation.
+
+    Args:
+        trace_id (str): Trace whose findings to return.
+        project_id (str): Project that owns the trace; scopes the query.
+
+    Returns:
+        dict: ``{"findings": list[dict]}`` ordered newest-first, each finding a
+            dict of ``finding_id``, ``project_id``, ``trace_id``, ``summary``,
+            ``payload`` and ISO-8601 ``timestamp``. The list is empty when the
+            trace has no findings.
     """
     ch = get_clickhouse_client()
     result = ch.query(
