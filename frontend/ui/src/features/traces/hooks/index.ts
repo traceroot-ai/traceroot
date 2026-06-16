@@ -16,6 +16,25 @@ export { useTraceListState } from "./use-trace-list-state";
 export { useTraceStream } from "./use-trace-stream";
 
 /**
+ * Canonical React Query key for the paginated traces list. Exported so the
+ * hover-prefetch and the useTraces hook key identically — a drift here would
+ * silently cache prefetched pages under a key the hook never reads.
+ */
+export function tracesQueryKey(projectId: string, options: TraceQueryOptions = {}) {
+  return [
+    "traces",
+    projectId,
+    options.page,
+    options.limit,
+    options.search_query,
+    options.start_after,
+    options.end_before,
+    options.user_id,
+    options.session_id,
+  ] as const;
+}
+
+/**
  * Hook for fetching paginated traces list
  */
 export function useTraces(
@@ -32,17 +51,7 @@ export function useTraces(
     ? { id: authSession.user.id, email: authSession.user.email }
     : undefined;
   return useQuery({
-    queryKey: [
-      "traces",
-      projectId,
-      options.page,
-      options.limit,
-      options.search_query,
-      options.start_after,
-      options.end_before,
-      options.user_id,
-      options.session_id,
-    ],
+    queryKey: tracesQueryKey(projectId, options),
     queryFn: () => getTraces(projectId, "", options, user),
     enabled: sessionReady && !!projectId,
     ...queryOptions,
