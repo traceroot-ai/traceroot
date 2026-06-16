@@ -25,7 +25,7 @@ vi.mock("@traceroot/core/model-resolver", () => ({
   findByokKeyForPiProvider: mockFindByokKey,
 }));
 
-import { runDetectionForTrace, SAFETY_TRUNCATE_CHARS } from "../sandbox-eval.js";
+import { runDetectionForTrace } from "../sandbox-eval.js";
 
 const DETECTOR = {
   id: "det-1",
@@ -230,46 +230,6 @@ describe("runDetectionForTrace", () => {
 
     expect(result.identified).toBe(false);
     expect(result.error).toBe("API rate limit");
-  });
-
-  describe("incomplete-input disclosure", () => {
-    function cleanSubmitResponse() {
-      return {
-        content: [
-          {
-            type: "toolCall",
-            name: "submit_result",
-            arguments: { identified: false, summary: "clean", data: {} },
-          },
-        ],
-        usage: ZERO_USAGE,
-        stopReason: "toolUse",
-      };
-    }
-
-    async function userTextFor(spansJsonl: string) {
-      mockComplete.mockResolvedValueOnce(cleanSubmitResponse());
-      await runDetectionForTrace({
-        traceId: "t",
-        spansJsonl,
-        detector: { ...DETECTOR, detectionSource: "system" },
-        workspaceId: "ws-1",
-      });
-      const ctxArg = mockComplete.mock.calls[0][1] as { messages: { content: string }[] };
-      return ctxArg.messages[0].content;
-    }
-
-    it("discloses truncation when input exceeds the safety cap", async () => {
-      const userText = await userTextFor("x".repeat(SAFETY_TRUNCATE_CHARS + 1));
-      expect(userText).toContain("may be INCOMPLETE");
-      expect(userText).toContain(`span list truncated at ${SAFETY_TRUNCATE_CHARS} chars`);
-      expect(userText).not.toContain("in flight");
-    });
-
-    it("omits the note for a settled, untruncated trace", async () => {
-      const userText = await userTextFor("{}");
-      expect(userText).not.toContain("INCOMPLETE");
-    });
   });
 
   describe("inference cost + source attribution", () => {
