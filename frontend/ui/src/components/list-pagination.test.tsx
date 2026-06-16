@@ -56,4 +56,24 @@ describe("ListPagination", () => {
     expect(onPageChange).not.toHaveBeenCalled();
     expect(input.value).toBe("8");
   });
+
+  it("clamps an out-of-range page number on blur", () => {
+    const onPageChange = vi.fn();
+    render(
+      <ListPagination
+        page={0}
+        limit={50}
+        total={500}
+        onPageChange={onPageChange}
+        onLimitChange={vi.fn()}
+      />,
+    ); // 500 / 50 = 10 total pages
+
+    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "9999" } });
+    fireEvent.blur(input);
+
+    expect(onPageChange).toHaveBeenCalledWith(9); // clamped to last page (0-indexed: page 10 → index 9)
+    expect(input.value).toBe("10"); // input reflects the clamped value, not 9999
+  });
 });
