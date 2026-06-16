@@ -101,6 +101,16 @@ export default function DetectorDetailPage() {
     }
   }
 
+  const handleDetectorsClick = () => {
+    const returnUrl = sessionStorage.getItem("detectorsReturnUrl");
+    if (returnUrl) {
+      sessionStorage.removeItem("detectorsReturnUrl");
+      router.push(returnUrl);
+    } else {
+      router.push(`/projects/${projectId}/detectors`);
+    }
+  };
+
   return (
     <div className="relative flex h-full text-[13px]">
       <ProjectBreadcrumb projectId={projectId} />
@@ -110,7 +120,7 @@ export default function DetectorDetailPage() {
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <button
             type="button"
-            onClick={() => router.push(`/projects/${projectId}/detectors`)}
+            onClick={handleDetectorsClick}
             className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
           >
             Detectors
