@@ -6,7 +6,7 @@ import { ChevronRight, Flag, History } from "lucide-react";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import { formatDate, cn } from "@/lib/utils";
+import { formatDate, cn, buildUrlWithFilters } from "@/lib/utils";
 import { useDetector } from "@/features/detectors/hooks/use-detectors";
 import {
   useFindings,
@@ -48,7 +48,17 @@ export default function DetectorDetailPage() {
     updateKeyword,
     updateLimit,
     goToPage,
-  } = useListPageState();
+  } = useListPageState({ defaultDateFilterId: "14d" });
+
+  // Carry the selected range back to the list (and into the breadcrumb) so the
+  // detectors section keeps one consistent time range across navigation, the
+  // same way the Traces tabs propagate it through the URL.
+  const buildUrl = (path: string) =>
+    buildUrlWithFilters(path, {
+      dateFilter: state.dateFilter,
+      customStartDate: state.customStartDate,
+      customEndDate: state.customEndDate,
+    });
 
   const { data: detector } = useDetector(projectId, detectorId);
 
@@ -110,7 +120,7 @@ export default function DetectorDetailPage() {
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <button
             type="button"
-            onClick={() => router.push(`/projects/${projectId}/detectors`)}
+            onClick={() => router.push(buildUrl(`/projects/${projectId}/detectors`))}
             className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
           >
             Detectors
