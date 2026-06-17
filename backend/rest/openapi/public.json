@@ -141,10 +141,12 @@
         "description": "Response for trace ingestion.",
         "properties": {
           "file_key": {
+            "description": "Storage key of the buffered OTLP payload, used for async processing.",
             "title": "File Key",
             "type": "string"
           },
           "status": {
+            "description": "Ingestion status. `ok` when the payload was accepted.",
             "title": "Status",
             "type": "string"
           }
@@ -1043,7 +1045,7 @@
             "BearerAuth": []
           }
         ],
-        "summary": "Ingest Traces",
+        "summary": "Ingest OTLP traces",
         "tags": [
           "Traces (Public)"
         ]

@@ -143,7 +143,10 @@
             "openapi": "api-reference/openapi.json",
             "pages": [
               "POST /api/v1/public/traces",
-              "GET /health"
+              "GET /api/v1/public/traces",
+              "GET /api/v1/public/traces/{trace_id}",
+              "GET /api/v1/public/traces/{trace_id}/export",
+              "GET /api/v1/public/whoami"
             ]
           }
         ]
