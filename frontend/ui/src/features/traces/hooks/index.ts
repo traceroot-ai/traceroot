@@ -1,7 +1,8 @@
 /**
  * Trace feature hooks
  */
-import { useQuery } from "@tanstack/react-query";
+import { useCallback } from "react";
+import { useQuery, keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 import { getTraces, getTrace, getSpanIO } from "@/lib/api";
 import { getSessions, getSession, type SessionDetailOptions } from "@/lib/api/sessions";
@@ -14,6 +15,29 @@ export { useTraceListState } from "./use-trace-list-state";
 
 // Live trace streaming
 export { useTraceStream } from "./use-trace-stream";
+
+/**
+ * Canonical React Query key for the paginated traces list. Exported so the
+ * hover-prefetch and the useTraces hook key identically — a drift here would
+ * silently cache prefetched pages under a key the hook never reads.
+ */
+export function tracesQueryKey(projectId: string, options: TraceQueryOptions = {}) {
+  return [
+    "traces",
+    projectId,
+    options.page,
+    options.limit,
+    options.search_query,
+    options.start_after,
+    options.end_before,
+    options.user_id,
+    options.session_id,
+  ] as const;
+}
+
+/** Traces are mostly append-only; a short stale window stops redundant refetches
+ *  on revisit and lets a hover-prefetched page actually "stick" before navigation. */
+export const TRACES_LIST_STALE_TIME_MS = 30_000;
 
 /**
  * Hook for fetching paginated traces list
@@ -32,19 +56,11 @@ export function useTraces(
     ? { id: authSession.user.id, email: authSession.user.email }
     : undefined;
   return useQuery({
-    queryKey: [
-      "traces",
-      projectId,
-      options.page,
-      options.limit,
-      options.search_query,
-      options.start_after,
-      options.end_before,
-      options.user_id,
-      options.session_id,
-    ],
+    queryKey: tracesQueryKey(projectId, options),
     queryFn: () => getTraces(projectId, "", options, user),
     enabled: sessionReady && !!projectId,
+    placeholderData: keepPreviousData,
+    staleTime: TRACES_LIST_STALE_TIME_MS,
     ...queryOptions,
   });
 }
@@ -143,6 +159,33 @@ export function useSessions(projectId: string, options: SessionQueryOptions = {}
     queryFn: () => getSessions(projectId, options, user),
     enabled: sessionReady && !!projectId,
   });
+}
+
+/**
+ * Returns a function that warms an adjacent traces page into the React Query
+ * cache. Wire to hover/focus of the pagination prev/next buttons so the click
+ * lands on a cache hit. No-op until auth + projectId are ready.
+ */
+export function usePrefetchTraces(projectId: string) {
+  const queryClient = useQueryClient();
+  const { data: authSession } = useAuthSession();
+  const user: TraceApiUser | undefined = authSession?.user
+    ? { id: authSession.user.id, email: authSession.user.email }
+    : undefined;
+
+  return useCallback(
+    (options: TraceQueryOptions = {}) => {
+      if (!projectId || !user) return;
+      queryClient.prefetchQuery({
+        queryKey: tracesQueryKey(projectId, options),
+        queryFn: () => getTraces(projectId, "", options, user),
+        staleTime: TRACES_LIST_STALE_TIME_MS,
+      });
+    },
+    // `user` is a fresh object literal each render; key off its stable id/email
+    // so the callback isn't rebuilt every render.
+    [queryClient, projectId, user?.id, user?.email], // eslint-disable-line react-hooks/exhaustive-deps
+  );
 }
 
 /**

@@ -13,6 +13,8 @@ interface ListPaginationProps {
   onPageChange: (page: number) => void;
   onLimitChange: (limit: number) => void;
   itemsPerPageOptions?: number[];
+  /** Warm an adjacent page on hover/focus of the prev/next buttons. */
+  onPrefetchPage?: (page: number) => void;
 }
 
 const DEFAULT_OPTIONS = [50, 100, 200];
@@ -29,6 +31,7 @@ export function ListPagination({
   onPageChange,
   onLimitChange,
   itemsPerPageOptions = DEFAULT_OPTIONS,
+  onPrefetchPage,
 }: ListPaginationProps) {
   const [itemsPerPageOpen, setItemsPerPageOpen] = useState(false);
 
@@ -60,6 +63,12 @@ export function ListPagination({
     } else {
       setPageState(String(page + 1)); // Reset to current page if invalid input
     }
+  };
+
+  const prefetchPage = (target: number) => {
+    if (!onPrefetchPage) return;
+    if (target < 0 || target > totalPages - 1 || target === page) return;
+    onPrefetchPage(target);
   };
 
   return (
@@ -128,7 +137,10 @@ export function ListPagination({
         <Button
           variant="outline"
           size="sm"
+          aria-label="Previous page"
           onClick={() => onPageChange(Math.max(0, page - 1))}
+          onMouseEnter={() => prefetchPage(page - 1)}
+          onFocus={() => prefetchPage(page - 1)}
           disabled={page === 0}
           className="h-7 w-7 p-0"
         >
@@ -137,7 +149,10 @@ export function ListPagination({
         <Button
           variant="outline"
           size="sm"
+          aria-label="Next page"
           onClick={() => onPageChange(page + 1)}
+          onMouseEnter={() => prefetchPage(page + 1)}
+          onFocus={() => prefetchPage(page + 1)}
           disabled={page >= totalPages - 1}
           className="h-7 w-7 p-0"
         >

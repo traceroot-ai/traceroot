@@ -19,7 +19,7 @@ import {
   buildUrlWithFilters,
 } from "@/lib/utils";
 import type { TraceListItem } from "@/types/api";
-import { useTraces } from "@/features/traces/hooks";
+import { useTraces, usePrefetchTraces } from "@/features/traces/hooks";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
@@ -78,6 +78,8 @@ export default function TracesPage() {
     },
     { refetchInterval: autoRefresh ? 5000 : false },
   );
+
+  const prefetchTraces = usePrefetchTraces(projectId);
 
   // Check if project has EVER sent traces (no date filter) — controls onboarding visibility.
   // staleTime: Infinity because once a project has traces it always will (immutable fact).
@@ -349,6 +351,12 @@ export default function TracesPage() {
                 total={total}
                 onPageChange={goToPage}
                 onLimitChange={updateLimit}
+                onPrefetchPage={
+                  autoRefresh
+                    ? undefined
+                    : (p) =>
+                        prefetchTraces({ ...queryOptions, user_id: userId || undefined, page: p })
+                }
               />
             </div>
           )}
