@@ -145,12 +145,11 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
         # duplicate root delivery. Batches without the root span are ignored
         # here; the worker waits out the quiescence window before evaluating,
         # so late spans need no enqueue.
-        if traces or spans:
+        if traces_with_root:
             try:
                 from worker.detector_tasks import enqueue_detector_runs
 
-                trace_ids = list({t["trace_id"] for t in traces} | {s["trace_id"] for s in spans})
-                enqueue_detector_runs(project_id, trace_ids, traces_with_root)
+                enqueue_detector_runs(project_id, traces_with_root)
             except Exception as e:
                 logger.error(f"Failed to call detector tasks: {e}", exc_info=True)
 

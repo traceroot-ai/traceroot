@@ -96,10 +96,10 @@ class TestProcessS3Traces:
         assert result["traces"] == 2
         assert result["spans"] == 3
 
-    def test_detector_enqueue_gets_batch_and_root_trace_ids(
+    def test_detector_enqueue_gets_only_root_bearing_traces(
         self, mock_s3, mock_ch, mock_detector_enqueue
     ):
-        """Enqueue receives the full batch trace-id set plus which traces carried a root."""
+        """Enqueue receives only the traces whose root span arrived in this batch."""
         root_trace = "aa" * 16
         late_trace = "bb" * 16
         payload = make_otel_payload(
@@ -115,9 +115,9 @@ class TestProcessS3Traces:
         process_s3_traces(s3_key="test/key.json", project_id="proj-1")
 
         mock_detector_enqueue.assert_called_once()
-        project_id, trace_ids, traces_with_root = mock_detector_enqueue.call_args[0]
+        project_id, traces_with_root = mock_detector_enqueue.call_args[0]
         assert project_id == "proj-1"
-        assert sorted(trace_ids) == sorted([root_trace, late_trace])
+        # Only the root-bearing trace is passed; the child-only late_trace is not.
         assert traces_with_root == {root_trace}
 
     def test_detector_enqueue_not_called_for_empty_batch(
