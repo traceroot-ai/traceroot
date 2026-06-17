@@ -53,13 +53,13 @@ import { handleDetectorRunJob, processTrace } from "../detector-run-processor.js
 
 const BASE_JOB: DetectorRunJob = { traceId: "t1", detectorIds: ["d1"], projectId: "p1" };
 
-/** Make the settle-status fetch report `seconds` of quiet; spans-jsonl returns `spans`. */
-function mockFetches(seconds: number, spans = "") {
+/** Make the settle-status fetch report `ms` of quiet; spans-jsonl returns `spans`. */
+function mockFetches(ms: number, spans = "") {
   mockFetch.mockImplementation((url: string) => {
     if (String(url).includes("/settle-status")) {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ last_arrival_age_seconds: seconds }),
+        json: () => Promise.resolve({ last_arrival_age_ms: ms }),
       });
     }
     return Promise.resolve({ ok: true, text: () => Promise.resolve(spans) });
@@ -89,7 +89,7 @@ beforeEach(() => {
 
 describe("handleDetectorRunJob — quiescence gate", () => {
   it("evaluates when the trace has been quiet >= EVALUATOR_DELAY", async () => {
-    mockFetches(60); // 60s == 60_000ms
+    mockFetches(60_000); // quiet 60s == EVALUATOR_DELAY
     const job = makeJob();
     await handleDetectorRunJob(job);
     expect(job.moveToDelayed).not.toHaveBeenCalled();
@@ -101,7 +101,7 @@ describe("handleDetectorRunJob — quiescence gate", () => {
   });
 
   it("re-delays to exactly EVALUATOR_DELAY after the last span when not quiet", async () => {
-    mockFetches(21); // quiet 21s → re-check in 39s
+    mockFetches(21_000); // quiet 21s → re-check in 39s
     const job = makeJob();
     const before = Date.now();
     await expect(handleDetectorRunJob(job, "tok")).rejects.toBeInstanceOf(DelayedError);
@@ -132,7 +132,7 @@ describe("handleDetectorRunJob — quiescence gate", () => {
 
 describe("processTrace — finding + RCA", () => {
   it("writes a finding, runs, and an RCA job when a detector triggers", async () => {
-    mockFetches(60, '{"span":1}\n');
+    mockFetches(60_000, '{"span":1}\n');
     mockPrisma.detector.findMany.mockResolvedValue([
       {
         id: "d1",
@@ -167,7 +167,7 @@ describe("processTrace — finding + RCA", () => {
   });
 
   it("writes no finding when nothing triggers", async () => {
-    mockFetches(60, '{"span":1}\n');
+    mockFetches(60_000, '{"span":1}\n');
     mockPrisma.detector.findMany.mockResolvedValue([
       {
         id: "d1",
