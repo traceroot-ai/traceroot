@@ -17,6 +17,14 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => ({ get: (key: string) => mocks.searchParam(key) }),
 }));
 
+vi.mock("@/components/layout/app-layout", () => ({
+  useLayout: () => ({
+    setAiPanelOpen: mocks.setAiPanelOpen,
+    setAiContext: mocks.setAiContext,
+    setAiInitialSessionId: mocks.setAiInitialSessionId,
+  }),
+}));
+
 // Controlled list state so the test asserts the exact range carried back to the list.
 vi.mock("@/lib/hooks/use-list-page-state", () => ({
   useListPageState: () => ({
@@ -32,14 +40,6 @@ vi.mock("@/lib/hooks/use-list-page-state", () => ({
 
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
   useDetector: () => ({ data: { name: "My Detector" } }),
-}));
-
-vi.mock("@/components/layout/app-layout", () => ({
-  useLayout: () => ({
-    setAiPanelOpen: mocks.setAiPanelOpen,
-    setAiContext: mocks.setAiContext,
-    setAiInitialSessionId: mocks.setAiInitialSessionId,
-  }),
 }));
 
 // Both tabs are the same table: the page calls useRuns twice — once with
@@ -139,15 +139,16 @@ afterEach(() => {
   mocks.useRuns.mockImplementation(defaultUseRuns);
   mocks.searchParam.mockReset();
   mocks.searchParam.mockReturnValue(null);
+  mocks.setAiPanelOpen.mockClear();
+  mocks.setAiContext.mockClear();
+  mocks.setAiInitialSessionId.mockClear();
 });
 
 describe("DetectorDetailPage", () => {
   it("carries the selected time range back to the list via the Detectors link", () => {
     mocks.useRuns.mockImplementation(defaultUseRuns);
     render(<DetectorDetailPage />);
-
     fireEvent.click(screen.getByRole("button", { name: "Detectors" }));
-
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors?date_filter=7d");
   });
 
