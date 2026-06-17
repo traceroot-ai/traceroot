@@ -416,13 +416,8 @@ async def get_spans_jsonl(trace_id: str, project_id: str):
     return PlainTextResponse("\n".join(lines))
 
 
-class TraceSettleStatusResponse(BaseModel):
-    last_arrival_age_seconds: float
-
-
 @router.get(
     "/traces/{trace_id}/settle-status",
-    response_model=TraceSettleStatusResponse,
     dependencies=[Depends(verify_internal_secret)],
 )
 async def get_trace_settle_status(trace_id: str, project_id: str):
@@ -445,7 +440,7 @@ async def get_trace_settle_status(trace_id: str, project_id: str):
     )
     row = agg.result_rows[0] if agg.result_rows else None
     age = float(row[0]) if row and row[0] is not None else 0.0
-    return TraceSettleStatusResponse(last_arrival_age_seconds=age)
+    return {"last_arrival_age_seconds": age}
 
 
 @router.get(
