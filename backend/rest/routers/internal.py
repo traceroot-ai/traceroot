@@ -427,6 +427,15 @@ async def get_trace_settle_status(trace_id: str, project_id: str):
     evaluating (a quiescence debounce). The age is computed inside ClickHouse
     (now64() vs max(ch_create_time)) to avoid clock skew between services. An
     empty trace reports age 0, i.e. "not quiet yet".
+
+    Args:
+        trace_id (str): Trace whose quiet duration to report.
+        project_id (str): Project that owns the trace; scopes the query.
+
+    Returns:
+        dict: ``{"last_arrival_age_seconds": float}`` — seconds since the most
+            recent span of the trace was ingested, clamped to >= 0; 0.0 when the
+            trace has no spans yet.
     """
     ch = get_clickhouse_client()
 
