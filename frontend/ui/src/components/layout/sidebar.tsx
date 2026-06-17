@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useParams, usePathname } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { useTheme } from "next-themes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   LayoutGrid,
+  LayoutDashboard,
   LifeBuoy,
   ChevronRight,
   Github,
@@ -22,18 +23,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 import { GitHubStarWidget } from "@/components/layout/GitHubStarWidget";
+import { SidebarUpgradeButton } from "@/components/layout/SidebarUpgradeButton";
+import { getProjectContext } from "@/components/layout/project-context";
 import { clientEnv } from "@/env.client";
-
-// Check if we're in a project context by looking at the path structure
-function getProjectContext(pathname: string): { isProject: boolean; projectId: string | null } {
-  // Check if path starts with /projects/[projectId]
-  const projectMatch = pathname.match(/^\/projects\/([^/]+)/);
-  if (projectMatch) {
-    return { isProject: true, projectId: projectMatch[1] };
-  }
-
-  return { isProject: false, projectId: null };
-}
 
 function getInitials(name?: string | null, email?: string | null): string {
   if (name) {
@@ -58,6 +50,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
   const { data: sessionData } = authClient.useSession();
   const isImpersonating = !!sessionData?.session?.impersonatedBy;
   const { theme, setTheme } = useTheme();
+  const params = useParams<{ projectId?: string; workspaceId?: string }>();
 
   // Don't show sidebar on auth pages
   if (pathname.startsWith("/auth/")) {
@@ -68,15 +61,25 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
   const initials = getInitials(user?.name, user?.email);
   const displayName = user?.name || user?.email?.split("@")[0] || "User";
 
-  // Get project context
-  const { isProject, projectId } = getProjectContext(pathname);
+  // Project/workspace context from the matched dynamic route params
+  const projectId = params?.projectId ?? null;
+  const workspaceId = params?.workspaceId ?? null;
+  const { isProject } = getProjectContext(pathname);
+
+  // Settings target depends on context: project settings inside a project,
+  // workspace settings inside a workspace, hidden elsewhere
+  const settingsHref = projectId
+    ? `/projects/${projectId}/settings`
+    : workspaceId
+      ? `/workspaces/${workspaceId}/settings`
+      : null;
 
   return (
     <TooltipProvider delayDuration={0}>
       <div
         className={cn(
           "flex h-screen shrink-0 flex-col border-r bg-background transition-all duration-200",
-          collapsed ? "w-14" : "w-40",
+          collapsed ? "w-14" : "w-48",
         )}
       >
         {isImpersonating && (
@@ -124,13 +127,20 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
         >
           <Link href="/" className="flex items-center gap-2">
             <Logo />
-            {!collapsed && <span className="font-semibold">TraceRoot</span>}
+            {!collapsed && (
+              <>
+                <span className="font-semibold">TraceRoot</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  {process.env.NEXT_PUBLIC_APP_VERSION}
+                </span>
+              </>
+            )}
           </Link>
         </div>
 
         {/* Navigation */}
         <nav className="flex-1">
-          {isProject && projectId ? (
+          {projectId ? (
             // Project context navigation
             <>
               <Tooltip>
@@ -173,6 +183,26 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                   </TooltipContent>
                 )}
               </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/projects/${projectId}/dashboard`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.includes("/dashboard") ? "bg-muted" : "hover:bg-muted/50",
+                    )}
+                  >
+                    <LayoutDashboard className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && "Dashboard"}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    Dashboard
+                  </TooltipContent>
+                )}
+              </Tooltip>
             </>
           ) : (
             // Default navigation (Workspaces)
@@ -183,7 +213,8 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                   className={cn(
                     "flex items-center gap-2 py-2 text-[13px] transition-colors",
                     collapsed ? "justify-center px-2" : "px-3",
-                    pathname === "/workspaces" || pathname.startsWith("/workspaces/")
+                    (pathname === "/workspaces" || pathname.startsWith("/workspaces/")) &&
+                      !pathname.includes("/settings")
                       ? "bg-muted"
                       : "hover:bg-muted/50",
                   )}
@@ -205,6 +236,11 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
         <div>
           {/* Star widget */}
           {!collapsed && <GitHubStarWidget />}
+
+          {/* Upgrade button - only show when in project context */}
+          {isProject && projectId && (
+            <SidebarUpgradeButton projectId={projectId} collapsed={collapsed} />
+          )}
 
           {/* GitHub link */}
           <Tooltip>
@@ -229,12 +265,12 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
             )}
           </Tooltip>
 
-          {/* Settings - only show when in project context */}
-          {isProject && projectId && (
+          {/* Settings - only show when in a project or workspace context */}
+          {settingsHref && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Link
-                  href={`/projects/${projectId}/settings`}
+                  href={settingsHref}
                   className={cn(
                     "flex w-full items-center gap-2 py-2 text-[13px] transition-colors",
                     collapsed ? "justify-center px-2" : "px-3",

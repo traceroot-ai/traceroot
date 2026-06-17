@@ -17,12 +17,3 @@ export interface ProjectCardProps {
   };
   workspaceId: string;
 }
-
-/**
- * Props for CreateProjectDialog component
- */
-export interface CreateProjectDialogProps {
-  workspaceId: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}

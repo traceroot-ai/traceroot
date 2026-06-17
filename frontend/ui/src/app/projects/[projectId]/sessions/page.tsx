@@ -12,7 +12,14 @@ import { SessionDetailPanel } from "@/features/traces/components/SessionDetailPa
 import { useSessions } from "@/features/traces/hooks";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useSession as useAuthSession } from "@/lib/auth-client";
-import { formatDate, formatCost, formatTokens, cn, buildUrlWithFilters } from "@/lib/utils";
+import {
+  formatDate,
+  formatCost,
+  formatTokens,
+  formatExactTokens,
+  cn,
+  buildUrlWithFilters,
+} from "@/lib/utils";
 import type { SessionListItem, SessionQueryOptions } from "@/types/api";
 
 const tabs = [
@@ -192,7 +199,7 @@ export default function SessionsPage() {
                           {(session.total_input_tokens ?? 0) + (session.total_output_tokens ?? 0) >
                           0 ? (
                             <span
-                              title={`${(session.total_input_tokens ?? 0).toLocaleString()} / ${(session.total_output_tokens ?? 0).toLocaleString()}`}
+                              title={`${formatExactTokens(session.total_input_tokens)} / ${formatExactTokens(session.total_output_tokens)}`}
                             >
                               {formatTokens(session.total_input_tokens ?? 0)} /{" "}
                               {formatTokens(session.total_output_tokens ?? 0)}

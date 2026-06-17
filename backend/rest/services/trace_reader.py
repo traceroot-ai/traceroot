@@ -4,6 +4,34 @@ from datetime import datetime
 
 from db.clickhouse import get_clickhouse_client
 from rest.sql_utils import escape_ilike, to_utc_naive
+from worker.tokens.buckets import TokenBuckets
+from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
+
+
+def span_cost_details(
+    model_name: str | None,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    usage_details: dict[str, int],
+) -> dict[str, float]:
+    """Per-category dollar breakdown for a stored span.
+
+    Rebuilds the disjoint token buckets from the stored GROSS input_tokens and the
+    cache counts in usage_details, then prices each bucket with the model's current
+    rates. Display-only: the values sum to the span's stored `cost` when rates are
+    unchanged. Returns {} when the model has no known prices.
+    """
+    if not model_name:
+        return {}
+    cache_read = int(usage_details.get("cache_read_tokens", 0) or 0)
+    cache_write = int(usage_details.get("cache_write_tokens", 0) or 0)
+    buckets = TokenBuckets(
+        input_uncached=max((input_tokens or 0) - cache_read - cache_write, 0),
+        output=output_tokens or 0,
+        cache_read=cache_read,
+        cache_write=cache_write,
+    )
+    return cost_breakdown_from_buckets(get_model_price(model_name), buckets) or {}
 
 
 class TraceReaderService:
@@ -59,43 +87,80 @@ class TraceReaderService:
 
         where_clause = " AND ".join(conditions)
 
-        # Query traces with span aggregates
-        # Use FINAL to deduplicate ReplacingMergeTree rows
+        # Page the traces FIRST (cheap: trace metadata only, deduped via LIMIT 1 BY
+        # instead of FINAL), then aggregate spans for ONLY that page's trace_ids.
+        # This avoids scanning/joining every span in the project on each list call,
+        # and never groups by the large input/output text columns. See #963.
         query = f"""
+            WITH page AS (
+                -- Dedup ReplacingMergeTree by latest ch_update_time FIRST (correctness),
+                -- THEN order by start time for pagination.
+                SELECT
+                    trace_id, project_id, name, trace_start_time,
+                    user_id, session_id, input, output
+                FROM (
+                    SELECT
+                        t.trace_id, t.project_id, t.name, t.trace_start_time,
+                        t.user_id, t.session_id, t.input, t.output
+                    FROM traces AS t
+                    WHERE {where_clause}
+                    ORDER BY t.ch_update_time DESC
+                    LIMIT 1 BY t.project_id, t.trace_id
+                )
+                ORDER BY trace_start_time DESC
+                LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
+            ),
+            span_agg AS (
+                SELECT
+                    trace_id,
+                    count(span_id) as span_count,
+                    if(
+                        min(span_start_time) IS NOT NULL AND max(span_end_time) IS NOT NULL,
+                        dateDiff('millisecond', min(span_start_time), max(span_end_time)),
+                        NULL
+                    ) as duration_ms,
+                    countIf(status = 'ERROR') as error_count,
+                    sum(input_tokens) as total_input_tokens,
+                    sum(output_tokens) as total_output_tokens,
+                    sum(cost) as total_cost
+                FROM (
+                    SELECT trace_id, span_id, status, span_start_time, span_end_time,
+                           input_tokens, output_tokens, cost
+                    FROM spans
+                    WHERE project_id = {{project_id:String}}
+                      AND trace_id IN (SELECT trace_id FROM page)
+                    ORDER BY ch_update_time DESC
+                    LIMIT 1 BY project_id, trace_id, span_id
+                )
+                GROUP BY trace_id
+            )
             SELECT
-                t.trace_id,
-                t.project_id,
-                t.name,
-                t.trace_start_time,
-                t.user_id,
-                t.session_id,
-                count(s.span_id) as span_count,
-                if(
-                    min(s.span_start_time) IS NOT NULL AND max(s.span_end_time) IS NOT NULL,
-                    dateDiff('millisecond', min(s.span_start_time), max(s.span_end_time)),
-                    NULL
-                ) as duration_ms,
-                if(countIf(s.status = 'ERROR') > 0, 'error', 'ok') as status,
-                t.input,
-                t.output,
-                sum(s.input_tokens) as total_input_tokens,
-                sum(s.output_tokens) as total_output_tokens,
-                sum(s.cost) as total_cost
-            FROM traces AS t FINAL
-            LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
-            WHERE {where_clause}
-            GROUP BY t.trace_id, t.project_id, t.name, t.trace_start_time, t.user_id, t.session_id, t.input, t.output
-            ORDER BY t.trace_start_time DESC
-            LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
+                p.trace_id,
+                p.project_id,
+                p.name,
+                p.trace_start_time,
+                p.user_id,
+                p.session_id,
+                sa.span_count,
+                sa.duration_ms,
+                sa.error_count,
+                p.input,
+                p.output,
+                sa.total_input_tokens,
+                sa.total_output_tokens,
+                sa.total_cost
+            FROM page AS p
+            LEFT JOIN span_agg AS sa ON p.trace_id = sa.trace_id
+            ORDER BY p.trace_start_time DESC
         """
 
         result = self._client.query(query, parameters=params)
         rows = result.result_rows
 
-        # Get total count
+        # Get total count (count(DISTINCT) dedupes ReplacingMergeTree rows; no FINAL)
         count_query = f"""
             SELECT count(DISTINCT t.trace_id)
-            FROM traces AS t FINAL
+            FROM traces AS t
             WHERE {where_clause}
         """
         count_result = self._client.query(count_query, parameters=params)
@@ -114,7 +179,7 @@ class TraceReaderService:
                     "session_id": row[5],
                     "span_count": row[6] or 0,
                     "duration_ms": float(row[7]) if row[7] is not None else None,
-                    "status": row[8],
+                    "error_count": int(row[8]) if row[8] is not None else 0,
                     "input": row[9],
                     "output": row[10],
                     "total_input_tokens": int(row[11]) if row[11] is not None else 0,
@@ -129,7 +194,17 @@ class TraceReaderService:
         }
 
     def get_trace(self, project_id: str, trace_id: str) -> dict | None:
-        """Get single trace with all spans."""
+        """Get single trace with span skeletons (no per-span I/O).
+
+        Returns trace metadata plus lightweight span skeletons that omit the
+        large free-text input/output/metadata blobs. This keeps the payload
+        sub-MB even for large traces. Per-span I/O is fetched on demand via
+        get_span_io(). Columnar storage means dropping those columns from the
+        SELECT avoids reading them entirely — no schema change needed.
+
+        Trace-level input/output/metadata (on the trace row) are kept: they're
+        small and already present.
+        """
         # Fetch trace
         trace_query = """
             SELECT
@@ -162,14 +237,17 @@ class TraceReaderService:
             "metadata": row[10],
         }
 
-        # Fetch spans. Duration is derived on the client from start/end so
-        # in-progress spans can grow against `now()` for live traces.
+        # Fetch span skeletons — omit the large input/output/metadata blobs to
+        # keep the payload lightweight (fetched per-span on demand instead).
+        # usage_details is kept (small map) to derive cost_details. Duration is
+        # derived on the client from start/end so in-progress spans can grow
+        # against `now()` for live traces.
         spans_query = """
             SELECT
                 span_id, trace_id, parent_span_id, name, span_kind,
                 span_start_time, span_end_time, status, status_message,
                 model_name, cost, input_tokens, output_tokens, total_tokens,
-                input, output, metadata,
+                usage_details,
                 git_source_file, git_source_line, git_source_function
             FROM spans FINAL
             WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
@@ -198,17 +276,54 @@ class TraceReaderService:
                     "input_tokens": int(row[11]) if row[11] is not None else None,
                     "output_tokens": int(row[12]) if row[12] is not None else None,
                     "total_tokens": int(row[13]) if row[13] is not None else None,
-                    "input": row[14],
-                    "output": row[15],
-                    "metadata": row[16],
-                    "git_source_file": row[17],
-                    "git_source_line": int(row[18]) if row[18] is not None else None,
-                    "git_source_function": row[19],
+                    "usage_details": dict(row[14]) if row[14] else {},
+                    "cost_details": span_cost_details(
+                        row[9],  # model_name
+                        int(row[11]) if row[11] is not None else None,  # input_tokens
+                        int(row[12]) if row[12] is not None else None,  # output_tokens
+                        dict(row[14]) if row[14] else {},  # usage_details
+                    ),
+                    "git_source_file": row[15],
+                    "git_source_line": int(row[16]) if row[16] is not None else None,
+                    "git_source_function": row[17],
                 }
             )
 
         trace["spans"] = spans
         return trace
+
+    def get_span_io(self, project_id: str, trace_id: str, span_id: str) -> dict | None:
+        """Fetch full input/output/metadata for a single span on demand.
+
+        Called when the user selects a span in the UI. Returns None when the
+        span does not exist (router translates that to a 404).
+        """
+        query = """
+            SELECT span_id, trace_id, input, output, metadata
+            FROM spans FINAL
+            WHERE project_id = {project_id:String}
+              AND trace_id = {trace_id:String}
+              AND span_id = {span_id:String}
+            LIMIT 1
+        """
+        result = self._client.query(
+            query,
+            parameters={
+                "project_id": project_id,
+                "trace_id": trace_id,
+                "span_id": span_id,
+            },
+        )
+        if not result.result_rows:
+            return None
+        row = result.result_rows[0]
+        return {
+            "span_id": row[0],
+            "trace_id": row[1],
+            "input": row[2],
+            "output": row[3],
+            "metadata": row[4],
+        }
 
     def list_sessions(
         self,
@@ -244,52 +359,87 @@ class TraceReaderService:
 
         where_clause = " AND ".join(conditions)
 
+        # Page the sessions FIRST (cheap: trace metadata only, deduped via LIMIT 1 BY
+        # instead of FINAL), then dedupe the traces for that page of sessions and
+        # aggregate spans for only those trace_ids. Avoids the full traces x spans
+        # FINAL join + group-by-on-text over the whole project on each call. See #963.
         query = f"""
-            SELECT
-                sub.session_id,
-                count(*) as trace_count,
-                groupUniqArray(sub.user_id) as user_ids,
-                min(sub.trace_start_time) as first_trace_time,
-                max(sub.trace_start_time) as last_trace_time,
-                sum(sub.trace_duration_ms) as duration_ms,
-                sum(sub.trace_input_tokens) as total_input_tokens,
-                sum(sub.trace_output_tokens) as total_output_tokens,
-                sum(sub.trace_cost) as total_cost,
-                argMin(sub.trace_input, sub.trace_start_time) as trace_input,
-                argMax(sub.trace_output, sub.trace_start_time) as trace_output
-            FROM (
+            WITH session_page AS (
+                SELECT t.session_id
+                FROM (
+                    SELECT t.session_id, t.trace_start_time
+                    FROM traces AS t
+                    WHERE {where_clause}
+                    ORDER BY t.ch_update_time DESC
+                    LIMIT 1 BY t.project_id, t.trace_id
+                ) AS t
+                GROUP BY t.session_id
+                ORDER BY max(t.trace_start_time) DESC
+                LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
+            ),
+            traces_dedup AS (
                 SELECT
-                    t.session_id,
-                    t.trace_id,
-                    t.trace_start_time,
-                    t.user_id,
-                    t.input as trace_input,
-                    t.output as trace_output,
+                    t.session_id, t.trace_id, t.trace_start_time, t.user_id,
+                    t.input as trace_input, t.output as trace_output
+                FROM traces AS t
+                WHERE {where_clause}
+                  AND t.session_id IN (SELECT session_id FROM session_page)
+                ORDER BY t.ch_update_time DESC
+                LIMIT 1 BY t.project_id, t.trace_id
+            ),
+            span_agg AS (
+                SELECT
+                    trace_id,
                     if(
-                        min(s.span_start_time) IS NOT NULL AND max(s.span_end_time) IS NOT NULL,
-                        dateDiff('millisecond', min(s.span_start_time), max(s.span_end_time)),
+                        min(span_start_time) IS NOT NULL AND max(span_end_time) IS NOT NULL,
+                        dateDiff('millisecond', min(span_start_time), max(span_end_time)),
                         NULL
                     ) as trace_duration_ms,
-                    sum(s.input_tokens) as trace_input_tokens,
-                    sum(s.output_tokens) as trace_output_tokens,
-                    sum(s.cost) as trace_cost
-                FROM traces AS t FINAL
-                LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
-                WHERE {where_clause}
-                GROUP BY t.session_id, t.trace_id, t.trace_start_time, t.user_id, t.input, t.output
-            ) AS sub
-            GROUP BY sub.session_id
+                    sum(input_tokens) as trace_input_tokens,
+                    sum(output_tokens) as trace_output_tokens,
+                    sum(cost) as trace_cost
+                FROM (
+                    SELECT trace_id, span_id, span_start_time, span_end_time,
+                           input_tokens, output_tokens, cost
+                    FROM spans
+                    WHERE project_id = {{project_id:String}}
+                      AND trace_id IN (SELECT trace_id FROM traces_dedup)
+                    ORDER BY ch_update_time DESC
+                    LIMIT 1 BY project_id, trace_id, span_id
+                )
+                GROUP BY trace_id
+            )
+            SELECT
+                td.session_id,
+                count(*) as trace_count,
+                groupUniqArray(td.user_id) as user_ids,
+                min(td.trace_start_time) as first_trace_time,
+                max(td.trace_start_time) as last_trace_time,
+                sum(sa.trace_duration_ms) as duration_ms,
+                sum(sa.trace_input_tokens) as total_input_tokens,
+                sum(sa.trace_output_tokens) as total_output_tokens,
+                sum(sa.trace_cost) as total_cost,
+                argMin(td.trace_input, td.trace_start_time) as trace_input,
+                argMax(td.trace_output, td.trace_start_time) as trace_output
+            FROM traces_dedup AS td
+            LEFT JOIN span_agg AS sa ON td.trace_id = sa.trace_id
+            GROUP BY td.session_id
             ORDER BY last_trace_time DESC
-            LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
         """
 
         result = self._client.query(query, parameters=params)
 
-        # Get total count of distinct sessions
+        # Total distinct sessions. Dedup traces to their latest version first (via
+        # LIMIT 1 BY) so a session_id changed across versions isn't double-counted.
         count_query = f"""
-            SELECT count(DISTINCT t.session_id)
-            FROM traces AS t FINAL
-            WHERE {where_clause}
+            SELECT count(DISTINCT session_id)
+            FROM (
+                SELECT t.session_id
+                FROM traces AS t
+                WHERE {where_clause}
+                ORDER BY t.ch_update_time DESC
+                LIMIT 1 BY t.project_id, t.trace_id
+            )
         """
         count_result = self._client.query(count_query, parameters=params)
         total = count_result.result_rows[0][0] if count_result.result_rows else 0
@@ -543,29 +693,77 @@ class TraceReaderService:
 
         where_clause = " AND ".join(conditions)
 
+        # Page the users FIRST (trace_count / last_trace_time come from traces alone,
+        # deduped via LIMIT 1 BY instead of FINAL), then sum span tokens/cost for only
+        # that page's users' traces. Avoids the full traces x spans FINAL join over the
+        # whole project on each call. See #963.
         query = f"""
+            WITH user_page AS (
+                SELECT
+                    user_id,
+                    count(DISTINCT trace_id) as trace_count,
+                    max(trace_start_time) as last_trace_time
+                FROM (
+                    SELECT t.user_id, t.trace_id, t.trace_start_time
+                    FROM traces AS t
+                    WHERE {where_clause}
+                    ORDER BY t.ch_update_time DESC
+                    LIMIT 1 BY t.project_id, t.trace_id
+                )
+                GROUP BY user_id
+                ORDER BY last_trace_time DESC
+                LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
+            ),
+            user_traces AS (
+                SELECT t.user_id, t.trace_id
+                FROM traces AS t
+                WHERE {where_clause}
+                  AND t.user_id IN (SELECT user_id FROM user_page)
+                ORDER BY t.ch_update_time DESC
+                LIMIT 1 BY t.project_id, t.trace_id
+            ),
+            span_totals AS (
+                SELECT
+                    ut.user_id,
+                    sum(s.input_tokens) as total_input_tokens,
+                    sum(s.output_tokens) as total_output_tokens,
+                    sum(s.cost) as total_cost
+                FROM user_traces AS ut
+                LEFT JOIN (
+                    SELECT trace_id, span_id, input_tokens, output_tokens, cost
+                    FROM spans
+                    WHERE project_id = {{project_id:String}}
+                      AND trace_id IN (SELECT trace_id FROM user_traces)
+                    ORDER BY ch_update_time DESC
+                    LIMIT 1 BY project_id, trace_id, span_id
+                ) AS s ON ut.trace_id = s.trace_id
+                GROUP BY ut.user_id
+            )
             SELECT
-                t.user_id,
-                count(DISTINCT t.trace_id) as trace_count,
-                max(t.trace_start_time) as last_trace_time,
-                sum(s.input_tokens) as total_input_tokens,
-                sum(s.output_tokens) as total_output_tokens,
-                sum(s.cost) as total_cost
-            FROM traces AS t FINAL
-            LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
-            WHERE {where_clause}
-            GROUP BY t.user_id
-            ORDER BY last_trace_time DESC
-            LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
+                up.user_id,
+                up.trace_count,
+                up.last_trace_time,
+                st.total_input_tokens,
+                st.total_output_tokens,
+                st.total_cost
+            FROM user_page AS up
+            LEFT JOIN span_totals AS st ON up.user_id = st.user_id
+            ORDER BY up.last_trace_time DESC
         """
 
         result = self._client.query(query, parameters=params)
 
-        # Get total count
+        # Total distinct users. Dedup traces to their latest version first (via
+        # LIMIT 1 BY) so a user_id changed across versions isn't double-counted.
         count_query = f"""
-            SELECT count(DISTINCT t.user_id)
-            FROM traces AS t FINAL
-            WHERE {where_clause}
+            SELECT count(DISTINCT user_id)
+            FROM (
+                SELECT t.user_id
+                FROM traces AS t
+                WHERE {where_clause}
+                ORDER BY t.ch_update_time DESC
+                LIMIT 1 BY t.project_id, t.trace_id
+            )
         """
         count_result = self._client.query(count_query, parameters=params)
         total = count_result.result_rows[0][0] if count_result.result_rows else 0

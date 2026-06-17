@@ -38,7 +38,9 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
   for (const span of spans) {
     if (!span.parent_span_id) continue;
 
-    const meta = parseMetadata(span.metadata);
+    // Skeleton spans omit metadata (parseMetadata(null|undefined) → {}); live
+    // SSE spans still carry it, so enrichment keeps working from live events.
+    const meta = parseMetadata(span.metadata ?? null);
     const idsPath = meta["traceroot.span.ids_path"] as string[] | undefined;
     const namePath = meta["traceroot.span.path"] as string[] | undefined;
 
@@ -103,6 +105,15 @@ export const TREE_LAYOUT = {
   LEFT_PADDING: 8, // Left padding before first icon
 } as const;
 
+// Row overscan: how many rows @tanstack/react-virtual renders beyond the
+// viewport on each side. Shared by both virtualized views (SpanTreeView +
+// SpanTimelineView) so the scroll-synced, row-aligned panels buffer identically
+// and never drift. A larger buffer means fewer blank-row flashes during fast /
+// momentum scrolling, at a small extra-DOM cost — and rows here are fixed-height
+// and cheap (~18 nodes each), so we keep a generous buffer. 26 rows ≈ 730px,
+// past the point of visible flashing on a quick fling.
+export const TREE_OVERSCAN_ROWS = 26;
+
 /**
  * Calculate span duration in milliseconds.
  * In-progress spans (no end_time) measure against now() so live bars grow.
@@ -115,27 +126,31 @@ export function getSpanDuration(span: Span): number | null {
 }
 
 /**
- * Calculate trace duration from all spans.
- * Prefer the root span's own start/end to avoid skew from child spans with
- * bad timestamps (e.g. LangGraph task spans). Falls back to min(start)..max(end)
- * across non-pending spans; in-progress spans measure against now() so live
- * traces grow.
+ * Calculate trace duration as the full span extent: max(end) − min(start)
+ * across all spans (in-progress spans measure against now() so live traces grow).
+ *
+ * We don't use the root span's own duration as the window: a root span can
+ * finish well before its descendants (e.g. a streaming handler that returns its
+ * response while work continues in the background), and dividing the timeline by
+ * that short duration pushes every child bar far past the viewport. The root
+ * duration is kept only as a floor so a still-open root doesn't collapse the
+ * window. Matches the backend trace-list query (min start → max end).
  */
 export function getTraceDuration(trace: TraceDetail): number | null {
   const allSpans = enrichSpansWithPending(trace.spans);
   if (!allSpans.length) return null;
-
-  const root = allSpans.find((s) => !s.parent_span_id);
-  if (root) {
-    return getSpanDuration(root);
-  }
 
   const now = Date.now();
   const minStart = Math.min(...allSpans.map((s) => parseTimestamp(s.span_start_time)));
   const maxEnd = Math.max(
     ...allSpans.map((s) => (s.span_end_time ? parseTimestamp(s.span_end_time) : now)),
   );
-  return Math.max(0, maxEnd - minStart);
+  const extent = Math.max(0, maxEnd - minStart);
+
+  const root = allSpans.find((s) => !s.parent_span_id);
+  const rootDuration = root ? (getSpanDuration(root) ?? 0) : 0;
+
+  return Math.max(rootDuration, extent);
 }
 
 /**
@@ -245,15 +260,98 @@ export function getTraceHasError(trace: TraceDetail): boolean {
  * Calculate total token usage from all spans in a trace
  */
 export function getTraceTokenUsage(trace: TraceDetail): {
-  inputTokens: number;
-  outputTokens: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
   totalTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
 } | null {
   const spansWithTokens = trace.spans.filter((s) => s.total_tokens !== null);
   if (spansWithTokens.length === 0) return null;
+  // Preserve the unknown-vs-zero distinction: only coerce input/output to a
+  // number when at least one span actually reports it, so a total-only trace
+  // renders "-" (via formatTokenFlow) instead of a misleading 0.
+  const hasInput = spansWithTokens.some((s) => s.input_tokens !== null);
+  const hasOutput = spansWithTokens.some((s) => s.output_tokens !== null);
+  const acc = spansWithTokens.reduce(
+    (acc, s) => {
+      acc.inputTokens += s.input_tokens ?? 0;
+      acc.outputTokens += s.output_tokens ?? 0;
+      acc.totalTokens += s.total_tokens ?? 0;
+      acc.cacheReadTokens += s.usage_details?.cache_read_tokens ?? 0;
+      acc.cacheWriteTokens += s.usage_details?.cache_write_tokens ?? 0;
+      acc.reasoningTokens += s.usage_details?.reasoning_tokens ?? 0;
+      return acc;
+    },
+    {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+    },
+  );
   return {
-    inputTokens: spansWithTokens.reduce((sum, s) => sum + (s.input_tokens ?? 0), 0),
-    outputTokens: spansWithTokens.reduce((sum, s) => sum + (s.output_tokens ?? 0), 0),
-    totalTokens: spansWithTokens.reduce((sum, s) => sum + (s.total_tokens ?? 0), 0),
+    ...acc,
+    inputTokens: hasInput ? acc.inputTokens : null,
+    outputTokens: hasOutput ? acc.outputTokens : null,
   };
+}
+
+// Cost breakdown categories stored in cost_details. Used by
+// getTraceCostBreakdown to aggregate across spans; summarizeCostDetails reads
+// these same keys explicitly.
+const COST_DETAIL_KEYS = [
+  "input_uncached_cost",
+  "cache_read_cost",
+  "cache_write_cost",
+  "output_cost",
+] as const;
+
+/**
+ * Group a span's (or a merged trace's) per-category cost_details into the
+ * input/output sections shown in the cost breakdown popup. Input
+ * cost is the sum of uncached, cache-read and cache-write costs; total is input +
+ * output. Missing keys default to 0.
+ */
+export function summarizeCostDetails(details: Record<string, number> | undefined | null): {
+  inputUncachedCost: number;
+  cacheReadCost: number;
+  cacheWriteCost: number;
+  inputCost: number;
+  outputCost: number;
+  total: number;
+} {
+  const inputUncachedCost = details?.input_uncached_cost ?? 0;
+  const cacheReadCost = details?.cache_read_cost ?? 0;
+  const cacheWriteCost = details?.cache_write_cost ?? 0;
+  const outputCost = details?.output_cost ?? 0;
+  const inputCost = inputUncachedCost + cacheReadCost + cacheWriteCost;
+  return {
+    inputUncachedCost,
+    cacheReadCost,
+    cacheWriteCost,
+    inputCost,
+    outputCost,
+    total: inputCost + outputCost,
+  };
+}
+
+/**
+ * Sum each cost_details category across a trace's spans for the trace-level cost
+ * popup (mirrors getTraceTokenUsage). Returns null when no span reports a
+ * breakdown, so the trace cost chip renders without a popup.
+ */
+export function getTraceCostBreakdown(trace: TraceDetail): Record<string, number> | null {
+  const spansWithDetails = trace.spans.filter(
+    (s) => s.cost_details && Object.keys(s.cost_details).length > 0,
+  );
+  if (spansWithDetails.length === 0) return null;
+  const merged: Record<string, number> = {};
+  for (const key of COST_DETAIL_KEYS) {
+    merged[key] = spansWithDetails.reduce((sum, s) => sum + (s.cost_details?.[key] ?? 0), 0);
+  }
+  return merged;
 }

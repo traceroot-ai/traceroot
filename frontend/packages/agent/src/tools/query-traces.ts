@@ -28,7 +28,7 @@ export function createQueryTracesTool(projectId: string, userId: string): AgentT
     name: "query_traces",
     label: "Query traces",
     description:
-      "Search and filter traces for the current project. Returns a summary table of matching traces (IDs, names, timestamps, status, error counts). Use this for discovery before downloading specific traces.",
+      "Search and filter traces for the current project. Returns a summary table of matching traces (IDs, names, timestamps, error counts, spans, duration). Use this for discovery before downloading specific traces.",
     parameters: queryTracesSchema,
     execute: async (
       _toolCallId: string,
@@ -75,7 +75,7 @@ export function createQueryTracesTool(projectId: string, userId: string): AgentT
       // Format as summary table for the agent
       const lines = traces.map((t: any) => {
         const duration = t.duration_ms != null ? `${Math.round(t.duration_ms)}ms` : "?";
-        return `- ${t.trace_id} | ${t.name || "(unnamed)"} | ${t.trace_start_time} | ${t.status} | ${t.span_count} spans | ${duration}`;
+        return `- ${t.trace_id} | ${t.name || "(unnamed)"} | ${t.trace_start_time} | ${t.error_count ?? 0} errors | ${t.span_count} spans | ${duration}`;
       });
 
       const totalInfo = meta.total ? ` (${meta.total} total, showing ${traces.length})` : "";

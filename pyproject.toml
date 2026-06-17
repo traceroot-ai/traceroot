@@ -15,7 +15,7 @@ dependencies = [
     # REST API
     "fastapi>=0.109",
     "uvicorn[standard]>=0.27",
-    "python-multipart>=0.0.27",
+    "python-multipart>=0.0.31",
     # OpenTelemetry
     "protobuf>=6.33.5",
     "opentelemetry-proto>=1.20.0",
@@ -60,7 +60,7 @@ pythonpath = ["backend"]
 [tool.coverage.run]
 source = ["backend"]
 branch = true
-omit = ["tests/*"]
+omit = ["tests/*", "*/tests/*"]
 
 [tool.coverage.report]
 show_missing = true

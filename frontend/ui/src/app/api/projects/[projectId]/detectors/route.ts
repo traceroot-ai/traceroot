@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
+import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import {
   requireAuth,
   requireProjectAccess,
@@ -80,11 +81,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     template,
     prompt,
     outputSchema,
-    sampleRate = 100,
+    sampleRate,
     triggerConditions,
     detectionModel,
     detectionProvider,
     detectionSource,
+    enableRca,
   } = body as Record<string, unknown>;
 
   // Required fields must be non-empty strings (trim catches whitespace-only).
@@ -98,8 +100,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return errorResponse("prompt must be a non-empty string", 400);
   }
 
-  // Validate sampleRate (integer 0-100). Fall back to 100 only when omitted.
-  let resolvedSampleRate = 100;
+  // Validate sampleRate (integer 0-100). Fall back to the default only when
+  // omitted — kept light so new detectors don't run an LLM call on every trace.
+  let resolvedSampleRate: number = DEFAULT_DETECTOR_SAMPLE_RATE;
   if (sampleRate !== undefined) {
     if (
       typeof sampleRate !== "number" ||
@@ -137,6 +140,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   const resolvedProvider =
     typeof detectionProvider === "string" && detectionProvider ? detectionProvider : null;
 
+  // enableRca: optional boolean, defaults true (RCA on). Reject non-booleans
+  // so "false"/0 can't silently coerce.
+  if (enableRca !== undefined && typeof enableRca !== "boolean") {
+    return errorResponse("enableRca must be a boolean", 400);
+  }
+  const resolvedEnableRca = enableRca ?? true;
+
   const detector = await prisma.detector.create({
     data: {
       projectId,
@@ -145,6 +155,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       prompt,
       outputSchema: (outputSchema as object) ?? [],
       sampleRate: resolvedSampleRate,
+      enableRca: resolvedEnableRca,
       detectionModel: resolvedModel,
       detectionProvider: resolvedProvider,
       detectionSource: sourceStr,

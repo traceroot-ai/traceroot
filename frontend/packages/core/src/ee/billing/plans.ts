@@ -1,4 +1,4 @@
-import { isBillingEnabled } from "../license.js";
+import { isBillingEnabled } from "../license.ts";
 export { isBillingEnabled };
 
 // =============================================================================
@@ -66,6 +66,25 @@ export const USAGE_CONFIG = {
 export function isFreePlanBlocked(currentUsage: number): boolean {
   if (!isBillingEnabled()) return false;
   return currentUsage >= USAGE_CONFIG.includedUnits;
+}
+
+/**
+ * Check if event ingestion should be blocked for a given plan and usage.
+ * Free plan: hard cap at the included span allowance (50k).
+ * Paid plans: never blocked (overage is billed via Stripe).
+ *
+ * Mirrors isAiRunBlocked / isRcaRunBlocked / isDetectorRunBlocked. Ingestion
+ * previously had only isFreePlanBlocked (no plan argument), so processWorkspace
+ * gated it behind `if (isFreePlan)` and never cleared the flag on upgrade — a
+ * workspace that tripped the Free cap and then upgraded stayed blocked
+ * indefinitely. Returning false for paid plans here clears that stale block.
+ */
+export function isIngestionBlocked(plan: PlanType, totalEvents: number): boolean {
+  if (!isBillingEnabled()) return false;
+  if (plan === PlanType.FREE) {
+    return totalEvents >= EVENT_QUOTAS[plan].included;
+  }
+  return false;
 }
 
 /**

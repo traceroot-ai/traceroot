@@ -3,15 +3,16 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "demo": "tsx agent.ts"
+    "demo": "tsx agent.ts",
+    "demo:streaming": "tsx agent-streaming.ts"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^1.0.0",
-    "@traceroot-ai/traceroot": "^0.1.4",
-    "ai": "^4.0.0",
+    "@ai-sdk/openai": "^3.0.0",
+    "@traceroot-ai/traceroot": "^0.1.6",
+    "ai": "^6.0.0",
     "dotenv": "^16.0.0",
     "openai": "^6.0.0",
-    "zod": "^3.0.0"
+    "zod": "^4.1.8"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

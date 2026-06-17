@@ -2,7 +2,7 @@
  * Shared API types for TraceRoot UI
  */
 
-import type { Role, SpanKind, SpanStatus, TraceStatus } from "@traceroot/core";
+import type { Role, SpanKind, SpanStatus } from "@traceroot/core";
 
 export type { Role };
 
@@ -45,6 +45,8 @@ export interface Project {
   name: string;
   trace_ttl_days: number | null;
   rca_model?: string | null;
+  rca_provider?: string | null;
+  rca_source?: string | null;
   alert_emails?: string[];
   access_key_count?: number;
   delete_time?: string | null;
@@ -100,7 +102,7 @@ export interface TraceListItem {
   session_id: string | null;
   span_count: number;
   duration_ms: number | null;
-  status: TraceStatus;
+  error_count: number;
   input: string | null;
   output: string | null;
   total_input_tokens?: number;
@@ -123,13 +125,35 @@ export interface Span {
   input_tokens: number | null;
   output_tokens: number | null;
   total_tokens: number | null;
-  input: string | null;
-  output: string | null;
-  metadata: string | null;
+  // Generic token breakdown map (cache_read_tokens, cache_write_tokens,
+  // reasoning_tokens, …) — new provider dimensions appear here with no type change.
+  usage_details?: Record<string, number>;
+  // Per-category dollar breakdown: input_uncached_cost,
+  // cache_read_cost, cache_write_cost, output_cost. Empty when no known prices.
+  cost_details?: Record<string, number>;
+  // I/O blobs are OPTIONAL on the cache span type: the trace-detail skeleton
+  // omits them entirely (fetched per-span on demand via getSpanIO), while live
+  // SSE spans still carry them. Both shapes flow through mergeSpans /
+  // enrichSpansWithPending without a type error.
+  input?: string | null;
+  output?: string | null;
+  metadata?: string | null;
   git_source_file: string | null;
   git_source_line: number | null;
   git_source_function: string | null;
   pending?: boolean;
+}
+
+/**
+ * Full I/O payload for a single span, fetched on demand from
+ * GET /projects/{projectId}/traces/{traceId}/spans/{spanId}/io.
+ */
+export interface SpanIO {
+  span_id: string;
+  trace_id: string;
+  input: string | null;
+  output: string | null;
+  metadata: string | null;
 }
 
 export interface TraceDetail {
@@ -162,7 +186,6 @@ export interface TraceQueryOptions {
   page?: number;
   limit?: number;
   name?: string;
-  status?: TraceStatus;
   user_id?: string;
   session_id?: string;
   // Date range filtering

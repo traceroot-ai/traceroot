@@ -15,10 +15,13 @@ load_dotenv()
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from rest.routers.internal import router as internal_router
 from rest.routers.live import router as live_router
 from rest.routers.public.traces import router as public_traces_router
+from rest.routers.public.traces_read import router as public_traces_read_router
+from rest.routers.public.whoami import router as public_whoami_router
 from rest.routers.sessions import router as sessions_router
 from rest.routers.traces import router as traces_router
 from rest.routers.users import router as users_router
@@ -30,6 +33,11 @@ app = FastAPI(
     description="Observability platform for LLM applications",
     version="0.1.0",
 )
+
+# Compress responses (e.g. large trace payloads). Added before CORS so that
+# CORS remains the outermost middleware and its headers apply to every
+# response, including gzipped ones.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # CORS configuration
 app.add_middleware(
@@ -50,6 +58,10 @@ app.include_router(live_router, prefix="/api/v1")
 
 # Public API for SDK ingestion (API key auth)
 app.include_router(public_traces_router, prefix="/api/v1")
+
+# Public read API for API-key clients (e.g. the CLI)
+app.include_router(public_whoami_router, prefix="/api/v1")
+app.include_router(public_traces_read_router, prefix="/api/v1")
 
 # Internal API for worker/service communication (protected by secret)
 app.include_router(internal_router, prefix="/api/v1")

@@ -13,13 +13,15 @@ import {
   formatDuration,
   formatDate,
   formatCost,
-  formatTokens,
+  formatTokenFlow,
+  formatExactTokens,
   cn,
   buildUrlWithFilters,
 } from "@/lib/utils";
 import type { TraceListItem } from "@/types/api";
 import { useTraces } from "@/features/traces/hooks";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
 import { formatContentPreview } from "@/features/traces/utils";
 import { useSession as useAuthSession } from "@/lib/auth-client";
@@ -41,6 +43,12 @@ export default function TracesPage() {
   const { isPending: authPending } = useAuthSession();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
+  // Set when a trace is opened in a new tab via the panel's "open in new tab"
+  // button, so the panel mounts already expanded to full width. Held as state
+  // (not a derived value) so it only seeds the first trace opened from the URL:
+  // once the user closes the panel, opening another trace defaults back to the
+  // unexpanded width rather than re-expanding from the lingering URL param.
+  const [startFullscreen, setStartFullscreen] = useState(searchParams.get("fullscreen") === "1");
 
   // Use URL-synced state management hook (shares date filter with other pages)
   const {
@@ -54,7 +62,12 @@ export default function TracesPage() {
   } = useListPageState();
 
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
-  const [autoRefresh, setAutoRefresh] = useState(false);
+  // Persisted per-project so a live view survives reloads, navigation, and re-login.
+  // Default false: a project the user never toggled behaves exactly as before.
+  const [autoRefresh, setAutoRefresh] = useLocalStorage(
+    `traceroot:traces:live:v1:${projectId}`,
+    false,
+  );
 
   // Fetch traces with combined query options + user filter from URL
   const { data, isLoading, error } = useTraces(
@@ -237,7 +250,7 @@ export default function TracesPage() {
                         Trace ID
                       </th>
                       <th className="w-[60px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Status
+                        Errors
                       </th>
                       <th className="w-[60px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Spans
@@ -282,13 +295,13 @@ export default function TracesPage() {
                             {trace.trace_id}
                           </span>
                         </td>
-                        <td className="border-r border-border/50 px-3 py-1.5">
-                          {trace.status === "error" ? (
-                            <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
-                              ERROR
+                        <td className="border-r border-border/50 px-3 py-1.5 text-center">
+                          {trace.error_count > 0 ? (
+                            <span className="inline-flex min-w-5 justify-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
+                              {trace.error_count}
                             </span>
                           ) : (
-                            <span className="text-[10px] text-muted-foreground">OK</span>
+                            <span className="text-[12px] text-muted-foreground">0</span>
                           )}
                         </td>
                         <td className="border-r border-border/50 px-3 py-1.5 text-center text-[12px] text-muted-foreground">
@@ -308,10 +321,9 @@ export default function TracesPage() {
                           {(trace.total_input_tokens ?? 0) + (trace.total_output_tokens ?? 0) >
                           0 ? (
                             <span
-                              title={`${(trace.total_input_tokens ?? 0).toLocaleString()} / ${(trace.total_output_tokens ?? 0).toLocaleString()}`}
+                              title={`${formatExactTokens(trace.total_input_tokens)} → ${formatExactTokens(trace.total_output_tokens)} (${formatExactTokens((trace.total_input_tokens ?? 0) + (trace.total_output_tokens ?? 0))})`}
                             >
-                              {formatTokens(trace.total_input_tokens ?? 0)} /{" "}
-                              {formatTokens(trace.total_output_tokens ?? 0)}
+                              {formatTokenFlow(trace.total_input_tokens, trace.total_output_tokens)}
                             </span>
                           ) : (
                             "-"
@@ -343,35 +355,35 @@ export default function TracesPage() {
         </div>
       </div>
 
-      {/* Detail panel - overlays header, takes 70% width, slides in from right */}
+      {/* Detail panel — TraceViewerPanel renders its own fixed slide-in overlay */}
       {selectedTraceId && (
-        <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl">
-          <TraceViewerPanel
-            projectId={projectId}
-            traceId={selectedTraceId}
-            onClose={() => setSelectedTraceId(null)}
-            onNavigate={(direction) => {
-              const currentIndex = traces.findIndex(
-                (t: TraceListItem) => t.trace_id === selectedTraceId,
-              );
-              if (direction === "up" && currentIndex > 0) {
-                setSelectedTraceId(traces[currentIndex - 1].trace_id);
-              } else if (direction === "down" && currentIndex < traces.length - 1) {
-                setSelectedTraceId(traces[currentIndex + 1].trace_id);
-              }
-            }}
-            canNavigateUp={
-              traces.findIndex((t: TraceListItem) => t.trace_id === selectedTraceId) > 0
+        <TraceViewerPanel
+          projectId={projectId}
+          traceId={selectedTraceId}
+          onClose={() => {
+            setSelectedTraceId(null);
+            setStartFullscreen(false);
+          }}
+          onNavigate={(direction) => {
+            const currentIndex = traces.findIndex(
+              (t: TraceListItem) => t.trace_id === selectedTraceId,
+            );
+            if (direction === "up" && currentIndex > 0) {
+              setSelectedTraceId(traces[currentIndex - 1].trace_id);
+            } else if (direction === "down" && currentIndex < traces.length - 1) {
+              setSelectedTraceId(traces[currentIndex + 1].trace_id);
             }
-            canNavigateDown={
-              traces.findIndex((t: TraceListItem) => t.trace_id === selectedTraceId) <
-              traces.length - 1
-            }
-            dateFilter={state.dateFilter}
-            customStartDate={state.customStartDate}
-            customEndDate={state.customEndDate}
-          />
-        </div>
+          }}
+          canNavigateUp={traces.findIndex((t: TraceListItem) => t.trace_id === selectedTraceId) > 0}
+          canNavigateDown={
+            traces.findIndex((t: TraceListItem) => t.trace_id === selectedTraceId) <
+            traces.length - 1
+          }
+          dateFilter={state.dateFilter}
+          customStartDate={state.customStartDate}
+          customEndDate={state.customEndDate}
+          initialFullscreen={startFullscreen}
+        />
       )}
     </div>
   );

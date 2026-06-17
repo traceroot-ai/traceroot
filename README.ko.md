@@ -31,9 +31,9 @@
 
 | Feature | 설명 |
 | ------- | ----------- |
-| Tracing | OpenTelemetry 호환 SDK를 통해 LLM 호출, 에이전트 액션, 툴 사용 내역을 수집합니다. 노이즈는 제거하고 중요한 시그널 중심으로 트레이스를 제공합니다. |
-| Agentic Debugging | 모든 트레이스를 이해하는 AI가 프로덕션 소스 코드가 연결된 샌드박스에서 정확한 실패 지점을 식별하고, GitHub 커밋·PR·이슈와 연관 분석합니다. 모든 모델 프로바이더에 대해 BYOK를 지원합니다. |
 | Detectors | LLM-as-a-Judge evaluator가 hallucination, 툴/로직 실패, 안전성 위반, intent drift를 모니터링합니다. 이상 징후를 탐지하고 이메일 및 Slack 알림과 함께 root cause analysis를 자동 수행합니다. |
+| Agentic Debugging | 모든 트레이스를 이해하는 AI가 프로덕션 소스 코드가 연결된 샌드박스에서 정확한 실패 지점을 식별하고, GitHub 커밋·PR·이슈와 연관 분석합니다. 모든 모델 프로바이더에 대해 BYOK를 지원합니다. |
+| Tracing | OpenTelemetry 호환 SDK를 통해 LLM 호출, 에이전트 액션, 툴 사용 내역을 수집합니다. 노이즈는 제거하고 중요한 시그널 중심으로 트레이스를 제공합니다. |
 
 ## Why TraceRoot?
 
@@ -93,6 +93,7 @@
 | Integration | 지원 언어 | 설명 |
 | ----------- | -------- | ----------- |
 | [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | Chat Completions 및 Responses API에 대한 instrumentation을 자동으로 수집합니다. |
+| [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | OpenAI SDK의 OpenRouter base URL로 호환 tracing을 수집합니다. [Python](./examples/python/openrouter-tool-agent) 및 [TypeScript](./examples/typescript/openrouter) 예제를 참고하세요. |
 | [Anthropic](https://traceroot.ai/docs/integrations/anthropic) | Python, JS/TS | Messages API에 대한 instrumentation을 자동으로 수집합니다. |
 | [Google Gemini](https://traceroot.ai/docs/integrations/gemini) | Python | Google GenAI SDK 기반 instrumentation을 자동으로 수집합니다. |
 | [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | Mistral chat completions, 툴 호출, streaming response에 대한 instrumentation을 자동으로 수집합니다. |

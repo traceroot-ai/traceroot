@@ -21,7 +21,7 @@ TRACE_LIST_ITEM = {
     "session_id": None,
     "span_count": 3,
     "duration_ms": 1500.0,
-    "status": "ok",
+    "error_count": 0,
     "input": "hello",
     "output": "world",
 }
@@ -54,11 +54,19 @@ TRACE_DETAIL = {
             "input_tokens": None,
             "output_tokens": None,
             "total_tokens": None,
-            "input": None,
-            "output": None,
-            "metadata": None,
+            "usage_details": {},
+            "cost_details": {},
         }
     ],
+}
+
+# Full I/O payload returned by the dedicated per-span endpoint.
+SPAN_IO = {
+    "span_id": "span-1",
+    "trace_id": "abc123",
+    "input": '{"prompt": "hello"}',
+    "output": '{"completion": "world"}',
+    "metadata": '{"traceroot.span.path": ["root"]}',
 }
 
 
@@ -98,6 +106,8 @@ class TestListTraces:
         data = response.json()
         assert len(data["data"]) == 1
         assert data["data"][0]["trace_id"] == "abc123"
+        assert data["data"][0]["error_count"] == 0
+        assert "status" not in data["data"][0]
         assert data["meta"]["total"] == 1
 
     def test_with_name_and_user_filters(self, client, mock_trace_reader):
@@ -184,6 +194,106 @@ class TestGetTrace:
         mock_trace_reader.get_trace.return_value = None
         response = client.get("/api/v1/projects/test-project/traces/nonexistent")
         assert response.status_code == 404
+
+    def test_spans_are_skeletons_without_io(self, client, mock_trace_reader):
+        """The trace-detail response must NOT carry per-span input/output/metadata.
+
+        This is the core of two-phase loading: the bulk response stays sub-MB by
+        omitting the large free-text blobs. Even if the service were to leak them,
+        the SpanSkeletonResponse model strips them out.
+        """
+        # Service returns blobs (simulating a stale/over-fetching service) —
+        # the response model must still drop them.
+        leaky_detail = {
+            **TRACE_DETAIL,
+            "spans": [
+                {
+                    **TRACE_DETAIL["spans"][0],
+                    "input": "should-not-appear",
+                    "output": "should-not-appear",
+                    "metadata": "should-not-appear",
+                }
+            ],
+        }
+        mock_trace_reader.get_trace.return_value = leaky_detail
+        response = client.get("/api/v1/projects/test-project/traces/abc123")
+        assert response.status_code == 200
+        span = response.json()["spans"][0]
+        assert "input" not in span
+        assert "output" not in span
+        assert "metadata" not in span
+        # Tree/display fields are still present on the skeleton.
+        assert span["span_id"] == "span-1"
+        assert span["parent_span_id"] is None
+        assert "usage_details" in span
+        assert "cost_details" in span
+
+    def test_trace_level_io_is_preserved(self, client, mock_trace_reader):
+        """Trace-level input/output/metadata stay on the trace (only spans drop I/O)."""
+        detail = {
+            **TRACE_DETAIL,
+            "input": "trace-input",
+            "output": "trace-output",
+            "metadata": "trace-metadata",
+        }
+        mock_trace_reader.get_trace.return_value = detail
+        response = client.get("/api/v1/projects/test-project/traces/abc123")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["input"] == "trace-input"
+        assert data["output"] == "trace-output"
+        assert data["metadata"] == "trace-metadata"
+
+
+class TestGetSpanIO:
+    def test_200_returns_span_blobs(self, client, mock_trace_reader):
+        mock_trace_reader.get_span_io.return_value = SPAN_IO
+        response = client.get("/api/v1/projects/test-project/traces/abc123/spans/span-1/io")
+        assert response.status_code == 200
+        data = response.json()
+        assert data == {
+            "span_id": "span-1",
+            "trace_id": "abc123",
+            "input": '{"prompt": "hello"}',
+            "output": '{"completion": "world"}',
+            "metadata": '{"traceroot.span.path": ["root"]}',
+        }
+
+    def test_passes_through_path_params(self, client, mock_trace_reader):
+        mock_trace_reader.get_span_io.return_value = SPAN_IO
+        client.get("/api/v1/projects/test-project/traces/abc123/spans/span-1/io")
+        kw = mock_trace_reader.get_span_io.call_args.kwargs
+        assert kw["project_id"] == "test-project"
+        assert kw["trace_id"] == "abc123"
+        assert kw["span_id"] == "span-1"
+
+    def test_404_for_unknown_span(self, client, mock_trace_reader):
+        mock_trace_reader.get_span_io.return_value = None
+        response = client.get("/api/v1/projects/test-project/traces/abc123/spans/missing/io")
+        assert response.status_code == 404
+
+    def test_500_on_service_error(self, client, mock_trace_reader):
+        """An unexpected reader error maps to the controlled 500 contract."""
+        mock_trace_reader.get_span_io.side_effect = RuntimeError("clickhouse down")
+        response = client.get("/api/v1/projects/test-project/traces/abc123/spans/span-1/io")
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to get span I/O"
+
+    def test_null_io_fields_serialize(self, client, mock_trace_reader):
+        """A span row that exists but has empty I/O still returns 200 with nulls."""
+        mock_trace_reader.get_span_io.return_value = {
+            "span_id": "span-1",
+            "trace_id": "abc123",
+            "input": None,
+            "output": None,
+            "metadata": None,
+        }
+        response = client.get("/api/v1/projects/test-project/traces/abc123/spans/span-1/io")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["input"] is None
+        assert data["output"] is None
+        assert data["metadata"] is None
 
     def test_trace_with_multiple_spans(self, client, mock_trace_reader):
         detail = {
