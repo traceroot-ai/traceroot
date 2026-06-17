@@ -420,8 +420,8 @@ async def get_spans_jsonl(trace_id: str, project_id: str):
     "/traces/{trace_id}/settle-status",
     dependencies=[Depends(verify_internal_secret)],
 )
-async def get_trace_settle_status(trace_id: str, project_id: str):
-    """Report how long a trace has been quiet — seconds since its last span.
+async def get_trace_last_arrival_age(trace_id: str, project_id: str):
+    """Report how long a trace has been quiet — milliseconds since its last span.
 
     The detector worker waits until this reaches EVALUATOR_DELAY before
     evaluating (a quiescence debounce). The age is computed inside ClickHouse
@@ -433,23 +433,23 @@ async def get_trace_settle_status(trace_id: str, project_id: str):
         project_id (str): Project that owns the trace; scopes the query.
 
     Returns:
-        dict: ``{"last_arrival_age_seconds": float}`` — seconds since the most
-            recent span of the trace was ingested, clamped to >= 0; 0.0 when the
+        dict: ``{"last_arrival_age_ms": int}`` — milliseconds since the most
+            recent span of the trace was ingested, clamped to >= 0; 0 when the
             trace has no spans yet.
     """
     ch = get_clickhouse_client()
 
     agg = ch.query(
         """SELECT
-               greatest(0, date_diff('millisecond', max(ch_create_time), now64(3))) / 1000.0
-                   AS last_arrival_age_seconds
+               greatest(0, date_diff('millisecond', max(ch_create_time), now64(3)))
+                   AS last_arrival_age_ms
            FROM spans
            WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}""",
         parameters={"trace_id": trace_id, "project_id": project_id},
     )
     row = agg.result_rows[0] if agg.result_rows else None
-    age = float(row[0]) if row and row[0] is not None else 0.0
-    return {"last_arrival_age_seconds": age}
+    age = int(row[0]) if row and row[0] is not None else 0
+    return {"last_arrival_age_ms": age}
 
 
 @router.get(

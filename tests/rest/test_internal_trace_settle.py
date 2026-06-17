@@ -2,7 +2,7 @@
 
 The detector worker polls this before evaluating: it waits until the trace has
 been quiet for EVALUATOR_DELAY (no new span). The endpoint reports only how long
-the trace has been quiet — seconds since the most recent span was ingested.
+the trace has been quiet — milliseconds since the most recent span was ingested.
 """
 
 from unittest.mock import MagicMock
@@ -34,10 +34,10 @@ def client(secret, mock_ch):
     return TestClient(app)
 
 
-def _age_result(age_seconds) -> MagicMock:
+def _age_result(age_ms) -> MagicMock:
     r = MagicMock()
-    r.result_rows = [(age_seconds,)]
-    r.column_names = ["last_arrival_age_seconds"]
+    r.result_rows = [(age_ms,)]
+    r.column_names = ["last_arrival_age_ms"]
     return r
 
 
@@ -45,12 +45,12 @@ class TestTraceSettleStatus:
     URL = "/api/v1/internal/traces/trace-abc/settle-status"
 
     def test_reports_quiet_age(self, client, mock_ch, secret):
-        mock_ch.query.return_value = _age_result(17.25)
+        mock_ch.query.return_value = _age_result(17250)
         resp = client.get(
             self.URL, params={"project_id": "p1"}, headers={"X-Internal-Secret": secret}
         )
         assert resp.status_code == 200
-        assert resp.json() == {"last_arrival_age_seconds": 17.25}
+        assert resp.json() == {"last_arrival_age_ms": 17250}
         # A single query; the age is computed in ClickHouse (clock-skew safe).
         assert mock_ch.query.call_count == 1
         sql = mock_ch.query.call_args.args[0]
@@ -58,16 +58,16 @@ class TestTraceSettleStatus:
         assert "max(ch_create_time)" in sql
 
     def test_empty_trace_reports_zero(self, client, mock_ch, secret):
-        # max(ch_create_time) over no rows -> NULL -> age 0.0 ("not quiet yet").
+        # max(ch_create_time) over no rows -> NULL -> age 0 ("not quiet yet").
         mock_ch.query.return_value = _age_result(None)
         resp = client.get(
             self.URL, params={"project_id": "p1"}, headers={"X-Internal-Secret": secret}
         )
         assert resp.status_code == 200
-        assert resp.json() == {"last_arrival_age_seconds": 0.0}
+        assert resp.json() == {"last_arrival_age_ms": 0}
 
     def test_query_filters_by_project_and_trace(self, client, mock_ch, secret):
-        mock_ch.query.return_value = _age_result(0.1)
+        mock_ch.query.return_value = _age_result(100)
         client.get(self.URL, params={"project_id": "p1"}, headers={"X-Internal-Secret": secret})
         call = mock_ch.query.call_args
         sql = call.args[0]

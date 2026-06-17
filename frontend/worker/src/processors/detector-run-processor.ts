@@ -25,7 +25,7 @@ const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
  * (a simple quiescence debounce). The age is computed inside ClickHouse
  * (now64() vs max(ch_create_time)) to avoid cross-service clock skew.
  */
-async function fetchLastArrivalTimestampMs(projectId: string, traceId: string): Promise<number> {
+async function fetchTimeSinceLastArrivalMs(projectId: string, traceId: string): Promise<number> {
   const response = await fetch(
     `${BACKEND_URL}/api/v1/internal/traces/${traceId}/settle-status?project_id=${projectId}`,
     { headers: { "X-Internal-Secret": INTERNAL_API_SECRET } },
@@ -33,8 +33,8 @@ async function fetchLastArrivalTimestampMs(projectId: string, traceId: string): 
   if (!response.ok) {
     throw new Error(`Failed to fetch settle status for trace ${traceId}: HTTP ${response.status}`);
   }
-  const body = (await response.json()) as { last_arrival_age_seconds: number };
-  return body.last_arrival_age_seconds * 1000;
+  const body = (await response.json()) as { last_arrival_age_ms: number };
+  return body.last_arrival_age_ms;
 }
 
 /** Hash a string to a uuid-shaped id (first 128 bits of sha256, 8-4-4-4-12). */
@@ -457,7 +457,7 @@ export async function handleDetectorRunJob(
 
   // A settle-status fetch failure is transient: throw and let the normal
   // BullMQ retry policy handle it.
-  const lastArrivalAgeMs = await fetchLastArrivalTimestampMs(projectId, traceId);
+  const lastArrivalAgeMs = await fetchTimeSinceLastArrivalMs(projectId, traceId);
 
   if (lastArrivalAgeMs >= EVALUATOR_DELAY) {
     await processTrace(traceId, projectId, detectorIds);
