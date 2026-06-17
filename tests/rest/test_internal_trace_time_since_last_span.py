@@ -1,4 +1,4 @@
-"""Unit tests for the internal trace settle-status endpoint.
+"""Unit tests for the internal trace time-since-last-span endpoint.
 
 The detector worker polls this before evaluating: it waits until the trace has
 been quiet for EVALUATOR_DELAY (no new span). The endpoint reports only how long
@@ -37,12 +37,12 @@ def client(secret, mock_ch):
 def _age_result(age_ms) -> MagicMock:
     r = MagicMock()
     r.result_rows = [(age_ms,)]
-    r.column_names = ["last_arrival_age_ms"]
+    r.column_names = ["time_since_last_span_ms"]
     return r
 
 
-class TestTraceSettleStatus:
-    URL = "/api/v1/internal/traces/trace-abc/settle-status"
+class TestTraceTimeSinceLastSpan:
+    URL = "/api/v1/internal/traces/trace-abc/time-since-last-span"
 
     def test_reports_quiet_age(self, client, mock_ch, secret):
         mock_ch.query.return_value = _age_result(17250)
@@ -50,7 +50,7 @@ class TestTraceSettleStatus:
             self.URL, params={"project_id": "p1"}, headers={"X-Internal-Secret": secret}
         )
         assert resp.status_code == 200
-        assert resp.json() == {"last_arrival_age_ms": 17250}
+        assert resp.json() == {"time_since_last_span_ms": 17250}
         # A single query; the age is computed in ClickHouse (clock-skew safe).
         assert mock_ch.query.call_count == 1
         sql = mock_ch.query.call_args.args[0]
@@ -64,7 +64,7 @@ class TestTraceSettleStatus:
             self.URL, params={"project_id": "p1"}, headers={"X-Internal-Secret": secret}
         )
         assert resp.status_code == 200
-        assert resp.json() == {"last_arrival_age_ms": 0}
+        assert resp.json() == {"time_since_last_span_ms": 0}
 
     def test_query_filters_by_project_and_trace(self, client, mock_ch, secret):
         mock_ch.query.return_value = _age_result(100)

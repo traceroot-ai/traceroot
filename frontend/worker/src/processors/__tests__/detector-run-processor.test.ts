@@ -53,13 +53,13 @@ import { handleDetectorRunJob, processTrace } from "../detector-run-processor.js
 
 const BASE_JOB: DetectorRunJob = { traceId: "t1", detectorIds: ["d1"], projectId: "p1" };
 
-/** Make the settle-status fetch report `ms` of quiet; spans-jsonl returns `spans`. */
+/** Make the time-since-last-span fetch report `ms` of quiet; spans-jsonl returns `spans`. */
 function mockFetches(ms: number, spans = "") {
   mockFetch.mockImplementation((url: string) => {
-    if (String(url).includes("/settle-status")) {
+    if (String(url).includes("/time-since-last-span")) {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ last_arrival_age_ms: ms }),
+        json: () => Promise.resolve({ time_since_last_span_ms: ms }),
       });
     }
     return Promise.resolve({ ok: true, text: () => Promise.resolve(spans) });
@@ -124,7 +124,7 @@ describe("handleDetectorRunJob — quiescence gate", () => {
     expect(job.moveToDelayed).not.toHaveBeenCalled();
   });
 
-  it("throws (for BullMQ retry) when settle-status fetch fails", async () => {
+  it("throws (for BullMQ retry) when time-since-last-span fetch fails", async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 500 });
     await expect(handleDetectorRunJob(makeJob())).rejects.toThrow();
   });

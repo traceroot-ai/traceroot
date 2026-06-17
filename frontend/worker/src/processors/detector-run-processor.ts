@@ -25,16 +25,18 @@ const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
  * (a simple quiescence debounce). The age is computed inside ClickHouse
  * (now64() vs max(ch_create_time)) to avoid cross-service clock skew.
  */
-async function fetchTimeSinceLastArrivalMs(projectId: string, traceId: string): Promise<number> {
+async function fetchTimeSinceLastSpanMs(projectId: string, traceId: string): Promise<number> {
   const response = await fetch(
-    `${BACKEND_URL}/api/v1/internal/traces/${traceId}/settle-status?project_id=${projectId}`,
+    `${BACKEND_URL}/api/v1/internal/traces/${traceId}/time-since-last-span?project_id=${projectId}`,
     { headers: { "X-Internal-Secret": INTERNAL_API_SECRET } },
   );
   if (!response.ok) {
-    throw new Error(`Failed to fetch settle status for trace ${traceId}: HTTP ${response.status}`);
+    throw new Error(
+      `Failed to fetch time-since-last-span for trace ${traceId}: HTTP ${response.status}`,
+    );
   }
-  const body = (await response.json()) as { last_arrival_age_ms: number };
-  return body.last_arrival_age_ms;
+  const body = (await response.json()) as { time_since_last_span_ms: number };
+  return body.time_since_last_span_ms;
 }
 
 /** Hash a string to a uuid-shaped id (first 128 bits of sha256, 8-4-4-4-12). */
@@ -455,11 +457,11 @@ export async function handleDetectorRunJob(
   const { traceId, detectorIds, projectId } = job.data;
   if (!detectorIds || detectorIds.length === 0) return;
 
-  // A settle-status fetch failure is transient: throw and let the normal
-  // BullMQ retry policy handle it.
-  const lastArrivalAgeMs = await fetchTimeSinceLastArrivalMs(projectId, traceId);
+  // A time-since-last-span fetch failure is transient: throw and let the
+  // normal BullMQ retry policy handle it.
+  const timeSinceLastSpanMs = await fetchTimeSinceLastSpanMs(projectId, traceId);
 
-  if (lastArrivalAgeMs >= EVALUATOR_DELAY) {
+  if (timeSinceLastSpanMs >= EVALUATOR_DELAY) {
     await processTrace(traceId, projectId, detectorIds);
     return;
   }
@@ -467,9 +469,9 @@ export async function handleDetectorRunJob(
   // Not quiet yet — sleep until exactly EVALUATOR_DELAY after the most recent
   // span, then re-check. moveToDelayed + DelayedError is BullMQ's supported
   // re-delay pattern; unlike a thrown failure it does not consume an attempt.
-  const delayMs = EVALUATOR_DELAY - lastArrivalAgeMs;
+  const delayMs = EVALUATOR_DELAY - timeSinceLastSpanMs;
   console.log(
-    `[Detector] settle-wait trace=${traceId} quiet=${Math.round(lastArrivalAgeMs / 1000)}s ` +
+    `[Detector] settle-wait trace=${traceId} quiet=${Math.round(timeSinceLastSpanMs / 1000)}s ` +
       `re-check in ${Math.round(delayMs / 1000)}s`,
   );
   await job.moveToDelayed(Date.now() + delayMs, token);

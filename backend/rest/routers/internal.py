@@ -417,10 +417,10 @@ async def get_spans_jsonl(trace_id: str, project_id: str):
 
 
 @router.get(
-    "/traces/{trace_id}/settle-status",
+    "/traces/{trace_id}/time-since-last-span",
     dependencies=[Depends(verify_internal_secret)],
 )
-async def get_trace_last_arrival_age(trace_id: str, project_id: str):
+async def get_time_since_last_span(trace_id: str, project_id: str):
     """Report how long a trace has been quiet — milliseconds since its last span.
 
     The detector worker waits until this reaches EVALUATOR_DELAY before
@@ -433,7 +433,7 @@ async def get_trace_last_arrival_age(trace_id: str, project_id: str):
         project_id (str): Project that owns the trace; scopes the query.
 
     Returns:
-        dict: ``{"last_arrival_age_ms": int}`` — milliseconds since the most
+        dict: ``{"time_since_last_span_ms": int}`` — milliseconds since the most
             recent span of the trace was ingested, clamped to >= 0; 0 when the
             trace has no spans yet.
     """
@@ -442,14 +442,14 @@ async def get_trace_last_arrival_age(trace_id: str, project_id: str):
     agg = ch.query(
         """SELECT
                greatest(0, date_diff('millisecond', max(ch_create_time), now64(3)))
-                   AS last_arrival_age_ms
+                   AS time_since_last_span_ms
            FROM spans
            WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}""",
         parameters={"trace_id": trace_id, "project_id": project_id},
     )
     row = agg.result_rows[0] if agg.result_rows else None
     age = int(row[0]) if row and row[0] is not None else 0
-    return {"last_arrival_age_ms": age}
+    return {"time_since_last_span_ms": age}
 
 
 @router.get(
