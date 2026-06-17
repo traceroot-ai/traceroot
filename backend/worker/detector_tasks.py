@@ -358,26 +358,27 @@ def _claim_and_enqueue(
         raise
 
 
-def enqueue_detector_runs(
-    project_id: str, trace_ids: list[str], traces_with_root: set[str]
-) -> None:
-    """
-    Called after trace ingestion. Only traces whose root span arrived in this
-    batch are claimed and (conditions + sampling permitting) enqueued for
-    detection; other trace IDs in the batch are ignored here (the worker waits
+def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
+    """Claim and (conditions + sampling permitting) enqueue detection for traces
+    whose root span arrived in this ingest batch.
+
+    Called after trace ingestion. Only the root-bearing traces are passed in;
+    batches without a trace's root span enqueue nothing for it (the worker waits
     out the quiescence window before evaluating, so late spans need no enqueue).
 
     This function is intentionally non-raising — detector failures must not
     break trace ingestion.
+
+    Args:
+        project_id (str): Project that owns the traces.
+        traces_with_root (set[str]): Trace IDs whose root span arrived in this
+            batch; each is claimed once and enqueued if it triggers.
     """
-    if not trace_ids:
+    if not traces_with_root:
         return
 
     try:
-        root_traces = [t for t in trace_ids if t in traces_with_root]
-        if not root_traces:
-            return
-
+        root_traces = list(traces_with_root)
         redis_client = _get_redis()
         detectors = _get_active_detectors(project_id)
         summaries = _get_trace_summaries(project_id, root_traces) if detectors else {}

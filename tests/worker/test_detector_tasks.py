@@ -96,7 +96,7 @@ class TestPrimaryEnqueue:
         )
         _patch_summaries(monkeypatch, {TRACE: {"environment": "staging"}})
 
-        dt.enqueue_detector_runs(PROJECT, [TRACE], {TRACE})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
 
         mock_add_job.assert_called_once_with(
             f"{PROJECT}--{TRACE}",
@@ -118,8 +118,8 @@ class TestPrimaryEnqueue:
         _patch_detectors(monkeypatch, [_detector("d1")])
         _patch_summaries(monkeypatch, {})
 
-        # TRACE is in the batch but NOT root-bearing this batch.
-        dt.enqueue_detector_runs(PROJECT, [TRACE], set())
+        # No root span arrived in this batch → nothing to enqueue.
+        dt.enqueue_detector_runs(PROJECT, set())
 
         mock_add_job.assert_not_called()
         assert _lock_state(fake_redis) is None
@@ -129,10 +129,10 @@ class TestPrimaryEnqueue:
         _patch_detectors(monkeypatch, [_detector("d1")])
         _patch_summaries(monkeypatch, {})
 
-        dt.enqueue_detector_runs(PROJECT, [TRACE], {TRACE})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
         first_value = fake_redis.store[dt._lock_key(PROJECT, TRACE)]
 
-        dt.enqueue_detector_runs(PROJECT, [TRACE], {TRACE})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
 
         assert mock_add_job.call_count == 1
         assert fake_redis.store[dt._lock_key(PROJECT, TRACE)] == first_value
@@ -142,11 +142,11 @@ class TestPrimaryEnqueue:
         _patch_detectors(monkeypatch, [_detector("d1", sample_rate=0)])
         _patch_summaries(monkeypatch, {})
 
-        dt.enqueue_detector_runs(PROJECT, [TRACE], {TRACE})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
         assert _lock_state(fake_redis)["state"] == "sampled_out"
         first_value = fake_redis.store[dt._lock_key(PROJECT, TRACE)]
 
-        dt.enqueue_detector_runs(PROJECT, [TRACE], {TRACE})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
 
         mock_add_job.assert_not_called()
         assert fake_redis.store[dt._lock_key(PROJECT, TRACE)] == first_value
@@ -154,7 +154,7 @@ class TestPrimaryEnqueue:
     def test_no_active_detectors_marks_sampled_out(self, fake_redis, mock_add_job, monkeypatch):
         _patch_detectors(monkeypatch, [])
 
-        dt.enqueue_detector_runs(PROJECT, [TRACE], {TRACE})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
 
         mock_add_job.assert_not_called()
         assert _lock_state(fake_redis)["state"] == "sampled_out"
@@ -168,7 +168,7 @@ class TestPrimaryEnqueue:
         )
         _patch_summaries(monkeypatch, {TRACE: {"cost": 5}, other: {}})
 
-        dt.enqueue_detector_runs(PROJECT, [TRACE, other], {TRACE, other})
+        dt.enqueue_detector_runs(PROJECT, {TRACE, other})
 
         # TRACE raises in float(); `other` has cost missing -> condition False -> sampled_out.
         assert mock_add_job.call_count == 0
@@ -181,7 +181,7 @@ class TestPrimaryEnqueue:
         _patch_summaries(monkeypatch, {})
 
         threads = [
-            threading.Thread(target=dt.enqueue_detector_runs, args=(PROJECT, [TRACE], {TRACE}))
+            threading.Thread(target=dt.enqueue_detector_runs, args=(PROJECT, {TRACE}))
             for _ in range(8)
         ]
         for t in threads:
@@ -204,11 +204,11 @@ class TestFailureRelease:
         _patch_summaries(monkeypatch, {})
 
         mock_add_job.side_effect = RuntimeError("redis down")
-        dt.enqueue_detector_runs(PROJECT, [TRACE], {TRACE})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
         assert dt._lock_key(PROJECT, TRACE) not in fake_redis.store
 
         mock_add_job.side_effect = None
-        dt.enqueue_detector_runs(PROJECT, [TRACE], {TRACE})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
         assert mock_add_job.call_count == 2
         assert _lock_state(fake_redis)["state"] == "pending"
 
@@ -225,7 +225,7 @@ class TestFailureRelease:
             raise RuntimeError("boom")
 
         monkeypatch.setattr(dt, "_add_bullmq_job", hijack_then_fail)
-        dt.enqueue_detector_runs(PROJECT, [TRACE], {TRACE})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
 
         assert fake_redis.store[key] == foreign.encode()
 
@@ -319,8 +319,8 @@ class TestTopLevelGuard:
         monkeypatch.setattr(
             dt, "_get_redis", MagicMock(side_effect=AssertionError("should not connect"))
         )
-        dt.enqueue_detector_runs(PROJECT, [], set())
+        dt.enqueue_detector_runs(PROJECT, set())
 
     def test_never_raises(self, monkeypatch):
         monkeypatch.setattr(dt, "_get_redis", MagicMock(side_effect=RuntimeError("redis down")))
-        dt.enqueue_detector_runs(PROJECT, [TRACE], {TRACE})
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
