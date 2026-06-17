@@ -1,6 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback, createContext, useContext, ReactNode } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  createContext,
+  useContext,
+  ReactNode,
+} from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Button } from "@/components/ui/button";
@@ -64,10 +72,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [hideAiButton, setHideAiButton] = useState(true);
   const [aiHostRefCount, setAiHostRefCount] = useState(0);
   const pathname = usePathname();
+  // Skip the AI-panel reset on the very first render so that pages can
+  // restore AI state from URL params (e.g. ai=1&sessionId=...) without
+  // AppLayout immediately clearing what they set.
+  const isMountedRef = useRef(false);
 
   // Close the global AI panel whenever the user navigates.
   // NOTE: do NOT reset hideAiButton here. Observability pages own that flag.
   useEffect(() => {
+    if (!isMountedRef.current) {
+      isMountedRef.current = true;
+      return;
+    }
     setAiPanelOpen(false);
     setAiContext(null);
     setAiInitialSessionId(undefined);
@@ -127,10 +143,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <ResizablePanel
               id="main-content"
               minSize="0px"
-              className="flex min-w-0 flex-col overflow-hidden"
+              className="min-w-0 flex flex-col overflow-hidden"
             >
               {/* Top header bar */}
-              <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3">
+              <header className="h-14 gap-2 bg-background px-3 flex shrink-0 items-center border-b">
                 <Button
                   variant="ghost"
                   size="icon"
