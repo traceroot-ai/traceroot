@@ -124,6 +124,12 @@
               "detectors/get-started",
               "detectors/alerts"
             ]
+          },
+          {
+            "group": "CLI",
+            "pages": [
+              "cli/get-started"
+            ]
           }
         ]
       },
