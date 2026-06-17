@@ -417,6 +417,42 @@ async def get_spans_jsonl(trace_id: str, project_id: str):
 
 
 @router.get(
+    "/traces/{trace_id}/time-since-last-span",
+    dependencies=[Depends(verify_internal_secret)],
+)
+async def get_time_since_last_span(trace_id: str, project_id: str):
+    """Report how long a trace has been quiet — milliseconds since its last span.
+
+    The detector worker waits until this reaches EVALUATOR_DELAY before
+    evaluating (a quiescence debounce). The age is computed inside ClickHouse
+    (now64() vs max(ch_create_time)) to avoid clock skew between services. An
+    empty trace reports age 0, i.e. "not quiet yet".
+
+    Args:
+        trace_id (str): Trace whose quiet duration to report.
+        project_id (str): Project that owns the trace; scopes the query.
+
+    Returns:
+        dict: ``{"time_since_last_span_ms": int}`` — milliseconds since the most
+            recent span of the trace was ingested, clamped to >= 0; 0 when the
+            trace has no spans yet.
+    """
+    ch = get_clickhouse_client()
+
+    agg = ch.query(
+        """SELECT
+               greatest(0, date_diff('millisecond', max(ch_create_time), now64(3)))
+                   AS time_since_last_span_ms
+           FROM spans
+           WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}""",
+        parameters={"trace_id": trace_id, "project_id": project_id},
+    )
+    row = agg.result_rows[0] if agg.result_rows else None
+    age = int(row[0]) if row and row[0] is not None else 0
+    return {"time_since_last_span_ms": age}
+
+
+@router.get(
     "/detector-findings",
     response_model=FindingListResponse,
     dependencies=[Depends(verify_internal_secret)],
@@ -472,11 +508,18 @@ async def list_detector_findings(
 
     where_clause = " AND ".join(conditions)
 
+    # FINAL subqueries on each side: ReplacingMergeTree dedup is async, and
+    # pre-merge duplicate rows would fan out the INNER JOIN (MxN rows per
+    # finding) and leak stale versions into the page.
+    from_join_where = f"""
+        FROM (SELECT * FROM detector_findings FINAL) AS f
+        INNER JOIN (SELECT * FROM detector_runs FINAL) AS r
+          ON f.finding_id = r.finding_id
+        WHERE {where_clause}
+    """
     data_query = f"""
         SELECT f.finding_id, f.project_id, f.trace_id, f.summary, f.payload, f.timestamp
-        FROM detector_findings f
-        INNER JOIN detector_runs r ON f.finding_id = r.finding_id
-        WHERE {where_clause}
+        {from_join_where}
         ORDER BY f.timestamp DESC
         LIMIT {{limit:Int32}} OFFSET {{offset:Int32}}
     """
@@ -485,9 +528,7 @@ async def list_detector_findings(
 
     count_query = f"""
         SELECT count()
-        FROM detector_findings f
-        INNER JOIN detector_runs r ON f.finding_id = r.finding_id
-        WHERE {where_clause}
+        {from_join_where}
     """
     count_result = ch.query(count_query, parameters=params)
     total = count_result.result_rows[0][0] if count_result.result_rows else 0
@@ -510,11 +551,27 @@ async def list_detector_findings(
     dependencies=[Depends(verify_internal_secret)],
 )
 async def get_trace_findings(trace_id: str, project_id: str):
-    """List all detector findings for a specific trace."""
+    """List all detector findings recorded for a single trace.
+
+    Queries the ``detector_findings`` table with ``FINAL`` so pre-merge
+    ReplacingMergeTree duplicates (a finding can be re-written under the same
+    deterministic ``finding_id`` on a retry) collapse to one row per finding.
+    Timestamps are normalised to ISO-8601 strings for JSON serialisation.
+
+    Args:
+        trace_id (str): Trace whose findings to return.
+        project_id (str): Project that owns the trace; scopes the query.
+
+    Returns:
+        dict: ``{"findings": list[dict]}`` ordered newest-first, each finding a
+            dict of ``finding_id``, ``project_id``, ``trace_id``, ``summary``,
+            ``payload`` and ISO-8601 ``timestamp``. The list is empty when the
+            trace has no findings.
+    """
     ch = get_clickhouse_client()
     result = ch.query(
         """SELECT finding_id, project_id, trace_id, summary, payload, timestamp
-           FROM detector_findings
+           FROM detector_findings FINAL
            WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}
            ORDER BY timestamp DESC""",
         parameters={"trace_id": trace_id, "project_id": project_id},
@@ -544,8 +601,10 @@ async def list_detector_counts(
 ):
     """Aggregate finding and run counts per detector for a project, in one query.
 
-    `detector_runs.finding_id` is set when a run produced a finding; counting
-    `finding_id IS NOT NULL` avoids a JOIN with `detector_findings`.
+    Runs are read with FINAL so pre-merge ReplacingMergeTree duplicates don't
+    inflate the counts. A run carries its finding_id when it triggered; since
+    findings are never withdrawn, counting runs with a non-null finding_id per
+    detector gives that detector's finding count.
 
     Detectors with zero runs in the window are absent from the result map; the
     frontend defaults absent entries to {findingCount: 0, runCount: 0}.
@@ -553,26 +612,26 @@ async def list_detector_counts(
     ch = get_clickhouse_client()
 
     conditions = [
-        "project_id = {project_id:String}",
-        "timestamp >= {start_after:DateTime64(3)}",
+        "r.project_id = {project_id:String}",
+        "r.timestamp >= {start_after:DateTime64(3)}",
     ]
     params: dict = {
         "project_id": project_id,
         "start_after": to_utc_naive(start_after),
     }
     if end_before is not None:
-        conditions.append("timestamp < {end_before:DateTime64(3)}")
+        conditions.append("r.timestamp < {end_before:DateTime64(3)}")
         params["end_before"] = to_utc_naive(end_before)
 
     where_clause = " AND ".join(conditions)
     query = f"""
         SELECT
-            detector_id,
-            count()                          AS run_count,
-            countIf(finding_id IS NOT NULL)  AS finding_count
-        FROM detector_runs
+            r.detector_id AS detector_id,
+            count()                            AS run_count,
+            countIf(r.finding_id IS NOT NULL)  AS finding_count
+        FROM (SELECT * FROM detector_runs FINAL) AS r
         WHERE {where_clause}
-        GROUP BY detector_id
+        GROUP BY r.detector_id
     """
 
     result = ch.query(query, parameters=params)
