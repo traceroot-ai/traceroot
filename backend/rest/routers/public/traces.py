@@ -25,10 +25,6 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 from pydantic import BaseModel
 
 from ee.license import is_billing_enabled
-
-# Auth is defined in the shared public deps module so read routes don't import
-# it from this ingestion endpoint. Re-exported here for backward compatibility.
-from rest.routers.public.deps import Auth, AuthResult, authenticate_api_key
 from rest.rate_limit import (
     clear_request_rate_limit_exempt,
     key_ingest,
@@ -36,6 +32,10 @@ from rest.rate_limit import (
     resolve_limit,
     set_rate_limit_identity,
 )
+
+# Auth is defined in the shared public deps module so read routes don't import
+# it from this ingestion endpoint. Re-exported here for backward compatibility.
+from rest.routers.public.deps import Auth, AuthResult, authenticate_api_key
 from rest.services.s3 import get_s3_service
 from worker.ingest_tasks import process_s3_traces
 
