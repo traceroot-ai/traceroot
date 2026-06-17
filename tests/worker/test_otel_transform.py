@@ -86,6 +86,16 @@ class TestDecodeOtelId:
         raw = "not-valid-base64!!!"
         assert decode_otel_id(raw) == raw
 
+    def test_all_zero_span_id_returns_none(self):
+        # Some emitters send zero-filled bytes for "no parent"; OTLP treats
+        # all-zero IDs as absent.
+        b64 = base64.b64encode(bytes(8)).decode()
+        assert decode_otel_id(b64) is None
+
+    def test_all_zero_trace_id_returns_none(self):
+        b64 = base64.b64encode(bytes(16)).decode()
+        assert decode_otel_id(b64) is None
+
 
 # ── nanos_to_datetime ───────────────────────────────────────────────────
 
@@ -224,6 +234,19 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["parent_span_id"] is None
         assert spans[0]["span_kind"] == "SPAN"
         assert spans[0]["status"] == "OK"
+
+    def test_zero_filled_parent_span_id_treated_as_root(self):
+        """A zero-byte parentSpanId must normalize to None so the span is a root."""
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [make_span(trace_hex, span_hex, name="root", parent_span_id_hex="00" * 8)]
+        )
+        traces, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert spans[0]["parent_span_id"] is None
+        assert len(traces) == 1
+        assert traces[0]["name"] == "root"
 
     def test_child_span_does_not_create_trace(self):
         """Child span creates span record but not trace record."""

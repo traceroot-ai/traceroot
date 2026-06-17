@@ -33,6 +33,12 @@ export function createRedisConnection(): Redis {
 export const DETECTOR_RUN_QUEUE = "detector-run";
 export const DETECTOR_RCA_QUEUE = "detector-rca";
 
+/**
+ * Evaluate a trace once no span has arrived for this long (quiescence debounce).
+ * The Python enqueue side mirrors this value (EVALUATOR_DELAY in detector_tasks.py).
+ */
+export const EVALUATOR_DELAY = 60_000; // ms
+
 export function createDetectorRunQueue(connection: Redis): Queue<DetectorRunJob> {
   return new Queue<DetectorRunJob>(DETECTOR_RUN_QUEUE, { connection });
 }

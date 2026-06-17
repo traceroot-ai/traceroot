@@ -175,6 +175,29 @@ class TestListDetectorFindings:
         )
         assert resp.status_code == 422
 
+    def test_data_query_dedups_both_sides(self, client, mock_ch, secret):
+        """Pre-merge ReplacingMergeTree duplicates must not fan out the JOIN."""
+        mock_ch.query.side_effect = [self._fake_data(), self._fake_count(1)]
+        client.get(
+            "/api/v1/internal/detector-findings",
+            params={"project_id": "p1", "detector_id": "d1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        data_sql = mock_ch.query.call_args_list[0].args[0]
+        assert "(SELECT * FROM detector_findings FINAL) AS f" in data_sql
+        assert "(SELECT * FROM detector_runs FINAL) AS r" in data_sql
+
+    def test_count_query_matches_data_query_dedup(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [self._fake_data(), self._fake_count(1)]
+        client.get(
+            "/api/v1/internal/detector-findings",
+            params={"project_id": "p1", "detector_id": "d1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        count_sql = mock_ch.query.call_args_list[1].args[0]
+        assert "(SELECT * FROM detector_findings FINAL) AS f" in count_sql
+        assert "(SELECT * FROM detector_runs FINAL) AS r" in count_sql
+
 
 # =============================================================================
 # /detector-runs
@@ -258,6 +281,63 @@ class TestListDetectorRuns:
         assert "ILIKE" not in data_sql  # no search → no ILIKE
         assert "start_after" not in data_sql
         assert "end_before" not in data_sql
+
+
+# =============================================================================
+# POST /detector-findings
+# =============================================================================
+
+
+class TestWriteDetectorFinding:
+    def _body(self) -> dict:
+        return {
+            "findingId": "f1",
+            "projectId": "p1",
+            "traceId": "trace-aaa",
+            "summary": "summary text",
+            "payload": "{}",
+        }
+
+    def test_writes_finding_row(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-findings",
+            json=self._body(),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        assert "INSERT INTO detector_findings" in sql
+        assert "retracted" not in sql
+
+
+# =============================================================================
+# /traces/{trace_id}/findings
+# =============================================================================
+
+
+class TestGetTraceFindings:
+    def test_dedups_with_final(self, client, mock_ch, secret):
+        ts = datetime(2026, 5, 1, 12, 0, 0)
+        mock_ch.query.return_value = _make_query_result(
+            rows=[("f1", "p1", "trace-aaa", "summary text", "{}", ts)],
+            column_names=[
+                "finding_id",
+                "project_id",
+                "trace_id",
+                "summary",
+                "payload",
+                "timestamp",
+            ],
+        )
+        resp = client.get(
+            "/api/v1/internal/traces/trace-aaa/findings",
+            params={"project_id": "p1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["findings"][0]["finding_id"] == "f1"
+        sql = mock_ch.query.call_args.args[0]
+        assert "FROM detector_findings FINAL" in sql
 
 
 # =============================================================================
@@ -375,3 +455,37 @@ class TestListDetectorCounts:
             headers={"X-Internal-Secret": secret},
         )
         assert resp.status_code == 422
+
+    def test_runs_deduplicated_and_finding_count(self, client, mock_ch, secret):
+        """run_count must dedup pre-merge run rows; finding_count counts runs
+        that carry a finding_id (findings are never withdrawn)."""
+        mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 10, 3)])]
+        resp = client.get(
+            "/api/v1/internal/detector-counts",
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        # Runs deduplicated before counting.
+        assert "(SELECT * FROM detector_runs FINAL) AS r" in sql
+        # Finding count comes straight off the run's finding_id; no findings JOIN.
+        assert "countIf(r.finding_id IS NOT NULL)" in sql
+        assert "retracted" not in sql
+        assert "LEFT JOIN" not in sql
+
+    def test_detector_with_runs_but_no_findings(self, client, mock_ch, secret):
+        # A detector that ran 10 times but never triggered: 0 findings, 10 runs.
+        mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 10, 0)])]
+        resp = client.get(
+            "/api/v1/internal/detector-counts",
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.json() == {"data": {"d-a": {"finding_count": 0, "run_count": 10}}}
