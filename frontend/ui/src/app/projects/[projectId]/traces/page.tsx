@@ -149,7 +149,7 @@ export default function TracesPage() {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Tab navigation — hidden during onboarding or while checking */}
         {!checking && !showGettingStarted && (
-          <div className="border-border bg-background border-b">
+          <div className="border-b border-border bg-background">
             <div className="flex">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
@@ -159,10 +159,10 @@ export default function TracesPage() {
                     key={tab.id}
                     href={buildUrl(`/projects/${projectId}/${tab.href}`)}
                     className={cn(
-                      "gap-1.5 px-3 py-1.5 font-medium flex items-center border-b-2 text-[13px] transition-colors",
+                      "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
                       isActive
                         ? "border-foreground bg-muted text-foreground"
-                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent",
+                        : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                     )}
                   >
                     <Icon className="h-3.5 w-3.5" />
@@ -196,32 +196,32 @@ export default function TracesPage() {
                   ? "Live list refresh on (every 5s) — click to disable"
                   : "Enable live list refresh"
               }
-              className="gap-2 rounded-md border-border px-2.5 py-1 text-foreground hover:border-foreground/40 hover:bg-muted flex items-center border text-[12px] transition-colors"
+              className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1 text-[12px] text-foreground transition-colors hover:border-foreground/40 hover:bg-muted"
             >
               Live
               <span
                 className={cn(
-                  "h-4 w-7 relative inline-flex shrink-0 rounded-full border-2 border-transparent transition-colors duration-200",
+                  "relative inline-flex h-4 w-7 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200",
                   autoRefresh ? "bg-foreground" : "bg-input",
                 )}
               >
                 <span
                   className={cn(
-                    "h-3 w-3 bg-background shadow-sm block rounded-full transition-transform duration-200",
+                    "block h-3 w-3 rounded-full bg-background shadow-sm transition-transform duration-200",
                     autoRefresh ? "translate-x-3" : "translate-x-0",
                   )}
                 />
               </span>
             </button>
             {userId && (
-              <div className="gap-1.5 rounded-md border-border bg-muted/50 py-1 pl-2.5 pr-1.5 flex items-center border">
+              <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 py-1 pl-2.5 pr-1.5">
                 <Users className="h-3 w-3 text-muted-foreground" />
-                <span className="text-muted-foreground text-[12px]">User:</span>
-                <span className="font-medium text-foreground text-[12px]">{userId}</span>
+                <span className="text-[12px] text-muted-foreground">User:</span>
+                <span className="text-[12px] font-medium text-foreground">{userId}</span>
                 <button
                   type="button"
                   onClick={() => router.push(buildUrl(`/projects/${projectId}/traces`))}
-                  className="ml-1 rounded p-0.5 hover:bg-muted transition-colors"
+                  className="ml-1 rounded p-0.5 transition-colors hover:bg-muted"
                 >
                   <X className="h-3 w-3 text-muted-foreground" />
                 </button>
@@ -231,24 +231,24 @@ export default function TracesPage() {
         )}
 
         {/* Content */}
-        <div className="bg-background flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto bg-background">
           {isLoading || checking ? (
-            <div className="h-64 flex items-center justify-center">
-              <p className="text-muted-foreground text-[13px]">Loading traces...</p>
+            <div className="flex h-64 items-center justify-center">
+              <p className="text-[13px] text-muted-foreground">Loading traces...</p>
             </div>
           ) : error && !data ? (
-            <div className="h-64 gap-3 flex flex-col items-center justify-center">
-              <p className="text-destructive text-[13px]">Error loading traces</p>
-              <p className="text-muted-foreground text-[12px]">
+            <div className="flex h-64 flex-col items-center justify-center gap-3">
+              <p className="text-[13px] text-destructive">Error loading traces</p>
+              <p className="text-[12px] text-muted-foreground">
                 Make sure the API server is running and you have API keys configured.
               </p>
             </div>
           ) : showGettingStarted ? (
             <GettingStarted projectId={projectId} />
           ) : traces.length === 0 ? (
-            <div className="h-64 gap-3 flex flex-col items-center justify-center">
-              <p className="text-muted-foreground text-[13px]">No traces found</p>
-              <p className="text-muted-foreground text-[12px]">
+            <div className="flex h-64 flex-col items-center justify-center gap-3">
+              <p className="text-[13px] text-muted-foreground">No traces found</p>
+              <p className="text-[12px] text-muted-foreground">
                 Try adjusting your filters or date range.
               </p>
             </div>
@@ -256,36 +256,36 @@ export default function TracesPage() {
             <div className="flex h-full flex-col">
               <div className="flex-1 overflow-auto">
                 <table className="w-full">
-                  <thead className="top-0 bg-background sticky">
-                    <tr className="border-border bg-muted/50 border-b">
-                      <th className="border-border/50 px-3 py-1.5 font-medium text-muted-foreground w-[140px] border-r text-left text-[12px]">
+                  <thead className="sticky top-0 bg-background">
+                    <tr className="border-b border-border bg-muted/50">
+                      <th className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Timestamp
                       </th>
-                      <th className="border-border/50 px-3 py-1.5 font-medium text-muted-foreground border-r text-left text-[12px]">
+                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Name
                       </th>
-                      <th className="border-border/50 px-3 py-1.5 font-medium text-muted-foreground max-w-[400px] min-w-[280px] border-r text-left text-[12px]">
+                      <th className="min-w-[280px] max-w-[400px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Trace ID
                       </th>
-                      <th className="border-border/50 px-3 py-1.5 font-medium text-muted-foreground w-[60px] border-r text-left text-[12px]">
+                      <th className="w-[60px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Errors
                       </th>
-                      <th className="border-border/50 px-3 py-1.5 font-medium text-muted-foreground w-[60px] border-r text-left text-[12px]">
+                      <th className="w-[60px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Spans
                       </th>
-                      <th className="border-border/50 px-3 py-1.5 font-medium text-muted-foreground border-r text-left text-[12px]">
+                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Input
                       </th>
-                      <th className="border-border/50 px-3 py-1.5 font-medium text-muted-foreground border-r text-left text-[12px]">
+                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Output
                       </th>
-                      <th className="border-border/50 px-3 py-1.5 font-medium text-muted-foreground w-[100px] border-r text-left text-[12px]">
+                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Tokens
                       </th>
-                      <th className="border-border/50 px-3 py-1.5 font-medium text-muted-foreground w-[80px] border-r text-left text-[12px]">
+                      <th className="w-[80px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Cost
                       </th>
-                      <th className="px-3 py-1.5 font-medium text-muted-foreground text-left text-[12px]">
+                      <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
                         Latency
                       </th>
                     </tr>
@@ -298,44 +298,44 @@ export default function TracesPage() {
                           setSelectedTraceId(trace.trace_id);
                         }}
                         className={cn(
-                          "border-border/50 cursor-pointer border-b transition-colors last:border-0",
+                          "cursor-pointer border-b border-border/50 transition-colors last:border-0",
                           selectedTraceId === trace.trace_id ? "bg-muted" : "hover:bg-muted/50",
                         )}
                       >
-                        <td className="border-border/50 px-3 py-1.5 text-muted-foreground border-r text-[12px] whitespace-nowrap">
+                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                           {formatDate(trace.trace_start_time)}
                         </td>
-                        <td className="border-border/50 px-3 py-1.5 text-foreground border-r text-[12px]">
+                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
                           {trace.name}
                         </td>
-                        <td className="border-border/50 px-3 py-1.5 font-mono text-muted-foreground max-w-[400px] min-w-[280px] border-r text-[11px] whitespace-nowrap">
+                        <td className="min-w-[280px] max-w-[400px] whitespace-nowrap border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
                           <span className="block truncate" title={trace.trace_id}>
                             {trace.trace_id}
                           </span>
                         </td>
-                        <td className="border-border/50 px-3 py-1.5 border-r text-center">
+                        <td className="border-r border-border/50 px-3 py-1.5 text-center">
                           {trace.error_count > 0 ? (
-                            <span className="min-w-5 rounded bg-red-100 px-1.5 py-0.5 font-medium text-red-700 dark:bg-red-950 dark:text-red-400 inline-flex justify-center text-[10px]">
+                            <span className="inline-flex min-w-5 justify-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
                               {trace.error_count}
                             </span>
                           ) : (
-                            <span className="text-muted-foreground text-[12px]">0</span>
+                            <span className="text-[12px] text-muted-foreground">0</span>
                           )}
                         </td>
-                        <td className="border-border/50 px-3 py-1.5 text-muted-foreground border-r text-center text-[12px]">
+                        <td className="border-r border-border/50 px-3 py-1.5 text-center text-[12px] text-muted-foreground">
                           {trace.span_count}
                         </td>
-                        <td className="border-border/50 px-3 py-1.5 max-w-[180px] border-r">
-                          <span className="font-mono text-muted-foreground block truncate text-[11px]">
+                        <td className="max-w-[180px] border-r border-border/50 px-3 py-1.5">
+                          <span className="block truncate font-mono text-[11px] text-muted-foreground">
                             {formatContentPreview(trace.input)}
                           </span>
                         </td>
-                        <td className="border-border/50 px-3 py-1.5 max-w-[180px] border-r">
-                          <span className="font-mono text-muted-foreground block truncate text-[11px]">
+                        <td className="max-w-[180px] border-r border-border/50 px-3 py-1.5">
+                          <span className="block truncate font-mono text-[11px] text-muted-foreground">
                             {formatContentPreview(trace.output)}
                           </span>
                         </td>
-                        <td className="border-border/50 px-3 py-1.5 text-muted-foreground border-r text-[12px] whitespace-nowrap">
+                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                           {(trace.total_input_tokens ?? 0) + (trace.total_output_tokens ?? 0) >
                           0 ? (
                             <span
@@ -347,12 +347,12 @@ export default function TracesPage() {
                             "-"
                           )}
                         </td>
-                        <td className="border-border/50 px-3 py-1.5 text-foreground border-r text-[12px]">
+                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
                           {trace.total_cost && trace.total_cost > 0
                             ? formatCost(trace.total_cost)
                             : "-"}
                         </td>
-                        <td className="px-3 py-1.5 text-foreground text-[12px] whitespace-nowrap">
+                        <td className="whitespace-nowrap px-3 py-1.5 text-[12px] text-foreground">
                           {formatDuration(trace.duration_ms)}
                         </td>
                       </tr>

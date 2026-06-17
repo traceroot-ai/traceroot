@@ -164,7 +164,7 @@ export default function DetectorDetailPage() {
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
-        <div className="gap-2 border-border px-4 py-3 flex items-center border-b">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <button
             type="button"
             onClick={() => router.push(buildUrl(`/projects/${projectId}/detectors`))}
@@ -173,11 +173,11 @@ export default function DetectorDetailPage() {
             Detectors
           </button>
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="font-medium text-[13px]">{detector?.name ?? detectorId}</span>
+          <span className="text-[13px] font-medium">{detector?.name ?? detectorId}</span>
         </div>
 
         {/* Tabs */}
-        <div className="border-border bg-background border-b">
+        <div className="border-b border-border bg-background">
           <div className="flex">
             {tabs.map((tab) => {
               const Icon = tab.icon;
@@ -188,10 +188,10 @@ export default function DetectorDetailPage() {
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
-                    "gap-1.5 px-3 py-1.5 font-medium flex items-center border-b-2 text-[13px] transition-colors",
+                    "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] font-medium transition-colors",
                     isActive
                       ? "border-foreground bg-muted text-foreground"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent",
+                      : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
