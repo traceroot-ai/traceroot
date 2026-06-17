@@ -128,9 +128,7 @@
           {
             "group": "CLI",
             "pages": [
-              "cli/introduction",
-              "cli/get-started",
-              "cli/commands"
+              "cli/get-started"
             ]
           }
         ]
