@@ -179,11 +179,12 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     }
     const config: Record<string, unknown> = {};
     if (Object.keys(filteredProtocols).length > 0) config.modelProtocols = filteredProtocols;
+    const trimmedBaseUrl = baseUrl.trim();
 
     const base: Record<string, unknown> = {
       adapter,
       provider: providerName,
-      baseUrl: baseUrl || undefined,
+      baseUrl: trimmedBaseUrl || (editProvider ? null : undefined),
       customModels: trimmedModels,
       withDefaultModels: true,
       ...(Object.keys(config).length > 0 ? { config } : {}),
