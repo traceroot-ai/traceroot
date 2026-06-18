@@ -104,25 +104,21 @@ describe("TraceViewerPanel keyboard", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("does not call onClose when Escape is pressed inside a dialog", () => {
+  it("does not call onClose when Escape's default was already prevented", () => {
     const onClose = vi.fn();
-    const { container } = render(
-      <>
-        <TraceViewerPanel
-          projectId="proj-1"
-          traceId="trace-1"
-          onClose={onClose}
-          onNavigate={vi.fn()}
-          canNavigateUp={false}
-          canNavigateDown={false}
-        />
-        <div role="dialog">
-          <button id="nested-btn">inside dialog</button>
-        </div>
-      </>,
+    render(
+      <TraceViewerPanel
+        projectId="proj-1"
+        traceId="trace-1"
+        onClose={onClose}
+        onNavigate={vi.fn()}
+        canNavigateUp={false}
+        canNavigateDown={false}
+      />,
     );
-    (container.querySelector("#nested-btn") as HTMLElement).focus();
-    fireEvent.keyDown(document, { key: "Escape" });
+    const event = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
+    event.preventDefault();
+    document.dispatchEvent(event);
     expect(onClose).not.toHaveBeenCalled();
   });
 });
