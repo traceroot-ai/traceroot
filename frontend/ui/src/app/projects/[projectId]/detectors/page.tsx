@@ -15,6 +15,7 @@ import {
   useDeleteDetector,
 } from "@/features/detectors/hooks/use-detectors";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { useProject } from "@/features/projects/hooks";
 import { DeleteDetectorDialog } from "@/features/detectors/components/delete-detector-dialog";
 import { DetectorPanel } from "@/features/detectors/components/detector-panel";
@@ -37,7 +38,7 @@ export default function DetectorsPage() {
     updateKeyword,
     updateLimit,
     goToPage,
-  } = useListPageState({ defaultDateFilterId: "14d" });
+  } = useListPageState({ defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID });
 
   // Carry the selected time range into the detail page so it stays consistent
   // across the list <-> detail navigation, mirroring how the Traces tabs

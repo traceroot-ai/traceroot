@@ -15,6 +15,7 @@ import {
   type BackendFinding,
 } from "@/features/detectors/hooks/use-findings";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
+import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
 
 const tabs = [
@@ -48,7 +49,7 @@ export default function DetectorDetailPage() {
     updateKeyword,
     updateLimit,
     goToPage,
-  } = useListPageState({ defaultDateFilterId: "14d" });
+  } = useListPageState({ defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID });
 
   // Carry the selected range back to the list (and into the breadcrumb) so the
   // detectors section keeps one consistent time range across navigation, the
