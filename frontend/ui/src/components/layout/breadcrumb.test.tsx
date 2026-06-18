@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -20,10 +20,17 @@ afterEach(() => cleanup());
 const workspaceItem: BreadcrumbItem = {
   label: "Workspace One",
   options: [
-    { id: "ws-1", label: "Workspace One", href: "/workspaces/ws-1/projects" },
+    {
+      id: "ws-1",
+      label: "Workspace One",
+      href: "/workspaces/ws-1/projects",
+      isCurrent: true,
+      settingsHref: "/workspaces/ws-1/settings",
+    },
     { id: "ws-2", label: "Workspace Two", href: "/workspaces/ws-2/projects" },
   ],
   menuHeader: { label: "Workspaces", href: "/workspaces" },
+  createNew: { label: "New workspace", onSelect: vi.fn() },
 };
 
 function renderAndOpen() {
@@ -73,5 +80,28 @@ describe("BreadcrumbDropdown focus return", () => {
     fireEvent.keyDown(menu, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     expect(document.activeElement).toBe(trigger);
+  });
+});
+
+describe("BreadcrumbDropdown current option", () => {
+  it("marks the current option and keeps it from being a self-link", async () => {
+    renderAndOpen();
+
+    const menu = await screen.findByRole("menu");
+    const current = within(menu).getByText("Workspace One");
+    expect(current.previousElementSibling?.textContent).toBe("✓");
+    expect(current.closest("a")).toBeNull();
+
+    const other = within(menu).getByText("Workspace Two").closest("a");
+    expect(other?.getAttribute("href")).toBe("/workspaces/ws-2/projects");
+  });
+
+  it("keeps header, settings, and create actions available", async () => {
+    renderAndOpen();
+
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByText("Workspaces")).toBeTruthy();
+    expect(within(menu).getByText("New workspace")).toBeTruthy();
+    expect(within(menu).getAllByRole("button").length).toBeGreaterThan(0);
   });
 });
