@@ -42,7 +42,8 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
   //   1. exact match on (model, provider, source) → check adapter; backfill if empty/wrong
   //   2. model-id-only match (legacy/hydrated state where the parent only has
   //      `model` saved, e.g. `project.rca_model: string`) → backfill the rest
-  //   3. no match → auto-pick a default
+  //   3. no match → preserve the current selection if the user already picked
+  //      one, and only auto-pick a default when the model is still empty.
   // Without case 2 the selector would silently auto-pick a default when a
   // partially-hydrated saved selection arrives, clobbering the user's choice.
   useEffect(() => {
@@ -56,14 +57,16 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
     const match = exact ?? modelOnly;
 
     if (!match) {
-      const pick = pickDefaultModel(models);
-      if (pick) {
-        onChange({
-          model: pick.id,
-          provider: pick.provider,
-          source: pick.source,
-          adapter: pick.adapter,
-        });
+      if (!value.model) {
+        const pick = pickDefaultModel(models);
+        if (pick) {
+          onChange({
+            model: pick.id,
+            provider: pick.provider,
+            source: pick.source,
+            adapter: pick.adapter,
+          });
+        }
       }
       return;
     }

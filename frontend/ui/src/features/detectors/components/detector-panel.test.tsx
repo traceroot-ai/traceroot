@@ -132,4 +132,5 @@ describe("DetectorPanel", () => {
     expect(promptBox().value).toBe("");
     expect((saveButton() as HTMLButtonElement).disabled).toBe(true);
   });
+
 });
