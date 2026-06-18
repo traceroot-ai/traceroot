@@ -9,8 +9,7 @@ from rest.projection import (
     FIELDS_PARAM_DESC,
     SKELETON,
     InvalidFieldsError,
-    io_columns,
-    merge_span_io,
+    hydrate_span_io,
     resolve_span_fields,
 )
 from rest.routers.deps import ProjectAccess
@@ -86,14 +85,7 @@ async def get_trace(
             detail="Trace not found",
         )
 
-    # Only the io/metadata projections need the extra bulk query; skeleton skips it.
-    columns = io_columns(groups)
-    if columns:
-        span_io = service.get_trace_spans_io(
-            project_id=project_id, trace_id=trace_id, columns=columns
-        )
-        merge_span_io(trace, span_io)
-
+    hydrate_span_io(service, trace, project_id=project_id, trace_id=trace_id, groups=groups)
     return trace
 
 
