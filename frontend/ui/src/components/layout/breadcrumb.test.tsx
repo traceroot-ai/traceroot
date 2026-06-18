@@ -2,8 +2,10 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 
+const mockPush = vi.fn();
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: mockPush }),
 }));
 
 import { Breadcrumb, type BreadcrumbItem } from "@/components/layout/breadcrumb";
@@ -15,7 +17,10 @@ beforeAll(() => {
   window.HTMLElement.prototype.releasePointerCapture = vi.fn();
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  mockPush.mockClear();
+});
 
 const workspaceItem: BreadcrumbItem = {
   label: "Workspace One",
@@ -103,5 +108,21 @@ describe("BreadcrumbDropdown current option", () => {
     expect(within(menu).getByText("Workspaces")).toBeTruthy();
     expect(within(menu).getByText("New workspace")).toBeTruthy();
     expect(within(menu).getAllByRole("button").length).toBeGreaterThan(0);
+  });
+
+  it("opens settings from the current option by mouse or keyboard", async () => {
+    renderAndOpen();
+
+    let menu = await screen.findByRole("menu");
+    const settingsButton = within(menu).getByRole("button");
+    fireEvent.click(settingsButton);
+    expect(mockPush).toHaveBeenCalledWith("/workspaces/ws-1/settings");
+
+    cleanup();
+    renderAndOpen();
+    menu = await screen.findByRole("menu");
+    fireEvent.keyDown(within(menu).getByRole("button"), { key: "Enter" });
+    expect(mockPush).toHaveBeenCalledTimes(2);
+    expect(mockPush).toHaveBeenLastCalledWith("/workspaces/ws-1/settings");
   });
 });
