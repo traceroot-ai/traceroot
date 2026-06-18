@@ -271,46 +271,6 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSO
     return JSONResponse(status_code=429, content=body, headers=headers)
 
 
-class _ShadowAwareLimiter(Limiter):
-    """A slowapi ``Limiter`` that, in shadow mode, records over-limit hits but
-    does not block.
-
-    The limit is still evaluated — slowapi records the hit in storage *before*
-    raising ``RateLimitExceeded`` — so counts/logs reflect reality. In shadow
-    mode we swallow that exception so the request proceeds, giving a true
-    count-but-don't-block dry run. Relies on slowapi 0.1.9's
-    ``_check_request_limit`` raising after recording the hit (guarded by the
-    shadow tests; revisit on a slowapi upgrade).
-    """
-
-    def __init__(self, *args: Any, shadow: bool = False, **kwargs: Any) -> None:
-        self._shadow = shadow
-        super().__init__(*args, **kwargs)
-
-    def _check_request_limit(self, request, endpoint_func, in_middleware=True):
-        try:
-            return super()._check_request_limit(request, endpoint_func, in_middleware)
-        except RateLimitExceeded:
-            if not getattr(self, "_shadow", False):
-                raise
-            bucket = getattr(request.state, "rl_bucket", "unknown")
-            workspace_id = getattr(request.state, "rl_workspace_id", _UNKNOWN_WORKSPACE)
-            plan = getattr(request.state, "rl_billing_plan", "unknown")
-            logger.warning(
-                "rate limit exceeded in SHADOW mode (counted, not enforced): "
-                "bucket=%s workspace=%s plan=%s",
-                bucket,
-                workspace_id,
-                plan,
-            )
-            if _exceeded_counter is not None:
-                try:
-                    _exceeded_counter.add(1, {"bucket": bucket, "plan": plan, "mode": "shadow"})
-                except Exception:  # pragma: no cover - best-effort metric
-                    logger.debug("failed to record shadow rate_limit counter", exc_info=True)
-            return None
-
-
 def _build_limiter() -> Limiter:
     """Construct the application-wide limiter (Redis + in-memory fallback).
 
@@ -318,23 +278,19 @@ def _build_limiter() -> Limiter:
     unset/false) there are no billing tiers, so the limiter is built disabled and
     every route decorator becomes inert; the operator's own infra is the ceiling.
     ``RATE_LIMIT_ENABLED=false`` also disables it on cloud.
-    ``RATE_LIMIT_SHADOW=true`` keeps it enabled but count-only (no 429s).
     The billing gate is read once at startup; it does not change at runtime.
     """
     enabled = settings.rate_limit.enabled and is_billing_enabled()
-    shadow = settings.rate_limit.shadow
     storage_uri = settings.rate_limit.storage_uri or settings.redis.url
     logger.info(
-        "Initialising REST rate limiter (enabled=%s, shadow=%s, billing_enabled=%s, storage=%s)",
+        "Initialising REST rate limiter (enabled=%s, billing_enabled=%s, storage=%s)",
         enabled,
-        shadow,
         is_billing_enabled(),
         "redis" if storage_uri.startswith("redis") else storage_uri,
     )
-    return _ShadowAwareLimiter(
+    return Limiter(
         key_func=get_remote_address,  # default; each route overrides via key_func=
         enabled=enabled,
-        shadow=shadow,
         storage_uri=storage_uri,
         headers_enabled=True,  # X-RateLimit-* on success responses
         in_memory_fallback_enabled=True,  # degrade to per-process on Redis outage

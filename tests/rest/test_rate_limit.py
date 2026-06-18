@@ -380,7 +380,7 @@ def test_resolve_limit_applies_per_plan_limits(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# G. Hardening: shadow mode, degraded-storage signal
+# G. Hardening: degraded-storage signal
 # ---------------------------------------------------------------------------
 
 
@@ -408,32 +408,9 @@ def _build_app_with_limiter(limiter, *, plan: str, workspace: str) -> FastAPI:
     return app
 
 
-def test_shadow_mode_records_but_does_not_block(monkeypatch, caplog):
-    """Shadow mode evaluates the limit (counts + logs) but never returns 429."""
-    # Arrange: shadow on, billing on, tiny limit, deterministic in-memory storage.
-    monkeypatch.setattr(rate_limit.settings.rate_limit, "shadow", True)
-    monkeypatch.setattr(rate_limit.settings.rate_limit, "enabled", True)
-    monkeypatch.setattr(rate_limit.settings.rate_limit, "storage_uri", "memory://")
-    monkeypatch.setitem(_PLAN_LIMITS_READ, "free", "2/minute")
-    monkeypatch.setenv("ENABLE_BILLING", "true")
-    client = TestClient(
-        _build_app_with_limiter(rate_limit._build_limiter(), plan="free", workspace="ws-shadow")
-    )
-
-    # Act
-    with caplog.at_level("WARNING"):
-        codes = [client.get("/r").status_code for _ in range(4)]
-
-    # Assert: never blocked past the 2/min limit...
-    assert codes == [200, 200, 200, 200]
-    # ...but the over-limit events were observed (proves it counted, not just off).
-    assert any("shadow" in r.message.lower() for r in caplog.records)
-
-
-def test_enforce_mode_blocks_when_shadow_is_off(monkeypatch):
-    """Sanity contrast: with shadow off, _build_limiter enforces (3rd request 429)."""
+def test_build_limiter_enforces_when_enabled(monkeypatch):
+    """A limiter built via _build_limiter (enabled, cloud) blocks on the 3rd request."""
     # Arrange
-    monkeypatch.setattr(rate_limit.settings.rate_limit, "shadow", False)
     monkeypatch.setattr(rate_limit.settings.rate_limit, "enabled", True)
     monkeypatch.setattr(rate_limit.settings.rate_limit, "storage_uri", "memory://")
     monkeypatch.setitem(_PLAN_LIMITS_READ, "free", "2/minute")
