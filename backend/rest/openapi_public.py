@@ -80,6 +80,7 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
     for path in ("/api/v1/public/traces/{trace_id}", "/api/v1/public/traces/{trace_id}/export"):
         op = schema["paths"].get(path, {}).get("get")
         if op is not None:
+            op["responses"].setdefault("400", _error_response("Invalid fields parameter"))
             op["responses"].setdefault("404", _error_response("Trace not found"))
             op["responses"].setdefault("500", _error_response("Failed to get trace"))
 

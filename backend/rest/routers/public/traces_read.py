@@ -10,6 +10,15 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from rest.projection import (
+    FIELDS_PARAM_DESC,
+    FULL,
+    SKELETON,
+    InvalidFieldsError,
+    io_columns,
+    merge_span_io,
+    resolve_span_fields,
+)
 from rest.routers.public.deps import Auth
 from rest.routers.public.serialize import export_bundle, public_trace_detail
 from rest.schemas.public import (
@@ -50,32 +59,66 @@ async def list_traces(
 
 
 @router.get("/{trace_id}", response_model=PublicTraceDetailResponse)
-async def get_trace(auth: Auth, trace_id: str):
-    """Get a single trace (full payload, including spans) for the key's project."""
-    trace = _require_trace(auth.project_id, trace_id)
+async def get_trace(
+    auth: Auth,
+    trace_id: str,
+    fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
+):
+    """Get a single trace for the key's project.
+
+    Defaults to the lightweight `skeleton` projection (no per-span I/O); pass
+    `fields=full` (or `fields=io,metadata`) for per-span input/output/metadata.
+    """
+    groups = _resolve_fields(fields, default=SKELETON)
+    trace = _require_trace(auth.project_id, trace_id, groups)
     return public_trace_detail(trace, auth.project_id)
 
 
 @router.get("/{trace_id}/export", response_model=PublicTraceExportResponse)
-async def export_trace(auth: Auth, trace_id: str):
+async def export_trace(
+    auth: Auth,
+    trace_id: str,
+    fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
+):
     """Export the V1 bundle (trace + spans + git_context + manifest) for the key's project.
 
-    `bundle.trace` is identical to the `traces get` payload for the same trace.
+    Defaults to the `full` projection — an export is explicit intent to take the
+    complete trace, so per-span input/output/metadata are included unless the
+    caller narrows `fields`. `bundle.trace` equals the `traces get` payload at the
+    same projection.
     """
-    trace = _require_trace(auth.project_id, trace_id)
+    groups = _resolve_fields(fields, default=FULL)
+    trace = _require_trace(auth.project_id, trace_id, groups)
     return export_bundle(trace, auth.project_id)
 
 
-def _require_trace(project_id: str, trace_id: str) -> dict:
-    """Fetch a trace scoped to the project, or raise 404 (500 on reader failure).
+def _resolve_fields(fields: str | None, *, default: frozenset[str]) -> frozenset[str]:
+    """Resolve the `fields` projection, mapping a bad value to 400 Bad Request."""
+    try:
+        return resolve_span_fields(fields, default=default)
+    except InvalidFieldsError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+def _require_trace(project_id: str, trace_id: str, groups: frozenset[str]) -> dict:
+    """Fetch a trace scoped to the project at the requested projection.
 
     Centralizing the read here keeps `get` and `export` consistent: a reader
     failure is a controlled 500 (matching `list_traces`), a missing/cross-project
-    trace is a 404, and internal exception text is never leaked to clients.
+    trace is a 404, and internal exception text is never leaked to clients. The
+    bulk span-I/O query runs only when the projection requests `io`/`metadata`,
+    so the default skeleton read keeps the #1040 lightweight behavior.
     """
     try:
         service = get_trace_reader_service()
         trace = service.get_trace(project_id=project_id, trace_id=trace_id)
+        if trace:
+            columns = io_columns(groups)
+            if columns:
+                span_io = service.get_trace_spans_io(
+                    project_id=project_id, trace_id=trace_id, columns=columns
+                )
+                merge_span_io(trace, span_io)
     except Exception as e:
         logger.exception(f"Error getting trace: {e}")
         raise HTTPException(
