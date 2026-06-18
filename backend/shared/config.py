@@ -97,17 +97,13 @@ class RateLimitSettings(BaseSettings):
     when billing is off — see ``rest.rate_limit``), so these knobs only take
     effect on cloud (billing-enabled) deployments.
 
-    Env vars: RATE_LIMIT_ENABLED, RATE_LIMIT_SHADOW, RATE_LIMIT_STORAGE_URI.
+    Env vars: RATE_LIMIT_ENABLED, RATE_LIMIT_STORAGE_URI.
     """
 
     model_config = SettingsConfigDict(env_prefix="RATE_LIMIT_")
 
     # Master kill-switch: RATE_LIMIT_ENABLED=false disables all enforcement.
     enabled: bool = True
-    # Shadow / dry-run: when true (and enabled), over-limit requests are counted
-    # and logged but NOT blocked — for observing impact before enforcing on a
-    # fresh cloud rollout. See rest.rate_limit._build_limiter.
-    shadow: bool = False
     # Storage backend; defaults to the main Redis URL (REDIS_URL) so limits are
     # shared across REST replicas. Set "memory://" for single-process use.
     storage_uri: str | None = None
