@@ -5,6 +5,14 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from rest.projection import (
+    FIELDS_PARAM_DESC,
+    SKELETON,
+    InvalidFieldsError,
+    io_columns,
+    merge_span_io,
+    resolve_span_fields,
+)
 from rest.routers.deps import ProjectAccess
 from rest.schemas.traces import SpanIOResponse, TraceDetailResponse, TraceListResponse
 from rest.services.trace_reader import get_trace_reader_service
@@ -55,8 +63,20 @@ async def get_trace(
     project_id: str,
     trace_id: str,
     _access: ProjectAccess,  # Validates user has access to project
+    fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
 ):
-    """Get a single trace with span skeletons (no per-span I/O)."""
+    """Get a single trace for a project.
+
+    Defaults to the lightweight ``skeleton`` projection (no per-span I/O) — the
+    dashboard relies on this for sub-MB payloads. Non-interactive callers (e.g.
+    the agent trace download) pass ``fields=full`` to regain per-span
+    input/output/metadata in a single read.
+    """
+    try:
+        groups = resolve_span_fields(fields, default=SKELETON)
+    except InvalidFieldsError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
     service = get_trace_reader_service()
     trace = service.get_trace(project_id=project_id, trace_id=trace_id)
 
@@ -65,6 +85,14 @@ async def get_trace(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Trace not found",
         )
+
+    # Only the io/metadata projections need the extra bulk query; skeleton skips it.
+    columns = io_columns(groups)
+    if columns:
+        span_io = service.get_trace_spans_io(
+            project_id=project_id, trace_id=trace_id, columns=columns
+        )
+        merge_span_io(trace, span_io)
 
     return trace
 

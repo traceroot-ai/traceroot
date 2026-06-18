@@ -177,6 +177,82 @@ class TestGetTraceSkeleton:
         assert service.get_trace("proj", "missing") is None
 
 
+class TestGetTraceSpansIO:
+    """Bulk per-span I/O reader: one trace-scoped query, span-id-keyed map,
+    column pruning driven by the requested projection."""
+
+    def test_single_query_returns_span_id_keyed_map(self):
+        calls = []
+
+        def side_effect(query, parameters=None):
+            calls.append((query, parameters))
+            return _rows(
+                [
+                    ("span-1", "in-1", "out-1", "meta-1"),
+                    ("span-2", "in-2", "out-2", "meta-2"),
+                ]
+            )
+
+        service, _ = _make_service(side_effect)
+        result = service.get_trace_spans_io(
+            "proj", "abc123", frozenset({"input", "output", "metadata"})
+        )
+
+        # Exactly one trace-scoped query (no N+1 single-span fan-out).
+        assert len(calls) == 1
+        query, params = calls[0]
+        assert "FROM spans FINAL" in query
+        assert params == {"project_id": "proj", "trace_id": "abc123"}
+        # No span_id filter — it is trace-wide.
+        assert "span_id =" not in query
+        # Keyed by span_id, each value carries all requested columns.
+        assert result == {
+            "span-1": {"input": "in-1", "output": "out-1", "metadata": "meta-1"},
+            "span-2": {"input": "in-2", "output": "out-2", "metadata": "meta-2"},
+        }
+
+    def test_prunes_to_requested_columns_only(self):
+        """A metadata-only projection must SELECT only span_id + metadata."""
+        captured = {}
+
+        def side_effect(query, parameters=None):
+            captured["query"] = query
+            return _rows([("span-1", "meta-1")])
+
+        service, _ = _make_service(side_effect)
+        result = service.get_trace_spans_io("proj", "abc123", frozenset({"metadata"}))
+
+        select_clause = captured["query"].split("FROM spans")[0]
+        cols = {c.strip() for c in select_clause.replace("SELECT", "").split(",")}
+        assert cols == {"span_id", "metadata"}
+        assert "input" not in cols
+        assert "output" not in cols
+        assert result == {"span-1": {"metadata": "meta-1"}}
+
+    def test_empty_columns_skips_query(self):
+        """No requested blob columns -> no query issued, empty map."""
+        calls = []
+
+        def side_effect(query, parameters=None):
+            calls.append(query)
+            return _rows([])
+
+        service, _ = _make_service(side_effect)
+        result = service.get_trace_spans_io("proj", "abc123", frozenset())
+        assert result == {}
+        assert calls == []
+
+    def test_null_blobs_pass_through(self):
+        def side_effect(query, parameters=None):
+            return _rows([("span-1", None, None, None)])
+
+        service, _ = _make_service(side_effect)
+        result = service.get_trace_spans_io(
+            "proj", "abc123", frozenset({"input", "output", "metadata"})
+        )
+        assert result == {"span-1": {"input": None, "output": None, "metadata": None}}
+
+
 class TestGetSpanIO:
     def test_returns_blobs_for_existing_span(self):
         def side_effect(query, parameters=None):
