@@ -1,6 +1,7 @@
 """FastAPI dependencies for authentication (via Next.js internal API)."""
 
 import hmac
+import logging
 from typing import Annotated
 
 import httpx
@@ -13,6 +14,8 @@ from rest.rate_limit import (
 )
 from shared.config import settings
 from shared.enums import MemberRole
+
+logger = logging.getLogger(__name__)
 
 
 class ProjectAccessInfo:
@@ -113,12 +116,14 @@ async def get_project_access(
         raise HTTPException(status_code=status_code, detail=error)
 
     # workspaceId is required: it keys the per-workspace rate limiter, so a
-    # missing one would silently collapse tenants into a shared bucket. A
-    # hasAccess:true response without it is malformed -> 503 (mirrors the ingest
-    # auth path). billingPlan stays optional because its absent default ("free")
-    # is the most restrictive tier -- a safe downgrade, not an isolation risk.
+    # missing or empty one would silently collapse tenants into a shared bucket.
+    # A hasAccess:true response without a usable workspaceId is malformed -> 503
+    # (mirrors the ingest auth path). billingPlan stays optional because its
+    # absent default ("free") is the most restrictive tier -- a safe downgrade,
+    # not an isolation risk.
     workspace_id = data.get("workspaceId")
     if not workspace_id:
+        logger.error("validate-project-access returned hasAccess without a usable workspaceId")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service error",

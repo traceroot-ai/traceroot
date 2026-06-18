@@ -109,9 +109,9 @@ def set_rate_limit_identity(
     Called from the dependency layer, which runs before slowapi evaluates the
     limit, so ``key_func`` can read these off ``request.state``. Both enforced
     paths guarantee a workspace — ingest and dashboard-read auth each 503 on a
-    missing one — so no fallback bucket is needed here. Trusted internal calls
-    are exempt and may legitimately carry no workspace; that is fine because the
-    key is never evaluated for them.
+    missing or empty one — so no fallback bucket is needed here. Trusted internal
+    calls are exempt and may legitimately carry no workspace; that is fine
+    because the key is never evaluated for them.
 
     Note: on self-host the limiter is disabled (see ``_build_limiter``), so this
     runs but is never read; it only matters on cloud (billing-enabled).
@@ -178,6 +178,8 @@ def _storage_state(request: Request) -> str:
 
 
 def _record_exceeded(request: Request, retry_after: int) -> None:
+    # These "unknown" defaults are log/metric placeholders for the can't-happen
+    # unstamped-request case; they never key a rate-limit bucket (see _identity).
     bucket = getattr(request.state, "rl_bucket", "unknown")
     workspace_id = getattr(request.state, "rl_workspace_id", "unknown")
     plan = getattr(request.state, "rl_billing_plan", "unknown")
@@ -224,7 +226,9 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSO
     try:
         limit_obj: Any = exc.limit
         retry_after = ceil(limit_obj.limit.get_expiry())
-    except Exception:  # pragma: no cover - the window is effectively always present
+    except Exception:
+        # The window is effectively always present; floor defensively so a 429
+        # never degrades into a 500 over a missing Retry-After value.
         retry_after = 1
 
     view_rate_limit = getattr(request.state, "view_rate_limit", None)

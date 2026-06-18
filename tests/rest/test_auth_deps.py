@@ -197,6 +197,29 @@ class TestAuthenticateApiKey:
         assert exc_info.value.detail == "Authentication service error"
 
     @respx.mock
+    async def test_200_empty_workspace_id_returns_503(self):
+        """An empty (not just absent) workspaceId would collapse tenants into one
+        shared ingest bucket, so a valid:true response with workspaceId="" is
+        malformed → 503 (parity with the dashboard-read auth path).
+        """
+        respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
+            return_value=Response(
+                200,
+                json={
+                    "valid": True,
+                    "projectId": "proj-123",
+                    "workspaceId": "",
+                    "billingPlan": "free",
+                    "ingestionBlocked": False,
+                },
+            )
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_api_key("Bearer test-key")
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Authentication service error"
+
+    @respx.mock
     async def test_token_not_logged_on_malformed_response(self, caplog):
         """The raw API token must never appear in logs, even on the error path."""
         respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(

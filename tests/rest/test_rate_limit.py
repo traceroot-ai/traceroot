@@ -518,7 +518,52 @@ def test_set_rate_limit_identity_has_no_unknown_workspace_fallback(caplog):
         rate_limit.set_rate_limit_identity(request, "", "free")
     key = rate_limit.key_read(request)
 
-    # Assert: no sentinel constant, no ``unknown`` bucket segment, no warning.
-    assert not hasattr(rate_limit, "_UNKNOWN_WORKSPACE")
+    # Assert: no ``unknown`` bucket segment in the key, and no warning.
     assert key == f"rl:{rate_limit.BUCKET_READ}:free:"
     assert not any("workspace" in r.message.lower() for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# I. Retry-After derivation (window base + floor; no hardcoded default)
+# ---------------------------------------------------------------------------
+def test_retry_after_uses_limit_window_when_live_stats_absent():
+    """With no live window stats, Retry-After is the limit's own window size.
+
+    Binds the value (90s here): a reverted hardcoded default or the wrong branch
+    would not reproduce the limit's actual window.
+    """
+    import json
+    from types import SimpleNamespace
+
+    # Arrange: a 429 whose limit reports a 90s window, and a request with no
+    # view_rate_limit so the exact-remaining refinement is skipped.
+    exc = SimpleNamespace(limit=SimpleNamespace(limit=SimpleNamespace(get_expiry=lambda: 90)))
+    request = SimpleNamespace(state=SimpleNamespace())
+
+    # Act
+    response = rate_limit.rate_limit_exceeded_handler(request, exc)
+
+    # Assert
+    assert response.status_code == 429
+    assert json.loads(response.body)["retry_after"] == 90
+    assert response.headers["Retry-After"] == "90"
+
+
+def test_retry_after_floors_to_1_when_limit_window_unreadable():
+    """If the limit window cannot be read, Retry-After floors to 1 (never a 500)."""
+    import json
+    from types import SimpleNamespace
+
+    class _ExcWithUnreadableLimit:
+        @property
+        def limit(self):
+            raise RuntimeError("limit unavailable")
+
+    request = SimpleNamespace(state=SimpleNamespace())
+
+    # Act
+    response = rate_limit.rate_limit_exceeded_handler(request, _ExcWithUnreadableLimit())
+
+    # Assert
+    assert response.status_code == 429
+    assert json.loads(response.body)["retry_after"] == 1
