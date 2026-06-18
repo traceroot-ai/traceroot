@@ -53,7 +53,6 @@ BUCKET_INGEST = "ingest"
 BUCKET_READ = "read"
 _KEY_PREFIX = "rl"
 _UNKNOWN_WORKSPACE = "unknown"
-_DEFAULT_RETRY_AFTER = 60
 
 # Request-scoped exemption flag, set True by the access dependency for trusted
 # internal service-to-service calls. ``exempt_when()`` receives no request, so a
@@ -212,11 +211,26 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSO
     slowapi sets ``request.state.view_rate_limit = (limit_item, args)`` just
     before raising, letting us query the storage for the true time-until-reset
     and remaining count rather than the window *size*.
+
+    ``Retry-After`` is always derived from the limit, never hardcoded: it starts
+    from the limit's own window (``get_expiry()``) and is refined to the exact
+    time-until-reset when the live window stats are readable.
     """
     limit_amount: int | None = None
     remaining: int | None = None
     reset_at: int | None = None
-    retry_after = _DEFAULT_RETRY_AFTER
+
+    # Base ``Retry-After``: the limit's own window size, always derivable from
+    # the exception. ``exc.limit`` is typed None at the class level in slowapi,
+    # but the instance always carries a Limit; ``get_expiry()`` returns the
+    # window in seconds. This is a coarse over-estimate (the full window, not the
+    # time remaining) used only until the live stats below refine it, or as the
+    # floor when those are unreadable.
+    try:
+        limit_obj: Any = exc.limit
+        retry_after = ceil(limit_obj.limit.get_expiry())
+    except Exception:  # pragma: no cover - the window is effectively always present
+        retry_after = 1
 
     view_rate_limit = getattr(request.state, "view_rate_limit", None)
     if view_rate_limit is not None:
@@ -231,19 +245,11 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSO
             )
             # slowapi convention: reset_in = 1 + reset_epoch.
             reset_at = int(reset_epoch) + 1
+            # Refine to the exact time-until-reset.
             retry_after = max(1, reset_at - int(time.time()))
             limit_amount = limit_item.amount
-        except Exception:  # pragma: no cover - fall back to window size below
+        except Exception:  # pragma: no cover - keep the window-size base above
             logger.debug("failed to read window stats for 429 headers", exc_info=True)
-
-    if limit_amount is None:
-        try:
-            # exc.limit is typed as None at the class level in slowapi; the
-            # instance always carries a Limit. get_expiry() returns window size.
-            limit_obj: Any = exc.limit
-            retry_after = ceil(limit_obj.limit.get_expiry())
-        except Exception:  # pragma: no cover
-            pass
 
     _record_exceeded(request, retry_after)
 
