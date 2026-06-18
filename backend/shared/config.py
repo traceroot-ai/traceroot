@@ -81,6 +81,13 @@ def normalize_plan(plan: str | None) -> str:
 
     Unknown or missing plans fall back to the most restrictive tier so a
     mis-resolved plan never grants more quota than intended.
+
+    Args:
+        plan (str | None): Raw plan string (case-insensitive, may be None).
+
+    Returns:
+        str: One of ``RATE_LIMIT_PLANS``; ``free`` when ``plan`` is missing or
+            unrecognized.
     """
     candidate = (plan or "").strip().lower()
     return candidate if candidate in RATE_LIMIT_PLANS else "free"

@@ -115,6 +115,17 @@ def set_rate_limit_identity(
 
     Note: on self-host the limiter is disabled (see ``_build_limiter``), so this
     runs but is never read; it only matters on cloud (billing-enabled).
+
+    Args:
+        request (Request): Request whose ``state`` is stamped (read later by
+            ``key_func`` / ``_record_exceeded``).
+        workspace_id (str | None): Resolved workspace; an empty value is only
+            reachable on exempt internal calls, which are never keyed.
+        billing_plan (str | None): Resolved plan, normalized via ``normalize_plan``.
+
+    Returns:
+        None. Stamps ``rl_workspace_id`` and ``rl_billing_plan`` onto
+        ``request.state``.
     """
     request.state.rl_workspace_id = workspace_id or ""
     request.state.rl_billing_plan = normalize_plan(billing_plan)
@@ -212,6 +223,16 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSO
     ``Retry-After`` is always derived from the limit, never hardcoded: it starts
     from the limit's own window (``get_expiry()``) and is refined to the exact
     time-until-reset when the live window stats are readable.
+
+    Args:
+        request (Request): The throttled request; carries ``view_rate_limit``
+            for the window-stats lookup.
+        exc (RateLimitExceeded): The slowapi exception carrying the exceeded
+            limit.
+
+    Returns:
+        JSONResponse: A 429 with the error envelope plus ``Retry-After`` and,
+            when available, ``X-RateLimit-*`` headers.
     """
     limit_amount: int | None = None
     remaining: int | None = None

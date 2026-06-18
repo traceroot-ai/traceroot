@@ -53,6 +53,15 @@ async def authenticate_and_stamp_identity(request: Request, auth: Auth) -> AuthR
     ingestion bucket by workspace and resolve the plan tier. It runs during
     dependency resolution — before slowapi evaluates the limit — so ``key_func``
     sees the identity on ``request.state``.
+
+    Args:
+        request (Request): Incoming request; its ``state`` is stamped with the
+            resolved rate-limit identity.
+        auth (Auth): API-key auth dependency resolving the workspace and plan.
+
+    Returns:
+        AuthResult: The authenticated result (workspace, plan, ingestion gate),
+            passed through to the route handler.
     """
     # Ingestion is never exempt; establish a clean baseline defensively.
     clear_request_rate_limit_exempt()
