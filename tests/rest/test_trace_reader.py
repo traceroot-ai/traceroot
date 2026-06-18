@@ -3,7 +3,7 @@
 Pure logic — get_model_price is patched, so no DB/ClickHouse is needed.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -220,6 +220,53 @@ class TestGetTraceSkeleton:
         assert captured["spans_parameters"] == {
             "project_id": "proj",
             "trace_id": "abc123",
+        }
+
+    def test_spans_query_normalizes_aware_trace_start_time_to_utc(self):
+        captured = {}
+        trace_start_time = datetime(
+            2024,
+            1,
+            1,
+            12,
+            0,
+            tzinfo=timezone(timedelta(hours=-8)),
+        )
+
+        def side_effect(query, parameters=None):
+            if "FROM traces FINAL" in query:
+                return _rows(
+                    [
+                        (
+                            "abc123",  # trace_id
+                            "proj",  # project_id
+                            "trace-name",  # name
+                            trace_start_time,  # trace_start_time
+                            None,  # user_id
+                            None,  # session_id
+                            None,  # git_ref
+                            None,  # git_repo
+                            None,  # input
+                            None,  # output
+                            None,  # metadata
+                        )
+                    ]
+                )
+
+            captured["spans_query"] = query
+            captured["spans_parameters"] = parameters
+            return _rows([])
+
+        service, _ = _make_service(side_effect)
+        result = service.get_trace("proj", "abc123")
+
+        assert result["spans"] == []
+        lower_bound_sql = "span_start_time >= {trace_start_time:DateTime64(3)} - INTERVAL 1 HOUR"
+        assert lower_bound_sql in captured["spans_query"]
+        assert captured["spans_parameters"] == {
+            "project_id": "proj",
+            "trace_id": "abc123",
+            "trace_start_time": datetime(2024, 1, 1, 20, 0),
         }
 
 
