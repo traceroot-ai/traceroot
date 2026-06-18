@@ -4,11 +4,15 @@
 
 PROD_COMPOSE := docker compose -f docker-compose.prod.yml
 
-.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset
+.PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset docs-openapi
 
 ## Install repository git hooks for contributors.
 install-hooks:
 	uv run pre-commit install
+
+## Regenerate docs/api-reference/openapi.json from the canonical public spec.
+docs-openapi:
+	uv run python scripts/sync_public_openapi.py docs/api-reference/openapi.json
 
 ## Start developing. Handles everything: deps, infra, migrations, tmux launch.
 ## Idempotent - safe to run repeatedly. Reattaches if already running.

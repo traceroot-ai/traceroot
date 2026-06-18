@@ -134,6 +134,30 @@
         ]
       },
       {
+        "tab": "API Reference",
+        "icon": "terminal",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "api-reference/introduction",
+              "api-reference/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "openapi": "api-reference/openapi.json",
+            "pages": [
+              "POST /api/v1/public/traces",
+              "GET /api/v1/public/traces",
+              "GET /api/v1/public/traces/{trace_id}",
+              "GET /api/v1/public/traces/{trace_id}/export",
+              "GET /api/v1/public/whoami"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "Integrations",
         "icon": "puzzle-piece",
         "groups": [
