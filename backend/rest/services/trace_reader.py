@@ -242,7 +242,20 @@ class TraceReaderService:
         # usage_details is kept (small map) to derive cost_details. Duration is
         # derived on the client from start/end so in-progress spans can grow
         # against `now()` for live traces.
-        spans_query = """
+        spans_conditions = [
+            "project_id = {project_id:String}",
+            "trace_id = {trace_id:String}",
+        ]
+        spans_params = {"project_id": project_id, "trace_id": trace_id}
+        if trace["trace_start_time"] is not None:
+            spans_conditions.append(
+                "span_start_time >= {trace_start_time:DateTime64(3)} - INTERVAL 1 HOUR"
+            )
+            spans_params["trace_start_time"] = to_utc_naive(trace["trace_start_time"])
+
+        spans_where_clause = " AND ".join(spans_conditions)
+
+        spans_query = f"""
             SELECT
                 span_id, trace_id, parent_span_id, name, span_kind,
                 span_start_time, span_end_time, status, status_message,
@@ -250,12 +263,12 @@ class TraceReaderService:
                 usage_details,
                 git_source_file, git_source_line, git_source_function
             FROM spans FINAL
-            WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
+            WHERE {spans_where_clause}
             ORDER BY span_start_time ASC
         """
         spans_result = self._client.query(
             spans_query,
-            parameters={"project_id": project_id, "trace_id": trace_id},
+            parameters=spans_params,
         )
 
         spans = []

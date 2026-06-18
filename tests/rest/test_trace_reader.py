@@ -111,6 +111,7 @@ class TestGetTraceSkeleton:
                 )
             # spans query
             captured["spans_query"] = query
+            captured["spans_parameters"] = parameters
             return _rows(
                 [
                     (
@@ -153,6 +154,14 @@ class TestGetTraceSkeleton:
         assert "output_tokens" in cols
         # Still selects via FINAL (correctness for ReplacingMergeTree).
         assert "FROM spans FINAL" in spans_sql
+        # Bound by the already-read trace_start_time so ClickHouse can prune
+        # monthly span partitions before the trace.
+        assert "span_start_time >= {trace_start_time:DateTime64(3)} - INTERVAL 1 HOUR" in spans_sql
+        assert captured["spans_parameters"] == {
+            "project_id": "proj",
+            "trace_id": "abc123",
+            "trace_start_time": datetime(2024, 1, 1),
+        }
 
         # Resulting span dict carries NO I/O keys, but keeps tree fields.
         span = result["spans"][0]
@@ -175,6 +184,43 @@ class TestGetTraceSkeleton:
 
         service, _ = _make_service(side_effect)
         assert service.get_trace("proj", "missing") is None
+
+    def test_spans_query_is_unbounded_when_trace_start_time_is_null(self):
+        captured = {}
+
+        def side_effect(query, parameters=None):
+            if "FROM traces FINAL" in query:
+                return _rows(
+                    [
+                        (
+                            "abc123",  # trace_id
+                            "proj",  # project_id
+                            "trace-name",  # name
+                            None,  # trace_start_time
+                            None,  # user_id
+                            None,  # session_id
+                            None,  # git_ref
+                            None,  # git_repo
+                            None,  # input
+                            None,  # output
+                            None,  # metadata
+                        )
+                    ]
+                )
+
+            captured["spans_query"] = query
+            captured["spans_parameters"] = parameters
+            return _rows([])
+
+        service, _ = _make_service(side_effect)
+        result = service.get_trace("proj", "abc123")
+
+        assert result["spans"] == []
+        assert "span_start_time >=" not in captured["spans_query"]
+        assert captured["spans_parameters"] == {
+            "project_id": "proj",
+            "trace_id": "abc123",
+        }
 
 
 class TestGetSpanIO:
