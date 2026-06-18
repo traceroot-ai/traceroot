@@ -15,10 +15,23 @@ from rest.projection import (
     SKELETON,
     USAGE,
     InvalidFieldsError,
+    hydrate_span_io,
     io_columns,
     merge_span_io,
     resolve_span_fields,
 )
+
+
+class _StubReader:
+    """Records get_trace_spans_io calls and returns a canned map."""
+
+    def __init__(self, span_io=None):
+        self._span_io = span_io or {}
+        self.calls = []
+
+    def get_trace_spans_io(self, *, project_id, trace_id, columns):
+        self.calls.append({"project_id": project_id, "trace_id": trace_id, "columns": columns})
+        return self._span_io
 
 
 class TestResolveSpanFields:
@@ -132,3 +145,35 @@ class TestMergeSpanIo:
 
     def test_no_spans_key_is_safe(self):
         merge_span_io({}, {"s1": {"input": "i"}})  # must not raise
+
+
+class TestHydrateSpanIo:
+    def _trace(self):
+        return {"spans": [{"span_id": "s1", "input": None, "output": None, "metadata": None}]}
+
+    def test_skeleton_skips_bulk_query(self):
+        """The #1040 gate: a skeleton projection must NOT touch the bulk reader."""
+        reader = _StubReader()
+        trace = self._trace()
+        hydrate_span_io(reader, trace, project_id="p", trace_id="t", groups=SKELETON)
+        assert reader.calls == []
+        assert trace["spans"][0]["input"] is None
+
+    def test_full_fetches_and_merges(self):
+        reader = _StubReader({"s1": {"input": "i", "output": "o", "metadata": "m"}})
+        trace = self._trace()
+        hydrate_span_io(reader, trace, project_id="p", trace_id="t", groups=FULL)
+        assert len(reader.calls) == 1
+        assert reader.calls[0]["columns"] == frozenset({"input", "output", "metadata"})
+        assert reader.calls[0]["project_id"] == "p"
+        assert reader.calls[0]["trace_id"] == "t"
+        assert trace["spans"][0]["input"] == "i"
+        assert trace["spans"][0]["metadata"] == "m"
+
+    def test_io_only_requests_input_output_columns(self):
+        reader = _StubReader({"s1": {"input": "i", "output": "o"}})
+        trace = self._trace()
+        hydrate_span_io(reader, trace, project_id="p", trace_id="t", groups=frozenset({CORE, IO}))
+        assert reader.calls[0]["columns"] == frozenset({"input", "output"})
+        assert trace["spans"][0]["input"] == "i"
+        assert trace["spans"][0]["metadata"] is None

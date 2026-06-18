@@ -15,8 +15,7 @@ from rest.projection import (
     FULL,
     SKELETON,
     InvalidFieldsError,
-    io_columns,
-    merge_span_io,
+    hydrate_span_io,
     resolve_span_fields,
 )
 from rest.routers.public.deps import Auth
@@ -113,12 +112,7 @@ def _require_trace(project_id: str, trace_id: str, groups: frozenset[str]) -> di
         service = get_trace_reader_service()
         trace = service.get_trace(project_id=project_id, trace_id=trace_id)
         if trace:
-            columns = io_columns(groups)
-            if columns:
-                span_io = service.get_trace_spans_io(
-                    project_id=project_id, trace_id=trace_id, columns=columns
-                )
-                merge_span_io(trace, span_io)
+            hydrate_span_io(service, trace, project_id=project_id, trace_id=trace_id, groups=groups)
     except Exception as e:
         logger.exception(f"Error getting trace: {e}")
         raise HTTPException(

@@ -122,3 +122,27 @@ def merge_span_io(trace: dict, span_io: dict[str, dict]) -> None:
         io = span_io.get(span["span_id"])
         if io:
             span.update(io)
+
+
+def hydrate_span_io(
+    service,
+    trace: dict,
+    *,
+    project_id: str,
+    trace_id: str,
+    groups: frozenset[str],
+) -> None:
+    """Attach per-span I/O to a skeleton ``trace`` for the resolved projection, in place.
+
+    The single gate for the bulk span-I/O query: it runs **only** when ``groups``
+    includes ``io``/``metadata`` (``io_columns`` non-empty). Centralizing it here —
+    rather than copy-pasting the gate into each router — means a new ``fields``
+    endpoint cannot forget the ``core``/``usage``-only fast path that keeps the
+    default skeleton read off the heavy query (the #1040 win). ``service`` is any
+    object exposing ``get_trace_spans_io(project_id, trace_id, columns)``.
+    """
+    columns = io_columns(groups)
+    if not columns:
+        return
+    span_io = service.get_trace_spans_io(project_id=project_id, trace_id=trace_id, columns=columns)
+    merge_span_io(trace, span_io)
