@@ -43,6 +43,12 @@ class TestResolveSpanFields:
         assert resolve_span_fields("   ", default=SKELETON) == SKELETON
         assert resolve_span_fields("", default=FULL) == FULL
 
+    def test_only_separators_returns_default(self):
+        # "," / "  ,  " have no usable tokens -> treated like an omitted param,
+        # NOT a narrowed {core} projection.
+        assert resolve_span_fields(",", default=SKELETON) == SKELETON
+        assert resolve_span_fields("  ,  ", default=FULL) == FULL
+
     def test_skeleton_alias(self):
         assert resolve_span_fields("skeleton", default=FULL) == frozenset({CORE, USAGE})
 

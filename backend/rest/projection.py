@@ -88,6 +88,11 @@ def resolve_span_fields(fields: str | None, *, default: frozenset[str]) -> froze
             f"Valid groups: {', '.join(_VALID_TOKENS)}."
         )
 
+    # Input with no usable tokens (e.g. "," or "  ,  ") is treated like an omitted
+    # param: return the default, consistent with the ""/None case above.
+    if not resolved:
+        return default
+
     resolved.add(CORE)
     return frozenset(resolved)
 
