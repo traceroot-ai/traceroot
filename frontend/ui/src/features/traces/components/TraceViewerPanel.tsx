@@ -160,20 +160,13 @@ export function TraceViewerPanel({
       timelineScrollRef.current.scrollTop = treeScrollRef.current.scrollTop;
     });
   }, [viewMode]);
-  // Close the panel on Escape, unless a nested overlay (dialog/select/popover) owns focus and should consume it first.
+  // Close the panel on Escape. A nested Radix overlay (dialog/select/popover/menu) that
+  // consumes the Escape calls preventDefault() in the capture phase, before this
+  // bubble-phase listener runs — so defaultPrevented means "already handled, leave the panel open".
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      // Let nested popovers/selects/dialogs handle Escape first
-      const activeEl = document.activeElement;
-      if (
-        activeEl instanceof HTMLElement &&
-        activeEl.closest(
-          '[role="dialog"], [role="listbox"], [role="menu"], [data-radix-popper-content-wrapper]',
-        )
-      ) {
-        return;
-      }
+      if (e.defaultPrevented) return;
       onClose();
     };
     document.addEventListener("keydown", handleKeyDown);
