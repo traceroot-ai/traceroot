@@ -231,8 +231,8 @@ importers:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
       nodemailer:
-        specifier: ^8.0.9
-        version: 8.0.9
+        specifier: ^9.0.1
+        version: 9.0.1
       posthog-js:
         specifier: ^1.362.0
         version: 1.362.0
@@ -334,8 +334,8 @@ importers:
         specifier: ^3.0.0
         version: 3.0.3
       nodemailer:
-        specifier: ^8.0.9
-        version: 8.0.9
+        specifier: ^9.0.1
+        version: 9.0.1
       stripe:
         specifier: 14.25.0
         version: 14.25.0
@@ -4643,8 +4643,8 @@ packages:
   node-releases@2.0.36:
     resolution: {integrity: sha512-TdC8FSgHz8Mwtw9g5L4gR/Sh9XhSP/0DEkQxfEFXOpiul5IiHgHan2VhYYb6agDSfp4KuvltmGApc8HMgUrIkA==}
 
-  nodemailer@8.0.9:
-    resolution: {integrity: sha512-5ofa7BUN8+C+Hckh5V2GjeeOGRQBx0CJQA6KxrvuZfC8iU4/q7sLn8XrtEEhJkjV6HdyIiQs7Bba6bTao8JhkA==}
+  nodemailer@9.0.1:
+    resolution: {integrity: sha512-Gwv8SQewT616ZM/URn0H54b8PWo/Wum7md3EW2aWy1lO27+WZCX+Xyak3J+NlmHUjDh5ME+uesJUDRbR3Ye8Bw==}
     engines: {node: '>=6.0.0'}
 
   normalize-path@3.0.0:
@@ -10895,7 +10895,7 @@ snapshots:
 
   node-releases@2.0.36: {}
 
-  nodemailer@8.0.9: {}
+  nodemailer@9.0.1: {}
 
   normalize-path@3.0.0: {}
 
