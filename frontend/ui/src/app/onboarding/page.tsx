@@ -72,7 +72,6 @@ function OnboardingContent() {
     register,
     handleSubmit: handleFormSubmit,
     formState: { errors },
-    getValues,
   } = useForm<OnboardingForm>({
     resolver: zodResolver(onboardingSchema),
     defaultValues: {
