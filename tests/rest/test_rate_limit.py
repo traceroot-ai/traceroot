@@ -443,7 +443,7 @@ def test_throttle_record_flags_degraded_storage(caplog):
 
 
 # ---------------------------------------------------------------------------
-# H. Bucket isolation + unknown-workspace fallback
+# H. Bucket isolation
 # ---------------------------------------------------------------------------
 def _build_ingest_and_read_app() -> FastAPI:
     """App with BOTH an ingest route (.limit) and a read route (.shared_limit).
@@ -500,10 +500,15 @@ def test_ingest_and_read_buckets_do_not_share_a_counter():
     assert [client.post("/ingest").status_code for _ in range(3)] == [200, 200, 429]
 
 
-def test_missing_workspace_falls_back_to_unknown_bucket_and_warns(caplog):
-    """A non-exempt request with no workspace lands in the shared ``unknown``
-    bucket and logs a warning, so a broken validate contract is visible rather
-    than silently collapsing tenants into one shared bucket."""
+def test_set_rate_limit_identity_has_no_unknown_workspace_fallback(caplog):
+    """The ``unknown``-workspace fallback bucket + its warning were removed.
+
+    Upstream auth now guarantees a workspace on every enforced path (ingest and
+    dashboard read each 503 without one — see test_auth_deps), so this layer no
+    longer substitutes a sentinel or warns. An empty workspace (only reachable on
+    exempt internal calls, which are never enforced) stamps through as-is, with
+    no ``unknown`` segment in the key and no warning.
+    """
     # Arrange
     request = Request({"type": "http", "headers": [], "state": {}})
     rate_limit.clear_request_rate_limit_exempt()
@@ -513,26 +518,7 @@ def test_missing_workspace_falls_back_to_unknown_bucket_and_warns(caplog):
         rate_limit.set_rate_limit_identity(request, "", "free")
     key = rate_limit.key_read(request)
 
-    # Assert: collapses to the shared fallback bucket, and the collapse is logged.
-    assert key == f"rl:{rate_limit.BUCKET_READ}:free:{rate_limit._UNKNOWN_WORKSPACE}"
-    assert any("unknown workspace" in r.message.lower() for r in caplog.records)
-
-
-def test_exempt_request_with_missing_workspace_does_not_warn(caplog):
-    """Trusted internal (exempt) calls legitimately have no workspace, so the
-    unknown-workspace fallback must NOT warn for them."""
-    # Arrange
-    request = Request({"type": "http", "headers": [], "state": {}})
-    rate_limit.clear_request_rate_limit_exempt()
-    rate_limit.mark_request_rate_limit_exempt()
-
-    # Act
-    try:
-        with caplog.at_level("WARNING"):
-            rate_limit.set_rate_limit_identity(request, "", "free")
-    finally:
-        # Don't leak the exemption into other tests sharing this context.
-        rate_limit.clear_request_rate_limit_exempt()
-
-    # Assert
-    assert not any("unknown workspace" in r.message.lower() for r in caplog.records)
+    # Assert: no sentinel constant, no ``unknown`` bucket segment, no warning.
+    assert not hasattr(rate_limit, "_UNKNOWN_WORKSPACE")
+    assert key == f"rl:{rate_limit.BUCKET_READ}:free:"
+    assert not any("workspace" in r.message.lower() for r in caplog.records)

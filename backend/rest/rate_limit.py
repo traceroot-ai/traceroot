@@ -52,7 +52,6 @@ logger = logging.getLogger(__name__)
 BUCKET_INGEST = "ingest"
 BUCKET_READ = "read"
 _KEY_PREFIX = "rl"
-_UNKNOWN_WORKSPACE = "unknown"
 
 # Request-scoped exemption flag, set True by the access dependency for trusted
 # internal service-to-service calls. ``exempt_when()`` receives no request, so a
@@ -108,27 +107,23 @@ def set_rate_limit_identity(
     """Stash the resolved workspace + plan on the request for the key/limit funcs.
 
     Called from the dependency layer, which runs before slowapi evaluates the
-    limit, so ``key_func`` can read these off ``request.state``. A missing
-    workspace falls back to a shared ``unknown`` bucket at the free tier — this
-    should not happen on authenticated paths (both validate endpoints return a
-    workspace), so it is a fail-safe (restrictive), not an expected state. We
-    warn when a non-exempt request lands there so a broken validate contract is
-    visible rather than silently collapsing tenants into one shared bucket.
+    limit, so ``key_func`` can read these off ``request.state``. Both enforced
+    paths guarantee a workspace — ingest and dashboard-read auth each 503 on a
+    missing one — so no fallback bucket is needed here. Trusted internal calls
+    are exempt and may legitimately carry no workspace; that is fine because the
+    key is never evaluated for them.
 
     Note: on self-host the limiter is disabled (see ``_build_limiter``), so this
     runs but is never read; it only matters on cloud (billing-enabled).
     """
-    if not workspace_id and not is_request_rate_limit_exempt():
-        logger.warning(
-            "rate-limit identity resolved to an unknown workspace; "
-            "this request shares the global fallback bucket"
-        )
-    request.state.rl_workspace_id = workspace_id or _UNKNOWN_WORKSPACE
+    request.state.rl_workspace_id = workspace_id or ""
     request.state.rl_billing_plan = normalize_plan(billing_plan)
 
 
 def _identity(request: Request) -> tuple[str, str]:
-    workspace_id = getattr(request.state, "rl_workspace_id", _UNKNOWN_WORKSPACE)
+    # The dependency layer always stamps rl_workspace_id before slowapi calls
+    # key_func, so the default is inert defensive code, never an enforced bucket.
+    workspace_id = getattr(request.state, "rl_workspace_id", "")
     plan = normalize_plan(getattr(request.state, "rl_billing_plan", None))
     return workspace_id, plan
 
@@ -184,7 +179,7 @@ def _storage_state(request: Request) -> str:
 
 def _record_exceeded(request: Request, retry_after: int) -> None:
     bucket = getattr(request.state, "rl_bucket", "unknown")
-    workspace_id = getattr(request.state, "rl_workspace_id", _UNKNOWN_WORKSPACE)
+    workspace_id = getattr(request.state, "rl_workspace_id", "unknown")
     plan = getattr(request.state, "rl_billing_plan", "unknown")
     storage = _storage_state(request)
     logger.warning(

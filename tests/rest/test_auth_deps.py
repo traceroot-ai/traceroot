@@ -214,12 +214,16 @@ class TestGetProjectAccess:
     @respx.mock
     async def test_valid_access(self):
         respx.post(f"{BASE_URL}/api/internal/validate-project-access").mock(
-            return_value=Response(200, json={"hasAccess": True, "role": "ADMIN"})
+            return_value=Response(
+                200,
+                json={"hasAccess": True, "role": "ADMIN", "workspaceId": "ws-456"},
+            )
         )
         result = await get_project_access("proj-123", "user-456")
         assert result.project_id == "proj-123"
         assert result.user_id == "user-456"
         assert result.role == "ADMIN"
+        assert result.workspace_id == "ws-456"
 
     async def test_missing_user_id(self):
         with pytest.raises(HTTPException) as exc_info:
@@ -261,3 +265,17 @@ class TestGetProjectAccess:
         with pytest.raises(HTTPException) as exc_info:
             await get_project_access("proj-123", "user-456")
         assert exc_info.value.status_code == 401
+
+    @respx.mock
+    async def test_200_missing_workspace_id_returns_503(self):
+        """hasAccess:true without a workspaceId is malformed: the workspace keys
+        the per-workspace rate limiter, so a missing one must fail loudly (503)
+        rather than silently collapse tenants into a shared bucket.
+        """
+        respx.post(f"{BASE_URL}/api/internal/validate-project-access").mock(
+            return_value=Response(200, json={"hasAccess": True, "role": "ADMIN"})
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await get_project_access("proj-123", "user-456")
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Authentication service error"

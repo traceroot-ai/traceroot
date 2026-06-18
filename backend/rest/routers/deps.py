@@ -112,11 +112,23 @@ async def get_project_access(
         )
         raise HTTPException(status_code=status_code, detail=error)
 
+    # workspaceId is required: it keys the per-workspace rate limiter, so a
+    # missing one would silently collapse tenants into a shared bucket. A
+    # hasAccess:true response without it is malformed -> 503 (mirrors the ingest
+    # auth path). billingPlan stays optional because its absent default ("free")
+    # is the most restrictive tier -- a safe downgrade, not an isolation risk.
+    workspace_id = data.get("workspaceId")
+    if not workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
+
     return ProjectAccessInfo(
         project_id=project_id,
         user_id=x_user_id,
         role=data.get("role", MemberRole.VIEWER),
-        workspace_id=data.get("workspaceId", ""),
+        workspace_id=workspace_id,
         billing_plan=data.get("billingPlan", "free"),
     )
 
