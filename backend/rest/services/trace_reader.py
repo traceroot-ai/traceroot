@@ -49,7 +49,7 @@ def _count_error_leaves(spans: list[tuple[str, str | None, str]]) -> int:
         parent_to_spans.setdefault(pid, []).append((sid, pid, status))
 
     error_count = 0
-    for sid, pid, status in spans:
+    for sid, _pid, status in spans:
         if status != "ERROR":
             continue
         # Check if any child of this span is also ERROR
