@@ -70,7 +70,7 @@ async def run_research(topic: str) -> str:
             f"Then present the final summary."
         ),
         options=ClaudeAgentOptions(
-            model="claude-sonnet-4-20250514",
+            model="sonnet",
             allowed_tools=["Agent"],
             max_turns=8,
             permission_mode="bypassPermissions",

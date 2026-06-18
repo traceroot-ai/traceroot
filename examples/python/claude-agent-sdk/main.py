@@ -103,7 +103,7 @@ async def run_research(topic: str) -> str:
             f"Coordinate the agents and present the final report."
         ),
         options=ClaudeAgentOptions(
-            model="claude-sonnet-4-20250514",
+            model="sonnet",
             allowed_tools=["Agent"],
             max_turns=15,
             # WARNING: bypassPermissions auto-approves all tool calls (Bash, WebSearch)
