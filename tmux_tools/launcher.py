@@ -53,6 +53,13 @@ def _run(
     )
 
 
+def _default_app_version() -> str:
+    try:
+        return _run(["git", "describe", "--tags", "--always", "--dirty"], capture_output=True).stdout.strip() or "dev"
+    except Exception:
+        return "dev"
+
+
 # ---------------------------------------------------------------------------
 # Setup steps — these RUN the setup, not just check it
 # ---------------------------------------------------------------------------
@@ -478,6 +485,7 @@ def main() -> None:
     # Ensure the launcher process itself uses UTC, so inline steps like
     # run_goose() and Prisma migrations produce consistent timestamps.
     os.environ.setdefault("TZ", "UTC")
+    os.environ.setdefault("APP_VERSION", _default_app_version())
 
     os.chdir(ROOT)
 
