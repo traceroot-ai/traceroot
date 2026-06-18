@@ -82,8 +82,8 @@ def client(mock_trace_reader):
 
     async def mock_get_access(project_id: str, x_user_id=None):
         # Mirror the validate-project-access contract (workspaceId + billingPlan)
-        # so get_rate_limited_project_access stamps a real workspace instead of
-        # the _UNKNOWN_WORKSPACE fallback (which warns on every request).
+        # so get_rate_limited_project_access stamps a real workspace for the
+        # per-workspace rate limiter.
         return ProjectAccessInfo(
             project_id=project_id,
             user_id="test-user",
