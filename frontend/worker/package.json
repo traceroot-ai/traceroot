@@ -29,7 +29,7 @@
     "bullmq": "^5.73.3",
     "ioredis": "^5.10.1",
     "node-cron": "^3.0.0",
-    "nodemailer": "^8.0.9",
+    "nodemailer": "^9.0.1",
     "stripe": "14.25.0"
   },
   "devDependencies": {
