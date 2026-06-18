@@ -13,9 +13,7 @@ import os
 
 import yaml
 
-_COMPOSE_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "..", "docker-compose.prod.yml"
-)
+_COMPOSE_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "docker-compose.prod.yml")
 
 
 def _service_environment(service: str) -> dict:
