@@ -321,3 +321,55 @@ class TestGetSpanIO:
         assert len(spans) == 2
         assert spans[1]["model_name"] == "gpt-4o"
         assert spans[1]["cost"] == 0.005
+
+
+class TestErrorCountHeuristic:
+    """Pure-Python unit tests for _count_error_leaves.
+
+    Tests the error-leaf heuristic directly (no ClickHouse needed).
+    Mirrors the SQL self-join in trace_reader.py's span_agg CTE —
+    if the Python logic changes, the SQL must change too (and vice versa).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _import_impl(self):
+        from rest.services.trace_reader import _count_error_leaves
+
+        self._count_error_leaves = _count_error_leaves
+
+    def test_error_count_collapses_propagated_chain(self):
+        """A single exception propagating through 3 nested spans yields 1."""
+        spans = [
+            ("a", None, "ERROR"),
+            ("b", "a", "ERROR"),
+            ("c", "b", "ERROR"),
+        ]
+        assert self._count_error_leaves(spans) == 1
+
+    def test_error_count_preserves_independent_failures(self):
+        """Two unrelated ERROR spans in separate subtrees both counted."""
+        spans = [
+            ("root", None, "OK"),
+            ("left", "root", "ERROR"),
+            ("left-child", "left", "OK"),
+            ("right", "root", "ERROR"),
+            ("right-child", "right", "OK"),
+        ]
+        assert self._count_error_leaves(spans) == 2
+
+    def test_error_count_zero_when_no_errors(self):
+        """All spans OK yields 0 (regression guard)."""
+        spans = [
+            ("a", None, "OK"),
+            ("b", "a", "OK"),
+        ]
+        assert self._count_error_leaves(spans) == 0
+
+    def test_error_count_broken_chain_overcounts(self):
+        """Known limitation: ERROR -> OK -> ERROR counts as 2, not 1."""
+        spans = [
+            ("a", None, "ERROR"),
+            ("b", "a", "OK"),
+            ("c", "b", "ERROR"),
+        ]
+        assert self._count_error_leaves(spans) == 2

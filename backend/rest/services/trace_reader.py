@@ -34,6 +34,32 @@ def span_cost_details(
     return cost_breakdown_from_buckets(get_model_price(model_name), buckets) or {}
 
 
+def _count_error_leaves(spans: list[tuple[str, str | None, str]]) -> int:
+    """Count ERROR spans that have no ERROR child (error-leaf heuristic).
+
+    Mirrors the SQL self-join in the ``span_agg`` CTE of ``list_traces()``.
+    If you change the logic here, change the SQL query too (and vice versa).
+
+    Known limitations (same as the SQL):
+    - Independent parent+child both ERROR collapses to 1 (child hides parent).
+    - Broken chain (ERROR -> OK -> ERROR) overcounts as 2 instead of 1.
+    """
+    parent_to_spans: dict[str | None, list[tuple[str, str | None, str]]] = {}
+    for sid, pid, status in spans:
+        parent_to_spans.setdefault(pid, []).append((sid, pid, status))
+
+    error_count = 0
+    for sid, pid, status in spans:
+        if status != "ERROR":
+            continue
+        # Check if any child of this span is also ERROR
+        children = parent_to_spans.get(sid, [])
+        has_error_child = any(child_status == "ERROR" for _, _, child_status in children)
+        if not has_error_child:
+            error_count += 1
+    return error_count
+
+
 class TraceReaderService:
     """Read traces and spans from ClickHouse."""
 
@@ -110,29 +136,48 @@ class TraceReaderService:
                 ORDER BY trace_start_time DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             ),
+            deduped_spans AS (
+                -- Dedup ReplacingMergeTree: latest ch_update_time wins (see #963).
+                SELECT trace_id, span_id, parent_span_id, status,
+                       span_start_time, span_end_time,
+                       input_tokens, output_tokens, cost
+                FROM spans
+                WHERE project_id = {{project_id:String}}
+                  AND trace_id IN (SELECT trace_id FROM page)
+                ORDER BY ch_update_time DESC
+                LIMIT 1 BY project_id, trace_id, span_id
+            ),
+            error_children AS (
+                SELECT parent_span_id, trace_id, count() AS child_errors
+                FROM deduped_spans
+                WHERE status = 'ERROR' AND parent_span_id IS NOT NULL
+                GROUP BY parent_span_id, trace_id
+            ),
             span_agg AS (
                 SELECT
-                    trace_id,
-                    count(span_id) as span_count,
+                    d.trace_id,
+                    count(d.span_id) as span_count,
                     if(
-                        min(span_start_time) IS NOT NULL AND max(span_end_time) IS NOT NULL,
-                        dateDiff('millisecond', min(span_start_time), max(span_end_time)),
+                        min(d.span_start_time) IS NOT NULL AND max(d.span_end_time) IS NOT NULL,
+                        dateDiff('millisecond', min(d.span_start_time), max(d.span_end_time)),
                         NULL
                     ) as duration_ms,
-                    countIf(status = 'ERROR') as error_count,
-                    sum(input_tokens) as total_input_tokens,
-                    sum(output_tokens) as total_output_tokens,
-                    sum(cost) as total_cost
-                FROM (
-                    SELECT trace_id, span_id, status, span_start_time, span_end_time,
-                           input_tokens, output_tokens, cost
-                    FROM spans
-                    WHERE project_id = {{project_id:String}}
-                      AND trace_id IN (SELECT trace_id FROM page)
-                    ORDER BY ch_update_time DESC
-                    LIMIT 1 BY project_id, trace_id, span_id
-                )
-                GROUP BY trace_id
+                    -- Error leaf heuristic: count ERROR spans that have no ERROR child.
+                    -- Collapses a single exception unwinding through N ancestor context
+                    -- managers from N to 1. Mirrors _count_error_leaves() below — if you
+                    -- change the logic here, change it there too (and vice versa).
+                    -- Known limitations:
+                    --   (a) independent parent+child both ERROR counts as 1 (not 2);
+                    --   (b) broken chain (ERROR -> OK -> ERROR) overcounts as 2 (not 1).
+                    -- See PR #1204 for full discussion.
+                    countIf(d.status = 'ERROR' AND coalesce(ec.child_errors, 0) = 0) as error_count,
+                    sum(d.input_tokens) as total_input_tokens,
+                    sum(d.output_tokens) as total_output_tokens,
+                    sum(d.cost) as total_cost
+                FROM deduped_spans d
+                LEFT JOIN error_children ec
+                    ON d.span_id = ec.parent_span_id AND d.trace_id = ec.trace_id
+                GROUP BY d.trace_id
             )
             SELECT
                 p.trace_id,
