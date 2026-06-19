@@ -292,6 +292,49 @@ class TraceReaderService:
         trace["spans"] = spans
         return trace
 
+    # Blob columns the bulk I/O reader may project, in a fixed order so the
+    # generated SELECT is deterministic. Whitelist guards the f-string below.
+    _IO_COLUMNS = ("input", "output", "metadata")
+
+    def get_trace_spans_io(
+        self, project_id: str, trace_id: str, columns: frozenset[str]
+    ) -> dict[str, dict]:
+        """Bulk-fetch the requested I/O columns for ALL spans in a trace, one query.
+
+        The trace-wide complement to ``get_span_io``: export and agent reads need
+        full per-span I/O without an N+1 fan-out of single-span calls. ``columns``
+        is the projection's blob columns (from ``rest.projection.io_columns`` —
+        any of ``input``/``output``/``metadata``); only those are SELECTed, so a
+        narrow projection (e.g. ``metadata`` alone) never reads the other heavy
+        blobs. Returns a ``{span_id: {column: value}}`` map. Callers merge it onto
+        the skeleton spans from ``get_trace``; spans absent from the map keep
+        whatever the skeleton carried, so a partial result never breaks
+        serialization.
+
+        Only invoked for ``io``/``metadata`` projections — the default skeleton
+        read never reaches here, so this adds no cost to the dashboard path.
+        """
+        # Preserve a fixed column order and reject anything outside the whitelist
+        # (the value is interpolated into the SQL, so never trust the caller).
+        selected = [c for c in self._IO_COLUMNS if c in columns]
+        if not selected:
+            return {}
+
+        select_clause = ", ".join(["span_id", *selected])
+        query = f"""
+            SELECT {select_clause}
+            FROM spans FINAL
+            WHERE project_id = {{project_id:String}} AND trace_id = {{trace_id:String}}
+        """
+        result = self._client.query(
+            query,
+            parameters={"project_id": project_id, "trace_id": trace_id},
+        )
+        return {
+            row[0]: {col: row[i + 1] for i, col in enumerate(selected)}
+            for row in result.result_rows
+        }
+
     def get_span_io(self, project_id: str, trace_id: str, span_id: str) -> dict | None:
         """Fetch full input/output/metadata for a single span on demand.
 

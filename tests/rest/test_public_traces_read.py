@@ -209,6 +209,38 @@ class TestPublicGetTrace:
         assert url == "http://localhost:3000/projects/proj-A/traces?traceId=abc123"
         assert "web:3000" not in url
 
+    def test_default_is_skeleton_with_null_io_and_no_bulk_query(self, client, mock_reader):
+        """Public get defaults to skeleton: spans carry null I/O and the bulk
+        span-I/O query is never issued (no dashboard-class read)."""
+        mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
+        resp = client.get("/api/v1/public/traces/abc123", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        span = resp.json()["spans"][0]
+        assert span["input"] is None
+        assert span["output"] is None
+        assert span["metadata"] is None
+        mock_reader.get_trace_spans_io.assert_not_called()
+
+    def test_fields_full_includes_span_io(self, client, mock_reader):
+        mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
+        mock_reader.get_trace_spans_io.return_value = {
+            "span-1": {"input": "the-in", "output": "the-out", "metadata": "the-meta"}
+        }
+        resp = client.get("/api/v1/public/traces/abc123?fields=full", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        span = resp.json()["spans"][0]
+        assert span["input"] == "the-in"
+        assert span["output"] == "the-out"
+        assert span["metadata"] == "the-meta"
+        mock_reader.get_trace_spans_io.assert_called_once()
+
+    def test_unknown_fields_returns_400(self, client, mock_reader):
+        mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
+        resp = client.get("/api/v1/public/traces/abc123?fields=bogus", headers=AUTH_HEADER)
+        assert resp.status_code == 400
+        assert "bogus" in resp.json()["detail"]
+        mock_reader.get_trace_spans_io.assert_not_called()
+
     def test_404_when_trace_missing(self, client, mock_reader):
         mock_reader.get_trace.return_value = None
         resp = client.get("/api/v1/public/traces/nonexistent", headers=AUTH_HEADER)
