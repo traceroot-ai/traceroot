@@ -12,6 +12,8 @@ export const isEeEnabled = (): boolean => {
 };
 
 // Gate 2: Cloud billing (Stripe checkout, metering, webhooks)
+// Disabled only when ENABLE_BILLING is exactly "false" (trimmed + lowercased so
+// a quoted "  false  " from env/YAML still counts; matches backend ee/license.py).
 export const isBillingEnabled = (): boolean => {
-  return process.env.ENABLE_BILLING !== "false";
+  return (process.env.ENABLE_BILLING ?? "").trim().toLowerCase() !== "false";
 };

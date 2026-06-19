@@ -242,7 +242,7 @@ export const PLANS: Record<
       "Everything in Starter",
       "90-day retention",
       "Slack integration for detector alerts",
-      "Higher rate limits",
+      "20k ingest + 1k dashboard requests/min rate limits",
       "SOC2 compliance",
     ],
     support: "Discord + Slack",

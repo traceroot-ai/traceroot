@@ -217,6 +217,13 @@ services:
       # Host/browser-usable UI URL for client-facing links (trace_url, whoami).
       # Prefers TRACEROOT_PUBLIC_UI_URL; falls back to the public app URL.
       TRACEROOT_PUBLIC_UI_URL: ${TRACEROOT_PUBLIC_UI_URL:-${NEXT_PUBLIC_APP_URL:-http://localhost:3000}}
+      # --- Feature flags ---
+      # rest is the only service that builds the REST rate limiter, and
+      # is_billing_enabled() treats an absent value as enabled, so rest must
+      # receive ENABLE_BILLING for a self-host deployment (ENABLE_BILLING=false,
+      # as .env.example ships) to actually disable limiting. Default matches
+      # web/billing (cloud-on unless the operator opts out).
+      ENABLE_BILLING: ${ENABLE_BILLING:-true}
       # --- Secrets ---
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-internal-secret}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
