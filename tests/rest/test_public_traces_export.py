@@ -5,6 +5,7 @@ git_context + manifest (no logs/metrics/related). Scoped to the API key's
 project. `bundle.trace` must equal the public `traces get` payload.
 """
 
+import copy
 from datetime import datetime
 from unittest.mock import MagicMock
 
@@ -68,7 +69,12 @@ def make_auth(project_id: str = "proj-A") -> AuthResult:
 
 @pytest.fixture()
 def mock_reader():
-    return MagicMock()
+    reader = MagicMock()
+    # Export defaults to the `full` projection, so it always runs the bulk
+    # span-I/O reader. Default it to an empty map (no I/O) so tests that don't
+    # care about I/O keep their span shapes; tests that assert I/O override it.
+    reader.get_trace_spans_io.return_value = {}
+    return reader
 
 
 @pytest.fixture()
@@ -196,6 +202,59 @@ class TestExportBundle:
         url = body["trace"]["trace_url"]
         assert url == "http://localhost:3000/projects/proj-A/traces?traceId=abc123"
         assert "web:3000" not in url
+
+    def test_export_includes_span_io_by_default(self, client, mock_reader):
+        """The core regression fix: export defaults to full fidelity, so spans.json
+        carries real per-span input/output/metadata (not null)."""
+        mock_reader.get_trace.return_value = copy.deepcopy(TRACE_DETAIL)
+        mock_reader.get_trace_spans_io.return_value = {
+            "span-1": {
+                "input": '{"prompt": "hi"}',
+                "output": '{"completion": "yo"}',
+                "metadata": '{"k": "v"}',
+            }
+        }
+        body = client.get("/api/v1/public/traces/abc123/export", headers=AUTH).json()
+        span = body["spans"][0]
+        assert span["input"] == '{"prompt": "hi"}'
+        assert span["output"] == '{"completion": "yo"}'
+        assert span["metadata"] == '{"k": "v"}'
+        # spans.json still mirrors trace.spans at the same (full) projection.
+        assert body["spans"] == body["trace"]["spans"]
+        mock_reader.get_trace_spans_io.assert_called_once()
+
+    def test_export_fields_skeleton_omits_io_and_skips_bulk(self, client, mock_reader):
+        """Narrowing export to skeleton avoids the bulk I/O query and returns null I/O."""
+        mock_reader.get_trace.return_value = copy.deepcopy(TRACE_DETAIL)
+        body = client.get(
+            "/api/v1/public/traces/abc123/export?fields=skeleton", headers=AUTH
+        ).json()
+        span = body["spans"][0]
+        assert span["input"] is None
+        assert span["output"] is None
+        assert span["metadata"] is None
+        mock_reader.get_trace_spans_io.assert_not_called()
+
+    def test_export_trace_equals_get_at_equal_fields(self, client, mock_reader):
+        """The invariant holds at equal projection: export?fields=full == get?fields=full."""
+        io_map = {
+            "span-1": {"input": "i", "output": "o", "metadata": "m"},
+        }
+        mock_reader.get_trace.return_value = copy.deepcopy(TRACE_DETAIL)
+        mock_reader.get_trace_spans_io.return_value = io_map
+        got = client.get("/api/v1/public/traces/abc123?fields=full", headers=AUTH).json()
+        mock_reader.get_trace.return_value = copy.deepcopy(TRACE_DETAIL)
+        mock_reader.get_trace_spans_io.return_value = io_map
+        exported = client.get(
+            "/api/v1/public/traces/abc123/export?fields=full", headers=AUTH
+        ).json()
+        assert exported["trace"] == got
+
+    def test_unknown_fields_returns_400(self, client, mock_reader):
+        mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
+        resp = client.get("/api/v1/public/traces/abc123/export?fields=bogus", headers=AUTH)
+        assert resp.status_code == 400
+        mock_reader.get_trace_spans_io.assert_not_called()
 
     def test_404_when_missing(self, client, mock_reader):
         mock_reader.get_trace.return_value = None
