@@ -63,7 +63,7 @@ describe("GET /api/workspaces/[workspaceId]/slack/install", () => {
   it("redirects to the SDK-generated install URL when entitled", async () => {
     requireAuth.mockResolvedValue({ user: { id: "u_1" } });
     requireWorkspaceMembership.mockResolvedValue({ membership: {} });
-    findUnique.mockResolvedValue({ billingPlan: "pro" });
+    findUnique.mockResolvedValue({ billingPlan: "starter" });
     hasEntitlement.mockReturnValue(true);
     generateInstallUrl.mockResolvedValue("https://slack.com/oauth/v2/authorize?client_id=&state=");
 
@@ -72,7 +72,7 @@ describe("GET /api/workspaces/[workspaceId]/slack/install", () => {
       params: Promise.resolve({ workspaceId: "ws_1" }),
     });
 
-    expect(hasEntitlement).toHaveBeenCalledWith("pro", "slack-integration");
+    expect(hasEntitlement).toHaveBeenCalledWith("starter", "slack-integration");
     expect(res.status).toBe(307); // NextResponse.redirect default
     expect(res.headers.get("location")).toContain("slack.com/oauth/v2/authorize");
     expect(generateInstallUrl).toHaveBeenCalledTimes(1);
