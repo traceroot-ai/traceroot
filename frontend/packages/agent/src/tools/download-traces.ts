@@ -37,7 +37,10 @@ export async function downloadOneTrace(
   executor: Executor,
   signal?: AbortSignal,
 ): Promise<{ dir: string; spanCount: number; traceName: string }> {
-  const url = `${FASTAPI_URL}/api/v1/projects/${projectId}/traces/${traceId}`;
+  // Request the full projection so spans carry per-span input/output/metadata.
+  // The dashboard read defaults to a lightweight skeleton (#1040); the agent
+  // needs full fidelity for root-cause analysis.
+  const url = `${FASTAPI_URL}/api/v1/projects/${projectId}/traces/${traceId}?fields=full`;
   const res = await fetch(url, {
     headers: {
       "Content-Type": "application/json",
