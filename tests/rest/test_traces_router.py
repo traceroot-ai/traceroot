@@ -3,6 +3,7 @@
 Uses FastAPI TestClient with mocked dependencies — no ClickHouse needed.
 """
 
+import copy
 from datetime import datetime
 from unittest.mock import MagicMock
 
@@ -204,38 +205,82 @@ class TestGetTrace:
         response = client.get("/api/v1/projects/test-project/traces/nonexistent")
         assert response.status_code == 404
 
-    def test_spans_are_skeletons_without_io(self, client, mock_trace_reader):
-        """The trace-detail response must NOT carry per-span input/output/metadata.
+    def test_default_skeleton_io_is_null_and_no_bulk_query(self, client, mock_trace_reader):
+        """Default (skeleton) projection: per-span I/O fields are present but null,
+        and the bulk span-I/O query is NOT issued.
 
-        This is the core of two-phase loading: the bulk response stays sub-MB by
-        omitting the large free-text blobs. Even if the service were to leak them,
-        the SpanSkeletonResponse model strips them out.
+        The #1040 win is preserved by never *fetching* the heavy blobs on the
+        default read; the null I/O keys are additive (a few bytes/span) so the
+        shipped CLI's generated types keep finding the fields they declare.
         """
-        # Service returns blobs (simulating a stale/over-fetching service) —
-        # the response model must still drop them.
-        leaky_detail = {
-            **TRACE_DETAIL,
-            "spans": [
-                {
-                    **TRACE_DETAIL["spans"][0],
-                    "input": "should-not-appear",
-                    "output": "should-not-appear",
-                    "metadata": "should-not-appear",
-                }
-            ],
-        }
-        mock_trace_reader.get_trace.return_value = leaky_detail
+        mock_trace_reader.get_trace.return_value = copy.deepcopy(TRACE_DETAIL)
         response = client.get("/api/v1/projects/test-project/traces/abc123")
         assert response.status_code == 200
         span = response.json()["spans"][0]
-        assert "input" not in span
-        assert "output" not in span
-        assert "metadata" not in span
-        # Tree/display fields are still present on the skeleton.
+        # I/O fields are present and null — the bulk read was skipped.
+        assert span["input"] is None
+        assert span["output"] is None
+        assert span["metadata"] is None
+        mock_trace_reader.get_trace_spans_io.assert_not_called()
+        # Tree/display fields are still present.
         assert span["span_id"] == "span-1"
         assert span["parent_span_id"] is None
         assert "usage_details" in span
         assert "cost_details" in span
+
+    def test_fields_full_merges_bulk_span_io(self, client, mock_trace_reader):
+        """fields=full issues ONE bulk query and attaches per-span I/O."""
+        mock_trace_reader.get_trace.return_value = copy.deepcopy(TRACE_DETAIL)
+        mock_trace_reader.get_trace_spans_io.return_value = {
+            "span-1": {"input": "the-in", "output": "the-out", "metadata": "the-meta"}
+        }
+        response = client.get("/api/v1/projects/test-project/traces/abc123?fields=full")
+        assert response.status_code == 200
+        span = response.json()["spans"][0]
+        assert span["input"] == "the-in"
+        assert span["output"] == "the-out"
+        assert span["metadata"] == "the-meta"
+        # One trace-scoped bulk query, all three columns requested.
+        mock_trace_reader.get_trace_spans_io.assert_called_once()
+        kw = mock_trace_reader.get_trace_spans_io.call_args.kwargs
+        assert kw["project_id"] == "test-project"
+        assert kw["trace_id"] == "abc123"
+        assert set(kw["columns"]) == {"input", "output", "metadata"}
+
+    def test_fields_io_requests_input_output_only(self, client, mock_trace_reader):
+        """fields=io requests input+output (not metadata); metadata stays null."""
+        mock_trace_reader.get_trace.return_value = copy.deepcopy(TRACE_DETAIL)
+        mock_trace_reader.get_trace_spans_io.return_value = {
+            "span-1": {"input": "the-in", "output": "the-out"}
+        }
+        response = client.get("/api/v1/projects/test-project/traces/abc123?fields=io")
+        assert response.status_code == 200
+        span = response.json()["spans"][0]
+        assert span["input"] == "the-in"
+        assert span["output"] == "the-out"
+        assert span["metadata"] is None
+        assert set(mock_trace_reader.get_trace_spans_io.call_args.kwargs["columns"]) == {
+            "input",
+            "output",
+        }
+
+    def test_fields_full_missing_span_in_map_serializes_null(self, client, mock_trace_reader):
+        """A span absent from the bulk I/O map keeps null I/O (no 500)."""
+        mock_trace_reader.get_trace.return_value = copy.deepcopy(TRACE_DETAIL)
+        mock_trace_reader.get_trace_spans_io.return_value = {}  # span-1 absent
+        response = client.get("/api/v1/projects/test-project/traces/abc123?fields=full")
+        assert response.status_code == 200
+        span = response.json()["spans"][0]
+        assert span["input"] is None
+        assert span["output"] is None
+        assert span["metadata"] is None
+
+    def test_unknown_fields_returns_400(self, client, mock_trace_reader):
+        mock_trace_reader.get_trace.return_value = copy.deepcopy(TRACE_DETAIL)
+        response = client.get("/api/v1/projects/test-project/traces/abc123?fields=bogus")
+        assert response.status_code == 400
+        assert "bogus" in response.json()["detail"]
+        mock_trace_reader.get_trace_spans_io.assert_not_called()
 
     def test_trace_level_io_is_preserved(self, client, mock_trace_reader):
         """Trace-level input/output/metadata stay on the trace (only spans drop I/O)."""

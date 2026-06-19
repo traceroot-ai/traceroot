@@ -5,6 +5,13 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
+from rest.projection import (
+    FIELDS_PARAM_DESC,
+    SKELETON,
+    InvalidFieldsError,
+    hydrate_span_io,
+    resolve_span_fields,
+)
 from rest.rate_limit import (
     BUCKET_READ,
     is_request_rate_limit_exempt,
@@ -72,8 +79,36 @@ async def get_trace(
     project_id: str,
     trace_id: str,
     _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
+    fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
 ):
-    """Get a single trace with span skeletons (no per-span I/O)."""
+    """Get a single trace for a project.
+
+    Defaults to the lightweight ``skeleton`` projection (no per-span I/O) — the
+    dashboard relies on this for sub-MB payloads. Non-interactive callers (e.g.
+    the agent trace download) pass ``fields=full`` to regain per-span
+    input/output/metadata in a single read.
+
+    Args:
+        project_id (str): Project that owns the trace; scopes the read.
+        trace_id (str): Trace to fetch.
+        _access (RateLimitedProjectAccess): Dependency that validates the user's
+            access to the project and sets rate-limit identity; not used directly.
+        fields (str | None): Comma-separated projection groups (e.g. ``io``,
+            ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects
+            the default `skeleton` projection.
+
+    Returns:
+        TraceDetailResponse: The trace with span skeletons, plus per-span I/O
+            when the projection requests it.
+
+    Raises:
+        HTTPException: 400 if `fields` is invalid, 404 if the trace is missing.
+    """
+    try:
+        groups = resolve_span_fields(fields, default=SKELETON)
+    except InvalidFieldsError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
     service = get_trace_reader_service()
     trace = service.get_trace(project_id=project_id, trace_id=trace_id)
 
@@ -83,6 +118,7 @@ async def get_trace(
             detail="Trace not found",
         )
 
+    hydrate_span_io(service, trace, project_id=project_id, trace_id=trace_id, groups=groups)
     return trace
 
 
