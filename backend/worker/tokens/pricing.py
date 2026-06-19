@@ -2,14 +2,19 @@
 
 Prices are loaded from the ``standard_models`` / ``standard_model_prices``
 PostgreSQL tables (synced from standard-model-prices.json by the TS services).
-The in-memory cache is populated on first call and persists for the process
-lifetime (prices only change on deploy/restart).
+The in-memory cache is populated on first call and refreshed on a TTL so that
+pricing updates in the DB propagate to long-running workers without a restart
+(see issue #1096). The refresh interval is configurable via the
+``PRICING_CACHE_TTL_SECONDS`` environment variable (default 300s).
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import re
+import threading
+import time
 from decimal import Decimal
 
 import psycopg2
@@ -22,18 +27,33 @@ from .usage import count_tokens
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# In-memory cache (populated on first call)
+# In-memory cache (populated on first call, refreshed on a TTL)
 # ---------------------------------------------------------------------------
 
+# How long a loaded price cache is served before a refresh is attempted.
+# Configurable so deployments can trade freshness against DB load.
+_CACHE_TTL_SECONDS: float = float(os.getenv("PRICING_CACHE_TTL_SECONDS", "300"))
+
 _cache: list[dict] | None = None
+_cache_loaded_at: float | None = None
+_cache_lock = threading.Lock()
 
 
-def _load_cache() -> list[dict]:
-    global _cache
-    if _cache is not None:
-        return _cache
+def _cache_is_fresh() -> bool:
+    """True when a populated cache exists and is still within its TTL window."""
+    return (
+        _cache is not None
+        and _cache_loaded_at is not None
+        and (time.monotonic() - _cache_loaded_at) < _CACHE_TTL_SECONDS
+    )
 
-    models: list[dict] = []
+
+def _fetch_prices_from_db() -> list[dict]:
+    """Read the price table and group rows by model.
+
+    Returns an empty list when the DB is unavailable, so the caller can decide
+    whether to retry or keep serving a previously loaded cache.
+    """
     try:
         conn = psycopg2.connect(settings.database_url)
         try:
@@ -50,8 +70,6 @@ def _load_cache() -> list[dict]:
         finally:
             conn.close()
     except Exception as exc:
-        # DB unavailable — return empty list but do NOT cache,
-        # so the next call will retry the connection.
         logger.warning(
             "Failed to load model prices from DB — costs will be None until DB is available. Error: %s",
             exc,
@@ -71,9 +89,37 @@ def _load_cache() -> list[dict]:
             float(price) if isinstance(price, Decimal) else price
         )
 
-    models = list(by_model.values())
-    _cache = models
-    return _cache
+    return list(by_model.values())
+
+
+def _load_cache() -> list[dict]:
+    """Return cached model prices, refreshing from the DB once the TTL lapses.
+
+    A fresh cache is served without touching the DB. When the TTL has lapsed,
+    one caller refreshes under a lock (others wait, then reuse the result). If
+    the refresh fails or returns no rows, any previously loaded prices are kept
+    rather than dropping to an empty cache, and the timestamp is left unchanged
+    so the next call retries promptly.
+    """
+    global _cache, _cache_loaded_at
+
+    if _cache_is_fresh():
+        return _cache  # type: ignore[return-value]
+
+    with _cache_lock:
+        # Another thread may have refreshed while we waited for the lock.
+        if _cache_is_fresh():
+            return _cache  # type: ignore[return-value]
+
+        models = _fetch_prices_from_db()
+        if not models:
+            # DB unavailable/empty: keep stale prices if we have them, otherwise
+            # return empty and leave the cache unset so the next call retries.
+            return _cache if _cache is not None else []
+
+        _cache = models
+        _cache_loaded_at = time.monotonic()
+        return _cache
 
 
 # ---------------------------------------------------------------------------
