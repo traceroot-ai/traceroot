@@ -109,6 +109,12 @@ OPENAI_MODEL_CASES = [
     ("babbage-002", "babbage-002"),
 ]
 
+GLM_MODEL_CASES = [
+    ("glm-5.2", "glm-5.2"),
+    ("zai/glm-5.2", "glm-5.2"),
+]
+
+
 GEMINI_MODEL_CASES = [
     ("gemini-3.5-flash", "gemini-3.5-flash"),
     ("google/gemini-3.5-flash", "gemini-3.5-flash"),
@@ -227,6 +233,19 @@ class TestDeepSeekModelIds:
         assert result["output_tokens"] > 0
         assert result["cost"] is not None
         assert result["cost"] > 0
+
+
+class TestGLMModelIds:
+    @pytest.mark.parametrize("model_id,expected_name", GLM_MODEL_CASES)
+    def test_matches_expected_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert "input" in price and "output" in price
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched a different entry than {expected_name}"
+        )
 
 
 @patch("worker.tokens.pricing._load_cache", _mock_load_cache)
