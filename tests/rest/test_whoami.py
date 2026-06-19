@@ -115,3 +115,33 @@ class TestWhoami:
             headers={"Authorization": "Bearer some-key"},
         )
         assert resp.status_code == 503
+
+
+def test_whoami_route_is_registered_with_the_limiter():
+    """whoami shares the per-workspace `read` budget — it must be wired in.
+
+    Importing ``rest.main`` registers the decorated endpoint on the module-level
+    limiter regardless of whether enforcement is enabled in this env.
+    """
+    from rest.rate_limit import limiter
+
+    assert "rest.routers.public.whoami.whoami" in limiter._dynamic_route_limits
+
+
+def test_whoami_success_returns_200_with_headers_when_limiter_enabled(monkeypatch):
+    """With the limiter enabled (cloud), a successful whoami must still 200 and
+    carry X-RateLimit-* headers — i.e. the route declares the ``response`` param
+    slowapi needs for header injection (missing it 500s every call).
+    """
+    import rest.rate_limit as rate_limit
+    from rest.routers.public.deps import authenticate_api_key
+
+    monkeypatch.setattr(rate_limit.limiter, "enabled", True)
+    app.dependency_overrides[authenticate_api_key] = make_identity_auth
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.get("/api/v1/public/whoami", headers={"Authorization": "Bearer x"})
+        assert resp.status_code == 200, resp.text
+        assert "X-RateLimit-Limit" in resp.headers
+    finally:
+        app.dependency_overrides.clear()

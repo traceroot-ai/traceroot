@@ -5,9 +5,16 @@ identity plus both hosts so the CLI stays single-host: ``host`` is the API host
 the client reached, ``ui_base_url`` is where trace links point.
 """
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 
-from rest.routers.public.deps import Auth
+from rest.rate_limit import (
+    BUCKET_READ,
+    is_request_rate_limit_exempt,
+    key_read,
+    limiter,
+    resolve_limit,
+)
+from rest.routers.public.deps import StampedAuth
 from rest.schemas.public import WhoamiResponse
 from shared.config import settings
 
@@ -15,7 +22,10 @@ router = APIRouter(prefix="/public/whoami", tags=["Whoami (Public)"])
 
 
 @router.get("", response_model=WhoamiResponse)
-async def whoami(auth: Auth, request: Request) -> WhoamiResponse:
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def whoami(request: Request, response: Response, auth: StampedAuth) -> WhoamiResponse:
     """Return the identity the authenticated API key maps to."""
     # `host` reflects the request's Host header (the API host the client
     # reached). It is only echoed back, never used server-side — but it is
