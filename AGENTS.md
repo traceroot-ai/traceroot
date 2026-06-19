@@ -1,5 +1,3 @@
-# Agent Instructions
-
 ## Project Map
 
 - `backend/`: Python backend services and workers.
@@ -22,10 +20,3 @@ Run checks relevant to the changed files:
 - Frontend package tests with coverage: `pnpm --dir frontend/ui test:coverage` or the changed package
 
 Pull requests must pass GitHub Actions, including 80% diff coverage on changed production lines.
-
-## Working Rules
-
-- Keep changes scoped to the requested problem.
-- Prefer existing project patterns over new abstractions.
-- Add or update focused tests when behavior changes.
-- Do not revert user changes unless explicitly asked.
