@@ -567,3 +567,153 @@ def test_retry_after_floors_to_1_when_limit_window_unreadable():
     # Assert
     assert response.status_code == 429
     assert json.loads(response.body)["retry_after"] == 1
+
+
+# ---------------------------------------------------------------------------
+# J. Export bucket: dedicated, tighter-than-read tier for the public export route
+# ---------------------------------------------------------------------------
+def test_key_export_format_embeds_bucket_plan_and_workspace():
+    """key_export returns rl:export:{plan}:{workspace} after identity stamp."""
+    # Arrange
+    request = _make_stamped_request("ws-exp", "pro")
+
+    # Act
+    key = rate_limit.key_export(request)
+
+    # Assert
+    assert key == f"rl:{rate_limit.BUCKET_EXPORT}:pro:ws-exp"
+
+
+def test_export_tier_is_never_looser_than_read_and_tighter_on_lower_plans():
+    """Export rides its own bucket and must never exceed the shared `read` budget;
+    on the lower plans it is strictly tighter (export is the heaviest read).
+
+    Periods are equal (per-minute) across both tables, so comparing counts is
+    apples-to-apples.
+    """
+    from shared.config import RATE_LIMIT_PLANS
+
+    def count(limit: str) -> int:
+        return int(limit.split("/", 1)[0])
+
+    for plan in RATE_LIMIT_PLANS:
+        export = count(settings.rate_limit.limit_for("export", plan))
+        read = count(settings.rate_limit.limit_for("read", plan))
+        assert export <= read, f"export looser than read for {plan}"
+
+    # Strictly tighter where most abuse-prone (the lower, free-ish plans).
+    for plan in ("free", "starter"):
+        export = count(settings.rate_limit.limit_for("export", plan))
+        read = count(settings.rate_limit.limit_for("read", plan))
+        assert export < read, f"export not tighter than read for {plan}"
+
+
+def test_limit_for_export_uses_its_own_table():
+    """limit_for routes the export bucket to _PLAN_LIMITS_EXPORT, not the read table."""
+    from shared.config import _PLAN_LIMITS_EXPORT
+
+    assert settings.rate_limit.limit_for("export", "free") == _PLAN_LIMITS_EXPORT["free"]
+
+
+def _build_read_and_export_app() -> FastAPI:
+    """App with a `read` shared-limit route and an `export` `.limit` route.
+
+    Same workspace + plan, so the read and export keys differ ONLY in the bucket
+    segment (rl:read:... vs rl:export:...) — the case a shared-counter bug would
+    surface. Both hardcoded at 2/min so the boundary is deterministic.
+    """
+    limiter = Limiter(
+        key_func=get_remote_address,
+        enabled=True,
+        storage_uri="memory://",
+        headers_enabled=True,
+        in_memory_fallback_enabled=True,
+        swallow_errors=True,
+    )
+
+    async def stamp(request: Request):
+        rate_limit.clear_request_rate_limit_exempt()
+        rate_limit.set_rate_limit_identity(request, "ws-rx", "free")
+
+    app = FastAPI()
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit.rate_limit_exceeded_handler)
+
+    @app.get("/read")
+    @limiter.shared_limit("2/minute", scope=rate_limit.BUCKET_READ, key_func=rate_limit.key_read)
+    async def read(request: Request, response: Response, _=Depends(stamp)):
+        return {"bucket": "read"}
+
+    @app.get("/export")
+    @limiter.limit("2/minute", key_func=rate_limit.key_export)
+    async def export(request: Request, response: Response, _=Depends(stamp)):
+        return {"bucket": "export"}
+
+    return app
+
+
+def test_read_and_export_buckets_do_not_share_a_counter():
+    """Draining the read budget must leave the export budget untouched, and vice versa."""
+    # Arrange
+    client = TestClient(_build_read_and_export_app())
+
+    # Act / Assert: read hits its 2/min ceiling on the 3rd call...
+    assert [client.get("/read").status_code for _ in range(3)] == [200, 200, 429]
+    # ...export is independent: its own 2/min still allows two, then throttles.
+    assert [client.get("/export").status_code for _ in range(3)] == [200, 200, 429]
+
+
+def _build_two_workspace_read_app() -> FastAPI:
+    """One app + one limiter, two routes that stamp DIFFERENT workspaces.
+
+    Both routes share the same ``read`` scope and storage, so the only thing that
+    can keep their counters apart is the ``{workspace_id}`` segment of the key.
+    This isolates the per-workspace dimension the other tests don't (they vary
+    plan or bucket, never two workspaces on one bucket+scope).
+    """
+    limiter = Limiter(
+        key_func=get_remote_address,
+        enabled=True,
+        storage_uri="memory://",
+        headers_enabled=True,
+        in_memory_fallback_enabled=True,
+        swallow_errors=True,
+    )
+
+    def stamp_for(workspace: str):
+        async def _stamp(request: Request):
+            rate_limit.clear_request_rate_limit_exempt()
+            rate_limit.set_rate_limit_identity(request, workspace, "free")
+
+        return _stamp
+
+    app = FastAPI()
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit.rate_limit_exceeded_handler)
+
+    @app.get("/a")
+    @limiter.shared_limit("2/minute", scope=rate_limit.BUCKET_READ, key_func=rate_limit.key_read)
+    async def read_a(request: Request, response: Response, _=Depends(stamp_for("ws-a"))):
+        return {"ws": "a"}
+
+    @app.get("/b")
+    @limiter.shared_limit("2/minute", scope=rate_limit.BUCKET_READ, key_func=rate_limit.key_read)
+    async def read_b(request: Request, response: Response, _=Depends(stamp_for("ws-b"))):
+        return {"ws": "b"}
+
+    return app
+
+
+def test_two_workspaces_do_not_share_a_read_counter():
+    """The same `read` scope must give each workspace an independent budget.
+
+    Proves the `{workspace_id}` key segment partitions the counter: draining
+    ws-a's 2/min ceiling leaves ws-b's budget fully intact.
+    """
+    # Arrange
+    client = TestClient(_build_two_workspace_read_app())
+
+    # Act / Assert: ws-a is throttled on its 3rd read...
+    assert [client.get("/a").status_code for _ in range(3)] == [200, 200, 429]
+    # ...ws-b still has its own full budget despite the shared scope + storage.
+    assert [client.get("/b").status_code for _ in range(2)] == [200, 200]

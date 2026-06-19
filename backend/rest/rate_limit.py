@@ -5,17 +5,20 @@ Design
 * **Library**  ``slowapi`` (wraps ``limits``) with Redis storage shared across
   REST replicas, plus an in-memory fallback so a Redis outage degrades to
   per-process limiting instead of failing requests.
-* **Key**      the *workspace* (resolved from the API key for ingestion, and
-  from the authenticated user for dashboard reads) — never the raw API key, so
-  a customer cannot multiply quota by minting more keys.
+* **Key**      the *workspace* (resolved from the API key for ingestion and the
+  public read API, and from the authenticated user for dashboard reads) — never
+  the raw API key, so a customer cannot multiply quota by minting more keys.
 * **Tiers**    per ``(bucket, billing-plan)`` limits resolved at request time
   from ``settings.rate_limit`` (see ``RateLimitSettings``).
 * **Self-host** deployments (``ENABLE_BILLING=false``) have no billing tiers, so
   rate limiting is disabled entirely — the limiter is built with
   ``enabled=False`` (see ``_build_limiter``); the operator's own infra is the
   ceiling. Limits therefore apply on cloud (billing-enabled) deployments only.
-* **Buckets**  ``ingest`` (POST /public/traces) and ``read`` (dashboard GETs,
-  which share one budget via ``shared_limit(scope="read")``).
+* **Buckets**  ``ingest`` (POST /public/traces); ``read`` (dashboard GETs plus
+  the public list/get/whoami routes, which share one budget via
+  ``shared_limit(scope="read")``); and ``export`` (the public trace-export route,
+  on its own bucket — never looser than ``read``, tighter on lower plans — because
+  it builds a full bundle).
 * **Response** HTTP 429 with a JSON envelope plus ``Retry-After`` and
   ``X-RateLimit-*`` headers; OTLP exporters honor ``Retry-After`` and back off.
 
@@ -51,6 +54,7 @@ logger = logging.getLogger(__name__)
 
 BUCKET_INGEST = "ingest"
 BUCKET_READ = "read"
+BUCKET_EXPORT = "export"
 _KEY_PREFIX = "rl"
 
 # Request-scoped exemption flag, set True by the access dependency for trusted
@@ -151,6 +155,17 @@ def key_read(request: Request) -> str:
     workspace_id, plan = _identity(request)
     request.state.rl_bucket = BUCKET_READ
     return f"{_KEY_PREFIX}:{BUCKET_READ}:{plan}:{workspace_id}"
+
+
+def key_export(request: Request) -> str:
+    """Bucket key for the public export route: per workspace, plan embedded.
+
+    Export has its own bucket (separate from ``read``) so its tighter tier
+    throttles independently of list/get on the same workspace.
+    """
+    workspace_id, plan = _identity(request)
+    request.state.rl_bucket = BUCKET_EXPORT
+    return f"{_KEY_PREFIX}:{BUCKET_EXPORT}:{plan}:{workspace_id}"
 
 
 def resolve_limit(key: str) -> str:

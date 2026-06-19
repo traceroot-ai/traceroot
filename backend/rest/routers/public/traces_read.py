@@ -8,7 +8,7 @@ write concerns stay decoupled; both reuse the shared API-key auth dependency.
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
 from rest.projection import (
     FIELDS_PARAM_DESC,
@@ -18,7 +18,15 @@ from rest.projection import (
     hydrate_span_io,
     resolve_span_fields,
 )
-from rest.routers.public.deps import Auth
+from rest.rate_limit import (
+    BUCKET_READ,
+    is_request_rate_limit_exempt,
+    key_export,
+    key_read,
+    limiter,
+    resolve_limit,
+)
+from rest.routers.public.deps import StampedAuth
 from rest.routers.public.serialize import export_bundle, public_trace_detail
 from rest.schemas.public import (
     PublicTraceDetailResponse,
@@ -35,8 +43,13 @@ router = APIRouter(prefix="/public/traces", tags=["Traces (Public)"])
 
 
 @router.get("", response_model=PublicTraceListResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
 async def list_traces(
-    auth: Auth,
+    request: Request,
+    response: Response,
+    auth: StampedAuth,
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
 ):
     """List recent traces for the API key's project (newest first)."""
@@ -58,8 +71,13 @@ async def list_traces(
 
 
 @router.get("/{trace_id}", response_model=PublicTraceDetailResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
 async def get_trace(
-    auth: Auth,
+    request: Request,
+    response: Response,
+    auth: StampedAuth,
     trace_id: str,
     fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
 ):
@@ -69,7 +87,8 @@ async def get_trace(
     `fields=full` (or `fields=io,metadata`) for per-span input/output/metadata.
 
     Args:
-        auth (Auth): Resolved API-key context; scopes the read to its project.
+        auth (StampedAuth): Resolved API-key context; scopes the read to its
+            project and stamps the rate-limit identity.
         trace_id (str): Trace to fetch.
         fields (str | None): Comma-separated projection groups (e.g. ``io``,
             ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects
@@ -89,8 +108,11 @@ async def get_trace(
 
 
 @router.get("/{trace_id}/export", response_model=PublicTraceExportResponse)
+@limiter.limit(resolve_limit, key_func=key_export, exempt_when=is_request_rate_limit_exempt)
 async def export_trace(
-    auth: Auth,
+    request: Request,
+    response: Response,
+    auth: StampedAuth,
     trace_id: str,
     fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
 ):
@@ -101,8 +123,12 @@ async def export_trace(
     caller narrows `fields`. `bundle.trace` equals the `traces get` payload at the
     same projection.
 
+    Rate limited on its own `export` bucket because it builds and serializes the
+    full bundle.
+
     Args:
-        auth (Auth): Resolved API-key context; scopes the read to its project.
+        auth (StampedAuth): Resolved API-key context; scopes the read to its
+            project and stamps the rate-limit identity.
         trace_id (str): Trace to export.
         fields (str | None): Comma-separated projection groups or an alias
             (``skeleton``/``full``). ``None`` selects the default `full`

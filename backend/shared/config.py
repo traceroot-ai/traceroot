@@ -74,6 +74,15 @@ _PLAN_LIMITS_READ: dict[str, str] = {
     "pro": "1000/minute",
     "enterprise": "1000/minute",
 }
+# Export builds and serializes a full trace bundle, so it is the heaviest read
+# and rides its own bucket — never looser than the shared `read` budget, and
+# tighter on the lower plans.
+_PLAN_LIMITS_EXPORT: dict[str, str] = {
+    "free": "30/minute",
+    "starter": "100/minute",
+    "pro": "1000/minute",
+    "enterprise": "1000/minute",
+}
 
 
 def normalize_plan(plan: str | None) -> str:
@@ -97,7 +106,8 @@ class RateLimitSettings(BaseSettings):
     """Operational rate-limit settings for the public REST API.
 
     Plan tiers are a product decision and live as code constants
-    (``_PLAN_LIMITS_INGEST``, ``_PLAN_LIMITS_READ`` above) — not env-overridable.
+    (``_PLAN_LIMITS_INGEST``, ``_PLAN_LIMITS_READ``, ``_PLAN_LIMITS_EXPORT`` above)
+    — not env-overridable.
     The knobs here are the operational ones an SRE legitimately needs at runtime.
 
     Self-host disables rate limiting entirely (the limiter is built disabled
@@ -121,7 +131,10 @@ class RateLimitSettings(BaseSettings):
         Falls back to the read bucket for unknown bucket names and the free
         tier for unknown plans — both the most restrictive choice.
         """
-        table = _PLAN_LIMITS_INGEST if bucket == "ingest" else _PLAN_LIMITS_READ
+        table = {
+            "ingest": _PLAN_LIMITS_INGEST,
+            "export": _PLAN_LIMITS_EXPORT,
+        }.get(bucket, _PLAN_LIMITS_READ)
         return table[normalize_plan(plan)]
 
 
