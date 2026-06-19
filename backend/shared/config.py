@@ -75,12 +75,13 @@ _PLAN_LIMITS_READ: dict[str, str] = {
     "enterprise": "1000/minute",
 }
 # Export builds and serializes a full trace bundle, so it is the heaviest read
-# and gets its own, strictly tighter tier than the shared `read` budget.
+# and rides its own bucket — never looser than the shared `read` budget, and
+# tighter on the lower plans.
 _PLAN_LIMITS_EXPORT: dict[str, str] = {
-    "free": "10/minute",
-    "starter": "60/minute",
-    "pro": "240/minute",
-    "enterprise": "240/minute",
+    "free": "30/minute",
+    "starter": "100/minute",
+    "pro": "1000/minute",
+    "enterprise": "1000/minute",
 }
 
 

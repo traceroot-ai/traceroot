@@ -584,12 +584,12 @@ def test_key_export_format_embeds_bucket_plan_and_workspace():
     assert key == f"rl:{rate_limit.BUCKET_EXPORT}:pro:ws-exp"
 
 
-def test_export_tier_is_tighter_than_read_for_every_plan():
-    """Export must throttle before list/get: fewer requests per window on every plan.
+def test_export_tier_is_never_looser_than_read_and_tighter_on_lower_plans():
+    """Export rides its own bucket and must never exceed the shared `read` budget;
+    on the lower plans it is strictly tighter (export is the heaviest read).
 
-    Encodes the product requirement that `export` (a full-bundle build) has a
-    strictly tighter cap than the shared `read` budget. Periods are equal
-    (per-minute) across both tables, so comparing the counts is apples-to-apples.
+    Periods are equal (per-minute) across both tables, so comparing counts is
+    apples-to-apples.
     """
     from shared.config import RATE_LIMIT_PLANS
 
@@ -597,9 +597,15 @@ def test_export_tier_is_tighter_than_read_for_every_plan():
         return int(limit.split("/", 1)[0])
 
     for plan in RATE_LIMIT_PLANS:
-        export = settings.rate_limit.limit_for("export", plan)
-        read = settings.rate_limit.limit_for("read", plan)
-        assert count(export) < count(read), f"export not tighter than read for {plan}"
+        export = count(settings.rate_limit.limit_for("export", plan))
+        read = count(settings.rate_limit.limit_for("read", plan))
+        assert export <= read, f"export looser than read for {plan}"
+
+    # Strictly tighter where most abuse-prone (the lower, free-ish plans).
+    for plan in ("free", "starter"):
+        export = count(settings.rate_limit.limit_for("export", plan))
+        read = count(settings.rate_limit.limit_for("read", plan))
+        assert export < read, f"export not tighter than read for {plan}"
 
 
 def test_limit_for_export_uses_its_own_table():

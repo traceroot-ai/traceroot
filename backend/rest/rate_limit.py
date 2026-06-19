@@ -17,7 +17,8 @@ Design
 * **Buckets**  ``ingest`` (POST /public/traces); ``read`` (dashboard GETs plus
   the public list/get/whoami routes, which share one budget via
   ``shared_limit(scope="read")``); and ``export`` (the public trace-export route,
-  on its own strictly tighter tier because it builds a full bundle).
+  on its own bucket — never looser than ``read``, tighter on lower plans — because
+  it builds a full bundle).
 * **Response** HTTP 429 with a JSON envelope plus ``Retry-After`` and
   ``X-RateLimit-*`` headers; OTLP exporters honor ``Retry-After`` and back off.
 
