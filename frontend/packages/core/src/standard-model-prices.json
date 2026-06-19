@@ -874,5 +874,17 @@
       "cacheRead": 0.000000003625,
       "cacheWrite": null
     }
+  },
+  {
+    "id": "tr-glm-5-2",
+    "modelName": "glm-5.2",
+    "matchPattern": "(?i)^(zai\\/)?glm-5\\.2(-[\\d-]+)?$",
+    "provider": "zai",
+    "prices": {
+      "input": 0.0000011111,
+      "output": 0.0000034722,
+      "cacheRead": null,
+      "cacheWrite": null
+    }
   }
 ]
