@@ -239,3 +239,54 @@ class TestPublicTraceReadAuth:
             headers={"Authorization": "Bearer bad-key"},
         )
         assert resp.status_code == 401
+
+
+class TestPublicReadRateLimiting:
+    """Every public read route must be wired into the shared rate limiter.
+
+    Importing ``rest.main`` registers each decorated endpoint on the module-level
+    limiter (registration happens regardless of whether enforcement is enabled in
+    this env). Asserting on the registry guards against a route silently shipping
+    undecorated — the exact gap this change closes. The per-bucket enforcement
+    behavior itself is covered in ``test_rate_limit.py``.
+    """
+
+    def test_list_get_export_routes_are_registered_with_the_limiter(self):
+        from rest.rate_limit import limiter
+
+        registered = set(limiter._dynamic_route_limits)
+        assert "rest.routers.public.traces_read.list_traces" in registered
+        assert "rest.routers.public.traces_read.get_trace" in registered
+        assert "rest.routers.public.traces_read.export_trace" in registered
+
+    def test_success_path_returns_200_with_headers_when_limiter_enabled(
+        self, client, mock_reader, monkeypatch
+    ):
+        """With the limiter enabled (cloud), every successful read must still 200
+        and carry X-RateLimit-* headers.
+
+        slowapi injects those headers after the body runs (headers_enabled=True),
+        which requires each rate-limited route to declare a ``response: Response``
+        param — without it the success path raises *outside* the fail-open guard
+        and 500s every call. The default test env disables the limiter, so this
+        drives the REAL routes through an enabled module limiter to catch it.
+        """
+        import rest.rate_limit as rate_limit
+
+        monkeypatch.setattr(rate_limit.limiter, "enabled", True)
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        mock_reader.get_trace.return_value = TRACE_DETAIL
+
+        # list + get share the `read` bucket; export uses its own `.limit` bucket —
+        # covers both decorator forms through the success/header-injection path.
+        responses = {
+            "list": client.get("/api/v1/public/traces", headers=AUTH_HEADER),
+            "get": client.get("/api/v1/public/traces/abc123", headers=AUTH_HEADER),
+            "export": client.get("/api/v1/public/traces/abc123/export", headers=AUTH_HEADER),
+        }
+        for name, resp in responses.items():
+            assert resp.status_code == 200, f"{name}: {resp.text}"
+            assert "X-RateLimit-Limit" in resp.headers, name

@@ -13,8 +13,9 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import httpx
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 
+from rest.rate_limit import clear_request_rate_limit_exempt, set_rate_limit_identity
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
@@ -163,3 +164,30 @@ async def authenticate_api_key(
 
 
 Auth = Annotated[AuthResult, Depends(authenticate_api_key)]
+
+
+async def authenticate_and_stamp_identity(request: Request, auth: Auth) -> AuthResult:
+    """Authenticate, then stamp the workspace/plan onto the request for limiting.
+
+    A thin wrapper over the API-key auth so the rate limiter can key the bucket
+    by workspace and resolve the plan tier. It runs during dependency resolution
+    — before slowapi evaluates the limit — so ``key_func`` sees the identity on
+    ``request.state``. Shared by every enforced public route (ingest + reads).
+
+    Public API-key calls are never the trusted internal service-to-service caller,
+    so a clean (non-exempt) baseline is established defensively.
+
+    Args:
+        request (Request): Incoming request; its ``state`` is stamped with the
+            resolved rate-limit identity.
+        auth (Auth): API-key auth dependency resolving the workspace and plan.
+
+    Returns:
+        AuthResult: The authenticated result, passed through to the route handler.
+    """
+    clear_request_rate_limit_exempt()
+    set_rate_limit_identity(request, auth.workspace_id, auth.billing_plan)
+    return auth
+
+
+StampedAuth = Annotated[AuthResult, Depends(authenticate_and_stamp_identity)]
