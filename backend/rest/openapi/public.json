@@ -1159,7 +1159,7 @@
     },
     "/api/v1/public/traces/{trace_id}/export": {
       "get": {
-        "description": "Export the V1 bundle (trace + spans + git_context + manifest) for the key's project.\n\n`bundle.trace` is identical to the `traces get` payload for the same trace.",
+        "description": "Export the V1 bundle (trace + spans + git_context + manifest) for the key's project.\n\n`bundle.trace` is identical to the `traces get` payload for the same trace.\n\nRate limited on its own `export` bucket (tighter than list/get) because it\nbuilds and serializes the full bundle.",
         "operationId": "export_trace_api_v1_public_traces__trace_id__export_get",
         "parameters": [
           {
