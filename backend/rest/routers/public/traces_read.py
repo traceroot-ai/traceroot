@@ -79,8 +79,8 @@ async def export_trace(request: Request, response: Response, auth: StampedAuth, 
 
     `bundle.trace` is identical to the `traces get` payload for the same trace.
 
-    Rate limited on its own `export` bucket (tighter than list/get) because it
-    builds and serializes the full bundle.
+    Rate limited on its own `export` bucket because it builds and serializes the
+    full bundle.
     """
     trace = _require_trace(auth.project_id, trace_id)
     return export_bundle(trace, auth.project_id)
