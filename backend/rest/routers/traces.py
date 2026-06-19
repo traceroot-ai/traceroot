@@ -70,6 +70,22 @@ async def get_trace(
     dashboard relies on this for sub-MB payloads. Non-interactive callers (e.g.
     the agent trace download) pass ``fields=full`` to regain per-span
     input/output/metadata in a single read.
+
+    Args:
+        project_id (str): Project that owns the trace; scopes the read.
+        trace_id (str): Trace to fetch.
+        _access (ProjectAccess): Dependency that validates the user's access to
+            the project; not used directly.
+        fields (str | None): Comma-separated projection groups (e.g. ``io``,
+            ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects
+            the default `skeleton` projection.
+
+    Returns:
+        TraceDetailResponse: The trace with span skeletons, plus per-span I/O
+            when the projection requests it.
+
+    Raises:
+        HTTPException: 400 if `fields` is invalid, 404 if the trace is missing.
     """
     try:
         groups = resolve_span_fields(fields, default=SKELETON)
