@@ -1084,7 +1084,7 @@
     },
     "/api/v1/public/traces/{trace_id}": {
       "get": {
-        "description": "Get a single trace for the key's project.\n\nDefaults to the lightweight `skeleton` projection (no per-span I/O); pass\n`fields=full` (or `fields=io,metadata`) for per-span input/output/metadata.",
+        "description": "Get a single trace for the key's project.\n\nDefaults to the lightweight `skeleton` projection (no per-span I/O); pass\n`fields=full` (or `fields=io,metadata`) for per-span input/output/metadata.\n\nArgs:\n    auth (Auth): Resolved API-key context; scopes the read to its project.\n    trace_id (str): Trace to fetch.\n    fields (str | None): Comma-separated projection groups (e.g. ``io``,\n        ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects\n        the default `skeleton` projection.\n\nReturns:\n    PublicTraceDetailResponse: The trace with span skeletons, plus per-span\n        I/O when the projection requests it.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
         "operationId": "get_trace_api_v1_public_traces__trace_id__get",
         "parameters": [
           {
@@ -1225,7 +1225,7 @@
     },
     "/api/v1/public/traces/{trace_id}/export": {
       "get": {
-        "description": "Export the V1 bundle (trace + spans + git_context + manifest) for the key's project.\n\nDefaults to the `full` projection \u2014 an export is explicit intent to take the\ncomplete trace, so per-span input/output/metadata are included unless the\ncaller narrows `fields`. `bundle.trace` equals the `traces get` payload at the\nsame projection.",
+        "description": "Export the V1 bundle (trace + spans + git_context + manifest) for the key's project.\n\nDefaults to the `full` projection \u2014 an export is explicit intent to take the\ncomplete trace, so per-span input/output/metadata are included unless the\ncaller narrows `fields`. `bundle.trace` equals the `traces get` payload at the\nsame projection.\n\nArgs:\n    auth (Auth): Resolved API-key context; scopes the read to its project.\n    trace_id (str): Trace to export.\n    fields (str | None): Comma-separated projection groups or an alias\n        (``skeleton``/``full``). ``None`` selects the default `full`\n        projection.\n\nReturns:\n    PublicTraceExportResponse: The V1 export bundle (manifest, trace, spans,\n        git_context) at the requested projection.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
         "operationId": "export_trace_api_v1_public_traces__trace_id__export_get",
         "parameters": [
           {
