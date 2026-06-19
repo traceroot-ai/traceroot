@@ -95,7 +95,21 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   } = result.data;
 
   const data: Record<string, unknown> = {};
-  if (provider !== undefined) data.provider = provider;
+  if (provider !== undefined) {
+    if (provider !== existing.provider) {
+      const duplicate = await prisma.modelProvider.findFirst({
+        where: {
+          workspaceId,
+          provider,
+          id: { not: providerId },
+        },
+      });
+      if (duplicate) {
+        return errorResponse("A provider with this name already exists in this workspace", 409);
+      }
+    }
+    data.provider = provider;
+  }
   if (baseUrl !== undefined) data.baseUrl = baseUrl;
   if (customModels !== undefined) data.customModels = customModels;
   if (withDefaultModels !== undefined) data.withDefaultModels = withDefaultModels;

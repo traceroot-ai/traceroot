@@ -164,11 +164,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     providerConfig.awsRegion = awsRegion;
   }
 
-  const modelProvider = await prisma.modelProvider.upsert({
+  const existingProvider = await prisma.modelProvider.findUnique({
     where: {
       workspaceId_provider: { workspaceId, provider },
     },
-    create: {
+  });
+  if (existingProvider) {
+    return errorResponse("A provider with this name already exists in this workspace", 409);
+  }
+
+  const modelProvider = await prisma.modelProvider.create({
+    data: {
       workspaceId,
       adapter,
       provider,
@@ -180,16 +186,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       config: Object.keys(providerConfig).length > 0 ? (providerConfig as object) : undefined,
       enabled: enabled ?? true,
       createdBy: user.id,
-    },
-    update: {
-      adapter,
-      keyCipher,
-      keyPreview: credentialPreview,
-      baseUrl: baseUrl || null,
-      customModels,
-      withDefaultModels,
-      config: Object.keys(providerConfig).length > 0 ? (providerConfig as object) : undefined,
-      enabled: enabled ?? true,
     },
     select: {
       id: true,
