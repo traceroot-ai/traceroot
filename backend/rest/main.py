@@ -16,7 +16,9 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from slowapi.errors import RateLimitExceeded
 
+from rest.rate_limit import limiter, rate_limit_exceeded_handler
 from rest.routers.internal import router as internal_router
 from rest.routers.live import router as live_router
 from rest.routers.public.traces import router as public_traces_router
@@ -38,6 +40,13 @@ app = FastAPI(
 # CORS remains the outermost middleware and its headers apply to every
 # response, including gzipped ones.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+# Rate limiting. Enforcement + X-RateLimit-* headers are handled by the
+# per-route @limiter decorators (see rest.rate_limit); SlowAPIMiddleware is
+# intentionally omitted because it exempts decorated routes anyway. The limiter
+# is attached to app.state so the 429 handler can read window stats for headers.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # CORS configuration
 app.add_middleware(
