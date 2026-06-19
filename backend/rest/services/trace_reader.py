@@ -4,7 +4,7 @@ from datetime import datetime
 
 from db.clickhouse import get_clickhouse_client
 from rest.sql_utils import escape_ilike, to_utc_naive
-from worker.tokens.buckets import TokenBuckets
+from worker.tokens.buckets import TokenBuckets, reconcile_cache_write_1h
 from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
 
 
@@ -25,11 +25,19 @@ def span_cost_details(
         return {}
     cache_read = int(usage_details.get("cache_read_tokens", 0) or 0)
     cache_write = int(usage_details.get("cache_write_tokens", 0) or 0)
+    # Optional 1-hour cache-write portion (absent for spans with no 1-hour writes and
+    # for any emitter that doesn't report it). Reconciled against the write total with
+    # the same rule used at ingest, so a stored breakdown can't over-count.
+    cache_write_1h = reconcile_cache_write_1h(
+        cache_write,
+        int(usage_details.get("cache_write_1h_tokens", 0) or 0),
+    )
     buckets = TokenBuckets(
         input_uncached=max((input_tokens or 0) - cache_read - cache_write, 0),
         output=output_tokens or 0,
         cache_read=cache_read,
         cache_write=cache_write,
+        cache_write_1h=cache_write_1h,
     )
     return cost_breakdown_from_buckets(get_model_price(model_name), buckets) or {}
 
