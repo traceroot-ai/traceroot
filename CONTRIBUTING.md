@@ -47,6 +47,17 @@ The tmux-based commands handle deps, Docker containers, migrations, and launch s
   <kbd><img src="docs/images/local_dev_mode_v1.png" alt="Local dev mode"></kbd>
 </div>
 
+## Validation Commands
+
+| Change | Command |
+|--------|---------|
+| Python lint/format | `uv run ruff check . && uv run ruff format --check .` |
+| Backend tests with coverage | `uv run coverage run -m pytest tests/ && uv run coverage report` |
+| Frontend lint/format | `pnpm --dir frontend lint && pnpm --dir frontend format:check` |
+| Frontend package tests with coverage | `pnpm --dir frontend/ui test:coverage` or the changed package |
+
+Pull requests must pass the GitHub Actions checks, including diff coverage. Diff coverage requires at least 80% coverage on changed production lines, so tests should execute the changed code. If this gate fails, the Actions summary lists the uncovered files and line numbers.
+
 ## Workflow
 
 1. Create a branch from `main`.
@@ -75,7 +86,7 @@ Helpful defaults:
 
 - Keep the PR scoped to one logical change.
 - Explain what changed, why it changed, and how it was validated.
-- Add or update tests for behavior changes.
+- Add or update tests for behavior changes, including coverage for changed production lines.
 - Update documentation for setup, command, or UX changes.
 - Add screenshots or recordings for UI changes.
 - Reference the issue in the PR body when relevant, for example `Closes #581`.
