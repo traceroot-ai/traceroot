@@ -3,9 +3,16 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
-from rest.routers.deps import ProjectAccess
+from rest.rate_limit import (
+    BUCKET_READ,
+    is_request_rate_limit_exempt,
+    key_read,
+    limiter,
+    resolve_limit,
+)
+from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.sessions import SessionDetailResponse, SessionListResponse
 from rest.services.trace_reader import get_trace_reader_service
 
@@ -15,9 +22,14 @@ router = APIRouter(prefix="/projects/{project_id}/sessions", tags=["Sessions"])
 
 
 @router.get("", response_model=SessionListResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
 async def list_sessions(
+    request: Request,
+    response: Response,
     project_id: str,
-    _access: ProjectAccess,
+    _access: RateLimitedProjectAccess,
     page: int = Query(0, ge=0, description="Page number (0-indexed)"),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
     search_query: str | None = Query(None, description="Search by session_id"),
@@ -45,10 +57,15 @@ async def list_sessions(
 
 
 @router.get("/{session_id}", response_model=SessionDetailResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
 async def get_session(
+    request: Request,
+    response: Response,
     project_id: str,
     session_id: str,
-    _access: ProjectAccess,
+    _access: RateLimitedProjectAccess,
     start_after: datetime | None = Query(None, description="Filter traces after this time"),
     end_before: datetime | None = Query(None, description="Filter traces before this time"),
 ):

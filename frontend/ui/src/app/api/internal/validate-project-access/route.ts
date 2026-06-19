@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@traceroot/core";
+import { prisma, PlanType } from "@traceroot/core";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
 
 const validateAccessSchema = z.object({
@@ -33,10 +33,14 @@ export async function POST(request: NextRequest) {
 
   const { userId, projectId } = result.data;
 
-  // Find the project
+  // Find the project (with workspace billing plan, used for tiered rate limits)
   const project = await prisma.project.findUnique({
     where: { id: projectId, deleteTime: null },
-    select: { id: true, workspaceId: true },
+    select: {
+      id: true,
+      workspaceId: true,
+      workspace: { select: { billingPlan: true } },
+    },
   });
 
   if (!project) {
@@ -68,5 +72,6 @@ export async function POST(request: NextRequest) {
     hasAccess: true,
     role: membership.role,
     workspaceId: project.workspaceId,
+    billingPlan: project.workspace?.billingPlan || PlanType.FREE,
   });
 }

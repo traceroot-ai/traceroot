@@ -130,6 +130,16 @@ async def authenticate_api_key(
             detail="Authentication service error",
         ) from e
 
+    # The subscript above rejects an absent workspaceId, but an empty one would
+    # still key every such tenant into one shared ingest bucket. Reject it too,
+    # so ingest and the dashboard-read path both guarantee a usable workspace.
+    if not workspace_id:
+        logger.error("Auth service response has an empty workspaceId")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
+
     # ingestionBlocked gates billing enforcement, so fail closed on a malformed
     # value: a non-bool (or the missing case above) must not be read as "not
     # blocked", which would silently bypass the free-plan ingestion limit.
