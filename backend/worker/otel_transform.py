@@ -507,6 +507,19 @@ def transform_otel_to_clickhouse(
                             "ai.usage.inputTokenDetails.cacheWriteTokens",
                         ],
                     )
+                    # Optional Anthropic 1-hour cache-write portion (1h write = 2.0x
+                    # input, versus 1.25x for the default 5-minute write). A SUBSET of
+                    # cache_write, priced at its own rate when present; absent for every
+                    # emitter today (the split is dropped at the instrumentation layer),
+                    # so this defaults to None -> 0 and leaves pricing unchanged.
+                    api_cache_write_1h_tokens = first_present_number(
+                        span_attrs,
+                        [
+                            "llm.token_count.prompt_details.cache_write_1h",
+                            "gen_ai.usage.cache_creation.ephemeral_1h_input_tokens",
+                            "gen_ai.usage.cache_creation_ephemeral_1h_input_tokens",
+                        ],
+                    )
                     # Reasoning tokens (o-series / GPT-5): a SUBSET of output
                     # tokens, already priced at the output rate, so this is
                     # display-only and must NOT feed the cost buckets.
@@ -545,6 +558,7 @@ def transform_otel_to_clickhouse(
                             output_tokens=output_tokens,
                             cache_read_tokens=int_or_zero(api_cache_read_tokens),
                             cache_write_tokens=int_or_zero(api_cache_write_tokens),
+                            cache_write_1h_tokens=int_or_zero(api_cache_write_1h_tokens),
                         )
                         # Store a GROSS (cache-inclusive) input reconstructed from the
                         # disjoint buckets, so the input column always reconciles with
@@ -571,6 +585,14 @@ def transform_otel_to_clickhouse(
                                 int_or_zero(api_reasoning_tokens), output_tokens
                             ),
                         }
+                        # Persist the 1-hour cache-write portion only when an emitter
+                        # actually reports it, so spans with no 1-hour portion (every
+                        # span today) keep an identical usage_details map. The read path
+                        # defaults the missing key to 0.
+                        if buckets.cache_write_1h:
+                            span_record["usage_details"]["cache_write_1h_tokens"] = (
+                                buckets.cache_write_1h
+                            )
                         cost = cost_from_buckets(get_model_price(model_name), buckets)
                         if cost is not None:
                             span_record["cost"] = cost

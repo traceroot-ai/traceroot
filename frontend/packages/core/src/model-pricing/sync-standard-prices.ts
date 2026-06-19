@@ -11,6 +11,8 @@ interface StandardModelEntry {
     output: number;
     cacheRead: number | null;
     cacheWrite: number | null;
+    // Optional 1-hour cache-write rate; synced generically via Object.entries.
+    cacheWrite1h?: number | null;
   };
 }
 
