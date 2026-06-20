@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     # Core
     "pydantic>=2.0",
-    "pydantic-settings>=2.0",
+    "pydantic-settings>=2.14.2",
     "cuid2>=2.0.0",
     # Database (PostgreSQL access moved to Prisma in ui/)
     "clickhouse-connect>=0.7",
