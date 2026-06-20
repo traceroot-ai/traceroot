@@ -110,6 +110,7 @@
 | [Vercel AI SDK](https://traceroot.ai/docs/integrations/vercel-ai) | JS/TS | `experimental_telemetry` 기반의 네이티브 OpenTelemetry tracing을 지원합니다. 별도의 `instrumentModules` 설정이 필요하지 않습니다. |
 | [AutoGen](https://traceroot.ai/docs/integrations/autogen) | Python | 멀티 에이전트 대화, agent loop, 툴 호출에 대한 instrumentation을 자동으로 수집합니다. |
 | [LlamaIndex](https://traceroot.ai/docs/integrations/llamaindex) | Python | RAG 파이프라인, 문서 ingestion, retrieval, LLM synthesis에 대한 instrumentation을 자동으로 수집합니다. |
+| [Microsoft Agent Framework](https://traceroot.ai/docs/integrations/microsoft-agent-framework) | Python | Agent Framework의 내장 OpenTelemetry를 통해 agent 실행, 모델 호출, 툴 실행에 대한 instrumentation을 자동으로 수집합니다. |
 | [CrewAI](https://traceroot.ai/docs/integrations/crewai) | Python | 멀티 에이전트 협업 워크플로우 및 task execution에 대한 instrumentation을 자동으로 수집합니다. |
 | [Agno](https://traceroot.ai/docs/integrations/agno) | Python | 에이전트 실행, 툴 호출, multi-step reasoning에 대한 instrumentation을 자동으로 수집합니다. |
 | [DSPy](https://traceroot.ai/docs/integrations/dspy) | Python | 모듈 실행, signature prediction, 내부 LLM 호출에 대한 instrumentation을 자동으로 수집합니다. |

@@ -162,6 +162,7 @@
               "integrations/langchain",
               "integrations/langchain-deepagents",
               "integrations/llamaindex",
+              "integrations/microsoft-agent-framework",
               "integrations/mastra",
               "integrations/openai-agents-sdk",
               "integrations/pydantic-ai",
