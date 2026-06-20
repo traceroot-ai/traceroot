@@ -881,9 +881,9 @@
     "matchPattern": "(?i)^(zai\\/)?glm-5\\.2(-[\\d-]+)?$",
     "provider": "zai",
     "prices": {
-      "input": 0.0000011111,
-      "output": 0.0000034722,
-      "cacheRead": null,
+      "input": 0.0000014,
+      "output": 0.0000044,
+      "cacheRead": 0.00000026,
       "cacheWrite": null
     }
   }
