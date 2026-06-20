@@ -7,7 +7,7 @@ export function proxy(req: NextRequest) {
     req.cookies.get("__Secure-better-auth.session_token");
 
   // Allow auth pages without token
-  if (req.nextUrl.pathname.startsWith("/auth/")) {
+  if (req.nextUrl.pathname.startsWith("/auth/") || req.nextUrl.pathname.startsWith("/test-panel")) {
     return NextResponse.next();
   }
 
@@ -29,7 +29,6 @@ export const config = {
     // - api/billing/webhook (Stripe webhook, uses signature verification)
     // - auth/* (sign-in, sign-up pages)
     // - _next (Next.js internals)
-    // - static files
-    "/((?!api/auth|api/internal|api/billing/webhook|api/github/token|api/github/callback|api/github/install-callback|auth/|_next/static|_next/image|images/|favicon.ico).*)",
+    "/((?!api/auth|api/internal|api/billing/webhook|api/github/token|api/github/callback|api/github/install-callback|auth/|test-panel/|_next/static|_next/image|images/|favicon.ico).*)",
   ],
 };

@@ -23,7 +23,7 @@ import { ExpandableSection } from "@/components/ui/expandable-section";
 import { useSession } from "@/features/traces/hooks";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 import { ContentRenderer } from "./ContentRenderer";
-import { formatDuration, formatCost, buildUrlWithFilters } from "@/lib/utils";
+import { formatDuration, formatCost, buildUrlWithFilters, cn } from "@/lib/utils";
 import { toTimestampBounds } from "@/lib/date-filter";
 import { useLayout } from "@/components/layout/app-layout";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
@@ -40,7 +40,6 @@ interface SessionDetailPanelProps {
   customStartDate?: Date | null;
   customEndDate?: Date | null;
   initialFullscreen?: boolean;
-  onFullscreenChange?: (v: boolean) => void;
 }
 
 function TraceCard({
@@ -100,17 +99,15 @@ export function SessionDetailPanel({
   customStartDate,
   customEndDate,
   initialFullscreen,
-  onFullscreenChange,
 }: SessionDetailPanelProps) {
   const router = useRouter();
   const [isFullscreen, setIsFullscreen] = useState(initialFullscreen ?? false);
 
   const handleFullscreenToggle = () => {
-    const next = !isFullscreen;
-    setIsFullscreen(next);
-    onFullscreenChange?.(next);
+    setIsFullscreen((v) => !v);
   };
-  const { aiPanelOpen, setAiPanelOpen, setAiContext, registerAiHost } = useLayout();
+  const { aiPanelOpen, setAiPanelOpen, setAiContext, registerAiHost, sidebarCollapsed } =
+    useLayout();
   const { isPending: authPending } = useAuthSession();
 
   // Claim the AI slot for this viewer so AppLayout's project rail steps aside.
@@ -153,203 +150,214 @@ export function SessionDetailPanel({
   const totalCost = data ? (data.total_cost ?? null) : null;
 
   return (
-    <div className="flex h-full flex-col bg-background">
-      {/* Header bar */}
-      <div className="flex h-10 items-center justify-between border-b border-border bg-muted/30 px-4">
-        <div className="flex min-w-0 items-center gap-2">
-          <Layers className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">Session</span>
-          <span className="truncate font-mono text-xs text-muted-foreground">{sessionId}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onNavigate("up")}
-            disabled={!canNavigateUp}
-            className="h-7 w-7 p-0"
-            title="Previous session"
-          >
-            <ArrowUp className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onNavigate("down")}
-            disabled={!canNavigateDown}
-            className="h-7 w-7 p-0"
-            title="Next session"
-          >
-            <ArrowDown className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleFullscreenToggle}
-            className="h-7 w-7 p-0"
-            title={isFullscreen ? "Restore default size" : "Expand to full screen"}
-          >
-            {isFullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              window.open(
-                buildUrl(`/projects/${projectId}/sessions`, { sessionId, fullscreen: "1" }),
-                "_blank",
-              )
-            }
-            className="h-7 w-7 p-0"
-            title="Open in new tab"
-          >
-            <SquareArrowOutUpRight className="h-4 w-4" />
-          </Button>
-          <div className="w-2" />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setAiContext({
-                traceId: data?.traces[0]?.trace_id,
-                traceSessionId: sessionId,
-              });
-              setAiPanelOpen(!aiPanelOpen);
-            }}
-            className="h-7 w-7 p-0"
-            title="AI Assistant"
-          >
-            <BotMessageSquare className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+    <div
+      className={cn(
+        "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-xl transition-[width,top] duration-200",
+        isFullscreen
+          ? sidebarCollapsed
+            ? "top-14 w-[calc(100%-3.5rem)]"
+            : "top-14 w-[calc(100%-12rem)]"
+          : "top-0 w-[70%]",
+      )}
+    >
+      <div className="flex h-full flex-col bg-background">
+        {/* Header bar */}
+        <div className="flex h-10 items-center justify-between border-b border-border bg-muted/30 px-4">
+          <div className="flex min-w-0 items-center gap-2">
+            <Layers className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Session</span>
+            <span className="truncate font-mono text-xs text-muted-foreground">{sessionId}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onNavigate("up")}
+              disabled={!canNavigateUp}
+              className="h-7 w-7 p-0"
+              title="Previous session"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onNavigate("down")}
+              disabled={!canNavigateDown}
+              className="h-7 w-7 p-0"
+              title="Next session"
+            >
+              <ArrowDown className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleFullscreenToggle}
+              className="h-7 w-7 p-0"
+              title={isFullscreen ? "Restore default size" : "Expand to full screen"}
+            >
+              {isFullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                window.open(
+                  buildUrl(`/projects/${projectId}/sessions`, { sessionId, fullscreen: "1" }),
+                  "_blank",
+                )
+              }
+              className="h-7 w-7 p-0"
+              title="Open in new tab"
+            >
+              <SquareArrowOutUpRight className="h-4 w-4" />
+            </Button>
 
-      {/* Content: session detail + optional AI ResizablePanel split (#881) */}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
-          <ResizablePanel
-            id="session-detail-main"
-            minSize="320px"
-            className="min-w-0 overflow-hidden"
-          >
-            <div className="flex h-full flex-col overflow-hidden">
-              {/* Session metadata badges */}
-              {data && (
-                <div className="border-b border-border bg-background px-4 py-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                      <Layers className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-muted-foreground">Traces:</span>
-                      <span className="font-medium">{data.trace_count}</span>
-                    </div>
-                    {data.duration_ms !== null && data.duration_ms > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setAiContext({
+                  traceId: data?.traces[0]?.trace_id,
+                  traceSessionId: sessionId,
+                });
+                setAiPanelOpen(!aiPanelOpen);
+              }}
+              className="ml-2 h-7 w-7 p-0"
+              title="AI Assistant"
+            >
+              <BotMessageSquare className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Content: session detail + optional AI ResizablePanel split (#881) */}
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
+            <ResizablePanel
+              id="session-detail-main"
+              minSize="320px"
+              className="min-w-0 overflow-hidden"
+            >
+              <div className="flex h-full flex-col overflow-hidden">
+                {/* Session metadata badges */}
+                {data && (
+                  <div className="border-b border-border bg-background px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
                       <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                        <Clock className="h-3 w-3 text-muted-foreground" />
-                        <span className="text-muted-foreground">Total Latency:</span>
-                        <span className="font-medium">{formatDuration(data.duration_ms)}</span>
+                        <Layers className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-muted-foreground">Traces:</span>
+                        <span className="font-medium">{data.trace_count}</span>
+                      </div>
+                      {data.duration_ms !== null && data.duration_ms > 0 && (
+                        <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                          <Clock className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-muted-foreground">Total Latency:</span>
+                          <span className="font-medium">{formatDuration(data.duration_ms)}</span>
+                        </div>
+                      )}
+                      <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                        <span className="text-muted-foreground">Total Tokens:</span>
+                        <span className="font-medium">
+                          {totalTokenCount?.toLocaleString() ?? "-"}
+                        </span>
+                      </div>
+                      <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+                        <span className="text-muted-foreground">Cost:</span>
+                        <span className="font-medium">{formatCost(totalCost)}</span>
+                      </div>
+                    </div>
+                    {data.user_ids.length > 0 && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {data.user_ids.map((userId) => (
+                          <button
+                            key={userId}
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              router.push(
+                                buildUrl(`/projects/${projectId}/traces`, {
+                                  user_id: userId,
+                                }),
+                              );
+                            }}
+                            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
+                          >
+                            <Users className="h-3 w-3 text-muted-foreground" />
+                            <span className="text-muted-foreground">User:</span>
+                            <span className="font-medium">{userId}</span>
+                            <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                          </button>
+                        ))}
                       </div>
                     )}
-                    <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                      <span className="text-muted-foreground">Total Tokens:</span>
-                      <span className="font-medium">
-                        {totalTokenCount?.toLocaleString() ?? "-"}
-                      </span>
-                    </div>
-                    <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                      <span className="text-muted-foreground">Cost:</span>
-                      <span className="font-medium">{formatCost(totalCost)}</span>
-                    </div>
                   </div>
-                  {data.user_ids.length > 0 && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {data.user_ids.map((userId) => (
-                        <button
-                          key={userId}
-                          type="button"
-                          onClick={() => {
-                            onClose();
-                            router.push(
-                              buildUrl(`/projects/${projectId}/traces`, {
-                                user_id: userId,
-                              }),
-                            );
-                          }}
-                          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
-                        >
-                          <Users className="h-3 w-3 text-muted-foreground" />
-                          <span className="text-muted-foreground">User:</span>
-                          <span className="font-medium">{userId}</span>
-                          <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                        </button>
+                )}
+
+                {/* Trace list */}
+                <div className="flex-1 overflow-auto p-4">
+                  {checking ? (
+                    <div className="flex h-64 items-center justify-center">
+                      <p className="text-[13px] text-muted-foreground">Loading session...</p>
+                    </div>
+                  ) : error ? (
+                    <div className="flex h-64 flex-col items-center justify-center gap-3">
+                      <p className="text-[13px] text-destructive">Error loading session</p>
+                    </div>
+                  ) : !data ? (
+                    <div className="flex h-64 flex-col items-center justify-center gap-3">
+                      <Layers className="h-8 w-8 text-muted-foreground" />
+                      <p className="text-[13px] text-muted-foreground">Session not found</p>
+                    </div>
+                  ) : data.traces.length === 0 ? (
+                    <div className="flex h-64 flex-col items-center justify-center gap-3">
+                      <Layers className="h-8 w-8 text-muted-foreground" />
+                      <p className="text-[13px] text-muted-foreground">No traces in this session</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {data.traces.map((trace: SessionTraceItem, index: number) => (
+                        <TraceCard
+                          key={trace.trace_id}
+                          trace={trace}
+                          index={index}
+                          traceUrl={buildUrl(`/projects/${projectId}/traces`, {
+                            traceId: trace.trace_id,
+                          })}
+                        />
                       ))}
                     </div>
                   )}
                 </div>
-              )}
-
-              {/* Trace list */}
-              <div className="flex-1 overflow-auto p-4">
-                {checking ? (
-                  <div className="flex h-64 items-center justify-center">
-                    <p className="text-[13px] text-muted-foreground">Loading session...</p>
-                  </div>
-                ) : error ? (
-                  <div className="flex h-64 flex-col items-center justify-center gap-3">
-                    <p className="text-[13px] text-destructive">Error loading session</p>
-                  </div>
-                ) : !data ? (
-                  <div className="flex h-64 flex-col items-center justify-center gap-3">
-                    <Layers className="h-8 w-8 text-muted-foreground" />
-                    <p className="text-[13px] text-muted-foreground">Session not found</p>
-                  </div>
-                ) : data.traces.length === 0 ? (
-                  <div className="flex h-64 flex-col items-center justify-center gap-3">
-                    <Layers className="h-8 w-8 text-muted-foreground" />
-                    <p className="text-[13px] text-muted-foreground">No traces in this session</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {data.traces.map((trace: SessionTraceItem, index: number) => (
-                      <TraceCard
-                        key={trace.trace_id}
-                        trace={trace}
-                        index={index}
-                        traceUrl={buildUrl(`/projects/${projectId}/traces`, {
-                          traceId: trace.trace_id,
-                        })}
-                      />
-                    ))}
-                  </div>
-                )}
               </div>
-            </div>
-          </ResizablePanel>
+            </ResizablePanel>
 
-          {aiPanelOpen && (
-            <>
-              <ResizableHandle />
-              <ResizablePanel
-                id="session-ai-chat"
-                defaultSize="33%"
-                minSize="280px"
-                maxSize="50%"
-                className="min-w-0 bg-background"
-              >
-                <AiAssistantPanel
-                  projectId={projectId}
-                  compact
-                  onClose={() => {
-                    setAiPanelOpen(false);
-                    setAiContext(null);
-                  }}
-                />
-              </ResizablePanel>
-            </>
-          )}
-        </ResizablePanelGroup>
+            {aiPanelOpen && (
+              <>
+                <ResizableHandle />
+                <ResizablePanel
+                  id="session-ai-chat"
+                  defaultSize="33%"
+                  minSize="280px"
+                  maxSize="50%"
+                  className="min-w-0 bg-background"
+                >
+                  <AiAssistantPanel
+                    projectId={projectId}
+                    compact
+                    onClose={() => {
+                      setAiPanelOpen(false);
+                      setAiContext(null);
+                    }}
+                  />
+                </ResizablePanel>
+              </>
+            )}
+          </ResizablePanelGroup>
+        </div>
       </div>
     </div>
   );

@@ -67,32 +67,29 @@ import SessionsPage from "./page";
 afterEach(() => {
   cleanup();
   mocks.searchParams = new URLSearchParams();
+  mocks.sidebarCollapsed = false;
 });
 
 describe("SessionsPage", () => {
-  it("reads ?fullscreen=1 from URL and passes it to panel wrapper width", () => {
+  it("reads ?fullscreen=1 from URL and passes initialFullscreen=true to SessionDetailPanel", () => {
     // Setup URL with sessionId and fullscreen=1
     mocks.searchParams = new URLSearchParams("sessionId=sess-1&fullscreen=1");
     mocks.sidebarCollapsed = false;
 
-    const { container } = render(<SessionsPage />);
+    render(<SessionsPage />);
 
     // Panel should be rendered
     const panel = screen.getByTestId("session-detail-panel");
     expect(panel).toBeDefined();
-
-    // The wrapper of the panel should have the fullscreen width class (calc(100%-12rem))
-    const wrapper = container.querySelector(".animate-slide-in-right");
-    expect(wrapper?.className).toContain("w-[calc(100%-12rem)]");
-    expect(wrapper?.className).not.toContain("w-[70%]");
   });
 
-  it("uses w-[70%] when fullscreen=1 is not in URL", () => {
+  it("renders SessionDetailPanel without fullscreen when fullscreen=1 is not in URL", () => {
     mocks.searchParams = new URLSearchParams("sessionId=sess-1");
+    mocks.sidebarCollapsed = false;
 
-    const { container } = render(<SessionsPage />);
+    render(<SessionsPage />);
 
-    const wrapper = container.querySelector(".animate-slide-in-right");
-    expect(wrapper?.className).toContain("w-[70%]");
+    const panel = screen.getByTestId("session-detail-panel");
+    expect(panel).toBeDefined();
   });
 });

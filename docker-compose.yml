@@ -17,7 +17,7 @@ services:
       TZ: UTC
       PGTZ: UTC
     ports:
-      - 127.0.0.1:5432:5432
+      - 127.0.0.1:5433:5432
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # Schema managed by Prisma migrations (cd ui && npx prisma migrate dev)
