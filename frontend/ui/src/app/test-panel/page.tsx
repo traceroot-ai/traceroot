@@ -10,16 +10,6 @@ function TestPanelContent() {
   const isFullscreen = searchParams.get("fullscreen") === "1";
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
 
-  const handleFullscreenChange = (fullscreen: boolean) => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (fullscreen) {
-      params.set("fullscreen", "1");
-    } else {
-      params.delete("fullscreen");
-    }
-    router.push(`/test-panel?${params.toString()}`);
-  };
-
   return (
     <div className="relative flex h-screen w-full overflow-hidden bg-neutral-900 text-white">
       {/* Mock Main Content Area */}
@@ -45,22 +35,15 @@ function TestPanelContent() {
             className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm transition-opacity"
             onClick={() => setSelectedSession(null)}
           />
-          <div
-            className={`animate-slide-in-right fixed inset-y-2 right-2 z-50 overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900 shadow-2xl transition-all duration-300 ease-in-out ${
-              isFullscreen ? "w-[calc(100%-12rem)]" : "w-[70%]"
-            }`}
-          >
-            <SessionDetailPanel
-              projectId="mock-project"
-              sessionId={selectedSession}
-              onClose={() => setSelectedSession(null)}
-              onNavigate={() => {}}
-              canNavigateUp={false}
-              canNavigateDown={false}
-              initialFullscreen={isFullscreen}
-              onFullscreenChange={handleFullscreenChange}
-            />
-          </div>
+          <SessionDetailPanel
+            projectId="mock-project"
+            sessionId={selectedSession}
+            onClose={() => setSelectedSession(null)}
+            onNavigate={() => {}}
+            canNavigateUp={false}
+            canNavigateDown={false}
+            initialFullscreen={isFullscreen}
+          />
         </>
       )}
     </div>
