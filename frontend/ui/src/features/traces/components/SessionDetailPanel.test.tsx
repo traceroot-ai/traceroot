@@ -103,6 +103,10 @@ describe("SessionDetailPanel", () => {
     expect(openNewTabButton).toBeDefined();
 
     fireEvent.click(openNewTabButton);
-    expect(windowOpenSpy).toHaveBeenCalledWith(expect.stringContaining("fullscreen=1"), "_blank");
+    expect(windowOpenSpy).toHaveBeenCalledWith(
+      expect.stringContaining("fullscreen=1"),
+      "_blank",
+      "noopener,noreferrer",
+    );
   });
 });
