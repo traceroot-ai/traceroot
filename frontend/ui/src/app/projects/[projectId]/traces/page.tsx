@@ -130,7 +130,7 @@ export default function TracesPage() {
       <ProjectBreadcrumb projectId={projectId} />
 
       {/* Main content */}
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         {/* Tab navigation — hidden during onboarding or while checking */}
         {!checking && !showGettingStarted && (
           <div className="border-b border-border bg-background">
