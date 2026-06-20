@@ -205,6 +205,7 @@ export function SessionDetailPanel({
                 window.open(
                   buildUrl(`/projects/${projectId}/sessions`, { sessionId, fullscreen: "1" }),
                   "_blank",
+                  "noopener,noreferrer",
                 )
               }
               className="h-7 w-7 p-0"
