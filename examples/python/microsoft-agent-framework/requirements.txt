@@ -1,4 +1,10 @@
-agent-framework>=1.9.0
+# Depend on the specific sub-packages this example imports
+# (agent_framework + agent_framework.openai) rather than the `agent-framework`
+# umbrella, which pulls `agent-framework-core[all]` — every integration,
+# including agent-framework-azure-ai-search whose only release was yanked,
+# breaking resolution. Narrow deps resolve as stable, no --prerelease needed.
+agent-framework-core>=1.0.0
+agent-framework-openai>=1.0.0
 openinference-instrumentation-agent-framework>=0.1.0,<1.0
 python-dotenv>=1.0.0
 
