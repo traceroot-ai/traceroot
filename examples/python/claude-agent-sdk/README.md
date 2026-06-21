@@ -33,3 +33,6 @@ surface, so they double as instrumentation smoke tests:
 - `client-mcp.py` — `ClaudeSDKClient` driving **MCP tools** (a self-contained
   in-process SDK MCP server). Covers the `mcp__<server>__<tool>` tool-span path
   production agents lean on; external stdio MCP servers produce the same span shape.
+- `skill.py` — `ClaudeSDKClient` loading an **agent Skill** (scaffolds a tiny
+  local `SKILL.md` and enables it via `skills=[...]`). Covers the `Skill` tool-span
+  path; the skill's follow-up work nests under the LLM turn that drove it.
