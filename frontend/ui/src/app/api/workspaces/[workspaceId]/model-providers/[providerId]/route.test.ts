@@ -14,6 +14,14 @@ vi.mock("@/lib/auth-helpers", () => ({
   successResponse: (d: any, status = 200) => new Response(JSON.stringify(d), { status }),
 }));
 
+class MockPrismaClientKnownRequestError extends Error {
+  code: string;
+  constructor(message: string, { code }: { code: string }) {
+    super(message);
+    this.code = code;
+  }
+}
+
 vi.mock("@traceroot/core", () => ({
   prisma: {
     modelProvider: {
@@ -30,6 +38,9 @@ vi.mock("@traceroot/core", () => ({
   Role: { ADMIN: "ADMIN" },
   encryptKey: (k: string) => `encrypted_${k}`,
   maskKey: (k: string) => `masked_${k}`,
+  Prisma: {
+    PrismaClientKnownRequestError: MockPrismaClientKnownRequestError,
+  },
 }));
 
 describe("PATCH /api/workspaces/[workspaceId]/model-providers/[providerId]", () => {
@@ -135,5 +146,35 @@ describe("PATCH /api/workspaces/[workspaceId]/model-providers/[providerId]", () 
     const body = await res.json();
     expect(body.error).toBe("A provider with this name already exists in this workspace");
     expect(mockProviderUpdate).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 Conflict when database throws unique constraint error on update", async () => {
+    mockRequireAuth.mockResolvedValue({ user: { id: "u1" } });
+    mockRequireWorkspaceMembership.mockResolvedValue({ error: null });
+    mockFindFirst.mockResolvedValue({
+      id: "mp1",
+      provider: "My OpenAI",
+      adapter: "openai",
+    });
+    mockFindFirstProvider.mockResolvedValue(null);
+    mockProviderUpdate.mockRejectedValue(
+      new MockPrismaClientKnownRequestError("Unique constraint failed", { code: "P2002" }),
+    );
+
+    const { PATCH } = await import("./route");
+    const req = new Request("http://localhost/", {
+      method: "PATCH",
+      body: JSON.stringify({
+        provider: "New OpenAI Name",
+      }),
+    });
+
+    const res = await PATCH(req, {
+      params: Promise.resolve({ workspaceId: "ws1", providerId: "mp1" }),
+    });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe("A provider with this name already exists in this workspace");
+    expect(mockProviderUpdate).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,6 +6,7 @@ import {
   encryptKey,
   maskKey,
   BEDROCK_USE_DEFAULT_CREDENTIALS,
+  Prisma,
 } from "@traceroot/core";
 import {
   requireAuth,
@@ -140,29 +141,36 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     data.keyPreview = maskKey(apiKey);
   }
 
-  const updated = await prisma.modelProvider.update({
-    where: { id: providerId },
-    data,
-    select: {
-      id: true,
-      adapter: true,
-      provider: true,
-      keyPreview: true,
-      baseUrl: true,
-      customModels: true,
-      withDefaultModels: true,
-      config: true,
-      enabled: true,
-      createdBy: true,
-      createTime: true,
-      updateTime: true,
-    },
-  });
+  try {
+    const updated = await prisma.modelProvider.update({
+      where: { id: providerId },
+      data,
+      select: {
+        id: true,
+        adapter: true,
+        provider: true,
+        keyPreview: true,
+        baseUrl: true,
+        customModels: true,
+        withDefaultModels: true,
+        config: true,
+        enabled: true,
+        createdBy: true,
+        createTime: true,
+        updateTime: true,
+      },
+    });
 
-  // Invalidate agent cache so the new key takes effect immediately
-  await invalidateAgentProviderCache(workspaceId, existing.provider);
+    // Invalidate agent cache so the new key takes effect immediately
+    await invalidateAgentProviderCache(workspaceId, existing.provider);
 
-  return successResponse(updated);
+    return successResponse(updated);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return errorResponse("A provider with this name already exists in this workspace", 409);
+    }
+    throw error;
+  }
 }
 
 // DELETE /api/workspaces/[workspaceId]/model-providers/[providerId]
