@@ -56,6 +56,25 @@ def test_span_cost_details_empty_for_unknown_model():
         assert span_cost_details("mystery-model", 100, 50, {}) == {}
 
 
+def test_span_tree_metadata_keeps_only_live_tree_path_keys():
+    from rest.services.trace_reader import span_tree_metadata
+
+    result = span_tree_metadata(
+        '{"traceroot.span.ids_path":["root"],'
+        '"traceroot.span.path":["root","child"],'
+        '"large_prompt":"do-not-return"}'
+    )
+
+    assert result == ('{"traceroot.span.ids_path":["root"],"traceroot.span.path":["root","child"]}')
+
+
+def test_span_tree_metadata_empty_without_path_keys():
+    from rest.services.trace_reader import span_tree_metadata
+
+    assert span_tree_metadata('{"large_prompt":"do-not-return"}') is None
+    assert span_tree_metadata("not-json") is None
+
+
 # ---------------------------------------------------------------------------
 # Two-phase loading: get_trace skeleton + get_span_io.
 # The ClickHouse client is mocked; we assert on the SQL issued and the dicts
@@ -86,8 +105,12 @@ def _rows(rows):
 
 
 class TestGetTraceSkeleton:
-    def test_spans_query_omits_io_columns(self):
-        """The spans SELECT must not read input/output/metadata blobs."""
+    def test_spans_query_omits_io_columns_and_returns_tree_metadata_only(self):
+        """The spans SELECT must not read input/output blobs.
+
+        It may read metadata only to return a tiny whitelisted path subset used
+        to repair live span trees while parents are still in flight.
+        """
         captured = {}
 
         def side_effect(query, parameters=None):
@@ -130,6 +153,9 @@ class TestGetTraceSkeleton:
                         None,  # output_tokens
                         None,  # total_tokens
                         {},  # usage_details
+                        '{"traceroot.span.ids_path":["root-id"],'
+                        '"traceroot.span.path":["root","child"],'
+                        '"large_blob":"do-not-return"}',  # metadata
                         "file.py",  # git_source_file
                         12,  # git_source_line
                         "fn",  # git_source_function
@@ -148,7 +174,7 @@ class TestGetTraceSkeleton:
         cols = {c.strip() for c in select_clause.replace("SELECT", "").split(",")}
         assert "input" not in cols
         assert "output" not in cols
-        assert "metadata" not in cols
+        assert "metadata" in cols
         # The token columns (which share a prefix with the blobs) are still there.
         assert "input_tokens" in cols
         assert "output_tokens" in cols
@@ -169,11 +195,15 @@ class TestGetTraceSkeleton:
             "trace_start_time": datetime(2024, 1, 1),
         }
 
-        # Resulting span dict carries NO I/O keys, but keeps tree fields.
+        # Resulting span dict carries NO input/output keys, but keeps the tiny
+        # tree-repair metadata subset.
         span = result["spans"][0]
         assert "input" not in span
         assert "output" not in span
-        assert "metadata" not in span
+        assert span["metadata"] == (
+            '{"traceroot.span.ids_path":["root-id"],"traceroot.span.path":["root","child"]}'
+        )
+        assert "large_blob" not in span["metadata"]
         assert span["span_id"] == "span-1"
         assert span["git_source_file"] == "file.py"
         assert span["git_source_line"] == 12
