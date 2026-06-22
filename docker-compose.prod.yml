@@ -262,6 +262,9 @@ services:
       # --- Worker config ---
       POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-5}
       BATCH_SIZE: ${BATCH_SIZE:-100}
+      # How long the worker caches model prices before re-reading them from the
+      # DB (seconds). Lower = fresher pricing, higher = fewer DB reads.
+      PRICING_CACHE_TTL_SECONDS: ${PRICING_CACHE_TTL_SECONDS:-300}
     depends_on:
       migrate-clickhouse:
         condition: service_completed_successfully

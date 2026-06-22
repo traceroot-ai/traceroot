@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+import worker.tokens.pricing as pricing_mod
 from worker.tokens.pricing import calculate_cost, get_model_price
 
 MATCHED_MODEL_NAME = "__matched_model_name"
@@ -401,3 +402,95 @@ def test_cost_breakdown_from_buckets_returns_none_without_prices():
     buckets = TokenBuckets(input_uncached=100, output=50)
     assert cost_breakdown_from_buckets(None, buckets) is None
     assert cost_breakdown_from_buckets({}, buckets) is None
+
+
+# ---------------------------------------------------------------------------
+# TTL-based cache refresh (issue #1096) — the in-memory price cache must pick
+# up DB updates within a TTL window instead of living for the whole process.
+# ---------------------------------------------------------------------------
+
+
+class _FakeClock:
+    """Deterministic stand-in for time.monotonic() that we can advance."""
+
+    def __init__(self, start: float = 0.0):
+        self.now = start
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def _entry(input_price: float) -> dict:
+    return {"model_name": "m", "match_pattern": "m", "prices": {"input": input_price}}
+
+
+@pytest.fixture
+def fresh_cache(monkeypatch):
+    """Reset the module cache and install a controllable clock for each test."""
+    monkeypatch.setattr(pricing_mod, "_cache", None)
+    monkeypatch.setattr(pricing_mod, "_cache_loaded_at", None)
+    clock = _FakeClock()
+    monkeypatch.setattr(pricing_mod.time, "monotonic", clock)
+    return clock
+
+
+def test_cache_served_within_ttl_without_refetch(fresh_cache, monkeypatch):
+    calls = {"n": 0}
+
+    def fake_fetch():
+        calls["n"] += 1
+        return [_entry(1.0)]
+
+    monkeypatch.setattr(pricing_mod, "_fetch_prices_from_db", fake_fetch)
+
+    pricing_mod._load_cache()  # first call populates the cache
+    fresh_cache.advance(pricing_mod._CACHE_TTL_SECONDS - 1)
+    pricing_mod._load_cache()  # still within TTL — no second DB read
+
+    assert calls["n"] == 1
+
+
+def test_cache_refreshes_with_new_prices_after_ttl(fresh_cache, monkeypatch):
+    versions = [[_entry(1.0)], [_entry(2.0)]]
+    calls = {"n": 0}
+
+    def fake_fetch():
+        idx = min(calls["n"], len(versions) - 1)
+        calls["n"] += 1
+        return versions[idx]
+
+    monkeypatch.setattr(pricing_mod, "_fetch_prices_from_db", fake_fetch)
+
+    assert pricing_mod._load_cache()[0]["prices"]["input"] == 1.0
+    fresh_cache.advance(pricing_mod._CACHE_TTL_SECONDS + 1)
+    # TTL lapsed: the updated DB price is now reflected without a restart.
+    assert pricing_mod._load_cache()[0]["prices"]["input"] == 2.0
+    assert calls["n"] == 2
+
+
+def test_stale_cache_served_when_refresh_fails(fresh_cache, monkeypatch):
+    good = [_entry(1.0)]
+    state = {"fail": False}
+
+    monkeypatch.setattr(pricing_mod, "_fetch_prices_from_db", lambda: [] if state["fail"] else good)
+
+    assert pricing_mod._load_cache() == good
+    fresh_cache.advance(pricing_mod._CACHE_TTL_SECONDS + 1)
+    state["fail"] = True
+    # Refresh fails — keep serving the previously loaded prices, not an empty cache.
+    assert pricing_mod._load_cache() == good
+
+
+def test_first_load_failure_returns_empty_and_retries(fresh_cache, monkeypatch):
+    good = [_entry(1.0)]
+    state = {"fail": True}
+
+    monkeypatch.setattr(pricing_mod, "_fetch_prices_from_db", lambda: [] if state["fail"] else good)
+
+    assert pricing_mod._load_cache() == []  # nothing cached yet on first failure
+    state["fail"] = False
+    # Cache was never populated, so the next call retries immediately (no TTL wait).
+    assert pricing_mod._load_cache() == good
