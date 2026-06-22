@@ -1,12 +1,14 @@
 name: "Feature Request"
 description: "Suggest an idea or enhancement for TraceRoot."
-labels: [enhancement]
+labels: [enhancement, needs approval]
 body:
   - type: markdown
     attributes:
       value: |
         ## Thanks for suggesting a feature!
         Please help us understand your use case and how this feature would help.
+
+        > **Before you start coding:** this request will be tagged `needs approval`. Please wait for a core member to remove that label before opening a PR — we want to confirm direction first. (Bugs, security, perf, and docs fixes are exempt — feel free to start right away.)
   - type: textarea
     id: problem
     attributes:
