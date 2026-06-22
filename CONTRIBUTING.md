@@ -78,7 +78,7 @@ Helpful defaults:
 - Explain what changed, why it changed, and how it was validated.
 - Add or update tests for behavior changes.
 - Update documentation for setup, command, or UX changes.
-- **Required for UI changes:** include before/after screenshots or a short screen recording. PRs that change the UI without them will not be merged until they are added.
+- Include before/after screenshots or a short screen recording. PRs that change the UI without them will not be approved until they are added.
 - Reference the issue in the PR body when relevant, for example `Closes #581`.
 - Make sure pre-commit and the relevant tests pass before requesting review.
 
