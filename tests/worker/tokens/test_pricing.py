@@ -112,6 +112,21 @@ OPENAI_MODEL_CASES = [
 GLM_MODEL_CASES = [
     ("glm-5.2", "glm-5.2"),
     ("zai/glm-5.2", "glm-5.2"),
+    ("glm-5.1", "glm-5.1"),
+    ("zai/glm-5.1", "glm-5.1"),
+    ("glm-5", "glm-5"),
+    ("zai/glm-5", "glm-5"),
+    ("glm-5-turbo", "glm-5-turbo"),
+    ("zai/glm-5-turbo", "glm-5-turbo"),
+    ("glm-4.7", "glm-4.7"),
+    ("zai/glm-4.7", "glm-4.7"),
+    ("glm-4.6", "glm-4.6"),
+    ("zai/glm-4.6", "glm-4.6"),
+    ("glm-4.5", "glm-4.5"),
+    ("zai/glm-4.5", "glm-4.5"),
+    ("glm-4.5-air", "glm-4.5-air"),
+    ("zai/glm-4.5-air", "glm-4.5-air"),
+    ("glm-4.5-flash", "glm-4.5-flash"),
 ]
 
 

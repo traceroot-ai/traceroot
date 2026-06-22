@@ -886,5 +886,101 @@
       "cacheRead": 0.00000026,
       "cacheWrite": null
     }
+  },
+  {
+    "id": "tr-glm-5-1",
+    "modelName": "glm-5.1",
+    "matchPattern": "(?i)^(zai\\/)?glm-5\\.1(-[\\d-]+)?$",
+    "provider": "zai",
+    "prices": {
+      "input": 0.0000014,
+      "output": 0.0000044,
+      "cacheRead": 0.00000026,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-glm-5",
+    "modelName": "glm-5",
+    "matchPattern": "(?i)^(zai\\/)?glm-5(-[\\d-]+)?$",
+    "provider": "zai",
+    "prices": {
+      "input": 0.000001,
+      "output": 0.0000032,
+      "cacheRead": 0.0000002,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-glm-5-turbo",
+    "modelName": "glm-5-turbo",
+    "matchPattern": "(?i)^(zai\\/)?glm-5-turbo(-[\\d-]+)?$",
+    "provider": "zai",
+    "prices": {
+      "input": 0.0000012,
+      "output": 0.000004,
+      "cacheRead": 0.00000024,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-glm-4-7",
+    "modelName": "glm-4.7",
+    "matchPattern": "(?i)^(zai\\/)?glm-4\\.7(-[\\d-]+)?$",
+    "provider": "zai",
+    "prices": {
+      "input": 0.0000006,
+      "output": 0.0000022,
+      "cacheRead": 0.00000011,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-glm-4-6",
+    "modelName": "glm-4.6",
+    "matchPattern": "(?i)^(zai\\/)?glm-4\\.6(-[\\d-]+)?$",
+    "provider": "zai",
+    "prices": {
+      "input": 0.0000006,
+      "output": 0.0000022,
+      "cacheRead": 0.00000011,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-glm-4-5",
+    "modelName": "glm-4.5",
+    "matchPattern": "(?i)^(zai\\/)?glm-4\\.5(-[\\d-]+)?$",
+    "provider": "zai",
+    "prices": {
+      "input": 0.0000006,
+      "output": 0.0000022,
+      "cacheRead": 0.00000011,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-glm-4-5-air",
+    "modelName": "glm-4.5-air",
+    "matchPattern": "(?i)^(zai\\/)?glm-4\\.5-air(-[\\d-]+)?$",
+    "provider": "zai",
+    "prices": {
+      "input": 0.0000002,
+      "output": 0.0000011,
+      "cacheRead": 0.00000003,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-glm-4-5-flash",
+    "modelName": "glm-4.5-flash",
+    "matchPattern": "(?i)^(zai\\/)?glm-4\\.5-flash(-[\\d-]+)?$",
+    "provider": "zai",
+    "prices": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": null
+    }
   }
 ]
