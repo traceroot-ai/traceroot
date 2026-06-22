@@ -156,7 +156,13 @@ class TestGetTraceSkeleton:
         assert "FROM spans FINAL" in spans_sql
         # Bound by the already-read trace_start_time so ClickHouse can prune
         # monthly span partitions before the trace.
-        assert "span_start_time >= {trace_start_time:DateTime64(3)} - INTERVAL 1 HOUR" in spans_sql
+        from rest.services.trace_reader import TRACE_SPAN_LOOKBACK_HOURS
+
+        lower_bound_sql = (
+            "span_start_time >= {trace_start_time:DateTime64(3)} "
+            f"- INTERVAL {TRACE_SPAN_LOOKBACK_HOURS} HOUR"
+        )
+        assert lower_bound_sql in spans_sql
         assert captured["spans_parameters"] == {
             "project_id": "proj",
             "trace_id": "abc123",
@@ -261,7 +267,12 @@ class TestGetTraceSkeleton:
         result = service.get_trace("proj", "abc123")
 
         assert result["spans"] == []
-        lower_bound_sql = "span_start_time >= {trace_start_time:DateTime64(3)} - INTERVAL 1 HOUR"
+        from rest.services.trace_reader import TRACE_SPAN_LOOKBACK_HOURS
+
+        lower_bound_sql = (
+            "span_start_time >= {trace_start_time:DateTime64(3)} "
+            f"- INTERVAL {TRACE_SPAN_LOOKBACK_HOURS} HOUR"
+        )
         assert lower_bound_sql in captured["spans_query"]
         assert captured["spans_parameters"] == {
             "project_id": "proj",
