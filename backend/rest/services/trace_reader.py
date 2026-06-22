@@ -7,6 +7,15 @@ from rest.sql_utils import escape_ilike, to_utc_naive
 from worker.tokens.buckets import TokenBuckets
 from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
 
+# Lookback for the trace-detail spans query lower bound:
+# span_start_time >= trace_start_time - this value.
+# This gives room for clock skew and small differences between the stored
+# trace_start_time and the true earliest span start time. Increase it if spans
+# can validly start before the stored trace_start_time. Since spans are split by
+# month with toYYYYMM(span_start_time), values under about a month usually skip
+# the same old monthly partitions.
+TRACE_SPAN_LOOKBACK_HOURS = 1
+
 
 def span_cost_details(
     model_name: str | None,
@@ -237,12 +246,37 @@ class TraceReaderService:
             "metadata": row[10],
         }
 
+        # Build the span skeleton query. The optional trace_start_time lower
+        # bound lets ClickHouse prune old span partitions before the trace.
+        spans_conditions = [
+            "project_id = {project_id:String}",
+            "trace_id = {trace_id:String}",
+        ]
+        spans_params = {"project_id": project_id, "trace_id": trace_id}
+        if trace["trace_start_time"] is not None:
+            # Lower-bound the spans scan by the trace start time so ClickHouse
+            # can skip old monthly span partitions. The spans table uses
+            # PARTITION BY toYYYYMM(span_start_time), and trace_id is not in the
+            # sort key, so without a time bound every trace open can scan all
+            # monthly partitions for the project. Keep this lower-bound only,
+            # with no upper bound, so late or streaming child spans are still
+            # returned. The lookback covers clock skew and trace start drift. If
+            # trace_start_time is null, skip the bound because correctness
+            # should not depend on it.
+            spans_conditions.append(
+                "span_start_time >= {trace_start_time:DateTime64(3)} "
+                f"- INTERVAL {TRACE_SPAN_LOOKBACK_HOURS} HOUR"
+            )
+            spans_params["trace_start_time"] = to_utc_naive(trace["trace_start_time"])
+
+        spans_where_clause = " AND ".join(spans_conditions)
+
         # Fetch span skeletons — omit the large input/output/metadata blobs to
         # keep the payload lightweight (fetched per-span on demand instead).
         # usage_details is kept (small map) to derive cost_details. Duration is
         # derived on the client from start/end so in-progress spans can grow
         # against `now()` for live traces.
-        spans_query = """
+        spans_query = f"""
             SELECT
                 span_id, trace_id, parent_span_id, name, span_kind,
                 span_start_time, span_end_time, status, status_message,
@@ -250,12 +284,12 @@ class TraceReaderService:
                 usage_details,
                 git_source_file, git_source_line, git_source_function
             FROM spans FINAL
-            WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
+            WHERE {spans_where_clause}
             ORDER BY span_start_time ASC
         """
         spans_result = self._client.query(
             spans_query,
-            parameters={"project_id": project_id, "trace_id": trace_id},
+            parameters=spans_params,
         )
 
         spans = []
