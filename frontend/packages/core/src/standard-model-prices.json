@@ -850,5 +850,29 @@
       "cacheRead": 0.0000003125,
       "cacheWrite": null
     }
+  },
+  {
+    "id": "tr-deepseek-v4-flash",
+    "modelName": "deepseek-v4-flash",
+    "matchPattern": "(?i)^(deepseek\\/)?(deepseek-v4-flash|deepseek-chat|deepseek-reasoner)(-[\\d-]+)?$",
+    "provider": "deepseek",
+    "prices": {
+      "input": 0.00000014,
+      "output": 0.00000028,
+      "cacheRead": 0.0000000028,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-deepseek-v4-pro",
+    "modelName": "deepseek-v4-pro",
+    "matchPattern": "(?i)^(deepseek\\/)?deepseek-v4-pro(-[\\d-]+)?$",
+    "provider": "deepseek",
+    "prices": {
+      "input": 0.000000435,
+      "output": 0.00000087,
+      "cacheRead": 0.000000003625,
+      "cacheWrite": null
+    }
   }
 ]

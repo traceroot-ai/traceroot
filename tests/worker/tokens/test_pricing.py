@@ -130,6 +130,17 @@ GEMINI_MODEL_CASES = [
     ("gemini-1.5-pro", "gemini-1.5-pro"),
 ]
 
+DEEPSEEK_MODEL_CASES = [
+    ("deepseek-v4-flash", "deepseek-v4-flash"),
+    ("deepseek/deepseek-v4-flash", "deepseek-v4-flash"),
+    ("deepseek-v4-flash-20260424", "deepseek-v4-flash"),
+    ("deepseek-chat", "deepseek-v4-flash"),
+    ("deepseek-reasoner", "deepseek-v4-flash"),
+    ("deepseek-v4-pro", "deepseek-v4-pro"),
+    ("deepseek/deepseek-v4-pro", "deepseek-v4-pro"),
+    ("deepseek-v4-pro-20260424", "deepseek-v4-pro"),
+]
+
 
 @patch("worker.tokens.pricing._load_cache", _mock_load_cache)
 class TestGetModelPrice:
@@ -192,6 +203,30 @@ class TestGeminiModelIds:
         assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different entry than {expected_name}"
         )
+
+
+class TestDeepSeekModelIds:
+    @pytest.mark.parametrize("model_id,expected_name", DEEPSEEK_MODEL_CASES)
+    def test_matches_expected_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert "input" in price and "output" in price
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched a different entry than {expected_name}"
+        )
+
+    def test_deepseek_v4_pro_calculates_cost(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            result = calculate_cost("deepseek-v4-pro", "Hello world", "Hi there")
+
+        assert result["input_tokens"] is not None
+        assert result["input_tokens"] > 0
+        assert result["output_tokens"] is not None
+        assert result["output_tokens"] > 0
+        assert result["cost"] is not None
+        assert result["cost"] > 0
 
 
 @patch("worker.tokens.pricing._load_cache", _mock_load_cache)
