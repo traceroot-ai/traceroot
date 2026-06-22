@@ -38,8 +38,8 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
   for (const span of spans) {
     if (!span.parent_span_id) continue;
 
-    // Skeleton spans omit metadata (parseMetadata(null|undefined) → {}); live
-    // SSE spans still carry it, so enrichment keeps working from live events.
+    // Skeleton spans may carry only the tiny path metadata subset needed for
+    // live tree repair; live SSE spans carry the same keys in full metadata.
     const meta = parseMetadata(span.metadata ?? null);
     const idsPath = meta["traceroot.span.ids_path"] as string[] | undefined;
     const namePath = meta["traceroot.span.path"] as string[] | undefined;
