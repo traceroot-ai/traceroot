@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { describeRcaStatus } from "./use-findings";
+import { describeRcaStatus, describeTraceRcaStatus } from "./use-findings";
 
 describe("describeRcaStatus — the Agent analysis column vocabulary", () => {
   it("renders an em dash when the field is absent (enrichment unavailable)", () => {
@@ -28,8 +28,11 @@ describe("describeRcaStatus — the Agent analysis column vocabulary", () => {
     expect(p.className).toContain("text-destructive");
   });
 
-  it("renders Running… for both pending and running (in-flight states)", () => {
-    expect(describeRcaStatus("pending").label).toBe("Running…");
+  it("renders Queued for pending analysis", () => {
+    expect(describeRcaStatus("pending").label).toBe("Queued");
+  });
+
+  it("renders Running… for running analysis", () => {
     expect(describeRcaStatus("running").label).toBe("Running…");
   });
 
@@ -39,5 +42,19 @@ describe("describeRcaStatus — the Agent analysis column vocabulary", () => {
     const p = describeRcaStatus("canceled" as never);
     expect(p.label).toBe("canceled");
     expect(p.title).toBeUndefined();
+  });
+});
+
+describe("describeTraceRcaStatus — the trace detail header vocabulary", () => {
+  it("uses explicit RCA labels for each worker status", () => {
+    expect(describeTraceRcaStatus("pending").label).toBe("RCA queued");
+    expect(describeTraceRcaStatus("running").label).toBe("RCA running…");
+    expect(describeTraceRcaStatus("done").label).toBe("RCA ready");
+    expect(describeTraceRcaStatus("failed").label).toBe("RCA failed");
+  });
+
+  it("marks only running as busy", () => {
+    expect(describeTraceRcaStatus("pending").busy).toBeUndefined();
+    expect(describeTraceRcaStatus("running").busy).toBe(true);
   });
 });
