@@ -246,11 +246,8 @@ class TraceReaderService:
             "metadata": row[10],
         }
 
-        # Fetch span skeletons — omit the large input/output/metadata blobs to
-        # keep the payload lightweight (fetched per-span on demand instead).
-        # usage_details is kept (small map) to derive cost_details. Duration is
-        # derived on the client from start/end so in-progress spans can grow
-        # against `now()` for live traces.
+        # Build the span skeleton query. The optional trace_start_time lower
+        # bound lets ClickHouse prune old span partitions before the trace.
         spans_conditions = [
             "project_id = {project_id:String}",
             "trace_id = {trace_id:String}",
@@ -274,6 +271,11 @@ class TraceReaderService:
 
         spans_where_clause = " AND ".join(spans_conditions)
 
+        # Fetch span skeletons — omit the large input/output/metadata blobs to
+        # keep the payload lightweight (fetched per-span on demand instead).
+        # usage_details is kept (small map) to derive cost_details. Duration is
+        # derived on the client from start/end so in-progress spans can grow
+        # against `now()` for live traces.
         spans_query = f"""
             SELECT
                 span_id, trace_id, parent_span_id, name, span_kind,
