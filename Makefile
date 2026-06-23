@@ -3,6 +3,7 @@
 # =============================================================================
 
 PROD_COMPOSE := docker compose -f docker-compose.prod.yml
+APP_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 .PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset
 
@@ -24,7 +25,7 @@ dev-lite: install-hooks
 	@test -f .env || cp .env.example .env
 	@test -d frontend/node_modules || pnpm --dir frontend install
 	@echo "Starting TraceRoot at http://localhost:3000 - Ctrl+C to stop"
-	$(PROD_COMPOSE) up --build
+	APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build
 
 ## Nuclear reset: kill tmux, destroy all containers/volumes/deps. Run `make dev` to start again.
 dev-reset:
@@ -40,7 +41,7 @@ prod:
 prod-lite:
 	@test -f .env || cp .env.example .env
 	@echo "Starting TraceRoot at http://localhost:3000 - Ctrl+C to stop"
-	$(PROD_COMPOSE) up --build
+	APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build
 
 ## Nuclear reset: stop containers, remove volumes, built images, and orphaned sandboxes.
 prod-reset:
