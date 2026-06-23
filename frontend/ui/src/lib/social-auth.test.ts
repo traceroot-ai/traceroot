@@ -30,12 +30,12 @@ describe("getSocialAuthConfig", () => {
     });
   });
 
-  it("trims credentials when deciding whether a provider is configured", async () => {
+  it("trims credentials before enabling and passing providers to Better Auth", async () => {
     const { getSocialAuthConfig } = await loadSocialAuth({
       AUTH_GOOGLE_CLIENT_ID: "   ",
       AUTH_GOOGLE_CLIENT_SECRET: "google-secret",
-      AUTH_GITHUB_CLIENT_ID: "github-id",
-      AUTH_GITHUB_CLIENT_SECRET: "github-secret",
+      AUTH_GITHUB_CLIENT_ID: " github-id ",
+      AUTH_GITHUB_CLIENT_SECRET: "\ngithub-secret\t",
     });
 
     expect(getSocialAuthConfig()).toEqual({

@@ -4,22 +4,29 @@ export type SocialAuthProvider = "google" | "github";
 
 export type EnabledSocialAuthProviders = Record<SocialAuthProvider, boolean>;
 
-export function getSocialAuthConfig() {
-  const google =
-    env.AUTH_GOOGLE_CLIENT_ID.trim() && env.AUTH_GOOGLE_CLIENT_SECRET.trim()
-      ? {
-          clientId: env.AUTH_GOOGLE_CLIENT_ID,
-          clientSecret: env.AUTH_GOOGLE_CLIENT_SECRET,
-        }
-      : null;
+function socialProviderCredentials(clientId: string, clientSecret: string) {
+  const trimmedClientId = clientId.trim();
+  const trimmedClientSecret = clientSecret.trim();
 
-  const github =
-    env.AUTH_GITHUB_CLIENT_ID.trim() && env.AUTH_GITHUB_CLIENT_SECRET.trim()
-      ? {
-          clientId: env.AUTH_GITHUB_CLIENT_ID,
-          clientSecret: env.AUTH_GITHUB_CLIENT_SECRET,
-        }
-      : null;
+  if (!trimmedClientId || !trimmedClientSecret) {
+    return null;
+  }
+
+  return {
+    clientId: trimmedClientId,
+    clientSecret: trimmedClientSecret,
+  };
+}
+
+export function getSocialAuthConfig() {
+  const google = socialProviderCredentials(
+    env.AUTH_GOOGLE_CLIENT_ID,
+    env.AUTH_GOOGLE_CLIENT_SECRET,
+  );
+  const github = socialProviderCredentials(
+    env.AUTH_GITHUB_CLIENT_ID,
+    env.AUTH_GITHUB_CLIENT_SECRET,
+  );
 
   return {
     enabledProviders: {
