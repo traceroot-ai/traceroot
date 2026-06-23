@@ -4,7 +4,7 @@ GET /api/v1/public/traces and GET /api/v1/public/traces/{trace_id}. Reads are
 scoped to the API key's project; the client never supplies a project id.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -166,6 +166,36 @@ class TestPublicListTraces:
 
     def test_limit_over_200_rejected(self, client, mock_reader):
         resp = client.get("/api/v1/public/traces?limit=500", headers=AUTH_HEADER)
+        assert resp.status_code == 422
+
+    def test_forwards_start_after_and_end_before(self, client, mock_reader):
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        resp = client.get(
+            "/api/v1/public/traces"
+            "?start_after=2024-01-01T00:00:00Z&end_before=2024-01-31T23:59:59Z",
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 200
+        kwargs = mock_reader.list_traces.call_args.kwargs
+        assert kwargs["start_after"] == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+        assert kwargs["end_before"] == datetime(2024, 1, 31, 23, 59, 59, tzinfo=UTC)
+
+    def test_time_range_defaults_to_none_when_absent(self, client, mock_reader):
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        resp = client.get("/api/v1/public/traces", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        kwargs = mock_reader.list_traces.call_args.kwargs
+        assert kwargs["start_after"] is None
+        assert kwargs["end_before"] is None
+
+    def test_invalid_start_after_rejected(self, client, mock_reader):
+        resp = client.get("/api/v1/public/traces?start_after=not-a-date", headers=AUTH_HEADER)
         assert resp.status_code == 422
 
     def test_reader_error_returns_generic_500(self, client, mock_reader):

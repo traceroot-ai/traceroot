@@ -7,6 +7,7 @@ write concerns stay decoupled; both reuse the shared API-key auth dependency.
 """
 
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
@@ -51,11 +52,24 @@ async def list_traces(
     response: Response,
     auth: StampedAuth,
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
+    start_after: datetime | None = Query(
+        None,
+        description="Only traces that started at or after this time (inclusive, ISO 8601)",
+    ),
+    end_before: datetime | None = Query(
+        None,
+        description="Only traces that started before this time (exclusive, ISO 8601)",
+    ),
 ):
     """List recent traces for the API key's project (newest first)."""
     try:
         service = get_trace_reader_service()
-        result = service.list_traces(project_id=auth.project_id, limit=limit)
+        result = service.list_traces(
+            project_id=auth.project_id,
+            limit=limit,
+            start_after=start_after,
+            end_before=end_before,
+        )
     except Exception as e:
         logger.exception(f"Error listing traces: {e}")
         raise HTTPException(
