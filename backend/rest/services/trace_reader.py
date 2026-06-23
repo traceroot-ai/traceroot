@@ -291,8 +291,18 @@ class TraceReaderService:
                 model_name, cost, input_tokens, output_tokens, total_tokens,
                 usage_details,
                 git_source_file, git_source_line, git_source_function
-            FROM spans FINAL
-            WHERE {spans_where_clause}
+            FROM (
+                SELECT
+                    span_id, trace_id, parent_span_id, name, span_kind,
+                    span_start_time, span_end_time, status, status_message,
+                    model_name, cost, input_tokens, output_tokens, total_tokens,
+                    usage_details,
+                    git_source_file, git_source_line, git_source_function
+                FROM spans
+                WHERE {spans_where_clause}
+                ORDER BY ch_update_time DESC
+                LIMIT 1 BY span_id
+            )
             ORDER BY span_start_time ASC
         """
         spans_result = self._client.query(
@@ -365,8 +375,13 @@ class TraceReaderService:
         select_clause = ", ".join(["span_id", *selected])
         query = f"""
             SELECT {select_clause}
-            FROM spans FINAL
-            WHERE project_id = {{project_id:String}} AND trace_id = {{trace_id:String}}
+            FROM (
+                SELECT {select_clause}
+                FROM spans
+                WHERE project_id = {{project_id:String}} AND trace_id = {{trace_id:String}}
+                ORDER BY ch_update_time DESC
+                LIMIT 1 BY span_id
+            )
         """
         result = self._client.query(
             query,
@@ -385,10 +400,11 @@ class TraceReaderService:
         """
         query = """
             SELECT span_id, trace_id, input, output, metadata
-            FROM spans FINAL
+            FROM spans
             WHERE project_id = {project_id:String}
               AND trace_id = {trace_id:String}
               AND span_id = {span_id:String}
+            ORDER BY ch_update_time DESC
             LIMIT 1
         """
         result = self._client.query(
