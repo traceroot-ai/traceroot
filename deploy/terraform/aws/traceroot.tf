@@ -212,6 +212,9 @@ EOT
   # Google OAuth secret reference (conditional)
   google_oauth_values = var.google_oauth_client_id != "" ? "googleOAuth:\n  existingSecret: \"traceroot-google-oauth\"" : ""
 
+  # GitHub OAuth Login secret reference (conditional)
+  github_oauth_values = var.github_oauth_client_id != "" ? "githubOAuth:\n  existingSecret: \"traceroot-github-oauth\"" : ""
+
   # SMTP secret reference (conditional)
   smtp_values = var.smtp_url != "" ? "smtp:\n  existingSecret: \"traceroot-smtp\"" : ""
 
@@ -275,6 +278,7 @@ resource "helm_release" "traceroot" {
     local.stripe_values,
     local.slack_values,
     local.google_oauth_values,
+    local.github_oauth_values,
     local.smtp_values,
     local.enterprise_values,
     local.feature_values,
