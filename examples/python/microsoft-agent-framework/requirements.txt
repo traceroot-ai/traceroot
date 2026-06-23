@@ -8,4 +8,4 @@ agent-framework-openai>=1.0.0
 openinference-instrumentation-agent-framework>=0.1.0,<1.0
 python-dotenv>=1.0.0
 
-traceroot>=0.1.10
+traceroot>=0.1.11
