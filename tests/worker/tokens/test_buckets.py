@@ -182,3 +182,81 @@ def test_token_buckets_fields_default_to_zero():
     # Defaults make future token categories (reasoning/audio) purely additive.
     assert TokenBuckets() == TokenBuckets(input_uncached=0, output=0, cache_read=0, cache_write=0)
     assert TokenBuckets(output=5).cache_read == 0
+
+
+# ---------------------------------------------------------------------------
+# Cache-write 1-hour portion: a SUB-PARTITION of the cache_write total, not a new
+# disjoint bucket. cache_write_1h <= cache_write; the remainder prices at cacheWrite.
+# ---------------------------------------------------------------------------
+
+
+def test_cache_write_1h_portion_is_carried_through():
+    b = normalize_token_usage(
+        "openinference.instrumentation.anthropic",
+        input_tokens=1000,
+        output_tokens=10,
+        cache_read_tokens=200,
+        cache_write_tokens=300,
+        cache_write_1h_tokens=180,
+    )
+    # The portion is carried; the cache_write TOTAL and the uncached reconstruction
+    # are unaffected by it.
+    assert b.cache_write == 300
+    assert b.cache_write_1h == 180
+    assert b.input_uncached == 500  # 1000 - 200 (read) - 300 (write)
+
+
+def test_cache_write_1h_caps_to_total():
+    # An emitter over-reporting the 1-hour portion must never exceed the write total.
+    b = normalize_token_usage(
+        "pydantic-ai",
+        input_tokens=0,
+        output_tokens=0,
+        cache_read_tokens=0,
+        cache_write_tokens=100,
+        cache_write_1h_tokens=180,  # > 100
+    )
+    assert b.cache_write_1h == 100  # capped to the write total
+    assert b.cache_write_1h <= b.cache_write
+
+
+def test_cache_write_1h_clamps_negative():
+    b = normalize_token_usage(
+        "pydantic-ai",
+        input_tokens=0,
+        output_tokens=0,
+        cache_read_tokens=0,
+        cache_write_tokens=100,
+        cache_write_1h_tokens=-50,
+    )
+    assert b.cache_write_1h == 0
+
+
+def test_cache_write_1h_absent_defaults_to_zero():
+    # The dominant path today: no 1-hour portion reported -> it is zero and the write
+    # total is intact, so pricing is unchanged.
+    b = normalize_token_usage(
+        "openinference.instrumentation.anthropic",
+        input_tokens=1000,
+        output_tokens=10,
+        cache_read_tokens=200,
+        cache_write_tokens=300,
+    )
+    assert b.cache_write_1h == 0
+    assert b.cache_write == 300
+
+
+def test_reconcile_cache_write_1h_is_a_valid_partition():
+    from worker.tokens.buckets import reconcile_cache_write_1h
+
+    assert reconcile_cache_write_1h(100, 30) == 30
+    assert reconcile_cache_write_1h(100, 180) == 100  # capped to total
+    assert reconcile_cache_write_1h(100, -5) == 0  # clamped non-negative
+    assert reconcile_cache_write_1h(0, 10) == 0  # no writes
+    assert reconcile_cache_write_1h(-50, 10) == 0  # negative total clamped
+    assert reconcile_cache_write_1h(50, 999) <= 50
+
+
+def test_token_buckets_1h_field_defaults_to_zero():
+    assert TokenBuckets().cache_write_1h == 0
+    assert TokenBuckets(cache_write=5).cache_write_1h == 0

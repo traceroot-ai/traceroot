@@ -43,6 +43,56 @@ def test_span_cost_details_reconciles_to_cost():
     assert details["input_uncached_cost"] == pytest.approx(2000 * 0.000003)
 
 
+def test_span_cost_details_rebuilds_1h_portion():
+    from rest.services.trace_reader import span_cost_details
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    # input 1000 = 100 uncached + 0 read + 900 write; of the 900: 600 @1h, 300 remainder.
+    prices = {**CLAUDE_PRICES, "cacheWrite1h": 0.000006}  # 2x the 0.000003 input rate
+    with patch("rest.services.trace_reader.get_model_price", return_value=prices):
+        details = span_cost_details(
+            "claude-opus-4-7",
+            input_tokens=1000,
+            output_tokens=0,
+            usage_details={
+                "cache_read_tokens": 0,
+                "cache_write_tokens": 900,
+                "cache_write_1h_tokens": 600,
+            },
+        )
+
+    expected = cost_from_buckets(
+        prices,
+        TokenBuckets(
+            input_uncached=100,
+            output=0,
+            cache_read=0,
+            cache_write=900,
+            cache_write_1h=600,
+        ),
+    )
+    assert sum(details.values()) == pytest.approx(expected)
+    # Independent ground truth: 300 remainder @cacheWrite + 600 @cacheWrite1h.
+    assert details["cache_write_cost"] == pytest.approx(300 * 0.00000375 + 600 * 0.000006)
+
+
+def test_span_cost_details_without_1h_key_matches_combined_rate():
+    # A stored span with no 1-hour key (every span today) prices its whole write total
+    # at the combined cacheWrite rate.
+    from rest.services.trace_reader import span_cost_details
+
+    prices = {**CLAUDE_PRICES, "cacheWrite1h": 0.000006}
+    with patch("rest.services.trace_reader.get_model_price", return_value=prices):
+        details = span_cost_details(
+            "claude-opus-4-7",
+            input_tokens=1000,
+            output_tokens=0,
+            usage_details={"cache_read_tokens": 0, "cache_write_tokens": 900},
+        )
+    assert details["cache_write_cost"] == pytest.approx(900 * 0.00000375)
+
+
 def test_span_cost_details_empty_without_model():
     from rest.services.trace_reader import span_cost_details
 
