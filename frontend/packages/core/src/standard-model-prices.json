@@ -8,7 +8,8 @@
       "input": 0.000005,
       "output": 0.000025,
       "cacheRead": 0.0000005,
-      "cacheWrite": 0.00000625
+      "cacheWrite": 0.00000625,
+      "cacheWrite1h": 0.00001
     }
   },
   {
@@ -20,7 +21,8 @@
       "input": 0.000005,
       "output": 0.000025,
       "cacheRead": 0.0000005,
-      "cacheWrite": 0.00000625
+      "cacheWrite": 0.00000625,
+      "cacheWrite1h": 0.00001
     }
   },
   {
@@ -32,7 +34,8 @@
       "input": 0.000005,
       "output": 0.000025,
       "cacheRead": 0.0000005,
-      "cacheWrite": 0.00000625
+      "cacheWrite": 0.00000625,
+      "cacheWrite1h": 0.00001
     }
   },
   {
@@ -44,7 +47,8 @@
       "input": 0.000003,
       "output": 0.000015,
       "cacheRead": 0.0000003,
-      "cacheWrite": 0.00000375
+      "cacheWrite": 0.00000375,
+      "cacheWrite1h": 0.000006
     }
   },
   {
@@ -56,7 +60,8 @@
       "input": 0.000005,
       "output": 0.000025,
       "cacheRead": 0.0000005,
-      "cacheWrite": 0.00000625
+      "cacheWrite": 0.00000625,
+      "cacheWrite1h": 0.00001
     }
   },
   {
@@ -68,7 +73,8 @@
       "input": 0.000003,
       "output": 0.000015,
       "cacheRead": 0.0000003,
-      "cacheWrite": 0.00000375
+      "cacheWrite": 0.00000375,
+      "cacheWrite1h": 0.000006
     }
   },
   {
@@ -80,7 +86,8 @@
       "input": 0.000001,
       "output": 0.000005,
       "cacheRead": 0.0000001,
-      "cacheWrite": 0.00000125
+      "cacheWrite": 0.00000125,
+      "cacheWrite1h": 0.000002
     }
   },
   {
@@ -596,7 +603,8 @@
       "input": 0.000003,
       "output": 0.000015,
       "cacheRead": 0.0000003,
-      "cacheWrite": 0.00000375
+      "cacheWrite": 0.00000375,
+      "cacheWrite1h": 0.000006
     }
   },
   {
@@ -608,7 +616,8 @@
       "input": 0.0000008,
       "output": 0.000004,
       "cacheRead": 0.00000008,
-      "cacheWrite": 0.000001
+      "cacheWrite": 0.000001,
+      "cacheWrite1h": 0.0000016
     }
   },
   {
@@ -620,7 +629,8 @@
       "input": 0.000005,
       "output": 0.000025,
       "cacheRead": 0.0000005,
-      "cacheWrite": 0.00000625
+      "cacheWrite": 0.00000625,
+      "cacheWrite1h": 0.00001
     }
   },
   {
@@ -632,7 +642,8 @@
       "input": 0.000003,
       "output": 0.000015,
       "cacheRead": 0.0000003,
-      "cacheWrite": 0.00000375
+      "cacheWrite": 0.00000375,
+      "cacheWrite1h": 0.000006
     }
   },
   {
@@ -644,7 +655,8 @@
       "input": 0.00000025,
       "output": 0.00000125,
       "cacheRead": 0.00000003,
-      "cacheWrite": 0.0000003
+      "cacheWrite": 0.0000003,
+      "cacheWrite1h": 0.0000005
     }
   },
   {
@@ -656,7 +668,8 @@
       "input": 0.000003,
       "output": 0.000015,
       "cacheRead": 0.0000003,
-      "cacheWrite": 0.00000375
+      "cacheWrite": 0.00000375,
+      "cacheWrite1h": 0.000006
     }
   },
   {

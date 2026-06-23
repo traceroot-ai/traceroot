@@ -841,6 +841,80 @@ class TestTransformOtelToClickhouse:
         ]
         assert cost_for(cached) < cost_for(base)
 
+    def test_cache_write_1h_portion_is_extracted_and_priced(self):
+        """When an emitter reports the 1-hour write portion, it is priced at its own
+        rate (1h = 2x input), the remainder at cacheWrite, and the breakdown persists."""
+        from unittest.mock import patch
+
+        prices = {
+            "input": 0.000005,
+            "output": 0.000025,
+            "cacheRead": 0.0000005,
+            "cacheWrite": 0.00000625,  # 5-minute / default rate
+            "cacheWrite1h": 0.00001,  # 1h rate (2x input)
+        }
+        # gross input 1000 = 100 uncached + 900 write; of the 900: 600 @1h, 300 remainder.
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.request.model", "claude-opus-4-7"),
+                        make_attr("llm.token_count.prompt", 1000),
+                        make_attr("llm.token_count.completion", 0),
+                        make_attr("llm.token_count.prompt_details.cache_write", 900),
+                        make_attr("gen_ai.usage.cache_creation.ephemeral_1h_input_tokens", 600),
+                    ],
+                )
+            ],
+            scope_name="openinference.instrumentation.anthropic",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        ud = spans[0]["usage_details"]
+        assert ud["cache_write_tokens"] == 900
+        assert ud["cache_write_1h_tokens"] == 600
+        expected = 100 * prices["input"] + 300 * prices["cacheWrite"] + 600 * prices["cacheWrite1h"]
+        assert spans[0]["cost"] == pytest.approx(expected)
+
+    def test_no_1h_portion_omits_key_and_prices_at_combined_rate(self):
+        """Regression guard: a span with no 1-hour portion keeps an identical
+        usage_details map (key absent, not zero) and the whole write total prices at
+        cacheWrite."""
+        from unittest.mock import patch
+
+        prices = {
+            "input": 0.000005,
+            "output": 0.000025,
+            "cacheRead": 0.0000005,
+            "cacheWrite": 0.00000625,
+            "cacheWrite1h": 0.00001,
+        }
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.request.model", "claude-opus-4-7"),
+                        make_attr("llm.token_count.prompt", 1000),
+                        make_attr("llm.token_count.completion", 0),
+                        make_attr("llm.token_count.prompt_details.cache_write", 900),
+                    ],
+                )
+            ],
+            scope_name="openinference.instrumentation.anthropic",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        ud = spans[0]["usage_details"]
+        assert "cache_write_1h_tokens" not in ud
+        expected = 100 * prices["input"] + 900 * prices["cacheWrite"]
+        assert spans[0]["cost"] == pytest.approx(expected)
+
     def test_text_estimation_fallback(self):
         """Falls back to text-based token estimation when no API counts."""
         from unittest.mock import patch
@@ -1291,3 +1365,41 @@ class TestCacheTokenMetadata:
         assert spans[0]["usage_details"]["cache_write_tokens"] == 64
         assert isinstance(spans[0]["usage_details"]["cache_read_tokens"], int)
         assert isinstance(spans[0]["usage_details"]["cache_write_tokens"], int)
+
+    def test_cache_write_1h_portion_promoted_to_usage_details(self):
+        # The optional 1-hour write portion lands in the usage_details map when present.
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=self._llm_attrs(
+                        make_attr("llm.token_count.prompt_details.cache_write", 500),
+                        make_attr("gen_ai.usage.cache_creation.ephemeral_1h_input_tokens", 300),
+                    ),
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        ud = spans[0]["usage_details"]
+        assert ud["cache_write_tokens"] == 500
+        assert ud["cache_write_1h_tokens"] == 300
+
+    def test_absent_1h_portion_keeps_usage_details_keys_unchanged(self):
+        # No 1-hour portion reported (every span today) -> no extra key is added, so the
+        # stored map is identical to before this change.
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=self._llm_attrs(
+                        make_attr("llm.token_count.prompt_details.cache_write", 500),
+                    ),
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        ud = spans[0]["usage_details"]
+        assert "cache_write_1h_tokens" not in ud
+        assert set(ud) == {"cache_read_tokens", "cache_write_tokens", "reasoning_tokens"}
