@@ -1,3 +1,5 @@
+import { execSync } from "node:child_process";
+
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 describe("next.config.js env block", () => {
@@ -15,10 +17,20 @@ describe("next.config.js env block", () => {
     expect(config.default.env.NEXT_PUBLIC_APP_VERSION).toBe("v0.2.0");
   });
 
-  it("falls back to package.json version when APP_VERSION is unset", async () => {
+  it("falls back to git describe when APP_VERSION is unset", async () => {
     delete process.env.APP_VERSION;
     const config = await import("../../next.config.js");
-    const pkg = await import("../../package.json");
-    expect(config.default.env.NEXT_PUBLIC_APP_VERSION).toBe(`v${pkg.default.version}`);
+    const expected = execSync("git describe --tags --always --dirty", {
+      cwd: new URL("../../", import.meta.url),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    expect(config.default.env.NEXT_PUBLIC_APP_VERSION).toBe(expected);
+  });
+
+  it("falls back to dev when APP_VERSION is explicitly set to dev", async () => {
+    vi.stubEnv("APP_VERSION", "dev");
+    const config = await import("../../next.config.js?fallback-dev");
+    expect(config.default.env.NEXT_PUBLIC_APP_VERSION).toBe("dev");
   });
 });

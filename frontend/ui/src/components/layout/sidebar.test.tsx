@@ -57,6 +57,7 @@ describe("Sidebar", () => {
   }
 
   it("renders expanded at w-48 with the star widget above the bottom links", () => {
+    process.env.NEXT_PUBLIC_APP_VERSION = "v1.2.3";
     render();
 
     const frame = container.querySelector("div.flex.h-screen");
@@ -67,6 +68,7 @@ describe("Sidebar", () => {
     expect(container.textContent).toContain("Workspaces");
     expect(container.textContent).toContain("GitHub");
     expect(container.textContent).toContain("Support");
+    expect(container.textContent).toContain("v1.2.3");
   });
 
   it("renders collapsed at w-14 and hides the star widget", () => {
