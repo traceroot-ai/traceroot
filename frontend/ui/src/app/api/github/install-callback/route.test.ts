@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// All vi.mock() calls are hoisted by Vitest before imports — keep them at the
+// top and self-contained (no out-of-scope variable references).
+import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/env", () => ({
   env: {
@@ -8,6 +10,8 @@ vi.mock("@/env", () => ({
   },
 }));
 
+// NextResponse mock mirrors callback/route.test.ts: redirect() exposes the
+// resolved absolute URL via .url, and cookies.set() is a no-op spy.
 vi.mock("next/server", () => ({
   NextResponse: {
     json: vi.fn((data, init) => ({
@@ -17,40 +21,34 @@ vi.mock("next/server", () => ({
     })),
     redirect: vi.fn((url) => ({
       status: 307,
-      headers: new Headers({ location: url.toString() }),
       url: url.toString(),
       cookies: { set: vi.fn() },
     })),
   },
 }));
 
-const upsertMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
   prisma: {
-    gitHubInstallation: {
-      upsert: (...args: unknown[]) => upsertMock(...args),
-    },
+    gitHubInstallation: { upsert: vi.fn(async () => ({})) },
   },
 }));
 
-const requireAuthMock = vi.fn();
-const requireWorkspaceMembershipMock = vi.fn();
 vi.mock("@/lib/auth-helpers", () => ({
-  requireAuth: (...args: unknown[]) => requireAuthMock(...args),
-  requireWorkspaceMembership: (...args: unknown[]) => requireWorkspaceMembershipMock(...args),
+  requireAuth: vi.fn(async () => ({ user: { id: "u_1" } })),
+  requireWorkspaceMembership: vi.fn(async () => ({ membership: { workspaceId: "ws_1" } })),
 }));
 
-const getInstallationMock = vi.fn();
 vi.mock("@traceroot/github", () => ({
   GITHUB_INSTALL_STATE_COOKIE: "github_install_state",
   GITHUB_INSTALLATION_ID_COOKIE: "github_installation_id",
   GITHUB_RETURN_TO_COOKIE: "github_return_to",
   GITHUB_WORKSPACE_ID_COOKIE: "github_workspace_id",
-  getInstallation: (...args: unknown[]) => getInstallationMock(...args),
+  getInstallation: vi.fn(async () => ({ account: { login: "octocat" } })),
 }));
 
 import { GET } from "./route";
 
+// Minimal request shape the handler consumes: nextUrl.searchParams + cookies.get
 function makeRequest(returnTo: string) {
   const searchParams = new URLSearchParams({
     installation_id: "789",
@@ -71,31 +69,17 @@ function makeRequest(returnTo: string) {
 }
 
 describe("GET /api/github/install-callback", () => {
-  beforeEach(() => {
-    upsertMock.mockReset();
-    requireAuthMock.mockReset();
-    requireWorkspaceMembershipMock.mockReset();
-    getInstallationMock.mockReset();
-
-    requireAuthMock.mockResolvedValue({ user: { id: "u_1" } });
-    requireWorkspaceMembershipMock.mockResolvedValue({ membership: { workspaceId: "ws_1" } });
-    getInstallationMock.mockResolvedValue({ account: { login: "octocat" } });
-    upsertMock.mockResolvedValue({});
-  });
-
   it("redirects to a same-origin return path", async () => {
     const res = await GET(makeRequest("/projects/proj_1/settings/github"));
 
     expect(res.status).toBe(307);
-    expect(res.headers.get("location")).toBe(
-      "http://localhost:3000/projects/proj_1/settings/github",
-    );
+    expect(res.url).toBe("http://localhost:3000/projects/proj_1/settings/github");
   });
 
   it("falls back to root when returnTo is external", async () => {
     const res = await GET(makeRequest("https://evil.example/phish"));
 
     expect(res.status).toBe(307);
-    expect(res.headers.get("location")).toBe("http://localhost:3000/");
+    expect(res.url).toBe("http://localhost:3000/");
   });
 });
