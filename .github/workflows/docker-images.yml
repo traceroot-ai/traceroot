@@ -67,7 +67,7 @@ jobs:
 
       - name: Resolve app version
         id: app_version
-        run: echo "value=$(git describe --tags --always --dirty)" >> "$GITHUB_OUTPUT"
+        run: echo "value=$(git describe --tags --abbrev=0 2>/dev/null || echo dev)" >> "$GITHUB_OUTPUT"
 
       - name: Docker meta
         id: meta
