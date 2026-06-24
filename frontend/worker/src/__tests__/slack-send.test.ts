@@ -36,14 +36,14 @@ describe("sendCombinedAlertSlack", () => {
   });
 
   it("posts to the channel when workspace plan has slack-integration entitlement", async () => {
-    findUnique.mockResolvedValue({ billingPlan: "pro" });
+    findUnique.mockResolvedValue({ billingPlan: "starter" });
     hasEntitlement.mockReturnValue(true);
     postMessage.mockResolvedValue({ ok: true, ts: "1234.5678" });
 
     const { sendCombinedAlertSlack } = await import("../notifications/slack.js");
     await sendCombinedAlertSlack(baseParams);
 
-    expect(hasEntitlement).toHaveBeenCalledWith("pro", "slack-integration");
+    expect(hasEntitlement).toHaveBeenCalledWith("starter", "slack-integration");
     expect(createSlackClient).toHaveBeenCalledWith("decrypted(enc-tok)");
     expect(postMessage).toHaveBeenCalledTimes(1);
     const arg = postMessage.mock.calls[0][0];
@@ -52,27 +52,32 @@ describe("sendCombinedAlertSlack", () => {
     expect(Array.isArray(arg.blocks)).toBe(true);
   });
 
-  it("silently skips when workspace plan lacks slack-integration entitlement", async () => {
-    findUnique.mockResolvedValue({ billingPlan: "starter" });
+  // Defense-in-depth: every current plan is entitled to slack-integration, so
+  // this branch is unreachable in production today. The guard still protects
+  // against a future entitlement-config change, so we verify it skips cleanly
+  // whenever hasEntitlement returns false (plan value is irrelevant here).
+  it("silently skips when the entitlement check returns false", async () => {
+    findUnique.mockResolvedValue({ billingPlan: "free" });
     hasEntitlement.mockReturnValue(false);
 
     const { sendCombinedAlertSlack } = await import("../notifications/slack.js");
     await sendCombinedAlertSlack(baseParams);
 
-    expect(hasEntitlement).toHaveBeenCalledWith("starter", "slack-integration");
     expect(createSlackClient).not.toHaveBeenCalled();
     expect(postMessage).not.toHaveBeenCalled();
   });
 
-  it("treats a missing workspace row as free plan and skips", async () => {
+  it("treats a missing workspace row as free plan and sends", async () => {
     findUnique.mockResolvedValue(null);
-    hasEntitlement.mockReturnValue(false);
+    hasEntitlement.mockReturnValue(true);
+    postMessage.mockResolvedValue({ ok: true, ts: "1234.5678" });
 
     const { sendCombinedAlertSlack } = await import("../notifications/slack.js");
     await sendCombinedAlertSlack(baseParams);
 
     expect(hasEntitlement).toHaveBeenCalledWith("free", "slack-integration");
-    expect(postMessage).not.toHaveBeenCalled();
+    expect(createSlackClient).toHaveBeenCalledWith("decrypted(enc-tok)");
+    expect(postMessage).toHaveBeenCalledTimes(1);
   });
 
   it("throws on a Slack API failure when entitled", async () => {
