@@ -461,26 +461,19 @@ class TestGetSpanIO:
         }
 
     def test_latest_row_wins_when_span_reingested(self):
-        """When a span is re-ingested the query must return the newest version.
+        """Asserts the dedup query shape and single-row pass-through.
 
-        The dedup relies on ORDER BY ch_update_time DESC + LIMIT 1 inside
-        ClickHouse. This test simulates what ClickHouse returns after applying
-        that dedup: a single row with the latest input/output values. The
-        service must surface that row without further modification.
+        Newest-wins ordering is enforced by ClickHouse (ORDER BY ch_update_time
+        DESC + LIMIT 1). The mock returns the single post-dedup row; the service
+        must surface it without further modification.
         """
-        t_old = datetime(2024, 1, 1, 10, 0, 0)
-        t_new = datetime(2024, 1, 1, 12, 0, 0)
-
         call_count = {"n": 0}
 
         def side_effect(query, parameters=None):
             call_count["n"] += 1
-            # Verify the query uses the dedup pattern, not FINAL.
             assert "ORDER BY ch_update_time DESC" in query
             assert "LIMIT 1" in query
             assert "FROM spans FINAL" not in query
-            # ClickHouse applies ORDER BY + LIMIT 1 and returns only the newest row.
-            _ = t_old  # older version — not returned by ClickHouse
             return _rows([("span-1", "abc123", "new-input", "new-output", "new-meta")])
 
         service, _ = _make_service(side_effect)
@@ -490,4 +483,3 @@ class TestGetSpanIO:
         assert result["input"] == "new-input"
         assert result["output"] == "new-output"
         assert result["metadata"] == "new-meta"
-        _ = t_new  # newest version — confirmed above
