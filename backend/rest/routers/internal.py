@@ -4,7 +4,10 @@ These endpoints are protected by X-Internal-Secret header and not exposed public
 """
 
 import hmac
-from datetime import datetime
+import json
+import uuid
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -56,6 +59,11 @@ class UsageDetailsResponse(BaseModel):
     traces: int
     spans: int
     detector_runs: int = 0
+
+
+class SampleTraceResponse(BaseModel):
+    trace_id: str
+    span_count: int
 
 
 @router.get(
@@ -189,6 +197,136 @@ async def get_usage_details(
     )
 
     return UsageDetailsResponse(traces=traces, spans=spans, detector_runs=detector_runs)
+
+
+# =============================================================================
+# Demo Data Endpoints
+# =============================================================================
+
+
+def _sample_span_id() -> str:
+    return uuid.uuid4().hex[:16]
+
+
+@router.post(
+    "/projects/{project_id}/sample-trace",
+    response_model=SampleTraceResponse,
+    dependencies=[Depends(verify_internal_secret)],
+)
+async def create_sample_trace(project_id: str) -> SampleTraceResponse:
+    """Create a realistic sample trace so users can explore without an LLM key."""
+    now = datetime.now(UTC).replace(tzinfo=None)
+    trace_id = uuid.uuid4().hex
+    root_span_id = _sample_span_id()
+    plan_span_id = _sample_span_id()
+    tool_span_id = _sample_span_id()
+    llm_span_id = _sample_span_id()
+
+    trace = {
+        "trace_id": trace_id,
+        "project_id": project_id,
+        "trace_start_time": now,
+        "name": "Sample support agent run",
+        "user_id": "demo-user",
+        "session_id": "demo-session",
+        "git_ref": "demo",
+        "git_repo": "traceroot-ai/traceroot",
+        "input": json.dumps(
+            {"message": "User asks why their payment failed and wants a concise answer."}
+        ),
+        "output": json.dumps(
+            {
+                "answer": (
+                    "The payment failed because the card was declined. The agent suggested "
+                    "retrying with a different card and linked the billing page."
+                )
+            }
+        ),
+        "metadata": json.dumps({"source": "sample-trace", "created_by": "onboarding"}),
+    }
+
+    spans = [
+        {
+            "span_id": root_span_id,
+            "trace_id": trace_id,
+            "parent_span_id": None,
+            "project_id": project_id,
+            "span_start_time": now,
+            "span_end_time": now + timedelta(milliseconds=920),
+            "name": "support_agent.respond",
+            "span_kind": "AGENT",
+            "status": "OK",
+            "input": trace["input"],
+            "output": trace["output"],
+            "metadata": json.dumps({"demo": True, "step": "root"}),
+        },
+        {
+            "span_id": plan_span_id,
+            "trace_id": trace_id,
+            "parent_span_id": root_span_id,
+            "project_id": project_id,
+            "span_start_time": now + timedelta(milliseconds=45),
+            "span_end_time": now + timedelta(milliseconds=180),
+            "name": "agent.plan",
+            "span_kind": "AGENT",
+            "status": "OK",
+            "input": json.dumps({"goal": "Diagnose billing failure"}),
+            "output": json.dumps({"plan": ["check account", "inspect last payment", "reply"]}),
+            "metadata": json.dumps({"demo": True, "step": "planning"}),
+        },
+        {
+            "span_id": tool_span_id,
+            "trace_id": trace_id,
+            "parent_span_id": root_span_id,
+            "project_id": project_id,
+            "span_start_time": now + timedelta(milliseconds=210),
+            "span_end_time": now + timedelta(milliseconds=420),
+            "name": "tool.lookup_payment",
+            "span_kind": "TOOL",
+            "status": "OK",
+            "input": json.dumps({"customer_id": "demo-user", "invoice": "inv_demo_42"}),
+            "output": json.dumps({"status": "failed", "reason": "card_declined"}),
+            "metadata": json.dumps({"demo": True, "tool": "billing"}),
+        },
+        {
+            "span_id": llm_span_id,
+            "trace_id": trace_id,
+            "parent_span_id": root_span_id,
+            "project_id": project_id,
+            "span_start_time": now + timedelta(milliseconds=460),
+            "span_end_time": now + timedelta(milliseconds=905),
+            "name": "llm.generate_user_reply",
+            "span_kind": "LLM",
+            "status": "OK",
+            "model_name": "demo-model",
+            "cost": Decimal("0.00042"),
+            "input_tokens": 278,
+            "output_tokens": 86,
+            "total_tokens": 364,
+            "usage_details": {"input": 278, "output": 86},
+            "input": json.dumps(
+                {
+                    "system": "Answer support questions clearly.",
+                    "context": "Payment lookup returned card_declined.",
+                }
+            ),
+            "output": json.dumps(
+                {
+                    "message": (
+                        "Your payment was declined by the card provider. Please retry with "
+                        "another card or update billing details."
+                    )
+                }
+            ),
+            "metadata": json.dumps({"demo": True, "provider": "sample"}),
+        },
+    ]
+
+    ch = get_clickhouse_client()
+    ch.insert_traces_batch([trace])
+    ch.insert_spans_batch(spans)
+
+    return SampleTraceResponse(trace_id=trace_id, span_count=len(spans))
 
 
 # =============================================================================
