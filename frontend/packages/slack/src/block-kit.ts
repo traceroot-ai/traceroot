@@ -69,3 +69,79 @@ export function buildCombinedAlertBlocks(params: CombinedAlertParams): unknown[]
     },
   ];
 }
+
+export interface DigestEntry {
+  detectorId: string;
+  detectorName: string;
+  findingCount: number;
+  latestTraceId: string;
+}
+
+export interface DigestAlertParams {
+  projectId: string;
+  projectName: string;
+  appBaseUrl: string;
+  windowStart: Date;
+  windowEnd: Date;
+  total: number;
+  entries: DigestEntry[];
+}
+
+// Human-readable UTC window range for the digest footer, e.g.
+// "Jun 23, 12:00–12:30 UTC" (same day) or "Jun 23, 23:50 – Jun 24, 00:20 UTC".
+// UTC keeps it unambiguous across a channel's mixed timezones.
+function formatWindowRange(start: Date, end: Date): string {
+  const day = (d: Date) =>
+    new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(d);
+  const time = (d: Date) =>
+    new Intl.DateTimeFormat("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: "UTC",
+    }).format(d);
+  return day(start) === day(end)
+    ? `${day(start)}, ${time(start)}–${time(end)} UTC`
+    : `${day(start)} ${time(start)} – ${day(end)} ${time(end)} UTC`;
+}
+
+export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
+  const { appBaseUrl, projectId, projectName, windowStart, windowEnd, total, entries } = params;
+  const noun = total === 1 ? "finding" : "findings";
+  const headerText = truncate(`${total} ${noun} in ${projectName}`, 150);
+
+  // date_filter=custom is REQUIRED — the detector page's useUrlDateFilter only
+  // hydrates a custom start/end when date_filter=custom is present; without it
+  // start/end are ignored and the deep-link lands on the default range.
+  const range =
+    `date_filter=custom` +
+    `&start=${encodeURIComponent(windowStart.toISOString())}` +
+    `&end=${encodeURIComponent(windowEnd.toISOString())}`;
+
+  const lines = entries.map((e) => {
+    const findingsUrl = `${appBaseUrl}/projects/${encodeURIComponent(projectId)}/detectors/${encodeURIComponent(e.detectorId)}?${range}`;
+    const traceUrl = `${appBaseUrl}/projects/${encodeURIComponent(projectId)}/traces?traceId=${encodeURIComponent(e.latestTraceId)}`;
+    const shortTrace = e.latestTraceId.slice(0, 8);
+    // Escape the detector name (user-controlled); the URL is built from encoded
+    // params, so escaping it would mangle the query-string separators and break
+    // the Slack <url|text> link syntax.
+    const name = escapeMrkdwn(e.detectorName);
+    const text =
+      `*<${findingsUrl}|${name}>* — ${e.findingCount} ${e.findingCount === 1 ? "finding" : "findings"}` +
+      (e.latestTraceId ? ` · latest: <${traceUrl}|${shortTrace}>` : "");
+    return { type: "section", text: { type: "mrkdwn", text: truncate(text) } };
+  });
+
+  const detectorCount = entries.length;
+  const footer =
+    `${formatWindowRange(windowStart, windowEnd)} · ` +
+    `${detectorCount} detector${detectorCount === 1 ? "" : "s"}`;
+
+  return [
+    { type: "header", text: { type: "plain_text", text: headerText, emoji: true } },
+    { type: "divider" },
+    ...lines,
+    { type: "divider" },
+    { type: "context", elements: [{ type: "mrkdwn", text: footer }] },
+  ];
+}
