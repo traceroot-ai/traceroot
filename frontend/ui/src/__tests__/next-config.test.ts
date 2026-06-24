@@ -20,7 +20,7 @@ describe("next.config.js env block", () => {
   it("falls back to git describe when APP_VERSION is unset", async () => {
     delete process.env.APP_VERSION;
     const config = await import("../../next.config.js");
-    const expected = execSync("git describe --tags --always --dirty", {
+    const expected = execSync("git describe --tags --abbrev=0", {
       cwd: new URL("../../", import.meta.url),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
