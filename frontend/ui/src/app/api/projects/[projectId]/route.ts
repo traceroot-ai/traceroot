@@ -44,6 +44,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     rca_provider: project.rcaProvider,
     rca_source: project.rcaSource,
     alert_emails: project.alertConfig?.emailAddresses ?? [],
+    alert_window: project.alertConfig?.alertWindow ?? "off",
     access_key_count: project._count.accessKeys,
     create_time: project.createTime,
     update_time: project.updateTime,
