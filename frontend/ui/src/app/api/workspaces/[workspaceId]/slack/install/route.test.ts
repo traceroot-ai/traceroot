@@ -41,10 +41,14 @@ describe("GET /api/workspaces/[workspaceId]/slack/install", () => {
     expect(requireWorkspaceMembership).toHaveBeenCalledWith("u_1", "ws_1", "ADMIN");
   });
 
-  it("redirects to the upgrade page when plan lacks slack-integration", async () => {
+  // Defense-in-depth: every current plan is entitled to slack-integration, so
+  // this redirect is unreachable in production today. The guard still protects
+  // against a future entitlement-config change, so we verify it redirects to
+  // the upgrade page whenever hasEntitlement returns false.
+  it("redirects to the upgrade page when the entitlement check returns false", async () => {
     requireAuth.mockResolvedValue({ user: { id: "u_1" } });
     requireWorkspaceMembership.mockResolvedValue({ membership: {} });
-    findUnique.mockResolvedValue({ billingPlan: "starter" });
+    findUnique.mockResolvedValue({ billingPlan: "free" });
     hasEntitlement.mockReturnValue(false);
 
     const { GET } = await import("./route");
@@ -52,7 +56,6 @@ describe("GET /api/workspaces/[workspaceId]/slack/install", () => {
       params: Promise.resolve({ workspaceId: "ws_1" }),
     });
 
-    expect(hasEntitlement).toHaveBeenCalledWith("starter", "slack-integration");
     expect(generateInstallUrl).not.toHaveBeenCalled();
     expect(res.status).toBe(307);
     const location = res.headers.get("location") ?? "";

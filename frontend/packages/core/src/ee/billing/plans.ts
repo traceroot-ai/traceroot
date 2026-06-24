@@ -203,6 +203,7 @@ export const PLANS: Record<
       "30 chat runs/month",
       "30 RCA runs/month",
       "100 detector runs/month",
+      "Slack alerts for detectors",
       "BYOK or hosted LLM",
     ],
     support: "Discord",
