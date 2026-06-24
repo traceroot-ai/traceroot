@@ -17,14 +17,21 @@ describe("next.config.js env block", () => {
     expect(config.default.env.NEXT_PUBLIC_APP_VERSION).toBe("v0.2.0");
   });
 
-  it("falls back to git describe when APP_VERSION is unset", async () => {
+  it("falls back to git describe (or 'dev' when no tag is reachable) when APP_VERSION is unset", async () => {
     delete process.env.APP_VERSION;
     const config = await import("../../next.config.js");
-    const expected = execSync("git describe --tags --always --dirty", {
-      cwd: new URL("../../", import.meta.url),
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
+    // Mirror resolveAppVersion(): git describe, falling back to "dev" when it
+    // throws (e.g. a shallow CI checkout with no tags fetched).
+    let expected: string;
+    try {
+      expected = execSync("git describe --tags --abbrev=0", {
+        cwd: new URL("../../", import.meta.url),
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+    } catch {
+      expected = "dev";
+    }
     expect(config.default.env.NEXT_PUBLIC_APP_VERSION).toBe(expected);
   });
 
