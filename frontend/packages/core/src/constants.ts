@@ -13,3 +13,20 @@ export type SpanKind = (typeof SpanKind)[keyof typeof SpanKind];
 // SpanStatus — ClickHouse values
 export const SpanStatus = { OK: "OK", ERROR: "ERROR" } as const;
 export type SpanStatus = (typeof SpanStatus)[keyof typeof SpanStatus];
+
+// Alert aggregation windows — the single source of truth.
+// Keys are the stored/validated tokens; values are their canonical millisecond
+// durations. The API allowlist, the worker's window->ms lookup, and the UI
+// dropdown all derive from this one map, so a window is added/changed here once.
+export const ALERT_WINDOWS = {
+  off: 0,
+  "5m": 300_000,
+  "30m": 1_800_000,
+  "1h": 3_600_000,
+  "2h": 7_200_000,
+} as const;
+export type AlertWindow = keyof typeof ALERT_WINDOWS;
+
+export function isAlertWindow(value: string): value is AlertWindow {
+  return Object.prototype.hasOwnProperty.call(ALERT_WINDOWS, value);
+}
