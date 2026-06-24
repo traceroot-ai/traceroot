@@ -4,7 +4,7 @@ const path = require("path");
 function resolveAppVersion() {
   if (process.env.APP_VERSION) return process.env.APP_VERSION;
   try {
-    return execSync("git describe --tags --always --dirty", {
+    return execSync("git describe --tags --abbrev=0", {
       cwd: path.join(__dirname, "../"),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],

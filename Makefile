@@ -3,7 +3,7 @@
 # =============================================================================
 
 PROD_COMPOSE := docker compose -f docker-compose.prod.yml
-APP_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+APP_VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo dev)
 
 .PHONY: install-hooks dev dev-lite dev-autoreload dev-reset prod prod-lite prod-reset
 
