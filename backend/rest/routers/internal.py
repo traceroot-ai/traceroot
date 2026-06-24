@@ -339,6 +339,9 @@ async def list_detector_runs(
 
     where_clause = " AND ".join(conditions)
 
+    # Read both tables with FINAL so pre-merge ReplacingMergeTree duplicates (a
+    # retried run/finding re-written under the same deterministic id) don't fan
+    # out the LEFT JOIN into duplicate rows or inflate the paginated count.
     data_query = f"""
         SELECT
             r.run_id      AS run_id,
@@ -349,8 +352,8 @@ async def list_detector_runs(
             r.status      AS status,
             r.timestamp   AS timestamp,
             {summary_expr} AS summary
-        FROM detector_runs r
-        LEFT JOIN detector_findings f
+        FROM (SELECT * FROM detector_runs FINAL) AS r
+        LEFT JOIN (SELECT * FROM detector_findings FINAL) AS f
           ON r.finding_id = f.finding_id AND r.project_id = f.project_id
         WHERE {where_clause}
         ORDER BY r.timestamp DESC
@@ -361,8 +364,8 @@ async def list_detector_runs(
 
     count_query = f"""
         SELECT count()
-        FROM detector_runs r
-        LEFT JOIN detector_findings f
+        FROM (SELECT * FROM detector_runs FINAL) AS r
+        LEFT JOIN (SELECT * FROM detector_findings FINAL) AS f
           ON r.finding_id = f.finding_id AND r.project_id = f.project_id
         WHERE {where_clause}
     """
