@@ -10,16 +10,8 @@ Create API Keys either with [TraceRoot Cloud](https://app.traceroot.ai) or [Self
 ## 2. Install the SDK
 
 <Tabs>
-  <Tab title="Python">
-    ```bash
-    pip install traceroot
-    ```
-  </Tab>
-  <Tab title="TypeScript">
-    ```bash
-    npm install @traceroot-ai/traceroot
-    ```
-  </Tab>
+  <Tab title="Python">```bash pip install traceroot ```</Tab>
+  <Tab title="TypeScript">```bash npm install @traceroot-ai/traceroot ```</Tab>
 </Tabs>
 
 ## 3. Set Environment Variables
@@ -45,6 +37,7 @@ TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
 
     client = OpenAI()
     ```
+
   </Tab>
   <Tab title="TypeScript">
     Add a single line at the start of your application to instrument all OpenAI API calls.
@@ -58,6 +51,7 @@ TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
 
     const openai = new OpenAI();
     ```
+
   </Tab>
 </Tabs>
 
@@ -66,6 +60,8 @@ For full SDK details, see the [Python SDK](/tracing/python-sdk) or [TypeScript S
 ## 5. View Your Traces
 
 Open [TraceRoot Cloud](https://app.traceroot.ai) (or your self-hosted dashboard), navigate to your project, and you'll see the full span hierarchy, token usage, cost, and timing.
+
+If your project does not have traces yet, use **Create sample trace** on the empty tracing page to generate a demo agent trace without configuring an app, SDK integration, or LLM provider key.
 
 Prefer the terminal? The [TraceRoot CLI](/cli/get-started) lists, inspects, and exports the same traces without leaving your shell.
 
