@@ -282,6 +282,29 @@ class TestListDetectorRuns:
         assert "start_after" not in data_sql
         assert "end_before" not in data_sql
 
+    def test_data_query_dedups_both_sides(self, client, mock_ch, secret):
+        """Pre-merge ReplacingMergeTree duplicates must not fan out the JOIN."""
+        mock_ch.query.side_effect = [self._fake_data(), self._fake_count(1)]
+        client.get(
+            "/api/v1/internal/detector-runs",
+            params={"project_id": "p1", "detector_id": "d1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        data_sql = mock_ch.query.call_args_list[0].args[0]
+        assert "(SELECT * FROM detector_runs FINAL) AS r" in data_sql
+        assert "(SELECT * FROM detector_findings FINAL) AS f" in data_sql
+
+    def test_count_query_dedups_both_sides(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [self._fake_data(), self._fake_count(1)]
+        client.get(
+            "/api/v1/internal/detector-runs",
+            params={"project_id": "p1", "detector_id": "d1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        count_sql = mock_ch.query.call_args_list[1].args[0]
+        assert "(SELECT * FROM detector_runs FINAL) AS r" in count_sql
+        assert "(SELECT * FROM detector_findings FINAL) AS f" in count_sql
+
 
 # =============================================================================
 # /traces/{trace_id}/detector-runs
