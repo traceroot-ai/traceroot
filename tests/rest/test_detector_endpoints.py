@@ -284,6 +284,100 @@ class TestListDetectorRuns:
 
 
 # =============================================================================
+# /traces/{trace_id}/detector-runs
+# =============================================================================
+
+
+class TestListTraceDetectorRuns:
+    TS = datetime(2026, 6, 24, 12, 30, 45)
+
+    def _fake_data(self):
+        return _make_query_result(
+            rows=[
+                ("r1", "d-a", "p1", "trace-1", "f1", "triggered", self.TS, "Found it"),
+                ("r2", "d-b", "p1", "trace-1", None, "clean", self.TS, ""),
+            ],
+            column_names=[
+                "run_id",
+                "detector_id",
+                "project_id",
+                "trace_id",
+                "finding_id",
+                "status",
+                "timestamp",
+                "summary",
+            ],
+        )
+
+    def test_returns_runs_envelope_with_each_field(self, client, mock_ch, secret):
+        mock_ch.query.return_value = self._fake_data()
+        resp = client.get(
+            "/api/v1/internal/traces/trace-1/detector-runs",
+            params={"project_id": "p1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body.keys()) == {"runs"}
+        runs = body["runs"]
+        assert len(runs) == 2
+
+        assert runs[0] == {
+            "run_id": "r1",
+            "detector_id": "d-a",
+            "project_id": "p1",
+            "trace_id": "trace-1",
+            "finding_id": "f1",
+            "status": "triggered",
+            "timestamp": self.TS.isoformat(),
+            "summary": "Found it",
+        }
+        assert runs[1] == {
+            "run_id": "r2",
+            "detector_id": "d-b",
+            "project_id": "p1",
+            "trace_id": "trace-1",
+            "finding_id": None,
+            "status": "clean",
+            "timestamp": self.TS.isoformat(),
+            "summary": "",
+        }
+
+    def test_filters_by_trace_and_project(self, client, mock_ch, secret):
+        mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
+        resp = client.get(
+            "/api/v1/internal/traces/trace-9/detector-runs",
+            params={"project_id": "p9"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        mock_ch.query.assert_called_once()
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert params == {"trace_id": "trace-9", "project_id": "p9"}
+        sql = mock_ch.query.call_args.args[0]
+        assert "r.trace_id = {trace_id:String}" in sql
+        assert "r.project_id = {project_id:String}" in sql
+
+    def test_uses_final_on_both_tables(self, client, mock_ch, secret):
+        mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
+        client.get(
+            "/api/v1/internal/traces/trace-1/detector-runs",
+            params={"project_id": "p1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        sql = mock_ch.query.call_args.args[0]
+        assert "detector_runs FINAL" in sql
+        assert "detector_findings FINAL" in sql
+
+    def test_missing_secret_returns_403(self, client, mock_ch):
+        resp = client.get(
+            "/api/v1/internal/traces/trace-1/detector-runs",
+            params={"project_id": "p1"},
+        )
+        assert resp.status_code == 403
+
+
+# =============================================================================
 # POST /detector-findings
 # =============================================================================
 
