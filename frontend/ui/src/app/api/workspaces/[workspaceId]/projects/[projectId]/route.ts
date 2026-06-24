@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma, Role } from "@traceroot/core";
+import { prisma, Role, isAlertWindow } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -15,6 +15,7 @@ const updateProjectSchema = z.object({
   rca_provider: z.string().min(1).max(200).nullable().optional(),
   rca_source: z.string().min(1).max(200).nullable().optional(),
   alert_emails: z.array(z.string().email().max(254)).max(50).optional(),
+  alert_window: z.string().refine(isAlertWindow, "Invalid alert window").optional(),
 });
 
 type RouteParams = { params: Promise<{ workspaceId: string; projectId: string }> };
@@ -64,6 +65,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     rca_provider: project.rcaProvider,
     rca_source: project.rcaSource,
     alert_emails: project.alertConfig?.emailAddresses ?? [],
+    alert_window: project.alertConfig?.alertWindow ?? "off",
     access_keys: project.accessKeys.map((k) => ({
       id: k.id,
       key_hint: k.keyHint,
@@ -113,7 +115,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     return errorResponse(result.error.issues[0].message, 400);
   }
 
-  const { name, trace_ttl_days, rca_model, rca_provider, rca_source, alert_emails } = result.data;
+  const { name, trace_ttl_days, rca_model, rca_provider, rca_source, alert_emails, alert_window } =
+    result.data;
 
   // Check for duplicate name if name is being changed
   if (name && name !== existingProject.name) {
@@ -139,11 +142,17 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       ...(rca_model !== undefined && { rcaModel: rca_model }),
       ...(rca_provider !== undefined && { rcaProvider: rca_provider }),
       ...(rca_source !== undefined && { rcaSource: rca_source }),
-      ...(alert_emails !== undefined && {
+      ...((alert_emails !== undefined || alert_window !== undefined) && {
         alertConfig: {
           upsert: {
-            create: { emailAddresses: alert_emails },
-            update: { emailAddresses: alert_emails },
+            create: {
+              ...(alert_emails !== undefined && { emailAddresses: alert_emails }),
+              ...(alert_window !== undefined && { alertWindow: alert_window }),
+            },
+            update: {
+              ...(alert_emails !== undefined && { emailAddresses: alert_emails }),
+              ...(alert_window !== undefined && { alertWindow: alert_window }),
+            },
           },
         },
       }),
@@ -160,6 +169,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     rca_provider: project.rcaProvider,
     rca_source: project.rcaSource,
     alert_emails: project.alertConfig?.emailAddresses ?? [],
+    alert_window: project.alertConfig?.alertWindow ?? "off",
     update_time: project.updateTime,
   });
 }
