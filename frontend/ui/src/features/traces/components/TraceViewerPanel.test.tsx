@@ -1,18 +1,35 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { render, cleanup, fireEvent, screen } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   sidebarCollapsed: false,
+  traceFindingsData: undefined as { findings: Array<{ finding_id: string }> } | undefined,
+  rcaData: undefined as
+    | {
+        rca: {
+          id: string;
+          findingId: string;
+          sessionId: string | null;
+          status: "pending" | "running" | "done" | "failed";
+          result: string | null;
+          completedAt: string | null;
+          createTime: string;
+        } | null;
+      }
+    | undefined,
+  setAiPanelOpen: vi.fn(),
+  setAiContext: vi.fn(),
+  setAiInitialSessionId: vi.fn(),
 }));
 
 // Layout context drives the fullscreen width math (sidebar width).
 vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({
     aiPanelOpen: false,
-    setAiPanelOpen: vi.fn(),
-    setAiContext: vi.fn(),
-    setAiInitialSessionId: vi.fn(),
+    setAiPanelOpen: mocks.setAiPanelOpen,
+    setAiContext: mocks.setAiContext,
+    setAiInitialSessionId: mocks.setAiInitialSessionId,
     registerAiHost: () => () => {},
     sidebarCollapsed: mocks.sidebarCollapsed,
   }),
@@ -24,10 +41,14 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 vi.mock("@/lib/api", () => ({ getTrace: vi.fn() }));
 vi.mock("../hooks/use-trace-stream", () => ({ useTraceStream: vi.fn() }));
-vi.mock("@/features/detectors/hooks/use-findings", () => ({
-  useTraceFindings: () => ({ data: undefined }),
-  useRca: () => ({ data: undefined }),
-}));
+vi.mock("@/features/detectors/hooks/use-findings", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/detectors/hooks/use-findings")>();
+  return {
+    ...actual,
+    useTraceFindings: () => ({ data: mocks.traceFindingsData }),
+    useRca: () => ({ data: mocks.rcaData }),
+  };
+});
 
 // Heavy children + resizable layout — replace with passthroughs so only the
 // panel's own root wrapper (which carries the width class) matters.
@@ -64,6 +85,11 @@ function renderPanel(props: { initialFullscreen?: boolean } = {}) {
 afterEach(() => {
   cleanup();
   mocks.sidebarCollapsed = false;
+  mocks.traceFindingsData = undefined;
+  mocks.rcaData = undefined;
+  mocks.setAiPanelOpen.mockClear();
+  mocks.setAiContext.mockClear();
+  mocks.setAiInitialSessionId.mockClear();
 });
 
 describe("TraceViewerPanel layout", () => {
@@ -84,5 +110,60 @@ describe("TraceViewerPanel layout", () => {
     const panel = renderPanel({ initialFullscreen: false });
     expect(panel.className).toContain("w-[70%]");
     expect(panel.className).toContain("top-0");
+  });
+});
+
+function setRcaStatus(status: "pending" | "running" | "done" | "failed", sessionId = "s-1") {
+  mocks.traceFindingsData = { findings: [{ finding_id: "f-1" }] };
+  mocks.rcaData = {
+    rca: {
+      id: "rca-1",
+      findingId: "f-1",
+      sessionId,
+      status,
+      result: null,
+      completedAt: null,
+      createTime: "2026-06-22T00:00:00.000Z",
+    },
+  };
+}
+
+describe("TraceViewerPanel RCA status", () => {
+  it("renders queued status for pending RCA", () => {
+    setRcaStatus("pending");
+    renderPanel();
+    expect(screen.getByText("RCA queued")).toBeTruthy();
+  });
+
+  it("renders running status for running RCA", () => {
+    setRcaStatus("running");
+    renderPanel();
+    expect(screen.getByText("RCA running…")).toBeTruthy();
+  });
+
+  it("renders failed status for failed RCA", () => {
+    setRcaStatus("failed");
+    renderPanel();
+    expect(screen.getByText("RCA failed")).toBeTruthy();
+  });
+
+  it("opens the RCA session when ready", () => {
+    setRcaStatus("done", "session-1");
+    renderPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: "RCA ready" }));
+
+    expect(mocks.setAiContext).toHaveBeenCalledWith({ traceId: "trace-1" });
+    expect(mocks.setAiInitialSessionId).toHaveBeenCalledWith("session-1");
+    expect(mocks.setAiPanelOpen).toHaveBeenCalledWith(true);
+  });
+
+  it("does not render an RCA control without an RCA row", () => {
+    mocks.traceFindingsData = { findings: [{ finding_id: "f-1" }] };
+    mocks.rcaData = { rca: null };
+
+    renderPanel();
+
+    expect(screen.queryByText(/RCA/)).toBeNull();
   });
 });

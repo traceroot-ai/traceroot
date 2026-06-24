@@ -27,7 +27,8 @@ export interface RcaStatusPresentation {
  * Single source of truth for the agent-analysis status vocabulary:
  * absent field (enrichment unavailable) -> "—", null (no stored RCA row) ->
  * "Skipped", terminal/in-flight statuses -> their labels. An unrecognized
- * future status renders as its raw value rather than a misleading "Running…".
+ * future status renders as its raw value rather than a misleading in-flight
+ * state.
  */
 export function describeRcaStatus(status: BackendFinding["rca_status"]): RcaStatusPresentation {
   if (status === undefined) {
@@ -42,9 +43,8 @@ export function describeRcaStatus(status: BackendFinding["rca_status"]): RcaStat
   }
   if (status === "failed") return { label: "Failed", className: "text-destructive" };
   if (status === "done") return { label: "Done", className: "text-foreground" };
-  if (status === "pending" || status === "running") {
-    return { label: "Running…", className: "text-muted-foreground" };
-  }
+  if (status === "pending") return { label: "Queued", className: "text-muted-foreground" };
+  if (status === "running") return { label: "Running…", className: "text-muted-foreground" };
   return { label: status, className: "text-muted-foreground" };
 }
 
@@ -129,6 +129,48 @@ export interface DetectorRca {
   result: string | null;
   completedAt: string | null;
   createTime: string;
+}
+
+/** How an RCA status renders in the trace-detail header. */
+export interface TraceRcaStatusPresentation {
+  label: string;
+  className: string;
+  title: string;
+  busy?: boolean;
+}
+
+export function describeTraceRcaStatus(status: DetectorRca["status"]): TraceRcaStatusPresentation {
+  if (status === "pending") {
+    return {
+      label: "RCA queued",
+      className:
+        "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400",
+      title: "Root cause analysis is queued",
+    };
+  }
+  if (status === "running") {
+    return {
+      label: "RCA running…",
+      className:
+        "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-400",
+      title: "Root cause analysis is running",
+      busy: true,
+    };
+  }
+  if (status === "done") {
+    return {
+      label: "RCA ready",
+      className:
+        "border-red-300 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60",
+      title: "Open root cause analysis",
+    };
+  }
+  return {
+    label: "RCA failed",
+    className:
+      "border-destructive/40 bg-destructive/10 text-destructive dark:border-destructive/50",
+    title: "Root cause analysis failed",
+  };
 }
 
 async function fetchRca(

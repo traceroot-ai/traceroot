@@ -8,6 +8,7 @@ import {
   ArrowUp,
   ArrowDown,
   BotMessageSquare,
+  Loader2,
   ListTree,
   SquareGanttChart,
   Expand,
@@ -26,7 +27,11 @@ import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistan
 import { useTraceStream } from "../hooks/use-trace-stream";
 import { SpanTimelineView } from "./SpanTimelineView";
 import { TREE_LAYOUT } from "../utils";
-import { useTraceFindings, useRca } from "@/features/detectors/hooks/use-findings";
+import {
+  useTraceFindings,
+  useRca,
+  describeTraceRcaStatus,
+} from "@/features/detectors/hooks/use-findings";
 
 interface TraceViewerPanelProps {
   projectId: string;
@@ -114,17 +119,19 @@ export function TraceViewerPanel({
 
   const [hoveredSpanId, setHoveredSpanId] = useState<string | null>(null);
 
-  // Detector findings → Alert button + auto-open RCA chat when entered from
+  // Detector findings → RCA status affordance + auto-open RCA chat when entered from
   // the findings page. The trace-level finding (at most one per trace) carries
-  // the RCA session the worker already populated. The Alert button opens that
-  // analysis, so it only renders when an RCA record exists — a finding from an
-  // RCA-disabled detector has no analysis to open (gate on the record, not the
-  // sessionId, so the button doesn't flicker while the RCA is still pending).
+  // the RCA session the worker already populated. The ready state opens that
+  // analysis; in-flight/failed states are status-only. A finding from an
+  // RCA-disabled detector has no analysis to open, so we gate on the RCA record.
   const { data: traceFindingsData } = useTraceFindings(projectId, traceId);
   const traceFinding = traceFindingsData?.findings?.[0];
   const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
-  const hasRca = !!traceFinding && !!rcaData?.rca;
-  const rcaSessionId = rcaData?.rca?.sessionId ?? undefined;
+  const rca = rcaData?.rca;
+  const hasRca = !!traceFinding && !!rca;
+  const rcaSessionId = rca?.sessionId ?? undefined;
+  const rcaStatus = rca ? describeTraceRcaStatus(rca.status) : null;
+  const canOpenRca = rca?.status === "done" && !!rcaSessionId;
 
   // Auto-open chat with RCA session loaded when arriving from /detectors.
   // Waits for rcaSessionId so the chat opens already pointing at the session,
@@ -231,20 +238,36 @@ export function TraceViewerPanel({
             <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
           </div>
           <div className="flex items-center gap-1">
-            {hasRca && (
-              <button
-                type="button"
-                onClick={() => {
-                  setAiContext({ traceId });
-                  setAiInitialSessionId(rcaSessionId);
-                  setAiPanelOpen(true);
-                }}
-                className="rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60"
-                title="Findings detected — open root cause analysis"
-              >
-                Alert
-              </button>
-            )}
+            {hasRca &&
+              rcaStatus &&
+              (canOpenRca ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAiContext({ traceId });
+                    setAiInitialSessionId(rcaSessionId);
+                    setAiPanelOpen(true);
+                  }}
+                  className={cn(
+                    "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium transition-colors",
+                    rcaStatus.className,
+                  )}
+                  title={rcaStatus.title}
+                >
+                  {rcaStatus.label}
+                </button>
+              ) : (
+                <span
+                  className={cn(
+                    "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium",
+                    rcaStatus.className,
+                  )}
+                  title={rcaStatus.title}
+                >
+                  {rcaStatus.busy && <Loader2 className="h-3 w-3 animate-spin" />}
+                  {rcaStatus.label}
+                </span>
+              ))}
             <Button
               variant="outline"
               size="sm"
