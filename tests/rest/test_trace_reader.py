@@ -202,8 +202,10 @@ class TestGetTraceSkeleton:
         # The token columns (which share a prefix with the blobs) are still there.
         assert "input_tokens" in cols
         assert "output_tokens" in cols
-        # Still selects via FINAL (correctness for ReplacingMergeTree).
-        assert "FROM spans FINAL" in spans_sql
+        # Uses dedup subquery instead of FINAL for better read performance.
+        assert "LIMIT 1 BY span_id" in spans_sql
+        assert "ch_update_time DESC" in spans_sql
+        assert "FROM spans FINAL" not in spans_sql
         # Bound by the already-read trace_start_time so ClickHouse can prune
         # monthly span partitions before the trace.
         from rest.services.trace_reader import TRACE_SPAN_LOOKBACK_HOURS
@@ -355,7 +357,9 @@ class TestGetTraceSpansIO:
         # Exactly one trace-scoped query (no N+1 single-span fan-out).
         assert len(calls) == 1
         query, params = calls[0]
-        assert "FROM spans FINAL" in query
+        assert "LIMIT 1 BY span_id" in query
+        assert "ch_update_time DESC" in query
+        assert "FROM spans FINAL" not in query
         assert params == {"project_id": "proj", "trace_id": "abc123"}
         # No span_id filter — it is trace-wide.
         assert "span_id =" not in query
@@ -376,9 +380,11 @@ class TestGetTraceSpansIO:
         service, _ = _make_service(side_effect)
         result = service.get_trace_spans_io("proj", "abc123", frozenset({"metadata"}))
 
-        select_clause = captured["query"].split("FROM spans")[0]
-        cols = {c.strip() for c in select_clause.replace("SELECT", "").split(",")}
-        assert cols == {"span_id", "metadata"}
+        # Extract inner SELECT (after the last "FROM (") to get the actual projected cols.
+        inner_select = captured["query"].split("FROM spans")[0].split("FROM (")[-1]
+        cols = {c.strip() for c in inner_select.replace("SELECT", "").split(",")}
+        assert "span_id" in cols
+        assert "metadata" in cols
         assert "input" not in cols
         assert "output" not in cols
         assert result == {"span-1": {"metadata": "meta-1"}}
@@ -410,7 +416,8 @@ class TestGetTraceSpansIO:
 class TestGetSpanIO:
     def test_returns_blobs_for_existing_span(self):
         def side_effect(query, parameters=None):
-            assert "FROM spans FINAL" in query
+            assert "ch_update_time DESC" in query
+            assert "FROM spans FINAL" not in query
             # All three blob columns must be in the SELECT.
             assert "input" in query
             assert "output" in query
@@ -452,3 +459,27 @@ class TestGetSpanIO:
             "output": None,
             "metadata": None,
         }
+
+    def test_latest_row_wins_when_span_reingested(self):
+        """Asserts the dedup query shape and single-row pass-through.
+
+        Newest-wins ordering is enforced by ClickHouse (ORDER BY ch_update_time
+        DESC + LIMIT 1). The mock returns the single post-dedup row; the service
+        must surface it without further modification.
+        """
+        call_count = {"n": 0}
+
+        def side_effect(query, parameters=None):
+            call_count["n"] += 1
+            assert "ORDER BY ch_update_time DESC" in query
+            assert "LIMIT 1" in query
+            assert "FROM spans FINAL" not in query
+            return _rows([("span-1", "abc123", "new-input", "new-output", "new-meta")])
+
+        service, _ = _make_service(side_effect)
+        result = service.get_span_io("proj", "abc123", "span-1")
+
+        assert call_count["n"] == 1
+        assert result["input"] == "new-input"
+        assert result["output"] == "new-output"
+        assert result["metadata"] == "new-meta"
