@@ -157,6 +157,7 @@ async function runSingleDetector(params: {
     detectionModel: string | null;
     detectionProvider: string | null;
     detectionSource: "system" | "byok" | null;
+    filterSpanName: string | null;
   };
   traceId: string;
   projectId: string;
@@ -166,11 +167,35 @@ async function runSingleDetector(params: {
   const { detector, traceId, projectId, spansJsonl, workspaceId } = params;
   const runId = deterministicRunId(projectId, traceId, detector.id);
 
+  let filteredSpansJsonl = spansJsonl;
+  if (detector.filterSpanName) {
+    const spans = spansJsonl
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line));
+    const filteredSpans = spans.filter((span) => span.name === detector.filterSpanName);
+
+    if (filteredSpans.length === 0) {
+      console.log(`[Detector] Detector ${detector.name} skipped: No span named '${detector.filterSpanName}' found in trace ${traceId}.`);
+      await writeDetectorRun({
+        runId,
+        detectorId: detector.id,
+        projectId,
+        traceId,
+        findingId: null,
+        status: "completed",
+      }).catch((err) => console.error("[Detector] Failed to write run:", err));
+      
+      return { triggered: null, usage: null };
+    }
+    filteredSpansJsonl = filteredSpans.map((span) => JSON.stringify(span)).join("\n");
+  }
+
   let result: Awaited<ReturnType<typeof runDetectionForTrace>>;
   try {
     result = await runDetectionForTrace({
       traceId,
-      spansJsonl,
+      spansJsonl: filteredSpansJsonl,
       detector: {
         id: detector.id,
         name: detector.name,
@@ -321,6 +346,7 @@ async function evaluateTrace(
           detectionModel: detector.detectionModel,
           detectionProvider: detector.detectionProvider,
           detectionSource: detector.detectionSource as "system" | "byok" | null,
+          filterSpanName: detector.filterSpanName,
         },
         traceId,
         projectId,

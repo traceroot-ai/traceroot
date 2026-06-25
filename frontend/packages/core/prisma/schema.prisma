@@ -358,6 +358,8 @@ model Detector {
   detectionModel     String?  @map("detection_model") @db.VarChar    // model id; null = worker picks default
   detectionProvider  String?  @map("detection_provider") @db.VarChar // provider label (system: "anthropic"/"openai"; BYOK: ModelProvider.provider row label)
   detectionSource    String?  @map("detection_source") @db.VarChar   // "system" | "byok" | null (legacy/seeded)
+  filterSpanName     String?  @map("filter_span_name") @db.VarChar   // only run on spans matching this name
+
   createTime   DateTime @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime   DateTime @updatedAt @map("update_time") @db.Timestamp(6)
 

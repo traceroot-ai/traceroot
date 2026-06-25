@@ -1,0 +1,15 @@
+fix(detectors): dedup pre-merge ReplacingMergeTree rows in list_detector_runs
+
+GET /detector-runs joins detector_runs against detector_findings without
+FINAL on either side. Both tables are ReplacingMergeTree, deduped only on
+background merge — list_detector_findings and list_detector_counts already
+guard this with (SELECT * FROM ... FINAL) AS x (and have tests for it), but
+this endpoint's identical join shape was missed.
+
+detector_tasks.py retries writeDetectorRun up to 5x with exponential backoff
+on transient failures, so until the background merge collapses a retried
+row, the run list renders it twice and meta.total (used for pagination) is
+inflated by the same duplicate.
+
+Added a regression test mirroring TestListDetectorFindings/
+TestListDetectorCounts. Full tests/rest suite (257 tests) passes; ruff clean.

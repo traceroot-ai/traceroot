@@ -87,6 +87,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     detectionProvider,
     detectionSource,
     enableRca,
+    filterSpanName,
   } = body as Record<string, unknown>;
 
   // Required fields must be non-empty strings (trim catches whitespace-only).
