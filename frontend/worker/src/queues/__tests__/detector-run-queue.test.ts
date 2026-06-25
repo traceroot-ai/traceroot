@@ -44,6 +44,7 @@ describe("DetectorRcaJob type shape", () => {
           summary: "Something bad happened",
         },
       ],
+      findingTimestamp: 1_700_000_000_000,
     };
     expect(job.traceId).toBe("trace-abc");
     expect(job.findings[0].detectorId).toBe("det-456");

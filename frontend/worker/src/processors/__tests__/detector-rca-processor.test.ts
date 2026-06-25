@@ -3,10 +3,26 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const fetchProviderConfigMock = vi.fn();
 const resolvePiModelMock = vi.fn();
 const modelProviderFindMany = vi.fn().mockResolvedValue([]);
+const digestAddMock = vi.fn().mockResolvedValue(undefined);
+const sendEmailMock = vi.fn().mockResolvedValue(undefined);
+const sendSlackMock = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@traceroot/core/model-resolver", async () => ({
   fetchProviderConfig: (...args: any[]) => fetchProviderConfigMock(...args),
   resolvePiModel: (...args: any[]) => resolvePiModelMock(...args),
+}));
+
+vi.mock("../../queues/digest-queue.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../queues/digest-queue.js")>();
+  return { ...actual, createDetectorDigestQueue: () => ({ add: digestAddMock }) };
+});
+
+vi.mock("../../notifications/email.js", () => ({
+  sendCombinedAlertEmail: (...args: any[]) => sendEmailMock(...args),
+}));
+
+vi.mock("../../notifications/slack.js", () => ({
+  sendCombinedAlertSlack: (...args: any[]) => sendSlackMock(...args),
 }));
 
 vi.mock("@traceroot/core", async (importOriginal) => {
@@ -28,6 +44,9 @@ afterEach(() => {
   resolvePiModelMock.mockReset();
   modelProviderFindMany.mockReset();
   modelProviderFindMany.mockResolvedValue([]);
+  digestAddMock.mockReset().mockResolvedValue(undefined);
+  sendEmailMock.mockReset().mockResolvedValue(undefined);
+  sendSlackMock.mockReset().mockResolvedValue(undefined);
 });
 
 describe("resolveProjectModel", () => {
@@ -267,5 +286,79 @@ describe("processRcaJob", () => {
         data: { status: "failed" },
       }),
     );
+  });
+});
+
+describe("processRcaJob — digest scheduling at the sendAlert seam", () => {
+  // Drive a full successful RCA run so sendAlert(rcaResult) fires in the try
+  // path. alertWindow is the only variable across the two cases below.
+  async function runWithWindow(alertWindow: string) {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
+      billingPlan: "pro",
+      rcaBlocked: false,
+    } as any);
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+    vi.spyOn(p.detectorRca, "update").mockResolvedValue({} as any);
+    vi.spyOn(p.gitHubInstallation, "count").mockResolvedValue(0);
+    vi.spyOn(p.project, "findUnique").mockResolvedValue({
+      rcaModel: null,
+      rcaProvider: null,
+      rcaSource: null,
+      alertConfig: {
+        emailAddresses: ["alert@example.com"],
+        slackChannelId: null,
+        slackChannelName: null,
+        alertWindow,
+      },
+      workspace: { slackIntegration: null },
+    } as any);
+
+    // Agent session create + empty SSE stream → RCA completes with "".
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        body: {
+          getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }),
+        },
+      });
+
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await processRcaJob({
+      data: {
+        findingId: "f1",
+        projectId: "p1",
+        traceId: "t1",
+        workspaceId: "ws1",
+        projectName: "test",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        findingTimestamp: 1_700_000_123_456,
+      },
+    } as any);
+  }
+
+  it("enqueues one deduped flush job for a windowed project and skips fan-out", async () => {
+    await runWithWindow("30m");
+
+    expect(digestAddMock).toHaveBeenCalledTimes(1);
+    expect(digestAddMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        projectId: "p1",
+        windowMs: 1_800_000,
+        windowStart: Math.floor(1_700_000_123_456 / 1_800_000) * 1_800_000,
+      }),
+      expect.objectContaining({ jobId: expect.stringMatching(/^digest:p1:\d+$/) }),
+    );
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(sendSlackMock).not.toHaveBeenCalled();
+  });
+
+  it("fans out immediately and schedules no flush for an off project", async () => {
+    await runWithWindow("off");
+
+    expect(digestAddMock).not.toHaveBeenCalled();
+    expect(sendEmailMock).toHaveBeenCalledTimes(1);
   });
 });

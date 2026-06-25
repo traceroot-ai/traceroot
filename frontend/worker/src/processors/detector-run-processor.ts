@@ -382,6 +382,11 @@ async function evaluateTrace(
     })),
   );
 
+  // Stamp the finding's detection time here, alongside the run write, so the
+  // digest flush is keyed off the same clock as the server-stamped
+  // detector_runs.timestamp it later reads back from ClickHouse.
+  const findingTimestamp = Date.now();
+
   await writeDetectorFinding({
     findingId,
     projectId,
@@ -434,6 +439,7 @@ async function evaluateTrace(
         workspaceId,
         projectName,
         findings: rcaFindings,
+        findingTimestamp,
       },
       { jobId: `rca-${findingId}`, removeOnComplete: 100, removeOnFail: 50 },
     );
