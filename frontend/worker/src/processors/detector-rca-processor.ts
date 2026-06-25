@@ -1,12 +1,37 @@
-import { Worker, type Job } from "bullmq";
-import { prisma, SYSTEM_MODELS, PlanType, ModelSource } from "@traceroot/core";
+import { Queue, Worker, type Job } from "bullmq";
+import {
+  prisma,
+  SYSTEM_MODELS,
+  PlanType,
+  ModelSource,
+  ALERT_WINDOWS,
+  isAlertWindow,
+} from "@traceroot/core";
 import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
 import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
 import { DETECTOR_RCA_QUEUE, createRedisConnection } from "../queues/detector-run-queue.js";
+import {
+  type DigestFlushJob,
+  windowStartFor,
+  createDetectorDigestQueue,
+} from "../queues/digest-queue.js";
 import { sendCombinedAlertEmail } from "../notifications/email.js";
 import { sendCombinedAlertSlack } from "../notifications/slack.js";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
+
+// Settle margin past the window's end before the flush reads ClickHouse, so a
+// finding written at windowEnd−ε is visible. With finding-timestamp keying
+// there is no RCA-latency drift, so a few seconds for write-visibility suffices.
+const DIGEST_SETTLE_MS = Number(process.env.DIGEST_SETTLE_MS ?? 5_000);
+
+let digestQueue: Queue<DigestFlushJob> | null = null;
+function getDigestQueue(): Queue<DigestFlushJob> {
+  if (!digestQueue) {
+    digestQueue = createDetectorDigestQueue(createRedisConnection());
+  }
+  return digestQueue;
+}
 
 // Resolve a project-configured rca_model to the agent service body fields.
 // Uses the same pattern as sandbox-eval.ts: reads the provider from saved
@@ -278,7 +303,8 @@ export async function runFanOut({
 }
 
 export async function processRcaJob(job: Job<DetectorRcaJob>) {
-  const { findingId, projectId, traceId, workspaceId, projectName, findings } = job.data;
+  const { findingId, projectId, traceId, workspaceId, projectName, findings, findingTimestamp } =
+    job.data;
 
   // Free-plan RCA cap enforcement — read the cached `rcaBlocked` flag
   // set by the hourly billing job (same pattern as `detectorBlocked` in
@@ -323,9 +349,39 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
 
   let slackBotTokenEnc: string | null = null;
 
+  // Project alert aggregation window ("off" = immediate fan-out). Hoisted like
+  // the recipient vars above because `sendAlert` closes over it but `project`
+  // is fetched later in the try below.
+  let alertWindow = "off";
+
   // Always send a combined alert (success: with RCA result; failure: null).
   // Detector findings should never fail silently on configured channels.
   const sendAlert = async (rcaResult: string | null) => {
+    const windowMs = isAlertWindow(alertWindow) ? ALERT_WINDOWS[alertWindow] : 0;
+
+    if (windowMs > 0) {
+      // Windowed — schedule one deduped flush per (project, windowStart) keyed
+      // off the finding timestamp (same clock as the detector_runs.timestamp the
+      // flush reads back), suppressing the immediate alert on every channel. The
+      // deterministic jobId makes the first finding of the window schedule the
+      // flush and every later finding a no-op enqueue. Age-based retention keeps
+      // a late re-enqueue (slow RCA) a no-op past the largest window + RCA tail.
+      const windowStart = windowStartFor(findingTimestamp, windowMs);
+      const delay = Math.max(0, windowStart + windowMs + DIGEST_SETTLE_MS - Date.now());
+      await getDigestQueue().add(
+        `digest-${projectId}-${windowStart}`,
+        { projectId, windowStart, windowMs },
+        {
+          jobId: `digest:${projectId}:${windowStart}`,
+          delay,
+          removeOnComplete: { age: 6 * 3600 },
+          removeOnFail: 50,
+        },
+      );
+      return;
+    }
+
+    // Immediate path — unchanged from today.
     const summary = findings.map((f) => `[${f.detectorName}] ${f.summary}`).join("\n");
     const detectorName = findings.map((f) => f.detectorName).join(", ");
     const common = { detectorName, projectName, summary, rcaResult, traceId, projectId };
@@ -349,7 +405,12 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
         rcaProvider: true,
         rcaSource: true,
         alertConfig: {
-          select: { emailAddresses: true, slackChannelId: true, slackChannelName: true },
+          select: {
+            emailAddresses: true,
+            slackChannelId: true,
+            slackChannelName: true,
+            alertWindow: true,
+          },
         },
         workspace: {
           select: {
@@ -361,6 +422,7 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
       },
     });
     emailAddresses = project?.alertConfig?.emailAddresses ?? [];
+    alertWindow = project?.alertConfig?.alertWindow ?? "off";
 
     const slack = project?.workspace?.slackIntegration ?? null;
     slackChannelId = project?.alertConfig?.slackChannelId ?? slack?.channelId ?? null;
