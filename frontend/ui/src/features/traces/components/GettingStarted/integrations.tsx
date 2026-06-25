@@ -279,6 +279,23 @@ TraceRoot.initialize({
     },
   },
   {
+    id: "pi",
+    name: "pi",
+    href: "https://traceroot.ai/docs/integrations/pi",
+    category: "framework",
+    logo: "/logo/integrations/pi.svg",
+    logoDark: "/logo/integrations/pi-dark.svg",
+    languages: {
+      typescript: {
+        installCommand: "pi install npm:@traceroot-ai/pi-extension",
+        initSnippet: `# Enable tracing, point pi at TraceRoot, then run pi as usual
+export TRACEROOT_ENABLED=true
+export TRACEROOT_API_KEY=<your-api-key>
+pi`,
+      },
+    },
+  },
+  {
     id: "pydantic-ai",
     name: "Pydantic AI",
     href: "https://traceroot.ai/docs/integrations/pydantic-ai",
