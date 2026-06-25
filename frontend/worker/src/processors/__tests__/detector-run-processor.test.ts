@@ -158,6 +158,30 @@ describe("processTrace — finding + RCA", () => {
     );
   });
 
+  it("handles corrupted spansJsonl gracefully when filtering", async () => {
+    mockFetches(60_000, '{"name": "broken-json", \n'); // Invalid JSON
+    mockPrisma.detector.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        name: "Filtered",
+        prompt: "p",
+        outputSchema: [],
+        detectionModel: null,
+        detectionProvider: null,
+        detectionSource: "system",
+        enableRca: false,
+        filterSpanName: "target-span",
+      },
+    ]);
+    const job = makeJob();
+    await handleDetectorRunJob(job);
+    
+    expect(mockRunDetection).not.toHaveBeenCalled();
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", findingId: null })
+    );
+  });
+
   it("filters spans and passes only matches to LLM if filterSpanName is set", async () => {
     // Trace has a mix of spans
     mockFetches(60_000, '{"name": "other-span", "span":1}\n{"name": "target-span", "span":2}\n');
