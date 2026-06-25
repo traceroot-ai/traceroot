@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ALERT_WINDOWS, type AlertWindow } from "@traceroot/core";
+import { ALERT_WINDOWS, DEFAULT_ALERT_WINDOW, type AlertWindow } from "@traceroot/core";
 import { updateProject } from "@/lib/api";
 import { useProject } from "@/features/projects/hooks";
 import { useSlackStatus } from "@/features/integrations/hooks/useSlackIntegration";
@@ -22,14 +22,6 @@ import {
   type ModelSelection,
 } from "@/features/ai-assistant/components/model-selector";
 import { AlertChannelsEditor } from "@/features/detectors/components/alert-channels-editor";
-
-const WINDOW_LABELS: Record<AlertWindow, string> = {
-  off: "Off",
-  "5m": "Every 5m",
-  "30m": "Every 30m",
-  "1h": "Every 1h",
-  "2h": "Every 2h",
-};
 
 interface DetectorsTabProps {
   projectId: string;
@@ -47,7 +39,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
     adapter: "",
   });
   const [emailAddresses, setEmailAddresses] = useState<string[]>([]);
-  const [alertWindow, setAlertWindow] = useState<AlertWindow>("off");
+  const [alertWindow, setAlertWindow] = useState<AlertWindow>(DEFAULT_ALERT_WINDOW);
 
   useEffect(() => {
     if (project) {
@@ -58,7 +50,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
         source: (project.rca_source as "system" | "byok") ?? "system",
       }));
       setEmailAddresses(project.alert_emails ?? []);
-      setAlertWindow((project.alert_window as AlertWindow) ?? "off");
+      setAlertWindow((project.alert_window as AlertWindow) ?? DEFAULT_ALERT_WINDOW);
     }
   }, [project]);
 
@@ -106,7 +98,8 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
   const isEmailsDirty =
     emailAddresses.length !== savedEmails.length ||
     emailAddresses.some((e, i) => e !== savedEmails[i]);
-  const isWindowDirty = alertWindow !== ((project?.alert_window as AlertWindow) ?? "off");
+  const isWindowDirty =
+    alertWindow !== ((project?.alert_window as AlertWindow) ?? DEFAULT_ALERT_WINDOW);
   // Save is only meaningful once the project query has resolved.
   const canSave = !!project;
 
@@ -213,14 +206,14 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
               <SelectContent>
                 {(Object.keys(ALERT_WINDOWS) as AlertWindow[]).map((w) => (
                   <SelectItem key={w} value={w} className="text-[12px]">
-                    {WINDOW_LABELS[w]}
+                    {`Every ${w}`}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <p className="mt-2 text-[12px] text-muted-foreground">
-            Off sends an alert per finding. A window batches a burst into one digest.
+            Detector findings in each window are batched into one digest.
           </p>
           <Button
             size="sm"
