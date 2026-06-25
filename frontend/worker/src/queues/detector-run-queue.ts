@@ -19,7 +19,7 @@ export interface DetectorRcaJob {
   traceId: string;
   workspaceId: string;
   findings: DetectorRcaFinding[];
-  // epoch ms; worker capture time, used to key the digest window. Optional
+  // epoch ms; stamped on the detector rows + keys the digest window. Optional
   // because legacy jobs serialized to Redis before this field existed deserialize
   // without it — scheduleDigestFlush guards the undefined case.
   findingTimestamp?: number;

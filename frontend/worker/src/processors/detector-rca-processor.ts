@@ -293,9 +293,9 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
   let alertWindow: string = DEFAULT_ALERT_WINDOW;
 
   // Every detector alert is a windowed digest: schedule one deduped flush per
-  // (project, windowStart) keyed off the worker's finding-capture time, which is
-  // close to (but a few ms before) the server-stamped detector_runs.timestamp
-  // the flush reads back. The deterministic jobId makes
+  // (project, windowStart) keyed off the finding timestamp, which the worker also
+  // stamps onto the detector_runs the flush counts — so the window the key selects
+  // and the window the count reads are identical. The deterministic jobId makes
   // the first finding of the window schedule the flush and every later finding a
   // no-op enqueue. Age-based retention keeps a late re-enqueue (slow RCA) a no-op
   // past the largest window + RCA tail. Findings must never fail silently, so
