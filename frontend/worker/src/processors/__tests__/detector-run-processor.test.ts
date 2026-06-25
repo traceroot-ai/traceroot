@@ -131,6 +131,73 @@ describe("handleDetectorRunJob — quiescence gate", () => {
 });
 
 describe("processTrace — finding + RCA", () => {
+  it("skips LLM evaluation if filterSpanName is set but no matching spans exist", async () => {
+    // Trace has a span named "other-span", but detector wants "target-span"
+    mockFetches(60_000, '{"name": "other-span", "span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        name: "Filtered",
+        prompt: "p",
+        outputSchema: [],
+        detectionModel: null,
+        detectionProvider: null,
+        detectionSource: "system",
+        enableRca: false,
+        filterSpanName: "target-span",
+      },
+    ]);
+    const job = makeJob();
+    await handleDetectorRunJob(job);
+    
+    // The run detection logic should be completely skipped!
+    expect(mockRunDetection).not.toHaveBeenCalled();
+    // But it SHOULD log the run as completed to DB
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "completed", findingId: null })
+    );
+  });
+
+  it("filters spans and passes only matches to LLM if filterSpanName is set", async () => {
+    // Trace has a mix of spans
+    mockFetches(60_000, '{"name": "other-span", "span":1}\n{"name": "target-span", "span":2}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        name: "Filtered",
+        prompt: "p",
+        outputSchema: [],
+        detectionModel: null,
+        detectionProvider: null,
+        detectionSource: "system",
+        enableRca: false,
+        filterSpanName: "target-span",
+      },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: false,
+      summary: "",
+      data: {},
+      inferenceCost: 0,
+      inferenceInputTokens: 0,
+      inferenceOutputTokens: 0,
+      inferenceSource: "system",
+      inferenceModel: "m",
+      inferenceProvider: "p",
+    });
+
+    const job = makeJob();
+    await handleDetectorRunJob(job);
+    
+    // The LLM SHOULD be called, but only with the matching span
+    expect(mockRunDetection).toHaveBeenCalledWith(
+      expect.objectContaining({ spansJsonl: '{"name":"target-span","span":2}' })
+    );
+    expect(mockWriteRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "completed", findingId: null })
+    );
+  });
+
   it("writes a finding, runs, and an RCA job when a detector triggers", async () => {
     mockFetches(60_000, '{"span":1}\n');
     mockPrisma.detector.findMany.mockResolvedValue([
@@ -143,6 +210,7 @@ describe("processTrace — finding + RCA", () => {
         detectionProvider: null,
         detectionSource: "system",
         enableRca: true,
+        filterSpanName: null,
       },
     ]);
     mockRunDetection.mockResolvedValue({
