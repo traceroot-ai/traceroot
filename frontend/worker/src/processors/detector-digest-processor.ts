@@ -30,6 +30,12 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
   const start = new Date(windowStart);
   const end = new Date(windowStart + windowMs);
 
+  // Resolve alert channels first: a project with no Slack channel and no email
+  // recipients has nowhere to send, so skip the count + per-detector reads for a
+  // digest that would fan out to nowhere.
+  const recipients = await resolveRecipients(projectId);
+  if (!recipients) return;
+
   const counts = await readDetectorCounts(projectId, start, end);
   const triggeredIds = Object.keys(counts).filter((id) => counts[id].finding_count > 0);
   if (triggeredIds.length === 0) return; // nothing triggered in the window
@@ -47,7 +53,7 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
   const entries = await buildEntries(projectId, detectorIds, nameById, counts, start, end);
   const total = entries.reduce((sum, e) => sum + e.findingCount, 0);
 
-  await fanOut({ projectId, windowStart: start, windowEnd: end, total, entries });
+  await fanOut(recipients, { projectId, windowStart: start, windowEnd: end, total, entries });
 }
 
 /**
@@ -80,14 +86,23 @@ interface DigestContent {
   entries: DigestEntry[];
 }
 
+interface DigestRecipients {
+  projectName: string;
+  workspaceId: string;
+  slackChannelId: string | null;
+  encryptedBotToken: string | null;
+  emailAddresses: string[];
+}
+
 /**
- * Resolve recipients/token fresh at flush time and fan the digest out to every
- * configured channel (Slack + email). Per-channel failures are logged, never
- * thrown, so one channel can't block the other.
+ * Resolve the project's alert channels once, up front. Returns null when the
+ * project is gone or has nothing configured (no Slack channel + bot token, no
+ * email recipients), so the caller can skip the rest of the flush for a digest
+ * that would fan out to nowhere.
  */
-async function fanOut(content: DigestContent): Promise<void> {
+async function resolveRecipients(projectId: string): Promise<DigestRecipients | null> {
   const project = await prisma.project.findUnique({
-    where: { id: content.projectId },
+    where: { id: projectId },
     select: {
       name: true,
       alertConfig: { select: { emailAddresses: true, slackChannelId: true } },
@@ -96,29 +111,47 @@ async function fanOut(content: DigestContent): Promise<void> {
       },
     },
   });
-  if (!project) return;
+  if (!project) return null;
 
   const slack = project.workspace?.slackIntegration ?? null;
   const slackChannelId = project.alertConfig?.slackChannelId ?? slack?.channelId ?? null;
+  const slackReady = Boolean(slackChannelId && slack?.botToken);
   const emailAddresses = project.alertConfig?.emailAddresses ?? [];
-  const payload = { ...content, projectName: project.name };
+  if (!slackReady && emailAddresses.length === 0) return null; // nowhere to send
+
+  return {
+    projectName: project.name,
+    workspaceId: project.workspace!.id,
+    slackChannelId: slackReady ? slackChannelId : null,
+    encryptedBotToken: slackReady ? slack!.botToken : null,
+    emailAddresses,
+  };
+}
+
+/**
+ * Fan the digest out to every configured channel (Slack + email) using the
+ * already-resolved recipients. Per-channel failures are logged, never thrown,
+ * so one channel can't block the other.
+ */
+async function fanOut(recipients: DigestRecipients, content: DigestContent): Promise<void> {
+  const payload = { ...content, projectName: recipients.projectName };
 
   const tasks: Promise<unknown>[] = [];
-  if (slackChannelId && slack?.botToken) {
+  if (recipients.slackChannelId && recipients.encryptedBotToken) {
     tasks.push(
       sendDigestAlertSlack({
-        workspaceId: project.workspace!.id,
-        encryptedBotToken: slack.botToken,
-        channelId: slackChannelId,
+        workspaceId: recipients.workspaceId,
+        encryptedBotToken: recipients.encryptedBotToken,
+        channelId: recipients.slackChannelId,
         ...payload,
       }).catch((e) =>
         console.error(`[Digest] Slack send failed for project ${content.projectId}:`, e),
       ),
     );
   }
-  if (emailAddresses.length > 0) {
+  if (recipients.emailAddresses.length > 0) {
     tasks.push(
-      sendDigestAlertEmail({ to: emailAddresses, ...payload }).catch((e) =>
+      sendDigestAlertEmail({ to: recipients.emailAddresses, ...payload }).catch((e) =>
         console.error(`[Digest] Email send failed for project ${content.projectId}:`, e),
       ),
     );

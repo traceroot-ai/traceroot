@@ -120,7 +120,9 @@ describe("flushDigest", () => {
 
     await run();
 
-    expect(projectFindUnique).not.toHaveBeenCalled();
+    // resolveRecipients runs first (project has channels), but we still bail at
+    // the RCA-disabled filter before building entries or sending.
+    expect(readLatestFinding).not.toHaveBeenCalled();
     expect(sendDigestAlertSlack).not.toHaveBeenCalled();
     expect(sendDigestAlertEmail).not.toHaveBeenCalled();
   });
@@ -143,6 +145,22 @@ describe("flushDigest", () => {
 
     await run();
 
+    expect(readDetectorCounts).not.toHaveBeenCalled(); // resolved first, bailed before the count read
+    expect(sendDigestAlertSlack).not.toHaveBeenCalled();
+    expect(sendDigestAlertEmail).not.toHaveBeenCalled();
+  });
+
+  it("short-circuits before reading counts when the project has no channels", async () => {
+    projectFindUnique.mockResolvedValue({
+      name: "Acme Corp",
+      alertConfig: { emailAddresses: [], slackChannelId: null },
+      workspace: { id: "ws1", slackIntegration: null },
+    });
+
+    await run();
+
+    expect(readDetectorCounts).not.toHaveBeenCalled();
+    expect(detectorFindMany).not.toHaveBeenCalled();
     expect(sendDigestAlertSlack).not.toHaveBeenCalled();
     expect(sendDigestAlertEmail).not.toHaveBeenCalled();
   });
