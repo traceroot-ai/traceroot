@@ -24,6 +24,7 @@ sep "SETUP: drop and recreate spike database, users, profiles"
 
 $CH --query "DROP DATABASE IF EXISTS spike"
 $CH --query "DROP USER IF EXISTS spike_ro"          || true
+$CH --query "DROP USER IF EXISTS spike_writer"      || true
 $CH --query "DROP USER IF EXISTS spike_tiny_cap"    || true
 $CH --query "DROP USER IF EXISTS spike_http_test"   || true
 $CH --query "DROP SETTINGS PROFILE IF EXISTS spike_ro_profile"       || true
