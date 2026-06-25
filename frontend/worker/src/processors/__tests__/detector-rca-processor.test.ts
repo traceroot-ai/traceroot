@@ -360,4 +360,52 @@ describe("processRcaJob — digest scheduling at the flush seam", () => {
     expect(payload.windowStart % 1_800_000).toBe(0);
     expect(opts.jobId).toMatch(/^digest:p1:\d+$/);
   });
+
+  it("does not revert a completed RCA to failed when the digest enqueue throws", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
+      billingPlan: "pro",
+      rcaBlocked: false,
+    } as any);
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+    const updateSpy = vi.spyOn(p.detectorRca, "update").mockResolvedValue({} as any);
+    vi.spyOn(p.gitHubInstallation, "count").mockResolvedValue(0);
+    vi.spyOn(p.project, "findUnique").mockResolvedValue({
+      rcaModel: null,
+      rcaProvider: null,
+      rcaSource: null,
+      alertConfig: { alertWindow: "30m" },
+    } as any);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        body: {
+          getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }),
+        },
+      });
+
+    // RCA completes, then the digest enqueue fails on the success path.
+    digestAddMock.mockRejectedValueOnce(new Error("redis down"));
+
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(
+      processRcaJob({
+        data: {
+          findingId: "f1",
+          projectId: "p1",
+          traceId: "t1",
+          workspaceId: "ws1",
+          findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+          findingTimestamp: 1_700_000_123_456,
+        },
+      } as any),
+    ).rejects.toThrow("redis down"); // propagates so BullMQ retries
+
+    // The RCA was marked done; the enqueue failure must NOT flip it to failed.
+    const statuses = updateSpy.mock.calls.map((c) => (c[0] as any)?.data?.status);
+    expect(statuses).toContain("done");
+    expect(statuses).not.toContain("failed");
+  });
 });
