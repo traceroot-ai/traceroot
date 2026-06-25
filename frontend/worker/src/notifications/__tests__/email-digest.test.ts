@@ -87,4 +87,20 @@ describe("sendDigestAlertEmail", () => {
 
     expect(sendMail).not.toHaveBeenCalled();
   });
+
+  it("omits the latest-trace segment when an entry has no latest trace", async () => {
+    const { sendDigestAlertEmail } = await import("../email.js");
+    await sendDigestAlertEmail({
+      ...baseParams,
+      entries: [
+        { detectorId: "d1", detectorName: "Hallucination", findingCount: 2, latestTraceId: "" },
+      ],
+    });
+
+    const mail = sendMail.mock.calls[0][0];
+    expect(mail.html).toContain("Hallucination");
+    expect(mail.html).not.toContain("latest");
+    expect(mail.html).not.toContain('href=""');
+    expect(mail.text).not.toContain("latest");
+  });
 });

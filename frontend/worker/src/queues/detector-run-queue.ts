@@ -18,9 +18,8 @@ export interface DetectorRcaJob {
   projectId: string;
   traceId: string;
   workspaceId: string;
-  projectName: string;
   findings: DetectorRcaFinding[];
-  findingTimestamp: number; // epoch ms; mirrors the server-stamped detector_runs.timestamp
+  findingTimestamp: number; // epoch ms; worker capture time, used to key the digest window
 }
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";

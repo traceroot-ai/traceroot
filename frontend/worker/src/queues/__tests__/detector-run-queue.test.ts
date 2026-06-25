@@ -36,7 +36,6 @@ describe("DetectorRcaJob type shape", () => {
       projectId: "proj-789",
       traceId: "trace-abc",
       workspaceId: "ws-111",
-      projectName: "My Project",
       findings: [
         {
           detectorId: "det-456",

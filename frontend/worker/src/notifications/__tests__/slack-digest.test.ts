@@ -10,7 +10,6 @@ const hasEntitlement = vi.fn();
 
 vi.mock("@traceroot/slack", () => ({
   createSlackClient: (token: string) => createSlackClient(token),
-  buildCombinedAlertBlocks: () => [{ type: "section", text: { type: "mrkdwn", text: "block" } }],
   buildDigestAlertBlocks: (...a: unknown[]) => buildDigestAlertBlocks(...(a as [])),
 }));
 vi.mock("@traceroot/core", () => ({
