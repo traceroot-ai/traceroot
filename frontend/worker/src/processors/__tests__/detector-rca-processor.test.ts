@@ -278,7 +278,10 @@ describe("processRcaJob — digest scheduling at the flush seam", () => {
   // Drive a full successful RCA run so scheduleDigestFlush fires in the try path.
   // alertConfig is the only variable across the cases below; pass null to model
   // a project with no explicit window (should fall back to DEFAULT_ALERT_WINDOW).
-  async function runWithAlertConfig(alertConfig: { alertWindow: string } | null) {
+  async function runWithAlertConfig(
+    alertConfig: { alertWindow: string } | null,
+    findingTimestamp: number | undefined,
+  ) {
     const { prisma: p } = await import("@traceroot/core");
     vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
       billingPlan: "pro",
@@ -312,13 +315,13 @@ describe("processRcaJob — digest scheduling at the flush seam", () => {
         traceId: "t1",
         workspaceId: "ws1",
         findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
-        findingTimestamp: 1_700_000_123_456,
+        findingTimestamp,
       },
     } as any);
   }
 
   it("enqueues one deduped flush job for the configured window", async () => {
-    await runWithAlertConfig({ alertWindow: "30m" });
+    await runWithAlertConfig({ alertWindow: "30m" }, 1_700_000_123_456);
 
     expect(digestAddMock).toHaveBeenCalledTimes(1);
     expect(digestAddMock).toHaveBeenCalledWith(
@@ -333,7 +336,7 @@ describe("processRcaJob — digest scheduling at the flush seam", () => {
   });
 
   it("falls back to the 10m default window when the project has no alert config", async () => {
-    await runWithAlertConfig(null);
+    await runWithAlertConfig(null, 1_700_000_123_456);
 
     expect(digestAddMock).toHaveBeenCalledTimes(1);
     expect(digestAddMock).toHaveBeenCalledWith(
@@ -345,5 +348,16 @@ describe("processRcaJob — digest scheduling at the flush seam", () => {
       }),
       expect.objectContaining({ jobId: expect.stringMatching(/^digest:p1:\d+$/) }),
     );
+  });
+
+  it("falls back to a current-window key when a legacy job carries no findingTimestamp", async () => {
+    await runWithAlertConfig({ alertWindow: "30m" }, undefined);
+
+    expect(digestAddMock).toHaveBeenCalledTimes(1);
+    const [, payload, opts] = digestAddMock.mock.calls[0];
+    // No NaN leaks into the window key, jobId, or flush payload.
+    expect(Number.isFinite(payload.windowStart)).toBe(true);
+    expect(payload.windowStart % 1_800_000).toBe(0);
+    expect(opts.jobId).toMatch(/^digest:p1:\d+$/);
   });
 });
