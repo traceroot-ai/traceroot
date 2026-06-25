@@ -35,7 +35,7 @@ describe("GET /api/projects/[projectId]", () => {
     });
 
     const { GET } = await import("../[projectId]/route");
-    const res = await GET(new Request("http://localhost/"), {
+    const res = await GET((new Request("http://localhost/")) as any, {
       params: Promise.resolve({ projectId: "p1" }),
     } as any);
     const body = await res.json();
