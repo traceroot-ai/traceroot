@@ -105,10 +105,20 @@ function formatWindowRange(start: Date, end: Date): string {
     : `${day(start)} ${time(start)} – ${day(end)} ${time(end)} UTC`;
 }
 
+// Slack rejects a message with more than 50 blocks. The digest spends 4 on the
+// header, two dividers, and the footer, leaving 46 for the per-detector lines.
+const MAX_DIGEST_LINES = 46;
+
 export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
   const { appBaseUrl, projectId, projectName, windowStart, windowEnd, total, entries } = params;
   const noun = total === 1 ? "finding" : "findings";
   const headerText = truncate(`${total} ${noun} in ${projectName}`, 150);
+
+  // Cap the rendered detector lines so a project with many triggered detectors
+  // can't blow the 50-block limit and fail the whole send. When we truncate,
+  // one line is spent on an overflow note, so only 45 detectors are listed.
+  const overflow = entries.length > MAX_DIGEST_LINES;
+  const shown = overflow ? entries.slice(0, MAX_DIGEST_LINES - 1) : entries;
 
   // date_filter=custom is REQUIRED — the detector page's useUrlDateFilter only
   // hydrates a custom start/end when date_filter=custom is present; without it
@@ -118,7 +128,7 @@ export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
     `&start=${encodeURIComponent(windowStart.toISOString())}` +
     `&end=${encodeURIComponent(windowEnd.toISOString())}`;
 
-  const lines = entries.map((e) => {
+  const lines = shown.map((e) => {
     const findingsUrl = `${appBaseUrl}/projects/${encodeURIComponent(projectId)}/detectors/${encodeURIComponent(e.detectorId)}?${range}`;
     const traceUrl = `${appBaseUrl}/projects/${encodeURIComponent(projectId)}/traces?traceId=${encodeURIComponent(e.latestTraceId)}`;
     const shortTrace = e.latestTraceId.slice(0, 8);
@@ -131,6 +141,14 @@ export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
       (e.latestTraceId ? ` · latest: <${traceUrl}|${shortTrace}>` : "");
     return { type: "section", text: { type: "mrkdwn", text: truncate(text) } };
   });
+
+  if (overflow) {
+    const more = entries.length - shown.length;
+    lines.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `_+${more} more detector${more === 1 ? "" : "s"}_` },
+    });
+  }
 
   const detectorCount = entries.length;
   const footer =
