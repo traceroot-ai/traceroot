@@ -106,6 +106,19 @@ export function SessionDetailPanel({
     return registerAiHost();
   }, [registerAiHost]);
 
+  // Close the panel on Escape. A nested Radix overlay (dialog/select/popover/menu) that
+  // consumes the Escape calls preventDefault() in the capture phase, before this
+  // bubble-phase listener runs — so defaultPrevented means "already handled, leave the panel open".
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (e.defaultPrevented) return;
+      onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   // Compute timestamps from date filter props
   const sessionQueryOptions = useMemo(() => {
     if (!dateFilter) return {};
