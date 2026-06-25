@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma, Role, isAlertWindow } from "@traceroot/core";
+import { prisma, Role, isAlertWindow, DEFAULT_ALERT_WINDOW } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -65,7 +65,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     rca_provider: project.rcaProvider,
     rca_source: project.rcaSource,
     alert_emails: project.alertConfig?.emailAddresses ?? [],
-    alert_window: project.alertConfig?.alertWindow ?? "off",
+    alert_window: project.alertConfig?.alertWindow ?? DEFAULT_ALERT_WINDOW,
     access_keys: project.accessKeys.map((k) => ({
       id: k.id,
       key_hint: k.keyHint,
@@ -169,7 +169,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     rca_provider: project.rcaProvider,
     rca_source: project.rcaSource,
     alert_emails: project.alertConfig?.emailAddresses ?? [],
-    alert_window: project.alertConfig?.alertWindow ?? "off",
+    alert_window: project.alertConfig?.alertWindow ?? DEFAULT_ALERT_WINDOW,
     update_time: project.updateTime,
   });
 }

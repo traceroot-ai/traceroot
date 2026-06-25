@@ -75,7 +75,7 @@ describe("project PATCH alert_window", () => {
     expect(json.alert_window).toBe("1h");
   });
 
-  it("GET returns the project's alert_window (defaulting to off)", async () => {
+  it("GET returns the project's configured alert_window", async () => {
     findFirst.mockResolvedValueOnce({
       id: "p1",
       name: "Proj",

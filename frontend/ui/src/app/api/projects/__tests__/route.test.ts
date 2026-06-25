@@ -14,6 +14,7 @@ vi.mock("@/lib/auth-helpers", () => ({
 
 vi.mock("@traceroot/core", () => ({
   prisma: { project: { findFirst: (...a: any[]) => mockFindFirst(...a) } },
+  DEFAULT_ALERT_WINDOW: "10m",
 }));
 
 describe("GET /api/projects/[projectId]", () => {
@@ -41,5 +42,7 @@ describe("GET /api/projects/[projectId]", () => {
     const body = await res.json();
     expect(body.rca_provider).toBe("my-openai");
     expect(body.rca_source).toBe("byok");
+    // alertConfig has no alertWindow here, so the response uses the default.
+    expect(body.alert_window).toBe("10m");
   });
 });

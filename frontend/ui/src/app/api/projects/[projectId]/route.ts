@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, DEFAULT_ALERT_WINDOW } from "@traceroot/core";
 import {
   requireAuth,
   requireProjectAccess,
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     rca_provider: project.rcaProvider,
     rca_source: project.rcaSource,
     alert_emails: project.alertConfig?.emailAddresses ?? [],
-    alert_window: project.alertConfig?.alertWindow ?? "off",
+    alert_window: project.alertConfig?.alertWindow ?? DEFAULT_ALERT_WINDOW,
     access_key_count: project._count.accessKeys,
     create_time: project.createTime,
     update_time: project.updateTime,

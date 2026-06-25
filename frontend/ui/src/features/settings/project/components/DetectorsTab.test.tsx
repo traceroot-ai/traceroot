@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   project: {
     workspace_id: "w1",
     alert_emails: [] as string[],
-    alert_window: "off",
+    alert_window: "10m",
   } as any,
   updateProject: vi.fn().mockResolvedValue({}),
 }));
@@ -71,7 +71,7 @@ function renderTab() {
 afterEach(() => {
   cleanup();
   mocks.updateProject.mockReset().mockResolvedValue({});
-  mocks.project.alert_window = "off";
+  mocks.project.alert_window = "10m";
 });
 
 describe("DetectorsTab alert window", () => {
@@ -83,7 +83,7 @@ describe("DetectorsTab alert window", () => {
   });
 
   it("saves a changed window via alert_window", async () => {
-    mocks.project.alert_window = "off";
+    mocks.project.alert_window = "10m";
     renderTab();
     const trigger = screen.getByRole("combobox", { name: /window/i });
     fireEvent.change(trigger, { target: { value: "2h" } });
@@ -94,7 +94,7 @@ describe("DetectorsTab alert window", () => {
   });
 
   it("disables Save window until the selection changes", () => {
-    mocks.project.alert_window = "off";
+    mocks.project.alert_window = "10m";
     renderTab();
     const save = screen.getByRole("button", { name: /save alert window/i }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);

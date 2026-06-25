@@ -393,8 +393,8 @@ model DetectorAlertConfig {
   slackChannelName String? @map("slack_channel_name") @db.VarChar
 
   // Project-level alert batching window. One of the ALERT_WINDOWS tokens.
-  // "off" preserves today's immediate per-finding alerting.
-  alertWindow String @default("off") @map("alert_window") @db.VarChar
+  // Every alert is a windowed digest; defaults to DEFAULT_ALERT_WINDOW ("10m").
+  alertWindow String @default("10m") @map("alert_window") @db.VarChar
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
