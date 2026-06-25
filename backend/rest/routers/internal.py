@@ -205,6 +205,8 @@ class DetectorRunPayload(BaseModel):
     trace_id: str = Field(alias="traceId")
     finding_id: str | None = Field(default=None, alias="findingId")
     status: str
+    # Optional worker epoch-ms time for the row; see _maybe_stamp_timestamp.
+    timestamp_ms: int | None = Field(default=None, alias="timestampMs")
 
 
 class DetectorFindingPayload(BaseModel):
@@ -215,45 +217,95 @@ class DetectorFindingPayload(BaseModel):
     trace_id: str = Field(alias="traceId")
     summary: str
     payload: str
+    # See DetectorRunPayload.timestamp_ms.
+    timestamp_ms: int | None = Field(default=None, alias="timestampMs")
+
+
+def _maybe_stamp_timestamp(
+    cols: list[str], vals: list[str], params: dict, timestamp_ms: int | None
+) -> None:
+    """Append the optional worker timestamp to an INSERT's column/value/param lists.
+
+    When ``timestamp_ms`` is provided the worker's finding-capture time is stored
+    verbatim, so the digest window count (which filters on ``timestamp``) uses the
+    same clock the flush is keyed off; when ``None`` the column is omitted and
+    ClickHouse applies its ``now64(3)`` default.
+
+    Args:
+        cols (list[str]): INSERT column names, appended in place.
+        vals (list[str]): INSERT value placeholders, appended in place.
+        params (dict): Bound query parameters, updated in place.
+        timestamp_ms (int | None): Worker epoch-ms timestamp, or None to skip.
+
+    Returns:
+        None
+    """
+    if timestamp_ms is not None:
+        cols.append("timestamp")
+        vals.append("fromUnixTimestamp64Milli({timestamp_ms:Int64})")
+        params["timestamp_ms"] = timestamp_ms
 
 
 @router.post("/detector-runs", dependencies=[Depends(verify_internal_secret)])
 async def write_detector_run(body: DetectorRunPayload):
-    """Record a detector run result in ClickHouse."""
+    """Record a detector run result in ClickHouse.
+
+    A worker-supplied ``timestamp_ms`` is written into ``timestamp`` verbatim so
+    the digest's window count uses the same clock the flush is keyed off;
+    otherwise ClickHouse defaults the column to ``now64(3)`` at INSERT.
+    """
     ch = get_clickhouse_client()
+    cols = ["run_id", "detector_id", "project_id", "trace_id", "finding_id", "status"]
+    vals = [
+        "{run_id:String}",
+        "{detector_id:String}",
+        "{project_id:String}",
+        "{trace_id:String}",
+        "{finding_id:Nullable(String)}",
+        "{status:String}",
+    ]
+    params = {
+        "run_id": body.run_id,
+        "detector_id": body.detector_id,
+        "project_id": body.project_id,
+        "trace_id": body.trace_id,
+        "finding_id": body.finding_id,
+        "status": body.status,
+    }
+    _maybe_stamp_timestamp(cols, vals, params, body.timestamp_ms)
     ch.query(
-        """INSERT INTO detector_runs
-           (run_id, detector_id, project_id, trace_id, finding_id, status)
-           VALUES ({run_id:String}, {detector_id:String}, {project_id:String},
-                   {trace_id:String}, {finding_id:Nullable(String)}, {status:String})""",
-        parameters={
-            "run_id": body.run_id,
-            "detector_id": body.detector_id,
-            "project_id": body.project_id,
-            "trace_id": body.trace_id,
-            "finding_id": body.finding_id,
-            "status": body.status,
-        },
+        f"INSERT INTO detector_runs ({', '.join(cols)}) VALUES ({', '.join(vals)})",
+        parameters=params,
     )
     return {"ok": True}
 
 
 @router.post("/detector-findings", dependencies=[Depends(verify_internal_secret)])
 async def write_detector_finding(body: DetectorFindingPayload):
-    """Record a detector finding in ClickHouse."""
+    """Record a detector finding in ClickHouse.
+
+    ``timestamp_ms`` behaves as in :func:`write_detector_run`.
+    """
     ch = get_clickhouse_client()
+    cols = ["finding_id", "project_id", "trace_id", "summary", "payload"]
+    vals = [
+        "{finding_id:String}",
+        "{project_id:String}",
+        "{trace_id:String}",
+        "{summary:String}",
+        "{payload:String}",
+    ]
+    params = {
+        "finding_id": body.finding_id,
+        "project_id": body.project_id,
+        "trace_id": body.trace_id,
+        "summary": body.summary,
+        "payload": body.payload,
+    }
+    _maybe_stamp_timestamp(cols, vals, params, body.timestamp_ms)
     ch.query(
-        """INSERT INTO detector_findings
-           (finding_id, project_id, trace_id, summary, payload)
-           VALUES ({finding_id:String}, {project_id:String},
-                   {trace_id:String}, {summary:String}, {payload:String})""",
-        parameters={
-            "finding_id": body.finding_id,
-            "project_id": body.project_id,
-            "trace_id": body.trace_id,
-            "summary": body.summary,
-            "payload": body.payload,
-        },
+        f"INSERT INTO detector_findings ({', '.join(cols)}) VALUES ({', '.join(vals)})",
+        parameters=params,
     )
     return {"ok": True}
 
