@@ -1,6 +1,9 @@
 """
 Test 7: clickhouse-connect bound parameter in parameterized view call.
 
+Prerequisite: run `scripts/spikes/clickhouse_sql_security_24_3.sh` first — it
+creates the `spike_ro` user and the `spike.spans_definer_v1` view this script uses.
+
 Connects to localhost:18123 and runs the bound-param view-call form:
   SELECT span_id FROM spike.spans_definer_v1(project_id = {scope_project_id:String})
   ORDER BY span_id
