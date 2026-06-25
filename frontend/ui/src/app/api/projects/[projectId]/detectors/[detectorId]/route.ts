@@ -68,6 +68,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     detectionModel,
     detectionProvider,
     detectionSource,
+    filterSpanName,
   } = body as Record<string, unknown>;
 
   // Validate types up-front so invalid payloads return 400 instead of crashing
@@ -105,6 +106,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     ["detectionModel", detectionModel],
     ["detectionProvider", detectionProvider],
     ["detectionSource", detectionSource],
+    ["filterSpanName", filterSpanName],
   ] as const) {
     if (val !== undefined && val !== null && typeof val !== "string") {
       return errorResponse(`${key} must be a string`, 400);
@@ -128,6 +130,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (enableRca !== undefined) detectorData.enableRca = enableRca;
   if (detectionModel !== undefined) detectorData.detectionModel = detectionModel || null;
   if (detectionProvider !== undefined) detectorData.detectionProvider = detectionProvider || null;
+  if (filterSpanName !== undefined) detectorData.filterSpanName = filterSpanName || null;
   if (detectionSource !== undefined) {
     // null/empty-string clear the field; otherwise must be a valid enum value.
     if (detectionSource === null || detectionSource === "") {
