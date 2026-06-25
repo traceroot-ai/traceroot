@@ -339,6 +339,9 @@ async def list_detector_runs(
 
     where_clause = " AND ".join(conditions)
 
+    # Read both tables with FINAL so pre-merge ReplacingMergeTree duplicates (a
+    # retried run/finding re-written under the same deterministic id) don't fan
+    # out the LEFT JOIN into duplicate rows or inflate the paginated count.
     data_query = f"""
         SELECT
             r.run_id      AS run_id,
@@ -349,8 +352,8 @@ async def list_detector_runs(
             r.status      AS status,
             r.timestamp   AS timestamp,
             {summary_expr} AS summary
-        FROM detector_runs r
-        LEFT JOIN detector_findings f
+        FROM (SELECT * FROM detector_runs FINAL) AS r
+        LEFT JOIN (SELECT * FROM detector_findings FINAL) AS f
           ON r.finding_id = f.finding_id AND r.project_id = f.project_id
         WHERE {where_clause}
         ORDER BY r.timestamp DESC
@@ -361,8 +364,8 @@ async def list_detector_runs(
 
     count_query = f"""
         SELECT count()
-        FROM detector_runs r
-        LEFT JOIN detector_findings f
+        FROM (SELECT * FROM detector_runs FINAL) AS r
+        LEFT JOIN (SELECT * FROM detector_findings FINAL) AS f
           ON r.finding_id = f.finding_id AND r.project_id = f.project_id
         WHERE {where_clause}
     """
@@ -583,6 +586,76 @@ async def get_trace_findings(trace_id: str, project_id: str):
             row_dict["timestamp"] = row_dict["timestamp"].isoformat()
         findings.append(row_dict)
     return {"findings": findings}
+
+
+@router.get(
+    "/traces/{trace_id}/detector-runs",
+    dependencies=[Depends(verify_internal_secret)],
+)
+async def list_trace_detector_runs(trace_id: str, project_id: str):
+    """List every detector run recorded against a single trace.
+
+    Both ``detector_runs`` and ``detector_findings`` are ReplacingMergeTree
+    tables that can hold pre-merge duplicates (a run/finding may be re-written
+    under the same deterministic id on a retry), so both are read with
+    ``FINAL`` to collapse to one row apiece. Triggered runs LEFT JOIN their
+    finding to surface this detector's per-detector summary string; clean runs
+    have a null ``finding_id`` and an empty summary.
+
+    Args:
+        trace_id (str): Trace whose detector runs to return.
+        project_id (str): Project that owns the trace; scopes the query.
+
+    Returns:
+        dict: ``{"runs": list[dict]}`` ordered by ``detector_id``, each run a
+            dict of ``run_id``, ``detector_id``, ``project_id``, ``trace_id``,
+            ``finding_id`` (``None`` for clean runs), ``status``, ISO-8601
+            ``timestamp`` and ``summary``. Empty when the trace has no runs.
+    """
+    ch = get_clickhouse_client()
+
+    # Per-detector summary expression; identical to list_detector_runs so the
+    # meaning of "the summary for this detector" stays in one place.
+    summary_expr = (
+        "if("
+        "  r.finding_id IS NOT NULL,"
+        "  JSONExtractString("
+        "    arrayFirst("
+        "      x -> JSONExtractString(x, 'detectorId') = r.detector_id,"
+        "      JSONExtractArrayRaw(f.payload)"
+        "    ),"
+        "    'summary'"
+        "  ),"
+        "  ''"
+        ")"
+    )
+
+    query = f"""
+        SELECT
+            r.run_id      AS run_id,
+            r.detector_id AS detector_id,
+            r.project_id  AS project_id,
+            r.trace_id    AS trace_id,
+            r.finding_id  AS finding_id,
+            r.status      AS status,
+            r.timestamp   AS timestamp,
+            {summary_expr} AS summary
+        FROM (SELECT * FROM detector_runs FINAL) AS r
+        LEFT JOIN (SELECT * FROM detector_findings FINAL) AS f
+          ON r.finding_id = f.finding_id AND r.project_id = f.project_id
+        WHERE r.trace_id = {{trace_id:String}}
+          AND r.project_id = {{project_id:String}}
+        ORDER BY r.detector_id
+    """
+    result = ch.query(query, parameters={"trace_id": trace_id, "project_id": project_id})
+
+    runs = []
+    for row in result.result_rows:
+        row_dict = dict(zip(result.column_names, row))
+        if hasattr(row_dict.get("timestamp"), "isoformat"):
+            row_dict["timestamp"] = row_dict["timestamp"].isoformat()
+        runs.append(row_dict)
+    return {"runs": runs}
 
 
 @router.get(
