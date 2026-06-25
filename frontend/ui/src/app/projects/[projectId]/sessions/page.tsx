@@ -232,35 +232,36 @@ export default function SessionsPage() {
         </div>
       </div>
 
-      {/* Detail panel - overlays right side, slides in from right (like traces) */}
+      {/* Detail panel */}
       {selectedSessionId && (
-        <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 w-[70%] border-l border-border bg-background shadow-xl">
-          <SessionDetailPanel
-            projectId={projectId}
-            sessionId={selectedSessionId}
-            onClose={() => setSelectedSessionId(null)}
-            onNavigate={(direction) => {
-              const currentIndex = sessions.findIndex(
-                (s: SessionListItem) => s.session_id === selectedSessionId,
-              );
-              if (direction === "up" && currentIndex > 0) {
-                setSelectedSessionId(sessions[currentIndex - 1].session_id);
-              } else if (direction === "down" && currentIndex < sessions.length - 1) {
-                setSelectedSessionId(sessions[currentIndex + 1].session_id);
-              }
-            }}
-            canNavigateUp={
-              sessions.findIndex((s: SessionListItem) => s.session_id === selectedSessionId) > 0
+        <SessionDetailPanel
+          projectId={projectId}
+          sessionId={selectedSessionId}
+          onClose={() => {
+            setSelectedSessionId(null);
+          }}
+          onNavigate={(direction) => {
+            const currentIndex = sessions.findIndex(
+              (s: SessionListItem) => s.session_id === selectedSessionId,
+            );
+            if (direction === "up" && currentIndex > 0) {
+              setSelectedSessionId(sessions[currentIndex - 1].session_id);
+            } else if (direction === "down" && currentIndex < sessions.length - 1) {
+              setSelectedSessionId(sessions[currentIndex + 1].session_id);
             }
-            canNavigateDown={
-              sessions.findIndex((s: SessionListItem) => s.session_id === selectedSessionId) <
-              sessions.length - 1
-            }
-            dateFilter={state.dateFilter}
-            customStartDate={state.customStartDate}
-            customEndDate={state.customEndDate}
-          />
-        </div>
+          }}
+          canNavigateUp={
+            sessions.findIndex((s: SessionListItem) => s.session_id === selectedSessionId) > 0
+          }
+          canNavigateDown={
+            sessions.findIndex((s: SessionListItem) => s.session_id === selectedSessionId) <
+            sessions.length - 1
+          }
+          dateFilter={state.dateFilter}
+          customStartDate={state.customStartDate}
+          customEndDate={state.customEndDate}
+          initialFullscreen={searchParams.get("fullscreen") === "1"}
+        />
       )}
     </div>
   );
