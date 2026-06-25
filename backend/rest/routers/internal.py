@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 from db.clickhouse.client import get_clickhouse_client
 from rest.schemas.detectors import (
     DetectorCountsResponse,
-    FindingListResponse,
     RunListResponse,
 )
 from rest.sql_utils import escape_ilike, to_utc_naive
@@ -277,6 +276,10 @@ async def list_detector_runs(
     search_query: str | None = Query(
         None, description="Substring match against trace_id OR the per-detector summary"
     ),
+    identified: bool = Query(
+        False,
+        description="When true, return only triggered runs (finding_id IS NOT NULL)",
+    ),
 ):
     """List runs for a detector, newest first.
 
@@ -288,6 +291,11 @@ async def list_detector_runs(
     per-detector summary string (the finding's `payload` is the combined
     array of all triggered detectors for the trace; we filter to the entry
     matching this run's detector_id).
+
+    Args:
+        identified (bool): When true, restrict to runs that triggered a finding
+            (``finding_id IS NOT NULL``). Defaults to false (all runs). The
+            Findings tab uses this to render itself as a filtered Runs view.
 
     Returns {data: [...], meta: {page, limit, total}}. Total is computed by a
     second COUNT query against the same WHERE clause.
@@ -311,6 +319,9 @@ async def list_detector_runs(
     if end_before is not None:
         conditions.append("r.timestamp < {end_before:DateTime64(3)}")
         params["end_before"] = to_utc_naive(end_before)
+
+    if identified:
+        conditions.append("r.finding_id IS NOT NULL")
 
     # Per-detector summary expression; reused in WHERE search and SELECT to keep
     # one source of truth for what "the summary for this detector" means.
@@ -453,100 +464,6 @@ async def get_time_since_last_span(trace_id: str, project_id: str):
     row = agg.result_rows[0] if agg.result_rows else None
     age = int(row[0]) if row and row[0] is not None else 0
     return {"time_since_last_span_ms": age}
-
-
-@router.get(
-    "/detector-findings",
-    response_model=FindingListResponse,
-    dependencies=[Depends(verify_internal_secret)],
-)
-async def list_detector_findings(
-    project_id: str,
-    detector_id: str,
-    page: int = Query(0, ge=0, description="Page number (0-indexed)"),
-    limit: int = Query(50, ge=1, le=200, description="Items per page"),
-    start_after: datetime | None = Query(
-        None, description="Filter findings at/after this timestamp (inclusive)"
-    ),
-    end_before: datetime | None = Query(
-        None, description="Filter findings strictly before this timestamp"
-    ),
-    search_query: str | None = Query(
-        None, description="Substring match against trace_id OR summary"
-    ),
-):
-    """List findings for a detector (joined through runs), newest first.
-
-    Param naming and pagination shape mirror the trace listing endpoints
-    (`page`/`limit`/`start_after`/`end_before`/`search_query`) so the same
-    `useListPageState` queryOptions can flow through unchanged.
-
-    Returns {data: [...], meta: {page, limit, total}}.
-    """
-    ch = get_clickhouse_client()
-    offset = page * limit
-
-    conditions: list[str] = [
-        "r.project_id = {project_id:String}",
-        "r.detector_id = {detector_id:String}",
-    ]
-    params: dict = {
-        "project_id": project_id,
-        "detector_id": detector_id,
-    }
-
-    if start_after is not None:
-        conditions.append("f.timestamp >= {start_after:DateTime64(3)}")
-        params["start_after"] = to_utc_naive(start_after)
-
-    if end_before is not None:
-        conditions.append("f.timestamp < {end_before:DateTime64(3)}")
-        params["end_before"] = to_utc_naive(end_before)
-
-    if search_query:
-        conditions.append(
-            "(f.trace_id ILIKE {search_kw:String} OR f.summary ILIKE {search_kw:String})"
-        )
-        params["search_kw"] = f"%{escape_ilike(search_query)}%"
-
-    where_clause = " AND ".join(conditions)
-
-    # FINAL subqueries on each side: ReplacingMergeTree dedup is async, and
-    # pre-merge duplicate rows would fan out the INNER JOIN (MxN rows per
-    # finding) and leak stale versions into the page.
-    from_join_where = f"""
-        FROM (SELECT * FROM detector_findings FINAL) AS f
-        INNER JOIN (SELECT * FROM detector_runs FINAL) AS r
-          ON f.finding_id = r.finding_id
-        WHERE {where_clause}
-    """
-    data_query = f"""
-        SELECT f.finding_id, f.project_id, f.trace_id, f.summary, f.payload, f.timestamp
-        {from_join_where}
-        ORDER BY f.timestamp DESC
-        LIMIT {{limit:Int32}} OFFSET {{offset:Int32}}
-    """
-    data_params = {**params, "limit": limit, "offset": offset}
-    result = ch.query(data_query, parameters=data_params)
-
-    count_query = f"""
-        SELECT count()
-        {from_join_where}
-    """
-    count_result = ch.query(count_query, parameters=params)
-    total = count_result.result_rows[0][0] if count_result.result_rows else 0
-
-    findings = []
-    for row in result.result_rows:
-        row_dict = dict(zip(result.column_names, row))
-        if hasattr(row_dict.get("timestamp"), "isoformat"):
-            row_dict["timestamp"] = row_dict["timestamp"].isoformat()
-        findings.append(row_dict)
-
-    return {
-        "data": findings,
-        "meta": {"page": page, "limit": limit, "total": total},
-    }
 
 
 @router.get(

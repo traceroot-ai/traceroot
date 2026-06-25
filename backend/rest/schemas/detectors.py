@@ -7,24 +7,6 @@ from pydantic import BaseModel
 from rest.schemas.common import PaginationMeta
 
 
-class FindingItem(BaseModel):
-    """Single detector finding row."""
-
-    finding_id: str
-    project_id: str
-    trace_id: str
-    summary: str
-    payload: str
-    timestamp: datetime
-
-
-class FindingListResponse(BaseModel):
-    """Paginated list of findings."""
-
-    data: list[FindingItem]
-    meta: PaginationMeta
-
-
 class RunItem(BaseModel):
     """Single detector run row, optionally joined with its finding's per-detector summary."""
 
