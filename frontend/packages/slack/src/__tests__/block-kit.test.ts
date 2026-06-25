@@ -154,4 +154,38 @@ describe("buildDigestAlertBlocks", () => {
     // ...while the URL's own query separators survive (not over-escaped to &amp;)
     expect(text).toContain("date_filter=custom&start=");
   });
+
+  it("caps detector lines at the Slack 50-block limit and notes the overflow", () => {
+    const entries = Array.from({ length: 50 }, (_, i) => ({
+      detectorId: `d${i}`,
+      detectorName: `Detector ${i}`,
+      findingCount: 1,
+      latestTraceId: `trace${i}`,
+    }));
+    const blocks = buildDigestAlertBlocks({ ...digestBase, total: 50, entries });
+
+    // never exceeds Slack's hard 50-block cap
+    expect(blocks.length).toBeLessThanOrEqual(50);
+    // 45 detector lines listed, the 46th line is the overflow note for the rest
+    expect(JSON.stringify(blocks)).toContain("_+5 more detectors_");
+    expect(JSON.stringify(blocks)).toContain("Detector 44");
+    expect(JSON.stringify(blocks)).not.toContain("Detector 45");
+    // the footer still reports the true total detector count
+    const footer = blocks.find((b: any) => b.type === "context") as any;
+    expect(footer.elements[0].text).toContain("50 detectors");
+  });
+
+  it("renders all detectors without an overflow note at the block-budget boundary", () => {
+    const entries = Array.from({ length: 46 }, (_, i) => ({
+      detectorId: `d${i}`,
+      detectorName: `Detector ${i}`,
+      findingCount: 1,
+      latestTraceId: `trace${i}`,
+    }));
+    const blocks = buildDigestAlertBlocks({ ...digestBase, total: 46, entries });
+
+    expect(blocks.length).toBe(50);
+    expect(JSON.stringify(blocks)).not.toContain("more detector");
+    expect(JSON.stringify(blocks)).toContain("Detector 45");
+  });
 });
