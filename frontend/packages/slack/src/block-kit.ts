@@ -88,9 +88,10 @@ export interface DigestAlertParams {
 }
 
 // Human-readable UTC window range for the digest footer, e.g.
-// "Jun 23, 12:00–12:30 UTC" (same day) or "Jun 23, 23:50 – Jun 24, 00:20 UTC".
-// UTC keeps it unambiguous across a channel's mixed timezones.
-function formatWindowRange(start: Date, end: Date): string {
+// "Jun 23, 12:00–12:30 UTC" (same day) or "Jun 23 23:50 – Jun 24 00:20 UTC".
+// UTC keeps it unambiguous across a channel's mixed timezones. Exported so the
+// email digest renders the identical range without duplicating the formatter.
+export function formatWindowRange(start: Date, end: Date): string {
   const day = (d: Date) =>
     new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(d);
   const time = (d: Date) =>
