@@ -4,8 +4,6 @@ const fetchProviderConfigMock = vi.fn();
 const resolvePiModelMock = vi.fn();
 const modelProviderFindMany = vi.fn().mockResolvedValue([]);
 const digestAddMock = vi.fn().mockResolvedValue(undefined);
-const sendEmailMock = vi.fn().mockResolvedValue(undefined);
-const sendSlackMock = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@traceroot/core/model-resolver", async () => ({
   fetchProviderConfig: (...args: any[]) => fetchProviderConfigMock(...args),
@@ -16,14 +14,6 @@ vi.mock("../../queues/digest-queue.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../queues/digest-queue.js")>();
   return { ...actual, createDetectorDigestQueue: () => ({ add: digestAddMock }) };
 });
-
-vi.mock("../../notifications/email.js", () => ({
-  sendCombinedAlertEmail: (...args: any[]) => sendEmailMock(...args),
-}));
-
-vi.mock("../../notifications/slack.js", () => ({
-  sendCombinedAlertSlack: (...args: any[]) => sendSlackMock(...args),
-}));
 
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
@@ -45,8 +35,6 @@ afterEach(() => {
   modelProviderFindMany.mockReset();
   modelProviderFindMany.mockResolvedValue([]);
   digestAddMock.mockReset().mockResolvedValue(undefined);
-  sendEmailMock.mockReset().mockResolvedValue(undefined);
-  sendSlackMock.mockReset().mockResolvedValue(undefined);
 });
 
 describe("resolveProjectModel", () => {
@@ -214,7 +202,6 @@ describe("processRcaJob", () => {
         projectId: "p1",
         traceId: "t1",
         workspaceId: "ws1",
-        projectName: "test",
         findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
       },
     } as any);
@@ -242,7 +229,6 @@ describe("processRcaJob", () => {
         projectId: "p1",
         traceId: "t1",
         workspaceId: "ws1",
-        projectName: "test",
         findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
       },
     } as any);
@@ -274,7 +260,6 @@ describe("processRcaJob", () => {
           projectId: "p1",
           traceId: "t1",
           workspaceId: "ws1",
-          projectName: "test",
           findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
         },
       } as any),
@@ -289,10 +274,11 @@ describe("processRcaJob", () => {
   });
 });
 
-describe("processRcaJob — digest scheduling at the sendAlert seam", () => {
-  // Drive a full successful RCA run so sendAlert(rcaResult) fires in the try
-  // path. alertWindow is the only variable across the two cases below.
-  async function runWithWindow(alertWindow: string) {
+describe("processRcaJob — digest scheduling at the flush seam", () => {
+  // Drive a full successful RCA run so scheduleDigestFlush fires in the try path.
+  // alertConfig is the only variable across the cases below; pass null to model
+  // a project with no explicit window (should fall back to DEFAULT_ALERT_WINDOW).
+  async function runWithAlertConfig(alertConfig: { alertWindow: string } | null) {
     const { prisma: p } = await import("@traceroot/core");
     vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
       billingPlan: "pro",
@@ -305,13 +291,7 @@ describe("processRcaJob — digest scheduling at the sendAlert seam", () => {
       rcaModel: null,
       rcaProvider: null,
       rcaSource: null,
-      alertConfig: {
-        emailAddresses: ["alert@example.com"],
-        slackChannelId: null,
-        slackChannelName: null,
-        alertWindow,
-      },
-      workspace: { slackIntegration: null },
+      alertConfig,
     } as any);
 
     // Agent session create + empty SSE stream → RCA completes with "".
@@ -331,15 +311,14 @@ describe("processRcaJob — digest scheduling at the sendAlert seam", () => {
         projectId: "p1",
         traceId: "t1",
         workspaceId: "ws1",
-        projectName: "test",
         findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
         findingTimestamp: 1_700_000_123_456,
       },
     } as any);
   }
 
-  it("enqueues one deduped flush job for a windowed project and skips fan-out", async () => {
-    await runWithWindow("30m");
+  it("enqueues one deduped flush job for the configured window", async () => {
+    await runWithAlertConfig({ alertWindow: "30m" });
 
     expect(digestAddMock).toHaveBeenCalledTimes(1);
     expect(digestAddMock).toHaveBeenCalledWith(
@@ -351,14 +330,20 @@ describe("processRcaJob — digest scheduling at the sendAlert seam", () => {
       }),
       expect.objectContaining({ jobId: expect.stringMatching(/^digest:p1:\d+$/) }),
     );
-    expect(sendEmailMock).not.toHaveBeenCalled();
-    expect(sendSlackMock).not.toHaveBeenCalled();
   });
 
-  it("fans out immediately and schedules no flush for an off project", async () => {
-    await runWithWindow("off");
+  it("falls back to the 10m default window when the project has no alert config", async () => {
+    await runWithAlertConfig(null);
 
-    expect(digestAddMock).not.toHaveBeenCalled();
-    expect(sendEmailMock).toHaveBeenCalledTimes(1);
+    expect(digestAddMock).toHaveBeenCalledTimes(1);
+    expect(digestAddMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        projectId: "p1",
+        windowMs: 600_000,
+        windowStart: Math.floor(1_700_000_123_456 / 600_000) * 600_000,
+      }),
+      expect.objectContaining({ jobId: expect.stringMatching(/^digest:p1:\d+$/) }),
+    );
   });
 });

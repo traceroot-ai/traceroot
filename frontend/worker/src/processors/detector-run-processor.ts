@@ -281,14 +281,12 @@ async function evaluateTrace(
     prisma.project.findUnique({
       where: { id: projectId },
       select: {
-        name: true,
         workspaceId: true,
         workspace: { select: { billingPlan: true, detectorBlocked: true } },
       },
     }),
   ]);
 
-  const projectName = project?.name ?? "";
   const workspaceId = project?.workspaceId ?? "";
 
   // Free-plan detector cap enforcement — read the cached `detectorBlocked`
@@ -382,9 +380,11 @@ async function evaluateTrace(
     })),
   );
 
-  // Stamp the finding's detection time here, alongside the run write, so the
-  // digest flush is keyed off the same clock as the server-stamped
-  // detector_runs.timestamp it later reads back from ClickHouse.
+  // Worker capture time for this finding, used to key the digest window. Note
+  // this is close to but not identical to the server-stamped
+  // detector_runs.timestamp the flush reads back (the row is stamped a few ms
+  // later, at INSERT), so a finding within that margin of a window boundary can
+  // land in an adjacent count window. Sub-second and boundary-only today.
   const findingTimestamp = Date.now();
 
   await writeDetectorFinding({
@@ -437,7 +437,6 @@ async function evaluateTrace(
         projectId,
         traceId,
         workspaceId,
-        projectName,
         findings: rcaFindings,
         findingTimestamp,
       },

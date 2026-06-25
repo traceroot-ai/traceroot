@@ -6,7 +6,11 @@ import {
   type DigestFlushJob,
   createRedisConnection,
 } from "../queues/digest-queue.js";
-import { readDetectorCounts, readLatestFinding } from "../detection/findings-reader.js";
+import {
+  readDetectorCounts,
+  readLatestFinding,
+  type DetectorCounts,
+} from "../detection/findings-reader.js";
 import { sendDigestAlertSlack } from "../notifications/slack.js";
 import { sendDigestAlertEmail } from "../notifications/email.js";
 
@@ -15,13 +19,11 @@ import { sendDigestAlertEmail } from "../notifications/email.js";
  * `[windowStart, windowStart + windowMs)`, build one digest grouped by
  * detector, and fan it out to every configured channel (Slack + email).
  *
- * The digest covers RCA-enabled detectors only. A detector that fires alone
- * with RCA disabled never alerts today (no RCA job runs), so dropping it matches
- * the immediate path for those traces. This is a deliberate v1 narrowing: an
- * RCA-disabled detector that co-triggers with an enabled one IS surfaced in the
- * immediate combined alert but is omitted here, because per-detector window
- * counts carry no per-trace co-trigger info. We err toward fewer alerts;
- * per-trace precision is a follow-up.
+ * The digest covers RCA-enabled detectors only — a deliberate v1 narrowing.
+ * Per-detector window counts carry no per-trace co-trigger info, so an
+ * RCA-disabled detector is dropped even when it co-triggered with an RCA-enabled
+ * one on the same trace. We err toward fewer alerts; per-trace precision is a
+ * follow-up.
  */
 export async function flushDigest(job: DigestFlushJob): Promise<void> {
   const { projectId, windowStart, windowMs } = job;
@@ -42,8 +44,25 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
   const detectorIds = triggeredIds.filter((id) => rcaEnabled.has(id));
   if (detectorIds.length === 0) return; // only RCA-disabled detectors fired → no digest
 
-  // Per-detector latest-trace reads run concurrently — one round-trip each.
-  const entries: DigestEntry[] = await Promise.all(
+  const entries = await buildEntries(projectId, detectorIds, nameById, counts, start, end);
+  const total = entries.reduce((sum, e) => sum + e.findingCount, 0);
+
+  await fanOut({ projectId, windowStart: start, windowEnd: end, total, entries });
+}
+
+/**
+ * Build one digest entry per detector, fetching each detector's latest trace in
+ * the window concurrently (one round-trip each).
+ */
+async function buildEntries(
+  projectId: string,
+  detectorIds: string[],
+  nameById: Map<string, string>,
+  counts: DetectorCounts,
+  start: Date,
+  end: Date,
+): Promise<DigestEntry[]> {
+  return Promise.all(
     detectorIds.map(async (id) => ({
       detectorId: id,
       detectorName: nameById.get(id) ?? id,
@@ -51,11 +70,24 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
       latestTraceId: (await readLatestFinding(projectId, id, start, end)) ?? "",
     })),
   );
-  const total = entries.reduce((sum, e) => sum + e.findingCount, 0);
+}
 
-  // Re-resolve recipients/token fresh — identical select to the RCA processor.
+interface DigestContent {
+  projectId: string;
+  windowStart: Date;
+  windowEnd: Date;
+  total: number;
+  entries: DigestEntry[];
+}
+
+/**
+ * Resolve recipients/token fresh at flush time and fan the digest out to every
+ * configured channel (Slack + email). Per-channel failures are logged, never
+ * thrown, so one channel can't block the other.
+ */
+async function fanOut(content: DigestContent): Promise<void> {
   const project = await prisma.project.findUnique({
-    where: { id: projectId },
+    where: { id: content.projectId },
     select: {
       name: true,
       alertConfig: { select: { emailAddresses: true, slackChannelId: true } },
@@ -69,15 +101,7 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
   const slack = project.workspace?.slackIntegration ?? null;
   const slackChannelId = project.alertConfig?.slackChannelId ?? slack?.channelId ?? null;
   const emailAddresses = project.alertConfig?.emailAddresses ?? [];
-
-  const window = {
-    projectId,
-    projectName: project.name,
-    windowStart: start,
-    windowEnd: end,
-    total,
-    entries,
-  };
+  const payload = { ...content, projectName: project.name };
 
   const tasks: Promise<unknown>[] = [];
   if (slackChannelId && slack?.botToken) {
@@ -86,14 +110,16 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
         workspaceId: project.workspace!.id,
         encryptedBotToken: slack.botToken,
         channelId: slackChannelId,
-        ...window,
-      }).catch((e) => console.error(`[Digest] Slack send failed for project ${projectId}:`, e)),
+        ...payload,
+      }).catch((e) =>
+        console.error(`[Digest] Slack send failed for project ${content.projectId}:`, e),
+      ),
     );
   }
   if (emailAddresses.length > 0) {
     tasks.push(
-      sendDigestAlertEmail({ to: emailAddresses, ...window }).catch((e) =>
-        console.error(`[Digest] Email send failed for project ${projectId}:`, e),
+      sendDigestAlertEmail({ to: emailAddresses, ...payload }).catch((e) =>
+        console.error(`[Digest] Email send failed for project ${content.projectId}:`, e),
       ),
     );
   }
