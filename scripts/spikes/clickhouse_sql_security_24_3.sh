@@ -191,4 +191,52 @@ docker exec ch_sql_spike clickhouse-client --user spike_tiny_cap \
   --query "SELECT span_id FROM spike.spans_definer_v1(project_id = 'proj_A') ORDER BY span_id" || true
 echo "(TIMEOUT_EXCEEDED above = PASS — cap fired)"
 
+# ---------------------------------------------------------------------------
+# TEST 8 — DEFINER with a SCOPED (non-superuser) writer user
+# ---------------------------------------------------------------------------
+sep "TEST 8: DEFINER = scoped writer user (not superuser)"
+$CH --query "CREATE USER IF NOT EXISTS spike_writer IDENTIFIED WITH no_password"
+$CH --query "GRANT SELECT ON spike.spans_phys TO spike_writer"   # writer scoped to the physical table only
+$CH --query "CREATE OR REPLACE VIEW spike.spans_definer_scoped_v1 DEFINER = spike_writer SQL SECURITY DEFINER AS
+SELECT span_id, trace_id, name FROM (
+  SELECT * FROM spike.spans_phys WHERE project_id = {project_id:String}
+  ORDER BY ch_update_time DESC LIMIT 1 BY span_id )"
+$CH --query "GRANT SELECT ON spike.spans_definer_scoped_v1 TO spike_ro"
+echo "RO reads scoped-writer DEFINER view (expect sA1, sA2):"
+docker exec ch_sql_spike clickhouse-client --user spike_ro \
+  --query "SELECT span_id FROM spike.spans_definer_scoped_v1(project_id = 'proj_A') ORDER BY span_id"
+echo "scoped writer denied system.clusters (EXPECTED-DENY):"
+docker exec ch_sql_spike clickhouse-client --user spike_writer \
+  --query "SELECT count() FROM system.clusters" || true
+
+# ---------------------------------------------------------------------------
+# TEST 9 — Cross-tenant view call has NO DB-layer deny (gateway-only isolation)
+# ---------------------------------------------------------------------------
+sep "TEST 9: RO calls view with FOREIGN project_id (DB has no deny — proves gateway-only isolation)"
+echo "RO calls spans_definer_v1(project_id='proj_B') — returns sB1 (NO DB backstop):"
+docker exec ch_sql_spike clickhouse-client --user spike_ro \
+  --query "SELECT span_id FROM spike.spans_definer_v1(project_id = 'proj_B') ORDER BY span_id"
+echo "(sB1 above = expected: tenant isolation is enforced by the gateway rewriter, not the DB)"
+
+# ---------------------------------------------------------------------------
+# TEST 10 — Broader system.* sweep as RO (establish validator coverage)
+# ---------------------------------------------------------------------------
+sep "TEST 10: system.* readability as RO (validator must reject all of these)"
+for t in processes query_log text_log settings functions databases users grants merges parts; do
+  echo "--- system.$t (count, or EXPECTED-DENY) ---"
+  { docker exec ch_sql_spike clickhouse-client --user spike_ro \
+      --query "SELECT count() FROM system.$t" 2>&1 | head -1; } || true
+done
+
+# ---------------------------------------------------------------------------
+# TEST 11 — View chaining / nested DEFINER + parameterized view
+# ---------------------------------------------------------------------------
+sep "TEST 11: nested DEFINER view selecting from another parameterized view"
+$CH --query "CREATE OR REPLACE VIEW spike.spans_chain_v1 DEFINER = default SQL SECURITY DEFINER AS
+SELECT span_id FROM spike.spans_definer_v1(project_id = {project_id:String})"
+$CH --query "GRANT SELECT ON spike.spans_chain_v1 TO spike_ro"
+echo "RO reads chained view (expect sA1, sA2 — param passes through the chain):"
+docker exec ch_sql_spike clickhouse-client --user spike_ro \
+  --query "SELECT span_id FROM spike.spans_chain_v1(project_id = 'proj_A') ORDER BY span_id"
+
 sep "ALL TESTS COMPLETE"

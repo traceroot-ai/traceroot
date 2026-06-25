@@ -47,6 +47,25 @@ try:
     else:
         print(f"FAIL: expected {expected}, got {rows}")
         sys.exit(1)
+
+    # Injection payloads over the HTTP path: bound params must NOT leak or execute.
+    inj_q = "SELECT span_id FROM spike.spans_definer_v1(project_id = {p:String}) ORDER BY span_id"
+    for payload in [
+        "proj_A' OR project_id='proj_B",
+        "proj_A'); DROP TABLE spike.spans_phys; --",
+    ]:
+        leaked = [r[0] for r in client.query(inj_q, parameters={"p": payload}).result_rows]
+        if leaked:
+            print(
+                f"FAIL: injection leaked rows {leaked!r} for payload {payload!r}", file=sys.stderr
+            )
+            sys.exit(1)
+        print(f"PASS: injection payload returned 0 rows: {payload!r}")
+    survived = client.query(
+        "SELECT count() FROM spike.spans_definer_v1(project_id = {p:String})",
+        parameters={"p": "proj_A"},
+    ).result_rows[0][0]
+    print(f"PASS: physical table intact after injection attempts (proj_A rows = {survived})")
 except Exception as e:
     print(f"FAIL: exception: {e}", file=sys.stderr)
     sys.exit(1)
