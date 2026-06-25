@@ -303,7 +303,13 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
   // recipients and renders the digest.
   const scheduleDigestFlush = async () => {
     const windowMs = ALERT_WINDOWS[isAlertWindow(alertWindow) ? alertWindow : DEFAULT_ALERT_WINDOW];
-    const windowStart = windowStartFor(findingTimestamp, windowMs);
+    // Legacy/in-flight RCA jobs enqueued before findingTimestamp existed carry no
+    // timestamp; fall back to now so the window key never goes NaN.
+    const safeFindingTs =
+      typeof findingTimestamp === "number" && Number.isFinite(findingTimestamp)
+        ? findingTimestamp
+        : Date.now();
+    const windowStart = windowStartFor(safeFindingTs, windowMs);
     const delay = Math.max(0, windowStart + windowMs + DIGEST_SETTLE_MS - Date.now());
     await getDigestQueue().add(
       `digest-${projectId}-${windowStart}`,

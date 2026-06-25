@@ -19,7 +19,10 @@ export interface DetectorRcaJob {
   traceId: string;
   workspaceId: string;
   findings: DetectorRcaFinding[];
-  findingTimestamp: number; // epoch ms; worker capture time, used to key the digest window
+  // epoch ms; worker capture time, used to key the digest window. Optional
+  // because legacy jobs serialized to Redis before this field existed deserialize
+  // without it — scheduleDigestFlush guards the undefined case.
+  findingTimestamp?: number;
 }
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
