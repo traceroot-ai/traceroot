@@ -365,8 +365,6 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
         completedAt: new Date(),
       },
     });
-
-    await scheduleDigestFlush();
   } catch (e) {
     await prisma.detectorRca
       .update({ where: { findingId }, data: { status: "failed" } })
@@ -376,6 +374,11 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
 
     throw e; // re-throw so BullMQ marks job as failed
   }
+
+  // RCA state is persisted above; schedule the digest outside the try so a
+  // transient enqueue failure retries the job without the catch reverting a
+  // completed RCA to "failed".
+  await scheduleDigestFlush();
 }
 
 export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
