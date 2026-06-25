@@ -1,4 +1,4 @@
-import { createSlackClient, buildDigestAlertBlocks } from "@traceroot/slack";
+import { createSlackClient, buildDigestAlertBlocks, type DigestEntry } from "@traceroot/slack";
 import { decryptKey, hasEntitlement, prisma, type PlanType } from "@traceroot/core";
 
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
@@ -12,7 +12,7 @@ export interface SendDigestAlertSlackParams {
   windowStart: Date;
   windowEnd: Date;
   total: number;
-  entries: import("@traceroot/slack").DigestEntry[];
+  entries: DigestEntry[];
 }
 
 export async function sendDigestAlertSlack(params: SendDigestAlertSlackParams): Promise<void> {
