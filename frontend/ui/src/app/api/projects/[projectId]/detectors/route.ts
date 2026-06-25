@@ -160,6 +160,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       detectionModel: resolvedModel,
       detectionProvider: resolvedProvider,
       detectionSource: sourceStr,
+      filterSpanName: typeof filterSpanName === "string" ? filterSpanName : null,
       trigger: {
         create: {
           conditions: (triggerConditions as object) ?? [],

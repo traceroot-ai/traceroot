@@ -169,26 +169,41 @@ async function runSingleDetector(params: {
 
   let filteredSpansJsonl = spansJsonl;
   if (detector.filterSpanName) {
-    const spans = spansJsonl
-      .split("\n")
-      .filter((line) => line.trim().length > 0)
-      .map((line) => JSON.parse(line));
-    const filteredSpans = spans.filter((span) => span.name === detector.filterSpanName);
+    try {
+      const spans = spansJsonl
+        .split("\n")
+        .filter((line) => line.trim().length > 0)
+        .map((line) => JSON.parse(line));
+      const filteredSpans = spans.filter((span) => span.name === detector.filterSpanName);
 
-    if (filteredSpans.length === 0) {
-      console.log(`[Detector] Detector ${detector.name} skipped: No span named '${detector.filterSpanName}' found in trace ${traceId}.`);
+      if (filteredSpans.length === 0) {
+        console.log(
+          `[Detector] Detector ${detector.name} skipped: No span named '${detector.filterSpanName}' found in trace ${traceId}.`,
+        );
+        await writeDetectorRun({
+          runId,
+          detectorId: detector.id,
+          projectId,
+          traceId,
+          findingId: null,
+          status: "completed",
+        }).catch((err) => console.error("[Detector] Failed to write run:", err));
+
+        return { triggered: null, usage: null };
+      }
+      filteredSpansJsonl = filteredSpans.map((span) => JSON.stringify(span)).join("\n");
+    } catch (e) {
+      console.error(`[Detector] Failed to parse spans for filtering detector ${detector.id} on trace ${traceId}:`, e);
       await writeDetectorRun({
         runId,
         detectorId: detector.id,
         projectId,
         traceId,
         findingId: null,
-        status: "completed",
+        status: "failed",
       }).catch((err) => console.error("[Detector] Failed to write run:", err));
-      
       return { triggered: null, usage: null };
     }
-    filteredSpansJsonl = filteredSpans.map((span) => JSON.stringify(span)).join("\n");
   }
 
   let result: Awaited<ReturnType<typeof runDetectionForTrace>>;
