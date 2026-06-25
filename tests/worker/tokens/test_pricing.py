@@ -162,6 +162,16 @@ DEEPSEEK_MODEL_CASES = [
     ("deepseek-v4-pro-20260424", "deepseek-v4-pro"),
 ]
 
+MOONSHOT_MODEL_CASES = [
+    ("kimi-k2.6", "kimi-k2.6"),
+    ("moonshot/kimi-k2.6", "kimi-k2.6"),
+    ("kimi-k2.6-20260420", "kimi-k2.6"),
+    ("kimi-k2.5", "kimi-k2.5"),
+    ("moonshot/kimi-k2.5", "kimi-k2.5"),
+    ("kimi-k2-thinking", "kimi-k2-thinking"),
+    ("moonshot/kimi-k2-thinking", "kimi-k2-thinking"),
+]
+
 
 @patch("worker.tokens.pricing._load_cache", _mock_load_cache)
 class TestGetModelPrice:
@@ -261,6 +271,36 @@ class TestGLMModelIds:
         assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different entry than {expected_name}"
         )
+
+
+class TestMoonshotModelIds:
+    @pytest.mark.parametrize("model_id,expected_name", MOONSHOT_MODEL_CASES)
+    def test_matches_expected_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert "input" in price and "output" in price
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched a different entry than {expected_name}"
+        )
+
+    def test_kimi_k2_thinking_turbo_not_priced_as_thinking(self, real_cache):
+        # kimi-k2-thinking-turbo is a distinct model; the kimi-k2-thinking
+        # entry must not absorb it at the wrong rate.
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert get_model_price("kimi-k2-thinking-turbo") is None
+
+    def test_kimi_k2_6_calculates_cost(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            result = calculate_cost("kimi-k2.6", "Hello world", "Hi there")
+
+        assert result["input_tokens"] is not None
+        assert result["input_tokens"] > 0
+        assert result["output_tokens"] is not None
+        assert result["output_tokens"] > 0
+        assert result["cost"] is not None
+        assert result["cost"] > 0
 
 
 @patch("worker.tokens.pricing._load_cache", _mock_load_cache)
