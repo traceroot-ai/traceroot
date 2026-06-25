@@ -56,14 +56,16 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
     const match = exact ?? modelOnly;
 
     if (!match) {
-      const pick = pickDefaultModel(models);
-      if (pick) {
-        onChange({
-          model: pick.id,
-          provider: pick.provider,
-          source: pick.source,
-          adapter: pick.adapter,
-        });
+      if (!value.model) {
+        const pick = pickDefaultModel(models);
+        if (pick) {
+          onChange({
+            model: pick.id,
+            provider: pick.provider,
+            source: pick.source,
+            adapter: pick.adapter,
+          });
+        }
       }
       return;
     }
