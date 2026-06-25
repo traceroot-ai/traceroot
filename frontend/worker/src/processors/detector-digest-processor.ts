@@ -15,9 +15,13 @@ import { sendDigestAlertEmail } from "../notifications/email.js";
  * `[windowStart, windowStart + windowMs)`, build one digest grouped by
  * detector, and fan it out to every configured channel (Slack + email).
  *
- * The digest covers RCA-enabled detectors only — the same invariant as the
- * immediate path, which alerts solely from the RCA worker — so detectors with
- * `enableRca === false` are dropped here.
+ * The digest covers RCA-enabled detectors only. A detector that fires alone
+ * with RCA disabled never alerts today (no RCA job runs), so dropping it matches
+ * the immediate path for those traces. This is a deliberate v1 narrowing: an
+ * RCA-disabled detector that co-triggers with an enabled one IS surfaced in the
+ * immediate combined alert but is omitted here, because per-detector window
+ * counts carry no per-trace co-trigger info. We err toward fewer alerts;
+ * per-trace precision is a follow-up.
  */
 export async function flushDigest(job: DigestFlushJob): Promise<void> {
   const { projectId, windowStart, windowMs } = job;
@@ -38,19 +42,16 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
   const detectorIds = triggeredIds.filter((id) => rcaEnabled.has(id));
   if (detectorIds.length === 0) return; // only RCA-disabled detectors fired → no digest
 
-  const entries: DigestEntry[] = [];
-  let total = 0;
-  for (const id of detectorIds) {
-    const findingCount = counts[id].finding_count;
-    total += findingCount;
-    const latestTraceId = (await readLatestFinding(projectId, id, start, end)) ?? "";
-    entries.push({
+  // Per-detector latest-trace reads run concurrently — one round-trip each.
+  const entries: DigestEntry[] = await Promise.all(
+    detectorIds.map(async (id) => ({
       detectorId: id,
       detectorName: nameById.get(id) ?? id,
-      findingCount,
-      latestTraceId,
-    });
-  }
+      findingCount: counts[id].finding_count,
+      latestTraceId: (await readLatestFinding(projectId, id, start, end)) ?? "",
+    })),
+  );
+  const total = entries.reduce((sum, e) => sum + e.findingCount, 0);
 
   // Re-resolve recipients/token fresh — identical select to the RCA processor.
   const project = await prisma.project.findUnique({

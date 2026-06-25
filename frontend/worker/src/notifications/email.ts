@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { formatWindowRange, type DigestEntry } from "@traceroot/slack";
 
 function escapeHtml(s: string): string {
   return s
@@ -82,24 +83,6 @@ ${htmlRcaSection}
   });
 }
 
-// Human-readable UTC window range, mirroring the digest Slack footer:
-// "Jun 24, 14:00–15:00 UTC" (same day) or
-// "Jun 23 23:50 – Jun 24 00:20 UTC" (cross-day). UTC keeps it unambiguous.
-function formatWindowRange(start: Date, end: Date): string {
-  const day = (d: Date) =>
-    new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(d);
-  const time = (d: Date) =>
-    new Intl.DateTimeFormat("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-      timeZone: "UTC",
-    }).format(d);
-  return day(start) === day(end)
-    ? `${day(start)}, ${time(start)}–${time(end)} UTC`
-    : `${day(start)} ${time(start)} – ${day(end)} ${time(end)} UTC`;
-}
-
 /**
  * Send a windowed digest email summarizing all findings in a time window:
  * one row per detector with its finding count and latest trace. No RCA and no
@@ -112,7 +95,7 @@ export async function sendDigestAlertEmail(params: {
   windowStart: Date;
   windowEnd: Date;
   total: number;
-  entries: import("@traceroot/slack").DigestEntry[];
+  entries: DigestEntry[];
 }): Promise<void> {
   const transport = createTransport();
   if (!transport || params.to.length === 0) return;
@@ -140,8 +123,11 @@ export async function sendDigestAlertEmail(params: {
   ];
   for (const e of entries) {
     const findingNoun = e.findingCount === 1 ? "finding" : "findings";
+    // Omit the trace segment when there is no latest trace (mirrors the Slack
+    // builder), so we never emit a blank/broken trace link.
+    const latest = e.latestTraceId ? ` · latest ${e.latestTraceId.slice(0, 8)}` : "";
     textParts.push(
-      `- ${e.detectorName} — ${e.findingCount} ${findingNoun} · latest ${e.latestTraceId.slice(0, 8)}`,
+      `- ${e.detectorName} — ${e.findingCount} ${findingNoun}${latest}`,
       `  ${findingsUrlFor(e.detectorId)}`,
     );
   }
@@ -149,7 +135,10 @@ export async function sendDigestAlertEmail(params: {
   const htmlRows = entries
     .map((e) => {
       const findingNoun = e.findingCount === 1 ? "finding" : "findings";
-      return `<p style="margin:6px 0;"><a href="${findingsUrlFor(e.detectorId)}">${escapeHtml(e.detectorName)}</a> <span style="color:#888;">— ${e.findingCount} ${findingNoun} · latest <a href="${traceUrlFor(e.latestTraceId)}" style="color:#888;">${e.latestTraceId.slice(0, 8)}</a></span></p>`;
+      const latest = e.latestTraceId
+        ? ` · latest <a href="${traceUrlFor(e.latestTraceId)}" style="color:#888;">${e.latestTraceId.slice(0, 8)}</a>`
+        : "";
+      return `<p style="margin:6px 0;"><a href="${findingsUrlFor(e.detectorId)}">${escapeHtml(e.detectorName)}</a> <span style="color:#888;">— ${e.findingCount} ${findingNoun}${latest}</span></p>`;
     })
     .join("\n");
 
