@@ -348,3 +348,48 @@ def test_unquoted_alias_stays_unquoted() -> None:
     sql, _ = scope_and_render("SELECT t.span_id FROM spans AS t", PID)
     assert "AS t" in sql
     assert 'AS "t"' not in sql
+
+
+# ---------------------------------------------------------------------------
+# Follow-up hardening (PR #1356): reparse, CTE-shadow, explicit placeholder
+# ---------------------------------------------------------------------------
+REPARSE_CASES = [
+    "SELECT count() FROM spans",
+    "SELECT s.span_id FROM spans s JOIN traces t ON s.trace_id = t.trace_id",
+    "WITH x AS (SELECT trace_id FROM traces) "
+    "SELECT count() FROM x WHERE trace_id IN (SELECT trace_id FROM spans)",
+    "SELECT trace_id FROM (SELECT trace_id FROM traces) s",
+    "SELECT span_id FROM spans UNION ALL SELECT span_id FROM spans",
+]
+
+
+@pytest.mark.parametrize("sql", REPARSE_CASES)
+def test_rendered_sql_reparses_under_clickhouse_dialect(sql: str) -> None:
+    """Every representative rewrite must produce valid ClickHouse SQL that
+    round-trips through the sqlglot parser (no malformed output)."""
+    import sqlglot
+
+    out, _ = scope_and_render(sql, PID)
+    sqlglot.parse_one(out, read="clickhouse")  # must not raise
+
+
+def test_cte_shadow_is_rejected_through_scope_and_render() -> None:
+    """A CTE shadowing a public table is rejected by the validator; that
+    rejection must propagate through scope_and_render (no rewrite is rendered)."""
+    with pytest.raises(SqlValidationError):
+        scope_and_render("WITH spans AS (SELECT 1 AS x) SELECT x FROM spans", PID)
+
+
+def test_bound_placeholder_renders_as_clickhouse_string_form() -> None:
+    """Bound mode emits a ClickHouse String parameter placeholder for the scope,
+    never the project_id value, and binds exactly one key."""
+    import re
+
+    out, binds = scope_and_render("SELECT count() FROM spans", PID)
+    # ClickHouse String parameter placeholder: {scope_project_id : String}
+    # (sqlglot renders a space after the colon; ClickHouse 24.3 accepts both).
+    assert re.search(r"\{\s*scope_project_id\s*:\s*String\s*\}", out)
+    # the project_id value never appears literally in the rendered SQL
+    assert PID not in out
+    # exactly one bind key, reserved for server-side scoping
+    assert binds == {"scope_project_id": PID}
