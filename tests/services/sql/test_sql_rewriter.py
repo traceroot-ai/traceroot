@@ -318,3 +318,33 @@ class TestModuleConstants:
         unsafe_ids = ["", "proj id", "proj;evil", "'; DROP TABLE", "proj\n", "proj\t"]
         for pid in unsafe_ids:
             assert not PROJECT_ID_RE.fullmatch(pid), f"Should not match: {pid!r}"
+
+
+# ---------------------------------------------------------------------------
+# Alias-quoting preservation (P2 regression)
+# ---------------------------------------------------------------------------
+def test_quoted_table_alias_with_space_is_preserved() -> None:
+    """A table alias requiring quotes (contains a space) must stay quoted after
+    rewrite; emitting it bare would produce invalid SQL."""
+    import sqlglot
+
+    sql, _ = scope_and_render("SELECT `weird alias`.span_id FROM spans AS `weird alias`", PID)
+    assert 'AS "weird alias"' in sql
+    # the rewritten SQL must still parse cleanly (no bare `AS weird alias`)
+    sqlglot.parse_one(sql, read="clickhouse")
+
+
+def test_reserved_word_table_alias_is_preserved() -> None:
+    """A reserved-word alias must remain quoted after rewrite."""
+    import sqlglot
+
+    sql, _ = scope_and_render("SELECT `select`.span_id FROM spans AS `select`", PID)
+    assert 'AS "select"' in sql
+    sqlglot.parse_one(sql, read="clickhouse")
+
+
+def test_unquoted_alias_stays_unquoted() -> None:
+    """A plain alias is not gratuitously quoted."""
+    sql, _ = scope_and_render("SELECT t.span_id FROM spans AS t", PID)
+    assert "AS t" in sql
+    assert 'AS "t"' not in sql

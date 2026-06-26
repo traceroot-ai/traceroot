@@ -93,12 +93,18 @@ def _make_placeholder() -> exp.Placeholder:
     )
 
 
-def _build_view_table(view_name: str, alias: str, param_value: exp.Expression) -> exp.Table:
+def _build_view_table(
+    view_name: str, alias: exp.TableAlias, param_value: exp.Expression
+) -> exp.Table:
     """Build ``view_name(project_id = param_value) AS alias``.
 
     The resulting ``Table`` node has ``this=Anonymous(this=view_name, ...)``
     (not ``Identifier``), so Layer-3 verification can distinguish injected
     view-call nodes from surviving plain table references.
+
+    *alias* is the ``exp.TableAlias`` node to attach.  The caller passes the
+    user's original alias node (copied, including its ``quoted`` metadata) so a
+    quoted or reserved-word alias survives the rewrite intact.
     """
     return exp.Table(
         this=exp.Anonymous(
@@ -110,7 +116,7 @@ def _build_view_table(view_name: str, alias: str, param_value: exp.Expression) -
                 )
             ],
         ),
-        alias=exp.TableAlias(this=exp.Identifier(this=alias, quoted=False)),
+        alias=alias,
     )
 
 
@@ -141,10 +147,16 @@ def _rewrite_table(
     if table_name not in TABLE_VIEW_MAP:
         return node
     view_name = TABLE_VIEW_MAP[table_name]
-    # Preserve the user-supplied alias; fall back to the table name so that
-    # un-aliased ``FROM spans`` becomes ``… AS spans``.
-    alias = node.alias or table_name
-    return _build_view_table(view_name, alias, param_value)
+    # Preserve the user's original alias node, including its quoting metadata, so
+    # a quoted or reserved-word alias (e.g. ``FROM spans AS "weird alias"``)
+    # survives the rewrite.  Fall back to the bare table name so that un-aliased
+    # ``FROM spans`` becomes ``… AS spans``.
+    original_alias = node.args.get("alias")
+    if original_alias is not None:
+        alias_node = original_alias.copy()
+    else:
+        alias_node = exp.TableAlias(this=exp.Identifier(this=table_name, quoted=False))
+    return _build_view_table(view_name, alias_node, param_value)
 
 
 # ---------------------------------------------------------------------------
