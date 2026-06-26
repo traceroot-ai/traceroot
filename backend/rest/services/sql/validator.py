@@ -166,6 +166,25 @@ def _func_name(node: exp.Func) -> str:
     return raw.lower() if raw else node.sql_name().lower()
 
 
+def is_blocked_function(node: exp.Expression) -> bool:
+    """Return ``True`` if *node* is a callable function blocked by the policy.
+
+    A node is blocked when it is a real function call (an ``exp.Func`` that is
+    not one of the structural skip-types such as ``CAST`` / ``CASE``) whose
+    canonical name is in ``BLOCKED_FUNCTIONS`` or starts with a
+    ``BLOCKED_PREFIXES`` entry.  Non-function nodes and skip-types return
+    ``False``.
+
+    This is the public surface other gateway stages (e.g. the rewriter's
+    post-rewrite re-scan) use, so they do not depend on the validator's private
+    helpers.
+    """
+    if not isinstance(node, exp.Func) or isinstance(node, _SKIP_FUNC_TYPES):
+        return False
+    name = _func_name(node)
+    return name in BLOCKED_FUNCTIONS or any(name.startswith(p) for p in BLOCKED_PREFIXES)
+
+
 def validate(sql: str) -> exp.Query:
     """Parse and validate *sql* against the read-only analytics contract.
 
@@ -300,16 +319,11 @@ def validate(sql: str) -> exp.Query:
 
         # 10. Function gate — allowlist-primary.
         if isinstance(node, exp.Func) and not isinstance(node, _SKIP_FUNC_TYPES):
-            name = _func_name(node)
-
             # Blocklist wins over allowlist.
-            if name in BLOCKED_FUNCTIONS:
+            if is_blocked_function(node):
                 raise SqlValidationError("Function is blocked by the security policy")
 
-            if any(name.startswith(prefix) for prefix in BLOCKED_PREFIXES):
-                raise SqlValidationError("Function is blocked by the security policy (prefix rule)")
-
-            if name not in ALLOWED_FUNCTIONS:
+            if _func_name(node) not in ALLOWED_FUNCTIONS:
                 raise SqlValidationError("Function is not in the allowed list")
 
     return tree  # type: ignore[return-value]

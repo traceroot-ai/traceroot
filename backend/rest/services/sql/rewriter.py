@@ -49,10 +49,7 @@ import sqlglot.expressions as exp
 from rest.services.sql.errors import SqlValidationError
 from rest.services.sql.schema import TABLE_VIEW_MAP
 from rest.services.sql.validator import (
-    _SKIP_FUNC_TYPES,
-    BLOCKED_FUNCTIONS,
-    BLOCKED_PREFIXES,
-    _func_name,
+    is_blocked_function,
     validate,
 )
 
@@ -176,10 +173,10 @@ def _verify_rewritten_ast(tree: exp.Expression, cte_aliases: set[str]) -> None:
        CTE alias).
     2. Every injected table node names a known curated view (the ``Anonymous``
        ``this.this`` value must be in ``_VIEW_NAMES``).
-    3. No blocked function was introduced: re-scan ``exp.Func`` /
-       ``exp.Anonymous`` nodes against ``BLOCKED_FUNCTIONS`` /
-       ``BLOCKED_PREFIXES``, exempting the ``*_public_v1`` view-call
-       ``Anonymous`` nodes.
+    3. No blocked function was introduced: re-scan every node with the
+       validator's public ``is_blocked_function`` helper.  The injected
+       ``*_public_v1`` view-call ``Anonymous`` nodes are not blocked (their
+       names are not in the blocklist), so they need no special exemption.
     """
     for node in tree.walk():
         # --- Invariant 1 & 2: Table node shape checks -------------------------
@@ -202,22 +199,12 @@ def _verify_rewritten_ast(tree: exp.Expression, cte_aliases: set[str]) -> None:
                     )
 
         # --- Invariant 3: Blocked-function re-scan ----------------------------
-        if isinstance(node, exp.Func) and not isinstance(node, _SKIP_FUNC_TYPES):
-            # Exempt the injected *_public_v1 view-call Anonymous nodes.
-            if isinstance(node, exp.Anonymous):
-                raw = node.name
-                fn_name = raw.lower() if raw else ""
-                if fn_name in _VIEW_NAMES:
-                    continue
-            name = _func_name(node)
-            if name in BLOCKED_FUNCTIONS:
-                raise SqlValidationError(
-                    "Post-rewrite verification failed: blocked function detected"
-                )
-            if any(name.startswith(prefix) for prefix in BLOCKED_PREFIXES):
-                raise SqlValidationError(
-                    "Post-rewrite verification failed: blocked function prefix detected"
-                )
+        # The injected *_public_v1 view-call Anonymous nodes are not blocked
+        # functions (their names are not in the blocklist), so
+        # is_blocked_function returns False for them — no special exemption is
+        # needed.
+        if is_blocked_function(node):
+            raise SqlValidationError("Post-rewrite verification failed: blocked function detected")
 
 
 # ---------------------------------------------------------------------------
