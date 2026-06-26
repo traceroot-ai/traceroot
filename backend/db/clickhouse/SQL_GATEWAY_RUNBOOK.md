@@ -51,8 +51,18 @@ GRANT SELECT ON <database>.traces_public_v1 TO <CLICKHOUSE_RO_USER>;
 ## DEFINER: make the scoped writer the definer
 
 Migration 005 sets no explicit `DEFINER`, so ClickHouse defaults the view's definer to the
-user that applies the migration. For the hardened model, the definer must be the scoped
-writer (step 1), **not** an admin/superuser. Two ways:
+user that applies the migration.
+
+> **Verified on ClickHouse 24.3.18.7** (`scripts/spikes/clickhouse_public_views_ddl_check.sh`):
+> applying the migration `Up` DDL as written and running `SHOW CREATE VIEW` reports the
+> applying user as an *explicit* definer — e.g. applied as `default` it stores
+> `DEFINER = default SQL SECURITY DEFINER`. The parameterization (`WHERE project_id =
+> {project_id:String}`) is preserved, and a read-only user granted `SELECT` on the view only
+> can read the view but is denied the physical table (Code 497). So **the migration-running
+> user becomes the definer** — choose that user deliberately.
+
+For the hardened model, the definer must be the scoped writer (step 1), **not** an
+admin/superuser. Two ways:
 
 - **Recommended:** create the writer (step 1) **before** migration 005, then apply migration
   005 as `sql_gateway_writer` (run `goose up` with that user's credentials, or execute the
