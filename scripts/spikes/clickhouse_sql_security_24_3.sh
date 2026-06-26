@@ -84,6 +84,22 @@ expect_eq() {
   echo "PASS [$label]: got '$out' as expected"
 }
 
+# expect_count "label" <cmd...> : PASS only if the command succeeds AND returns a non-negative integer.
+expect_count() {
+  local label="$1"; shift
+  local out
+  if ! out=$("$@" 2>&1); then
+    echo "FAIL [$label]: expected readable but command errored:"
+    printf '%s\n' "$out" | head -3
+    exit 1
+  fi
+  if ! printf '%s' "$out" | grep -qE '^[0-9]+$'; then
+    echo "FAIL [$label]: expected a numeric count but got '$out'"
+    exit 1
+  fi
+  echo "PASS [$label]: readable (count=$out)"
+}
+
 # ---------------------------------------------------------------------------
 # SETUP — idempotent teardown + recreate
 # ---------------------------------------------------------------------------
@@ -113,11 +129,24 @@ echo "SETUP OK"
 # ---------------------------------------------------------------------------
 # TEST 0 — Environment
 # ---------------------------------------------------------------------------
-sep "TEST 0: version + image"
-echo "version:"
-$CH --query "SELECT version()"
-echo "image digest (host): sha256:85b97f63dcfff47790d26bb5d5801637aaddb2b93e5e9aee27a686c2fb2b9916"
-echo "image tag: clickhouse/clickhouse-server:24.3"
+sep "TEST 0: version + image (verified against the pinned baseline)"
+EXPECTED_VERSION="24.3.18.7"
+EXPECTED_DIGEST="sha256:85b97f63dcfff47790d26bb5d5801637aaddb2b93e5e9aee27a686c2fb2b9916"
+
+expect_eq "0: ClickHouse version matches the pinned baseline" "$EXPECTED_VERSION" \
+  docker exec ch_sql_spike clickhouse-client --query "SELECT version()"
+
+# Verify the RUNNING container's image repo-digest against the pinned baseline (drift detection),
+# rather than echoing a hardcoded value.
+IMG_ID=$(docker inspect --format '{{.Image}}' ch_sql_spike)
+ACTUAL_DIGEST=$(docker image inspect "$IMG_ID" --format '{{range .RepoDigests}}{{println .}}{{end}}' \
+  | grep -oE 'sha256:[0-9a-f]+' | head -1)
+echo "running image: $(docker inspect --format '{{.Config.Image}}' ch_sql_spike)  digest: ${ACTUAL_DIGEST:-<none>}"
+if [ "$ACTUAL_DIGEST" != "$EXPECTED_DIGEST" ]; then
+  echo "FAIL [0: image digest matches pinned baseline]: expected $EXPECTED_DIGEST, running image is ${ACTUAL_DIGEST:-<none>}"
+  exit 1
+fi
+echo "PASS [0: image digest matches pinned baseline]: $ACTUAL_DIGEST"
 
 # ---------------------------------------------------------------------------
 # TEST 1 — Parameterized view, literal arg
@@ -130,16 +159,17 @@ SELECT span_id, trace_id, name FROM (
   ORDER BY ch_update_time DESC LIMIT 1 BY span_id
 )"
 
-echo "Query (expect sA1, sA2 — no sB1):"
-$CH --query "SELECT span_id FROM spike.spans_public_v1(project_id = 'proj_A') ORDER BY span_id"
+expect_eq "1: parameterized view returns only proj_A rows" $'sA1\nsA2' \
+  docker exec ch_sql_spike clickhouse-client \
+  --query "SELECT span_id FROM spike.spans_public_v1(project_id = 'proj_A') ORDER BY span_id"
 
 # ---------------------------------------------------------------------------
 # TEST 2 — Bound parameter inside the view call
 # ---------------------------------------------------------------------------
 sep "TEST 2: bound parameter inside view call (--param_ form)"
 
-echo "Query with --param_scope_project_id=proj_A (expect sA1, sA2):"
-docker exec ch_sql_spike clickhouse-client \
+expect_eq "2: bound-param view call returns only proj_A rows" $'sA1\nsA2' \
+  docker exec ch_sql_spike clickhouse-client \
   --param_scope_project_id=proj_A \
   --query "SELECT span_id FROM spike.spans_public_v1(project_id = {scope_project_id:String}) ORDER BY span_id"
 
@@ -175,8 +205,8 @@ $CH --query "CREATE USER spike_ro IDENTIFIED WITH no_password SETTINGS PROFILE '
 $CH --query "GRANT SELECT ON spike.spans_definer_v1 TO spike_ro"
 
 echo ""
-echo "--- 4a: spike_ro reads definer view (expect sA1, sA2 — DEFINER lets view body read physical table) ---"
-docker exec ch_sql_spike clickhouse-client --user spike_ro \
+expect_eq "4a: spike_ro reads definer view (DEFINER lets body read the physical table)" $'sA1\nsA2' \
+  docker exec ch_sql_spike clickhouse-client --user spike_ro \
   --query "SELECT span_id FROM spike.spans_definer_v1(project_id = 'proj_A') ORDER BY span_id"
 
 echo ""
@@ -190,8 +220,8 @@ expect_deny "4c: spike_ro INSERT into physical table" \
   --query "INSERT INTO spike.spans_phys (project_id,span_id,trace_id,name) VALUES ('proj_C','sC1','tC1','c-one')"
 
 echo ""
-echo "--- 4d: spike_ro system.tables (expect only granted objects visible) ---"
-docker exec ch_sql_spike clickhouse-client --user spike_ro \
+expect_eq "4d: spike_ro system.tables shows only the granted view" $'spike\tspans_definer_v1' \
+  docker exec ch_sql_spike clickhouse-client --user spike_ro \
   --query "SELECT database, name FROM system.tables ORDER BY database, name"
 
 echo ""
@@ -204,15 +234,14 @@ expect_deny "4d: spike_ro system.clusters" \
 # ---------------------------------------------------------------------------
 sep "TEST 5: tenant isolation"
 
-echo "--- 5a: flat query proj_A (expect only sA1, sA2) ---"
-docker exec ch_sql_spike clickhouse-client --user spike_ro \
+expect_eq "5a: flat query returns only proj_A" $'sA1\nsA2' \
+  docker exec ch_sql_spike clickhouse-client --user spike_ro \
   --query "SELECT span_id FROM spike.spans_definer_v1(project_id = 'proj_A') ORDER BY span_id"
 
 echo ""
-echo "--- 5b: CTE query proj_A (expect only sA1, sA2) ---"
-docker exec ch_sql_spike clickhouse-client --user spike_ro \
-  --query "WITH v AS (SELECT span_id FROM spike.spans_definer_v1(project_id = 'proj_A'))
-           SELECT span_id FROM v ORDER BY span_id"
+expect_eq "5b: CTE query returns only proj_A" $'sA1\nsA2' \
+  docker exec ch_sql_spike clickhouse-client --user spike_ro \
+  --query "WITH v AS (SELECT span_id FROM spike.spans_definer_v1(project_id = 'proj_A')) SELECT span_id FROM v ORDER BY span_id"
 
 echo ""
 expect_empty "5c: forged quote injection returns no rows (no proj_B leak)" \
@@ -266,8 +295,8 @@ SELECT span_id, trace_id, name FROM (
   SELECT * FROM spike.spans_phys WHERE project_id = {project_id:String}
   ORDER BY ch_update_time DESC LIMIT 1 BY span_id )"
 $CH --query "GRANT SELECT ON spike.spans_definer_scoped_v1 TO spike_ro"
-echo "RO reads scoped-writer DEFINER view (expect sA1, sA2):"
-docker exec ch_sql_spike clickhouse-client --user spike_ro \
+expect_eq "8: RO reads the scoped-writer DEFINER view" $'sA1\nsA2' \
+  docker exec ch_sql_spike clickhouse-client --user spike_ro \
   --query "SELECT span_id FROM spike.spans_definer_scoped_v1(project_id = 'proj_A') ORDER BY span_id"
 expect_deny "8: scoped writer denied system.clusters" \
   docker exec ch_sql_spike clickhouse-client --user spike_writer \
@@ -277,19 +306,28 @@ expect_deny "8: scoped writer denied system.clusters" \
 # TEST 9 — Cross-tenant view call has NO DB-layer deny (gateway-only isolation)
 # ---------------------------------------------------------------------------
 sep "TEST 9: RO calls view with FOREIGN project_id (DB has no deny — proves gateway-only isolation)"
-echo "RO calls spans_definer_v1(project_id='proj_B') — returns sB1 (NO DB backstop):"
-docker exec ch_sql_spike clickhouse-client --user spike_ro \
+# Expected BY DESIGN: a foreign project_id returns that tenant's row — the DB has NO backstop,
+# so tenant isolation MUST be enforced by the gateway binding the authenticated project_id.
+expect_eq "9: foreign project_id returns proj_B row (DB has no cross-tenant backstop)" "sB1" \
+  docker exec ch_sql_spike clickhouse-client --user spike_ro \
   --query "SELECT span_id FROM spike.spans_definer_v1(project_id = 'proj_B') ORDER BY span_id"
-echo "(sB1 above = expected: tenant isolation is enforced by the gateway rewriter, not the DB)"
 
 # ---------------------------------------------------------------------------
 # TEST 10 — Broader system.* sweep as RO (establish validator coverage)
 # ---------------------------------------------------------------------------
-sep "TEST 10: system.* readability as RO (validator must reject all of these)"
-for t in processes query_log text_log settings functions databases users grants merges parts; do
-  echo "--- system.$t (count, or EXPECTED-DENY) ---"
-  { docker exec ch_sql_spike clickhouse-client --user spike_ro \
-      --query "SELECT count() FROM system.$t" 2>&1 | head -1; } || true
+sep "TEST 10: system.* readability as RO (gateway validator must reject all system.* refs)"
+# Tables the RO user must NOT be able to read (no grant): assert each is denied.
+for t in processes query_log text_log users grants merges parts; do
+  expect_deny "10: system.$t denied to RO" \
+    docker exec ch_sql_spike clickhouse-client --user spike_ro \
+    --query "SELECT count() FROM system.$t"
+done
+# Tables that ARE readable on 24.3 (config/function metadata, no tenant data): assert they return a
+# count — this is exactly why the gateway validator must reject ALL system.* references.
+for t in settings functions databases; do
+  expect_count "10: system.$t readable by RO (gateway must still reject it)" \
+    docker exec ch_sql_spike clickhouse-client --user spike_ro \
+    --query "SELECT count() FROM system.$t"
 done
 
 # ---------------------------------------------------------------------------
@@ -299,8 +337,8 @@ sep "TEST 11: nested DEFINER view selecting from another parameterized view"
 $CH --query "CREATE OR REPLACE VIEW spike.spans_chain_v1 DEFINER = default SQL SECURITY DEFINER AS
 SELECT span_id FROM spike.spans_definer_v1(project_id = {project_id:String})"
 $CH --query "GRANT SELECT ON spike.spans_chain_v1 TO spike_ro"
-echo "RO reads chained view (expect sA1, sA2 — param passes through the chain):"
-docker exec ch_sql_spike clickhouse-client --user spike_ro \
+expect_eq "11: nested DEFINER view propagates the param through the chain" $'sA1\nsA2' \
+  docker exec ch_sql_spike clickhouse-client --user spike_ro \
   --query "SELECT span_id FROM spike.spans_chain_v1(project_id = 'proj_A') ORDER BY span_id"
 
 sep "ALL TESTS COMPLETE"
