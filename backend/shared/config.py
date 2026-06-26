@@ -27,6 +27,25 @@ class ClickHouseSettings(BaseSettings):
     password: str = "clickhouse"
     database: str = "default"
 
+    # Read-only user for the public SQL gateway (Issue 4). Optional: when unset,
+    # cloud (billing-enabled) deployments fail fast and self-host/dev falls back to
+    # the default client with a loud warning — see db.clickhouse.client.
+    # Env: CLICKHOUSE_RO_USER, CLICKHOUSE_RO_PASSWORD.
+    ro_user: str | None = None
+    ro_password: str | None = None
+
+    # SQL gateway resource caps. These MIRROR the read-only user's CONST settings
+    # profile, which is the authoritative server-side enforcement (under readonly=1
+    # the RO user cannot change settings per-query — Issue 0). They are kept here so
+    # the operational profile values live in one place; SqlQueryService (Issue 5)
+    # does NOT send them as per-query settings for RO execution.
+    # Env: CLICKHOUSE_SQL_MAX_EXECUTION_TIME, CLICKHOUSE_SQL_MAX_RESULT_ROWS,
+    # CLICKHOUSE_SQL_MAX_RESULT_BYTES, CLICKHOUSE_SQL_MAX_MEMORY_USAGE.
+    sql_max_execution_time: int = 30
+    sql_max_result_rows: int = 100_000
+    sql_max_result_bytes: int = 536_870_912  # 512 MiB
+    sql_max_memory_usage: int = 4_294_967_296  # 4 GiB
+
 
 class S3Settings(BaseSettings):
     """S3/MinIO settings for trace data storage.
