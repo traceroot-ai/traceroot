@@ -16,7 +16,7 @@ MIGRATION = (
     / "backend/db/clickhouse/migrations/005_create_public_sql_views.sql"
 )
 
-# Curated public columns the views MUST project (Issue 1 contract).
+# Curated public columns the views MUST project (the public schema contract).
 SPANS_COLUMNS = [
     "span_id",
     "trace_id",

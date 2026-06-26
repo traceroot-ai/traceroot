@@ -28,14 +28,20 @@ class ClickHouseClient:
     def readonly_from_settings(cls) -> "ClickHouseClient":
         """Create a client authenticated as the read-only SQL gateway user.
 
-        Caller must ensure ``settings.clickhouse.ro_user`` is set (see
-        ``get_readonly_clickhouse_client``).
+        Raises if ``CLICKHOUSE_RO_USER`` is unset — callers wanting the
+        cloud-fatal / self-host-fallback behavior must use
+        ``get_readonly_clickhouse_client`` instead.
         """
         ch = settings.clickhouse
+        if not ch.ro_user:
+            raise RuntimeError(
+                "readonly_from_settings() requires CLICKHOUSE_RO_USER to be set; "
+                "use get_readonly_clickhouse_client() for the configured fallback behavior."
+            )
         return cls._build(ch.ro_user, ch.ro_password or "")
 
     @classmethod
-    def _build(cls, username: str | None, password: str) -> "ClickHouseClient":
+    def _build(cls, username: str, password: str) -> "ClickHouseClient":
         ch = settings.clickhouse
         client = clickhouse_connect.get_client(
             host=ch.host,
