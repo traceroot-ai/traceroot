@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import sqlglot
 import sqlglot.expressions as exp
+from sqlglot.optimizer.scope import build_scope
 
 from rest.services.sql.errors import SqlValidationError
 from rest.services.sql.schema import PUBLIC_TABLES
@@ -189,16 +190,39 @@ def validate(sql: str) -> exp.Query:
             "Only SELECT statements are allowed; write operations and DDL are not permitted"
         )
 
-    # Pre-collect CTE aliases so the table check can distinguish a reference to
-    # a user-defined CTE from an attempt to query an unknown bare name.
-    cte_names: set[str] = {node.alias.lower() for node in tree.walk() if isinstance(node, exp.CTE)}
-
     public_table_names = set(PUBLIC_TABLES)  # {"spans", "traces"}
 
     # 6. CTE shadow: reject any CTE whose alias matches a public table name.
     for node in tree.walk():
         if isinstance(node, exp.CTE) and node.alias.lower() in public_table_names:
             raise SqlValidationError("A CTE may not shadow a reserved public table name")
+
+    # 5b (scope-aware). Build a set of exp.Table node identities that are
+    # legitimate CTE references — i.e. the CTE they name is visible IN THE
+    # SAME SCOPE where the table reference appears.
+    #
+    # The flat-global-set approach (used before this fix) allowed an attacker to
+    # smuggle a real table name past the whitelist by defining a same-named CTE
+    # in a DIFFERENT scope (subquery, UNION arm).  sqlglot's build_scope() gives
+    # per-scope CTE visibility via scope.cte_sources (dict: alias → CTE node),
+    # which is exactly what we need.
+    #
+    # Fail CLOSED: if scope resolution fails for any reason, reject the query
+    # rather than falling back to the insecure flat-set approach.
+    try:
+        root_scope = build_scope(tree)
+    except Exception as exc:
+        raise SqlValidationError("SQL could not be analyzed for table access") from exc
+
+    if root_scope is None:
+        raise SqlValidationError("SQL could not be analyzed for table access")
+
+    # Mark every exp.Table node whose name is visible as a CTE in its own scope.
+    cte_ref_ids: set[int] = set()
+    for scope in root_scope.traverse():
+        for table in scope.tables:
+            if table.name.lower() in scope.cte_sources:
+                cte_ref_ids.add(id(table))
 
     # Walk the full AST (including subqueries, CTEs, window bodies) for all
     # remaining policy checks.
@@ -237,8 +261,9 @@ def validate(sql: str) -> exp.Query:
             if table_name in _INTERNAL_VIEWS:
                 raise SqlValidationError("Internal view names may not be queried directly")
 
-            # CTE alias references are allowed unconditionally.
-            if table_name in cte_names:
+            # CTE alias references are allowed only when the CTE is visible
+            # in this table's own scope (scope-aware; see cte_ref_ids above).
+            if id(node) in cte_ref_ids:
                 continue
 
             # Must be a known public table.
