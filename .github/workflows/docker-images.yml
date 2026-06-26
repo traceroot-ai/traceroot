@@ -95,8 +95,20 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Per-environment build args. NEXT_PUBLIC_APP_URL and BETTER_AUTH_URL
+          # are inlined into the web client bundle at BUILD time (Next.js) and
+          # default to http://localhost:3000 in docker/Dockerfile.web — if they
+          # are not passed, login breaks in the deployed env. They are public,
+          # deterministic per-env URLs (not secrets), so derive them from the
+          # `environment` input rather than a deletable GitHub secret. PostHog
+          # is production-only (empty -> dropped by build-push-action -> the
+          # Dockerfile default of "" -> analytics disabled, as on staging).
           build-args: |
             APP_VERSION=${{ steps.app_version.outputs.value }}
+            NEXT_PUBLIC_APP_URL=${{ inputs.environment == 'production' && 'https://app.traceroot.ai' || 'https://staging.traceroot.ai' }}
+            BETTER_AUTH_URL=${{ inputs.environment == 'production' && 'https://app.traceroot.ai' || 'https://staging.traceroot.ai' }}
+            NEXT_PUBLIC_POSTHOG_KEY=${{ inputs.environment == 'production' && secrets.NEXT_PUBLIC_POSTHOG_KEY || '' }}
+            NEXT_PUBLIC_POSTHOG_HOST=${{ inputs.environment == 'production' && secrets.NEXT_PUBLIC_POSTHOG_HOST || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
