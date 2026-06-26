@@ -223,13 +223,16 @@ class TraceReaderService:
         small and already present.
         """
         # Fetch trace
+        # Dedup the ReplacingMergeTree row without FINAL: keep the latest version
+        # of this trace_id.
         trace_query = """
             SELECT
                 trace_id, project_id, name, trace_start_time,
                 user_id, session_id, git_ref, git_repo, input, output, metadata
-            FROM traces FINAL
+            FROM traces
             WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
-            LIMIT 1
+            ORDER BY ch_update_time DESC
+            LIMIT 1 BY trace_id
         """
         trace_result = self._client.query(
             trace_query,
@@ -571,17 +574,36 @@ class TraceReaderService:
 
         # Backfill input/output from spans for sessions with empty trace-level I/O
         if session_ids_needing_span_io:
+            # Dedup both sides without FINAL: resolve the sessions' traces first
+            # (latest per trace), then dedup only the spans in those traces
+            # (scoped via the trace_id IN subquery so we never dedup the whole
+            # project), then join + aggregate.
             span_io_query = """
+                WITH session_traces AS (
+                    SELECT t.session_id, t.trace_id, t.project_id
+                    FROM traces AS t
+                    WHERE t.project_id = {project_id:String}
+                      AND t.session_id IN ({session_ids:Array(String)})
+                    ORDER BY t.ch_update_time DESC
+                    LIMIT 1 BY t.project_id, t.trace_id
+                ),
+                spans_dedup AS (
+                    SELECT trace_id, project_id, input, output, span_start_time, span_end_time
+                    FROM spans
+                    WHERE project_id = {project_id:String}
+                      AND trace_id IN (SELECT trace_id FROM session_traces)
+                    ORDER BY ch_update_time DESC
+                    LIMIT 1 BY span_id
+                )
                 SELECT
-                    t.session_id,
+                    st.session_id,
                     argMin(s.input, s.span_start_time) as first_input,
                     argMax(s.output, s.span_end_time) as last_output
-                FROM traces AS t FINAL
-                JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
-                WHERE t.project_id = {project_id:String}
-                  AND t.session_id IN ({session_ids:Array(String)})
-                  AND ((s.input != '' AND s.input != '{}') OR (s.output != '' AND s.output != '{}'))
-                GROUP BY t.session_id
+                FROM session_traces AS st
+                JOIN spans_dedup AS s
+                    ON st.trace_id = s.trace_id AND st.project_id = s.project_id
+                WHERE ((s.input != '' AND s.input != '{}') OR (s.output != '' AND s.output != '{}'))
+                GROUP BY st.session_id
             """
             span_io_result = self._client.query(
                 span_io_query,
@@ -639,8 +661,28 @@ class TraceReaderService:
 
         where_clause = " AND ".join(conditions)
 
-        # Step 1: Get all traces for this session with basic info
+        # Step 1: Get all traces for this session with basic info.
+        # Dedup both sides without FINAL: dedup this session's traces first, then
+        # dedup only the spans in those traces (scoped via trace_id IN, so the
+        # whole project is never deduped), then LEFT JOIN + aggregate.
         traces_query = f"""
+            WITH traces_dedup AS (
+                SELECT
+                    t.trace_id, t.project_id, t.name, t.trace_start_time,
+                    t.user_id, t.input, t.output
+                FROM traces AS t
+                WHERE {where_clause}
+                ORDER BY t.ch_update_time DESC
+                LIMIT 1 BY t.project_id, t.trace_id
+            ),
+            spans_dedup AS (
+                SELECT trace_id, project_id, span_start_time, span_end_time, status
+                FROM spans
+                WHERE project_id = {{project_id:String}}
+                  AND trace_id IN (SELECT trace_id FROM traces_dedup)
+                ORDER BY ch_update_time DESC
+                LIMIT 1 BY span_id
+            )
             SELECT
                 t.trace_id,
                 t.name,
@@ -654,9 +696,8 @@ class TraceReaderService:
                     NULL
                 ) as duration_ms,
                 if(countIf(s.status = 'ERROR') > 0, 'error', 'ok') as status
-            FROM traces AS t FINAL
-            LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
-            WHERE {where_clause}
+            FROM traces_dedup AS t
+            LEFT JOIN spans_dedup AS s ON t.trace_id = s.trace_id AND t.project_id = s.project_id
             GROUP BY t.trace_id, t.name, t.trace_start_time, t.user_id, t.input, t.output
             ORDER BY t.trace_start_time ASC
         """
@@ -693,15 +734,22 @@ class TraceReaderService:
         if needs_span_io and trace_ids:
             # Get the first span's input and last span's output per trace
             # (root span = no parent, or earliest AGENT span with real data)
+            # Dedup spans without FINAL (latest per span_id, scoped to these
+            # traces), then aggregate I/O over the deduped rows.
             span_io_query = """
                 SELECT
                     trace_id,
                     argMin(input, span_start_time) as first_input,
                     argMax(output, span_end_time) as last_output
-                FROM spans FINAL
-                WHERE project_id = {project_id:String}
-                  AND trace_id IN ({trace_ids:Array(String)})
-                  AND ((input != '' AND input != '{}') OR (output != '' AND output != '{}'))
+                FROM (
+                    SELECT trace_id, input, output, span_start_time, span_end_time
+                    FROM spans
+                    WHERE project_id = {project_id:String}
+                      AND trace_id IN ({trace_ids:Array(String)})
+                    ORDER BY ch_update_time DESC
+                    LIMIT 1 BY span_id
+                )
+                WHERE ((input != '' AND input != '{}') OR (output != '' AND output != '{}'))
                 GROUP BY trace_id
             """
             span_io_result = self._client.query(
@@ -722,14 +770,20 @@ class TraceReaderService:
                         t["output"] = span_io[1]
 
         # Step 3: Get token totals from spans for all traces in this session
+        # Dedup spans without FINAL (latest per span_id), then sum tokens/cost.
         tokens_query = """
             SELECT
                 sum(input_tokens) as total_input_tokens,
                 sum(output_tokens) as total_output_tokens,
                 sum(cost) as total_cost
-            FROM spans FINAL
-            WHERE project_id = {project_id:String}
-              AND trace_id IN ({trace_ids:Array(String)})
+            FROM (
+                SELECT input_tokens, output_tokens, cost
+                FROM spans
+                WHERE project_id = {project_id:String}
+                  AND trace_id IN ({trace_ids:Array(String)})
+                ORDER BY ch_update_time DESC
+                LIMIT 1 BY span_id
+            )
         """
         tokens_result = self._client.query(
             tokens_query,

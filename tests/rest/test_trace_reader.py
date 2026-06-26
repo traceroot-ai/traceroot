@@ -141,7 +141,7 @@ class TestGetTraceSkeleton:
         captured = {}
 
         def side_effect(query, parameters=None):
-            if "FROM traces FINAL" in query:
+            if "FROM traces" in query and "FROM spans" not in query:
                 return _rows(
                     [
                         (
@@ -247,7 +247,7 @@ class TestGetTraceSkeleton:
         captured = {}
 
         def side_effect(query, parameters=None):
-            if "FROM traces FINAL" in query:
+            if "FROM traces" in query and "FROM spans" not in query:
                 return _rows(
                     [
                         (
@@ -292,7 +292,7 @@ class TestGetTraceSkeleton:
         )
 
         def side_effect(query, parameters=None):
-            if "FROM traces FINAL" in query:
+            if "FROM traces" in query and "FROM spans" not in query:
                 return _rows(
                     [
                         (
