@@ -66,8 +66,11 @@ if ch_ro --query "SELECT count() FROM pubviews.spans" >/dev/null 2>&1; then
 fi
 echo "PASS: RO denied on physical spans table"
 
-echo "== RO isolation: foreign project_id returns that project's rows (gateway-bound project_id required) =="
-ch_ro --query "SELECT span_id FROM pubviews.spans_public_v1(project_id='proj_B')"
+echo "== RO isolation: a foreign project_id returns that project's rows (the DB has no backstop) =="
+RO_FOREIGN="$(ch_ro --query "SELECT span_id FROM pubviews.spans_public_v1(project_id='proj_B')")"
+printf '%s\n' "$RO_FOREIGN"
+[ "$RO_FOREIGN" = "sB" ] || { echo "FAIL: expected proj_B row 'sB'"; exit 1; }
+echo "PASS: DB returns whatever project_id is supplied -> the gateway MUST bind the authenticated project_id"
 
 echo "== cleanup =="
 ch --query "DROP DATABASE pubviews"
