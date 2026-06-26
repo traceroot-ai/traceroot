@@ -9,6 +9,14 @@ on:
   #   # Daily at 3am — disabled until we have a use for it
   #   - cron: "0 3 * * *"
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target ECR repo prefix (repos are named traceroot-<environment>-<service>)"
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
 
 concurrency:
   group: docker-images-${{ github.ref }}
@@ -73,7 +81,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.ECR_REGISTRY }}/traceroot-${{ matrix.service }}
+          images: ${{ env.ECR_REGISTRY }}/traceroot-${{ inputs.environment }}-${{ matrix.service }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-
