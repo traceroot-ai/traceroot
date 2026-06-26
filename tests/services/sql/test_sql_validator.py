@@ -67,6 +67,11 @@ ALLOWED_CASES = [
     "SELECT * FROM spans WHERE cost BETWEEN 0 AND 100",
     # LIKE (exp.Like is not a Func subclass)
     "SELECT * FROM spans WHERE name LIKE '%test%'",
+    # --- Scope-aware CTE regression: legitimate in-scope references (P1 fix) ---
+    # CTE whose alias is an arbitrary non-public name — in-scope reference is allowed
+    "WITH evil AS (SELECT 1 AS n) SELECT n FROM evil",
+    # Chained CTEs: later CTE references earlier CTE in the same WITH block
+    "WITH a AS (SELECT span_id FROM spans), b AS (SELECT span_id FROM a) SELECT count() FROM b",
 ]
 
 
@@ -140,6 +145,19 @@ REJECTED_CASES = [
     # ----- Empty / whitespace-only ------------------------------------------
     pytest.param("", id="reject-empty"),
     pytest.param("   ", id="reject-whitespace"),
+    # ----- Scope-aware CTE bypass (P1 regression) ---------------------------
+    # Outer FROM references a real table whose name matches a CTE defined only
+    # inside an inner subquery — must be rejected, not allowlisted by mistake.
+    pytest.param(
+        "SELECT * FROM evil WHERE 1 IN (WITH evil AS (SELECT 1 AS n) SELECT n FROM evil)",
+        id="reject-cte-scope-bypass-subquery",
+    ),
+    # First UNION arm's table is a real (unknown) table; the CTE is scoped only
+    # to the second arm — the outer reference must be rejected.
+    pytest.param(
+        "SELECT n FROM evil UNION ALL WITH evil AS (SELECT 1 AS n) SELECT n FROM evil",
+        id="reject-cte-scope-bypass-union",
+    ),
 ]
 
 
