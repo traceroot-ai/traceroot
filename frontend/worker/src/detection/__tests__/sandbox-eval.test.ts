@@ -25,7 +25,12 @@ vi.mock("@traceroot/core/model-resolver", () => ({
   findByokKeyForPiProvider: mockFindByokKey,
 }));
 
-import { runDetectionForTrace } from "../sandbox-eval.js";
+import {
+  runDetectionForTrace,
+  parseDetectorEvalTimeoutMs,
+  DEFAULT_DETECTOR_EVAL_TIMEOUT_MS,
+  MAX_DETECTOR_EVAL_TIMEOUT_MS,
+} from "../sandbox-eval.js";
 
 const DETECTOR = {
   id: "det-1",
@@ -257,6 +262,9 @@ describe("runDetectionForTrace", () => {
   });
 
   it("aborts and returns a timeout error when the provider never responds", async () => {
+    // Pin the timeout so the test is deterministic regardless of any ambient
+    // DETECTOR_EVAL_TIMEOUT_MS, and advance to exactly the configured bound.
+    vi.stubEnv("DETECTOR_EVAL_TIMEOUT_MS", "5000");
     vi.useFakeTimers();
     try {
       // Simulate a hung provider: the promise only settles if its signal aborts.
@@ -279,18 +287,20 @@ describe("runDetectionForTrace", () => {
       });
 
       // Advance past the eval timeout; the AbortController fires and the call rejects.
-      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.advanceTimersByTimeAsync(5_000);
       const result = await promise;
 
       expect(result.identified).toBe(false);
-      expect(result.error).toMatch(/timed out/i);
+      expect(result.error).toMatch(/timed out after 5000ms/i);
       expect(mockComplete).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
+      vi.unstubAllEnvs();
     }
   });
 
   it("classifies an aborted response (stopReason=aborted) as a timeout without retrying", async () => {
+    vi.stubEnv("DETECTOR_EVAL_TIMEOUT_MS", "5000");
     vi.useFakeTimers();
     try {
       // pi-ai may RESOLVE (not throw) with an aborted response once the signal
@@ -312,7 +322,7 @@ describe("runDetectionForTrace", () => {
         workspaceId: "ws-1",
       });
 
-      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.advanceTimersByTimeAsync(5_000);
       const result = await promise;
 
       expect(result.identified).toBe(false);
@@ -321,7 +331,32 @@ describe("runDetectionForTrace", () => {
       expect(mockComplete).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
+      vi.unstubAllEnvs();
     }
+  });
+
+  describe("parseDetectorEvalTimeoutMs", () => {
+    it("accepts valid positive values up to the Node timer max", () => {
+      expect(parseDetectorEvalTimeoutMs("30000")).toBe(30000);
+      expect(parseDetectorEvalTimeoutMs(String(MAX_DETECTOR_EVAL_TIMEOUT_MS))).toBe(
+        MAX_DETECTOR_EVAL_TIMEOUT_MS,
+      );
+    });
+
+    it.each([
+      ["undefined", undefined],
+      ["empty string", ""],
+      ["whitespace", "   "],
+      ["zero", "0"],
+      ["negative", "-1000"],
+      ["Infinity", "Infinity"],
+      ["non-numeric", "abc"],
+      ["over the Node timer max", String(MAX_DETECTOR_EVAL_TIMEOUT_MS + 1)],
+    ])("falls back to the default for %s", (_label, raw) => {
+      expect(parseDetectorEvalTimeoutMs(raw as string | undefined)).toBe(
+        DEFAULT_DETECTOR_EVAL_TIMEOUT_MS,
+      );
+    });
   });
 
   describe("inference cost + source attribution", () => {

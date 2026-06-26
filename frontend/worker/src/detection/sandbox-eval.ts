@@ -1,5 +1,5 @@
 import { complete, getEnvApiKey } from "@earendil-works/pi-ai";
-import type { Message, ToolCall } from "@earendil-works/pi-ai";
+import type { Message, ToolCall, ProviderStreamOptions } from "@earendil-works/pi-ai";
 import {
   findByokKeyForPiProvider,
   fetchProviderConfig,
@@ -49,22 +49,24 @@ const MAX_ATTEMPTS = 2;
 const SAFETY_TRUNCATE_CHARS = 150_000;
 /** Default screening model for system source — cheap-and-fast, not the agent default. */
 const SYSTEM_DEFAULT_MODEL = "claude-haiku-4-5";
+/** Fallback per-attempt timeout when DETECTOR_EVAL_TIMEOUT_MS is unset or invalid. */
+export const DEFAULT_DETECTOR_EVAL_TIMEOUT_MS = 60_000;
+/** Node's setTimeout max delay; larger values clamp to 1ms (an instant abort). */
+export const MAX_DETECTOR_EVAL_TIMEOUT_MS = 2_147_483_647;
+
 /**
- * Per-attempt wall-clock cap on the judge LLM call. pi-ai forwards an
- * AbortSignal to the provider fetch but imposes no default timeout, and Node's
- * fetch has none either — so a provider that accepts the connection but never
- * responds (stalled socket / hung stream) leaves `complete()` pending forever.
- * Such a call would pin a BullMQ worker slot indefinitely (an I/O-bound handler
- * is never marked stalled, never retried), and enough of them drain the pool and
- * halt the whole detector-run queue. Override with DETECTOR_EVAL_TIMEOUT_MS.
- * Ignore non-positive / non-finite overrides: 0 or a negative value would make
- * setTimeout fire immediately and abort every eval, so fall back to the default.
+ * Parse DETECTOR_EVAL_TIMEOUT_MS into a per-attempt cap (ms) on one complete() call.
+ * Falls back to the default for anything that would break the watchdog — unset/empty,
+ * non-numeric, non-finite, non-positive, or above the Node timer max — since each of
+ * those would otherwise abort every eval immediately. Read at call time so the
+ * deployed value is honored and tests can vary it.
  */
-const DETECTOR_EVAL_TIMEOUT_MS_OVERRIDE = Number(process.env.DETECTOR_EVAL_TIMEOUT_MS);
-const DETECTOR_EVAL_TIMEOUT_MS =
-  Number.isFinite(DETECTOR_EVAL_TIMEOUT_MS_OVERRIDE) && DETECTOR_EVAL_TIMEOUT_MS_OVERRIDE > 0
-    ? DETECTOR_EVAL_TIMEOUT_MS_OVERRIDE
-    : 60_000;
+export function parseDetectorEvalTimeoutMs(raw: string | undefined): number {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 && parsed <= MAX_DETECTOR_EVAL_TIMEOUT_MS
+    ? parsed
+    : DEFAULT_DETECTOR_EVAL_TIMEOUT_MS;
+}
 
 /**
  * `tool_choice` value sent to every provider for detector eval.
@@ -194,26 +196,34 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
   let inferenceModel: string | null = null;
   let inferenceProvider: string | null = null;
 
+  // Per-attempt cap, read at call time so the deployed value is honored.
+  const timeoutMs = parseDetectorEvalTimeoutMs(process.env.DETECTOR_EVAL_TIMEOUT_MS);
+  const timeoutMessage = `detector eval timed out after ${timeoutMs}ms (model=${model.id}, api=${model.api})`;
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    // Per-attempt timeout: pi-ai forwards this signal to the provider fetch,
-    // which otherwise has no upper bound. Declared outside the try so the catch
-    // can distinguish a timeout (controller.signal.aborted) from a real error.
+    // Fresh controller per attempt. The signal is what cancels the underlying
+    // provider fetch (pi-ai forwards it); a timer alone can't. Declared outside the
+    // try so the catch can tell a timeout (signal.aborted) from a real error. A
+    // timeout is TERMINAL — every abort branch breaks, so a hung provider is hit once.
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), DETECTOR_EVAL_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    timeout.unref?.();
     try {
-      const response = await complete(model, { systemPrompt, messages, tools: [submitTool] }, {
+      const options: ProviderStreamOptions = {
         apiKey,
         toolChoice: TOOL_CHOICE,
         signal: controller.signal,
-      } as Record<string, unknown>);
+      };
+      const response = await complete(
+        model,
+        { systemPrompt, messages, tools: [submitTool] },
+        options,
+      );
 
-      // A timed-out call may RESOLVE with an aborted response (stopReason
-      // "aborted", empty content) rather than throwing. Treat that exactly like
-      // the thrown-abort case in catch: record a timeout and stop — do NOT fall
-      // through to the "no submit_result" retry, which would burn a second
-      // provider call and mislabel the failure.
+      // pi-ai may RESOLVE an aborted call with stopReason "aborted" rather than
+      // throwing. Treat it as a terminal timeout — not a missing-submit_result retry.
       if (controller.signal.aborted || response.stopReason === "aborted") {
-        lastError = `detector eval timed out after ${DETECTOR_EVAL_TIMEOUT_MS}ms (model=${model.id}, api=${model.api})`;
+        lastError = timeoutMessage;
         break;
       }
 
@@ -266,8 +276,10 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
         timestamp: Date.now(),
       });
     } catch (err) {
+      // A thrown AbortError (transports that reject rather than resolve) is the
+      // same terminal timeout; anything else is a genuine error. Either way, stop.
       lastError = controller.signal.aborted
-        ? `detector eval timed out after ${DETECTOR_EVAL_TIMEOUT_MS}ms (model=${model.id}, api=${model.api})`
+        ? timeoutMessage
         : err instanceof Error
           ? err.message
           : String(err);
