@@ -52,6 +52,13 @@ class TestReadonlyClient:
         # the RO client must not auto-generate a sticky session (shared pooled reads)
         assert captured["autogenerate_session_id"] is False
 
+    def test_readonly_from_settings_raises_without_ro_user(self, monkeypatch):
+        # the public factory must not silently build a privileged client
+        ch = ch_client_mod.settings.clickhouse
+        monkeypatch.setattr(ch, "ro_user", None, raising=False)
+        with pytest.raises(RuntimeError, match="CLICKHOUSE_RO_USER"):
+            ClickHouseClient.readonly_from_settings()
+
     def test_fatal_in_cloud_when_ro_user_missing(self, monkeypatch):
         ch = ch_client_mod.settings.clickhouse
         monkeypatch.setattr(ch, "ro_user", None, raising=False)
