@@ -140,7 +140,7 @@ expect_eq "0: ClickHouse version matches the pinned baseline" "$EXPECTED_VERSION
 # rather than echoing a hardcoded value.
 IMG_ID=$(docker inspect --format '{{.Image}}' ch_sql_spike)
 ACTUAL_DIGEST=$(docker image inspect "$IMG_ID" --format '{{range .RepoDigests}}{{println .}}{{end}}' \
-  | grep -oE 'sha256:[0-9a-f]+' | head -1)
+  | sed -nE 's|.*clickhouse/clickhouse-server@(sha256:[0-9a-f]+).*|\1|p' | head -1)
 echo "running image: $(docker inspect --format '{{.Config.Image}}' ch_sql_spike)  digest: ${ACTUAL_DIGEST:-<none>}"
 if [ "$ACTUAL_DIGEST" != "$EXPECTED_DIGEST" ]; then
   echo "FAIL [0: image digest matches pinned baseline]: expected $EXPECTED_DIGEST, running image is ${ACTUAL_DIGEST:-<none>}"
