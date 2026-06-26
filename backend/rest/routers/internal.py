@@ -407,9 +407,16 @@ async def get_spans_jsonl(trace_id: str, project_id: str):
     from fastapi.responses import PlainTextResponse
 
     ch = get_clickhouse_client()
+    # Dedup ReplacingMergeTree rows without FINAL (FINAL scans all parts and
+    # defeats the trace_id-first sort key / no-IO projection): keep the latest
+    # version per span_id, then order for output.
     result = ch.query(
-        """SELECT * FROM spans FINAL
-           WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}
+        """SELECT * FROM (
+               SELECT * FROM spans
+               WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}
+               ORDER BY ch_update_time DESC
+               LIMIT 1 BY span_id
+           )
            ORDER BY span_start_time""",
         parameters={"trace_id": trace_id, "project_id": project_id},
     )
