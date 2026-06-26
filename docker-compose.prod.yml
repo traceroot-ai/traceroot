@@ -29,7 +29,7 @@ services:
       retries: 10
 
   clickhouse:
-    image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-24.3}
+    image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-25.2}
     restart: always
     environment:
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:-default}
