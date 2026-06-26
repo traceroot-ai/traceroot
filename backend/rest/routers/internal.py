@@ -283,6 +283,10 @@ async def list_detector_runs(
 ):
     """List runs for a detector, newest first.
 
+    Runs and findings are read with FINAL so pre-merge ReplacingMergeTree
+    duplicates don't fan out the JOIN, leak stale versions into the page,
+    or inflate the total count.
+
     Param naming and pagination shape mirror the trace listing endpoints
     (`page`/`limit`/`start_after`/`end_before`/`search_query`) so the same
     `useListPageState` queryOptions can flow through unchanged.
