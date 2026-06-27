@@ -156,6 +156,23 @@ resource "kubernetes_secret" "google_oauth" {
   depends_on = [module.eks]
 }
 
+# GitHub OAuth Login secret (conditional)
+resource "kubernetes_secret" "github_oauth" {
+  count = var.github_oauth_client_id != "" ? 1 : 0
+
+  metadata {
+    name      = "traceroot-github-oauth"
+    namespace = kubernetes_namespace.app.metadata[0].name
+  }
+
+  data = {
+    "github-oauth-client-id"     = var.github_oauth_client_id
+    "github-oauth-client-secret" = var.github_oauth_client_secret
+  }
+
+  depends_on = [module.eks]
+}
+
 # SMTP secret (conditional)
 resource "kubernetes_secret" "smtp" {
   count = var.smtp_url != "" ? 1 : 0
