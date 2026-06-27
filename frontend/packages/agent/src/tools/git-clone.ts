@@ -12,6 +12,33 @@ const schema = Type.Object({
   ),
 });
 
+const GITHUB_REPO_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?\/[A-Za-z0-9._-]+$/;
+const GIT_REF_PATTERN = /^[A-Za-z0-9._/-]+$/;
+const FULL_OR_SHORT_SHA_PATTERN = /^[0-9a-f]{7,40}$/i;
+
+function validationError(text: string): AgentToolResult<undefined> {
+  return { content: [{ type: "text", text }], details: undefined };
+}
+
+function validateCloneParams(repo: string, ref?: string): string | null {
+  if (!GITHUB_REPO_PATTERN.test(repo)) {
+    return "Invalid repository. Use GitHub 'owner/repo' format.";
+  }
+
+  if (
+    ref !== undefined &&
+    (!GIT_REF_PATTERN.test(ref) ||
+      ref.includes("..") ||
+      ref.startsWith("/") ||
+      ref.endsWith("/") ||
+      ref.includes("//"))
+  ) {
+    return "Invalid git ref. Use a branch, tag, or commit SHA containing only letters, numbers, '.', '_', '-', and '/'.";
+  }
+
+  return null;
+}
+
 export function createGitCloneTool(
   workspaceId: string,
   uiBaseUrl: string,
@@ -24,6 +51,9 @@ export function createGitCloneTool(
       "Clone a GitHub repository into the sandbox. Uses the user's GitHub App installation for authentication. After cloning, use bash/read to explore the code.",
     parameters: schema,
     execute: async (_, params): Promise<AgentToolResult<undefined>> => {
+      const invalid = validateCloneParams(params.repo, params.ref);
+      if (invalid) return validationError(invalid);
+
       // Ensure sandbox is ready
       if (!executor.isReady()) {
         await executor.init();
@@ -83,21 +113,47 @@ export function createGitCloneTool(
           };
         }
       } else {
-        const cloneUrl = `https://x-access-token:${token}@github.com/${params.repo}.git`;
+        const cloneUrl = `https://github.com/${params.repo}.git`;
+        const askpassPath = "/tmp/git-askpass.sh";
+        await executor.writeFile(
+          askpassPath,
+          [
+            "#!/bin/sh",
+            'case "$1" in',
+            '  Username*) printf "%s" "$GIT_USERNAME" ;;',
+            '  Password*) printf "%s" "$GIT_PASSWORD" ;;',
+            "esac",
+            "",
+          ].join("\n"),
+        );
+        await executor.exec(`chmod +x ${askpassPath}`);
 
         let cloneCmd: string;
-        if (params.ref) {
-          // Try as branch/tag first, fall back to fetch+checkout for commit SHAs
-          cloneCmd = `git clone --depth 1 --branch "${params.ref}" "${cloneUrl}" "${clonePath}" 2>/dev/null || (git clone "${cloneUrl}" "${clonePath}" && cd "${clonePath}" && git checkout "${params.ref}")`;
+        if (!params.ref) {
+          cloneCmd = `git -c credential.helper= -c core.hooksPath=/dev/null clone --depth 1 -- "$GIT_URL" "$GIT_DEST"`;
+        } else if (FULL_OR_SHORT_SHA_PATTERN.test(params.ref)) {
+          cloneCmd = `git -c credential.helper= -c core.hooksPath=/dev/null clone -- "$GIT_URL" "$GIT_DEST" && git -c credential.helper= -c core.hooksPath=/dev/null -C "$GIT_DEST" checkout "$GIT_REF"`;
         } else {
-          cloneCmd = `git clone --depth 1 "${cloneUrl}" "${clonePath}"`;
+          cloneCmd = `git -c credential.helper= -c core.hooksPath=/dev/null clone --depth 1 --branch "$GIT_REF" -- "$GIT_URL" "$GIT_DEST"`;
         }
 
-        const result = await executor.exec(cloneCmd, { timeout: 120 });
+        const result = await executor.exec(`( ${cloneCmd} ) 2>&1`, {
+          timeout: 120,
+          env: {
+            GIT_ASKPASS: askpassPath,
+            GIT_TERMINAL_PROMPT: "0",
+            GIT_USERNAME: "x-access-token",
+            GIT_PASSWORD: token,
+            GIT_URL: cloneUrl,
+            GIT_DEST: clonePath,
+            ...(params.ref ? { GIT_REF: params.ref } : {}),
+          },
+        });
 
         if (result.code !== 0) {
           // Sanitize error (remove token from output)
-          const sanitizedErr = result.stderr.replace(token, "[REDACTED]");
+          const output = result.stderr || result.stdout || "";
+          const sanitizedErr = output.replaceAll(token, "[REDACTED]");
           return {
             content: [
               {
