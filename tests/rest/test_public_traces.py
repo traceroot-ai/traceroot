@@ -98,6 +98,7 @@ class TestIngestTraces:
             headers={"Content-Type": "application/x-protobuf"},
         )
         assert response.status_code == 400
+        assert response.json()["detail"] == "Malformed OTLP protobuf payload"
 
     def test_invalid_gzip_returns_400(self):
         app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result()
