@@ -70,8 +70,8 @@ function OnboardingContent() {
 
   const {
     register,
+    handleSubmit: handleFormSubmit,
     formState: { errors },
-    getValues,
   } = useForm<OnboardingForm>({
     resolver: zodResolver(onboardingSchema),
     defaultValues: {
@@ -84,7 +84,8 @@ function OnboardingContent() {
     },
   });
 
-  async function handleSubmit() {
+  async function onSubmit(data: OnboardingForm) {
+    if (isLoading) return;
     setIsLoading(true);
     setError(null);
 
@@ -93,12 +94,7 @@ function OnboardingContent() {
 
       // Create workspace if not in project-only mode
       if (!isProjectOnlyMode) {
-        const workspaceName = getValues("workspaceName");
-        if (!workspaceName) {
-          setError("Workspace name is required");
-          setIsLoading(false);
-          return;
-        }
+        const workspaceName = data.workspaceName;
         const workspace = await createWorkspace(workspaceName);
         workspaceId = workspace.id;
       }
@@ -110,13 +106,7 @@ function OnboardingContent() {
       }
 
       // Create project
-      const projectName = getValues("projectName");
-      if (!projectName) {
-        setError("Project name is required");
-        setIsLoading(false);
-        return;
-      }
-
+      const projectName = data.projectName;
       const project = await createProject(workspaceId, projectName);
 
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
@@ -179,7 +169,7 @@ function OnboardingContent() {
                 />
               </div>
             ) : (
-              <>
+              <form onSubmit={handleFormSubmit(onSubmit)}>
                 <div className="space-y-0">
                   {/* Workspace Section */}
                   <div className="flex items-start gap-3">
@@ -250,7 +240,7 @@ function OnboardingContent() {
                   <Button
                     size="sm"
                     className="h-7 px-4 text-[12px]"
-                    onClick={handleSubmit}
+                    type="submit"
                     disabled={isLoading}
                   >
                     {isLoading ? "Creating..." : "Create"}
@@ -259,12 +249,13 @@ function OnboardingContent() {
                     variant="outline"
                     size="sm"
                     className="h-7 px-4 text-[12px]"
+                    type="button"
                     onClick={() => router.push("/workspaces")}
                   >
                     Cancel
                   </Button>
                 </div>
-              </>
+              </form>
             )}
           </CardContent>
         </Card>
