@@ -5,6 +5,7 @@ import { Sparkle, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AITab } from "./AITab";
 import { ManualTab } from "./ManualTab";
+import { SampleTraceButton } from "./SampleTraceButton";
 
 type Tab = "ai" | "manual";
 
@@ -24,6 +25,10 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
         <p className="mt-1 text-sm text-muted-foreground">
           You don&apos;t have any traces yet. Choose how you&apos;d like to set up.
         </p>
+
+        <div className="mt-5">
+          <SampleTraceButton projectId={projectId} />
+        </div>
 
         <div className="mt-6 inline-flex gap-0.5 rounded-sm border border-border bg-muted p-0.5">
           <button

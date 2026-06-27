@@ -1,8 +1,13 @@
 /**
  * Trace API functions (Python backend - ClickHouse)
  */
-import { fetchTraceApi, type TraceApiUser } from "./client";
+import { fetchNextApi, fetchTraceApi, type TraceApiUser } from "./client";
 import type { SpanIO, TraceDetail, TraceListResponse, TraceQueryOptions } from "@/types/api";
+
+export interface SampleTraceResponse {
+  trace_id: string;
+  span_count: number;
+}
 
 export async function getTraces(
   projectId: string,
@@ -50,4 +55,10 @@ export async function getSpanIO(
     {},
     user,
   );
+}
+
+export async function createSampleTrace(projectId: string): Promise<SampleTraceResponse> {
+  return fetchNextApi<SampleTraceResponse>(`/projects/${projectId}/sample-trace`, {
+    method: "POST",
+  });
 }
