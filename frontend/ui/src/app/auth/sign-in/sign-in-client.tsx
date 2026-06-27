@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
+import { sanitizeRedirectPath } from "@/lib/safe-redirect";
 
 const signInSchema = z.object({
   email: z.string().email("Invalid email"),
@@ -27,7 +28,7 @@ type SignInContentProps = {
 function SignInContent({ googleAuthConfigured }: SignInContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/";
+  const callbackUrl = sanitizeRedirectPath(searchParams.get("callbackUrl"));
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
