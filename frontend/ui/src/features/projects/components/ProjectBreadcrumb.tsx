@@ -49,6 +49,7 @@ export function ProjectBreadcrumb({ projectId, current }: ProjectBreadcrumbProps
           id: ws.id,
           label: ws.name,
           href: workspaceSwitchHref(pathname, ws.id),
+          isCurrent: ws.id === project?.workspace_id,
           settingsHref: `/workspaces/${ws.id}/settings`,
         })),
         menuHeader: { label: "Workspaces", href: "/workspaces" },
@@ -61,6 +62,7 @@ export function ProjectBreadcrumb({ projectId, current }: ProjectBreadcrumbProps
           id: p.id,
           label: p.name,
           href: projectSwitchHref(pathname, p.id),
+          isCurrent: p.id === projectId,
           settingsHref: `/projects/${p.id}/settings`,
         })),
         menuHeader: {
