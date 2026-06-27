@@ -1,6 +1,6 @@
 // Database
 export { prisma } from "./lib/prisma.ts";
-export { PrismaClient } from "@prisma/client";
+export { PrismaClient, Prisma } from "@prisma/client";
 export * from "./ee/billing/index.ts";
 
 // Encryption
