@@ -1,5 +1,6 @@
 """Service for reading traces from ClickHouse."""
 
+import json
 from datetime import datetime
 
 from db.clickhouse import get_clickhouse_client
@@ -49,6 +50,32 @@ def span_cost_details(
         cache_write_1h=cache_write_1h,
     )
     return cost_breakdown_from_buckets(get_model_price(model_name), buckets) or {}
+
+
+def span_tree_metadata(metadata: str | None) -> str | None:
+    """Return only the small metadata subset needed to repair live span trees.
+
+    The default trace-detail read deliberately omits full per-span I/O blobs.
+    During live traces, though, the frontend needs the SDK-emitted path metadata
+    to synthesize pending ancestors when child spans arrive before parents.
+    """
+    if not metadata:
+        return None
+
+    try:
+        parsed = json.loads(metadata)
+    except (TypeError, ValueError):
+        return None
+
+    if not isinstance(parsed, dict):
+        return None
+
+    tree_meta = {
+        key: parsed[key]
+        for key in ("traceroot.span.ids_path", "traceroot.span.path")
+        if key in parsed
+    }
+    return json.dumps(tree_meta, separators=(",", ":")) if tree_meta else None
 
 
 class TraceReaderService:
@@ -282,17 +309,17 @@ class TraceReaderService:
 
         spans_where_clause = " AND ".join(spans_conditions)
 
-        # Fetch span skeletons — omit the large input/output/metadata blobs to
-        # keep the payload lightweight (fetched per-span on demand instead).
-        # usage_details is kept (small map) to derive cost_details. Duration is
-        # derived on the client from start/end so in-progress spans can grow
-        # against `now()` for live traces.
+        # Fetch span skeletons — omit the large input/output blobs and return
+        # only a tiny tree-repair metadata subset. Full per-span I/O/metadata is
+        # fetched on demand instead. usage_details is kept (small map) to derive
+        # cost_details. Duration is derived on the client from start/end so
+        # in-progress spans can grow against `now()` for live traces.
         spans_query = f"""
             SELECT
                 span_id, trace_id, parent_span_id, name, span_kind,
                 span_start_time, span_end_time, status, status_message,
                 model_name, cost, input_tokens, output_tokens, total_tokens,
-                usage_details,
+                usage_details, metadata,
                 git_source_file, git_source_line, git_source_function
             FROM (
                 SELECT
@@ -338,9 +365,10 @@ class TraceReaderService:
                         int(row[12]) if row[12] is not None else None,  # output_tokens
                         dict(row[14]) if row[14] else {},  # usage_details
                     ),
-                    "git_source_file": row[15],
-                    "git_source_line": int(row[16]) if row[16] is not None else None,
-                    "git_source_function": row[17],
+                    "metadata": span_tree_metadata(row[15]),
+                    "git_source_file": row[16],
+                    "git_source_line": int(row[17]) if row[17] is not None else None,
+                    "git_source_function": row[18],
                 }
             )
 
