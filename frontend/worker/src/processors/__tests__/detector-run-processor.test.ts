@@ -164,6 +164,14 @@ describe("processTrace — finding + RCA", () => {
     expect(mockWriteFinding.mock.calls[0][0]).not.toHaveProperty("retracted");
     expect(mockWriteRun).toHaveBeenCalled();
     expect(mockQueueAdd).toHaveBeenCalledTimes(1); // one RCA job
+
+    // The finding row, its triggered run, and the RCA job that keys the digest
+    // flush all carry the SAME capture time, so the count window the flush reads
+    // matches the window the key selects (no clock-boundary skew).
+    const ts = mockWriteFinding.mock.calls[0][0].timestampMs;
+    expect(typeof ts).toBe("number");
+    expect(mockWriteRun.mock.calls[0][0].timestampMs).toBe(ts);
+    expect(mockQueueAdd.mock.calls[0][1].findingTimestamp).toBe(ts);
   });
 
   it("writes no finding when nothing triggers", async () => {

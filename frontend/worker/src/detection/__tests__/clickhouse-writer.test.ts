@@ -61,6 +61,23 @@ describe("writeDetectorRun", () => {
     const headers = mockFetch.mock.calls[0][1].headers;
     expect(headers).toHaveProperty("X-Internal-Secret");
   });
+
+  it("forwards timestampMs in the request body when provided", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+
+    await writeDetectorRun({
+      runId: "r",
+      detectorId: "d",
+      projectId: "p",
+      traceId: "t",
+      findingId: "f",
+      status: "completed",
+      timestampMs: 1_700_000_000_123,
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.timestampMs).toBe(1_700_000_000_123);
+  });
 });
 
 describe("writeDetectorFinding", () => {
@@ -81,5 +98,21 @@ describe("writeDetectorFinding", () => {
       expect.stringContaining("/api/v1/internal/detector-findings"),
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("forwards timestampMs in the request body when provided", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true });
+
+    await writeDetectorFinding({
+      findingId: "finding-1",
+      projectId: "proj-1",
+      traceId: "trace-1",
+      summary: "Something bad",
+      payload: "{}",
+      timestampMs: 1_700_000_000_123,
+    });
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.timestampMs).toBe(1_700_000_000_123);
   });
 });

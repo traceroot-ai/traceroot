@@ -380,11 +380,11 @@ async function evaluateTrace(
     })),
   );
 
-  // Worker capture time for this finding, used to key the digest window. Note
-  // this is close to but not identical to the server-stamped
-  // detector_runs.timestamp the flush reads back (the row is stamped a few ms
-  // later, at INSERT), so a finding within that margin of a window boundary can
-  // land in an adjacent count window. Sub-second and boundary-only today.
+  // Single capture time for this finding. Stamped onto the finding row AND every
+  // triggered run below (timestampMs), and threaded to the RCA job to key the
+  // digest flush. Because the same value is both the row timestamp the flush
+  // counts and the window key, a finding always falls in exactly the window its
+  // flush covers — no boundary skew between the worker and server clocks.
   const findingTimestamp = Date.now();
 
   await writeDetectorFinding({
@@ -393,9 +393,12 @@ async function evaluateTrace(
     traceId,
     summary: combinedSummary,
     payload,
+    timestampMs: findingTimestamp,
   });
 
   // Write runs for all triggered detectors, all pointing to the same finding_id
+  // and stamped with the shared findingTimestamp so the digest count window
+  // matches the flush key.
   await Promise.allSettled(
     triggered.map((r) =>
       writeDetectorRun({
@@ -405,6 +408,7 @@ async function evaluateTrace(
         traceId,
         findingId,
         status: "completed",
+        timestampMs: findingTimestamp,
       }).catch((err) => console.error("[Detector] Failed to write run:", err)),
     ),
   );

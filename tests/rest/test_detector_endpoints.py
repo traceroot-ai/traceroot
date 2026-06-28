@@ -292,6 +292,76 @@ class TestWriteDetectorFinding:
         assert "INSERT INTO detector_findings" in sql
         assert "retracted" not in sql
 
+    def test_stamps_timestamp_when_provided(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-findings",
+            json={**self._body(), "timestampMs": 1_700_000_000_123},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert "fromUnixTimestamp64Milli({timestamp_ms:Int64})" in sql
+        assert params["timestamp_ms"] == 1_700_000_000_123
+
+    def test_omits_timestamp_when_absent(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-findings",
+            json=self._body(),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert "fromUnixTimestamp64Milli" not in sql
+        assert "timestamp_ms" not in params
+
+
+class TestWriteDetectorRun:
+    def _body(self) -> dict:
+        return {
+            "runId": "r1",
+            "detectorId": "d1",
+            "projectId": "p1",
+            "traceId": "trace-aaa",
+            "findingId": "f1",
+            "status": "completed",
+        }
+
+    def test_writes_run_row(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-runs",
+            json=self._body(),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        assert "INSERT INTO detector_runs" in sql
+
+    def test_stamps_timestamp_when_provided(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-runs",
+            json={**self._body(), "timestampMs": 1_700_000_000_123},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert "fromUnixTimestamp64Milli({timestamp_ms:Int64})" in sql
+        assert params["timestamp_ms"] == 1_700_000_000_123
+
+    def test_omits_timestamp_when_absent(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-runs",
+            json=self._body(),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert "fromUnixTimestamp64Milli" not in sql
+        assert "timestamp_ms" not in params
+
 
 # =============================================================================
 # /traces/{trace_id}/findings
