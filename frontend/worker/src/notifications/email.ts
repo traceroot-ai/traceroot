@@ -81,3 +81,87 @@ ${htmlRcaSection}
     `.trim(),
   });
 }
+
+// Human-readable UTC window range, mirroring the digest Slack footer:
+// "Jun 24, 14:00–15:00 UTC" (same day) or
+// "Jun 23 23:50 – Jun 24 00:20 UTC" (cross-day). UTC keeps it unambiguous.
+function formatWindowRange(start: Date, end: Date): string {
+  const day = (d: Date) =>
+    new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(d);
+  const time = (d: Date) =>
+    new Intl.DateTimeFormat("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: "UTC",
+    }).format(d);
+  return day(start) === day(end)
+    ? `${day(start)}, ${time(start)}–${time(end)} UTC`
+    : `${day(start)} ${time(start)} – ${day(end)} ${time(end)} UTC`;
+}
+
+/**
+ * Send a windowed digest email summarizing all findings in a time window:
+ * one row per detector with its finding count and latest trace. No RCA and no
+ * per-finding summary — matches the Slack digest content.
+ */
+export async function sendDigestAlertEmail(params: {
+  to: string[];
+  projectId: string;
+  projectName: string;
+  windowStart: Date;
+  windowEnd: Date;
+  total: number;
+  entries: import("@traceroot/slack").DigestEntry[];
+}): Promise<void> {
+  const transport = createTransport();
+  if (!transport || params.to.length === 0) return;
+
+  const { projectId, projectName, windowStart, windowEnd, total, entries } = params;
+  const noun = total === 1 ? "finding" : "findings";
+  const windowRange = formatWindowRange(windowStart, windowEnd);
+
+  // date_filter=custom is REQUIRED — the detector page only hydrates the custom
+  // start/end when it is present; without it the deep-link lands on the default
+  // range. Mirrors the Slack digest deep-link shape exactly.
+  const range =
+    `date_filter=custom` +
+    `&start=${encodeURIComponent(windowStart.toISOString())}` +
+    `&end=${encodeURIComponent(windowEnd.toISOString())}`;
+  const findingsUrlFor = (detectorId: string) =>
+    `${APP_BASE_URL}/projects/${encodeURIComponent(projectId)}/detectors/${encodeURIComponent(detectorId)}?${range}`;
+  const traceUrlFor = (traceId: string) =>
+    `${APP_BASE_URL}/projects/${encodeURIComponent(projectId)}/traces?traceId=${encodeURIComponent(traceId)}`;
+
+  const textParts = [
+    `${total} ${noun} in project ${projectName}.`,
+    `${windowRange} · ${entries.length} detector${entries.length === 1 ? "" : "s"}`,
+    ``,
+  ];
+  for (const e of entries) {
+    const findingNoun = e.findingCount === 1 ? "finding" : "findings";
+    textParts.push(
+      `- ${e.detectorName} — ${e.findingCount} ${findingNoun} · latest ${e.latestTraceId.slice(0, 8)}`,
+      `  ${findingsUrlFor(e.detectorId)}`,
+    );
+  }
+
+  const htmlRows = entries
+    .map((e) => {
+      const findingNoun = e.findingCount === 1 ? "finding" : "findings";
+      return `<p style="margin:6px 0;"><a href="${findingsUrlFor(e.detectorId)}">${escapeHtml(e.detectorName)}</a> <span style="color:#888;">— ${e.findingCount} ${findingNoun} · latest <a href="${traceUrlFor(e.latestTraceId)}" style="color:#888;">${e.latestTraceId.slice(0, 8)}</a></span></p>`;
+    })
+    .join("\n");
+
+  await transport.sendMail({
+    from: SMTP_FROM,
+    to: params.to.join(", "),
+    subject: `[TraceRoot Alert] ${total} ${noun} — ${projectName}`,
+    text: textParts.join("\n"),
+    html: `
+<p><strong>${total} ${noun}</strong> in project <strong>${escapeHtml(projectName)}</strong>.</p>
+<p style="color:#888;font-size:12px;">${windowRange} · ${entries.length} detector${entries.length === 1 ? "" : "s"}</p>
+${htmlRows}
+    `.trim(),
+  });
+}
