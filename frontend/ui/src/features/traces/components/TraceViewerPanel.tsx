@@ -23,6 +23,7 @@ import type { TraceSelection } from "../types";
 import { SpanTreeView, type SpanTreeViewHandle } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
 import { useLayout } from "@/components/layout/app-layout";
+import { useAiChatContext } from "@/features/ai-assistant/components/ai-chat-context";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { useTraceStream } from "../hooks/use-trace-stream";
 import { SpanTimelineView } from "./SpanTimelineView";
@@ -96,6 +97,7 @@ export function TraceViewerPanel({
     registerAiHost,
     sidebarCollapsed,
   } = useLayout();
+  const { getCurrentSessionId } = useAiChatContext();
 
   // Claim the AI slot for this viewer so AppLayout's project rail steps aside.
   // `registerAiHost()` returns its own cleanup, which we return from the effect
@@ -291,17 +293,23 @@ export function TraceViewerPanel({
             <Button
               variant="outline"
               size="sm"
-              onClick={() =>
+              onClick={() => {
+                const extraParams: Record<string, string> = { traceId, fullscreen: "1" };
+                if (aiPanelOpen) {
+                  extraParams.ai = "1";
+                  const sessionId = getCurrentSessionId();
+                  if (sessionId) extraParams.sessionId = sessionId;
+                }
                 window.open(
                   buildUrlWithFilters(newTabPath ?? `/projects/${projectId}/traces`, {
                     dateFilter,
                     customStartDate,
                     customEndDate,
-                    extraParams: { traceId, fullscreen: "1" },
+                    extraParams,
                   }),
                   "_blank",
-                )
-              }
+                );
+              }}
               className="h-7 w-7 p-0"
               title="Open in new tab"
             >

@@ -39,10 +39,12 @@ export default function TracesPage() {
   const router = useRouter();
   const projectId = params.projectId as string;
   const queryClient = useQueryClient();
-  const { setHideAiButton } = useLayout();
+  const { setHideAiButton, setAiPanelOpen, setAiContext, setAiInitialSessionId } = useLayout();
   const { isPending: authPending } = useAuthSession();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
+  const aiParam = searchParams.get("ai");
+  const sessionIdParam = searchParams.get("sessionId");
   // Set when a trace is opened in a new tab via the panel's "open in new tab"
   // button, so the panel mounts already expanded to full width. Held as state
   // (not a derived value) so it only seeds the first trace opened from the URL:
@@ -116,6 +118,20 @@ export default function TracesPage() {
   useLayoutEffect(() => {
     setHideAiButton(shouldHideAiButton);
   }, [shouldHideAiButton, setHideAiButton]);
+
+  useEffect(() => {
+    if (aiParam !== "1" || !traceIdFromUrl) return;
+    setAiContext({ traceId: traceIdFromUrl });
+    if (sessionIdParam) setAiInitialSessionId(sessionIdParam);
+    setAiPanelOpen(true);
+  }, [
+    aiParam,
+    sessionIdParam,
+    traceIdFromUrl,
+    setAiContext,
+    setAiInitialSessionId,
+    setAiPanelOpen,
+  ]);
 
   const buildUrl = (path: string, extraParams?: Record<string, string>) =>
     buildUrlWithFilters(path, {
