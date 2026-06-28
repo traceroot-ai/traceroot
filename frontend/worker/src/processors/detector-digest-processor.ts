@@ -29,16 +29,27 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
   const { projectId, windowStart, windowMs } = job;
   const start = new Date(windowStart);
   const end = new Date(windowStart + windowMs);
+  // A flush has several no-op exits (no channels, nothing triggered, only
+  // RCA-disabled fired). A successful send is otherwise silent, so log every
+  // exit with its reason — in prod this is the only record of whether a given
+  // window's digest fired, to whom, and why it didn't.
+  const window = `[${start.toISOString()},${end.toISOString()})`;
 
   // Resolve alert channels first: a project with no Slack channel and no email
   // recipients has nowhere to send, so skip the count + per-detector reads for a
   // digest that would fan out to nowhere.
   const recipients = await resolveRecipients(projectId);
-  if (!recipients) return;
+  if (!recipients) {
+    console.log(`[Digest] skip project=${projectId} window=${window} reason=no-channels`);
+    return;
+  }
 
   const counts = await readDetectorCounts(projectId, start, end);
   const triggeredIds = Object.keys(counts).filter((id) => counts[id].finding_count > 0);
-  if (triggeredIds.length === 0) return; // nothing triggered in the window
+  if (triggeredIds.length === 0) {
+    console.log(`[Digest] skip project=${projectId} window=${window} reason=no-findings`);
+    return; // nothing triggered in the window
+  }
 
   // Per-detector name + RCA-enabled flag; drop RCA-disabled detectors.
   const detectors = await prisma.detector.findMany({
@@ -48,12 +59,23 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
   const nameById = new Map(detectors.map((d) => [d.id, d.name]));
   const rcaEnabled = new Set(detectors.filter((d) => d.enableRca).map((d) => d.id));
   const detectorIds = triggeredIds.filter((id) => rcaEnabled.has(id));
-  if (detectorIds.length === 0) return; // only RCA-disabled detectors fired → no digest
+  if (detectorIds.length === 0) {
+    console.log(`[Digest] skip project=${projectId} window=${window} reason=only-rca-disabled`);
+    return; // only RCA-disabled detectors fired → no digest
+  }
 
   const entries = await buildEntries(projectId, detectorIds, nameById, counts, start, end);
   const total = entries.reduce((sum, e) => sum + e.findingCount, 0);
 
   await fanOut(recipients, { projectId, windowStart: start, windowEnd: end, total, entries });
+
+  // Per-channel failures are caught inside fanOut and don't reach here, so this
+  // line means the digest was handed to every configured channel.
+  console.log(
+    `[Digest] sent project=${projectId} window=${window} findings=${total} ` +
+      `detectors=${entries.length} slack=${recipients.slackChannelId ? "yes" : "no"} ` +
+      `email=${recipients.emailAddresses.length}`,
+  );
 }
 
 /**
