@@ -269,7 +269,6 @@
             "type": "string"
           },
           "trace_start_time": {
-            "format": "date-time",
             "title": "Trace Start Time",
             "type": "string"
           },
@@ -440,7 +439,6 @@
             "type": "string"
           },
           "trace_start_time": {
-            "format": "date-time",
             "title": "Trace Start Time",
             "type": "string"
           },
@@ -637,7 +635,6 @@
           "span_end_time": {
             "anyOf": [
               {
-                "format": "date-time",
                 "type": "string"
               },
               {
@@ -655,7 +652,6 @@
             "type": "string"
           },
           "span_start_time": {
-            "format": "date-time",
             "title": "Span Start Time",
             "type": "string"
           },

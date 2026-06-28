@@ -65,6 +65,8 @@ class TestListUsers:
         assert data["data"][0]["total_input_tokens"] == 500
         assert data["data"][0]["total_output_tokens"] == 1000
         assert data["data"][0]["total_cost"] == 0.03
+        # Every timestamp must carry an explicit UTC offset (#1054).
+        assert data["data"][0]["last_trace_time"].endswith("+00:00")
 
     def test_input_output_tokens_and_cost_null(self, client, mock_trace_reader):
         mock_trace_reader.list_users.return_value = {

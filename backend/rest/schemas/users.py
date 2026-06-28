@@ -1,10 +1,8 @@
 """User-related response schemas."""
 
-from datetime import datetime
-
 from pydantic import BaseModel
 
-from rest.schemas.common import PaginationMeta
+from rest.schemas.common import PaginationMeta, UtcDatetime
 
 
 class UserItem(BaseModel):
@@ -12,7 +10,7 @@ class UserItem(BaseModel):
 
     user_id: str
     trace_count: int
-    last_trace_time: datetime | None
+    last_trace_time: UtcDatetime | None
     total_input_tokens: int | None = None
     total_output_tokens: int | None = None
     total_cost: float | None = None

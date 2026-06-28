@@ -1,10 +1,8 @@
 """Trace-related response schemas."""
 
-from datetime import datetime
-
 from pydantic import BaseModel
 
-from rest.schemas.common import PaginationMeta
+from rest.schemas.common import PaginationMeta, UtcDatetime
 
 
 class SpanSkeletonResponse(BaseModel):
@@ -24,8 +22,8 @@ class SpanSkeletonResponse(BaseModel):
     parent_span_id: str | None
     name: str
     span_kind: str
-    span_start_time: datetime
-    span_end_time: datetime | None
+    span_start_time: UtcDatetime
+    span_end_time: UtcDatetime | None
     status: str
     status_message: str | None
     model_name: str | None
@@ -74,7 +72,7 @@ class TraceListItem(BaseModel):
     trace_id: str
     project_id: str
     name: str
-    trace_start_time: datetime
+    trace_start_time: UtcDatetime
     user_id: str | None
     session_id: str | None
     span_count: int
@@ -108,7 +106,7 @@ class TraceDetailResponse(BaseModel):
     trace_id: str
     project_id: str
     name: str
-    trace_start_time: datetime
+    trace_start_time: UtcDatetime
     user_id: str | None
     session_id: str | None
     git_ref: str | None
