@@ -33,10 +33,12 @@ async function internalGet<T>(path: string, params: Record<string, string>): Pro
   return response.json() as Promise<T>;
 }
 
-export type DetectorCounts = Record<string, { finding_count: number; run_count: number }>;
+// The worker's digest only needs finding_count; the backend /detector-counts
+// endpoint also returns run_count (consumed by the UI), which we don't type here.
+export type DetectorCounts = Record<string, { finding_count: number }>;
 
 /**
- * Read per-detector finding and run counts for a project over a time window.
+ * Read per-detector finding counts for a project over a time window.
  * Detectors with zero runs in the window are absent from the map.
  */
 export async function readDetectorCounts(
@@ -55,6 +57,11 @@ export async function readDetectorCounts(
 /**
  * Return the trace id of the latest finding for a detector in the window,
  * or null when the detector produced no findings.
+ *
+ * Relies on /detector-findings defaulting to newest-first (ORDER BY timestamp
+ * DESC); page 0 / limit 1 takes that top row. That ordering has no stable
+ * tiebreaker, so on tied timestamps the chosen "latest" trace can differ from
+ * the detector list's top row — tracked as a deterministic-ordering follow-up.
  */
 export async function readLatestFinding(
   projectId: string,

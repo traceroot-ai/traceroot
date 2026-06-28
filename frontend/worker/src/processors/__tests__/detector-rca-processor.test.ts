@@ -3,11 +3,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const fetchProviderConfigMock = vi.fn();
 const resolvePiModelMock = vi.fn();
 const modelProviderFindMany = vi.fn().mockResolvedValue([]);
+const digestAddMock = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@traceroot/core/model-resolver", async () => ({
   fetchProviderConfig: (...args: any[]) => fetchProviderConfigMock(...args),
   resolvePiModel: (...args: any[]) => resolvePiModelMock(...args),
 }));
+
+vi.mock("../../queues/digest-queue.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../queues/digest-queue.js")>();
+  return { ...actual, createDetectorDigestQueue: () => ({ add: digestAddMock }) };
+});
 
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
@@ -28,6 +34,7 @@ afterEach(() => {
   resolvePiModelMock.mockReset();
   modelProviderFindMany.mockReset();
   modelProviderFindMany.mockResolvedValue([]);
+  digestAddMock.mockReset().mockResolvedValue(undefined);
 });
 
 describe("resolveProjectModel", () => {
@@ -195,7 +202,6 @@ describe("processRcaJob", () => {
         projectId: "p1",
         traceId: "t1",
         workspaceId: "ws1",
-        projectName: "test",
         findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
       },
     } as any);
@@ -223,7 +229,6 @@ describe("processRcaJob", () => {
         projectId: "p1",
         traceId: "t1",
         workspaceId: "ws1",
-        projectName: "test",
         findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
       },
     } as any);
@@ -255,7 +260,6 @@ describe("processRcaJob", () => {
           projectId: "p1",
           traceId: "t1",
           workspaceId: "ws1",
-          projectName: "test",
           findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
         },
       } as any),
@@ -267,5 +271,141 @@ describe("processRcaJob", () => {
         data: { status: "failed" },
       }),
     );
+  });
+});
+
+describe("processRcaJob — digest scheduling at the flush seam", () => {
+  // Drive a full successful RCA run so scheduleDigestFlush fires in the try path.
+  // alertConfig is the only variable across the cases below; pass null to model
+  // a project with no explicit window (should fall back to DEFAULT_ALERT_WINDOW).
+  async function runWithAlertConfig(
+    alertConfig: { alertWindow: string } | null,
+    findingTimestamp: number | undefined,
+  ) {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
+      billingPlan: "pro",
+      rcaBlocked: false,
+    } as any);
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+    vi.spyOn(p.detectorRca, "update").mockResolvedValue({} as any);
+    vi.spyOn(p.gitHubInstallation, "count").mockResolvedValue(0);
+    vi.spyOn(p.project, "findUnique").mockResolvedValue({
+      rcaModel: null,
+      rcaProvider: null,
+      rcaSource: null,
+      alertConfig,
+    } as any);
+
+    // Agent session create + empty SSE stream → RCA completes with "".
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        body: {
+          getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }),
+        },
+      });
+
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await processRcaJob({
+      data: {
+        findingId: "f1",
+        projectId: "p1",
+        traceId: "t1",
+        workspaceId: "ws1",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        findingTimestamp,
+      },
+    } as any);
+  }
+
+  it("enqueues one deduped flush job for the configured window", async () => {
+    await runWithAlertConfig({ alertWindow: "30m" }, 1_700_000_123_456);
+
+    expect(digestAddMock).toHaveBeenCalledTimes(1);
+    expect(digestAddMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        projectId: "p1",
+        windowMs: 1_800_000,
+        windowStart: Math.floor(1_700_000_123_456 / 1_800_000) * 1_800_000,
+      }),
+      expect.objectContaining({ jobId: expect.stringMatching(/^digest:p1:\d+$/) }),
+    );
+  });
+
+  it("falls back to the 10m default window when the project has no alert config", async () => {
+    await runWithAlertConfig(null, 1_700_000_123_456);
+
+    expect(digestAddMock).toHaveBeenCalledTimes(1);
+    expect(digestAddMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        projectId: "p1",
+        windowMs: 600_000,
+        windowStart: Math.floor(1_700_000_123_456 / 600_000) * 600_000,
+      }),
+      expect.objectContaining({ jobId: expect.stringMatching(/^digest:p1:\d+$/) }),
+    );
+  });
+
+  it("falls back to a current-window key when a legacy job carries no findingTimestamp", async () => {
+    await runWithAlertConfig({ alertWindow: "30m" }, undefined);
+
+    expect(digestAddMock).toHaveBeenCalledTimes(1);
+    const [, payload, opts] = digestAddMock.mock.calls[0];
+    // No NaN leaks into the window key, jobId, or flush payload.
+    expect(Number.isFinite(payload.windowStart)).toBe(true);
+    expect(payload.windowStart % 1_800_000).toBe(0);
+    expect(opts.jobId).toMatch(/^digest:p1:\d+$/);
+  });
+
+  it("does not revert a completed RCA to failed when the digest enqueue throws", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
+      billingPlan: "pro",
+      rcaBlocked: false,
+    } as any);
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+    const updateSpy = vi.spyOn(p.detectorRca, "update").mockResolvedValue({} as any);
+    vi.spyOn(p.gitHubInstallation, "count").mockResolvedValue(0);
+    vi.spyOn(p.project, "findUnique").mockResolvedValue({
+      rcaModel: null,
+      rcaProvider: null,
+      rcaSource: null,
+      alertConfig: { alertWindow: "30m" },
+    } as any);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        body: {
+          getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }),
+        },
+      });
+
+    // RCA completes, then the digest enqueue fails on the success path.
+    digestAddMock.mockRejectedValueOnce(new Error("redis down"));
+
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(
+      processRcaJob({
+        data: {
+          findingId: "f1",
+          projectId: "p1",
+          traceId: "t1",
+          workspaceId: "ws1",
+          findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+          findingTimestamp: 1_700_000_123_456,
+        },
+      } as any),
+    ).rejects.toThrow("redis down"); // propagates so BullMQ retries
+
+    // The RCA was marked done; the enqueue failure must NOT flip it to failed.
+    const statuses = updateSpy.mock.calls.map((c) => (c[0] as any)?.data?.status);
+    expect(statuses).toContain("done");
+    expect(statuses).not.toContain("failed");
   });
 });
