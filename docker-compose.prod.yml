@@ -335,6 +335,10 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      # --- Detector config ---
+      # Per-attempt wall-clock timeout (ms) for the LLM-as-judge eval call so a
+      # hung or unreachable provider can't pin a worker slot indefinitely.
+      DETECTOR_EVAL_TIMEOUT_MS: ${DETECTOR_EVAL_TIMEOUT_MS:-60000}
     depends_on:
       migrate:
         condition: service_completed_successfully
