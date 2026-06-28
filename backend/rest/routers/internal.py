@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from db.clickhouse.client import get_clickhouse_client
 from rest.schemas.detectors import (
-    DetectorCountsResponse,
+    DetectorWindowSummaryResponse,
     RunListResponse,
 )
 from rest.sql_utils import escape_ilike, to_utc_naive
@@ -635,11 +635,11 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
 
 
 @router.get(
-    "/detector-counts",
-    response_model=DetectorCountsResponse,
+    "/detector-window-summary",
+    response_model=DetectorWindowSummaryResponse,
     dependencies=[Depends(verify_internal_secret)],
 )
-async def list_detector_counts(
+async def list_detector_window_summary(
     project_id: str,
     start_after: datetime = Query(
         ..., description="Lower bound on detector_runs.timestamp (inclusive)"
@@ -648,48 +648,78 @@ async def list_detector_counts(
         None, description="Upper bound on detector_runs.timestamp (exclusive)"
     ),
 ):
-    """Aggregate finding and run counts per detector for a project, in one query.
+    """Aggregate run/finding counts and the latest triggered trace per detector.
 
-    Runs are read with FINAL so pre-merge ReplacingMergeTree duplicates don't
-    inflate the counts. A run carries its finding_id when it triggered; since
-    findings are never withdrawn, counting runs with a non-null finding_id per
-    detector gives that detector's finding count.
+    Dedup without FINAL: ``detector_runs`` is a ``ReplacingMergeTree`` whose
+    duplicates are idempotent retries sharing a deterministic ``run_id`` (the
+    larger ``timestamp`` wins). The inner query collapses each ``run_id`` to its
+    latest version via ``argMax`` / ``max(timestamp)`` over the project's whole
+    history; the outer query then windows on that collapsed ``ts``. That yields
+    exactly the rows ``FINAL`` would have surfaced ("latest row wins, then
+    filter") — including for a retry that re-stamps across a window boundary —
+    but as a streamed aggregate rather than a merge-on-read (the construct that
+    OOM-killed rest on the big ``spans`` table; see the 2026-06-25 incident).
 
-    Detectors with zero runs in the window are absent from the result map; the
-    frontend defaults absent entries to {findingCount: 0, runCount: 0}.
+    A run carries its ``finding_id`` and the ``trace_id`` it fired on, so
+    ``finding_count`` and ``sample_trace_ids`` come straight off the runs — no
+    ``detector_findings`` JOIN, and no second per-detector read (the digest used
+    to fetch the latest trace via a now-removed ``GET /detector-findings``;
+    folding it in here removes that N+1). ``sample_trace_ids`` holds the most
+    recent *triggered* run's trace (one today, shaped as a list so we can
+    surface more later), or an empty list for a detector that ran but never
+    fired.
+
+    Detectors with no runs in the window are omitted; the frontend defaults
+    absent entries to {findingCount: 0, runCount: 0}.
     """
     ch = get_clickhouse_client()
 
-    conditions = [
-        "r.project_id = {project_id:String}",
-        "r.timestamp >= {start_after:DateTime64(3)}",
-    ]
+    # Window on the collapsed timestamp (outer), not the raw rows (inner): the
+    # dedup must happen first so a run is placed by its latest version, matching
+    # FINAL across retries that re-stamp near a window boundary.
     params: dict = {
         "project_id": project_id,
         "start_after": to_utc_naive(start_after),
     }
+    window_conditions = ["ts >= {start_after:DateTime64(3)}"]
     if end_before is not None:
-        conditions.append("r.timestamp < {end_before:DateTime64(3)}")
+        window_conditions.append("ts < {end_before:DateTime64(3)}")
         params["end_before"] = to_utc_naive(end_before)
+    window_clause = " AND ".join(window_conditions)
 
-    where_clause = " AND ".join(conditions)
     query = f"""
         SELECT
-            r.detector_id AS detector_id,
-            count()                            AS run_count,
-            countIf(r.finding_id IS NOT NULL)  AS finding_count
-        FROM (SELECT * FROM detector_runs FINAL) AS r
-        WHERE {where_clause}
-        GROUP BY r.detector_id
+            detector_id,
+            count()                                                      AS run_count,
+            countIf(latest_finding_id IS NOT NULL)                       AS finding_count,
+            argMaxIf(latest_trace_id, ts, latest_finding_id IS NOT NULL) AS latest_trace_id
+        FROM (
+            SELECT
+                detector_id,
+                run_id,
+                argMax(finding_id, timestamp) AS latest_finding_id,
+                argMax(trace_id,   timestamp) AS latest_trace_id,
+                max(timestamp)                AS ts
+            FROM detector_runs
+            WHERE project_id = {{project_id:String}}
+            GROUP BY detector_id, run_id
+        )
+        WHERE {window_clause}
+        GROUP BY detector_id
     """
 
     result = ch.query(query, parameters=params)
-    data: dict[str, dict[str, int]] = {}
+    data: dict[str, dict] = {}
     for row in result.result_rows:
         row_dict = dict(zip(result.column_names, row))
+        # One representative trace today, shaped as a list so surfacing more
+        # later (groupArray in the query) needs no contract change. "" (a
+        # detector that ran but never fired) collapses to an empty list.
+        latest_trace_id = row_dict["latest_trace_id"]
         data[row_dict["detector_id"]] = {
             "finding_count": int(row_dict["finding_count"]),
             "run_count": int(row_dict["run_count"]),
+            "sample_trace_ids": [latest_trace_id] if latest_trace_id else [],
         }
 
     return {"data": data}

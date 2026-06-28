@@ -8,7 +8,8 @@ const INTERNAL_API_SECRET = env.INTERNAL_API_SECRET || "";
 type RouteParams = { params: Promise<{ projectId: string }> };
 
 // GET /api/projects/[projectId]/detector-counts
-// Proxies to Python backend: GET /api/v1/internal/detector-counts
+// Proxies to Python backend: GET /api/v1/internal/detector-window-summary
+// (the UI only reads the counts; the backend endpoint also returns sample traces)
 export async function GET(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   let response: Response;
   try {
     response = await fetch(
-      `${BACKEND_URL}/api/v1/internal/detector-counts?${backendParams.toString()}`,
+      `${BACKEND_URL}/api/v1/internal/detector-window-summary?${backendParams.toString()}`,
       {
         headers: {
           "X-Internal-Secret": INTERNAL_API_SECRET,

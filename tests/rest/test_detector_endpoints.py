@@ -416,23 +416,24 @@ class TestInternalAuth:
 
 
 # =============================================================================
-# /detector-counts (#810)
+# /detector-window-summary (#810)
 # =============================================================================
 
 
-class TestListDetectorCounts:
+class TestListDetectorWindowSummary:
     def _fake_aggregate(self, rows: list[tuple]):
+        # Rows are (detector_id, run_count, finding_count, latest_trace_id).
         return _make_query_result(
             rows=rows,
-            column_names=["detector_id", "run_count", "finding_count"],
+            column_names=["detector_id", "run_count", "finding_count", "latest_trace_id"],
         )
 
     def test_returns_per_detector_counts(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [
-            self._fake_aggregate([("d-a", 100, 7), ("d-b", 25, 0)]),
+            self._fake_aggregate([("d-a", 100, 7, "t-a"), ("d-b", 25, 0, "")]),
         ]
         resp = client.get(
-            "/api/v1/internal/detector-counts",
+            "/api/v1/internal/detector-window-summary",
             params={
                 "project_id": "p1",
                 "start_after": "2026-04-20T00:00:00Z",
@@ -443,15 +444,15 @@ class TestListDetectorCounts:
         body = resp.json()
         assert body == {
             "data": {
-                "d-a": {"finding_count": 7, "run_count": 100},
-                "d-b": {"finding_count": 0, "run_count": 25},
+                "d-a": {"finding_count": 7, "run_count": 100, "sample_trace_ids": ["t-a"]},
+                "d-b": {"finding_count": 0, "run_count": 25, "sample_trace_ids": []},
             }
         }
 
     def test_empty_when_no_runs_in_window(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [self._fake_aggregate([])]
         resp = client.get(
-            "/api/v1/internal/detector-counts",
+            "/api/v1/internal/detector-window-summary",
             params={
                 "project_id": "p1",
                 "start_after": "2026-04-20T00:00:00Z",
@@ -464,7 +465,7 @@ class TestListDetectorCounts:
     def test_passes_end_before_when_provided(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [self._fake_aggregate([])]
         client.get(
-            "/api/v1/internal/detector-counts",
+            "/api/v1/internal/detector-window-summary",
             params={
                 "project_id": "p1",
                 "start_after": "2026-04-20T00:00:00Z",
@@ -475,13 +476,15 @@ class TestListDetectorCounts:
         call_args = mock_ch.query.call_args
         sql = call_args.args[0] if call_args.args else call_args.kwargs.get("query")
         params = call_args.kwargs.get("parameters", {})
-        assert "timestamp <" in sql
+        # The window upper bound is applied to the collapsed timestamp (ts), not
+        # the raw rows.
+        assert "ts <" in sql
         assert "end_before" in params
 
     def test_omits_end_before_when_absent(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [self._fake_aggregate([])]
         client.get(
-            "/api/v1/internal/detector-counts",
+            "/api/v1/internal/detector-window-summary",
             params={
                 "project_id": "p1",
                 "start_after": "2026-04-20T00:00:00Z",
@@ -491,30 +494,30 @@ class TestListDetectorCounts:
         call_args = mock_ch.query.call_args
         sql = call_args.args[0] if call_args.args else call_args.kwargs.get("query")
         params = call_args.kwargs.get("parameters", {})
-        assert "timestamp <" not in sql or "end_before" not in sql
+        assert "ts <" not in sql
         assert "end_before" not in params
 
     def test_requires_internal_secret(self, client, mock_ch):
         resp = client.get(
-            "/api/v1/internal/detector-counts",
+            "/api/v1/internal/detector-window-summary",
             params={"project_id": "p1", "start_after": "2026-04-20T00:00:00Z"},
         )
         assert resp.status_code == 403
 
     def test_requires_start_after(self, client, mock_ch, secret):
         resp = client.get(
-            "/api/v1/internal/detector-counts",
+            "/api/v1/internal/detector-window-summary",
             params={"project_id": "p1"},
             headers={"X-Internal-Secret": secret},
         )
         assert resp.status_code == 422
 
-    def test_runs_deduplicated_and_finding_count(self, client, mock_ch, secret):
-        """run_count must dedup pre-merge run rows; finding_count counts runs
-        that carry a finding_id (findings are never withdrawn)."""
-        mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 10, 3)])]
+    def test_dedups_via_argmax_without_final(self, client, mock_ch, secret):
+        """Runs are deduped by run_id via argMax (no FINAL), and finding_count
+        comes straight off the run's finding_id (no detector_findings JOIN)."""
+        mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 10, 3, "t-x")])]
         resp = client.get(
-            "/api/v1/internal/detector-counts",
+            "/api/v1/internal/detector-window-summary",
             params={
                 "project_id": "p1",
                 "start_after": "2026-04-20T00:00:00Z",
@@ -523,22 +526,63 @@ class TestListDetectorCounts:
         )
         assert resp.status_code == 200
         sql = mock_ch.query.call_args.args[0]
-        # Runs deduplicated before counting.
-        assert "(SELECT * FROM detector_runs FINAL) AS r" in sql
-        # Finding count comes straight off the run's finding_id; no findings JOIN.
-        assert "countIf(r.finding_id IS NOT NULL)" in sql
-        assert "retracted" not in sql
-        assert "LEFT JOIN" not in sql
+        # No FINAL — the OOM-shaped merge-on-read is gone.
+        assert "FINAL" not in sql
+        # Dedup is an argMax aggregate per run_id.
+        assert "GROUP BY detector_id, run_id" in sql
+        assert "argMax(finding_id, timestamp)" in sql
+        # Finding count straight off the collapsed run; no findings JOIN.
+        assert "countIf(latest_finding_id IS NOT NULL)" in sql
+        assert "JOIN" not in sql
 
-    def test_detector_with_runs_but_no_findings(self, client, mock_ch, secret):
-        # A detector that ran 10 times but never triggered: 0 findings, 10 runs.
-        mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 10, 0)])]
+    def test_dedups_before_windowing(self, client, mock_ch, secret):
+        """The window filter is applied to the collapsed timestamp (ts), AFTER
+        the per-run dedup — so a retry that re-stamps across a window boundary is
+        placed by its latest version, matching FINAL's semantics."""
+        mock_ch.query.side_effect = [self._fake_aggregate([])]
+        client.get(
+            "/api/v1/internal/detector-window-summary",
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+                "end_before": "2026-05-01T00:00:00Z",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        sql = mock_ch.query.call_args.args[0]
+        # The inner dedup (GROUP BY run_id) must come before the outer window
+        # filter on the collapsed ts.
+        assert sql.index("GROUP BY detector_id, run_id") < sql.index("ts >=")
+        assert sql.index("GROUP BY detector_id, run_id") < sql.index("ts <")
+
+    def test_returns_sample_trace_ids(self, client, mock_ch, secret):
+        """The latest *triggered* run's trace (argMaxIf) is surfaced as a
+        one-element sample_trace_ids list."""
+        mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 10, 3, "trace-latest")])]
         resp = client.get(
-            "/api/v1/internal/detector-counts",
+            "/api/v1/internal/detector-window-summary",
             params={
                 "project_id": "p1",
                 "start_after": "2026-04-20T00:00:00Z",
             },
             headers={"X-Internal-Secret": secret},
         )
-        assert resp.json() == {"data": {"d-a": {"finding_count": 0, "run_count": 10}}}
+        assert resp.json()["data"]["d-a"]["sample_trace_ids"] == ["trace-latest"]
+        sql = mock_ch.query.call_args.args[0]
+        assert "argMaxIf(latest_trace_id, ts, latest_finding_id IS NOT NULL)" in sql
+
+    def test_detector_with_runs_but_no_findings(self, client, mock_ch, secret):
+        # A detector that ran 10 times but never triggered: 0 findings, 10 runs,
+        # and no sample traces (argMaxIf over no triggered runs -> "" -> []).
+        mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 10, 0, "")])]
+        resp = client.get(
+            "/api/v1/internal/detector-window-summary",
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.json() == {
+            "data": {"d-a": {"finding_count": 0, "run_count": 10, "sample_trace_ids": []}}
+        }
