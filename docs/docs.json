@@ -165,6 +165,7 @@
               "integrations/microsoft-agent-framework",
               "integrations/mastra",
               "integrations/openai-agents-sdk",
+              "integrations/pi",
               "integrations/pydantic-ai",
               "integrations/vercel-ai"
             ]
