@@ -33,52 +33,32 @@ async function internalGet<T>(path: string, params: Record<string, string>): Pro
   return response.json() as Promise<T>;
 }
 
-// The worker's digest only needs finding_count; the backend /detector-counts
-// endpoint also returns run_count (consumed by the UI), which we don't type here.
-export type DetectorCounts = Record<string, { finding_count: number }>;
+// The digest needs finding_count plus sample_trace_ids (deep-link targets,
+// newest-first); the backend window-summary endpoint also returns run_count
+// (consumed by the UI), which we don't type here. sample_trace_ids is empty for
+// a detector that ran but never fired.
+export type DetectorWindowSummary = Record<
+  string,
+  { finding_count: number; sample_trace_ids: string[] }
+>;
 
 /**
- * Read per-detector finding counts for a project over a time window.
- * Detectors with zero runs in the window are absent from the map.
+ * Read the per-detector window summary (finding counts + each detector's sample
+ * triggered traces) for a project over a time window. Detectors with zero runs
+ * in the window are absent from the map.
  */
-export async function readDetectorCounts(
+export async function readDetectorWindowSummary(
   projectId: string,
   start: Date,
   end: Date,
-): Promise<DetectorCounts> {
-  const body = await internalGet<{ data: DetectorCounts }>("/api/v1/internal/detector-counts", {
-    project_id: projectId,
-    start_after: start.toISOString(),
-    end_before: end.toISOString(),
-  });
-  return body.data;
-}
-
-/**
- * Return the trace id of the latest finding for a detector in the window,
- * or null when the detector produced no findings.
- *
- * Relies on /detector-findings defaulting to newest-first (ORDER BY timestamp
- * DESC); page 0 / limit 1 takes that top row. That ordering has no stable
- * tiebreaker, so on tied timestamps the chosen "latest" trace can differ from
- * the detector list's top row — tracked as a deterministic-ordering follow-up.
- */
-export async function readLatestFinding(
-  projectId: string,
-  detectorId: string,
-  start: Date,
-  end: Date,
-): Promise<string | null> {
-  const body = await internalGet<{ data: Array<{ trace_id: string }> }>(
-    "/api/v1/internal/detector-findings",
+): Promise<DetectorWindowSummary> {
+  const body = await internalGet<{ data: DetectorWindowSummary }>(
+    "/api/v1/internal/detector-window-summary",
     {
       project_id: projectId,
-      detector_id: detectorId,
       start_after: start.toISOString(),
       end_before: end.toISOString(),
-      page: "0",
-      limit: "1",
     },
   );
-  return body.data[0]?.trace_id ?? null;
+  return body.data;
 }
