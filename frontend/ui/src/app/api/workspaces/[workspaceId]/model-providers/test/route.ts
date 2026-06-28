@@ -7,6 +7,11 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+// Connectivity checks must be bounded: a provider host — or a user-supplied
+// baseUrl — that accepts the socket but never responds would otherwise leave
+// this handler hanging. `withTimeout` keeps the deadline armed across the whole
+// provider check (including any response-body reads the operation performs).
+import { withTimeout } from "./timeout";
 
 const ADAPTER_VALUES = [
   LLMAdapter.OPENAI,
@@ -83,60 +88,52 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const url = baseUrl
           ? `${baseUrl.replace(/\/$/, "")}/v1/models`
           : "https://api.openai.com/v1/models";
-        const res = await fetch(url, {
-          headers: { Authorization: `Bearer ${apiKey}` },
-        });
+        const res = await withTimeout((signal) =>
+          fetch(url, { headers: { Authorization: `Bearer ${apiKey}` }, signal }),
+        );
         if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
           return successResponse({
             success: false,
-            error: (err as Record<string, Record<string, unknown>>).error?.message
-              ? String((err as Record<string, Record<string, unknown>>).error.message)
-              : `HTTP ${res.status}`,
+            error: `HTTP ${res.status}: ${res.statusText}`,
           });
         }
         break;
       }
 
       case "anthropic": {
-        const res = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "x-api-key": apiKey || "",
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "claude-haiku-4-5",
-            max_tokens: 1,
-            messages: [{ role: "user", content: "hi" }],
+        const res = await withTimeout((signal) =>
+          fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "x-api-key": apiKey || "",
+              "anthropic-version": "2023-06-01",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "claude-haiku-4-5",
+              max_tokens: 1,
+              messages: [{ role: "user", content: "hi" }],
+            }),
+            signal,
           }),
-        });
+        );
         if (!res.ok && res.status === 401) {
-          const err = await res.json().catch(() => ({}));
-          const errObj = err as Record<string, Record<string, unknown>>;
-          return successResponse({
-            success: false,
-            error: errObj.error?.message ? String(errObj.error.message) : "Invalid API key",
-          });
+          return successResponse({ success: false, error: "Invalid API key" });
         }
         break;
       }
 
       case "google": {
-        const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models", {
-          headers: { "x-goog-api-key": apiKey || "" },
-        });
+        const res = await withTimeout((signal) =>
+          fetch("https://generativelanguage.googleapis.com/v1beta/models", {
+            headers: { "x-goog-api-key": apiKey || "" },
+            signal,
+          }),
+        );
         if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
           return successResponse({
             success: false,
-            error: (err as Record<string, unknown>).error
-              ? String(
-                  (err as Record<string, Record<string, unknown>>).error?.message ||
-                    `HTTP ${res.status}`,
-                )
-              : `HTTP ${res.status}`,
+            error: `HTTP ${res.status}: ${res.statusText}`,
           });
         }
         break;
@@ -150,9 +147,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           });
         }
         const apiVersion = "2024-06-01";
-        const res = await fetch(`${baseUrl.replace(/\/$/, "")}/models?api-version=${apiVersion}`, {
-          headers: { "api-key": apiKey || "" },
-        });
+        const res = await withTimeout((signal) =>
+          fetch(`${baseUrl.replace(/\/$/, "")}/models?api-version=${apiVersion}`, {
+            headers: { "api-key": apiKey || "" },
+            signal,
+          }),
+        );
         if (!res.ok) {
           return successResponse({
             success: false,
@@ -163,7 +163,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "amazon-bedrock": {
-        // For Bedrock, validate credential format
+        // For Bedrock, validate credential format. No network request is made,
+        // so this branch intentionally runs outside withTimeout.
         if (useDefaultCredentials) {
           // Cannot fully validate server-side without AWS SDK; accept as valid format
           break;
@@ -185,25 +186,28 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       case "deepseek": {
         const deepseekBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.deepseek;
-        const res = await fetch(`${deepseekBase.replace(/\/$/, "")}/models`, {
-          headers: { Authorization: `Bearer ${apiKey}` },
-        });
+        const res = await withTimeout((signal) =>
+          fetch(`${deepseekBase.replace(/\/$/, "")}/models`, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            signal,
+          }),
+        );
         if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
           return successResponse({
             success: false,
-            error: (err as Record<string, Record<string, unknown>>).error?.message
-              ? String((err as Record<string, Record<string, unknown>>).error.message)
-              : `HTTP ${res.status}`,
+            error: `HTTP ${res.status}: ${res.statusText}`,
           });
         }
         break;
       }
 
       case "openrouter": {
-        const res = await fetch("https://openrouter.ai/api/v1/models", {
-          headers: { Authorization: `Bearer ${apiKey}` },
-        });
+        const res = await withTimeout((signal) =>
+          fetch("https://openrouter.ai/api/v1/models", {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            signal,
+          }),
+        );
         if (!res.ok) {
           return successResponse({
             success: false,
@@ -215,16 +219,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       case "xai": {
         const xaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.xai;
-        const res = await fetch(`${xaiBase.replace(/\/$/, "")}/models`, {
-          headers: { Authorization: `Bearer ${apiKey}` },
-        });
+        const res = await withTimeout((signal) =>
+          fetch(`${xaiBase.replace(/\/$/, "")}/models`, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            signal,
+          }),
+        );
         if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
           return successResponse({
             success: false,
-            error: (err as Record<string, Record<string, unknown>>).error?.message
-              ? String((err as Record<string, Record<string, unknown>>).error.message)
-              : `HTTP ${res.status}`,
+            error: `HTTP ${res.status}: ${res.statusText}`,
           });
         }
         break;
@@ -232,16 +236,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       case "moonshot": {
         const moonshotBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.moonshot;
-        const res = await fetch(`${moonshotBase.replace(/\/$/, "")}/models`, {
-          headers: { Authorization: `Bearer ${apiKey}` },
-        });
+        const res = await withTimeout((signal) =>
+          fetch(`${moonshotBase.replace(/\/$/, "")}/models`, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            signal,
+          }),
+        );
         if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
           return successResponse({
             success: false,
-            error: (err as Record<string, Record<string, unknown>>).error?.message
-              ? String((err as Record<string, Record<string, unknown>>).error.message)
-              : `HTTP ${res.status}`,
+            error: `HTTP ${res.status}: ${res.statusText}`,
           });
         }
         break;
@@ -249,16 +253,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       case "zai": {
         const zaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.zai;
-        const res = await fetch(`${zaiBase.replace(/\/$/, "")}/models`, {
-          headers: { Authorization: `Bearer ${apiKey}` },
-        });
+        const res = await withTimeout((signal) =>
+          fetch(`${zaiBase.replace(/\/$/, "")}/models`, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            signal,
+          }),
+        );
         if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
           return successResponse({
             success: false,
-            error: (err as Record<string, Record<string, unknown>>).error?.message
-              ? String((err as Record<string, Record<string, unknown>>).error.message)
-              : `HTTP ${res.status}`,
+            error: `HTTP ${res.status}: ${res.statusText}`,
           });
         }
         break;
