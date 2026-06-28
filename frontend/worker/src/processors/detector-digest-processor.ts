@@ -7,9 +7,8 @@ import {
   createRedisConnection,
 } from "../queues/digest-queue.js";
 import {
-  readDetectorCounts,
-  readLatestFinding,
-  type DetectorCounts,
+  readDetectorWindowSummary,
+  type DetectorWindowSummary,
 } from "../detection/findings-reader.js";
 import { sendDigestAlertSlack } from "../notifications/slack.js";
 import { sendDigestAlertEmail } from "../notifications/email.js";
@@ -44,8 +43,8 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
     return;
   }
 
-  const counts = await readDetectorCounts(projectId, start, end);
-  const triggeredIds = Object.keys(counts).filter((id) => counts[id].finding_count > 0);
+  const summary = await readDetectorWindowSummary(projectId, start, end);
+  const triggeredIds = Object.keys(summary).filter((id) => summary[id].finding_count > 0);
   if (triggeredIds.length === 0) {
     console.log(`[Digest] skip project=${projectId} window=${window} reason=no-findings`);
     return; // nothing triggered in the window
@@ -64,7 +63,7 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
     return; // only RCA-disabled detectors fired → no digest
   }
 
-  const entries = await buildEntries(projectId, detectorIds, nameById, counts, start, end);
+  const entries = buildEntries(detectorIds, nameById, summary);
   const total = entries.reduce((sum, e) => sum + e.findingCount, 0);
 
   await fanOut(recipients, { projectId, windowStart: start, windowEnd: end, total, entries });
@@ -79,25 +78,21 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
 }
 
 /**
- * Build one digest entry per detector, fetching each detector's latest trace in
- * the window concurrently (one round-trip each).
+ * Build one digest entry per detector. The window-summary read already carries
+ * each detector's sample triggered traces (folded into the endpoint), so no
+ * per-detector round-trip is needed. The entry shows the newest one today.
  */
-async function buildEntries(
-  projectId: string,
+function buildEntries(
   detectorIds: string[],
   nameById: Map<string, string>,
-  counts: DetectorCounts,
-  start: Date,
-  end: Date,
-): Promise<DigestEntry[]> {
-  return Promise.all(
-    detectorIds.map(async (id) => ({
-      detectorId: id,
-      detectorName: nameById.get(id) ?? id,
-      findingCount: counts[id].finding_count,
-      latestTraceId: (await readLatestFinding(projectId, id, start, end)) ?? "",
-    })),
-  );
+  summary: DetectorWindowSummary,
+): DigestEntry[] {
+  return detectorIds.map((id) => ({
+    detectorId: id,
+    detectorName: nameById.get(id) ?? id,
+    findingCount: summary[id].finding_count,
+    latestTraceId: summary[id].sample_trace_ids[0] ?? "",
+  }));
 }
 
 interface DigestContent {

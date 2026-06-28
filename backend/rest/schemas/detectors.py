@@ -27,15 +27,20 @@ class RunListResponse(BaseModel):
     meta: PaginationMeta
 
 
-class DetectorCountsItem(BaseModel):
-    """Aggregated counts for a single detector over a time window."""
+class DetectorWindowSummary(BaseModel):
+    """Per-detector rollup for a time window: counts plus a few sample traces."""
 
     finding_count: int
     run_count: int
+    # Representative traces for this detector's window, newest-first; empty when
+    # it never fired. Plural + sample-shaped so we can surface more than one
+    # later (a SQL-only change) without touching this contract — and so the
+    # digest gets its deep-link target without a second per-detector read.
+    sample_trace_ids: list[str] = []
 
 
-class DetectorCountsResponse(BaseModel):
-    """Map of detector_id -> counts. Detectors with zero runs in the window
-    are omitted; the frontend defaults absent entries to {0, 0}."""
+class DetectorWindowSummaryResponse(BaseModel):
+    """Map of detector_id -> window summary. Detectors with zero runs in the
+    window are omitted; the frontend defaults absent entries to {0, 0}."""
 
-    data: dict[str, DetectorCountsItem]
+    data: dict[str, DetectorWindowSummary]
