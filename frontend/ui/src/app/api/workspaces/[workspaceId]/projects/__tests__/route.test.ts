@@ -25,15 +25,19 @@ vi.mock("@/lib/auth-helpers", () => ({
   successResponse: (d: any) => new Response(JSON.stringify(d), { status: 200 }),
 }));
 
-vi.mock("@traceroot/core", () => ({
-  prisma: {
-    project: {
-      findFirst: (...a: any[]) => mockFindFirst(...a),
-      update: (...a: any[]) => mockProjectUpdate(...a),
+vi.mock("@traceroot/core", async (orig) => {
+  const actual = await (orig() as Promise<Record<string, unknown>>);
+  return {
+    ...actual,
+    prisma: {
+      project: {
+        findFirst: (...a: any[]) => mockFindFirst(...a),
+        update: (...a: any[]) => mockProjectUpdate(...a),
+      },
     },
-  },
-  Role: { ADMIN: "ADMIN" },
-}));
+    Role: { ADMIN: "ADMIN" },
+  };
+});
 
 const project = {
   id: "p1",

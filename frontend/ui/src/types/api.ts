@@ -48,6 +48,7 @@ export interface Project {
   rca_provider?: string | null;
   rca_source?: string | null;
   alert_emails?: string[];
+  alert_window?: string;
   access_key_count?: number;
   delete_time?: string | null;
   create_time: string;
