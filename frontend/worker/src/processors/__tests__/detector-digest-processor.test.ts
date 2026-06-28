@@ -1,15 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const readDetectorCounts = vi.fn();
-const readLatestFinding = vi.fn();
+const readDetectorWindowSummary = vi.fn();
 const detectorFindMany = vi.fn();
 const projectFindUnique = vi.fn();
 const sendDigestAlertSlack = vi.fn();
 const sendDigestAlertEmail = vi.fn();
 
 vi.mock("../../detection/findings-reader.js", () => ({
-  readDetectorCounts: (...a: any[]) => readDetectorCounts(...a),
-  readLatestFinding: (...a: any[]) => readLatestFinding(...a),
+  readDetectorWindowSummary: (...a: any[]) => readDetectorWindowSummary(...a),
 }));
 
 vi.mock("@traceroot/core", () => ({
@@ -41,11 +39,10 @@ const PROJECT = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  readDetectorCounts.mockResolvedValue({
-    d1: { finding_count: 4, run_count: 9 },
-    d2: { finding_count: 1, run_count: 3 },
+  readDetectorWindowSummary.mockResolvedValue({
+    d1: { finding_count: 4, run_count: 9, sample_trace_ids: ["trace-d1"] },
+    d2: { finding_count: 1, run_count: 3, sample_trace_ids: ["trace-d2"] },
   });
-  readLatestFinding.mockImplementation(async (_p: string, id: string) => `trace-${id}`);
   detectorFindMany.mockResolvedValue([
     { id: "d1", name: "Latency", enableRca: true },
     { id: "d2", name: "Errors", enableRca: true },
@@ -100,9 +97,9 @@ describe("flushDigest", () => {
   });
 
   it("sends nothing when no detector has findings in the window", async () => {
-    readDetectorCounts.mockResolvedValue({
-      d1: { finding_count: 0, run_count: 9 },
-      d2: { finding_count: 0, run_count: 3 },
+    readDetectorWindowSummary.mockResolvedValue({
+      d1: { finding_count: 0, run_count: 9, sample_trace_ids: [] },
+      d2: { finding_count: 0, run_count: 3, sample_trace_ids: [] },
     });
 
     await run();
@@ -122,7 +119,6 @@ describe("flushDigest", () => {
 
     // resolveRecipients runs first (project has channels), but we still bail at
     // the RCA-disabled filter before building entries or sending.
-    expect(readLatestFinding).not.toHaveBeenCalled();
     expect(sendDigestAlertSlack).not.toHaveBeenCalled();
     expect(sendDigestAlertEmail).not.toHaveBeenCalled();
   });
@@ -145,7 +141,7 @@ describe("flushDigest", () => {
 
     await run();
 
-    expect(readDetectorCounts).not.toHaveBeenCalled(); // resolved first, bailed before the count read
+    expect(readDetectorWindowSummary).not.toHaveBeenCalled(); // resolved first, bailed before the summary read
     expect(sendDigestAlertSlack).not.toHaveBeenCalled();
     expect(sendDigestAlertEmail).not.toHaveBeenCalled();
   });
@@ -159,7 +155,7 @@ describe("flushDigest", () => {
 
     await run();
 
-    expect(readDetectorCounts).not.toHaveBeenCalled();
+    expect(readDetectorWindowSummary).not.toHaveBeenCalled();
     expect(detectorFindMany).not.toHaveBeenCalled();
     expect(sendDigestAlertSlack).not.toHaveBeenCalled();
     expect(sendDigestAlertEmail).not.toHaveBeenCalled();
