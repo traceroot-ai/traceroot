@@ -7,6 +7,7 @@ import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
 import { SlackConnectButton } from "@/components/slack/SlackConnectButton";
 import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
+import { CliVerifyCard } from "./CliVerifyCard";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
 import { ALL_LANGS, INTEGRATIONS, type IntegrationCategory, type Lang } from "./integrations";
 
@@ -193,6 +194,8 @@ export function ManualTab({ projectId }: ManualTabProps) {
           </div>
         </div>
       </div>
+
+      <CliVerifyCard step={7} />
     </div>
   );
 }

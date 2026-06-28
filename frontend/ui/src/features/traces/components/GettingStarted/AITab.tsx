@@ -5,6 +5,7 @@ import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
 import { SlackConnectButton } from "@/components/slack/SlackConnectButton";
 import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
+import { CliVerifyCard } from "./CliVerifyCard";
 
 const INSTRUMENT_PROMPT =
   "Install the TraceRoot AI skill from https://github.com/traceroot-ai/traceroot-skills and use it to add tracing to this application with TraceRoot following best practices.";
@@ -65,6 +66,8 @@ export function AITab({ projectId }: AITabProps) {
           </div>
         </div>
       </div>
+
+      <CliVerifyCard step={5} />
     </div>
   );
 }
