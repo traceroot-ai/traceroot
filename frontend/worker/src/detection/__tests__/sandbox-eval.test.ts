@@ -25,7 +25,12 @@ vi.mock("@traceroot/core/model-resolver", () => ({
   findByokKeyForPiProvider: mockFindByokKey,
 }));
 
-import { runDetectionForTrace } from "../sandbox-eval.js";
+import {
+  runDetectionForTrace,
+  parseDetectorEvalTimeoutMs,
+  DEFAULT_DETECTOR_EVAL_TIMEOUT_MS,
+  MAX_DETECTOR_EVAL_TIMEOUT_MS,
+} from "../sandbox-eval.js";
 
 const DETECTOR = {
   id: "det-1",
@@ -230,6 +235,128 @@ describe("runDetectionForTrace", () => {
 
     expect(result.identified).toBe(false);
     expect(result.error).toBe("API rate limit");
+  });
+
+  it("passes an AbortSignal to complete() so the call is cancellable", async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "ok", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "t",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system" },
+      workspaceId: "ws-1",
+    });
+
+    const opts = mockComplete.mock.calls[0][2] as { signal?: AbortSignal };
+    expect(opts.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("aborts and returns a timeout error when the provider never responds", async () => {
+    // Pin the timeout so the test is deterministic regardless of any ambient
+    // DETECTOR_EVAL_TIMEOUT_MS, and advance to exactly the configured bound.
+    vi.stubEnv("DETECTOR_EVAL_TIMEOUT_MS", "5000");
+    vi.useFakeTimers();
+    try {
+      // Simulate a hung provider: the promise only settles if its signal aborts.
+      mockComplete.mockImplementationOnce((_model, _ctx, opts) => {
+        const { signal } = opts as { signal: AbortSignal };
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            const err = new Error("The operation was aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        });
+      });
+
+      const promise = runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      // Advance past the eval timeout; the AbortController fires and the call rejects.
+      await vi.advanceTimersByTimeAsync(5_000);
+      const result = await promise;
+
+      expect(result.identified).toBe(false);
+      expect(result.error).toMatch(/timed out after 5000ms/i);
+      expect(mockComplete).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("classifies an aborted response (stopReason=aborted) as a timeout without retrying", async () => {
+    vi.stubEnv("DETECTOR_EVAL_TIMEOUT_MS", "5000");
+    vi.useFakeTimers();
+    try {
+      // pi-ai may RESOLVE (not throw) with an aborted response once the signal
+      // fires: stopReason "aborted" + empty content. This must be treated as a
+      // timeout, not as a missing submit_result (which would retry).
+      mockComplete.mockImplementationOnce((_model, _ctx, opts) => {
+        const { signal } = opts as { signal: AbortSignal };
+        return new Promise((resolve) => {
+          signal.addEventListener("abort", () => {
+            resolve({ stopReason: "aborted", content: [], usage: ZERO_USAGE });
+          });
+        });
+      });
+
+      const promise = runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      const result = await promise;
+
+      expect(result.identified).toBe(false);
+      expect(result.error).toMatch(/timed out/i);
+      expect(result.error).not.toMatch(/did not call submit_result/i);
+      expect(mockComplete).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  describe("parseDetectorEvalTimeoutMs", () => {
+    it("accepts valid positive values up to the Node timer max", () => {
+      expect(parseDetectorEvalTimeoutMs("30000")).toBe(30000);
+      expect(parseDetectorEvalTimeoutMs(String(MAX_DETECTOR_EVAL_TIMEOUT_MS))).toBe(
+        MAX_DETECTOR_EVAL_TIMEOUT_MS,
+      );
+    });
+
+    it.each([
+      ["undefined", undefined],
+      ["empty string", ""],
+      ["whitespace", "   "],
+      ["zero", "0"],
+      ["negative", "-1000"],
+      ["Infinity", "Infinity"],
+      ["non-numeric", "abc"],
+      ["over the Node timer max", String(MAX_DETECTOR_EVAL_TIMEOUT_MS + 1)],
+    ])("falls back to the default for %s", (_label, raw) => {
+      expect(parseDetectorEvalTimeoutMs(raw as string | undefined)).toBe(
+        DEFAULT_DETECTOR_EVAL_TIMEOUT_MS,
+      );
+    });
   });
 
   describe("inference cost + source attribution", () => {
