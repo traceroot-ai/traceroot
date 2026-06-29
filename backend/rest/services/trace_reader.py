@@ -843,7 +843,7 @@ class TraceReaderService:
             params["start_after"] = to_utc_naive(start_after)
 
         if end_before:
-            conditions.append("t.trace_start_time <= {end_before:DateTime64(3)}")
+            conditions.append("t.trace_start_time < {end_before:DateTime64(3)}")
             params["end_before"] = to_utc_naive(end_before)
 
         where_clause = " AND ".join(conditions)
