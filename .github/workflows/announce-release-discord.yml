@@ -1,0 +1,98 @@
+# .github/workflows/announce-release-discord.yml
+# Posts the FULL release notes (not just the title) to a Discord channel as a
+# rich embed, under a custom "Github Boy" identity. Replaces GitHub's native
+# Discord integration, which only posts a one-line title link for releases.
+#
+# Two triggers:
+#   - release: published   -> auto-announce every new release (uses the event payload)
+#   - workflow_dispatch     -> re-announce ANY existing tag on demand, for testing
+#                              the Discord path without cutting a real release
+#
+# Setup (one-time):
+#   1. Discord: #release channel -> Edit Channel -> Integrations -> Webhooks ->
+#      copy the webhook URL. Use the PLAIN URL (do NOT append /github).
+#   2. GitHub: repo Settings -> Secrets and variables -> Actions -> New secret
+#      named DISCORD_RELEASE_CHANNEL_WEBHOOK_URL = that plain URL.
+#   3. Remove the old native /github release webhook so releases don't double-post.
+name: Announce Release to Discord
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to (re)announce, e.g. v0.3.1"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: announce-release-${{ github.event.release.tag_name || github.event.inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post release notes to Discord
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_CHANNEL_WEBHOOK_URL }}
+          REPO: ${{ github.repository }}
+          # The tag from whichever trigger fired; passed via env (never inlined)
+          # so it can't break or inject into the script.
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          EV_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${WEBHOOK_URL:-}" ]; then
+            echo "::error::DISCORD_RELEASE_CHANNEL_WEBHOOK_URL secret is not set."
+            exit 1
+          fi
+
+          # Both triggers resolve to a tag, then fetch the release the same way,
+          # so a manual workflow_dispatch run exercises the exact path a real
+          # release:published takes.
+          TAG="${INPUT_TAG:-$EV_TAG}"
+          rel="$(gh release view "$TAG" --repo "$REPO" --json name,url,body)"
+          NAME="$(printf '%s' "$rel" | jq -r '.name')"
+          URL="$(printf '%s' "$rel" | jq -r '.url')"
+          BODY="$(printf '%s' "$rel" | jq -r '.body')"
+          [ -n "$NAME" ] && [ "$NAME" != "null" ] || NAME="$TAG"
+
+          # Discord embed descriptions cap at 4096 chars. Leave headroom and
+          # append a "read more" pointer when the notes are longer.
+          limit=3900
+          if [ "${#BODY}" -gt "$limit" ]; then
+            BODY="$(printf '%s' "$BODY" | head -c "$limit")"
+            BODY="$(printf '%s\n\n… **[full release notes →](%s)**' "$BODY" "$URL")"
+          fi
+
+          # Build the payload with jq so the body is JSON-escaped safely.
+          payload="$(jq -n \
+            --arg username "Github Boy" \
+            --arg title "$NAME" \
+            --arg url "$URL" \
+            --arg desc "$BODY" \
+            --arg footer "$REPO" \
+            '{
+              username: $username,
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $desc,
+                color: 5025616,
+                footer: { text: $footer }
+              }]
+            }')"
+
+          # Fail loudly on any non-2xx so a broken post is visible in CI.
+          curl -sS -f \
+            -H "Content-Type: application/json" \
+            -X POST \
+            -d "$payload" \
+            "$WEBHOOK_URL"
+          echo "Announced ${TAG} to Discord."
