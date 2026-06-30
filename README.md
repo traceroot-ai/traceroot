@@ -31,9 +31,9 @@
 
 | Feature | Description |
 | ------- | ----------- |
-| Tracing | Capture LLM calls, agent actions, and tool usage via OpenTelemetry-compatible SDK. Intelligently surfaces the traces that matter — noise filtered, signal prioritized. |
-| Agentic Debugging | AI that sees all your traces, connects to a sandbox with your production source code, identifies the exact failing line, and correlates the failure with your GitHub commits, PRs, and issues. BYOK support for any model provider. |
 | Detectors | LLM-as-judge evaluator monitors incoming trace for hallucinations, tool/logic failures, safety violations, and intent drift — surfaces findings and auto-triggers root cause analysis with email and slack alerts. |
+| Agentic Debugging | AI that sees all your traces, connects to a sandbox with your production source code, identifies the exact failing line, and correlates the failure with your GitHub commits, PRs, and issues. BYOK support for any model provider. |
+| Tracing | Capture LLM calls, agent actions, and tool usage via OpenTelemetry-compatible SDK. Intelligently surfaces the traces that matter — noise filtered, signal prioritized. |
 
 ## Why TraceRoot?
 
@@ -57,7 +57,7 @@ Full documentation available at [traceroot.ai/docs](https://traceroot.ai/docs).
 
 ### TraceRoot Cloud
 
-The fastest way to get started. Ample storages and LLM tokens for testing, no credit card needed. Sign up [here](https://app.traceroot.ai)!
+The fastest way to get started. Ample storage and LLM tokens for testing, no credit card needed. Sign up [here](https://app.traceroot.ai)!
 
 ### Self-Hosting
 
@@ -68,7 +68,7 @@ The fastest way to get started. Ample storages and LLM tokens for testing, no cr
   git clone https://github.com/traceroot-ai/traceroot.git
   cd traceroot
 
-  # Hosted the infras in docker and app itself locally
+  # Host the infra in Docker and the app itself locally
   make dev
   ```
   For more details, see [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -80,7 +80,7 @@ The fastest way to get started. Ample storages and LLM tokens for testing, no cr
   git clone https://github.com/traceroot-ai/traceroot.git
   cd traceroot
 
-  # Hosted everything in docker
+  # Host everything in Docker
   make prod
   ```
 
@@ -108,6 +108,7 @@ The fastest way to get started. Ample storages and LLM tokens for testing, no cr
 | [LangChain & LangGraph](https://traceroot.ai/docs/integrations/langchain) | Python, JS/TS | Automated instrumentation by passing callback handler to LangChain application. |
 | [LangChain DeepAgents](https://traceroot.ai/docs/integrations/langchain-deepagents) | Python, JS/TS | Automated instrumentation by passing callback handler to DeepAgents pipeline. |
 | [LlamaIndex](https://traceroot.ai/docs/integrations/llamaindex) | Python | Automated instrumentation of RAG pipelines, document ingestion, retrieval, and LLM synthesis. |
+| [Microsoft Agent Framework](https://traceroot.ai/docs/integrations/microsoft-agent-framework) | Python | Automated instrumentation of agent runs, model calls, and tool executions via Agent Framework's built-in OpenTelemetry emission. |
 | [Mastra](https://traceroot.ai/docs/integrations/mastra) | JS/TS | Automated instrumentation via the TraceRoot OTLP exporter. |
 | [OpenAI Agents SDK](https://traceroot.ai/docs/integrations/openai-agents-sdk) | Python, JS/TS | Automated instrumentation of agent runs, tool executions, and handoff transitions. |
 | [Pydantic AI](https://traceroot.ai/docs/integrations/pydantic-ai) | Python | Automated instrumentation of agent runs, LLM calls, and tool invocations via pydantic-ai's native OpenTelemetry support. |
@@ -121,6 +122,7 @@ The fastest way to get started. Ample storages and LLM tokens for testing, no cr
 | [Google Gemini](https://traceroot.ai/docs/integrations/gemini) | Python | Automated instrumentation via the Google GenAI SDK. |
 | [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | Automated instrumentation of Mistral chat completions, tool calls, and streaming responses. |
 | [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | Automated instrumentation of Chat Completions and Responses API. |
+| [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | OpenAI-compatible tracing via the OpenAI SDK base URL; see the [Python](./examples/python/openrouter-tool-agent) and [TypeScript](./examples/typescript/openrouter) examples. |
 
 > Don't see your framework or provider? [Request an integration](https://github.com/traceroot-ai/traceroot/issues).
 

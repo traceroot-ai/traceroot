@@ -124,6 +124,12 @@
               "detectors/get-started",
               "detectors/alerts"
             ]
+          },
+          {
+            "group": "CLI",
+            "pages": [
+              "cli/get-started"
+            ]
           }
         ]
       },
@@ -156,6 +162,7 @@
               "integrations/langchain",
               "integrations/langchain-deepagents",
               "integrations/llamaindex",
+              "integrations/microsoft-agent-framework",
               "integrations/mastra",
               "integrations/openai-agents-sdk",
               "integrations/pydantic-ai",
@@ -168,7 +175,8 @@
               "integrations/anthropic",
               "integrations/gemini",
               "integrations/mistral",
-              "integrations/openai"
+              "integrations/openai",
+              "integrations/openrouter"
             ]
           },
           {

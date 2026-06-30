@@ -31,9 +31,9 @@
 
 | 功能 | 描述 |
 | ---- | ---- |
-| 追踪（Tracing） | 通过兼容 OpenTelemetry 的 SDK 采集 LLM 调用、Agent 行为以及工具使用情况。智能浮现真正值得关注的追踪 —— 过滤噪声，优先呈现信号。 |
-| 智能调试（Agentic Debugging） | AI 可以看到你的所有追踪，连接到运行你生产源码的沙箱中，精确定位出错的代码行，并将故障与你的 GitHub commit、PR、issue 关联起来。支持 BYOK，可接入任意模型厂商。 |
 | 检测器（Detectors） | 由 LLM 充当评审，监控进入的追踪是否存在幻觉、工具/逻辑错误、安全违规以及意图漂移 —— 自动呈现发现项，并触发根因分析与邮件、Slack 告警。 |
+| 智能调试（Agentic Debugging） | AI 可以看到你的所有追踪，连接到运行你生产源码的沙箱中，精确定位出错的代码行，并将故障与你的 GitHub commit、PR、issue 关联起来。支持 BYOK，可接入任意模型厂商。 |
+| 追踪（Tracing） | 通过兼容 OpenTelemetry 的 SDK 采集 LLM 调用、Agent 行为以及工具使用情况。智能浮现真正值得关注的追踪 —— 过滤噪声，优先呈现信号。 |
 
 ## 为什么选择 TraceRoot？
 
@@ -93,6 +93,7 @@
 | 集成 | 支持语言 | 描述 |
 | ---- | -------- | ---- |
 | [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | 自动埋点 Chat Completions 与 Responses API。 |
+| [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | 通过 OpenAI SDK 的 OpenRouter base URL 进行兼容追踪；可参考 [Python](./examples/python/openrouter-tool-agent) 与 [TypeScript](./examples/typescript/openrouter) 示例。 |
 | [Anthropic](https://traceroot.ai/docs/integrations/anthropic) | Python, JS/TS | 自动埋点 Messages API。 |
 | [Google Gemini](https://traceroot.ai/docs/integrations/gemini) | Python | 通过 Google GenAI SDK 实现自动埋点。 |
 | [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | 自动埋点 Mistral 的 chat completions、工具调用以及流式响应。 |
@@ -109,6 +110,7 @@
 | [Vercel AI SDK](https://traceroot.ai/docs/integrations/vercel-ai) | JS/TS | 通过 `experimental_telemetry` 原生 OpenTelemetry 追踪，无需配置 `instrumentModules`。 |
 | [AutoGen](https://traceroot.ai/docs/integrations/autogen) | Python | 自动埋点多 Agent 对话、Agent 循环以及工具调用。 |
 | [LlamaIndex](https://traceroot.ai/docs/integrations/llamaindex) | Python | 自动埋点 RAG 流水线、文档摄取、检索以及 LLM 综合生成。 |
+| [Microsoft Agent Framework](https://traceroot.ai/docs/integrations/microsoft-agent-framework) | Python | 通过 Agent Framework 内置的 OpenTelemetry 自动埋点 Agent 运行、模型调用以及工具执行。 |
 | [CrewAI](https://traceroot.ai/docs/integrations/crewai) | Python | 自动埋点多 Agent 协作流程以及任务执行。 |
 | [Agno](https://traceroot.ai/docs/integrations/agno) | Python | 自动埋点 Agent 运行、工具调用以及多步推理。 |
 | [DSPy](https://traceroot.ai/docs/integrations/dspy) | Python | 自动埋点模块执行、signature 预测以及底层 LLM 调用。 |

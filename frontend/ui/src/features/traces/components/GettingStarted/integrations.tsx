@@ -206,6 +206,22 @@ traceroot.initialize(integrations=[Integration.LLAMA_INDEX])`,
     },
   },
   {
+    id: "microsoft-agent-framework",
+    name: "Microsoft Agent Framework",
+    href: "https://traceroot.ai/docs/integrations/microsoft-agent-framework",
+    category: "framework",
+    logo: "/logo/integrations/microsoft-agent-framework.svg",
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.AGENT_FRAMEWORK])`,
+      },
+    },
+  },
+  {
     id: "mastra",
     name: "Mastra",
     href: "https://traceroot.ai/docs/integrations/mastra",
@@ -384,6 +400,44 @@ TraceRoot.initialize({
 });
 
 const openai = new OpenAI();`,
+      },
+    },
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    href: "https://traceroot.ai/docs/integrations/openrouter",
+    category: "provider",
+    logo: "/logo/integrations/openrouter.svg",
+    logoDark: "/logo/integrations/openrouter-dark.svg",
+    languages: {
+      python: {
+        installCommand: "pip install traceroot openai",
+        initSnippet: `import os
+import openai
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI])
+
+client = openai.OpenAI(
+    api_key=os.environ["OPENROUTER_API_KEY"],
+    base_url="https://openrouter.ai/api/v1",
+)`,
+      },
+      typescript: {
+        installCommand: "npm install @traceroot-ai/traceroot openai",
+        initSnippet: `import OpenAI from "openai";
+import { TraceRoot } from "@traceroot-ai/traceroot";
+
+TraceRoot.initialize({
+  instrumentModules: { openAI: OpenAI },
+});
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENROUTER_API_KEY,
+  baseURL: "https://openrouter.ai/api/v1",
+});`,
       },
     },
   },

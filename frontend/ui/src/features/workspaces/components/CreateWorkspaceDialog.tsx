@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createWorkspace } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -18,19 +19,34 @@ import {
 
 interface CreateWorkspaceDialogProps {
   trigger?: React.ReactNode;
+  /** Controlled mode: when provided, no trigger is rendered. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function CreateWorkspaceDialog({ trigger }: CreateWorkspaceDialogProps) {
-  const [open, setOpen] = useState(false);
+export function CreateWorkspaceDialog({
+  trigger,
+  open: controlledOpen,
+  onOpenChange,
+}: CreateWorkspaceDialogProps) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : uncontrolledOpen;
+  const setOpen = (next: boolean) => {
+    if (!isControlled) setUncontrolledOpen(next);
+    onOpenChange?.(next);
+  };
   const [name, setName] = useState("");
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const createMutation = useMutation({
     mutationFn: (name: string) => createWorkspace(name),
-    onSuccess: () => {
+    onSuccess: (workspace) => {
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       setOpen(false);
       setName("");
+      router.push(`/workspaces/${workspace.id}/projects`);
     },
   });
 
@@ -43,7 +59,9 @@ export function CreateWorkspaceDialog({ trigger }: CreateWorkspaceDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger || <AddButton>New Workspace</AddButton>}</DialogTrigger>
+      {!isControlled && (
+        <DialogTrigger asChild>{trigger || <AddButton>New Workspace</AddButton>}</DialogTrigger>
+      )}
       <DialogContent>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
@@ -54,6 +72,7 @@ export function CreateWorkspaceDialog({ trigger }: CreateWorkspaceDialogProps) {
           </DialogHeader>
           <div className="py-4">
             <Input
+              autoFocus
               placeholder="Workspace name"
               value={name}
               onChange={(e) => setName(e.target.value)}

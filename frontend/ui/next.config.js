@@ -1,9 +1,26 @@
+const { execSync } = require("child_process");
 const path = require("path");
+
+function resolveAppVersion() {
+  if (process.env.APP_VERSION) return process.env.APP_VERSION;
+  try {
+    return execSync("git describe --tags --abbrev=0", {
+      cwd: path.join(__dirname, "../"),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "dev";
+  }
+}
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
+  env: {
+    NEXT_PUBLIC_APP_VERSION: resolveAppVersion(),
+  },
   transpilePackages: ["@traceroot/core", "@traceroot/github", "@traceroot/slack"],
   // Include monorepo root so standalone output traces deps outside ui/
   outputFileTracingRoot: path.join(__dirname, "../"),
@@ -13,10 +30,19 @@ const nextConfig = {
   outputFileTracingIncludes: {
     "/*": ["../node_modules/.prisma/**/*"],
   },
-  // Our workspace packages are now `"type": "module"` and use NodeNext-style
-  // `.js` imports for source files (e.g. `from "./lib/prisma.js"`). webpack
-  // doesn't auto-resolve `.js` → `.ts` like tsx / vite-node do — this alias
-  // tells it to try `.ts`/`.tsx` first, falling back to a real `.js`.
+  // Pin Turbopack's project root to the monorepo root (matches
+  // outputFileTracingRoot) instead of letting it infer one. Having a
+  // turbopack key also keeps a bare `next dev` (no bundler flag) from
+  // hard-exiting over the webpack config below.
+  turbopack: {
+    root: path.join(__dirname, "../"),
+  },
+  // The transpiled workspace packages (core/github/slack) import their own
+  // sources with explicit `.ts` extensions (rewritten to `.js` in their tsc
+  // dist builds via rewriteRelativeImportExtensions) because Turbopack has no
+  // webpack-style extensionAlias. This alias stays as a safety net for
+  // `next build --webpack` in case a NodeNext-style `.js` import sneaks back
+  // in — webpack doesn't auto-resolve `.js` → `.ts` like tsx / vite-node do.
   webpack: (config) => {
     config.resolve.extensionAlias = {
       ".js": [".ts", ".tsx", ".js"],

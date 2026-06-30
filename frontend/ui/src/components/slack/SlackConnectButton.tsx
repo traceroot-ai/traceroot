@@ -2,21 +2,9 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  ArrowUpRight,
-  Check,
-  ChevronDown,
-  ExternalLink,
-  Hash,
-  Lock,
-  Send,
-  Settings,
-  Unlink,
-} from "lucide-react";
+import { Check, ChevronDown, ExternalLink, Hash, Lock, Send, Settings, Unlink } from "lucide-react";
 import { FaSlack } from "react-icons/fa";
-import { hasEntitlement, type PlanType } from "@traceroot/core";
 import { useWorkspace } from "@/features/workspaces/hooks";
 import {
   useSlackStatus,
@@ -26,7 +14,7 @@ import {
   useSendSlackTest,
 } from "@/features/integrations/hooks/useSlackIntegration";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 
 interface Props {
   workspaceId: string;
@@ -36,9 +24,9 @@ export function SlackConnectButton({ workspaceId }: Props) {
   const queryClient = useQueryClient();
   const { data: workspace } = useWorkspace(workspaceId);
   const canManage = workspace?.role === "ADMIN";
-  const isEntitled = workspace?.billingPlan
-    ? hasEntitlement(workspace.billingPlan as PlanType, "slack-integration")
-    : false;
+  // Slack integration is entitled on every plan (free tier included), so there
+  // is no longer an entitlement gate here. The install route and worker keep a
+  // defense-in-depth check that defaults a missing plan to "free".
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [channelOpen, setChannelOpen] = useState(false);
@@ -286,31 +274,6 @@ export function SlackConnectButton({ workspaceId }: Props) {
               </button>
             </PopoverContent>
           </Popover>
-        )}
-      </div>
-    );
-  }
-
-  if (!isEntitled) {
-    const upgradeHref = `/workspaces/${encodeURIComponent(workspaceId)}/settings/billing?upgrade=slack-integration`;
-    return (
-      <div className="flex items-center justify-between">
-        <Row>
-          <div>
-            <div className="text-sm font-medium">Slack</div>
-            <div className="text-sm text-muted-foreground">
-              Upgrade to Pro to unlock Slack Integration for alerts.
-            </div>
-          </div>
-        </Row>
-        {canManage && (
-          <Link
-            href={upgradeHref}
-            className={buttonVariants({ variant: "outline", size: "sm", className: "gap-1" })}
-          >
-            Upgrade
-            <ArrowUpRight className="h-3.5 w-3.5" />
-          </Link>
         )}
       </div>
     );

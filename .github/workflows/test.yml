@@ -71,6 +71,96 @@ jobs:
           path: coverage-backend.xml
 
   # ---------------------------------------------------------------------------
+  # Frontend unit tests  (frontend/)
+  # ---------------------------------------------------------------------------
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-24.04
+    needs: [lint]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: cd frontend/packages/core && pnpm db:generate
+
+      - name: Run frontend tests with coverage
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+
+          # Run test:coverage in each package
+          cd frontend
+
+          FAIL=0
+          for pkg in ui worker packages/core packages/agent packages/slack packages/github; do
+            echo "::group::test:coverage — $pkg"
+            cd "$pkg"
+            pnpm test:coverage || FAIL=1
+            cd -
+            echo "::endgroup::"
+          done
+
+          if [ "$FAIL" -eq 1 ]; then
+            echo "::error::One or more frontend test suites failed."
+            exit 1
+          fi
+
+      - name: Fix lcov source paths and merge
+        if: always()
+        run: |
+          set -euo pipefail
+
+          # Vitest writes SF: paths relative to the package root (e.g. src/lib/utils.ts).
+          # diff-cover needs repo-root paths (e.g. frontend/ui/src/lib/utils.ts).
+          # Fix each package's lcov and concatenate into one file.
+
+          PACKAGES=(
+            "frontend/ui"
+            "frontend/worker"
+            "frontend/packages/core"
+            "frontend/packages/agent"
+            "frontend/packages/slack"
+            "frontend/packages/github"
+          )
+
+          > coverage-frontend.lcov  # truncate / create
+
+          for pkg in "${PACKAGES[@]}"; do
+            lcov_file="$pkg/coverage/lcov.info"
+            if [ -f "$lcov_file" ]; then
+              echo "Fixing paths in $lcov_file (prefix: $pkg/)"
+              sed -i "s|^SF:|SF:${pkg}/|g" "$lcov_file"
+              cat "$lcov_file" >> coverage-frontend.lcov
+            else
+              echo "::error::No coverage file found for $pkg. This will bypass the coverage gate for changed files in this package."
+              exit 1
+            fi
+          done
+
+          echo "Merged frontend lcov lines: $(wc -l < coverage-frontend.lcov)"
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-frontend
+          path: coverage-frontend.lcov
+
+  # ---------------------------------------------------------------------------
   # Coverage summary
   # ---------------------------------------------------------------------------
   coverage:
@@ -98,3 +188,95 @@ jobs:
 
       - name: Print coverage summary
         run: cat code-coverage-results.md >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Coverage gate  (diff-cover >= 80% on changed lines)
+  # ---------------------------------------------------------------------------
+  # Enforces coverage on *changed lines only* (not whole-project), so the gate
+  # ratchets quality forward on new code without requiring a backfill. Reuses
+  # the coverage-backend.xml (Cobertura) already produced by backend-tests and
+  # the coverage-frontend.lcov (lcov) produced by frontend-tests -- diff-cover
+  # reads both formats natively.
+  # Pattern adapted from the OpenHuman project's CI (tinyhumansai/openhuman).
+  coverage-gate:
+    name: Coverage Gate (diff-cover >= 80%)
+    runs-on: ubuntu-24.04
+    needs: [backend-tests, frontend-tests]
+    # Intentionally PR-only: diff-coverage compares changed lines against the PR
+    # base branch, and the gate already runs before a PR can enter the merge
+    # queue. On merge_group events github.base_ref is empty, so the compare-ref
+    # logic below would have no base to diff against -- supporting it would need
+    # github.event.merge_group.base_ref instead.
+    if: always() && github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # diff-cover needs history for the merge-base with the PR base; a
+          # shallow checkout silently breaks the comparison.
+          fetch-depth: 0
+
+      - name: Fetch PR base branch
+        run: git fetch origin "${{ github.base_ref }}" --depth=200
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install diff-cover
+        run: pip install 'diff-cover>=9.2.0'
+
+      - name: Download backend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-backend
+
+      - name: Download frontend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-frontend
+
+      - name: Enforce >= 80% backend coverage on changed lines
+        run: |
+          set -euo pipefail
+          diff-cover coverage-backend.xml \
+            --compare-branch="origin/${{ github.base_ref }}" \
+            --fail-under=80 \
+            --format markdown:diff-coverage-backend.md,html:diff-coverage-backend.html
+
+      - name: Enforce >= 80% frontend coverage on changed lines
+        if: success() || failure()
+        run: |
+          set -euo pipefail
+          diff-cover coverage-frontend.lcov \
+            --compare-branch="origin/${{ github.base_ref }}" \
+            --exclude "**/*vitest.config.ts" \
+            --exclude "**/next.config.js" \
+            --fail-under=80 \
+            --format markdown:diff-coverage-frontend.md,html:diff-coverage-frontend.html
+
+      - name: Print diff-coverage summary
+        if: always()
+        run: |
+          if [ -f diff-coverage-backend.md ]; then
+            echo "### Backend Coverage" >> "$GITHUB_STEP_SUMMARY"
+            cat diff-coverage-backend.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f diff-coverage-frontend.md ]; then
+            echo "### Frontend Coverage" >> "$GITHUB_STEP_SUMMARY"
+            cat diff-coverage-frontend.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload diff-coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diff-coverage-report
+          path: |
+            diff-coverage-backend.md
+            diff-coverage-backend.html
+            diff-coverage-frontend.md
+            diff-coverage-frontend.html
+          retention-days: 14
+          if-no-files-found: warn

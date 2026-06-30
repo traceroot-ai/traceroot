@@ -19,6 +19,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -28,15 +29,16 @@
     "bullmq": "^5.73.3",
     "ioredis": "^5.10.1",
     "node-cron": "^3.0.0",
-    "nodemailer": "^6.10.0",
+    "nodemailer": "^9.0.1",
     "stripe": "14.25.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/node-cron": "^3.0.0",
     "@types/nodemailer": "^6.4.14",
+    "@vitest/coverage-v8": "^3.2.6",
     "tsx": "^4.21.0",
-    "typescript": "^5.0.0",
-    "vitest": "^3.0.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.6"
   }
 }

@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     # Core
     "pydantic>=2.0",
-    "pydantic-settings>=2.0",
+    "pydantic-settings>=2.14.2",
     "cuid2>=2.0.0",
     # Database (PostgreSQL access moved to Prisma in ui/)
     "clickhouse-connect>=0.7",
@@ -15,10 +15,15 @@ dependencies = [
     # REST API
     "fastapi>=0.109",
     "uvicorn[standard]>=0.27",
-    "python-multipart>=0.0.27",
+    "python-multipart>=0.0.31",
+    # Upper-bounded: rate_limit.py rides slowapi private internals
+    # (_check_request_limit, request.state.view_rate_limit, limiter._storage_dead);
+    # a minor bump could silently change shadow/header behavior under swallow_errors=True.
+    "slowapi>=0.1.9,<0.2",
     # OpenTelemetry
     "protobuf>=6.33.5",
     "opentelemetry-proto>=1.20.0",
+    "opentelemetry-api>=1.20.0",
     # Task Queue
     "celery[redis]>=5.3",
     "redis>=5.0",
@@ -30,6 +35,7 @@ dependencies = [
     "tiktoken>=0.5.0",
     # PostgreSQL (for standard model pricing lookup)
     "psycopg2-binary>=2.9",
+    "bullmq>=2.25,<3",
 ]
 
 [dependency-groups]
@@ -60,7 +66,7 @@ pythonpath = ["backend"]
 [tool.coverage.run]
 source = ["backend"]
 branch = true
-omit = ["tests/*"]
+omit = ["tests/*", "*/tests/*"]
 
 [tool.coverage.report]
 show_missing = true

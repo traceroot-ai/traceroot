@@ -1,4 +1,4 @@
-import { prisma } from "../lib/prisma.js";
+import { prisma } from "../lib/prisma.ts";
 import standardModels from "../standard-model-prices.json" with { type: "json" };
 
 interface StandardModelEntry {
@@ -11,6 +11,8 @@ interface StandardModelEntry {
     output: number;
     cacheRead: number | null;
     cacheWrite: number | null;
+    // Optional 1-hour cache-write rate; synced generically via Object.entries.
+    cacheWrite1h?: number | null;
   };
 }
 

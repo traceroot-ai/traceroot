@@ -1,4 +1,10 @@
 import nodemailer from "nodemailer";
+import {
+  detectorFindingsUrl,
+  formatWindowRange,
+  traceUrl,
+  type DigestEntry,
+} from "@traceroot/slack";
 
 function escapeHtml(s: string): string {
   return s
@@ -27,57 +33,67 @@ function createTransport() {
 }
 
 /**
- * Send a combined alert email with the finding summary + RCA result in one message.
- * Sent after the RCA agent completes (or fails).
- * If rcaResult is null, sends a finding-only email (RCA failed fallback — never silent).
+ * Send a windowed digest email summarizing all findings in a time window:
+ * one row per detector with its finding count and latest trace. No RCA and no
+ * per-finding summary — matches the Slack digest content.
  */
-export async function sendCombinedAlertEmail(params: {
+export async function sendDigestAlertEmail(params: {
   to: string[];
-  detectorName: string;
-  projectName: string;
-  summary: string;
-  traceId: string;
   projectId: string;
-  rcaResult: string | null; // null = RCA did not complete
+  projectName: string;
+  windowStart: Date;
+  windowEnd: Date;
+  total: number;
+  entries: DigestEntry[];
 }): Promise<void> {
   const transport = createTransport();
   if (!transport || params.to.length === 0) return;
 
-  const traceUrl = `${APP_BASE_URL}/projects/${params.projectId}/traces?traceId=${params.traceId}`;
-  const shortTraceId = params.traceId.slice(0, 8);
+  const { projectId, projectName, windowStart, windowEnd, total, entries } = params;
+  const noun = total === 1 ? "finding" : "findings";
+  const windowRange = formatWindowRange(windowStart, windowEnd);
 
-  const hasRca = !!params.rcaResult;
+  // Reuse the shared deep-link helpers (block-kit) so the URL contract lives in
+  // one place; curry them with this email's base URL + window.
+  const findingsUrlFor = (detectorId: string) =>
+    detectorFindingsUrl(APP_BASE_URL, projectId, detectorId, windowStart, windowEnd);
+  const traceUrlFor = (traceId: string) => traceUrl(APP_BASE_URL, projectId, traceId);
 
   const textParts = [
-    `${params.detectorName} fired on project ${params.projectName}.`,
-    `Trace: ${params.traceId}`,
+    `${total} ${noun} in project ${projectName}.`,
+    `${windowRange} · ${entries.length} detector${entries.length === 1 ? "" : "s"}`,
     ``,
-    `Finding:`,
-    params.summary,
-    ``,
-    hasRca ? `Root Cause Analysis:` : `Root cause analysis did not complete.`,
-    ...(hasRca ? [params.rcaResult!, ``] : [``]),
-    `View trace: ${traceUrl}`,
   ];
+  for (const e of entries) {
+    const findingNoun = e.findingCount === 1 ? "finding" : "findings";
+    // Omit the trace segment when there is no latest trace (mirrors the Slack
+    // builder), so we never emit a blank/broken trace link.
+    const latest = e.latestTraceId ? ` · latest ${e.latestTraceId.slice(0, 8)}` : "";
+    textParts.push(
+      `- ${e.detectorName} — ${e.findingCount} ${findingNoun}${latest}`,
+      `  ${findingsUrlFor(e.detectorId)}`,
+    );
+  }
 
-  const htmlRcaSection = hasRca
-    ? `
-<h3 style="margin-top:20px;font-size:14px;color:#333;">Root Cause Analysis</h3>
-<pre style="background:#f6f6f6;padding:12px;border-radius:4px;font-size:13px;white-space:pre-wrap">${escapeHtml(params.rcaResult!)}</pre>`
-    : `<p style="color:#888;font-size:13px;margin-top:16px;">Root cause analysis did not complete.</p>`;
+  const htmlRows = entries
+    .map((e) => {
+      const findingNoun = e.findingCount === 1 ? "finding" : "findings";
+      const latest = e.latestTraceId
+        ? ` · latest <a href="${traceUrlFor(e.latestTraceId)}" style="color:#888;">${e.latestTraceId.slice(0, 8)}</a>`
+        : "";
+      return `<p style="margin:6px 0;"><a href="${findingsUrlFor(e.detectorId)}">${escapeHtml(e.detectorName)}</a> <span style="color:#888;">— ${e.findingCount} ${findingNoun}${latest}</span></p>`;
+    })
+    .join("\n");
 
   await transport.sendMail({
     from: SMTP_FROM,
     to: params.to.join(", "),
-    subject: `[TraceRoot Alert] Trace ${shortTraceId} — ${params.projectName}`,
+    subject: `[TraceRoot Alert] ${total} ${noun} — ${projectName}`,
     text: textParts.join("\n"),
     html: `
-<p><strong>${escapeHtml(params.detectorName)}</strong> fired on project <strong>${escapeHtml(params.projectName)}</strong>.</p>
-<p style="color:#888;font-size:12px;font-family:monospace;">Trace: ${escapeHtml(params.traceId)}</p>
-<h3 style="margin-top:16px;font-size:14px;color:#333;">Finding</h3>
-<p>${escapeHtml(params.summary)}</p>
-${htmlRcaSection}
-<p style="margin-top:16px;"><a href="${traceUrl}">View trace in TraceRoot &rarr;</a></p>
+<p><strong>${total} ${noun}</strong> in project <strong>${escapeHtml(projectName)}</strong>.</p>
+<p style="color:#888;font-size:12px;">${windowRange} · ${entries.length} detector${entries.length === 1 ? "" : "s"}</p>
+${htmlRows}
     `.trim(),
   });
 }

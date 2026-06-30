@@ -29,7 +29,7 @@ services:
       retries: 10
 
   clickhouse:
-    image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-24.3}
+    image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-25.2}
     restart: always
     environment:
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:-default}
@@ -126,6 +126,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.web
       args:
+        APP_VERSION: ${APP_VERSION:-dev}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-dev-secret-change-in-production}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
@@ -215,6 +216,16 @@ services:
       S3_BUCKET_NAME: ${S3_BUCKET_NAME:-traceroot}
       S3_REGION: ${S3_REGION:-us-east-1}
       TRACEROOT_UI_URL: http://web:3000
+      # Host/browser-usable UI URL for client-facing links (trace_url, whoami).
+      # Prefers TRACEROOT_PUBLIC_UI_URL; falls back to the public app URL.
+      TRACEROOT_PUBLIC_UI_URL: ${TRACEROOT_PUBLIC_UI_URL:-${NEXT_PUBLIC_APP_URL:-http://localhost:3000}}
+      # --- Feature flags ---
+      # rest is the only service that builds the REST rate limiter, and
+      # is_billing_enabled() treats an absent value as enabled, so rest must
+      # receive ENABLE_BILLING for a self-host deployment (ENABLE_BILLING=false,
+      # as .env.example ships) to actually disable limiting. Default matches
+      # web/billing (cloud-on unless the operator opts out).
+      ENABLE_BILLING: ${ENABLE_BILLING:-true}
       # --- Secrets ---
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-internal-secret}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
@@ -326,6 +337,10 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      # --- Detector config ---
+      # Per-attempt wall-clock timeout (ms) for the LLM-as-judge eval call so a
+      # hung or unreachable provider can't pin a worker slot indefinitely.
+      DETECTOR_EVAL_TIMEOUT_MS: ${DETECTOR_EVAL_TIMEOUT_MS:-60000}
     depends_on:
       migrate:
         condition: service_completed_successfully

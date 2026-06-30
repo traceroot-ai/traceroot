@@ -63,6 +63,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     outputSchema,
     sampleRate,
     enabled,
+    enableRca,
     triggerConditions,
     detectionModel,
     detectionProvider,
@@ -74,6 +75,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   // require a strict boolean. sampleRate must be an integer 0-100.
   if (enabled !== undefined && typeof enabled !== "boolean") {
     return errorResponse("enabled must be a boolean", 400);
+  }
+  if (enableRca !== undefined && typeof enableRca !== "boolean") {
+    return errorResponse("enableRca must be a boolean", 400);
   }
   if (sampleRate !== undefined) {
     if (
@@ -121,6 +125,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (outputSchema !== undefined) detectorData.outputSchema = outputSchema;
   if (sampleRate !== undefined) detectorData.sampleRate = sampleRate;
   if (enabled !== undefined) detectorData.enabled = enabled;
+  if (enableRca !== undefined) detectorData.enableRca = enableRca;
   if (detectionModel !== undefined) detectorData.detectionModel = detectionModel || null;
   if (detectionProvider !== undefined) detectorData.detectionProvider = detectionProvider || null;
   if (detectionSource !== undefined) {

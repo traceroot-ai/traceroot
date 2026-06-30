@@ -27,12 +27,19 @@ def _is_trace_complete_in_clickhouse(project_id: str, trace_id: str) -> bool:
     from db.clickhouse.client import get_clickhouse_client
 
     ch_client = get_clickhouse_client()
+    # Dedup ReplacingMergeTree rows without FINAL: keep the latest version per
+    # span_id (filtered to this trace), then test the root-complete condition on
+    # the deduped rows.
     result = ch_client.query(
         """
-        SELECT count() FROM spans FINAL
-        WHERE project_id = {project_id:String}
-          AND trace_id   = {trace_id:String}
-          AND isNull(parent_span_id)
+        SELECT count() FROM (
+            SELECT parent_span_id, span_end_time FROM spans
+            WHERE project_id = {project_id:String}
+              AND trace_id   = {trace_id:String}
+            ORDER BY ch_update_time DESC
+            LIMIT 1 BY span_id
+        )
+        WHERE isNull(parent_span_id)
           AND isNotNull(span_end_time)
         """,
         parameters={"project_id": project_id, "trace_id": trace_id},

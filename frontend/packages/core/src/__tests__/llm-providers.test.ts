@@ -4,7 +4,7 @@ import {
   SYSTEM_MODELS,
   ADAPTER_API_PROTOCOL,
   LLMAdapter,
-} from "../llm-providers.js";
+} from "../llm-providers.ts";
 
 describe("ADAPTER_MODELS", () => {
   it("contains no duplicate model IDs within a single adapter", () => {

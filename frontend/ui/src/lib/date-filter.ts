@@ -29,6 +29,14 @@ export const DATE_FILTER_OPTIONS: DateFilterOption[] = [
 export const DEFAULT_DATE_FILTER = DATE_FILTER_OPTIONS.find((o) => o.id === "1d")!;
 
 /**
+ * Default date filter for the detectors section (findings/runs lists). Detectors
+ * default to a wider window than the other list pages, so the id is centralized
+ * here and shared by both the detectors list and detail pages — a single source
+ * of truth that keeps their fallback ranges from drifting apart.
+ */
+export const DETECTORS_DEFAULT_DATE_FILTER_ID = "14d";
+
+/**
  * Convert a date filter option to timestamp bounds.
  */
 export function toTimestampBounds(

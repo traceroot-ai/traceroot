@@ -1,28 +1,116 @@
-import { Worker, type Job } from "bullmq";
-import { prisma, SYSTEM_MODELS, PlanType } from "@traceroot/core";
+import { Queue, Worker, type Job } from "bullmq";
+import {
+  prisma,
+  SYSTEM_MODELS,
+  PlanType,
+  ModelSource,
+  ALERT_WINDOWS,
+  DEFAULT_ALERT_WINDOW,
+  isAlertWindow,
+} from "@traceroot/core";
+import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
 import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
 import { DETECTOR_RCA_QUEUE, createRedisConnection } from "../queues/detector-run-queue.js";
-import { sendCombinedAlertEmail } from "../notifications/email.js";
-import { sendCombinedAlertSlack } from "../notifications/slack.js";
+import {
+  type DigestFlushJob,
+  windowStartFor,
+  createDetectorDigestQueue,
+} from "../queues/digest-queue.js";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 
-// Resolve a project-configured rca_model id to the agent service body fields.
+// Settle margin past the window's end before the flush reads ClickHouse, so a
+// finding written at windowEnd−ε is visible. With finding-timestamp keying
+// there is no RCA-latency drift, so a few seconds for write-visibility suffices.
+const DIGEST_SETTLE_MS = Number(process.env.DIGEST_SETTLE_MS ?? 5_000);
+
+let digestQueue: Queue<DigestFlushJob> | null = null;
+function getDigestQueue(): Queue<DigestFlushJob> {
+  if (!digestQueue) {
+    digestQueue = createDetectorDigestQueue(createRedisConnection());
+  }
+  return digestQueue;
+}
+
+// Resolve a project-configured rca_model to the agent service body fields.
+// Uses the same pattern as sandbox-eval.ts: reads the provider from saved
+// config (BYOK) or the shared system-model resolver — no fragile prefix
+// matching or adapter guessing.
 // Returns null when the model is unset or unknown (caller should omit fields).
-function resolveSystemModel(
+export async function resolveProjectModel(
   rcaModel: string | null | undefined,
-): { model: string; providerName: string; source: "system" } | null {
+  rcaProvider: string | null | undefined,
+  rcaSource: string | null | undefined,
+  workspaceId: string,
+): Promise<{ model: string; providerName: string; source: ModelSource } | null> {
   if (!rcaModel) return null;
+
+  // 1. BYOK: read provider from saved config (same pattern as sandbox-eval.ts L126-136)
+  if (rcaSource === "byok" && rcaProvider) {
+    const providerConfig = await fetchProviderConfig(workspaceId, rcaProvider);
+    if (!providerConfig) {
+      console.warn(
+        `[detector-rca] BYOK provider "${rcaProvider}" not found or disabled in workspace ${workspaceId}`,
+      );
+      return null;
+    }
+    const model = resolvePiModel(rcaModel, providerConfig);
+    // Forward the saved BYOK provider LABEL (e.g. "myopenai"), not the pi-ai
+    // provider name. The agent resolves BYOK via fetchProviderConfig(workspaceId,
+    // providerName), which keys on ModelProvider.provider (the user label).
+    return { model: model.id, providerName: rcaProvider, source: ModelSource.BYOK };
+  }
+
+  // 2. System model: validate against catalog, then use shared resolver
   for (const group of SYSTEM_MODELS) {
     if (group.models.some((m) => m.id === rcaModel)) {
-      return { model: rcaModel, providerName: group.piAIProvider, source: "system" };
+      const model = resolvePiModel(rcaModel, null);
+      return { model: model.id, providerName: model.provider, source: ModelSource.SYSTEM };
     }
   }
+
+  // 3. Legacy BYOK fallback for pre-existing configs
+  const legacy = await resolveLegacyByok(rcaModel, workspaceId);
+  if (legacy) return legacy;
+
   console.warn(`[detector-rca] Unknown rca_model "${rcaModel}", falling back to default`);
   return null;
 }
 
-async function runRcaSession(params: {
+// 3. Legacy BYOK fallback: projects that saved a BYOK model before
+//    rcaSource and rcaProvider fields existed have both set to NULL.
+//    Try to resolve the model from the workspace's enabled providers.
+async function resolveLegacyByok(
+  rcaModel: string,
+  workspaceId: string,
+): Promise<{ model: string; providerName: string; source: ModelSource } | null> {
+  try {
+    const dbProviders = await prisma.modelProvider.findMany({
+      where: { workspaceId, enabled: true },
+      select: { provider: true, customModels: true },
+      orderBy: { id: "asc" },
+    });
+
+    for (const p of dbProviders) {
+      if (p.customModels.some((m) => m.trim() === rcaModel)) {
+        const providerConfig = await fetchProviderConfig(workspaceId, p.provider);
+        if (providerConfig) {
+          const model = resolvePiModel(rcaModel, providerConfig);
+          // Forward the BYOK provider LABEL the agent expects (see step 1 above).
+          return { model: model.id, providerName: p.provider, source: ModelSource.BYOK };
+        }
+      }
+    }
+  } catch (err) {
+    console.error(
+      `[detector-rca] Failed to resolve legacy BYOK for workspace ${workspaceId}:`,
+      err,
+    );
+  }
+  return null;
+}
+
+export async function runRcaSession(params: {
   findingId: string;
   projectId: string;
   workspaceId: string;
@@ -30,6 +118,8 @@ async function runRcaSession(params: {
   findings: DetectorRcaJob["findings"];
   hasGitHub: boolean;
   rcaModel?: string | null;
+  rcaProvider?: string | null;
+  rcaSource?: string | null;
 }): Promise<{ result: string; sessionId: string }> {
   const sessionRes = await fetch(
     `${AGENT_SERVICE_URL}/api/v1/projects/${params.projectId}/sessions`,
@@ -93,13 +183,18 @@ Output your findings in this format:
     "x-workspace-id": params.workspaceId,
   };
 
-  const resolved = resolveSystemModel(params.rcaModel);
+  const resolved = await resolveProjectModel(
+    params.rcaModel,
+    params.rcaProvider,
+    params.rcaSource,
+    params.workspaceId,
+  );
   const msgBody: {
     message: string;
     traceId: string;
     model?: string;
     providerName?: string;
-    source?: "system";
+    source?: ModelSource;
   } = { message: prompt, traceId: params.traceId };
   if (resolved) {
     msgBody.model = resolved.model;
@@ -154,189 +249,144 @@ Output your findings in this format:
   return { result: rcaResult, sessionId: session.id };
 }
 
-// ---------------------------------------------------------------------------
-// Fan-out helper — exported for unit testing
-// ---------------------------------------------------------------------------
+export async function processRcaJob(job: Job<DetectorRcaJob>) {
+  const { findingId, projectId, traceId, workspaceId, findings, findingTimestamp } = job.data;
 
-export interface FanOutCommon {
-  detectorName: string;
-  projectName: string;
-  summary: string;
-  rcaResult: string | null;
-  traceId: string;
-  projectId: string;
-}
-
-export interface RunFanOutParams {
-  workspaceId: string;
-  emailAddresses: string[];
-  slackChannelId: string | null;
-  slackBotTokenEnc: string | null;
-  common: FanOutCommon;
-}
-
-export async function runFanOut({
-  workspaceId,
-  emailAddresses,
-  slackChannelId,
-  slackBotTokenEnc,
-  common,
-}: RunFanOutParams): Promise<void> {
-  const tasks: Promise<unknown>[] = [];
-
-  if (emailAddresses.length > 0) {
-    tasks.push(
-      sendCombinedAlertEmail({ to: emailAddresses, ...common }).catch((e) =>
-        console.error(`[RCA] Alert email failed for trace ${common.traceId}:`, e),
-      ),
+  // Free-plan RCA cap enforcement — read the cached `rcaBlocked` flag
+  // set by the hourly billing job (same pattern as `detectorBlocked` in
+  // detector-run-processor). Worst-case overshoot: ~1h of RCA runs
+  // between cron passes.
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { billingPlan: true, rcaBlocked: true },
+  });
+  if (ws?.rcaBlocked && (ws.billingPlan as PlanType) === PlanType.FREE) {
+    // detector-run-processor pre-seeds a DetectorRca row with
+    // status="pending" before enqueuing; mark it terminal so the UI
+    // doesn't show a permanently-stuck "in progress" RCA.
+    await prisma.detectorRca
+      .update({
+        where: { findingId },
+        data: {
+          status: "failed",
+          result: "Skipped — Free plan RCA quota exceeded. Upgrade to continue.",
+          completedAt: new Date(),
+        },
+      })
+      .catch(() => {}); // best-effort; row may not exist if pre-seed failed
+    console.log(
+      `[RCA] Workspace ${workspaceId} is rca-blocked (Free plan cap exceeded); ` +
+        `skipping RCA for finding ${findingId}`,
     );
+    return;
   }
 
-  if (slackChannelId && slackBotTokenEnc) {
-    tasks.push(
-      sendCombinedAlertSlack({
-        workspaceId,
-        encryptedBotToken: slackBotTokenEnc,
-        channelId: slackChannelId,
-        ...common,
-      }).catch((e) => console.error(`[RCA] Slack send failed for trace ${common.traceId}:`, e)),
+  await prisma.detectorRca.upsert({
+    where: { findingId },
+    create: { findingId, projectId, status: "running" },
+    update: { projectId, status: "running" },
+  });
+
+  // Project alert aggregation window. Hoisted because `scheduleDigestFlush`
+  // closes over it but `project` is fetched later in the try below. Defaults to
+  // DEFAULT_ALERT_WINDOW until the project read resolves it.
+  let alertWindow: string = DEFAULT_ALERT_WINDOW;
+
+  // Every detector alert is a windowed digest: schedule one deduped flush per
+  // (project, windowStart) keyed off the finding timestamp, which the worker also
+  // stamps onto the detector_runs the flush counts — so the window the key selects
+  // and the window the count reads are identical. The deterministic jobId makes
+  // the first finding of the window schedule the flush and every later finding a
+  // no-op enqueue. Age-based retention keeps a late re-enqueue (slow RCA) a no-op
+  // past the largest window + RCA tail. Findings must never fail silently, so
+  // this runs on both the success and failure paths; flushDigest re-resolves the
+  // recipients and renders the digest.
+  const scheduleDigestFlush = async () => {
+    const windowMs = ALERT_WINDOWS[isAlertWindow(alertWindow) ? alertWindow : DEFAULT_ALERT_WINDOW];
+    // Legacy/in-flight RCA jobs enqueued before findingTimestamp existed carry no
+    // timestamp; fall back to now so the window key never goes NaN.
+    const safeFindingTs =
+      typeof findingTimestamp === "number" && Number.isFinite(findingTimestamp)
+        ? findingTimestamp
+        : Date.now();
+    const windowStart = windowStartFor(safeFindingTs, windowMs);
+    const delay = Math.max(0, windowStart + windowMs + DIGEST_SETTLE_MS - Date.now());
+    await getDigestQueue().add(
+      `digest-${projectId}-${windowStart}`,
+      { projectId, windowStart, windowMs },
+      {
+        jobId: `digest:${projectId}:${windowStart}`,
+        delay,
+        removeOnComplete: { age: 6 * 3600 },
+        removeOnFail: 50,
+      },
     );
+  };
+
+  try {
+    // Pull project-scoped rca_model and alert recipients in one read.
+    // Inside the try so a Prisma failure routes through the catch's
+    // failure-state + fallback-alert handling.
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: {
+        rcaModel: true,
+        rcaProvider: true,
+        rcaSource: true,
+        alertConfig: { select: { alertWindow: true } },
+      },
+    });
+    alertWindow = project?.alertConfig?.alertWindow ?? DEFAULT_ALERT_WINDOW;
+
+    // Workspace-level GitHub installations now drive the GitHub tool.
+    // Any installation in this workspace is enough to flip the tool on.
+    const ghCount = await prisma.gitHubInstallation.count({
+      where: { workspaceId },
+    });
+    const hasGitHub = ghCount > 0;
+
+    const { result: rcaResult } = await runRcaSession({
+      findingId,
+      projectId,
+      workspaceId,
+      traceId,
+      findings,
+      hasGitHub,
+      rcaModel: project?.rcaModel,
+      rcaProvider: project?.rcaProvider,
+      rcaSource: project?.rcaSource,
+    });
+
+    await prisma.detectorRca.update({
+      where: { findingId },
+      data: {
+        status: "done",
+        result: rcaResult,
+        completedAt: new Date(),
+      },
+    });
+  } catch (e) {
+    await prisma.detectorRca
+      .update({ where: { findingId }, data: { status: "failed" } })
+      .catch(() => {}); // best-effort
+
+    await scheduleDigestFlush();
+
+    throw e; // re-throw so BullMQ marks job as failed
   }
 
-  await Promise.allSettled(tasks);
+  // RCA state is persisted above; schedule the digest outside the try so a
+  // transient enqueue failure retries the job without the catch reverting a
+  // completed RCA to "failed".
+  await scheduleDigestFlush();
 }
 
 export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {
   const connection = createRedisConnection();
-
-  const worker = new Worker<DetectorRcaJob>(
-    DETECTOR_RCA_QUEUE,
-    async (job: Job<DetectorRcaJob>) => {
-      const { findingId, projectId, traceId, workspaceId, projectName, findings } = job.data;
-
-      // Free-plan RCA cap enforcement — read the cached `rcaBlocked` flag
-      // set by the hourly billing job (same pattern as `detectorBlocked` in
-      // detector-run-processor). Worst-case overshoot: ~1h of RCA runs
-      // between cron passes.
-      const ws = await prisma.workspace.findUnique({
-        where: { id: workspaceId },
-        select: { billingPlan: true, rcaBlocked: true },
-      });
-      if (ws?.rcaBlocked && (ws.billingPlan as PlanType) === PlanType.FREE) {
-        // detector-run-processor pre-seeds a DetectorRca row with
-        // status="pending" before enqueuing; mark it terminal so the UI
-        // doesn't show a permanently-stuck "in progress" RCA.
-        await prisma.detectorRca
-          .update({
-            where: { findingId },
-            data: {
-              status: "failed",
-              result: "Skipped — Free plan RCA quota exceeded. Upgrade to continue.",
-              completedAt: new Date(),
-            },
-          })
-          .catch(() => {}); // best-effort; row may not exist if pre-seed failed
-        console.log(
-          `[RCA] Workspace ${workspaceId} is rca-blocked (Free plan cap exceeded); ` +
-            `skipping RCA for finding ${findingId}`,
-        );
-        return;
-      }
-
-      await prisma.detectorRca.upsert({
-        where: { findingId },
-        create: { findingId, projectId, status: "running" },
-        update: { projectId, status: "running" },
-      });
-
-      // emailAddresses is captured inside the try below; declare here so the
-      // outer catch's fallback alert can still use it (defaults to []).
-      let emailAddresses: string[] = [];
-
-      let slackChannelId: string | null = null;
-
-      let slackBotTokenEnc: string | null = null;
-
-      // Always send a combined alert (success: with RCA result; failure: null).
-      // Detector findings should never fail silently on configured channels.
-      const sendAlert = async (rcaResult: string | null) => {
-        const summary = findings.map((f) => `[${f.detectorName}] ${f.summary}`).join("\n");
-        const detectorName = findings.map((f) => f.detectorName).join(", ");
-        const common = { detectorName, projectName, summary, rcaResult, traceId, projectId };
-        await runFanOut({
-          workspaceId,
-          emailAddresses,
-          slackChannelId,
-          slackBotTokenEnc,
-          common,
-        });
-      };
-
-      try {
-        // Pull project-scoped rca_model and alert recipients in one read.
-        // Inside the try so a Prisma failure routes through the catch's
-        // failure-state + fallback-alert handling.
-        const project = await prisma.project.findUnique({
-          where: { id: projectId },
-          select: {
-            rcaModel: true,
-            alertConfig: {
-              select: { emailAddresses: true, slackChannelId: true, slackChannelName: true },
-            },
-            workspace: {
-              select: {
-                slackIntegration: {
-                  select: { channelId: true, channelName: true, botToken: true },
-                },
-              },
-            },
-          },
-        });
-        emailAddresses = project?.alertConfig?.emailAddresses ?? [];
-
-        const slack = project?.workspace?.slackIntegration ?? null;
-        slackChannelId = project?.alertConfig?.slackChannelId ?? slack?.channelId ?? null;
-        slackBotTokenEnc = slack?.botToken ?? null;
-
-        // Workspace-level GitHub installations now drive the GitHub tool.
-        // Any installation in this workspace is enough to flip the tool on.
-        const ghCount = await prisma.gitHubInstallation.count({
-          where: { workspaceId },
-        });
-        const hasGitHub = ghCount > 0;
-
-        const { result: rcaResult } = await runRcaSession({
-          findingId,
-          projectId,
-          workspaceId,
-          traceId,
-          findings,
-          hasGitHub,
-          rcaModel: project?.rcaModel,
-        });
-
-        await prisma.detectorRca.update({
-          where: { findingId },
-          data: {
-            status: "done",
-            result: rcaResult,
-            completedAt: new Date(),
-          },
-        });
-
-        await sendAlert(rcaResult);
-      } catch (e) {
-        await prisma.detectorRca
-          .update({ where: { findingId }, data: { status: "failed" } })
-          .catch(() => {}); // best-effort
-
-        await sendAlert(null);
-
-        throw e; // re-throw so BullMQ marks job as failed
-      }
-    },
-    { connection, concurrency: 3 },
-  );
+  const worker = new Worker<DetectorRcaJob>(DETECTOR_RCA_QUEUE, processRcaJob, {
+    connection,
+    concurrency: 3,
+  });
 
   worker.on("failed", (job, err) => {
     console.error(`[RCA] Job ${job?.id} failed:`, err.message);
