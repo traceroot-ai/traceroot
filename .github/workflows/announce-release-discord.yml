@@ -75,13 +75,13 @@ jobs:
           # inside jq (never by byte, which can split a multi-byte char and emit
           # invalid UTF-8) and append a "read more" link when the notes are long.
           payload="$(jq -n \
-            --arg title "$NAME" \
+            --arg title "${REPO##*/} $NAME" \
             --arg url "$URL" \
             --arg desc "$BODY" \
             --arg footer "$REPO" \
             '{
               embeds: [{
-                title: $title,
+                title: $title[0:256],
                 url: $url,
                 description: (
                   if ($desc | length) > 3900
