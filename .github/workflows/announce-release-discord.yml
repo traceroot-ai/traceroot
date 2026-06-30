@@ -64,6 +64,12 @@ jobs:
           BODY="$(printf '%s' "$rel" | jq -r '.body')"
           [ -n "$NAME" ] && [ "$NAME" != "null" ] || NAME="$TAG"
 
+          # GitHub's auto-generated notes use H2 (##) section headers, which
+          # render oversized in Discord. Downgrade them to H3 (###) and promote
+          # the bold "Full Changelog" line to a matching H3, so every section
+          # header renders at one consistent, compact size.
+          BODY="$(printf '%s' "$BODY" | perl -pe 's/^## /### /; s/^\*\*Full Changelog\*\*:\s*(.*)$/### Full Changelog\n$1/')"
+
           # Build the payload with jq so the body is JSON-escaped safely.
           # Discord caps embed descriptions at 4096 chars; truncate by codepoint
           # inside jq (never by byte, which can split a multi-byte char and emit
