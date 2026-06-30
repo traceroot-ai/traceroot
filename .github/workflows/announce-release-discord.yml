@@ -63,15 +63,10 @@ jobs:
           BODY="$(printf '%s' "$rel" | jq -r '.body')"
           [ -n "$NAME" ] && [ "$NAME" != "null" ] || NAME="$TAG"
 
-          # Discord embed descriptions cap at 4096 chars. Leave headroom and
-          # append a "read more" pointer when the notes are longer.
-          limit=3900
-          if [ "${#BODY}" -gt "$limit" ]; then
-            BODY="$(printf '%s' "$BODY" | head -c "$limit")"
-            BODY="$(printf '%s\n\n… **[full release notes →](%s)**' "$BODY" "$URL")"
-          fi
-
           # Build the payload with jq so the body is JSON-escaped safely.
+          # Discord caps embed descriptions at 4096 chars; truncate by codepoint
+          # inside jq (never by byte, which can split a multi-byte char and emit
+          # invalid UTF-8) and append a "read more" link when the notes are long.
           payload="$(jq -n \
             --arg username "Github Boy" \
             --arg title "$NAME" \
@@ -83,7 +78,12 @@ jobs:
               embeds: [{
                 title: $title,
                 url: $url,
-                description: $desc,
+                description: (
+                  if ($desc | length) > 3900
+                  then $desc[0:3900] + "\n\n… **[full release notes →](" + $url + ")**"
+                  else $desc
+                  end
+                ),
                 color: 5025616,
                 footer: { text: $footer }
               }]
