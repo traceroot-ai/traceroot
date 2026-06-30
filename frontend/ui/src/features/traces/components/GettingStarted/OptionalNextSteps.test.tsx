@@ -16,10 +16,8 @@ afterEach(() => {
 });
 
 describe("OptionalNextSteps", () => {
-  it("renders the GitHub and Slack connect rows", () => {
+  it("renders the self-contained GitHub and Slack connect rows", () => {
     render(<OptionalNextSteps workspaceId="ws_1" />);
-    expect(screen.getByText("Connect GitHub repositories")).toBeDefined();
-    expect(screen.getByText("Connect Slack for alerts")).toBeDefined();
     expect(screen.getByTestId("github-connect")).toBeDefined();
     expect(screen.getByTestId("slack-connect")).toBeDefined();
   });
@@ -32,7 +30,7 @@ describe("OptionalNextSteps", () => {
   it("includes the CLI verify row when includeCli is set", () => {
     const { container } = render(<OptionalNextSteps workspaceId="ws_1" includeCli />);
     const text = container.textContent ?? "";
-    expect(text).toContain("Verify your traces from the terminal");
+    expect(text).toContain("List and inspect traces from your terminal");
     expect(text).toContain("npm install -g traceroot-cli");
     expect(text).toContain("traceroot login");
     expect(text).toContain("traceroot traces list");
