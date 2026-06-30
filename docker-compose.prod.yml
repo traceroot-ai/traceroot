@@ -155,6 +155,8 @@ services:
       # --- AI keys ---
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # --- Model providers ---
+      MODEL_PROVIDER_TEST_TIMEOUT_MS: ${MODEL_PROVIDER_TEST_TIMEOUT_MS:-10000}
       # --- Encryption ---
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       # --- Billing ---
