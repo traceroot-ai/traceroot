@@ -299,6 +299,28 @@ describe("POST model-providers/test - error responses", () => {
     expect(await res.json()).toEqual({ success: true });
   });
 
+  it("surfaces the provider's own error message when the body has one", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      json: async () => ({ error: { message: "Incorrect API key provided" } }),
+    });
+    const res = await POST(makeRequest({ adapter: "openai", apiKey: "bad" }), makeParams());
+    expect(await res.json()).toEqual({ success: false, error: "Incorrect API key provided" });
+  });
+
+  it("anthropic 401 surfaces the provider error message when present", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      json: async () => ({ error: { message: "invalid x-api-key" } }),
+    });
+    const res = await POST(makeRequest({ adapter: "anthropic", apiKey: "bad" }), makeParams());
+    expect(await res.json()).toEqual({ success: false, error: "invalid x-api-key" });
+  });
+
   it("azure without baseUrl fails before any network call", async () => {
     const res = await POST(makeRequest({ adapter: "azure", apiKey: "k" }), makeParams());
     expect(await res.json()).toEqual({
@@ -387,5 +409,28 @@ describe("POST model-providers/test - timeout (acceptance criteria)", () => {
     expect(body.success).toBe(false);
     expect(body.error).toBe("ECONNREFUSED");
     expect(body.error).not.toMatch(/timed out/i);
+  });
+
+  it("times out when headers arrive but the error body read stalls", async () => {
+    // Models a host that returns a non-ok status, then never finishes the body.
+    // The body read runs inside withTimeout, so the deadline still fires and we
+    // must report a timeout — not swallow the abort into an HTTP status error.
+    fetchMock.mockImplementation((_url: string, init?: { signal?: AbortSignal }) =>
+      Promise.resolve({
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+        json: () =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+            );
+          }),
+      }),
+    );
+    const res = await POST(makeRequest({ adapter: "openai", apiKey: "k" }), makeParams());
+    const body = (await res.json()) as { success: boolean; error: string };
+    expect(body.success).toBe(false);
+    expect(body.error).toMatch(/timed out/i);
   });
 });
