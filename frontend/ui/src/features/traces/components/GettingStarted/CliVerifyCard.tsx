@@ -1,12 +1,7 @@
 "use client";
 
 import { CopyButton } from "@/components/ui/copy-button";
-
-const CLI_COMMANDS = [
-  "npm install -g traceroot-cli",
-  "traceroot login",
-  "traceroot traces list",
-].join("\n");
+import { CLI_COMMANDS } from "./commands";
 
 interface CliVerifyCardProps {
   /** Leading number so the heading stays consistent with the surrounding steps. */

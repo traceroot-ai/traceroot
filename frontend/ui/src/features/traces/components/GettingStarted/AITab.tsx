@@ -1,14 +1,10 @@
 "use client";
 
-import { CopyButton } from "@/components/ui/copy-button";
 import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
 import { SlackConnectButton } from "@/components/slack/SlackConnectButton";
 import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
-import { CliVerifyCard } from "./CliVerifyCard";
-
-const INSTRUMENT_PROMPT =
-  "Install the TraceRoot AI skill from https://github.com/traceroot-ai/traceroot-skills and use it to add tracing to this application with TraceRoot following best practices.";
+import { SetupTabs } from "./SetupTabs";
 
 interface AITabProps {
   projectId: string;
@@ -25,16 +21,12 @@ export function AITab({ projectId }: AITabProps) {
       </div>
 
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">
-          2. Instrument your app with one prompt
-        </p>
+        <p className="text-sm font-medium text-foreground">2. Set up tracing</p>
         <p className="text-xs text-muted-foreground">
-          Hand this to any AI coding agent — Claude Code, Codex, Cursor, etc.
+          Pick how you&apos;d like to get going — hand a prompt to your AI agent, add the skills, or
+          use the CLI to verify traces once your app is instrumented.
         </p>
-        <div className="flex items-start gap-2 rounded-sm border border-border bg-muted/30 px-4 py-3">
-          <p className="flex-1 text-sm text-foreground">{INSTRUMENT_PROMPT}</p>
-          <CopyButton value={INSTRUMENT_PROMPT} className="h-6 w-6 shrink-0" />
-        </div>
+        <SetupTabs />
       </div>
 
       <div className="space-y-2">
@@ -66,8 +58,6 @@ export function AITab({ projectId }: AITabProps) {
           </div>
         </div>
       </div>
-
-      <CliVerifyCard step={5} />
     </div>
   );
 }
