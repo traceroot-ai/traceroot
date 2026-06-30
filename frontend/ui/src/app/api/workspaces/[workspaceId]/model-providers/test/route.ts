@@ -10,7 +10,7 @@ import {
 // Connectivity checks must be bounded: a provider host — or a user-supplied
 // baseUrl — that accepts the socket but never responds would otherwise leave
 // this handler hanging. `withTimeout` keeps the deadline armed across the whole
-// provider check (including any response-body reads the operation performs).
+// provider check (including the error-body reads below).
 import { withTimeout } from "./timeout";
 
 const ADAPTER_VALUES = [
@@ -40,6 +40,34 @@ const testSchema = z.object({
 });
 
 type RouteParams = { params: Promise<{ workspaceId: string }> };
+
+// Extract a provider's `{ error: { message } }` text from an error response.
+// Runs inside the withTimeout operation, so a stalled body read is still bounded
+// by the deadline: if the abort fired mid-read, rethrow so withTimeout reports a
+// timeout; a merely unparseable/empty body falls back to the HTTP status line.
+async function readErrorMessage(res: Response, signal: AbortSignal): Promise<string | undefined> {
+  try {
+    const body = (await res.json()) as { error?: { message?: unknown } };
+    return body?.error?.message ? String(body.error.message) : undefined;
+  } catch (err) {
+    if (signal.aborted) throw err;
+    return undefined;
+  }
+}
+
+// Bounded connectivity check for a "list models"-style GET endpoint. Both the
+// fetch and the error-body read run under a single deadline.
+async function checkEndpoint(
+  url: string,
+  headers: Record<string, string>,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  return withTimeout(async (signal) => {
+    const res = await fetch(url, { headers, signal });
+    if (res.ok) return { ok: true as const };
+    const message = await readErrorMessage(res, signal);
+    return { ok: false as const, error: message ?? `HTTP ${res.status}: ${res.statusText}` };
+  });
+}
 
 // POST /api/workspaces/[workspaceId]/model-providers/test
 export async function POST(request: NextRequest, { params }: RouteParams) {
@@ -88,21 +116,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const url = baseUrl
           ? `${baseUrl.replace(/\/$/, "")}/v1/models`
           : "https://api.openai.com/v1/models";
-        const res = await withTimeout((signal) =>
-          fetch(url, { headers: { Authorization: `Bearer ${apiKey}` }, signal }),
-        );
-        if (!res.ok) {
-          return successResponse({
-            success: false,
-            error: `HTTP ${res.status}: ${res.statusText}`,
-          });
-        }
+        const check = await checkEndpoint(url, { Authorization: `Bearer ${apiKey}` });
+        if (!check.ok) return successResponse({ success: false, error: check.error });
         break;
       }
 
       case "anthropic": {
-        const res = await withTimeout((signal) =>
-          fetch("https://api.anthropic.com/v1/messages", {
+        // Anthropic has no list-models endpoint; a minimal message call only
+        // distinguishes an invalid key (401) from a reachable provider.
+        const check = await withTimeout(async (signal) => {
+          const res = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
               "x-api-key": apiKey || "",
@@ -115,27 +138,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               messages: [{ role: "user", content: "hi" }],
             }),
             signal,
-          }),
-        );
-        if (!res.ok && res.status === 401) {
-          return successResponse({ success: false, error: "Invalid API key" });
-        }
+          });
+          if (res.ok || res.status !== 401) return { invalid: false as const };
+          const message = await readErrorMessage(res, signal);
+          return { invalid: true as const, error: message ?? "Invalid API key" };
+        });
+        if (check.invalid) return successResponse({ success: false, error: check.error });
         break;
       }
 
       case "google": {
-        const res = await withTimeout((signal) =>
-          fetch("https://generativelanguage.googleapis.com/v1beta/models", {
-            headers: { "x-goog-api-key": apiKey || "" },
-            signal,
-          }),
+        const check = await checkEndpoint(
+          "https://generativelanguage.googleapis.com/v1beta/models",
+          { "x-goog-api-key": apiKey || "" },
         );
-        if (!res.ok) {
-          return successResponse({
-            success: false,
-            error: `HTTP ${res.status}: ${res.statusText}`,
-          });
-        }
+        if (!check.ok) return successResponse({ success: false, error: check.error });
         break;
       }
 
@@ -147,18 +164,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           });
         }
         const apiVersion = "2024-06-01";
-        const res = await withTimeout((signal) =>
-          fetch(`${baseUrl.replace(/\/$/, "")}/models?api-version=${apiVersion}`, {
-            headers: { "api-key": apiKey || "" },
-            signal,
-          }),
+        const check = await checkEndpoint(
+          `${baseUrl.replace(/\/$/, "")}/models?api-version=${apiVersion}`,
+          { "api-key": apiKey || "" },
         );
-        if (!res.ok) {
-          return successResponse({
-            success: false,
-            error: `HTTP ${res.status}: ${res.statusText}`,
-          });
-        }
+        if (!check.ok) return successResponse({ success: false, error: check.error });
         break;
       }
 
@@ -186,85 +196,45 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       case "deepseek": {
         const deepseekBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.deepseek;
-        const res = await withTimeout((signal) =>
-          fetch(`${deepseekBase.replace(/\/$/, "")}/models`, {
-            headers: { Authorization: `Bearer ${apiKey}` },
-            signal,
-          }),
-        );
-        if (!res.ok) {
-          return successResponse({
-            success: false,
-            error: `HTTP ${res.status}: ${res.statusText}`,
-          });
-        }
+        const check = await checkEndpoint(`${deepseekBase.replace(/\/$/, "")}/models`, {
+          Authorization: `Bearer ${apiKey}`,
+        });
+        if (!check.ok) return successResponse({ success: false, error: check.error });
         break;
       }
 
       case "openrouter": {
-        const res = await withTimeout((signal) =>
-          fetch("https://openrouter.ai/api/v1/models", {
-            headers: { Authorization: `Bearer ${apiKey}` },
-            signal,
-          }),
-        );
-        if (!res.ok) {
-          return successResponse({
-            success: false,
-            error: `HTTP ${res.status}: ${res.statusText}`,
-          });
-        }
+        const check = await checkEndpoint("https://openrouter.ai/api/v1/models", {
+          Authorization: `Bearer ${apiKey}`,
+        });
+        if (!check.ok) return successResponse({ success: false, error: check.error });
         break;
       }
 
       case "xai": {
         const xaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.xai;
-        const res = await withTimeout((signal) =>
-          fetch(`${xaiBase.replace(/\/$/, "")}/models`, {
-            headers: { Authorization: `Bearer ${apiKey}` },
-            signal,
-          }),
-        );
-        if (!res.ok) {
-          return successResponse({
-            success: false,
-            error: `HTTP ${res.status}: ${res.statusText}`,
-          });
-        }
+        const check = await checkEndpoint(`${xaiBase.replace(/\/$/, "")}/models`, {
+          Authorization: `Bearer ${apiKey}`,
+        });
+        if (!check.ok) return successResponse({ success: false, error: check.error });
         break;
       }
 
       case "moonshot": {
         const moonshotBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.moonshot;
-        const res = await withTimeout((signal) =>
-          fetch(`${moonshotBase.replace(/\/$/, "")}/models`, {
-            headers: { Authorization: `Bearer ${apiKey}` },
-            signal,
-          }),
-        );
-        if (!res.ok) {
-          return successResponse({
-            success: false,
-            error: `HTTP ${res.status}: ${res.statusText}`,
-          });
-        }
+        const check = await checkEndpoint(`${moonshotBase.replace(/\/$/, "")}/models`, {
+          Authorization: `Bearer ${apiKey}`,
+        });
+        if (!check.ok) return successResponse({ success: false, error: check.error });
         break;
       }
 
       case "zai": {
         const zaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.zai;
-        const res = await withTimeout((signal) =>
-          fetch(`${zaiBase.replace(/\/$/, "")}/models`, {
-            headers: { Authorization: `Bearer ${apiKey}` },
-            signal,
-          }),
-        );
-        if (!res.ok) {
-          return successResponse({
-            success: false,
-            error: `HTTP ${res.status}: ${res.statusText}`,
-          });
-        }
+        const check = await checkEndpoint(`${zaiBase.replace(/\/$/, "")}/models`, {
+          Authorization: `Bearer ${apiKey}`,
+        });
+        if (!check.ok) return successResponse({ success: false, error: check.error });
         break;
       }
     }
