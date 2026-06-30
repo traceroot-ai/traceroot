@@ -2,7 +2,7 @@
 
 import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
-import { OptionalNextSteps } from "./OptionalNextSteps";
+import { ExternalIntegrations } from "./ExternalIntegrations";
 import { SetupTabs } from "./SetupTabs";
 
 interface AITabProps {
@@ -29,8 +29,8 @@ export function AITab({ projectId }: AITabProps) {
       </div>
 
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">3. Optional next steps</p>
-        <OptionalNextSteps workspaceId={workspaceId} />
+        <p className="text-sm font-medium text-foreground">3. External integrations</p>
+        <ExternalIntegrations workspaceId={workspaceId} />
       </div>
     </div>
   );

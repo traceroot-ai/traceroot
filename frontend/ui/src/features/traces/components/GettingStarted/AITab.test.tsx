@@ -29,9 +29,9 @@ describe("AITab", () => {
     expect(container.textContent ?? "").toContain("npm install -g traceroot-cli");
   });
 
-  it("groups GitHub and Slack into the optional next steps card", () => {
+  it("groups GitHub and Slack into the external integrations card", () => {
     render(<AITab projectId="proj_1" />);
-    expect(screen.getByText("3. Optional next steps")).toBeDefined();
+    expect(screen.getByText("3. External integrations")).toBeDefined();
     expect(screen.getByTestId("github-connect")).toBeDefined();
     expect(screen.getByTestId("slack-connect")).toBeDefined();
   });

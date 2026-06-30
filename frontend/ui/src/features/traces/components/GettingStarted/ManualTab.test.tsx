@@ -25,12 +25,10 @@ afterEach(() => {
 });
 
 describe("ManualTab", () => {
-  it("consolidates the optional extras (incl. CLI) into step 5", () => {
-    const { container } = render(<ManualTab projectId="proj_1" />);
-    expect(screen.getByText("5. Optional next steps")).toBeDefined();
+  it("groups GitHub and Slack into the external integrations card at step 5", () => {
+    render(<ManualTab projectId="proj_1" />);
+    expect(screen.getByText("5. External integrations")).toBeDefined();
     expect(screen.getByTestId("github-connect")).toBeDefined();
     expect(screen.getByTestId("slack-connect")).toBeDefined();
-    // Manual tab passes includeCli, so the CLI verify row is present.
-    expect(container.textContent ?? "").toContain("npm install -g traceroot-cli");
   });
 });
