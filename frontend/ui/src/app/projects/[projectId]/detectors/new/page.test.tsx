@@ -6,6 +6,11 @@ import { getTemplate } from "@/features/detectors/templates";
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   mutateAsync: vi.fn().mockResolvedValue({ id: "det-1" }),
+  resetMutation: vi.fn(),
+  createError: null as Error | null,
+  workspaceRole: "MEMBER" as string | undefined,
+  workspaceLoading: false,
+  workspaceError: null as Error | null,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -13,10 +18,23 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
 }));
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
-  useCreateDetector: () => ({ mutateAsync: mocks.mutateAsync, isPending: false }),
+  useCreateDetector: () => ({
+    mutateAsync: mocks.mutateAsync,
+    reset: mocks.resetMutation,
+    isPending: false,
+    isError: !!mocks.createError,
+    error: mocks.createError,
+  }),
 }));
 vi.mock("@/features/projects/hooks", () => ({
-  useProject: () => ({ data: undefined }),
+  useProject: () => ({ data: { workspace_id: "ws-1" } }),
+}));
+vi.mock("@/features/workspaces/hooks", () => ({
+  useWorkspace: () => ({
+    data: mocks.workspaceRole ? { role: mocks.workspaceRole } : undefined,
+    isLoading: mocks.workspaceLoading,
+    error: mocks.workspaceError,
+  }),
 }));
 vi.mock("@/features/projects/components", () => ({
   ProjectBreadcrumb: () => null,
@@ -39,7 +57,13 @@ import NewDetectorPage from "./page";
 afterEach(() => {
   cleanup();
   mocks.mutateAsync.mockClear();
+  mocks.mutateAsync.mockResolvedValue({ id: "det-1" });
+  mocks.resetMutation.mockClear();
   mocks.push.mockClear();
+  mocks.createError = null;
+  mocks.workspaceRole = "MEMBER";
+  mocks.workspaceLoading = false;
+  mocks.workspaceError = null;
 });
 
 describe("NewDetectorPage", () => {
@@ -64,6 +88,20 @@ describe("NewDetectorPage", () => {
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors");
   });
 
+  it("renders API permission errors when create fails", async () => {
+    mocks.mutateAsync.mockRejectedValue(new Error("Members and admins can create detectors"));
+    mocks.createError = new Error("Members and admins can create detectors");
+
+    render(<NewDetectorPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Members and admins can create detectors",
+    );
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
   it("submits user-edited name and prompt over the template defaults", async () => {
     render(<NewDetectorPage />);
     fireEvent.change(screen.getByDisplayValue("Failure Detector"), {
@@ -80,5 +118,30 @@ describe("NewDetectorPage", () => {
       prompt: "my prompt",
       template: "failure",
     });
+  });
+
+  it("does not expose the create form to viewers", () => {
+    mocks.workspaceRole = "VIEWER";
+    render(<NewDetectorPage />);
+
+    expect(screen.queryByRole("button", { name: "Create Detector" })).toBeNull();
+    expect(
+      screen.getByText("Members and admins can create detectors for this project."),
+    ).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to Detectors" }));
+    expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors");
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("does not expose the create form while detector permissions are loading", () => {
+    mocks.workspaceRole = undefined;
+    mocks.workspaceLoading = true;
+
+    render(<NewDetectorPage />);
+
+    expect(screen.queryByRole("button", { name: "Create Detector" })).toBeNull();
+    expect(screen.getByText("Checking detector permissions...")).toBeDefined();
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
   });
 });

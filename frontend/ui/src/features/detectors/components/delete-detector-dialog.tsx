@@ -1,7 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -11,6 +17,7 @@ interface DeleteDetectorDialogProps {
   onClose: () => void;
   onConfirm: () => void;
   isDeleting?: boolean;
+  errorMessage?: string;
 }
 
 export function DeleteDetectorDialog({
@@ -19,6 +26,7 @@ export function DeleteDetectorDialog({
   onClose,
   onConfirm,
   isDeleting,
+  errorMessage,
 }: DeleteDetectorDialogProps) {
   const [typed, setTyped] = useState("");
 
@@ -37,10 +45,10 @@ export function DeleteDetectorDialog({
         </DialogHeader>
 
         <div className="mt-1 space-y-4">
-          <p className="text-[12px] text-muted-foreground">
+          <DialogDescription className="text-[12px] text-muted-foreground">
             This action cannot be undone. Type{" "}
             <span className="font-medium text-foreground">{detectorName}</span> to confirm.
-          </p>
+          </DialogDescription>
 
           <Input
             className="h-8 text-[12px]"
@@ -49,6 +57,12 @@ export function DeleteDetectorDialog({
             onChange={(e) => setTyped(e.target.value)}
             autoFocus
           />
+
+          {errorMessage && (
+            <p role="alert" className="text-[12px] text-destructive">
+              {errorMessage}
+            </p>
+          )}
 
           <div className="flex justify-end gap-2">
             <Button

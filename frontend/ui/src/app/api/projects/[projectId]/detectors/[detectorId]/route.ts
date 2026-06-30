@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import {
   requireAuth,
   requireProjectAccess,
@@ -31,14 +31,14 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   return successResponse({ detector });
 }
 
-// PATCH /api/projects/[projectId]/detectors/[detectorId] - Partially update a detector
+// PATCH /api/projects/[projectId]/detectors/[detectorId] - Partially update a detector (MEMBER+)
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
   const { projectId, detectorId } = await params;
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
 
   const existing = await prisma.detector.findFirst({
@@ -160,14 +160,14 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   return successResponse({ detector });
 }
 
-// DELETE /api/projects/[projectId]/detectors/[detectorId] - Delete a detector
+// DELETE /api/projects/[projectId]/detectors/[detectorId] - Delete a detector (ADMIN+)
 export async function DELETE(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
   const { projectId, detectorId } = await params;
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, Role.ADMIN);
   if (accessResult.error) return accessResult.error;
 
   const existing = await prisma.detector.findFirst({

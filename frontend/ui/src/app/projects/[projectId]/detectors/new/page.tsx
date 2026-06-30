@@ -21,14 +21,23 @@ import { AgentModelLink } from "@/features/detectors/components/agent-model-link
 import { RcaToggle } from "@/features/detectors/components/rca-toggle";
 import { useProject } from "@/features/projects/hooks";
 import { ProjectBreadcrumb } from "@/features/projects/components";
+import { useWorkspace } from "@/features/workspaces/hooks";
+import { Role } from "@traceroot/core";
 
 export default function NewDetectorPage() {
   const params = useParams();
   const router = useRouter();
   const projectId = params.projectId as string;
 
-  const { data: project } = useProject(projectId);
+  const { data: project, isLoading: projectLoading, error: projectError } = useProject(projectId);
+  const workspaceId = project?.workspace_id;
+  const {
+    data: workspace,
+    isLoading: workspaceLoading,
+    error: workspaceError,
+  } = useWorkspace(workspaceId ?? "", !!workspaceId);
   const createMutation = useCreateDetector(projectId);
+  const canCreateDetector = workspace?.role === Role.MEMBER || workspace?.role === Role.ADMIN;
 
   const INITIAL_TEMPLATE = DETECTOR_TEMPLATES[0];
 
@@ -63,6 +72,8 @@ export default function NewDetectorPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canCreateDetector) return;
+    createMutation.reset();
     const template = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate)!;
     const input: CreateDetectorInput = {
       ...buildTemplateDetectorInput(template),
@@ -75,11 +86,52 @@ export default function NewDetectorPage() {
       detectionProvider: modelSelection.provider || undefined,
       detectionSource: modelSelection.source === "byok" ? "byok" : "system",
     };
-    await createMutation.mutateAsync(input);
-    router.push(`/projects/${projectId}/detectors`);
+    try {
+      await createMutation.mutateAsync(input);
+      router.push(`/projects/${projectId}/detectors`);
+    } catch {
+      // The mutation state renders the API error message below.
+    }
   };
 
   const selectedTemplateDef = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate);
+
+  const renderAccessState = (message: string) => (
+    <div className="relative flex h-full text-[13px]">
+      <ProjectBreadcrumb projectId={projectId} />
+
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <h1 className="text-[13px] font-medium">New Detector</h1>
+        </div>
+
+        <div className="flex h-64 flex-col items-center justify-center gap-3">
+          <p className="text-[13px] text-muted-foreground">{message}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-[12px]"
+            onClick={() => router.push(`/projects/${projectId}/detectors`)}
+          >
+            Back to Detectors
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (projectLoading || (!project && !projectError) || workspaceLoading) {
+    return renderAccessState("Checking detector permissions...");
+  }
+
+  if (projectError || workspaceError || !workspaceId || !workspace) {
+    return renderAccessState("Unable to verify detector permissions.");
+  }
+
+  if (!canCreateDetector) {
+    return renderAccessState("Members and admins can create detectors for this project.");
+  }
 
   return (
     <div className="relative flex h-full text-[13px]">
@@ -224,6 +276,12 @@ export default function NewDetectorPage() {
             </div>
 
             {/* Footer */}
+            {createMutation.isError && (
+              <p role="alert" className="text-[12px] text-destructive">
+                {createMutation.error.message}
+              </p>
+            )}
+
             <div className="flex justify-end gap-2 pt-1">
               <Button
                 type="button"
@@ -238,7 +296,9 @@ export default function NewDetectorPage() {
                 type="submit"
                 size="sm"
                 className="h-7 text-[12px]"
-                disabled={createMutation.isPending || !name.trim() || !prompt.trim()}
+                disabled={
+                  createMutation.isPending || !canCreateDetector || !name.trim() || !prompt.trim()
+                }
               >
                 {createMutation.isPending ? "Creating..." : "Create Detector"}
               </Button>

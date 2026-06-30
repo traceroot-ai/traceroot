@@ -20,13 +20,14 @@ interface ModelSelectorProps {
   value: ModelSelection;
   onChange: (selection: ModelSelection) => void;
   workspaceId?: string;
+  disabled?: boolean;
 }
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
   return `${m.source}:${m.provider}:${m.id ?? m.model}`;
 }
 
-export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorProps) {
+export function ModelSelector({ value, onChange, workspaceId, disabled }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
   const { data } = useQuery({
@@ -46,6 +47,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
   // Without case 2 the selector would silently auto-pick a default when a
   // partially-hydrated saved selection arrives, clobbering the user's choice.
   useEffect(() => {
+    if (disabled) return;
     if (models.length === 0) return;
 
     const exact = models.find(
@@ -84,18 +86,19 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
         adapter: match.adapter,
       });
     }
-  }, [models, value, onChange]);
+  }, [disabled, models, value, onChange]);
 
   const selectedKey = modelKey({ id: value.model, source: value.source, provider: value.provider });
   const selectedModel = models.find((m) => modelKey(m) === selectedKey);
 
   return (
     <div className="flex items-center">
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={disabled ? false : open} onOpenChange={(next) => !disabled && setOpen(next)}>
         <PopoverTrigger asChild>
           <Button
             variant="ghost"
             size="sm"
+            disabled={disabled}
             className="h-7 gap-1 rounded-sm px-2 text-[11px] text-muted-foreground hover:text-foreground"
           >
             {selectedModel?.label || value.model || "Select model"}
@@ -116,8 +119,9 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
             return (
               <button
                 key={key}
+                disabled={disabled}
                 className={cn(
-                  "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-[12px] transition-colors hover:bg-muted/50",
+                  "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-[12px] transition-colors hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50",
                   isSelected && "font-medium text-foreground",
                 )}
                 onClick={() => {
