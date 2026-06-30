@@ -1,5 +1,7 @@
 import type { Detector, UpdateDetectorInput } from "../hooks/use-detectors";
 
+type EditableTriggerCondition = { field: string; op: string; value: unknown };
+
 /**
  * The detector edit panel's form as plain data, so dirty-checking and merge
  * logic stay pure and unit-testable. Empty string means "unset" for the
@@ -13,10 +15,72 @@ export interface DetectorFormValues {
   detectionModel: string;
   detectionProvider: string;
   detectionSource: "system" | "byok";
-  conditions: Array<{ field: string; op: string; value: unknown }>;
+  conditions: EditableTriggerCondition[];
+  unsupportedTriggerConditions: boolean;
+}
+
+const LEGACY_TRIGGER_OPERATORS = new Map([
+  ["eq", "="],
+  ["ne", "!="],
+  ["neq", "!="],
+]);
+
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function isEditableEnvironmentValue(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
+}
+
+function normalizeEditableTriggerConditions(
+  conditions: unknown,
+  hasTrigger: boolean,
+): {
+  conditions: EditableTriggerCondition[];
+  unsupported: boolean;
+} {
+  if (conditions == null) {
+    return { conditions: [], unsupported: hasTrigger };
+  }
+  if (!Array.isArray(conditions)) {
+    return { conditions: [], unsupported: true };
+  }
+
+  const normalized: EditableTriggerCondition[] = [];
+  let unsupported = false;
+  for (const condition of conditions) {
+    if (condition === null || typeof condition !== "object" || Array.isArray(condition)) {
+      unsupported = true;
+      continue;
+    }
+
+    const record = condition as Record<string, unknown>;
+    if (!hasOwn(record, "field") || !hasOwn(record, "op") || !hasOwn(record, "value")) {
+      unsupported = true;
+      continue;
+    }
+    const field = record.field;
+    const rawOp = record.op;
+    const value = record.value;
+    const op = typeof rawOp === "string" ? (LEGACY_TRIGGER_OPERATORS.get(rawOp) ?? rawOp) : rawOp;
+    if (
+      field !== "environment" ||
+      (op !== "=" && op !== "!=") ||
+      !isEditableEnvironmentValue(value)
+    ) {
+      unsupported = true;
+      continue;
+    }
+    normalized.push({ field, op, value });
+  }
+
+  return { conditions: normalized, unsupported };
 }
 
 export function detectorToFormValues(d: Detector): DetectorFormValues {
+  const trigger = normalizeEditableTriggerConditions(d.trigger?.conditions, d.trigger != null);
+
   return {
     name: d.name,
     prompt: d.prompt,
@@ -25,7 +89,8 @@ export function detectorToFormValues(d: Detector): DetectorFormValues {
     detectionModel: d.detectionModel ?? "",
     detectionProvider: d.detectionProvider ?? "",
     detectionSource: d.detectionSource === "byok" ? "byok" : "system",
-    conditions: d.trigger?.conditions ?? [],
+    conditions: trigger.conditions,
+    unsupportedTriggerConditions: trigger.unsupported,
   };
 }
 
@@ -46,13 +111,14 @@ function conditionsEqual(
 export function buildDetectorPatch(
   loaded: DetectorFormValues,
   form: DetectorFormValues,
+  options: { forceTriggerConditions?: boolean } = {},
 ): UpdateDetectorInput {
   const patch: UpdateDetectorInput = {};
   if (form.name !== loaded.name) patch.name = form.name;
   if (form.prompt !== loaded.prompt) patch.prompt = form.prompt;
   if (form.sampleRate !== loaded.sampleRate) patch.sampleRate = form.sampleRate;
   if (form.enableRca !== loaded.enableRca) patch.enableRca = form.enableRca;
-  if (!conditionsEqual(form.conditions, loaded.conditions)) {
+  if (options.forceTriggerConditions || !conditionsEqual(form.conditions, loaded.conditions)) {
     patch.triggerConditions = form.conditions;
   }
   if (form.detectionModel !== loaded.detectionModel && form.detectionModel !== "") {
@@ -95,7 +161,10 @@ export function mergeDetectorIntoForm(
     detectionProvider: touchedSelector ? form.detectionProvider : next.detectionProvider,
     detectionSource: touchedSelector ? form.detectionSource : next.detectionSource,
     conditions: conditionsEqual(form.conditions, previous.conditions)
-      ? next.conditions
+      ? conditionsEqual(form.conditions, next.conditions)
+        ? form.conditions
+        : next.conditions
       : form.conditions,
+    unsupportedTriggerConditions: next.unsupportedTriggerConditions,
   };
 }

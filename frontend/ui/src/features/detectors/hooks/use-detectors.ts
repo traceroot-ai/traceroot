@@ -15,7 +15,7 @@ export interface Detector {
   detectionSource: "system" | "byok" | null;
   createTime: string;
   updateTime: string;
-  trigger?: { conditions: Array<{ field: string; op: string; value: unknown }> } | null;
+  trigger?: { conditions: unknown } | null;
 }
 
 interface PaginationMeta {
@@ -71,13 +71,113 @@ async function fetchDetector(projectId: string, detectorId: string): Promise<Det
   return data.detector;
 }
 
+async function detectorError(res: Response, fallback: string): Promise<Error> {
+  try {
+    const body = (await res.json()) as { error?: unknown; detail?: unknown };
+    const detail = typeof body.error === "string" ? body.error : body.detail;
+    if (typeof detail === "string" && isSafeDetectorErrorMessage(res.status, detail)) {
+      return new Error(detail.trim());
+    }
+  } catch {
+    // Fall back to the status-only message when the response body is absent or invalid.
+  }
+  return new Error(`${fallback}: ${res.status}`);
+}
+
+const SAFE_DETECTOR_ERROR_MESSAGES = new Set([
+  "Unauthorized",
+  "Not a member of this workspace",
+  "Project not found",
+  "Detector not found",
+  "Invalid JSON",
+  "Body must be a JSON object",
+  "name must be a non-empty string",
+  "template must be a non-empty string",
+  "prompt must be a non-empty string",
+  "sampleRate must be an integer between 0 and 100",
+  "enabled must be a boolean",
+  "enableRca must be a boolean",
+  "outputSchema must be an array",
+  'detectionSource must be "system" or "byok"',
+  "name must be a string",
+  "prompt must be a string",
+  "detectionModel must be a string",
+  "detectionProvider must be a string",
+  "detectionSource must be a string",
+  "Admin role required to delete detectors",
+]);
+
+const TRIGGER_CONDITION_USER_MESSAGES = new Set([
+  "Filter conditions must be an array.",
+  "Each filter condition must include a field, operator, and value.",
+  "Each filter condition needs a field.",
+  "Only Environment filters are supported right now.",
+  "Environment filters only support = or !=.",
+  "Environment filter values must be text or null.",
+]);
+
+function isSafeTriggerConditionError(message: string): boolean {
+  return triggerConditionErrorMessage(message) !== null;
+}
+
+function triggerConditionErrorMessage(message: string): string | null {
+  if (message === "triggerConditions must be an array") {
+    return "Filter conditions must be an array.";
+  }
+  if (/^triggerConditions\[\d+\] must be an object$/.test(message)) {
+    return "Each filter condition must include a field, operator, and value.";
+  }
+  if (/^triggerConditions\[\d+\]\.field must be a non-empty string$/.test(message)) {
+    return "Each filter condition needs a field.";
+  }
+  if (/^triggerConditions\[\d+\]\.field must be one of environment$/.test(message)) {
+    return "Only Environment filters are supported right now.";
+  }
+  if (/^triggerConditions\[\d+\]\.op must be one of =, != for environment$/.test(message)) {
+    return "Environment filters only support = or !=.";
+  }
+  if (/^triggerConditions\[\d+\]\.value must be a string or null for environment$/.test(message)) {
+    return "Environment filter values must be text or null.";
+  }
+  return null;
+}
+
+function isSafeDetectorErrorMessage(status: number, message: string): boolean {
+  const trimmed = message.trim();
+  if (status < 400 || status >= 500 || trimmed.length === 0 || trimmed.length > 240) {
+    return false;
+  }
+  if (trimmed.includes("\n") || trimmed.includes("\r")) {
+    return false;
+  }
+  return (
+    SAFE_DETECTOR_ERROR_MESSAGES.has(trimmed) ||
+    isSafeTriggerConditionError(trimmed) ||
+    /^Requires (MEMBER|ADMIN) role or higher$/.test(trimmed)
+  );
+}
+
+export function detectorMutationErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return triggerConditionErrorMessage(error.message.trim()) ?? error.message;
+  }
+  return fallback;
+}
+
+export function isTriggerConditionMutationError(message: string): boolean {
+  const trimmed = message.trim();
+  return (
+    TRIGGER_CONDITION_USER_MESSAGES.has(trimmed) || triggerConditionErrorMessage(trimmed) !== null
+  );
+}
+
 async function createDetector(projectId: string, input: CreateDetectorInput): Promise<Detector> {
   const res = await fetch(`/api/projects/${projectId}/detectors`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Failed to create detector: ${res.status}`);
+  if (!res.ok) throw await detectorError(res, "Failed to create detector");
   const data = (await res.json()) as { detector: Detector };
   return data.detector;
 }
@@ -103,7 +203,7 @@ async function updateDetector(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Failed to update detector: ${res.status}`);
+  if (!res.ok) throw await detectorError(res, "Failed to update detector");
   const data = (await res.json()) as { detector: Detector };
   return data.detector;
 }
@@ -112,7 +212,7 @@ async function deleteDetector(projectId: string, detectorId: string): Promise<vo
   const res = await fetch(`/api/projects/${projectId}/detectors/${detectorId}`, {
     method: "DELETE",
   });
-  if (!res.ok) throw new Error(`Failed to delete detector: ${res.status}`);
+  if (!res.ok) throw await detectorError(res, "Failed to delete detector");
 }
 
 /** List detectors for the list page (paginated, optional search). */

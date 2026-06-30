@@ -7,6 +7,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { hasOwn, normalizeTriggerConditions } from "./trigger-validation";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
@@ -76,18 +77,21 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return errorResponse("Body must be a JSON object", 400);
   }
 
-  const {
-    name,
-    template,
-    prompt,
-    outputSchema,
-    sampleRate,
-    triggerConditions,
-    detectionModel,
-    detectionProvider,
-    detectionSource,
-    enableRca,
-  } = body as Record<string, unknown>;
+  const record = body as Record<string, unknown>;
+  const name = hasOwn(record, "name") ? record.name : undefined;
+  const template = hasOwn(record, "template") ? record.template : undefined;
+  const prompt = hasOwn(record, "prompt") ? record.prompt : undefined;
+  const outputSchema = hasOwn(record, "outputSchema") ? record.outputSchema : undefined;
+  const sampleRate = hasOwn(record, "sampleRate") ? record.sampleRate : undefined;
+  const triggerConditions = hasOwn(record, "triggerConditions")
+    ? record.triggerConditions
+    : undefined;
+  const detectionModel = hasOwn(record, "detectionModel") ? record.detectionModel : undefined;
+  const detectionProvider = hasOwn(record, "detectionProvider")
+    ? record.detectionProvider
+    : undefined;
+  const detectionSource = hasOwn(record, "detectionSource") ? record.detectionSource : undefined;
+  const enableRca = hasOwn(record, "enableRca") ? record.enableRca : undefined;
 
   // Required fields must be non-empty strings (trim catches whitespace-only).
   if (typeof name !== "string" || name.trim().length === 0) {
@@ -115,14 +119,24 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     resolvedSampleRate = sampleRate;
   }
 
-  // Validate triggerConditions and outputSchema are arrays when provided —
-  // a non-array object would otherwise silently produce an empty list and
-  // cause the detector to fire on every trace.
-  if (triggerConditions !== undefined && !Array.isArray(triggerConditions)) {
-    return errorResponse("triggerConditions must be an array", 400);
+  // Validate and canonicalize triggerConditions before storing them; unsupported
+  // fields or operators would otherwise fail later in the worker on every trace.
+  let resolvedTriggerConditions: object[] = [];
+  if (triggerConditions !== undefined) {
+    const triggerValidation = normalizeTriggerConditions(triggerConditions);
+    if (triggerValidation.error !== null) return errorResponse(triggerValidation.error, 400);
+    resolvedTriggerConditions = triggerValidation.conditions;
   }
   if (outputSchema !== undefined && !Array.isArray(outputSchema)) {
     return errorResponse("outputSchema must be an array", 400);
+  }
+  for (const [key, val] of [
+    ["detectionModel", detectionModel],
+    ["detectionProvider", detectionProvider],
+  ] as const) {
+    if (val !== undefined && val !== null && typeof val !== "string") {
+      return errorResponse(`${key} must be a string`, 400);
+    }
   }
 
   // detectionSource: only "system" / "byok" / null are valid. Reject anything
@@ -161,7 +175,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       detectionSource: sourceStr,
       trigger: {
         create: {
-          conditions: (triggerConditions as object) ?? [],
+          conditions: resolvedTriggerConditions,
         },
       },
     },

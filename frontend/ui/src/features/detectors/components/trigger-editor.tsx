@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { X, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +23,7 @@ interface FieldDef {
   label: string;
   ops: string[];
   valueType: "text" | "select";
+  nullable?: boolean;
   options?: { label: string; value: string }[];
 }
 
@@ -32,6 +33,7 @@ const FIELD_DEFS: FieldDef[] = [
     label: "Environment",
     ops: ["=", "!="],
     valueType: "text",
+    nullable: true,
   },
 ];
 
@@ -53,6 +55,7 @@ interface TriggerEditorProps {
   readOnly?: boolean;
   /** Card mode: renders as a bordered card section (header + body) for embedding inside a card container */
   asCard?: boolean;
+  emptyMessage?: string;
 }
 
 export function TriggerEditor({
@@ -62,16 +65,43 @@ export function TriggerEditor({
   isSaving,
   readOnly,
   asCard,
+  emptyMessage = "Runs on all completed traces.",
 }: TriggerEditorProps) {
+  const nextConditionKeyRef = useRef(0);
+  const createConditionKey = useCallback(() => `condition-${nextConditionKeyRef.current++}`, []);
   const [conditions, setConditions] = useState<TriggerCondition[]>(initialConditions);
   const [dirty, setDirty] = useState(false);
+  const [conditionKeys, setConditionKeys] = useState<string[]>(() =>
+    initialConditions.map(() => createConditionKey()),
+  );
+  const previousNonNullValuesRef = useRef<Record<string, string>>({});
+  const lastEmittedConditionsRef = useRef<TriggerCondition[] | null>(null);
 
   useEffect(() => {
     setConditions(initialConditions);
+    if (lastEmittedConditionsRef.current === initialConditions) {
+      setConditionKeys((currentKeys) => {
+        const nextKeys = initialConditions.map(
+          (_, index) => currentKeys[index] ?? createConditionKey(),
+        );
+        const liveKeys = new Set(nextKeys);
+        for (const key of Object.keys(previousNonNullValuesRef.current)) {
+          if (!liveKeys.has(key)) {
+            delete previousNonNullValuesRef.current[key];
+          }
+        }
+        return nextKeys;
+      });
+    } else {
+      previousNonNullValuesRef.current = {};
+      setConditionKeys(initialConditions.map(() => createConditionKey()));
+    }
+    lastEmittedConditionsRef.current = null;
     setDirty(false);
-  }, [initialConditions]);
+  }, [createConditionKey, initialConditions]);
 
   const update = (next: TriggerCondition[]) => {
+    lastEmittedConditionsRef.current = next;
     setConditions(next);
     if (onChange) {
       onChange(next);
@@ -82,6 +112,7 @@ export function TriggerEditor({
 
   const addCondition = () => {
     const first = FIELD_DEFS[0];
+    setConditionKeys([...conditionKeys, createConditionKey()]);
     update([
       ...conditions,
       { field: first.field, op: first.ops[0], value: defaultValueForField(first.field) },
@@ -89,10 +120,16 @@ export function TriggerEditor({
   };
 
   const removeCondition = (i: number) => {
+    const removedKey = conditionKeys[i];
+    if (removedKey) {
+      delete previousNonNullValuesRef.current[removedKey];
+    }
+    setConditionKeys(conditionKeys.filter((_, idx) => idx !== i));
     update(conditions.filter((_, idx) => idx !== i));
   };
 
   const updateCondition = (i: number, patch: Partial<TriggerCondition>) => {
+    const rowKey = conditionKeys[i];
     update(
       conditions.map((c, idx) => {
         if (idx !== i) return c;
@@ -101,10 +138,25 @@ export function TriggerEditor({
           const def = FIELD_DEFS.find((d) => d.field === patch.field);
           merged.op = def?.ops[0] ?? "=";
           merged.value = defaultValueForField(patch.field);
+          if (rowKey) {
+            delete previousNonNullValuesRef.current[rowKey];
+          }
         }
         return merged;
       }),
     );
+  };
+
+  const setNullValue = (i: number, cond: TriggerCondition, checked: boolean) => {
+    const rowKey = conditionKeys[i];
+    if (checked) {
+      if (rowKey) {
+        previousNonNullValuesRef.current[rowKey] = String(cond.value ?? "");
+      }
+      updateCondition(i, { value: null });
+      return;
+    }
+    updateCondition(i, { value: rowKey ? (previousNonNullValuesRef.current[rowKey] ?? "") : "" });
   };
 
   const conditionRows = (
@@ -112,7 +164,7 @@ export function TriggerEditor({
       {conditions.map((cond, i) => {
         const fieldDef = FIELD_DEFS.find((d) => d.field === cond.field) ?? FIELD_DEFS[0];
         return (
-          <div key={i} className="flex items-center gap-1.5">
+          <div key={conditionKeys[i] ?? i} className="flex items-center gap-1.5">
             {/* Field */}
             <Select value={cond.field} onValueChange={(val) => updateCondition(i, { field: val })}>
               <SelectTrigger className="h-7 w-[120px] shrink-0 text-[12px]">
@@ -159,18 +211,39 @@ export function TriggerEditor({
                 </SelectContent>
               </Select>
             ) : (
-              <Input
-                value={cond.value as string}
-                onChange={(e) => updateCondition(i, { value: e.target.value })}
-                placeholder="Enter value..."
-                className="h-7 flex-1 text-[12px]"
-              />
+              <div className="flex flex-1 items-center gap-2">
+                <Input
+                  value={cond.value === null ? "" : String(cond.value ?? "")}
+                  onChange={(e) => {
+                    const rowKey = conditionKeys[i];
+                    if (rowKey) {
+                      previousNonNullValuesRef.current[rowKey] = e.target.value;
+                    }
+                    updateCondition(i, { value: e.target.value });
+                  }}
+                  placeholder="Enter value..."
+                  disabled={cond.value === null}
+                  className="h-7 flex-1 text-[12px]"
+                />
+                {fieldDef.nullable && (
+                  <label className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={cond.value === null}
+                      onChange={(e) => setNullValue(i, cond, e.target.checked)}
+                      className="h-3 w-3"
+                    />
+                    Value is null
+                  </label>
+                )}
+              </div>
             )}
 
             {/* Remove — hidden in readOnly */}
             {!readOnly && (
               <button
                 type="button"
+                aria-label="Remove condition"
                 onClick={() => removeCondition(i)}
                 className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
               >
@@ -203,7 +276,7 @@ export function TriggerEditor({
         {/* Card body */}
         <div className="p-3">
           {conditions.length === 0 ? (
-            <p className="text-[12px] text-muted-foreground">Runs on all completed traces.</p>
+            <p className="text-[12px] text-muted-foreground">{emptyMessage}</p>
           ) : (
             <>
               <p className="mb-2 text-[12px] text-muted-foreground">All conditions must match.</p>
@@ -233,7 +306,7 @@ export function TriggerEditor({
       </div>
 
       {conditions.length === 0 ? (
-        <p className="text-[12px] text-muted-foreground">Runs on all completed traces.</p>
+        <p className="text-[12px] text-muted-foreground">{emptyMessage}</p>
       ) : (
         <>
           <p className="mb-2 text-[12px] text-muted-foreground">All conditions must match.</p>

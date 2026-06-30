@@ -13,6 +13,16 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
 }));
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
+  detectorMutationErrorMessage: (error: unknown, fallback: string) =>
+    error instanceof Error &&
+    error.message === "triggerConditions[0].op must be one of =, != for environment"
+      ? "Environment filters only support = or !=."
+      : error instanceof Error
+        ? error.message
+        : fallback,
+  isTriggerConditionMutationError: (message: string) =>
+    message === "Environment filters only support = or !=." ||
+    message.startsWith("triggerConditions"),
   useCreateDetector: () => ({ mutateAsync: mocks.mutateAsync, isPending: false }),
 }));
 vi.mock("@/features/projects/hooks", () => ({
@@ -80,5 +90,21 @@ describe("NewDetectorPage", () => {
       prompt: "my prompt",
       template: "failure",
     });
+  });
+
+  it("shows trigger validation errors without navigating away", async () => {
+    mocks.mutateAsync.mockRejectedValueOnce(
+      new Error("triggerConditions[0].op must be one of =, != for environment"),
+    );
+    render(<NewDetectorPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Environment filters only support = or !=.",
+      ),
+    );
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 });

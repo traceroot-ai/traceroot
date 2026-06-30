@@ -33,11 +33,11 @@ def test_eval_condition_not_equal_operator_fail():
     assert _eval_condition(trace_summary, condition) is False
 
 
-def test_eval_condition_greater_than():
-    """Test greater than operator (>)."""
+def test_eval_condition_greater_than_unsupported_field():
+    """Numeric fields are not evaluated until summaries include them."""
     trace_summary = {"cost": 100.5}
     condition = {"field": "cost", "op": ">", "value": 50.0}
-    assert _eval_condition(trace_summary, condition) is True
+    assert _eval_condition(trace_summary, condition) is False
 
 
 def test_eval_condition_greater_than_fail():
@@ -47,11 +47,11 @@ def test_eval_condition_greater_than_fail():
     assert _eval_condition(trace_summary, condition) is False
 
 
-def test_eval_condition_greater_than_or_equal():
-    """Test greater than or equal operator (>=)."""
+def test_eval_condition_greater_than_or_equal_unsupported_field():
+    """Numeric fields are not evaluated until summaries include them."""
     trace_summary = {"cost": 50.0}
     condition = {"field": "cost", "op": ">=", "value": 50.0}
-    assert _eval_condition(trace_summary, condition) is True
+    assert _eval_condition(trace_summary, condition) is False
 
 
 def test_eval_condition_greater_than_or_equal_fail():
@@ -61,11 +61,11 @@ def test_eval_condition_greater_than_or_equal_fail():
     assert _eval_condition(trace_summary, condition) is False
 
 
-def test_eval_condition_less_than():
-    """Test less than operator (<)."""
+def test_eval_condition_less_than_unsupported_field():
+    """Numeric fields are not evaluated until summaries include them."""
     trace_summary = {"tokens": 500}
     condition = {"field": "tokens", "op": "<", "value": 1000}
-    assert _eval_condition(trace_summary, condition) is True
+    assert _eval_condition(trace_summary, condition) is False
 
 
 def test_eval_condition_less_than_fail():
@@ -75,11 +75,11 @@ def test_eval_condition_less_than_fail():
     assert _eval_condition(trace_summary, condition) is False
 
 
-def test_eval_condition_less_than_or_equal():
-    """Test less than or equal operator (<=)."""
+def test_eval_condition_less_than_or_equal_unsupported_field():
+    """Numeric fields are not evaluated until summaries include them."""
     trace_summary = {"tokens": 1000}
     condition = {"field": "tokens", "op": "<=", "value": 1000}
-    assert _eval_condition(trace_summary, condition) is True
+    assert _eval_condition(trace_summary, condition) is False
 
 
 def test_eval_condition_less_than_or_equal_fail():
@@ -104,10 +104,10 @@ def test_eval_condition_unknown_operator():
 
 
 def test_eval_condition_numeric_strings_in_comparisons():
-    """Numeric operators convert string values correctly."""
+    """Numeric fields are not evaluated until summaries include them."""
     trace_summary = {"cost": "100.5"}
     condition = {"field": "cost", "op": ">", "value": "50.0"}
-    assert _eval_condition(trace_summary, condition) is True
+    assert _eval_condition(trace_summary, condition) is False
 
 
 # ── Tests for _passes_trigger ──────────────────────────────────────
@@ -122,12 +122,8 @@ def test_passes_trigger_empty_conditions():
 
 def test_passes_trigger_all_conditions_pass():
     """All conditions pass returns True."""
-    trace_summary = {"environment": "production", "cost": 100.0, "tokens": 5000}
-    conditions = [
-        {"field": "environment", "op": "=", "value": "production"},
-        {"field": "cost", "op": ">", "value": 50.0},
-        {"field": "tokens", "op": ">=", "value": 5000},
-    ]
+    trace_summary = {"environment": "production"}
+    conditions = [{"field": "environment", "op": "=", "value": "production"}]
     assert _passes_trigger(trace_summary, conditions) is True
 
 
@@ -159,8 +155,8 @@ def test_passes_trigger_legacy_status_condition_is_inert():
     assert _passes_trigger(trace_summary, conditions) is False
 
 
-def test_passes_trigger_single_condition_passes():
-    """Single condition that passes returns True."""
+def test_passes_trigger_numeric_field_is_inert():
+    """Numeric fields are not evaluated until summaries include them."""
     trace_summary = {"cost": 100.0}
     conditions = [{"field": "cost", "op": ">", "value": 50.0}]
-    assert _passes_trigger(trace_summary, conditions) is True
+    assert _passes_trigger(trace_summary, conditions) is False
