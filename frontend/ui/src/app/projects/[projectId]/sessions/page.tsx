@@ -4,6 +4,7 @@ import { useMemo, useLayoutEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
+import { LoadingState } from "@/components/ui/loading-state";
 import { Workflow, Users, Layers } from "lucide-react";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
@@ -129,7 +130,7 @@ export default function SessionsPage() {
         <div className="flex-1 overflow-auto bg-background">
           {checking ? (
             <div className="flex h-64 items-center justify-center">
-              <p className="text-[13px] text-muted-foreground">Loading sessions...</p>
+              <LoadingState label="Loading sessions..." />
             </div>
           ) : error && !data ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
