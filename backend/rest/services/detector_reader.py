@@ -97,12 +97,15 @@ class DetectorReaderService:
             params["trace_id"] = trace_id
         if detector is not None:
             # Backend-owned resolution: match a finding whose payload contains any
-            # of the resolved detector names. The raw token is always included, so
-            # an unresolved token simply matches nothing (empty list, not an error).
+            # of the resolved tokens by detectorName OR detectorId. The raw token is
+            # always included, so `detector=<id>` matches a payload detectorId even
+            # when Postgres resolves nothing; an unresolved token matches nothing
+            # (empty list, not an error).
             params["detector_names"] = self._resolve_detector_names(project_id, detector)
             conditions.append(
                 "arrayExists("
-                "x -> JSONExtractString(x, 'detectorName') IN {detector_names:Array(String)}, "
+                "x -> JSONExtractString(x, 'detectorName') IN {detector_names:Array(String)} "
+                "OR JSONExtractString(x, 'detectorId') IN {detector_names:Array(String)}, "
                 "JSONExtractArrayRaw(payload))"
             )
 
