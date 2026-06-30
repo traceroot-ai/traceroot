@@ -117,6 +117,17 @@ class TestNanosToDatetime:
     def test_empty_string_returns_none(self):
         assert nanos_to_datetime("") is None
 
+    def test_invalid_string_returns_none(self):
+        assert nanos_to_datetime("not-a-number") is None
+
+    @pytest.mark.parametrize("value", [True, False, [], {}, 1.5])
+    def test_unsupported_value_returns_none(self, value):
+        assert nanos_to_datetime(value) is None
+
+    @pytest.mark.parametrize("value", [10**1000, -(10**1000), str(10**1000)])
+    def test_out_of_range_timestamp_returns_none(self, value):
+        assert nanos_to_datetime(value) is None
+
     def test_zero_returns_epoch(self):
         result = nanos_to_datetime(0)
         assert result == datetime(1970, 1, 1, 0, 0, 0)
@@ -247,6 +258,55 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["parent_span_id"] is None
         assert len(traces) == 1
         assert traces[0]["name"] == "root"
+
+    def test_malformed_start_time_skips_only_bad_span(self):
+        """A bad startTimeUnixNano must not abort valid siblings in the batch."""
+        trace_hex = "aa" * 16
+        bad_span_hex = "11" * 8
+        good_span_hex = "22" * 8
+        payload = make_otel_payload(
+            [
+                make_span(trace_hex, bad_span_hex, name="bad", start_nanos="not-a-number"),
+                make_span(trace_hex, good_span_hex, name="good"),
+            ]
+        )
+
+        traces, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert [span["span_id"] for span in spans] == [good_span_hex]
+        assert [trace["trace_id"] for trace in traces] == [trace_hex]
+        assert traces[0]["name"] == "good"
+
+    def test_malformed_later_start_time_does_not_drop_earlier_valid_span(self):
+        """Match #1365: a bad later span must not discard an earlier valid span."""
+        trace_hex = "aa" * 16
+        good_span_hex = "22" * 8
+        bad_span_hex = "11" * 8
+        payload = make_otel_payload(
+            [
+                make_span(trace_hex, good_span_hex, name="good"),
+                make_span(trace_hex, bad_span_hex, name="bad", start_nanos="not-a-number"),
+            ]
+        )
+
+        traces, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert [span["span_id"] for span in spans] == [good_span_hex]
+        assert [trace["trace_id"] for trace in traces] == [trace_hex]
+        assert traces[0]["name"] == "good"
+
+    def test_malformed_end_time_keeps_span_with_missing_end_time(self):
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [make_span(trace_hex, span_hex, name="open", end_nanos="not-a-number")]
+        )
+
+        traces, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert [trace["trace_id"] for trace in traces] == [trace_hex]
+        assert len(spans) == 1
+        assert spans[0]["span_end_time"] is None
 
     def test_child_span_does_not_create_trace(self):
         """Child span creates span record but not trace record."""
