@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { CopyButton } from "@/components/ui/copy-button";
 import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
+import { CodeBlock } from "./CodeBlock";
 import { OptionalNextSteps } from "./OptionalNextSteps";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
 import { ALL_LANGS, INTEGRATIONS, type IntegrationCategory, type Lang } from "./integrations";
@@ -86,15 +86,7 @@ export function ManualTab({ projectId }: ManualTabProps) {
       <div className="space-y-2">
         <p className="text-sm font-medium text-foreground">2. Install SDK</p>
         <LangTabs lang={resolvedLang} onChange={setLang} availableLangs={availableLangs} />
-        <div className="border border-border">
-          <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-            <span className="text-xs text-muted-foreground">bash</span>
-            <CopyButton value={config.installCommand} className="h-6 w-6" />
-          </div>
-          <pre className="overflow-x-auto whitespace-pre-wrap bg-muted px-3 py-2.5 font-mono text-xs text-foreground">
-            {config.installCommand}
-          </pre>
-        </div>
+        <CodeBlock label="bash" value={config.installCommand} />
       </div>
 
       <div className="space-y-3">
@@ -152,15 +144,7 @@ export function ManualTab({ projectId }: ManualTabProps) {
           4. Initialize TraceRoot for {selectedIntegration.name}
         </p>
         <LangTabs lang={resolvedLang} onChange={setLang} availableLangs={availableLangs} />
-        <div className="border border-border">
-          <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-            <span className="text-xs text-muted-foreground">{resolvedLang}</span>
-            <CopyButton value={config.initSnippet} className="h-6 w-6" />
-          </div>
-          <pre className="overflow-x-auto whitespace-pre-wrap bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed text-foreground">
-            {config.initSnippet}
-          </pre>
-        </div>
+        <CodeBlock label={resolvedLang} value={config.initSnippet} />
       </div>
 
       <div className="space-y-2">
