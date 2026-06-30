@@ -1,7 +1,8 @@
 # .github/workflows/announce-release-discord.yml
 # Posts the FULL release notes (not just the title) to a Discord channel as a
-# rich embed, under a custom "Github Boy" identity. Replaces GitHub's native
-# Discord integration, which only posts a one-line title link for releases.
+# rich embed. Replaces GitHub's native Discord integration, which only posts a
+# one-line title link for releases. The post's name + avatar come from the
+# Discord webhook's own config (set those in Discord, not here).
 #
 # Two triggers:
 #   - release: published   -> auto-announce every new release (uses the event payload)
@@ -68,13 +69,11 @@ jobs:
           # inside jq (never by byte, which can split a multi-byte char and emit
           # invalid UTF-8) and append a "read more" link when the notes are long.
           payload="$(jq -n \
-            --arg username "Github Boy" \
             --arg title "$NAME" \
             --arg url "$URL" \
             --arg desc "$BODY" \
             --arg footer "$REPO" \
             '{
-              username: $username,
               embeds: [{
                 title: $title,
                 url: $url,
