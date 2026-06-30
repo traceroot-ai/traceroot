@@ -1106,7 +1106,15 @@
                 }
               }
             },
-            "description": "Authentication service unavailable"
+            "description": "Temporary authentication or ingest queue unavailability; retry the request",
+            "headers": {
+              "Retry-After": {
+                "description": "When present for ingest queue unavailability, delay in seconds before retrying",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "security": [

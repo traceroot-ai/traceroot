@@ -15,7 +15,7 @@ import gzip
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from google.protobuf.json_format import MessageToDict
@@ -66,7 +66,7 @@ def decode_otlp_protobuf(data: bytes) -> dict[str, Any]:
     request.ParseFromString(data)
     # MessageToDict converts protobuf to dict with camelCase field names
     # (standard OTLP JSON format) and proper handling of bytes (base64), enums, etc.
-    return MessageToDict(request)
+    return cast("dict[str, Any]", MessageToDict(request))
 
 
 class IngestResponse(BaseModel):
@@ -184,8 +184,12 @@ async def ingest_traces(
         process_s3_traces.delay(s3_key=s3_key, project_id=project_id)
         logger.info(f"Enqueued Celery task for {s3_key}")
     except Exception as e:
-        # Log but don't fail the request - S3 has the data, can retry later
         logger.error(f"Failed to enqueue Celery task for {s3_key}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Ingest temporarily unavailable, please retry",
+            headers={"Retry-After": "5"},
+        ) from e
 
     # 7. Return success (async processing happens in background)
     return IngestResponse(status="ok", file_key=s3_key)
