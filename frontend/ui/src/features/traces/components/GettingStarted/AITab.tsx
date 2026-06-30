@@ -1,9 +1,8 @@
 "use client";
 
-import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
-import { SlackConnectButton } from "@/components/slack/SlackConnectButton";
 import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
+import { OptionalNextSteps } from "./OptionalNextSteps";
 import { SetupTabs } from "./SetupTabs";
 
 interface AITabProps {
@@ -30,33 +29,8 @@ export function AITab({ projectId }: AITabProps) {
       </div>
 
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">
-          3. Optionally connect your GitHub repositories
-        </p>
-        <div className="rounded-sm border border-border bg-muted/30 px-4 py-3">
-          <p className="text-xs text-muted-foreground">
-            Install the GitHub App for repository linking and code-level tracing during root cause
-            analysis.
-          </p>
-          <div className="mt-3">
-            <GitHubConnectButton workspaceId={workspaceId} />
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">
-          4. Optionally connect Slack for alerts
-        </p>
-        <div className="rounded-sm border border-border bg-muted/30 px-4 py-3">
-          <p className="text-xs text-muted-foreground">
-            Connect Slack to get detector alerts posted to a channel so your team is notified about
-            issues.
-          </p>
-          <div className="mt-3">
-            <SlackConnectButton workspaceId={workspaceId} />
-          </div>
-        </div>
+        <p className="text-sm font-medium text-foreground">3. Optional next steps</p>
+        <OptionalNextSteps workspaceId={workspaceId} />
       </div>
     </div>
   );
