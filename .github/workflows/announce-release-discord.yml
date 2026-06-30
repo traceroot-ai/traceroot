@@ -81,7 +81,7 @@ jobs:
             --arg footer "$REPO" \
             '{
               embeds: [{
-                title: $title,
+                title: $title[0:256],
                 url: $url,
                 description: (
                   if ($desc | length) > 3900
