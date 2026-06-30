@@ -5,12 +5,13 @@ const DEFAULT_TEST_TIMEOUT_MS = 10_000;
 // Guard against a misconfigured env pinning the handler open for minutes.
 const MAX_TEST_TIMEOUT_MS = 60_000;
 
-// Parse MODEL_PROVIDER_TEST_TIMEOUT_MS safely: anything non-finite, zero, or
-// negative falls back to the default, absurdly large values are capped, and a
-// fractional value is floored to whole milliseconds.
+// Parse MODEL_PROVIDER_TEST_TIMEOUT_MS safely: anything non-finite or below 1ms
+// (covers zero, negatives, and sub-1ms fractions that would floor to 0) falls
+// back to the default, absurdly large values are capped, and a fractional value
+// is floored to whole milliseconds.
 export function resolveTimeoutMs(raw: string | undefined): number {
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  if (!Number.isFinite(parsed) || parsed < 1) {
     return DEFAULT_TEST_TIMEOUT_MS;
   }
   return Math.floor(Math.min(parsed, MAX_TEST_TIMEOUT_MS));

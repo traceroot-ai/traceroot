@@ -106,9 +106,11 @@ describe("resolveTimeoutMs", () => {
     expect(resolveTimeoutMs("abc")).toBe(10_000);
   });
 
-  it("falls back to default for zero and negative values", () => {
+  it("falls back to default for zero, negative, and sub-1ms values", () => {
     expect(resolveTimeoutMs("0")).toBe(10_000);
     expect(resolveTimeoutMs("-5")).toBe(10_000);
+    // Would otherwise floor to 0 and fire setTimeout(abort, 0) before any fetch.
+    expect(resolveTimeoutMs("0.5")).toBe(10_000);
   });
 
   it("caps absurdly large values at 60000", () => {
@@ -385,6 +387,20 @@ describe("POST model-providers/test - stored key resolution", () => {
       expect.objectContaining({ headers: { Authorization: "Bearer decrypted-key" } }),
     );
   });
+
+  it("proceeds without a key when the providerId is not found", async () => {
+    prismaFindFirstMock.mockResolvedValue(null);
+    fetchMock.mockResolvedValue(okResponse());
+
+    const res = await POST(makeRequest({ adapter: "openai", providerId: "missing" }), makeParams());
+
+    expect(await res.json()).toEqual({ success: true });
+    expect(decryptKeyMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.openai.com/v1/models",
+      expect.objectContaining({ headers: { Authorization: "Bearer undefined" } }),
+    );
+  });
 });
 
 describe("POST model-providers/test - timeout (acceptance criteria)", () => {
@@ -429,6 +445,28 @@ describe("POST model-providers/test - timeout (acceptance criteria)", () => {
       }),
     );
     const res = await POST(makeRequest({ adapter: "openai", apiKey: "k" }), makeParams());
+    const body = (await res.json()) as { success: boolean; error: string };
+    expect(body.success).toBe(false);
+    expect(body.error).toMatch(/timed out/i);
+  });
+
+  it("times out when the anthropic 401 body read stalls", async () => {
+    // The anthropic branch has its own inline withTimeout + body read; a 401
+    // whose body never finishes must still abort at the deadline.
+    fetchMock.mockImplementation((_url: string, init?: { signal?: AbortSignal }) =>
+      Promise.resolve({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        json: () =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+            );
+          }),
+      }),
+    );
+    const res = await POST(makeRequest({ adapter: "anthropic", apiKey: "bad" }), makeParams());
     const body = (await res.json()) as { success: boolean; error: string };
     expect(body.success).toBe(false);
     expect(body.error).toMatch(/timed out/i);
