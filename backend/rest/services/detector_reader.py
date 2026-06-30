@@ -46,7 +46,7 @@ class DetectorReaderService:
         try:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
-                return cur.fetchall()
+                return list(cur.fetchall())
         finally:
             conn.close()
 
@@ -193,21 +193,19 @@ class DetectorReaderService:
 
     def _build_detail(self, project_id: str, row: tuple) -> FindingDetail:
         finding_id, _project_id, trace_id, summary, payload, timestamp = row
-        parsed = self._parse_payload(payload)
-        templates = self._read_templates(
-            project_id, [item.get("detectorId") for item in parsed if isinstance(item, dict)]
-        )
+        items = [item for item in self._parse_payload(payload) if isinstance(item, dict)]
+        detector_ids = [str(item.get("detectorId") or "") for item in items]
+        templates = self._read_templates(project_id, [d for d in detector_ids if d])
         results = [
             DetectorResultItem(
-                detector_id=item.get("detectorId") or "",
-                detector_name=item.get("detectorName") or "",
-                template=templates.get(item.get("detectorId")),
-                summary=item.get("summary") or "",
+                detector_id=detector_id,
+                detector_name=str(item.get("detectorName") or ""),
+                template=templates.get(detector_id),
+                summary=str(item.get("summary") or ""),
                 identified=True,
                 data=item.get("data"),
             )
-            for item in parsed
-            if isinstance(item, dict)
+            for item, detector_id in zip(items, detector_ids)
         ]
         return FindingDetail(
             finding_id=finding_id,
