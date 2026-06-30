@@ -1,4 +1,4 @@
-import { Worker, Queue, type Job } from "bullmq";
+import { Worker, Queue, DelayedError, type Job } from "bullmq";
 import { createHash } from "crypto";
 import { prisma, PlanType } from "@traceroot/core";
 import type {
@@ -9,6 +9,7 @@ import type {
 import {
   DETECTOR_RUN_QUEUE,
   DETECTOR_RCA_QUEUE,
+  EVALUATOR_DELAY,
   createRedisConnection,
 } from "../queues/detector-run-queue.js";
 import { runDetectionForTrace } from "../detection/sandbox-eval.js";
@@ -18,20 +19,94 @@ const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
 
 /**
+ * Returns the AGE of the trace's most recent span arrival in milliseconds —
+ * i.e. how long the trace has been quiet (now − last span), NOT an absolute
+ * epoch timestamp. The worker evaluates once this age reaches EVALUATOR_DELAY
+ * (a simple quiescence debounce). The age is computed inside ClickHouse
+ * (now64() vs max(ch_create_time)) to avoid cross-service clock skew.
+ */
+async function fetchTimeSinceLastSpanMs(projectId: string, traceId: string): Promise<number> {
+  const response = await fetch(
+    `${BACKEND_URL}/api/v1/internal/traces/${traceId}/time-since-last-span?project_id=${projectId}`,
+    { headers: { "X-Internal-Secret": INTERNAL_API_SECRET } },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch time-since-last-span for trace ${traceId}: HTTP ${response.status}`,
+    );
+  }
+  const body = (await response.json()) as { time_since_last_span_ms: number };
+  return body.time_since_last_span_ms;
+}
+
+/** Hash a string to a uuid-shaped id (first 128 bits of sha256, 8-4-4-4-12). */
+function hashToUuid(input: string): string {
+  return createHash("sha256")
+    .update(input)
+    .digest("hex")
+    .slice(0, 32)
+    .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
+}
+
+/**
  * Deterministic run id keyed on (projectId, traceId, detectorId).
  * On a BullMQ retry, the same triple lands on the same runId — so re-writes
  * collapse with detector_findings.findingId rather than producing duplicate
  * run rows for the same (detector, trace).
  */
 function deterministicRunId(projectId: string, traceId: string, detectorId: string): string {
-  return createHash("sha256")
-    .update(`${projectId}:${traceId}:${detectorId}`)
-    .digest("hex")
-    .slice(0, 32)
-    .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
+  return hashToUuid(`${projectId}:${traceId}:${detectorId}`);
 }
 
-let rcaQueue: Queue<DetectorRcaJob>;
+/**
+ * Decide whether to run the per-trace RCA. RCA is shared across all detectors
+ * that fired on a trace; we run it when AT LEAST ONE triggered detector has
+ * RCA enabled. A triggered detector missing from `detectors` defaults to "run"
+ * so an unexpected gap never silently suppresses analysis.
+ */
+export function shouldRunRca(
+  triggered: { detectorId: string }[],
+  detectors: { id: string; enableRca: boolean }[],
+): boolean {
+  const rcaEnabledById = new Map(detectors.map((d) => [d.id, d.enableRca]));
+  return triggered.some((t) => rcaEnabledById.get(t.detectorId) !== false);
+}
+
+/**
+ * Deterministic finding id for a trace — a hash of (projectId, traceId) only.
+ * It does NOT depend on which/how many detectors fired, so every detector that
+ * triggers on the same trace maps to the SAME finding, and therefore the SAME
+ * RCA job (`rca-${findingId}`): exactly one RCA per trace, and a BullMQ retry
+ * lands on the same row instead of duplicating it.
+ */
+export function traceFindingId(projectId: string, traceId: string): string {
+  return hashToUuid(`${projectId}:${traceId}`);
+}
+
+/**
+ * Build the per-trace RCA payload from every detector that fired. The single
+ * RCA job carries all triggered detectors' summaries, so one agent analyzes the
+ * whole trace rather than one agent per detector.
+ */
+export function buildRcaFindings(
+  triggered: { detectorId: string; detectorName: string; summary: string }[],
+): DetectorRcaFinding[] {
+  return triggered.map((r) => ({
+    detectorId: r.detectorId,
+    detectorName: r.detectorName,
+    summary: r.summary,
+  }));
+}
+
+let rcaQueue: Queue<DetectorRcaJob> | null = null;
+function getRcaQueue(): Queue<DetectorRcaJob> {
+  if (!rcaQueue) {
+    rcaQueue = new Queue<DetectorRcaJob>(DETECTOR_RCA_QUEUE, {
+      connection: createRedisConnection(),
+    });
+  }
+  return rcaQueue;
+}
 
 async function downloadSpansJsonl(projectId: string, traceId: string): Promise<string> {
   const response = await fetch(
@@ -163,7 +238,7 @@ async function runSingleDetector(params: {
   };
 }
 
-async function processTrace(
+export async function processTrace(
   traceId: string,
   projectId: string,
   detectorIds: string[],
@@ -190,6 +265,15 @@ async function processTrace(
     return;
   }
 
+  await evaluateTrace(traceId, projectId, detectorIds, spansJsonl);
+}
+
+async function evaluateTrace(
+  traceId: string,
+  projectId: string,
+  detectorIds: string[],
+  spansJsonl: string,
+): Promise<void> {
   const [detectors, project] = await Promise.all([
     prisma.detector.findMany({
       where: { id: { in: detectorIds }, enabled: true },
@@ -197,14 +281,12 @@ async function processTrace(
     prisma.project.findUnique({
       where: { id: projectId },
       select: {
-        name: true,
         workspaceId: true,
         workspace: { select: { billingPlan: true, detectorBlocked: true } },
       },
     }),
   ]);
 
-  const projectName = project?.name ?? "";
   const workspaceId = project?.workspaceId ?? "";
 
   // Free-plan detector cap enforcement — read the cached `detectorBlocked`
@@ -283,15 +365,11 @@ async function processTrace(
 
   // ONE finding per trace — aggregate all triggered detector summaries.
   // findingId is a deterministic hash of (projectId, traceId) so a job retry
-  // (BullMQ attempts: 3) lands on the same finding/RCA row instead of creating
+  // lands on the same finding/RCA row instead of creating
   // a duplicate. ClickHouse-level dedup of finding rows is a follow-up
   // (ReplacingMergeTree on finding_id), but Postgres DetectorRca + the RCA
   // queue jobId are now both keyed by this stable id.
-  const findingId = createHash("sha256")
-    .update(`${projectId}:${traceId}`)
-    .digest("hex")
-    .slice(0, 32)
-    .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
+  const findingId = traceFindingId(projectId, traceId);
   const combinedSummary = triggered.map((r) => `[${r.detectorName}] ${r.summary}`).join("\n");
   const payload = JSON.stringify(
     triggered.map((r) => ({
@@ -302,15 +380,25 @@ async function processTrace(
     })),
   );
 
+  // Single capture time for this finding. Stamped onto the finding row AND every
+  // triggered run below (timestampMs), and threaded to the RCA job to key the
+  // digest flush. Because the same value is both the row timestamp the flush
+  // counts and the window key, a finding always falls in exactly the window its
+  // flush covers — no boundary skew between the worker and server clocks.
+  const findingTimestamp = Date.now();
+
   await writeDetectorFinding({
     findingId,
     projectId,
     traceId,
     summary: combinedSummary,
     payload,
+    timestampMs: findingTimestamp,
   });
 
   // Write runs for all triggered detectors, all pointing to the same finding_id
+  // and stamped with the shared findingTimestamp so the digest count window
+  // matches the flush key.
   await Promise.allSettled(
     triggered.map((r) =>
       writeDetectorRun({
@@ -320,6 +408,7 @@ async function processTrace(
         traceId,
         findingId,
         status: "completed",
+        timestampMs: findingTimestamp,
       }).catch((err) => console.error("[Detector] Failed to write run:", err)),
     ),
   );
@@ -328,54 +417,89 @@ async function processTrace(
     `[Detector] Finding ${findingId} created for trace ${traceId} (${triggered.length} detector(s) triggered)`,
   );
 
-  // Always run RCA for any finding — one combined job per trace.
-  const rcaFindings: DetectorRcaFinding[] = triggered.map((r) => ({
-    detectorId: r.detectorId,
-    detectorName: r.detectorName,
-    summary: r.summary,
-  }));
+  // RCA is shared per trace. Run it only when at least one triggered detector
+  // has RCA enabled; otherwise skip both the seed row and the queue job so a
+  // noisy RCA-disabled detector doesn't incur agent-model cost. Consumers
+  // null-check an absent DetectorRca record, so skipping the row is safe.
+  const rcaFindings: DetectorRcaFinding[] = buildRcaFindings(triggered);
 
-  await prisma.detectorRca
-    .upsert({
-      where: { findingId },
-      create: { findingId, projectId, status: "pending" },
-      update: { projectId, status: "pending" },
-    })
-    .catch((e) =>
-      console.error(`[Detector] Failed to seed DetectorRca for finding ${findingId}:`, e),
+  if (shouldRunRca(triggered, detectors)) {
+    await prisma.detectorRca
+      .upsert({
+        where: { findingId },
+        create: { findingId, projectId, status: "pending" },
+        update: { projectId, status: "pending" },
+      })
+      .catch((e) =>
+        console.error(`[Detector] Failed to seed DetectorRca for finding ${findingId}:`, e),
+      );
+
+    await getRcaQueue().add(
+      `rca-${findingId}`,
+      {
+        findingId,
+        projectId,
+        traceId,
+        workspaceId,
+        findings: rcaFindings,
+        findingTimestamp,
+      },
+      { jobId: `rca-${findingId}`, removeOnComplete: 100, removeOnFail: 50 },
     );
+  } else {
+    console.log(
+      `[Detector] All triggered detectors have RCA disabled; skipping RCA for finding ${findingId}`,
+    );
+  }
+}
 
-  await rcaQueue.add(
-    `rca-${findingId}`,
-    {
-      findingId,
-      projectId,
-      traceId,
-      workspaceId,
-      projectName,
-      findings: rcaFindings,
-    },
-    { jobId: `rca-${findingId}`, removeOnComplete: 100, removeOnFail: 50 },
+/**
+ * Worker entry point: evaluate the trace once it has gone quiet for
+ * EVALUATOR_DELAY (no span ingested for that long). Otherwise re-delay the job
+ * to fire exactly EVALUATOR_DELAY after the most recent span and re-check.
+ * Exported for tests.
+ */
+export async function handleDetectorRunJob(
+  job: Job<DetectorRunJob>,
+  token?: string,
+): Promise<void> {
+  const { traceId, detectorIds, projectId } = job.data;
+  if (!detectorIds || detectorIds.length === 0) return;
+
+  // A time-since-last-span fetch failure is transient: throw and let the
+  // normal BullMQ retry policy handle it.
+  const timeSinceLastSpanMs = await fetchTimeSinceLastSpanMs(projectId, traceId);
+
+  if (timeSinceLastSpanMs >= EVALUATOR_DELAY) {
+    await processTrace(traceId, projectId, detectorIds);
+    return;
+  }
+
+  // Not quiet yet — sleep until exactly EVALUATOR_DELAY after the most recent
+  // span, then re-check. moveToDelayed + DelayedError is BullMQ's supported
+  // re-delay pattern; unlike a thrown failure it does not consume an attempt.
+  const delayMs = EVALUATOR_DELAY - timeSinceLastSpanMs;
+  console.log(
+    `[Detector] settle-wait trace=${traceId} quiet=${Math.round(timeSinceLastSpanMs / 1000)}s ` +
+      `re-check in ${Math.round(delayMs / 1000)}s`,
   );
+  await job.moveToDelayed(Date.now() + delayMs, token);
+  throw new DelayedError();
 }
 
 export function startDetectorRunWorker(): Worker<DetectorRunJob> {
   const connection = createRedisConnection();
-  rcaQueue = new Queue<DetectorRcaJob>(DETECTOR_RCA_QUEUE, {
-    connection: createRedisConnection(),
+
+  const worker = new Worker<DetectorRunJob>(DETECTOR_RUN_QUEUE, handleDetectorRunJob, {
+    connection,
+    concurrency: 10,
   });
 
-  const worker = new Worker<DetectorRunJob>(
-    DETECTOR_RUN_QUEUE,
-    async (job: Job<DetectorRunJob>) => {
-      const { traceId, detectorIds, projectId } = job.data;
-      if (!detectorIds || detectorIds.length === 0) return;
-      await processTrace(traceId, projectId, detectorIds);
-    },
-    { connection, concurrency: 10 },
-  );
-
   worker.on("failed", (job, err) => {
+    // DelayedError is BullMQ's re-delay control signal (thrown on every
+    // quiescence re-check), not a real failure — ignore it so routine
+    // re-delays never pollute error monitoring.
+    if (err instanceof DelayedError) return;
     console.error(`[Detector] Job ${job?.id} failed:`, err.message);
   });
 

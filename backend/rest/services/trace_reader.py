@@ -4,6 +4,51 @@ from datetime import datetime
 
 from db.clickhouse import get_clickhouse_client
 from rest.sql_utils import escape_ilike, to_utc_naive
+from worker.tokens.buckets import TokenBuckets, reconcile_cache_write_1h
+from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
+
+# Lookback for the trace-detail spans query lower bound:
+# span_start_time >= trace_start_time - this value.
+# This gives room for clock skew and small differences between the stored
+# trace_start_time and the true earliest span start time. Increase it if spans
+# can validly start before the stored trace_start_time. Since spans are split by
+# month with toYYYYMM(span_start_time), values under about a month usually skip
+# the same old monthly partitions.
+TRACE_SPAN_LOOKBACK_HOURS = 1
+
+
+def span_cost_details(
+    model_name: str | None,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    usage_details: dict[str, int],
+) -> dict[str, float]:
+    """Per-category dollar breakdown for a stored span.
+
+    Rebuilds the disjoint token buckets from the stored GROSS input_tokens and the
+    cache counts in usage_details, then prices each bucket with the model's current
+    rates. Display-only: the values sum to the span's stored `cost` when rates are
+    unchanged. Returns {} when the model has no known prices.
+    """
+    if not model_name:
+        return {}
+    cache_read = int(usage_details.get("cache_read_tokens", 0) or 0)
+    cache_write = int(usage_details.get("cache_write_tokens", 0) or 0)
+    # Optional 1-hour cache-write portion (absent for spans with no 1-hour writes and
+    # for any emitter that doesn't report it). Reconciled against the write total with
+    # the same rule used at ingest, so a stored breakdown can't over-count.
+    cache_write_1h = reconcile_cache_write_1h(
+        cache_write,
+        int(usage_details.get("cache_write_1h_tokens", 0) or 0),
+    )
+    buckets = TokenBuckets(
+        input_uncached=max((input_tokens or 0) - cache_read - cache_write, 0),
+        output=output_tokens or 0,
+        cache_read=cache_read,
+        cache_write=cache_write,
+        cache_write_1h=cache_write_1h,
+    )
+    return cost_breakdown_from_buckets(get_model_price(model_name), buckets) or {}
 
 
 class TraceReaderService:
@@ -166,15 +211,28 @@ class TraceReaderService:
         }
 
     def get_trace(self, project_id: str, trace_id: str) -> dict | None:
-        """Get single trace with all spans."""
+        """Get single trace with span skeletons (no per-span I/O).
+
+        Returns trace metadata plus lightweight span skeletons that omit the
+        large free-text input/output/metadata blobs. This keeps the payload
+        sub-MB even for large traces. Per-span I/O is fetched on demand via
+        get_span_io(). Columnar storage means dropping those columns from the
+        SELECT avoids reading them entirely — no schema change needed.
+
+        Trace-level input/output/metadata (on the trace row) are kept: they're
+        small and already present.
+        """
         # Fetch trace
+        # Dedup the ReplacingMergeTree row without FINAL: keep the latest version
+        # of this trace_id.
         trace_query = """
             SELECT
                 trace_id, project_id, name, trace_start_time,
                 user_id, session_id, git_ref, git_repo, input, output, metadata
-            FROM traces FINAL
+            FROM traces
             WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
-            LIMIT 1
+            ORDER BY ch_update_time DESC
+            LIMIT 1 BY trace_id
         """
         trace_result = self._client.query(
             trace_query,
@@ -199,22 +257,60 @@ class TraceReaderService:
             "metadata": row[10],
         }
 
-        # Fetch spans. Duration is derived on the client from start/end so
-        # in-progress spans can grow against `now()` for live traces.
-        spans_query = """
+        # Build the span skeleton query. The optional trace_start_time lower
+        # bound lets ClickHouse prune old span partitions before the trace.
+        spans_conditions = [
+            "project_id = {project_id:String}",
+            "trace_id = {trace_id:String}",
+        ]
+        spans_params = {"project_id": project_id, "trace_id": trace_id}
+        if trace["trace_start_time"] is not None:
+            # Lower-bound the spans scan by the trace start time so ClickHouse
+            # can skip old monthly span partitions. The spans table uses
+            # PARTITION BY toYYYYMM(span_start_time), and trace_id is not in the
+            # sort key, so without a time bound every trace open can scan all
+            # monthly partitions for the project. Keep this lower-bound only,
+            # with no upper bound, so late or streaming child spans are still
+            # returned. The lookback covers clock skew and trace start drift. If
+            # trace_start_time is null, skip the bound because correctness
+            # should not depend on it.
+            spans_conditions.append(
+                "span_start_time >= {trace_start_time:DateTime64(3)} "
+                f"- INTERVAL {TRACE_SPAN_LOOKBACK_HOURS} HOUR"
+            )
+            spans_params["trace_start_time"] = to_utc_naive(trace["trace_start_time"])
+
+        spans_where_clause = " AND ".join(spans_conditions)
+
+        # Fetch span skeletons — omit the large input/output/metadata blobs to
+        # keep the payload lightweight (fetched per-span on demand instead).
+        # usage_details is kept (small map) to derive cost_details. Duration is
+        # derived on the client from start/end so in-progress spans can grow
+        # against `now()` for live traces.
+        spans_query = f"""
             SELECT
                 span_id, trace_id, parent_span_id, name, span_kind,
                 span_start_time, span_end_time, status, status_message,
                 model_name, cost, input_tokens, output_tokens, total_tokens,
-                input, output, metadata,
+                usage_details,
                 git_source_file, git_source_line, git_source_function
-            FROM spans FINAL
-            WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
+            FROM (
+                SELECT
+                    span_id, trace_id, parent_span_id, name, span_kind,
+                    span_start_time, span_end_time, status, status_message,
+                    model_name, cost, input_tokens, output_tokens, total_tokens,
+                    usage_details,
+                    git_source_file, git_source_line, git_source_function
+                FROM spans
+                WHERE {spans_where_clause}
+                ORDER BY ch_update_time DESC
+                LIMIT 1 BY span_id
+            )
             ORDER BY span_start_time ASC
         """
         spans_result = self._client.query(
             spans_query,
-            parameters={"project_id": project_id, "trace_id": trace_id},
+            parameters=spans_params,
         )
 
         spans = []
@@ -235,17 +331,103 @@ class TraceReaderService:
                     "input_tokens": int(row[11]) if row[11] is not None else None,
                     "output_tokens": int(row[12]) if row[12] is not None else None,
                     "total_tokens": int(row[13]) if row[13] is not None else None,
-                    "input": row[14],
-                    "output": row[15],
-                    "metadata": row[16],
-                    "git_source_file": row[17],
-                    "git_source_line": int(row[18]) if row[18] is not None else None,
-                    "git_source_function": row[19],
+                    "usage_details": dict(row[14]) if row[14] else {},
+                    "cost_details": span_cost_details(
+                        row[9],  # model_name
+                        int(row[11]) if row[11] is not None else None,  # input_tokens
+                        int(row[12]) if row[12] is not None else None,  # output_tokens
+                        dict(row[14]) if row[14] else {},  # usage_details
+                    ),
+                    "git_source_file": row[15],
+                    "git_source_line": int(row[16]) if row[16] is not None else None,
+                    "git_source_function": row[17],
                 }
             )
 
         trace["spans"] = spans
         return trace
+
+    # Blob columns the bulk I/O reader may project, in a fixed order so the
+    # generated SELECT is deterministic. Whitelist guards the f-string below.
+    _IO_COLUMNS = ("input", "output", "metadata")
+
+    def get_trace_spans_io(
+        self, project_id: str, trace_id: str, columns: frozenset[str]
+    ) -> dict[str, dict]:
+        """Bulk-fetch the requested I/O columns for ALL spans in a trace, one query.
+
+        The trace-wide complement to ``get_span_io``: export and agent reads need
+        full per-span I/O without an N+1 fan-out of single-span calls. ``columns``
+        is the projection's blob columns (from ``rest.projection.io_columns`` —
+        any of ``input``/``output``/``metadata``); only those are SELECTed, so a
+        narrow projection (e.g. ``metadata`` alone) never reads the other heavy
+        blobs. Returns a ``{span_id: {column: value}}`` map. Callers merge it onto
+        the skeleton spans from ``get_trace``; spans absent from the map keep
+        whatever the skeleton carried, so a partial result never breaks
+        serialization.
+
+        Only invoked for ``io``/``metadata`` projections — the default skeleton
+        read never reaches here, so this adds no cost to the dashboard path.
+        """
+        # Preserve a fixed column order and reject anything outside the whitelist
+        # (the value is interpolated into the SQL, so never trust the caller).
+        selected = [c for c in self._IO_COLUMNS if c in columns]
+        if not selected:
+            return {}
+
+        select_clause = ", ".join(["span_id", *selected])
+        query = f"""
+            SELECT {select_clause}
+            FROM (
+                SELECT {select_clause}
+                FROM spans
+                WHERE project_id = {{project_id:String}} AND trace_id = {{trace_id:String}}
+                ORDER BY ch_update_time DESC
+                LIMIT 1 BY span_id
+            )
+        """
+        result = self._client.query(
+            query,
+            parameters={"project_id": project_id, "trace_id": trace_id},
+        )
+        return {
+            row[0]: {col: row[i + 1] for i, col in enumerate(selected)}
+            for row in result.result_rows
+        }
+
+    def get_span_io(self, project_id: str, trace_id: str, span_id: str) -> dict | None:
+        """Fetch full input/output/metadata for a single span on demand.
+
+        Called when the user selects a span in the UI. Returns None when the
+        span does not exist (router translates that to a 404).
+        """
+        query = """
+            SELECT span_id, trace_id, input, output, metadata
+            FROM spans
+            WHERE project_id = {project_id:String}
+              AND trace_id = {trace_id:String}
+              AND span_id = {span_id:String}
+            ORDER BY ch_update_time DESC
+            LIMIT 1
+        """
+        result = self._client.query(
+            query,
+            parameters={
+                "project_id": project_id,
+                "trace_id": trace_id,
+                "span_id": span_id,
+            },
+        )
+        if not result.result_rows:
+            return None
+        row = result.result_rows[0]
+        return {
+            "span_id": row[0],
+            "trace_id": row[1],
+            "input": row[2],
+            "output": row[3],
+            "metadata": row[4],
+        }
 
     def list_sessions(
         self,
@@ -392,17 +574,36 @@ class TraceReaderService:
 
         # Backfill input/output from spans for sessions with empty trace-level I/O
         if session_ids_needing_span_io:
+            # Dedup both sides without FINAL: resolve the sessions' traces first
+            # (latest per trace), then dedup only the spans in those traces
+            # (scoped via the trace_id IN subquery so we never dedup the whole
+            # project), then join + aggregate.
             span_io_query = """
+                WITH session_traces AS (
+                    SELECT t.session_id, t.trace_id, t.project_id
+                    FROM traces AS t
+                    WHERE t.project_id = {project_id:String}
+                      AND t.session_id IN ({session_ids:Array(String)})
+                    ORDER BY t.ch_update_time DESC
+                    LIMIT 1 BY t.project_id, t.trace_id
+                ),
+                spans_dedup AS (
+                    SELECT trace_id, project_id, input, output, span_start_time, span_end_time
+                    FROM spans
+                    WHERE project_id = {project_id:String}
+                      AND trace_id IN (SELECT trace_id FROM session_traces)
+                    ORDER BY ch_update_time DESC
+                    LIMIT 1 BY span_id
+                )
                 SELECT
-                    t.session_id,
+                    st.session_id,
                     argMin(s.input, s.span_start_time) as first_input,
                     argMax(s.output, s.span_end_time) as last_output
-                FROM traces AS t FINAL
-                JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
-                WHERE t.project_id = {project_id:String}
-                  AND t.session_id IN ({session_ids:Array(String)})
-                  AND ((s.input != '' AND s.input != '{}') OR (s.output != '' AND s.output != '{}'))
-                GROUP BY t.session_id
+                FROM session_traces AS st
+                JOIN spans_dedup AS s
+                    ON st.trace_id = s.trace_id AND st.project_id = s.project_id
+                WHERE ((s.input != '' AND s.input != '{}') OR (s.output != '' AND s.output != '{}'))
+                GROUP BY st.session_id
             """
             span_io_result = self._client.query(
                 span_io_query,
@@ -460,8 +661,28 @@ class TraceReaderService:
 
         where_clause = " AND ".join(conditions)
 
-        # Step 1: Get all traces for this session with basic info
+        # Step 1: Get all traces for this session with basic info.
+        # Dedup both sides without FINAL: dedup this session's traces first, then
+        # dedup only the spans in those traces (scoped via trace_id IN, so the
+        # whole project is never deduped), then LEFT JOIN + aggregate.
         traces_query = f"""
+            WITH traces_dedup AS (
+                SELECT
+                    t.trace_id, t.project_id, t.name, t.trace_start_time,
+                    t.user_id, t.input, t.output
+                FROM traces AS t
+                WHERE {where_clause}
+                ORDER BY t.ch_update_time DESC
+                LIMIT 1 BY t.project_id, t.trace_id
+            ),
+            spans_dedup AS (
+                SELECT trace_id, project_id, span_start_time, span_end_time, status
+                FROM spans
+                WHERE project_id = {{project_id:String}}
+                  AND trace_id IN (SELECT trace_id FROM traces_dedup)
+                ORDER BY ch_update_time DESC
+                LIMIT 1 BY span_id
+            )
             SELECT
                 t.trace_id,
                 t.name,
@@ -475,9 +696,8 @@ class TraceReaderService:
                     NULL
                 ) as duration_ms,
                 if(countIf(s.status = 'ERROR') > 0, 'error', 'ok') as status
-            FROM traces AS t FINAL
-            LEFT JOIN spans AS s FINAL ON t.trace_id = s.trace_id AND t.project_id = s.project_id
-            WHERE {where_clause}
+            FROM traces_dedup AS t
+            LEFT JOIN spans_dedup AS s ON t.trace_id = s.trace_id AND t.project_id = s.project_id
             GROUP BY t.trace_id, t.name, t.trace_start_time, t.user_id, t.input, t.output
             ORDER BY t.trace_start_time ASC
         """
@@ -514,15 +734,22 @@ class TraceReaderService:
         if needs_span_io and trace_ids:
             # Get the first span's input and last span's output per trace
             # (root span = no parent, or earliest AGENT span with real data)
+            # Dedup spans without FINAL (latest per span_id, scoped to these
+            # traces), then aggregate I/O over the deduped rows.
             span_io_query = """
                 SELECT
                     trace_id,
                     argMin(input, span_start_time) as first_input,
                     argMax(output, span_end_time) as last_output
-                FROM spans FINAL
-                WHERE project_id = {project_id:String}
-                  AND trace_id IN ({trace_ids:Array(String)})
-                  AND ((input != '' AND input != '{}') OR (output != '' AND output != '{}'))
+                FROM (
+                    SELECT trace_id, input, output, span_start_time, span_end_time
+                    FROM spans
+                    WHERE project_id = {project_id:String}
+                      AND trace_id IN ({trace_ids:Array(String)})
+                    ORDER BY ch_update_time DESC
+                    LIMIT 1 BY span_id
+                )
+                WHERE ((input != '' AND input != '{}') OR (output != '' AND output != '{}'))
                 GROUP BY trace_id
             """
             span_io_result = self._client.query(
@@ -543,14 +770,20 @@ class TraceReaderService:
                         t["output"] = span_io[1]
 
         # Step 3: Get token totals from spans for all traces in this session
+        # Dedup spans without FINAL (latest per span_id), then sum tokens/cost.
         tokens_query = """
             SELECT
                 sum(input_tokens) as total_input_tokens,
                 sum(output_tokens) as total_output_tokens,
                 sum(cost) as total_cost
-            FROM spans FINAL
-            WHERE project_id = {project_id:String}
-              AND trace_id IN ({trace_ids:Array(String)})
+            FROM (
+                SELECT input_tokens, output_tokens, cost
+                FROM spans
+                WHERE project_id = {project_id:String}
+                  AND trace_id IN ({trace_ids:Array(String)})
+                ORDER BY ch_update_time DESC
+                LIMIT 1 BY span_id
+            )
         """
         tokens_result = self._client.query(
             tokens_query,

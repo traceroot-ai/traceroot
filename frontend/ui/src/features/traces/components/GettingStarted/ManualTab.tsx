@@ -4,6 +4,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
 import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
+import { SlackConnectButton } from "@/components/slack/SlackConnectButton";
 import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
@@ -174,6 +175,21 @@ export function ManualTab({ projectId }: ManualTabProps) {
           </p>
           <div className="mt-3">
             <GitHubConnectButton workspaceId={workspaceId} />
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-foreground">
+          6. Optionally connect Slack for alerts
+        </p>
+        <div className="rounded-sm border border-border bg-muted/30 px-4 py-3">
+          <p className="text-xs text-muted-foreground">
+            Connect Slack to get detector alerts posted to a channel so your team is notified about
+            issues.
+          </p>
+          <div className="mt-3">
+            <SlackConnectButton workspaceId={workspaceId} />
           </div>
         </div>
       </div>

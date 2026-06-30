@@ -62,7 +62,10 @@ def real_cache() -> list[dict]:
 OPENAI_MODEL_CASES = [
     ("gpt-5.5", "gpt-5.5"),
     ("openai/gpt-5.5", "gpt-5.5"),
+    ("azure/gpt-5.5", "gpt-5.5"),
+    ("gpt-5.5-2026-03-15", "gpt-5.5"),
     ("gpt-5.5-pro", "gpt-5.5-pro"),
+    ("azure/gpt-5.5-pro", "gpt-5.5-pro"),
     ("gpt-5.4", "gpt-5.4"),
     ("gpt-5.4-mini", "gpt-5.4-mini"),
     ("gpt-5.4-nano", "gpt-5.4-nano"),
@@ -106,6 +109,27 @@ OPENAI_MODEL_CASES = [
     ("babbage-002", "babbage-002"),
 ]
 
+GLM_MODEL_CASES = [
+    ("glm-5.2", "glm-5.2"),
+    ("zai/glm-5.2", "glm-5.2"),
+    ("glm-5.1", "glm-5.1"),
+    ("zai/glm-5.1", "glm-5.1"),
+    ("glm-5", "glm-5"),
+    ("zai/glm-5", "glm-5"),
+    ("glm-5-turbo", "glm-5-turbo"),
+    ("zai/glm-5-turbo", "glm-5-turbo"),
+    ("glm-4.7", "glm-4.7"),
+    ("zai/glm-4.7", "glm-4.7"),
+    ("glm-4.6", "glm-4.6"),
+    ("zai/glm-4.6", "glm-4.6"),
+    ("glm-4.5", "glm-4.5"),
+    ("zai/glm-4.5", "glm-4.5"),
+    ("glm-4.5-air", "glm-4.5-air"),
+    ("zai/glm-4.5-air", "glm-4.5-air"),
+    ("glm-4.5-flash", "glm-4.5-flash"),
+]
+
+
 GEMINI_MODEL_CASES = [
     ("gemini-3.5-flash", "gemini-3.5-flash"),
     ("google/gemini-3.5-flash", "gemini-3.5-flash"),
@@ -125,6 +149,17 @@ GEMINI_MODEL_CASES = [
     ("gemini-2.0-flash-lite", "gemini-2.0-flash-lite"),
     ("gemini-1.5-flash", "gemini-1.5-flash"),
     ("gemini-1.5-pro", "gemini-1.5-pro"),
+]
+
+DEEPSEEK_MODEL_CASES = [
+    ("deepseek-v4-flash", "deepseek-v4-flash"),
+    ("deepseek/deepseek-v4-flash", "deepseek-v4-flash"),
+    ("deepseek-v4-flash-20260424", "deepseek-v4-flash"),
+    ("deepseek-chat", "deepseek-v4-flash"),
+    ("deepseek-reasoner", "deepseek-v4-flash"),
+    ("deepseek-v4-pro", "deepseek-v4-pro"),
+    ("deepseek/deepseek-v4-pro", "deepseek-v4-pro"),
+    ("deepseek-v4-pro-20260424", "deepseek-v4-pro"),
 ]
 
 
@@ -191,6 +226,43 @@ class TestGeminiModelIds:
         )
 
 
+class TestDeepSeekModelIds:
+    @pytest.mark.parametrize("model_id,expected_name", DEEPSEEK_MODEL_CASES)
+    def test_matches_expected_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert "input" in price and "output" in price
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched a different entry than {expected_name}"
+        )
+
+    def test_deepseek_v4_pro_calculates_cost(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            result = calculate_cost("deepseek-v4-pro", "Hello world", "Hi there")
+
+        assert result["input_tokens"] is not None
+        assert result["input_tokens"] > 0
+        assert result["output_tokens"] is not None
+        assert result["output_tokens"] > 0
+        assert result["cost"] is not None
+        assert result["cost"] > 0
+
+
+class TestGLMModelIds:
+    @pytest.mark.parametrize("model_id,expected_name", GLM_MODEL_CASES)
+    def test_matches_expected_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert "input" in price and "output" in price
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched a different entry than {expected_name}"
+        )
+
+
 @patch("worker.tokens.pricing._load_cache", _mock_load_cache)
 class TestCalculateCost:
     def test_known_model_with_text(self):
@@ -241,10 +313,22 @@ class TestCalculateCost:
 
 # (model_id, expected modelName) for IDs the worker must price correctly.
 CLAUDE_BEDROCK_VERTEX_CASES = [
+    # Opus 4.8 — plain, [1m] variant, Bedrock, Vertex
+    ("claude-opus-4-8", "claude-opus-4-8"),
+    ("claude-opus-4-8[1m]", "claude-opus-4-8"),
+    ("anthropic/claude-opus-4-8", "claude-opus-4-8"),
+    ("us.anthropic.claude-opus-4-8-20260601-v1:0", "claude-opus-4-8"),
+    ("eu.anthropic.claude-opus-4-8-20260601-v1:0", "claude-opus-4-8"),
+    ("claude-4-8-opus@20260601", "claude-opus-4-8"),
+    # Opus 4.7
     ("claude-opus-4-7", "claude-opus-4-7"),
     ("claude-opus-4-7[1m]", "claude-opus-4-7"),
     ("us.anthropic.claude-opus-4-7-20260514-v1:0", "claude-opus-4-7"),
     ("claude-4-7-opus@20260514", "claude-opus-4-7"),
+    # Opus 4.6 — [1m] variant (previously missing)
+    ("claude-opus-4-6[1m]", "claude-opus-4-6"),
+    # Opus 4.5 — [1m] variant (previously missing)
+    ("claude-opus-4-5[1m]", "claude-opus-4-5"),
     # Bedrock — with cross-region inference profile prefixes
     ("us.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("eu.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
@@ -292,3 +376,247 @@ class TestClaudeBedrockAndVertexIds:
     def test_unrelated_model_still_none(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             assert get_model_price("totally-not-a-real-model-2099") is None
+
+
+def test_cost_from_buckets_prices_each_bucket_once():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    prices = {
+        "input": 0.000003,
+        "output": 0.000015,
+        "cacheRead": 0.0000003,
+        "cacheWrite": 0.00000375,
+    }
+    buckets = TokenBuckets(input_uncached=60, output=50, cache_read=900, cache_write=40)
+    expected = 60 * 0.000003 + 50 * 0.000015 + 900 * 0.0000003 + 40 * 0.00000375
+    assert cost_from_buckets(prices, buckets) == pytest.approx(expected)
+
+
+def test_cost_from_buckets_treats_missing_cache_rates_as_zero():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    # Model with no cache rates (e.g. OpenAI has no cacheWrite).
+    prices = {"input": 0.0000025, "output": 0.00001}
+    buckets = TokenBuckets(input_uncached=100, output=50, cache_read=900, cache_write=0)
+    expected = 100 * 0.0000025 + 50 * 0.00001  # cache_read priced at 0 (no rate)
+    assert cost_from_buckets(prices, buckets) == pytest.approx(expected)
+
+
+def test_cost_from_buckets_returns_none_without_prices():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    buckets = TokenBuckets(input_uncached=100, output=50, cache_read=0, cache_write=0)
+    assert cost_from_buckets(None, buckets) is None
+    assert cost_from_buckets({}, buckets) is None
+
+
+def test_calculate_cost_matches_cost_from_buckets_for_text_path():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import calculate_cost, cost_from_buckets
+
+    prices = {"input": 0.0000025, "output": 0.00001}
+    with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+        result = calculate_cost("gpt-4o", "hello world", "hi there")
+
+    in_tok = result["input_tokens"]
+    out_tok = result["output_tokens"]
+    expected = cost_from_buckets(
+        prices, TokenBuckets(input_uncached=in_tok, output=out_tok, cache_read=0, cache_write=0)
+    )
+    assert result["cost"] == pytest.approx(expected)
+
+
+def test_cost_breakdown_from_buckets_sums_to_cost_from_buckets():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_breakdown_from_buckets, cost_from_buckets
+
+    prices = {
+        "input": 0.000003,
+        "output": 0.000015,
+        "cacheRead": 0.0000003,
+        "cacheWrite": 0.00000375,
+    }
+    buckets = TokenBuckets(input_uncached=2000, output=1500, cache_read=6000, cache_write=2000)
+    breakdown = cost_breakdown_from_buckets(prices, buckets)
+    assert breakdown == {
+        "input_uncached_cost": pytest.approx(2000 * 0.000003),
+        "cache_read_cost": pytest.approx(6000 * 0.0000003),
+        "cache_write_cost": pytest.approx(2000 * 0.00000375),
+        "output_cost": pytest.approx(1500 * 0.000015),
+    }
+    assert sum(breakdown.values()) == pytest.approx(cost_from_buckets(prices, buckets))
+
+
+def test_cost_breakdown_from_buckets_treats_missing_cache_rates_as_zero():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_breakdown_from_buckets
+
+    prices = {"input": 0.0000025, "output": 0.00001}  # OpenAI: no cache rates
+    buckets = TokenBuckets(input_uncached=4000, output=1000, cache_read=4000, cache_write=0)
+    breakdown = cost_breakdown_from_buckets(prices, buckets)
+    assert breakdown["cache_read_cost"] == 0.0
+    assert breakdown["cache_write_cost"] == 0.0
+    assert breakdown["input_uncached_cost"] == pytest.approx(4000 * 0.0000025)
+    assert breakdown["output_cost"] == pytest.approx(1000 * 0.00001)
+
+
+def test_cost_breakdown_from_buckets_returns_none_without_prices():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_breakdown_from_buckets
+
+    buckets = TokenBuckets(input_uncached=100, output=50)
+    assert cost_breakdown_from_buckets(None, buckets) is None
+    assert cost_breakdown_from_buckets({}, buckets) is None
+
+
+# ---------------------------------------------------------------------------
+# Cache-write 1-hour portion pricing. The portion is a sub-partition of the
+# cache_write total: the 1-hour portion at its own rate, remainder at cacheWrite.
+# ---------------------------------------------------------------------------
+
+# opus-4.x-shaped rates: cacheWrite is the 5-minute / default rate (1.25x input);
+# cacheWrite1h = 2x input.
+TTL_PRICES = {
+    "input": 0.000005,
+    "output": 0.000025,
+    "cacheRead": 0.0000005,
+    "cacheWrite": 0.00000625,
+    "cacheWrite1h": 0.00001,
+}
+
+
+def test_cache_write_1h_portion_prices_at_its_own_rate():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    # 900 write tokens: 600 @1h, 300 remainder (priced at cacheWrite).
+    buckets = TokenBuckets(cache_write=900, cache_write_1h=600)
+    expected = 300 * 0.00000625 + 600 * 0.00001
+    assert cost_from_buckets(TTL_PRICES, buckets) == pytest.approx(expected)
+
+
+def test_cache_write_remainder_prices_at_combined_rate():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    # 1000 write: 200 @1h, 800 remainder (priced at cacheWrite).
+    buckets = TokenBuckets(cache_write=1000, cache_write_1h=200)
+    expected = 200 * 0.00001 + 800 * 0.00000625
+    assert cost_from_buckets(TTL_PRICES, buckets) == pytest.approx(expected)
+
+
+def test_cost_from_buckets_caps_unreconciled_1h():
+    # Defense-in-depth: _bucket_cost_terms is the single source of truth, so a
+    # hand-built bucket that over-reports the 1-hour portion (1h > cache_write) must
+    # still price at most the write total — never double-count.
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    over = TokenBuckets(cache_write=100, cache_write_1h=180)
+    capped = TokenBuckets(cache_write=100, cache_write_1h=100)
+    assert cost_from_buckets(TTL_PRICES, over) == pytest.approx(
+        cost_from_buckets(TTL_PRICES, capped)
+    )
+    # Never exceeds pricing the whole write total at the 1h rate.
+    assert cost_from_buckets(TTL_PRICES, over) <= 100 * TTL_PRICES["cacheWrite1h"]
+
+
+def test_negative_cache_write_total_never_prices_negative():
+    # A malformed negative total must clamp to 0, never produce a negative cost
+    # (the total is clamped non-negative before the split math, matching the TS helper).
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    buckets = TokenBuckets(cache_write=-500, cache_write_1h=-200)
+    assert cost_from_buckets(TTL_PRICES, buckets) == pytest.approx(0.0)
+
+
+def test_negative_counts_never_price_negative_matches_ts():
+    # Every count is clamped non-negative before pricing, so a fully-malformed bucket
+    # prices to exactly 0 — identical to the TS helper's all-negative case. Guards the
+    # Python<->TS parity invariant for negative inputs.
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    buckets = TokenBuckets(
+        input_uncached=-100,
+        output=-50,
+        cache_read=-10,
+        cache_write=-900,
+        cache_write_1h=-1,
+    )
+    assert cost_from_buckets(TTL_PRICES, buckets) == pytest.approx(0.0)
+
+
+def test_cache_write_1h_rate_of_zero_falls_back_to_combined_rate():
+    # An explicit cacheWrite1h of 0 is treated as unset and falls back to cacheWrite,
+    # matching the TS `|| cacheWriteRate` fallback so the two cost formulas agree.
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    prices = {"input": 0.000005, "output": 0.0, "cacheWrite": 0.00000625, "cacheWrite1h": 0.0}
+    buckets = TokenBuckets(cache_write=100, cache_write_1h=40)
+    # 40 @1h (-> cacheWrite, since cacheWrite1h is 0) + 60 remainder @cacheWrite.
+    expected = 100 * 0.00000625
+    assert cost_from_buckets(prices, buckets) == pytest.approx(expected)
+
+
+def test_cache_write_1h_without_ttl_rate_matches_combined():
+    # A 1-hour portion present but the model has no 1h rate (e.g. non-Anthropic): it
+    # falls back to cacheWrite, so cost == the pre-split formula.
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    prices = {"input": 0.000003, "output": 0.0, "cacheWrite": 0.00000375}
+    split = TokenBuckets(cache_write=500, cache_write_1h=150)
+    combined = TokenBuckets(cache_write=500)
+    assert cost_from_buckets(prices, split) == pytest.approx(cost_from_buckets(prices, combined))
+
+
+def test_cache_write_1h_absent_is_byte_identical_to_today():
+    # Regression guard: with no 1-hour portion, cache_write_cost == cache_write * cacheWrite.
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_breakdown_from_buckets
+
+    buckets = TokenBuckets(input_uncached=10, output=5, cache_read=20, cache_write=300)
+    breakdown = cost_breakdown_from_buckets(TTL_PRICES, buckets)
+    assert breakdown["cache_write_cost"] == pytest.approx(300 * 0.00000625)
+
+
+def test_cache_write_1h_breakdown_still_sums_to_total():
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_breakdown_from_buckets, cost_from_buckets
+
+    buckets = TokenBuckets(
+        input_uncached=100,
+        output=50,
+        cache_read=200,
+        cache_write=300,
+        cache_write_1h=180,
+    )
+    breakdown = cost_breakdown_from_buckets(TTL_PRICES, buckets)
+    assert sum(breakdown.values()) == pytest.approx(cost_from_buckets(TTL_PRICES, buckets))
+    # cache_write_cost stays one canonical term: the 1-hour portion is priced inside it,
+    # never added as extra keys, so the total can't double-count.
+    assert set(breakdown) == {
+        "input_uncached_cost",
+        "cache_read_cost",
+        "cache_write_cost",
+        "output_cost",
+    }
+
+
+def test_anthropic_entries_have_2x_input_1h_cache_rate():
+    # Every Anthropic entry that has a cache-write rate must carry a 1h rate equal
+    # to 2x its input rate (Anthropic's platform pricing for 1-hour cache writes).
+    anthropic = [e for e in _standard_price_entries() if e.get("provider") == "anthropic"]
+    assert anthropic, "expected anthropic entries in the price table"
+    for entry in anthropic:
+        prices = entry["prices"]
+        if prices.get("cacheWrite") is None:
+            continue
+        assert "cacheWrite1h" in prices, f"{entry['modelName']} missing cacheWrite1h"
+        assert prices["cacheWrite1h"] == pytest.approx(prices["input"] * 2), entry["modelName"]

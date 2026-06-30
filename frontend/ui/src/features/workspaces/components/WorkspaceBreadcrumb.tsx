@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
 import { Breadcrumb, BreadcrumbItem } from "@/components/layout/breadcrumb";
-import { useWorkspace } from "../hooks";
+import { useWorkspace, useWorkspaces } from "../hooks";
+import { workspaceSwitchHref } from "../utils";
+import { CreateWorkspaceDialog } from "./CreateWorkspaceDialog";
 
 interface WorkspaceBreadcrumbProps {
   workspaceId: string;
@@ -14,6 +17,8 @@ interface WorkspaceBreadcrumbProps {
 /**
  * Breadcrumb component for workspace context pages.
  * Automatically fetches workspace data and sets the header.
+ * The workspace segment is a dropdown selector for quick switching and
+ * creation; selecting a workspace keeps the current sub-page.
  *
  * Usage:
  * ```tsx
@@ -23,14 +28,24 @@ interface WorkspaceBreadcrumbProps {
  */
 export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrumbProps) {
   const { setHeaderContent } = useLayout();
+  const pathname = usePathname();
   const { data: workspace } = useWorkspace(workspaceId);
+  const { data: workspaces } = useWorkspaces();
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
 
   useEffect(() => {
     const breadcrumbItems: BreadcrumbItem[] = [
-      { label: "Workspaces", href: "/workspaces" },
       {
         label: workspace?.name || "...",
         href: current ? `/workspaces/${workspaceId}/projects` : undefined,
+        options: workspaces?.map((ws) => ({
+          id: ws.id,
+          label: ws.name,
+          href: workspaceSwitchHref(pathname, ws.id),
+          settingsHref: `/workspaces/${ws.id}/settings`,
+        })),
+        menuHeader: { label: "Workspaces", href: "/workspaces" },
+        createNew: { label: "New workspace", onSelect: () => setCreateWorkspaceOpen(true) },
       },
     ];
 
@@ -40,7 +55,7 @@ export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrum
 
     setHeaderContent(<Breadcrumb items={breadcrumbItems} />);
     return () => setHeaderContent(null);
-  }, [setHeaderContent, workspace, workspaceId, current]);
+  }, [setHeaderContent, workspace, workspaces, workspaceId, current, pathname]);
 
-  return null;
+  return <CreateWorkspaceDialog open={createWorkspaceOpen} onOpenChange={setCreateWorkspaceOpen} />;
 }

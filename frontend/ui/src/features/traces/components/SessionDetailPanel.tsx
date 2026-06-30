@@ -70,14 +70,14 @@ function TraceCard({
           defaultOpen={true}
           onCopy={trace.input ? () => navigator.clipboard.writeText(trace.input!) : undefined}
         >
-          <ContentRenderer content={trace.input} />
+          <ContentRenderer key={trace.trace_id} content={trace.input} />
         </ExpandableSection>
         <ExpandableSection
           title="Output"
           defaultOpen={true}
           onCopy={trace.output ? () => navigator.clipboard.writeText(trace.output!) : undefined}
         >
-          <ContentRenderer content={trace.output} />
+          <ContentRenderer key={trace.trace_id} content={trace.output} />
         </ExpandableSection>
       </div>
     </div>
@@ -105,6 +105,19 @@ export function SessionDetailPanel({
   useEffect(() => {
     return registerAiHost();
   }, [registerAiHost]);
+
+  // Close the panel on Escape. A nested Radix overlay (dialog/select/popover/menu) that
+  // consumes the Escape calls preventDefault() in the capture phase, before this
+  // bubble-phase listener runs — so defaultPrevented means "already handled, leave the panel open".
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (e.defaultPrevented) return;
+      onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   // Compute timestamps from date filter props
   const sessionQueryOptions = useMemo(() => {

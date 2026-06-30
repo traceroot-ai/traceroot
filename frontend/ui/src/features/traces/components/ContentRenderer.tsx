@@ -22,32 +22,19 @@ export function ContentRenderer({ content }: ContentRendererProps) {
     return <InlineMedia {...directMedia} />;
   }
 
-  // Try to parse as JSON
+  // Try to parse as JSON; on failure fall back to the raw text. Either way the
+  // value is rendered through JsonRenderer, which truncates long strings behind
+  // a "show more" toggle and starts nested objects collapsed so selecting a
+  // span with a large I/O blob doesn't flood the DOM on click.
+  let value: unknown = content;
   try {
-    const parsed = JSON.parse(content);
-    if (typeof parsed === "object" && parsed !== null) {
-      return (
-        <div className="font-mono text-[11px] leading-relaxed">
-          <JsonRenderer value={parsed} />
-        </div>
-      );
-    }
-    // If it's a primitive after parsing, just show it
-    const parsedMedia = typeof parsed === "string" ? mediaSrc(parsed) : null;
-    if (parsedMedia) {
-      return <InlineMedia {...parsedMedia} />;
-    }
-    return (
-      <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">
-        {content}
-      </pre>
-    );
+    value = JSON.parse(content);
   } catch {
-    // Not valid JSON, show as plain text
-    return (
-      <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">
-        {content}
-      </pre>
-    );
+    // Not valid JSON — render the raw text.
   }
+  return (
+    <div className="font-mono text-[11px] leading-relaxed">
+      <JsonRenderer value={value} />
+    </div>
+  );
 }

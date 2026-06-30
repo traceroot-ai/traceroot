@@ -138,6 +138,8 @@ model Project {
   updateTime   DateTime  @default(now()) @map("update_time") @db.Timestamp(6)
   // Agent model for Step 2 deep analysis — project-scoped, shared across all detectors
   rcaModel     String?   @map("rca_model") @db.VarChar
+  rcaProvider  String?   @map("rca_provider") @db.VarChar
+  rcaSource    String?   @map("rca_source") @db.VarChar
   accessKeys   AccessKey[]
   aiSessions   AISession[]
   detectors    Detector[]
@@ -350,8 +352,9 @@ model Detector {
   template     String   @db.VarChar  // "failure"|"hallucination"|"logic"|"task"|"safety"|"intent"|"blank"
   prompt       String   @db.Text
   outputSchema       Json     @map("output_schema") @db.JsonB
-  sampleRate         Int      @default(100) @map("sample_rate")  // 1–100
+  sampleRate         Int      @default(25) @map("sample_rate")  // 1–100
   enabled            Boolean  @default(true)
+  enableRca          Boolean  @default(true) @map("enable_rca")  // run agent-model RCA on this detector's findings
   detectionModel     String?  @map("detection_model") @db.VarChar    // model id; null = worker picks default
   detectionProvider  String?  @map("detection_provider") @db.VarChar // provider label (system: "anthropic"/"openai"; BYOK: ModelProvider.provider row label)
   detectionSource    String?  @map("detection_source") @db.VarChar   // "system" | "byok" | null (legacy/seeded)
@@ -388,6 +391,10 @@ model DetectorAlertConfig {
   // When set, takes precedence over SlackIntegration.channelId.
   slackChannelId   String? @map("slack_channel_id")   @db.VarChar
   slackChannelName String? @map("slack_channel_name") @db.VarChar
+
+  // Project-level alert batching window. One of the ALERT_WINDOWS tokens.
+  // Every alert is a windowed digest; defaults to DEFAULT_ALERT_WINDOW ("10m").
+  alertWindow String @default("10m") @map("alert_window") @db.VarChar
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 

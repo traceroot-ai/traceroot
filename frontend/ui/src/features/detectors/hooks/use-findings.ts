@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-/** Snake-case shape returned by the backend */
+/** Snake-case shape returned by the backend for a trace's findings */
 export interface BackendFinding {
   finding_id: string;
   trace_id: string;
@@ -10,50 +10,43 @@ export interface BackendFinding {
   payload: string;
 }
 
+/** How a run's `rca_status` renders in the "Agent analysis" column. */
+export interface RcaStatusPresentation {
+  label: string;
+  className: string;
+  title?: string;
+}
+
+/**
+ * Single source of truth for the agent-analysis status vocabulary:
+ * absent field (enrichment unavailable) -> "—", null (no stored RCA row) ->
+ * "Skipped", terminal/in-flight statuses -> their labels. An unrecognized
+ * future status renders as its raw value rather than a misleading "Running…".
+ */
+export function describeRcaStatus(status: BackendRun["rca_status"]): RcaStatusPresentation {
+  if (status === undefined) {
+    return { label: "—", className: "font-mono text-[11px] text-muted-foreground" };
+  }
+  if (status === null) {
+    return {
+      label: "Skipped",
+      className: "text-muted-foreground",
+      title: "Root cause analysis was off for the detector(s) that fired",
+    };
+  }
+  if (status === "failed") return { label: "Failed", className: "text-destructive" };
+  if (status === "done") return { label: "Done", className: "text-foreground" };
+  if (status === "pending" || status === "running") {
+    return { label: "Running…", className: "text-muted-foreground" };
+  }
+  return { label: status, className: "text-muted-foreground" };
+}
+
 /** Pagination metadata returned alongside data arrays. */
 export interface PaginationMeta {
   page: number;
   limit: number;
   total: number;
-}
-
-/**
- * Query options shape mirrors `TraceQueryOptions` so a `useListPageState`
- * `queryOptions` object can be spread directly into either hook.
- */
-export interface FindingsQuery {
-  page?: number;
-  limit?: number;
-  /** ISO-8601 lower bound on `timestamp` (inclusive). */
-  start_after?: string;
-  /** ISO-8601 upper bound on `timestamp` (exclusive). */
-  end_before?: string;
-  /** Substring match against trace_id OR summary. */
-  search_query?: string;
-}
-
-export interface FindingsResponse {
-  data: BackendFinding[];
-  meta: PaginationMeta;
-}
-
-async function fetchFindings(
-  projectId: string,
-  detectorId: string,
-  query: FindingsQuery = {},
-): Promise<FindingsResponse> {
-  const params = new URLSearchParams();
-  if (query.page !== undefined) params.set("page", String(query.page));
-  if (query.limit !== undefined) params.set("limit", String(query.limit));
-  if (query.start_after) params.set("start_after", query.start_after);
-  if (query.end_before) params.set("end_before", query.end_before);
-  if (query.search_query) params.set("search_query", query.search_query);
-
-  const qs = params.toString();
-  const url = `/api/projects/${projectId}/detectors/${detectorId}/findings${qs ? `?${qs}` : ""}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch findings: ${res.status}`);
-  return res.json() as Promise<FindingsResponse>;
 }
 
 async function fetchTraceFindings(
@@ -64,23 +57,6 @@ async function fetchTraceFindings(
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch trace findings: ${res.status}`);
   return res.json() as Promise<{ findings: BackendFinding[] }>;
-}
-
-export function useFindings(projectId: string, detectorId: string, query: FindingsQuery = {}) {
-  return useQuery({
-    queryKey: [
-      "findings",
-      projectId,
-      detectorId,
-      query.page ?? 0,
-      query.limit ?? 50,
-      query.search_query ?? null,
-      query.start_after ?? null,
-      query.end_before ?? null,
-    ],
-    queryFn: () => fetchFindings(projectId, detectorId, query),
-    enabled: !!projectId && !!detectorId,
-  });
 }
 
 export interface DetectorRca {
@@ -127,6 +103,17 @@ export interface BackendRun {
   timestamp: string;
   /** Per-detector summary from the finding payload. Empty string when not triggered. */
   summary: string;
+  /**
+   * Human-readable detector name, joined in the trace-detector-runs proxy.
+   * Falls back to `detector_id` when the detector was deleted.
+   */
+  name?: string;
+  /**
+   * Stored RCA status for a triggered run, enriched by the runs proxy route.
+   * null = no DetectorRca row (RCA skipped — disabled on every detector that
+   * fired); absent = enrichment unavailable or the run never triggered.
+   */
+  rca_status?: "pending" | "running" | "done" | "failed" | null;
 }
 
 export interface RunsQuery {
@@ -135,6 +122,8 @@ export interface RunsQuery {
   start_after?: string;
   end_before?: string;
   search_query?: string;
+  /** When true, return only triggered runs (finding_id IS NOT NULL). */
+  identified?: boolean;
 }
 
 export interface RunsResponse {
@@ -153,6 +142,7 @@ async function fetchRuns(
   if (query.start_after) params.set("start_after", query.start_after);
   if (query.end_before) params.set("end_before", query.end_before);
   if (query.search_query) params.set("search_query", query.search_query);
+  if (query.identified) params.set("identified", "true");
 
   const qs = params.toString();
   const url = `/api/projects/${projectId}/detectors/${detectorId}/runs${qs ? `?${qs}` : ""}`;
@@ -172,6 +162,7 @@ export function useRuns(projectId: string, detectorId: string, query: RunsQuery 
       query.search_query ?? null,
       query.start_after ?? null,
       query.end_before ?? null,
+      query.identified ?? false,
     ],
     queryFn: () => fetchRuns(projectId, detectorId, query),
     enabled: !!projectId && !!detectorId,
@@ -182,6 +173,24 @@ export function useTraceFindings(projectId: string, traceId: string) {
   return useQuery({
     queryKey: ["trace-findings", projectId, traceId],
     queryFn: () => fetchTraceFindings(projectId, traceId),
+    enabled: !!projectId && !!traceId,
+  });
+}
+
+async function fetchTraceDetectorRuns(
+  projectId: string,
+  traceId: string,
+): Promise<{ runs: BackendRun[] }> {
+  const url = `/api/projects/${projectId}/traces/${traceId}/detector-runs`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch trace detector runs: ${res.status}`);
+  return res.json() as Promise<{ runs: BackendRun[] }>;
+}
+
+export function useTraceDetectorRuns(projectId: string, traceId: string) {
+  return useQuery({
+    queryKey: ["trace-detector-runs", projectId, traceId],
+    queryFn: () => fetchTraceDetectorRuns(projectId, traceId),
     enabled: !!projectId && !!traceId,
   });
 }

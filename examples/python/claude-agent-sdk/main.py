@@ -103,6 +103,7 @@ async def run_research(topic: str) -> str:
             f"Coordinate the agents and present the final report."
         ),
         options=ClaudeAgentOptions(
+            model="sonnet",
             allowed_tools=["Agent"],
             max_turns=15,
             # WARNING: bypassPermissions auto-approves all tool calls (Bash, WebSearch)
@@ -128,6 +129,7 @@ async def run_research(topic: str) -> str:
 
 DEMO_TOPICS = [
     "What are the key features of OpenTelemetry for AI observability?",
+    "What is Model Context Protocol (MCP) and why does it matter?",
 ]
 
 

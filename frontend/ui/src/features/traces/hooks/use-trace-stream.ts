@@ -8,8 +8,12 @@ import { enrichSpansWithPending } from "../utils";
 /**
  * Merge incoming spans into existing spans array.
  * Incoming spans replace existing ones with the same span_id — real spans replace placeholders.
+ *
+ * Exported for unit testing: with two-phase loading the `existing` array holds
+ * skeleton spans (no I/O) while `incoming` live-SSE spans carry full I/O +
+ * metadata; both must flow through here without type/shape errors.
  */
-function mergeSpans(existing: Span[], incoming: Span[]): Span[] {
+export function mergeSpans(existing: Span[], incoming: Span[]): Span[] {
   const incomingIds = new Set(incoming.map((s) => s.span_id));
   return [...existing.filter((s) => !incomingIds.has(s.span_id)), ...incoming];
 }

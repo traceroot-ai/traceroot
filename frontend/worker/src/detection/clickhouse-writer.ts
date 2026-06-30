@@ -30,6 +30,10 @@ export async function writeDetectorRun(params: {
   traceId: string;
   findingId: string | null;
   status: "completed" | "failed";
+  // Worker epoch-ms time to store as the row timestamp. Omit to let ClickHouse
+  // default to now64(3). Set for triggered runs so the digest window count
+  // shares the clock that keys the flush.
+  timestampMs?: number;
 }): Promise<void> {
   await internalPost("/api/v1/internal/detector-runs", params);
 }
@@ -40,6 +44,7 @@ export async function writeDetectorFinding(params: {
   traceId: string;
   summary: string;
   payload: string;
+  timestampMs?: number;
 }): Promise<void> {
   await internalPost("/api/v1/internal/detector-findings", params);
 }

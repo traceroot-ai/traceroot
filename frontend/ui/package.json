@@ -3,13 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "dotenv -e ../../.env -- next dev --webpack",
+    "dev": "dotenv -e ../../.env -- next dev --turbopack",
     "build": "dotenv -e ../../.env -- next build --webpack",
     "start": "dotenv -e ../../.env -- next start",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\""
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -24,14 +26,14 @@
     "@traceroot/github": "workspace:*",
     "@traceroot/slack": "workspace:*",
     "bcryptjs": "^3.0.3",
-    "better-auth": "^1.6.2",
+    "better-auth": "^1.6.11",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.468.0",
     "next": "16.2.6",
     "next-themes": "^0.4.6",
-    "nodemailer": "^8.0.5",
+    "nodemailer": "^9.0.1",
     "posthog-js": "^1.362.0",
     "react": "19.0.0",
     "react-dom": "19.0.0",
@@ -46,14 +48,19 @@
   "devDependencies": {
     "@tailwindcss/container-queries": "^0.1.1",
     "@tailwindcss/typography": "^0.5.19",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@types/bcryptjs": "^3.0.0",
     "@types/node": "^22.0.0",
     "@types/nodemailer": "^7.0.9",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@vitest/coverage-v8": "^3.2.6",
     "autoprefixer": "^10.5.0",
-    "postcss": "^8.5.13",
+    "jsdom": "^29.1.1",
+    "postcss": "^8.5.15",
     "tailwindcss": "^3.4.16",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.6"
   }
 }

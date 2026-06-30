@@ -81,7 +81,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const viewerOwnsAiSlot = aiHostRefCount > 0;
 
   const isObservabilityPage = /^\/projects\/[^/]+\/(traces|users|sessions)(\/|$)/.test(pathname);
-  const showAiButton = isObservabilityPage && !hideAiButton;
+  // Viewer panels (trace / session detail) carry their own AI Assistant
+  // button, so the navbar copy would duplicate it — visibly so in fullscreen,
+  // where the panel sits below the header instead of covering it. Step aside
+  // while any viewer owns the AI slot; the button returns when it unmounts.
+  const showAiButton = isObservabilityPage && !hideAiButton && !viewerOwnsAiSlot;
   const projectIdMatch = pathname.match(/^\/projects\/([^/]+)/);
   const projectId = projectIdMatch?.[1];
 

@@ -1,4 +1,4 @@
-import { isBillingEnabled } from "../license.js";
+import { isBillingEnabled } from "../license.ts";
 export { isBillingEnabled };
 
 // =============================================================================
@@ -69,6 +69,25 @@ export function isFreePlanBlocked(currentUsage: number): boolean {
 }
 
 /**
+ * Check if event ingestion should be blocked for a given plan and usage.
+ * Free plan: hard cap at the included span allowance (50k).
+ * Paid plans: never blocked (overage is billed via Stripe).
+ *
+ * Mirrors isAiRunBlocked / isRcaRunBlocked / isDetectorRunBlocked. Ingestion
+ * previously had only isFreePlanBlocked (no plan argument), so processWorkspace
+ * gated it behind `if (isFreePlan)` and never cleared the flag on upgrade — a
+ * workspace that tripped the Free cap and then upgraded stayed blocked
+ * indefinitely. Returning false for paid plans here clears that stale block.
+ */
+export function isIngestionBlocked(plan: PlanType, totalEvents: number): boolean {
+  if (!isBillingEnabled()) return false;
+  if (plan === PlanType.FREE) {
+    return totalEvents >= EVENT_QUOTAS[plan].included;
+  }
+  return false;
+}
+
+/**
  * Check if AI runs should be blocked for a given plan and usage.
  * Free plan: hard cap at included runs (30).
  * Paid plans: never blocked (overage is billed via Stripe).
@@ -136,7 +155,7 @@ const ENTITLEMENT_CONFIG = {
   "ai-auto-triage": [PlanType.FREE, PlanType.STARTER, PlanType.PRO, PlanType.ENTERPRISE],
   byok: [PlanType.FREE, PlanType.STARTER, PlanType.PRO, PlanType.ENTERPRISE],
   "github-integration": [PlanType.PRO, PlanType.ENTERPRISE],
-  "slack-integration": [PlanType.PRO, PlanType.ENTERPRISE],
+  "slack-integration": [PlanType.FREE, PlanType.STARTER, PlanType.PRO, PlanType.ENTERPRISE],
   soc2: [PlanType.PRO, PlanType.ENTERPRISE],
   "custom-compliance": [PlanType.ENTERPRISE],
   "sla-support": [PlanType.ENTERPRISE],
@@ -184,6 +203,7 @@ export const PLANS: Record<
       "30 chat runs/month",
       "30 RCA runs/month",
       "100 detector runs/month",
+      "Slack alerts for detectors",
       "BYOK or hosted LLM",
     ],
     support: "Discord",
@@ -222,8 +242,7 @@ export const PLANS: Record<
     features: [
       "Everything in Starter",
       "90-day retention",
-      "Slack integration for detector alerts",
-      "Higher rate limits",
+      "20k ingest + 1k dashboard requests/min rate limits",
       "SOC2 compliance",
     ],
     support: "Discord + Slack",
@@ -236,7 +255,7 @@ export const PLANS: Record<
     billingPriceId: "",
     highlighted: false,
     badge: null,
-    features: ["Everything in Pro", "Custom retention", "Slack + SLA support"],
+    features: ["Everything in Pro", "Custom retention", "SLA support"],
     support: "Discord + Slack + SLA",
     entitlements: getEntitlementsForPlan(PlanType.ENTERPRISE),
   },

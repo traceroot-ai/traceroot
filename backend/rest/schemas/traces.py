@@ -7,8 +7,17 @@ from pydantic import BaseModel
 from rest.schemas.common import PaginationMeta
 
 
-class SpanResponse(BaseModel):
-    """Single span in a trace."""
+class SpanSkeletonResponse(BaseModel):
+    """Span skeleton — tree-building / display fields only, no I/O blobs.
+
+    Used by the trace-detail endpoint so the initial payload stays sub-MB
+    regardless of trace size. Full I/O (input/output/metadata) is fetched
+    per-span on demand via the dedicated ``/spans/{span_id}/io`` endpoint.
+
+    Note: the token/cost breakdown maps (``usage_details``/``cost_details``)
+    stay on the skeleton — they are small and drive the tree's token/cost
+    chips. Only the large free-text I/O blobs are omitted.
+    """
 
     span_id: str
     trace_id: str
@@ -24,12 +33,39 @@ class SpanResponse(BaseModel):
     input_tokens: int | None
     output_tokens: int | None
     total_tokens: int | None
-    input: str | None
-    output: str | None
-    metadata: str | None
+    usage_details: dict[str, int] = {}
+    cost_details: dict[str, float] = {}
     git_source_file: str | None = None
     git_source_line: int | None = None
     git_source_function: str | None = None
+
+
+class SpanResponse(SpanSkeletonResponse):
+    """A span skeleton plus its per-span I/O blobs (``input``/``output``/``metadata``).
+
+    The projection-capable superset returned by the trace get/export endpoints.
+    The blobs default to ``None`` and are populated only when the caller requests
+    the matching field group (``io``/``metadata``; see
+    ``rest.projection``). The default ``skeleton`` projection leaves them ``None``
+    and never runs the bulk span-I/O query, so there is no payload or query-cost
+    regression for the dashboard. Keeping the fields present (as ``null``) rather
+    than omitting them is additive: a few bytes per span, and it matches the
+    fields the shipped CLI's generated types already declare.
+    """
+
+    input: str | None = None
+    output: str | None = None
+    metadata: str | None = None
+
+
+class SpanIOResponse(BaseModel):
+    """Full I/O payload for a single span, fetched on demand."""
+
+    span_id: str
+    trace_id: str
+    input: str | None
+    output: str | None
+    metadata: str | None
 
 
 class TraceListItem(BaseModel):
@@ -59,7 +95,15 @@ class TraceListResponse(BaseModel):
 
 
 class TraceDetailResponse(BaseModel):
-    """Single trace with all spans."""
+    """Single trace with its spans.
+
+    Spans use ``SpanResponse`` (the skeleton superset): per-span ``input``/
+    ``output``/``metadata`` are present but default to ``None``. They are
+    populated only when the caller requests the matching ``io``/``metadata``
+    field group (see ``rest.projection``); the default ``skeleton`` projection
+    leaves them ``None`` and never runs the bulk span-I/O query, preserving the
+    #1040 lightweight behavior.
+    """
 
     trace_id: str
     project_id: str
