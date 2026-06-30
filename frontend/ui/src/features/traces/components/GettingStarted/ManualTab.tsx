@@ -5,13 +5,13 @@ import { cn } from "@/lib/utils";
 import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
 import { CodeBlock } from "./CodeBlock";
-import { OptionalNextSteps } from "./OptionalNextSteps";
+import { ExternalIntegrations } from "./ExternalIntegrations";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
 import { ALL_LANGS, INTEGRATIONS, type IntegrationCategory, type Lang } from "./integrations";
 
 const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string }[] = [
-  { category: "framework", label: "Frameworks" },
   { category: "provider", label: "Model providers" },
+  { category: "framework", label: "Frameworks" },
 ];
 
 function LangTabs({
@@ -111,11 +111,7 @@ export function ManualTab({ projectId }: ManualTabProps) {
           return (
             <div key={group.category} className="space-y-1.5">
               <p className="text-xs font-medium text-muted-foreground">{group.label}</p>
-              <div
-                role="radiogroup"
-                aria-label={group.label}
-                className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3"
-              >
+              <div role="radiogroup" aria-label={group.label} className="flex flex-wrap gap-2">
                 {items.map((integration) => (
                   <IntegrationPickerCard
                     key={integration.id}
@@ -144,12 +140,12 @@ export function ManualTab({ projectId }: ManualTabProps) {
           4. Initialize TraceRoot for {selectedIntegration.name}
         </p>
         <LangTabs lang={resolvedLang} onChange={setLang} availableLangs={availableLangs} />
-        <CodeBlock label={resolvedLang} value={config.initSnippet} />
+        <CodeBlock label={resolvedLang} value={config.initSnippet} language={resolvedLang} />
       </div>
 
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">5. Optional next steps</p>
-        <OptionalNextSteps workspaceId={workspaceId} includeCli />
+        <p className="text-sm font-medium text-foreground">5. External integrations</p>
+        <ExternalIntegrations workspaceId={workspaceId} />
       </div>
     </div>
   );
