@@ -25,9 +25,12 @@ afterEach(() => {
 });
 
 describe("ManualTab", () => {
-  it("includes the CLI verification card as step 7", () => {
+  it("consolidates the optional extras (incl. CLI) into step 5", () => {
     const { container } = render(<ManualTab projectId="proj_1" />);
-    expect(screen.getByText("7. Verify your traces from the terminal (optional)")).toBeDefined();
+    expect(screen.getByText("5. Optional next steps")).toBeDefined();
+    expect(screen.getByText("Connect GitHub repositories")).toBeDefined();
+    expect(screen.getByText("Connect Slack for alerts")).toBeDefined();
+    // Manual tab passes includeCli, so the CLI verify row is present.
     expect(container.textContent ?? "").toContain("npm install -g traceroot-cli");
   });
 });

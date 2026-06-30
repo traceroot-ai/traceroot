@@ -28,4 +28,11 @@ describe("AITab", () => {
     // SetupTabs defaults to the CLI tab.
     expect(container.textContent ?? "").toContain("npm install -g traceroot-cli");
   });
+
+  it("groups GitHub and Slack into the optional next steps card", () => {
+    render(<AITab projectId="proj_1" />);
+    expect(screen.getByText("3. Optional next steps")).toBeDefined();
+    expect(screen.getByText("Connect GitHub repositories")).toBeDefined();
+    expect(screen.getByText("Connect Slack for alerts")).toBeDefined();
+  });
 });

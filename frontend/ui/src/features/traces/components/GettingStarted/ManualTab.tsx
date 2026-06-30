@@ -3,11 +3,9 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/ui/copy-button";
-import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
-import { SlackConnectButton } from "@/components/slack/SlackConnectButton";
 import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
-import { CliVerifyCard } from "./CliVerifyCard";
+import { OptionalNextSteps } from "./OptionalNextSteps";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
 import { ALL_LANGS, INTEGRATIONS, type IntegrationCategory, type Lang } from "./integrations";
 
@@ -166,36 +164,9 @@ export function ManualTab({ projectId }: ManualTabProps) {
       </div>
 
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">
-          5. Optionally connect your GitHub repositories
-        </p>
-        <div className="rounded-sm border border-border bg-muted/30 px-4 py-3">
-          <p className="text-xs text-muted-foreground">
-            Install the GitHub App for repository linking and code-level tracing during root cause
-            analysis.
-          </p>
-          <div className="mt-3">
-            <GitHubConnectButton workspaceId={workspaceId} />
-          </div>
-        </div>
+        <p className="text-sm font-medium text-foreground">5. Optional next steps</p>
+        <OptionalNextSteps workspaceId={workspaceId} includeCli />
       </div>
-
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">
-          6. Optionally connect Slack for alerts
-        </p>
-        <div className="rounded-sm border border-border bg-muted/30 px-4 py-3">
-          <p className="text-xs text-muted-foreground">
-            Connect Slack to get detector alerts posted to a channel so your team is notified about
-            issues.
-          </p>
-          <div className="mt-3">
-            <SlackConnectButton workspaceId={workspaceId} />
-          </div>
-        </div>
-      </div>
-
-      <CliVerifyCard step={7} />
     </div>
   );
 }
