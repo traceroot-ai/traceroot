@@ -54,7 +54,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
     return (
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <FaGithub className="h-6 w-6 text-muted-foreground" />
+          <FaGithub className="h-6 w-6 text-foreground" />
           <div>
             <div className="text-sm font-medium">GitHub</div>
             <div className="text-sm text-muted-foreground">Loading...</div>
@@ -118,7 +118,7 @@ export function GitHubConnectButton({ workspaceId }: GitHubConnectButtonProps) {
   return (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-3">
-        <FaGithub className="h-6 w-6 text-muted-foreground" />
+        <FaGithub className="h-6 w-6 text-foreground" />
         <div>
           <div className="text-sm font-medium">GitHub</div>
           <div className="text-sm text-muted-foreground">

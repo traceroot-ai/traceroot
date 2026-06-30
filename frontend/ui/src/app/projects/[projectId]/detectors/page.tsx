@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Eye, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LoadingState } from "@/components/ui/loading-state";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
@@ -125,7 +126,7 @@ export default function DetectorsPage() {
         <div className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center">
-              <p className="text-[13px] text-muted-foreground">Loading detectors...</p>
+              <LoadingState label="Loading detectors..." />
             </div>
           ) : error ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
