@@ -128,7 +128,13 @@
           {
             "group": "CLI",
             "pages": [
-              "cli/get-started"
+              "cli/get-started",
+              {
+                "group": "Maintainer Handoff",
+                "pages": [
+                  "developer/cli-public-api"
+                ]
+              }
             ]
           }
         ]
