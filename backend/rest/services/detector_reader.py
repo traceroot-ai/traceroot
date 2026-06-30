@@ -83,18 +83,27 @@ class DetectorReaderService:
         trace_id: str | None,
     ) -> tuple[list[FindingSummary], int]:
         """List findings for a project, newest first, with the total match count."""
-        conditions = ["project_id = {project_id:String}"]
         params: dict[str, Any] = {"project_id": project_id, "limit": limit}
 
+        # Immutable filters — safe to apply BEFORE dedup because a finding's
+        # project_id and trace_id never change across re-ingested versions.
+        base_conditions = ["project_id = {project_id:String}"]
+        if trace_id is not None:
+            base_conditions.append("trace_id = {trace_id:String}")
+            params["trace_id"] = trace_id
+
+        # Version-sensitive filters — applied AFTER dedup, to the latest version
+        # only. detector_findings is a ReplacingMergeTree(timestamp); filtering the
+        # time window or the payload-based detector predicate on raw pre-merge rows
+        # could surface a stale finding version whose latest version no longer
+        # matches. So we dedup to the latest row per finding first, then filter.
+        outer_conditions: list[str] = []
         if start_after is not None:
-            conditions.append("timestamp >= {start_after:DateTime64(3)}")
+            outer_conditions.append("timestamp >= {start_after:DateTime64(3)}")
             params["start_after"] = to_utc_naive(start_after)
         if end_before is not None:
-            conditions.append("timestamp < {end_before:DateTime64(3)}")
+            outer_conditions.append("timestamp < {end_before:DateTime64(3)}")
             params["end_before"] = to_utc_naive(end_before)
-        if trace_id is not None:
-            conditions.append("trace_id = {trace_id:String}")
-            params["trace_id"] = trace_id
         if detector is not None:
             # Backend-owned resolution: match a finding whose payload contains any
             # of the resolved tokens by detectorName OR detectorId. The raw token is
@@ -102,33 +111,32 @@ class DetectorReaderService:
             # when Postgres resolves nothing; an unresolved token matches nothing
             # (empty list, not an error).
             params["detector_names"] = self._resolve_detector_names(project_id, detector)
-            conditions.append(
+            outer_conditions.append(
                 "arrayExists("
                 "x -> JSONExtractString(x, 'detectorName') IN {detector_names:Array(String)} "
                 "OR JSONExtractString(x, 'detectorId') IN {detector_names:Array(String)}, "
                 "JSONExtractArrayRaw(payload))"
             )
 
-        where = " AND ".join(conditions)
+        base_where = " AND ".join(base_conditions)
+        outer_where = (" WHERE " + " AND ".join(outer_conditions)) if outer_conditions else ""
 
-        count_query = f"""
-            SELECT count(DISTINCT finding_id)
+        # Dedup the ReplacingMergeTree rows to the latest per finding_id first.
+        deduped = f"""
+            SELECT finding_id, project_id, trace_id, summary, payload, timestamp
             FROM detector_findings
-            WHERE {where}
+            WHERE {base_where}
+            ORDER BY timestamp DESC
+            LIMIT 1 BY finding_id
         """
+
+        count_query = f"SELECT count() FROM ({deduped}){outer_where}"
         count_result = self._client.query(count_query, parameters=params)
         total = count_result.result_rows[0][0] if count_result.result_rows else 0
 
-        # Dedup the ReplacingMergeTree rows (latest per finding_id) BEFORE limiting.
         list_query = f"""
             SELECT finding_id, project_id, trace_id, summary, payload, timestamp
-            FROM (
-                SELECT finding_id, project_id, trace_id, summary, payload, timestamp
-                FROM detector_findings
-                WHERE {where}
-                ORDER BY timestamp DESC
-                LIMIT 1 BY finding_id
-            )
+            FROM ({deduped}){outer_where}
             ORDER BY timestamp DESC
             LIMIT {{limit:UInt32}}
         """
