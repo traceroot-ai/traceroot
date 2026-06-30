@@ -126,6 +126,29 @@ def test_list_findings_detector_filter_matches_detector_id_without_resolution(re
     assert names == ["d1"]
 
 
+def test_list_findings_deduplicates_before_version_sensitive_filters(reader, monkeypatch):
+    reader._client.rows = []
+    reader._client.count_rows = [(0,)]
+    monkeypatch.setattr(reader, "_pg_rows", lambda sql, params: [])
+
+    reader.list_findings(
+        project_id="p1",
+        limit=50,
+        start_after=datetime(2026, 6, 1),
+        end_before=None,
+        detector="hallucination",
+        trace_id=None,
+    )
+
+    # The version-sensitive filters (timestamp window + payload predicate) must be
+    # applied to the deduped subquery, i.e. AFTER `LIMIT 1 BY finding_id` — otherwise
+    # a stale finding version could be surfaced on a ReplacingMergeTree table.
+    for query, _ in reader._client.calls:
+        assert "LIMIT 1 BY finding_id" in query
+        assert query.index("LIMIT 1 BY finding_id") < query.index("arrayExists")
+        assert query.index("LIMIT 1 BY finding_id") < query.index("timestamp >=")
+
+
 def test_get_finding_normalizes_results_and_attaches_rca(reader, monkeypatch):
     payload = json.dumps(
         [{"detectorId": "d1", "detectorName": "hallucination", "summary": "s", "data": {"x": 1}}]
