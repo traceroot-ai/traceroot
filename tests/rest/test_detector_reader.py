@@ -101,6 +101,31 @@ def test_list_findings_detector_filter_includes_token_and_resolved_names(reader,
     assert "p1" in captured["params"]  # resolution scoped to the project
 
 
+def test_list_findings_detector_filter_matches_detector_id_without_resolution(reader, monkeypatch):
+    reader._client.rows = []
+    reader._client.count_rows = [(0,)]
+    monkeypatch.setattr(reader, "_pg_rows", lambda sql, params: [])  # Postgres resolves nothing
+
+    reader.list_findings(
+        project_id="p1",
+        limit=50,
+        start_after=None,
+        end_before=None,
+        detector="d1",
+        trace_id=None,
+    )
+
+    # The raw token is the only resolved name, and the predicate checks detectorId too,
+    # so `detector=d1` can match a payload entry whose detectorId is "d1".
+    queries_with_names = [q for q, p in reader._client.calls if p and "detector_names" in p]
+    assert queries_with_names
+    assert "detectorId" in queries_with_names[0]
+    names = next(
+        p["detector_names"] for _, p in reader._client.calls if p and "detector_names" in p
+    )
+    assert names == ["d1"]
+
+
 def test_get_finding_normalizes_results_and_attaches_rca(reader, monkeypatch):
     payload = json.dumps(
         [{"detectorId": "d1", "detectorName": "hallucination", "summary": "s", "data": {"x": 1}}]
