@@ -22,9 +22,10 @@ afterEach(() => {
 });
 
 describe("AITab", () => {
-  it("includes the CLI verification card as step 5", () => {
+  it("renders the consolidated setup widget as step 2", () => {
     const { container } = render(<AITab projectId="proj_1" />);
-    expect(screen.getByText("5. Verify your traces from the terminal (optional)")).toBeDefined();
+    expect(screen.getByText("2. Set up tracing")).toBeDefined();
+    // SetupTabs defaults to the CLI tab.
     expect(container.textContent ?? "").toContain("npm install -g traceroot-cli");
   });
 });
