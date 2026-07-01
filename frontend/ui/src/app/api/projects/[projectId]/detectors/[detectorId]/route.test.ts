@@ -94,6 +94,18 @@ afterEach(() => {
 });
 
 describe("PATCH .../detectors/[detectorId] — model selection validation", () => {
+  it.each([
+    ["null", null],
+    ["array", []],
+    ["primitive", "not-an-object"],
+  ])("rejects %s JSON bodies", async (_label, body) => {
+    const res = await PATCH(makeRequest(body), makeParams());
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Body must be a JSON object" });
+    expect(detectorUpdateMock).not.toHaveBeenCalled();
+  });
+
   it("does not revalidate the detector model tuple for unrelated updates", async () => {
     const res = await PATCH(makeRequest({ prompt: "New prompt" }), makeParams());
 

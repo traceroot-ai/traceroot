@@ -217,7 +217,7 @@ export default function NewDetectorPage() {
                         <>
                           Unable to load workspace models. Refresh the page. If you use BYOK, check
                           Model Providers. If you rely on system models, ask an admin to verify
-                          server env vars and `/llm-models` availability.{" "}
+                          server env vars and workspace model catalog availability.{" "}
                           {modelProviderSettingsLink}
                         </>
                       ) : hasUnsupportedOnlyDetectorModels ? (

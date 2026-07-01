@@ -60,6 +60,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     return errorResponse("Invalid JSON", 400);
   }
 
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return errorResponse("Body must be a JSON object", 400);
+  }
+
   const {
     name,
     template: _template,

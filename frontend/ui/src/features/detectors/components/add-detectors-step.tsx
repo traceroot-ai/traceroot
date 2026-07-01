@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   DETECTOR_QUICK_ADD_TEMPLATES,
@@ -12,6 +13,7 @@ import { useCreateDetector } from "@/features/detectors/hooks/use-detectors";
 interface AddDetectorsStepProps {
   projectId: string;
   projectName: string;
+  workspaceId?: string;
   /** Called when the step is finished, whether detectors were created or it was skipped. */
   onDone: () => void;
 }
@@ -21,12 +23,26 @@ interface AddDetectorsStepProps {
  * created. Creates one detector per selected template through the same
  * endpoint as the new-detector form; the project is never affected.
  */
-export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetectorsStepProps) {
+export function AddDetectorsStep({
+  projectId,
+  projectName,
+  workspaceId,
+  onDone,
+}: AddDetectorsStepProps) {
   const [selected, setSelected] = useState<string[]>([]);
   const [previewedId, setPreviewedId] = useState(DETECTOR_QUICK_ADD_TEMPLATES[0].id);
   const [failedLabels, setFailedLabels] = useState<string[]>([]);
+  const [failureDetails, setFailureDetails] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const createMutation = useCreateDetector(projectId);
+  const modelProviderSettingsLink = workspaceId ? (
+    <Link
+      href={`/workspaces/${workspaceId}/settings/model-providers`}
+      className="font-medium underline underline-offset-2"
+    >
+      Configure BYOK providers
+    </Link>
+  ) : null;
 
   const toggle = (templateId: string) => {
     setSelected((prev) =>
@@ -41,6 +57,7 @@ export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetector
     }
     setSubmitting(true);
     setFailedLabels([]);
+    setFailureDetails(null);
     const results = await Promise.allSettled(
       selected.map((id) =>
         createMutation.mutateAsync(buildTemplateDetectorInput(getTemplate(id)!)),
@@ -53,6 +70,14 @@ export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetector
     }
     setSelected(failed);
     setFailedLabels(failed.map((id) => getTemplate(id)?.label ?? id));
+    const firstFailure = results.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    setFailureDetails(
+      firstFailure?.reason instanceof Error
+        ? firstFailure.reason.message
+        : "Detector creation failed",
+    );
     setSubmitting(false);
   };
 
@@ -91,9 +116,17 @@ export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetector
         </div>
       </div>
       {failedLabels.length > 0 && (
-        <p className="text-[12px] text-destructive">
-          Couldn&apos;t create: {failedLabels.join(", ")}. Try again or skip.
-        </p>
+        <div role="alert" className="space-y-1 text-[12px] text-destructive">
+          <p>Couldn&apos;t create: {failedLabels.join(", ")}. Try again or skip.</p>
+          {failureDetails && <p>{failureDetails}</p>}
+          {failureDetails && /model|provider|byok|system/i.test(failureDetails) && (
+            <p>
+              No supported detector model is configured yet. Self-hosted deployments need an admin
+              to set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the server environment. To use a
+              workspace-scoped key instead, add a BYOK provider. {modelProviderSettingsLink}
+            </p>
+          )}
+        </div>
       )}
       <div className="flex items-center justify-between pt-1">
         <button

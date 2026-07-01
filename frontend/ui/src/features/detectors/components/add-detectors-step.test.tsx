@@ -15,7 +15,14 @@ import { AddDetectorsStep } from "./add-detectors-step";
 
 function renderStep() {
   const onDone = vi.fn();
-  render(<AddDetectorsStep projectId="proj-1" projectName="checkout-agent" onDone={onDone} />);
+  render(
+    <AddDetectorsStep
+      projectId="proj-1"
+      projectName="checkout-agent"
+      workspaceId="workspace-1"
+      onDone={onDone}
+    />,
+  );
   return { onDone };
 }
 
@@ -118,5 +125,30 @@ describe("AddDetectorsStep", () => {
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     expect(mocks.mutateAsync).toHaveBeenCalledTimes(1);
     expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({ template: "safety" });
+  });
+
+  it("shows model-configuration guidance when quick-add fails on missing providers", async () => {
+    mocks.mutateAsync.mockRejectedValue(
+      new Error(
+        "Detector model selection is required. Choose a configured system model or BYOK provider.",
+      ),
+    );
+    renderStep();
+    fireEvent.click(pill("Failure"));
+    fireEvent.click(continueButton());
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Detector model selection is required. Choose a configured system model or BYOK provider.",
+        ),
+      ).toBeDefined(),
+    );
+    expect(screen.getByText(/No supported detector model is configured yet/).textContent).toContain(
+      "ANTHROPIC_API_KEY",
+    );
+    expect(
+      screen.getByRole("link", { name: "Configure BYOK providers" }).getAttribute("href"),
+    ).toBe("/workspaces/workspace-1/settings/model-providers");
   });
 });

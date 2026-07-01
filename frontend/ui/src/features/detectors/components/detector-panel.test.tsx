@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, act } from "@testing-library/react";
 import type { Detector } from "../hooks/use-detectors";
 
 const mocks = vi.hoisted(() => ({
@@ -130,6 +130,43 @@ describe("DetectorPanel", () => {
       includeFallbackModels: false,
       hideUnsupportedModels: true,
     });
+  });
+
+  it("saves a complete model tuple when a legacy detector gets selector fields backfilled", () => {
+    mocks.detector = {
+      ...baseDetector,
+      detectionModel: null,
+      detectionProvider: null,
+      detectionSource: null,
+    };
+    renderPanel();
+    const selectorProps = mocks.modelSelectorProps.at(-1) as {
+      onChange: (selection: {
+        model: string;
+        provider: string;
+        source: "system" | "byok";
+        adapter: string;
+      }) => void;
+    };
+
+    act(() => {
+      selectorProps.onChange({
+        model: "model-a",
+        provider: "provider-a",
+        source: "system",
+        adapter: "anthropic",
+      });
+    });
+    fireEvent.click(saveButton());
+
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      {
+        detectionModel: "model-a",
+        detectionProvider: "provider-a",
+        detectionSource: "system",
+      },
+      expect.any(Object),
+    );
   });
 
   it("shows update API errors inline without closing the panel", async () => {

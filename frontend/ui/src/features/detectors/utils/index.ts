@@ -68,7 +68,9 @@ export function buildDetectorPatch(
   if (form.detectionProvider !== loaded.detectionProvider && form.detectionProvider !== "") {
     patch.detectionProvider = form.detectionProvider;
   }
-  if (form.detectionSource !== loaded.detectionSource) {
+  const touchedModelTuple =
+    patch.detectionModel !== undefined || patch.detectionProvider !== undefined;
+  if (form.detectionSource !== loaded.detectionSource || touchedModelTuple) {
     patch.detectionSource = form.detectionSource;
   }
   return patch;

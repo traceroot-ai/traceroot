@@ -17,6 +17,7 @@ vi.mock("@traceroot/core", () => ({
     },
   ],
   ADAPTER_MODELS: {
+    anthropic: [{ id: "claude-workspace", label: "Claude Workspace" }],
     openai: [{ id: "gpt-5.4-mini", label: "gpt-5.4-mini" }],
   },
   prisma: {
@@ -248,8 +249,8 @@ describe("POST .../detectors — model selection validation", () => {
     expect(detectorCreateMock).not.toHaveBeenCalled();
   });
 
-  it("rejects blank or non-string model fields instead of treating them as omitted defaults", async () => {
-    const blankRes = await POST(
+  it("rejects blank model fields instead of treating them as omitted defaults", async () => {
+    const res = await POST(
       makeRequest(
         validBodyWithoutModel({
           detectionModel: "",
@@ -259,10 +260,17 @@ describe("POST .../detectors — model selection validation", () => {
       ),
       makeParams(),
     );
-    expect(blankRes.status).toBe(400);
-    expect(detectorCreateMock).not.toHaveBeenCalled();
 
-    const nonStringRes = await POST(
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error:
+        "Detector model selection is required. Choose a configured system model or BYOK provider.",
+    });
+    expect(detectorCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-string model fields instead of treating them as omitted defaults", async () => {
+    const res = await POST(
       makeRequest(
         validBodyWithoutModel({
           detectionModel: 123,
@@ -272,8 +280,9 @@ describe("POST .../detectors — model selection validation", () => {
       ),
       makeParams(),
     );
-    expect(nonStringRes.status).toBe(400);
-    expect(await nonStringRes.json()).toEqual({
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
       error:
         "Detector model selection is required. Choose a configured system model or BYOK provider.",
     });

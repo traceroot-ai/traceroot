@@ -196,7 +196,8 @@ export function ModelSelector({
                   <p>Unable to load models</p>
                   <p>
                     Refresh the page. If you use BYOK, check Model Providers. If you rely on system
-                    models, ask an admin to verify server env vars and `/llm-models` availability.
+                    models, ask an admin to verify server env vars and workspace model catalog
+                    availability.
                   </p>
                   {workspaceId && (
                     <Link
