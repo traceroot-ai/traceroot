@@ -156,6 +156,32 @@ describe("AccessKeysTab", () => {
     });
   });
 
+  it("clears the one-time secret after the user confirms it was copied", async () => {
+    mocks.createAccessKey.mockResolvedValue({
+      data: {
+        key: "tr-dismissed-secret-value",
+        key_hint: "tr-dism...alue",
+      },
+    });
+
+    renderAccessKeysTab();
+
+    fireEvent.click(screen.getByRole("button", { name: /create new api key/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
+
+    expect(
+      await screen.findByText('TRACEROOT_API_KEY = "tr-dismissed-secret-value"'),
+    ).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: /i've copied the key/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('TRACEROOT_API_KEY = "tr-dismissed-secret-value"')).toBeNull();
+    });
+    expect(screen.getByText(".env example")).toBeDefined();
+    expect(screen.getByText('TRACEROOT_API_KEY = "tr-..."')).toBeDefined();
+  });
+
   it("does not carry a one-time secret across project changes", async () => {
     mocks.createAccessKey.mockResolvedValue({
       data: {
@@ -200,6 +226,10 @@ describe("AccessKeysTab", () => {
     });
 
     rerenderWithProject("proj_456");
+
+    fireEvent.click(screen.getByRole("button", { name: /create new api key/i }));
+    expect(screen.getByRole("button", { name: /^create$/i })).toHaveProperty("disabled", false);
+    fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
 
     await act(async () => {
       deferredCreate.resolve(createResult);

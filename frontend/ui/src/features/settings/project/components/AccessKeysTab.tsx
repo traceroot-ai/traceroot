@@ -47,6 +47,7 @@ function formatKeyHint(keyHint: string): string {
 export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const queryClient = useQueryClient();
   const currentProjectIdRef = useRef(projectId);
+  const resetCreateMutationRef = useRef<() => void>(() => {});
   currentProjectIdRef.current = projectId;
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -71,19 +72,21 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     onSuccess: (response, variables) => {
       queryClient.invalidateQueries({ queryKey: ["access-keys", variables.projectId] });
 
-      if (variables.projectId !== currentProjectIdRef.current) {
-        return;
+      if (variables.projectId === currentProjectIdRef.current) {
+        setNewKeyData({
+          projectId: variables.projectId,
+          key: response.data.key,
+          keyHint: response.data.key_hint,
+        });
+        setNewKeyName("");
+        setShowCreateDialog(false);
       }
 
-      setNewKeyData({
-        projectId: variables.projectId,
-        key: response.data.key,
-        keyHint: response.data.key_hint,
-      });
-      setNewKeyName("");
-      setShowCreateDialog(false);
+      resetCreateMutationRef.current();
     },
   });
+
+  resetCreateMutationRef.current = createMutation.reset;
 
   const updateMutation = useMutation({
     mutationFn: ({ keyId, name }: { keyId: string; name: string | null }) =>
@@ -107,6 +110,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     setNewKeyData((current) => (current?.projectId === projectId ? current : null));
     setNewKeyName("");
     setShowCreateDialog(false);
+    resetCreateMutationRef.current();
   }, [projectId]);
 
   const handleCreate = () => {
@@ -115,6 +119,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
 
   const handleCloseNewKey = () => {
     setNewKeyData(null);
+    resetCreateMutationRef.current();
   };
 
   const handleSaveNote = () => {
