@@ -119,6 +119,7 @@ class TestListTraces:
         assert data["data"][0]["error_count"] == 0
         assert "status" not in data["data"][0]
         assert data["meta"]["total"] == 1
+        assert mock_trace_reader.list_traces.call_args.kwargs["use_cache"] is True
 
     def test_with_name_and_user_filters(self, client, mock_trace_reader):
         mock_trace_reader.list_traces.return_value = {
@@ -189,6 +190,25 @@ class TestListTraces:
         response = client.get("/api/v1/projects/test-project/traces?page=-1")
         assert response.status_code == 422
 
+    def test_internal_secret_style_access_bypasses_list_cache(self, client, mock_trace_reader):
+        async def mock_get_internal_access(project_id: str, x_user_id=None):
+            return ProjectAccessInfo(
+                project_id=project_id,
+                user_id="agent-user",
+                role="ADMIN",
+            )
+
+        app.dependency_overrides[get_project_access] = mock_get_internal_access
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+
+        response = client.get("/api/v1/projects/test-project/traces")
+
+        assert response.status_code == 200
+        assert mock_trace_reader.list_traces.call_args.kwargs["use_cache"] is False
+
 
 class TestGetTrace:
     def test_200(self, client, mock_trace_reader):
@@ -199,6 +219,7 @@ class TestGetTrace:
         assert data["trace_id"] == "abc123"
         assert len(data["spans"]) == 1
         assert data["spans"][0]["span_id"] == "span-1"
+        assert mock_trace_reader.get_trace.call_args.kwargs["use_cache"] is True
 
     def test_404(self, client, mock_trace_reader):
         mock_trace_reader.get_trace.return_value = None
@@ -236,6 +257,7 @@ class TestGetTrace:
         }
         response = client.get("/api/v1/projects/test-project/traces/abc123?fields=full")
         assert response.status_code == 200
+        assert mock_trace_reader.get_trace.call_args.kwargs["use_cache"] is False
         span = response.json()["spans"][0]
         assert span["input"] == "the-in"
         assert span["output"] == "the-out"
@@ -259,6 +281,7 @@ class TestGetTrace:
         assert span["input"] == "the-in"
         assert span["output"] == "the-out"
         assert span["metadata"] is None
+        assert mock_trace_reader.get_trace.call_args.kwargs["use_cache"] is False
         assert set(mock_trace_reader.get_trace_spans_io.call_args.kwargs["columns"]) == {
             "input",
             "output",
@@ -297,6 +320,22 @@ class TestGetTrace:
         assert data["input"] == "trace-input"
         assert data["output"] == "trace-output"
         assert data["metadata"] == "trace-metadata"
+
+    def test_internal_secret_style_access_bypasses_get_trace_cache(self, client, mock_trace_reader):
+        async def mock_get_internal_access(project_id: str, x_user_id=None):
+            return ProjectAccessInfo(
+                project_id=project_id,
+                user_id="agent-user",
+                role="ADMIN",
+            )
+
+        app.dependency_overrides[get_project_access] = mock_get_internal_access
+        mock_trace_reader.get_trace.return_value = copy.deepcopy(TRACE_DETAIL)
+
+        response = client.get("/api/v1/projects/test-project/traces/abc123")
+
+        assert response.status_code == 200
+        assert mock_trace_reader.get_trace.call_args.kwargs["use_cache"] is False
 
 
 class TestGetSpanIO:

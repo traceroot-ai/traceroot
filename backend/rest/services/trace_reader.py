@@ -1,6 +1,14 @@
 """Service for reading traces from ClickHouse."""
 
+from collections import OrderedDict
+from collections.abc import Callable
+from copy import deepcopy
 from datetime import datetime
+from hashlib import sha256
+from sys import getsizeof
+from threading import Lock
+from time import monotonic
+from typing import Any, cast
 
 from db.clickhouse import get_clickhouse_client
 from rest.sql_utils import escape_ilike, to_utc_naive
@@ -15,6 +23,14 @@ from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
 # month with toYYYYMM(span_start_time), values under about a month usually skip
 # the same old monthly partitions.
 TRACE_SPAN_LOOKBACK_HOURS = 1
+TRACE_READ_CACHE_TTL_SECONDS = 10.0
+TRACE_READ_CACHE_MAX_ENTRIES = 256
+TRACE_READ_CACHE_MAX_ENTRY_BYTES = 512 * 1024
+TRACE_READ_CACHE_MAX_BYTES = 4 * 1024 * 1024
+
+_CACHE_MISS = object()
+CacheKey = tuple[object, ...]
+CacheEntry = tuple[float, int, float, Any]
 
 
 def span_cost_details(
@@ -54,8 +70,152 @@ def span_cost_details(
 class TraceReaderService:
     """Read traces and spans from ClickHouse."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        cache_ttl_seconds: float = TRACE_READ_CACHE_TTL_SECONDS,
+        cache_max_entries: int = TRACE_READ_CACHE_MAX_ENTRIES,
+        cache_max_entry_bytes: int = TRACE_READ_CACHE_MAX_ENTRY_BYTES,
+        cache_max_bytes: int = TRACE_READ_CACHE_MAX_BYTES,
+        clock: Callable[[], float] = monotonic,
+    ):
         self._client = get_clickhouse_client()
+        self._cache_ttl_seconds = cache_ttl_seconds
+        self._cache_max_entries = cache_max_entries
+        self._cache_max_entry_bytes = cache_max_entry_bytes
+        self._cache_max_bytes = cache_max_bytes
+        self._clock = clock
+        self._cache_lock = Lock()
+        self._trace_read_cache: OrderedDict[CacheKey, CacheEntry] = OrderedDict()
+        self._trace_read_cache_bytes = 0
+
+    def _read_cache(self, key: CacheKey) -> Any:
+        """Return a defensive copy of a cached read result, or _CACHE_MISS."""
+        if not self._cache_enabled():
+            return _CACHE_MISS
+
+        now = self._clock()
+        with self._cache_lock:
+            cached = self._trace_read_cache.get(key)
+            if cached is None:
+                return _CACHE_MISS
+
+            expires_at, size_bytes, _, value = cached
+            if expires_at <= now:
+                self._drop_cache_entry(key, size_bytes)
+                return _CACHE_MISS
+            self._trace_read_cache.move_to_end(key)
+
+        return deepcopy(value)
+
+    def _write_cache(self, key: CacheKey, value: Any, *, fetched_at: float | None = None) -> None:
+        """Store a defensive copy of a read result."""
+        if not self._cache_enabled():
+            return
+
+        incoming_fetched_at = self._clock() if fetched_at is None else fetched_at
+        size_bytes = self._cache_value_size(key) + self._cache_value_size(value)
+        if size_bytes > self._cache_max_entry_bytes or size_bytes > self._cache_max_bytes:
+            return
+        cached_value = deepcopy(value)
+
+        now = self._clock()
+        expires_at = incoming_fetched_at + self._cache_ttl_seconds
+        if expires_at <= now:
+            return
+
+        with self._cache_lock:
+            self._prune_expired_cache_entries(now)
+            existing = self._trace_read_cache.get(key)
+            if existing is not None:
+                expires_at, existing_size_bytes, existing_fetched_at, _ = existing
+                if expires_at > now and existing_fetched_at >= incoming_fetched_at:
+                    return
+                self._drop_cache_entry(key, existing_size_bytes)
+            while (
+                len(self._trace_read_cache) >= self._cache_max_entries
+                or self._trace_read_cache_bytes + size_bytes > self._cache_max_bytes
+            ):
+                self._evict_oldest_cache_entry()
+
+            self._trace_read_cache[key] = (
+                incoming_fetched_at + self._cache_ttl_seconds,
+                size_bytes,
+                incoming_fetched_at,
+                cached_value,
+            )
+            self._trace_read_cache_bytes += size_bytes
+
+    def _prune_expired_cache_entries(self, now: float) -> None:
+        expired = [
+            key
+            for key, (expires_at, _, _, _) in self._trace_read_cache.items()
+            if expires_at <= now
+        ]
+        for key in expired:
+            self._evict_cache_entry(key)
+
+    def _cache_enabled(self) -> bool:
+        return (
+            self._cache_ttl_seconds > 0
+            and self._cache_max_entries > 0
+            and self._cache_max_entry_bytes > 0
+            and self._cache_max_bytes > 0
+        )
+
+    def _evict_oldest_cache_entry(self) -> None:
+        self._evict_cache_entry(next(iter(self._trace_read_cache)))
+
+    def _evict_cache_entry(self, key: CacheKey) -> None:
+        cached = self._trace_read_cache.get(key)
+        if cached is None:
+            return
+        _, size_bytes, _, _ = cached
+        self._drop_cache_entry(key, size_bytes)
+
+    def _drop_cache_entry(self, key: CacheKey, size_bytes: int) -> None:
+        self._trace_read_cache.pop(key, None)
+        self._trace_read_cache_bytes = max(self._trace_read_cache_bytes - size_bytes, 0)
+
+    def _cache_value_size(self, value: Any) -> int:
+        return self._cache_object_size(value, seen=set())
+
+    def _cache_object_size(self, value: Any, *, seen: set[int]) -> int:
+        obj_id = id(value)
+        if obj_id in seen:
+            return 0
+        seen.add(obj_id)
+
+        size = getsizeof(value)
+        if isinstance(value, dict):
+            size += sum(
+                self._cache_object_size(k, seen=seen) + self._cache_object_size(v, seen=seen)
+                for k, v in value.items()
+            )
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            size += sum(self._cache_object_size(item, seen=seen) for item in value)
+        return size
+
+    @staticmethod
+    def _cache_key_string(value: str | None) -> object:
+        """Return an opaque bounded representation for cache key strings."""
+        if value is None:
+            return None
+        digest = sha256(value.encode("utf-8")).hexdigest()
+        return ("sha256", len(value), digest)
+
+    def _cache_filter_string(self, value: str | None) -> object:
+        """Normalize optional string filters to match their SQL no-op behavior."""
+        if value == "":
+            return None
+        return self._cache_key_string(value)
+
+    @staticmethod
+    def _cache_datetime(value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        normalized: datetime = to_utc_naive(value)
+        return normalized.isoformat(timespec="milliseconds")
 
     def list_traces(
         self,
@@ -67,8 +227,35 @@ class TraceReaderService:
         start_after: datetime | None = None,
         end_before: datetime | None = None,
         search_query: str | None = None,
+        *,
+        use_cache: bool = False,
     ) -> dict:
-        """List traces with aggregated metrics from spans."""
+        """List traces with aggregated metrics from spans.
+
+        ``use_cache`` is an opt-in path for authenticated dashboard reads.
+        Public API, exports, agent/internal download flows, and other callers
+        that need freshest-read semantics should keep the default ``False``.
+        """
+        cache_key: CacheKey | None = None
+        if use_cache:
+            cache_key = (
+                "list_traces",
+                self._cache_key_string(project_id),
+                page,
+                limit,
+                self._cache_filter_string(name),
+                self._cache_filter_string(user_id),
+                self._cache_datetime(start_after),
+                self._cache_datetime(end_before),
+                self._cache_filter_string(search_query),
+            )
+            cached = self._read_cache(cache_key)
+            if cached is not _CACHE_MISS:
+                return cast(dict, cached)
+            cache_fetched_at = self._clock()
+        else:
+            cache_fetched_at = None
+
         offset = page * limit
 
         # Build WHERE conditions
@@ -205,12 +392,16 @@ class TraceReaderService:
                 }
             )
 
-        return {
+        result_payload = {
             "data": data,
             "meta": {"page": page, "limit": limit, "total": total},
         }
+        if use_cache:
+            assert cache_key is not None
+            self._write_cache(cache_key, result_payload, fetched_at=cache_fetched_at)
+        return result_payload
 
-    def get_trace(self, project_id: str, trace_id: str) -> dict | None:
+    def get_trace(self, project_id: str, trace_id: str, *, use_cache: bool = False) -> dict | None:
         """Get single trace with span skeletons (no per-span I/O).
 
         Returns trace metadata plus lightweight span skeletons that omit the
@@ -221,7 +412,25 @@ class TraceReaderService:
 
         Trace-level input/output/metadata (on the trace row) are kept: they're
         small and already present.
+
+        ``use_cache`` is an opt-in path for authenticated dashboard skeleton
+        reads. Public API, exports, agent/internal download flows, and
+        non-skeleton projections should keep the default ``False``.
         """
+        cache_key: CacheKey | None = None
+        if use_cache:
+            cache_key = (
+                "get_trace",
+                self._cache_key_string(project_id),
+                self._cache_key_string(trace_id),
+            )
+            cached = self._read_cache(cache_key)
+            if cached is not _CACHE_MISS:
+                return cast(dict, cached)
+            cache_fetched_at = self._clock()
+        else:
+            cache_fetched_at = None
+
         # Fetch trace
         # Dedup the ReplacingMergeTree row without FINAL: keep the latest version
         # of this trace_id.
@@ -263,7 +472,7 @@ class TraceReaderService:
             "project_id = {project_id:String}",
             "trace_id = {trace_id:String}",
         ]
-        spans_params = {"project_id": project_id, "trace_id": trace_id}
+        spans_params: dict[str, object] = {"project_id": project_id, "trace_id": trace_id}
         if trace["trace_start_time"] is not None:
             # Lower-bound the spans scan by the trace start time so ClickHouse
             # can skip old monthly span partitions. The spans table uses
@@ -345,6 +554,9 @@ class TraceReaderService:
             )
 
         trace["spans"] = spans
+        if use_cache:
+            assert cache_key is not None
+            self._write_cache(cache_key, trace, fetched_at=cache_fetched_at)
         return trace
 
     # Blob columns the bulk I/O reader may project, in a fixed order so the

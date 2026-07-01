@@ -8,6 +8,7 @@ write concerns stay decoupled; both reuse the shared API-key auth dependency.
 
 import logging
 from datetime import datetime
+from typing import cast
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
@@ -69,6 +70,7 @@ async def list_traces(
             limit=limit,
             start_after=start_after,
             end_before=end_before,
+            use_cache=False,
         )
     except Exception as e:
         logger.exception(f"Error listing traces: {e}")
@@ -176,7 +178,7 @@ def _resolve_fields(fields: str | None, *, default: frozenset[str]) -> frozenset
         HTTPException: 400 Bad Request if `fields` names an unknown group.
     """
     try:
-        return resolve_span_fields(fields, default=default)
+        return cast(frozenset[str], resolve_span_fields(fields, default=default))
     except InvalidFieldsError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -205,7 +207,7 @@ def _require_trace(project_id: str, trace_id: str, groups: frozenset[str]) -> di
     """
     try:
         service = get_trace_reader_service()
-        trace = service.get_trace(project_id=project_id, trace_id=trace_id)
+        trace = service.get_trace(project_id=project_id, trace_id=trace_id, use_cache=False)
         if trace:
             hydrate_span_io(service, trace, project_id=project_id, trace_id=trace_id, groups=groups)
     except Exception as e:

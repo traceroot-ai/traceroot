@@ -181,6 +181,7 @@ class TestExportBundle:
         kw = mock_reader.get_trace.call_args.kwargs
         assert kw["project_id"] == "proj-A"
         assert kw["trace_id"] == "abc123"
+        assert kw["use_cache"] is False
 
     def test_trace_url_present(self, client, mock_reader):
         mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
