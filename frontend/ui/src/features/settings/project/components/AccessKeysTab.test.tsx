@@ -54,4 +54,28 @@ describe("AccessKeysTab", () => {
     expect(tooltip.textContent).toMatch(/store it as traceroot_api_key/i);
     expect(tooltip.textContent).toMatch(/only a masked hint is shown/i);
   });
+
+  it("does not offer to copy masked API key hints as usable secrets", async () => {
+    mocks.getAccessKeys.mockResolvedValue({
+      access_keys: [
+        {
+          id: "key_123",
+          key_hint: "tr-1234567890abcdef",
+          name: "Production",
+          expire_time: null,
+          last_use_time: null,
+          create_time: "2026-07-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    renderAccessKeysTab();
+
+    expect(await screen.findByText(".env masked hint")).toBeDefined();
+
+    const copyMaskedHint = screen.getByRole("button", {
+      name: /create a new api key to copy the full environment variable/i,
+    });
+    expect(copyMaskedHint).toHaveProperty("disabled", true);
+  });
 });

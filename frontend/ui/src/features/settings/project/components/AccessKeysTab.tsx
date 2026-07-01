@@ -103,11 +103,17 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
 
   const accessKeys = data?.access_keys || [];
 
-  const envBlockContent = newKeyData
+  const hasCopyableEnvValue = !!newKeyData;
+  const envBlockContent = hasCopyableEnvValue
     ? `TRACEROOT_API_KEY = "${newKeyData.key}"`
     : accessKeys.length > 0
       ? `TRACEROOT_API_KEY = "${formatKeyHint(accessKeys[0].key_hint)}"`
       : `TRACEROOT_API_KEY = "tr-..."`;
+  const envBlockLabel = hasCopyableEnvValue
+    ? ".env"
+    : accessKeys.length > 0
+      ? ".env masked hint"
+      : ".env example";
 
   return (
     <div className="space-y-4">
@@ -136,8 +142,17 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
 
       <div className="border">
         <div className="flex items-center justify-between border-b px-4 py-2">
-          <span className="text-xs text-muted-foreground">.env</span>
-          <CopyButton value={envBlockContent} className="h-6 w-6" />
+          <span className="text-xs text-muted-foreground">{envBlockLabel}</span>
+          <CopyButton
+            value={envBlockContent}
+            className="h-6 w-6"
+            aria-label={
+              hasCopyableEnvValue
+                ? "Copy API key environment variable"
+                : "Create a new API key to copy the full environment variable"
+            }
+            disabled={!hasCopyableEnvValue}
+          />
         </div>
         <div className="bg-muted px-4 py-3 font-mono text-xs">
           <pre className="whitespace-pre-wrap">{envBlockContent}</pre>
@@ -154,7 +169,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               <code className="flex-1 border bg-white px-2 py-1.5 font-mono text-xs dark:bg-black">
                 {newKeyData.key}
               </code>
-              <CopyButton value={newKeyData.key} variant="outline" />
+              <CopyButton value={newKeyData.key} variant="outline" aria-label="Copy new API key" />
             </div>
             <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={handleCloseNewKey}>
               I&apos;ve copied the key
