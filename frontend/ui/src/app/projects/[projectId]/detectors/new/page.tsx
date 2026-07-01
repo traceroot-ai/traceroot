@@ -86,7 +86,7 @@ export default function NewDetectorPage() {
       href={`/workspaces/${workspaceId}/settings/model-providers`}
       className="font-medium text-foreground underline underline-offset-2"
     >
-      Configure model providers
+      Configure BYOK providers
     </Link>
   ) : null;
 
@@ -225,9 +225,10 @@ export default function NewDetectorPage() {
                         </>
                       ) : hasLoadedEmptyDetectorModels ? (
                         <>
-                          No supported model is configured. Self-hosted deployments need
-                          `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the server environment, or a
-                          BYOK provider. {modelProviderSettingsLink}
+                          No supported model is configured. Self-hosted deployments need an admin to
+                          set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the server environment. To
+                          use a workspace-scoped key instead, add a BYOK provider.{" "}
+                          {modelProviderSettingsLink}
                         </>
                       ) : (
                         "Select an available model before creating a detector."

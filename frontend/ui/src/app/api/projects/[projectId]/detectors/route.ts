@@ -1,5 +1,11 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import {
+  prisma,
+  SYSTEM_MODELS,
+  ADAPTER_MODELS,
+  ModelSource,
+  type LLMAdapter,
+} from "@traceroot/core";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import {
   requireAuth,
@@ -9,6 +15,64 @@ import {
 } from "@/lib/auth-helpers";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
+
+interface ResolvedDetectorModelSelection {
+  model: string;
+  provider: string;
+  source: "system" | "byok";
+}
+
+function modelSelectionError(message: string): { error: string } {
+  return { error: message };
+}
+
+async function validateDetectorModelSelection(
+  workspaceId: string,
+  selection: ResolvedDetectorModelSelection,
+): Promise<ResolvedDetectorModelSelection | { error: string }> {
+  const model = selection.model.trim();
+  const provider = selection.provider.trim();
+
+  if (selection.source === ModelSource.SYSTEM) {
+    const normalizedProvider = provider.toLowerCase();
+    const systemProvider = SYSTEM_MODELS.find(
+      (candidate) =>
+        candidate.provider.toLowerCase() === normalizedProvider ||
+        candidate.piAIProvider.toLowerCase() === normalizedProvider,
+    );
+
+    if (!systemProvider || !process.env[systemProvider.envVar]) {
+      return modelSelectionError("Selected system provider is not available for this workspace");
+    }
+
+    if (!systemProvider.models.some((candidate) => candidate.id === model)) {
+      return modelSelectionError("Selected system model is not available for this workspace");
+    }
+
+    return { model, provider: systemProvider.provider, source: ModelSource.SYSTEM };
+  }
+
+  const byokProvider = await prisma.modelProvider.findFirst({
+    where: { workspaceId, provider, enabled: true },
+    select: { provider: true, adapter: true, customModels: true },
+  });
+
+  if (!byokProvider) {
+    return modelSelectionError("Selected BYOK provider is not available for this workspace");
+  }
+
+  const configuredModels = byokProvider.customModels.map((id) => id.trim()).filter(Boolean);
+  if (!configuredModels.includes(model)) {
+    return modelSelectionError("Selected BYOK model is not configured for this provider");
+  }
+
+  const catalog = ADAPTER_MODELS[byokProvider.adapter as LLMAdapter];
+  if (catalog && !catalog.some((candidate) => candidate.id === model)) {
+    return modelSelectionError("Selected BYOK model is not supported by Traceroot");
+  }
+
+  return { model, provider: byokProvider.provider, source: ModelSource.BYOK };
+}
 
 // GET /api/projects/[projectId]/detectors - List detectors for the project.
 // Supports `search_query` (substring on name/template/prompt), `page`, `limit`.
@@ -136,10 +200,28 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
     sourceStr = detectionSource;
   }
-  const resolvedModel =
-    typeof detectionModel === "string" && detectionModel ? detectionModel : null;
-  const resolvedProvider =
-    typeof detectionProvider === "string" && detectionProvider ? detectionProvider : null;
+  const hasModelSelection =
+    typeof detectionModel === "string" &&
+    detectionModel.trim().length > 0 &&
+    typeof detectionProvider === "string" &&
+    detectionProvider.trim().length > 0 &&
+    sourceStr !== null;
+
+  if (!hasModelSelection) {
+    return errorResponse(
+      "Detector model selection is required. Choose a configured system model or BYOK provider.",
+      400,
+    );
+  }
+
+  const modelSelection = await validateDetectorModelSelection(accessResult.project.workspaceId, {
+    model: detectionModel as string,
+    provider: detectionProvider as string,
+    source: sourceStr,
+  });
+  if ("error" in modelSelection) {
+    return errorResponse(modelSelection.error, 400);
+  }
 
   // enableRca: optional boolean, defaults true (RCA on). Reject non-booleans
   // so "false"/0 can't silently coerce.
@@ -166,9 +248,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       sampleRate: resolvedSampleRate,
       enabled: resolvedEnabled,
       enableRca: resolvedEnableRca,
-      detectionModel: resolvedModel,
-      detectionProvider: resolvedProvider,
-      detectionSource: sourceStr,
+      detectionModel: modelSelection.model,
+      detectionProvider: modelSelection.provider,
+      detectionSource: modelSelection.source,
       trigger: {
         create: {
           conditions: (triggerConditions as object) ?? [],

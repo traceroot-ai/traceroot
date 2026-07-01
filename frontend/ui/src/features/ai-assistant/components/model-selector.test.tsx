@@ -104,7 +104,7 @@ describe("ModelSelector", () => {
 
     expect(screen.getByText("Unable to load models")).toBeDefined();
     expect(
-      screen.getByRole("link", { name: "Configure model providers" }).getAttribute("href"),
+      screen.getByRole("link", { name: "Configure BYOK providers" }).getAttribute("href"),
     ).toBe("/workspaces/workspace-1/settings/model-providers");
   });
 
@@ -131,12 +131,12 @@ describe("ModelSelector", () => {
     expect(screen.getAllByText("No model configured").length).toBeGreaterThan(0);
     expect(
       screen.getByText(
-        "Self-hosted deployments need an `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the server environment, or a BYOK provider.",
+        "Self-hosted deployments need an admin to set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the server environment. To use a workspace-scoped key instead, add a BYOK provider.",
       ),
     ).toBeDefined();
     expect(screen.queryByText(/Claude/i)).toBeNull();
     expect(
-      screen.getByRole("link", { name: "Configure model providers" }).getAttribute("href"),
+      screen.getByRole("link", { name: "Configure BYOK providers" }).getAttribute("href"),
     ).toBe("/workspaces/workspace-1/settings/model-providers");
   });
 
@@ -198,6 +198,65 @@ describe("ModelSelector", () => {
     );
 
     expect(screen.getByRole("button").textContent).toContain("local-llm");
+    expect(mocks.onChange).not.toHaveBeenCalled();
+  });
+
+  it("uses a non-submit trigger when rendered inside forms", () => {
+    mocks.models = {
+      byokProviders: [],
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [{ id: "claude-4", label: "Claude 4" }],
+        },
+      ],
+    };
+    const onSubmit = vi.fn((event: { preventDefault: () => void }) => event.preventDefault());
+
+    render(
+      <form onSubmit={onSubmit}>
+        <ModelSelector
+          value={{
+            model: "claude-4",
+            provider: "anthropic",
+            source: "system",
+            adapter: "anthropic",
+          }}
+          onChange={mocks.onChange}
+          workspaceId="workspace-1"
+        />
+      </form>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Claude 4/i }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("prioritizes loaded unavailable states over stale saved model ids", () => {
+    mocks.models = {
+      byokProviders: [],
+      systemModels: [],
+    };
+
+    render(
+      <ModelSelector
+        value={{
+          model: "claude-4",
+          provider: "anthropic",
+          source: "system",
+          adapter: "anthropic",
+        }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+        includeFallbackModels={false}
+      />,
+    );
+
+    expect(screen.getByRole("button").textContent).toContain("No model configured");
+    expect(screen.getByRole("button").textContent).not.toContain("claude-4");
     expect(mocks.onChange).not.toHaveBeenCalled();
   });
 

@@ -54,6 +54,15 @@ export function ModelSelector({
   const hasReturnedModels = models.length > 0;
   const hasUnsupportedOnlyModelList = !!data && hasReturnedModels && selectableModels.length === 0;
   const hasLoadedEmptyModelList = !!data && !hasReturnedModels;
+  const modelStatusLabel = hasModelLoadError
+    ? "Models unavailable"
+    : hasUnsupportedOnlyModelList
+      ? "No supported models"
+      : hasLoadedEmptyModelList
+        ? "No model configured"
+        : isLoadingModels
+          ? "Loading models..."
+          : null;
 
   // Reconcile the incoming selection against the catalog:
   //   1. exact match on (model, provider, source) → check adapter; backfill if empty/wrong
@@ -117,21 +126,12 @@ export function ModelSelector({
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
+            type="button"
             variant="ghost"
             size="sm"
             className="h-7 gap-1 rounded-sm px-2 text-[11px] text-muted-foreground hover:text-foreground"
           >
-            {selectedModel?.label ||
-              value.model ||
-              (hasModelLoadError
-                ? "Models unavailable"
-                : hasUnsupportedOnlyModelList
-                  ? "No supported models"
-                  : hasLoadedEmptyModelList
-                    ? "No model configured"
-                    : isLoadingModels
-                      ? "Loading models..."
-                      : "Select model")}
+            {selectedModel?.label || modelStatusLabel || value.model || "Select model"}
             <ChevronDown className="h-3 w-3" />
           </Button>
         </PopoverTrigger>
@@ -148,6 +148,7 @@ export function ModelSelector({
             const showProvider = m.source === "byok";
             return (
               <button
+                type="button"
                 key={key}
                 className={cn(
                   "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-[12px] transition-colors hover:bg-muted/50",
@@ -186,7 +187,7 @@ export function ModelSelector({
                       href={`/workspaces/${workspaceId}/settings/model-providers`}
                       className="font-medium text-foreground underline underline-offset-2"
                     >
-                      Configure model providers
+                      Configure BYOK providers
                     </Link>
                   )}
                 </div>
@@ -202,7 +203,7 @@ export function ModelSelector({
                       href={`/workspaces/${workspaceId}/settings/model-providers`}
                       className="font-medium text-foreground underline underline-offset-2"
                     >
-                      Configure model providers
+                      Configure BYOK providers
                     </Link>
                   )}
                 </div>
@@ -210,15 +211,16 @@ export function ModelSelector({
                 <div className="space-y-1.5">
                   <p>No model configured</p>
                   <p>
-                    Self-hosted deployments need an `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the
-                    server environment, or a BYOK provider.
+                    Self-hosted deployments need an admin to set `ANTHROPIC_API_KEY` or
+                    `OPENAI_API_KEY` in the server environment. To use a workspace-scoped key
+                    instead, add a BYOK provider.
                   </p>
                   {workspaceId && (
                     <Link
                       href={`/workspaces/${workspaceId}/settings/model-providers`}
                       className="font-medium text-foreground underline underline-offset-2"
                     >
-                      Configure model providers
+                      Configure BYOK providers
                     </Link>
                   )}
                 </div>

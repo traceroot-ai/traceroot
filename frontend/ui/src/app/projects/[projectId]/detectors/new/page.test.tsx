@@ -254,7 +254,7 @@ describe("NewDetectorPage", () => {
     expect(screen.getByText(/No supported model is configured/)).toBeDefined();
     expect(screen.getByText(/ANTHROPIC_API_KEY/)).toBeDefined();
     expect(
-      screen.getByRole("link", { name: "Configure model providers" }).getAttribute("href"),
+      screen.getByRole("link", { name: "Configure BYOK providers" }).getAttribute("href"),
     ).toBe("/workspaces/workspace-1/settings/model-providers");
     expect(screen.getByRole("button", { name: "Create Detector" })).toHaveProperty(
       "disabled",
