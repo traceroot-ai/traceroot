@@ -30,6 +30,28 @@ interface AccessKeysTabProps {
   projectId: string;
 }
 
+type CreateAccessKeyMutationVariables = {
+  projectId: string;
+  name: string;
+  requestId: number;
+};
+
+type CreateAccessKeyMutationResult = {
+  projectId: string;
+  requestId: number;
+};
+
+type UpdateAccessKeyMutationVariables = {
+  projectId: string;
+  keyId: string;
+  name: string | null;
+};
+
+type DeleteAccessKeyMutationVariables = {
+  projectId: string;
+  keyId: string;
+};
+
 const PROJECT_API_KEYS_HELP_TEXT =
   "Project API keys authenticate TraceRoot SDK and API requests for this project. When you create a new key, copy the full secret immediately and store it as TRACEROOT_API_KEY. Later, only a masked hint is shown.";
 
@@ -47,7 +69,12 @@ function formatKeyHint(keyHint: string): string {
 export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const queryClient = useQueryClient();
   const currentProjectIdRef = useRef(projectId);
+  const createRequestCounterRef = useRef(0);
+  const activeCreateRequestIdRef = useRef<number | null>(null);
+  const createSecretByRequestIdRef = useRef(new Map<number, string>());
   const resetCreateMutationRef = useRef<() => void>(() => {});
+  const resetUpdateMutationRef = useRef<() => void>(() => {});
+  const resetDeleteMutationRef = useRef<() => void>(() => {});
   currentProjectIdRef.current = projectId;
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -65,44 +92,77 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     queryFn: () => getAccessKeys(projectId),
   });
 
-  const createMutation = useMutation({
-    mutationFn: ({ projectId: requestProjectId, name }: { projectId: string; name: string }) =>
-      createAccessKey(requestProjectId, name || undefined),
-    onSuccess: (response, variables) => {
+  const createMutation = useMutation<
+    CreateAccessKeyMutationResult,
+    Error,
+    CreateAccessKeyMutationVariables
+  >({
+    mutationFn: async ({ projectId: requestProjectId, name, requestId }) => {
+      const response = await createAccessKey(requestProjectId, name || undefined);
+      createSecretByRequestIdRef.current.set(requestId, response.data.key);
+      return { projectId: requestProjectId, requestId };
+    },
+    onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["access-keys", variables.projectId] });
 
-      if (variables.projectId === currentProjectIdRef.current) {
+      const createdKey = createSecretByRequestIdRef.current.get(variables.requestId);
+      createSecretByRequestIdRef.current.delete(variables.requestId);
+
+      const isActiveRequest =
+        variables.requestId === activeCreateRequestIdRef.current &&
+        variables.projectId === currentProjectIdRef.current;
+
+      if (isActiveRequest && createdKey) {
         setNewKeyData({
           projectId: variables.projectId,
-          key: response.data.key,
+          key: createdKey,
         });
         setNewKeyName("");
         setShowCreateDialog(false);
+        activeCreateRequestIdRef.current = null;
+        resetCreateMutationRef.current();
+      } else if (variables.requestId === activeCreateRequestIdRef.current) {
+        activeCreateRequestIdRef.current = null;
+        resetCreateMutationRef.current();
+      } else if (activeCreateRequestIdRef.current === null) {
+        resetCreateMutationRef.current();
       }
-
-      resetCreateMutationRef.current();
+    },
+    onSettled: (_data, _error, variables) => {
+      if (variables) {
+        createSecretByRequestIdRef.current.delete(variables.requestId);
+      }
     },
   });
 
   resetCreateMutationRef.current = createMutation.reset;
 
-  const updateMutation = useMutation({
-    mutationFn: ({ keyId, name }: { keyId: string; name: string | null }) =>
-      updateAccessKey(projectId, keyId, name),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["access-keys", projectId] });
-      setEditingKey(null);
+  const updateMutation = useMutation<unknown, Error, UpdateAccessKeyMutationVariables>({
+    mutationFn: ({ projectId: requestProjectId, keyId, name }) =>
+      updateAccessKey(requestProjectId, keyId, name),
+    onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["access-keys", variables.projectId] });
+      if (variables.projectId === currentProjectIdRef.current) {
+        setEditingKey(null);
+      }
     },
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (keyId: string) => deleteAccessKey(projectId, keyId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["access-keys", projectId] });
-      setKeyToDelete(null);
-      setDeleteConfirmText("");
+  resetUpdateMutationRef.current = updateMutation.reset;
+
+  const deleteMutation = useMutation<unknown, Error, DeleteAccessKeyMutationVariables>({
+    mutationFn: ({ projectId: requestProjectId, keyId }) =>
+      deleteAccessKey(requestProjectId, keyId),
+    onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["access-keys", variables.projectId] });
+      if (variables.projectId === currentProjectIdRef.current) {
+        setKeyToDelete(null);
+        setDeleteConfirmText("");
+      }
     },
   });
+
+  resetDeleteMutationRef.current = deleteMutation.reset;
 
   useEffect(() => {
     setNewKeyData((current) => (current?.projectId === projectId ? current : null));
@@ -111,21 +171,34 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     setEditingKey(null);
     setKeyToDelete(null);
     setDeleteConfirmText("");
+    activeCreateRequestIdRef.current = null;
+    createSecretByRequestIdRef.current.clear();
     resetCreateMutationRef.current();
+    resetUpdateMutationRef.current();
+    resetDeleteMutationRef.current();
   }, [projectId]);
 
   const handleCreate = () => {
-    createMutation.mutate({ projectId, name: newKeyName });
+    if (createMutation.isPending) {
+      return;
+    }
+
+    const requestId = createRequestCounterRef.current + 1;
+    createRequestCounterRef.current = requestId;
+    activeCreateRequestIdRef.current = requestId;
+    createMutation.mutate({ projectId, name: newKeyName, requestId });
   };
 
   const handleCloseNewKey = () => {
     setNewKeyData(null);
+    activeCreateRequestIdRef.current = null;
+    createSecretByRequestIdRef.current.clear();
     resetCreateMutationRef.current();
   };
 
   const handleSaveNote = () => {
     if (editingKey) {
-      updateMutation.mutate({ keyId: editingKey.id, name: editingKey.name || null });
+      updateMutation.mutate({ projectId, keyId: editingKey.id, name: editingKey.name || null });
     }
   };
 
@@ -173,16 +246,13 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       <div className="border">
         <div className="flex items-center justify-between border-b px-4 py-2">
           <span className="text-xs text-muted-foreground">{envBlockLabel}</span>
-          <CopyButton
-            value={envBlockContent}
-            className="h-6 w-6"
-            aria-label={
-              hasCopyableEnvValue
-                ? "Copy API key environment variable"
-                : "Create a new API key to copy the full environment variable"
-            }
-            disabled={!hasCopyableEnvValue}
-          />
+          {hasCopyableEnvValue && (
+            <CopyButton
+              value={envBlockContent}
+              className="h-6 w-6"
+              aria-label="Copy API key environment variable"
+            />
+          )}
         </div>
         <div className="bg-muted px-4 py-3 font-mono text-xs">
           <pre className="whitespace-pre-wrap">{envBlockContent}</pre>
@@ -231,7 +301,12 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               placeholder="e.g., Production, Development"
               value={newKeyName}
               onChange={(e) => setNewKeyName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleCreate();
+                }
+              }}
             />
           </div>
           <DialogFooter>
@@ -315,7 +390,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
               variant="destructive"
               onClick={() => {
                 if (keyToDelete) {
-                  deleteMutation.mutate(keyToDelete.id);
+                  deleteMutation.mutate({ projectId, keyId: keyToDelete.id });
                 }
               }}
               disabled={
