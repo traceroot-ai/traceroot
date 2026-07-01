@@ -13,6 +13,7 @@ import {
   createRedisConnection,
 } from "../queues/detector-run-queue.js";
 import { runDetectionForTrace } from "../detection/sandbox-eval.js";
+import { evaluateRuleDetector, type RuleConfig } from "../detection/rule-eval.js";
 import { writeDetectorRun, writeDetectorFinding } from "../detection/clickhouse-writer.js";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
@@ -152,8 +153,10 @@ async function runSingleDetector(params: {
   detector: {
     id: string;
     name: string;
+    type: "llm" | "rule";
     prompt: string;
     outputSchema: Array<{ name: string; type: string }>;
+    ruleConfig: RuleConfig | null;
     detectionModel: string | null;
     detectionProvider: string | null;
     detectionSource: "system" | "byok" | null;
@@ -165,6 +168,57 @@ async function runSingleDetector(params: {
 }): Promise<SingleDetectorOutcome> {
   const { detector, traceId, projectId, spansJsonl, workspaceId } = params;
   const runId = deterministicRunId(projectId, traceId, detector.id);
+
+  // Rule/code detectors are deterministic and never call a model — no usage,
+  // no inference cost, no retries/timeouts. Evaluated synchronously and kept
+  // entirely separate from the LLM-judge path below.
+  if (detector.type === "rule") {
+    let ruleResult: ReturnType<typeof evaluateRuleDetector>;
+    try {
+      ruleResult = evaluateRuleDetector({ spansJsonl, ruleConfig: detector.ruleConfig });
+    } catch (e) {
+      console.error(`[Detector] Rule eval threw for detector ${detector.id} on trace ${traceId}:`, e);
+      await writeDetectorRun({
+        runId,
+        detectorId: detector.id,
+        projectId,
+        traceId,
+        findingId: null,
+        status: "failed",
+      }).catch((err) => console.error("[Detector] Failed to write run:", err));
+      return { triggered: null, usage: null };
+    }
+
+    if (!ruleResult.identified) {
+      if (ruleResult.error) {
+        console.error(
+          `[Detector] Rule eval failed for detector ${detector.name} (${detector.id}) on trace ${traceId}: ${ruleResult.error}`,
+        );
+      }
+      await writeDetectorRun({
+        runId,
+        detectorId: detector.id,
+        projectId,
+        traceId,
+        findingId: null,
+        status: ruleResult.error ? "failed" : "completed",
+      }).catch((err) => console.error("[Detector] Failed to write run:", err));
+      return { triggered: null, usage: null };
+    }
+
+    console.log(
+      `[Detector] Rule detector ${detector.name} triggered on trace ${traceId}: ${ruleResult.summary.slice(0, 80)}`,
+    );
+    return {
+      triggered: {
+        detectorId: detector.id,
+        detectorName: detector.name,
+        summary: ruleResult.summary,
+        data: ruleResult.data,
+      },
+      usage: null,
+    };
+  }
 
   let result: Awaited<ReturnType<typeof runDetectionForTrace>>;
   try {
@@ -314,8 +368,10 @@ async function evaluateTrace(
         detector: {
           id: detector.id,
           name: detector.name,
+          type: detector.type === "rule" ? "rule" : "llm",
           prompt: detector.prompt,
           outputSchema,
+          ruleConfig: (detector.ruleConfig as RuleConfig | null) ?? null,
           detectionModel: detector.detectionModel,
           detectionProvider: detector.detectionProvider,
           detectionSource: detector.detectionSource as "system" | "byok" | null,

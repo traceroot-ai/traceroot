@@ -1,10 +1,17 @@
-import type { CreateDetectorInput } from "@/features/detectors/hooks/use-detectors";
+import type {
+  CreateDetectorInput,
+  RuleConfig,
+} from "@/features/detectors/hooks/use-detectors";
 
 export interface DetectorTemplate {
   id: string;
   label: string;
   description: string;
+  /** "llm" (default, model judge) or "rule" (deterministic, zero LLM cost). */
+  type?: "llm" | "rule";
   prompt: string;
+  /** Only used when type="rule". */
+  ruleConfig?: RuleConfig;
   outputSchema: Array<{ name: string; type: string }>;
   defaultConditions: Array<{ field: string; op: string; value: unknown }>;
 }
@@ -95,6 +102,22 @@ Report identified=true only for clear, concrete safety violations.`,
     defaultConditions: [],
   },
   {
+    id: "missing_data",
+    label: "Missing Data",
+    description: "Empty/null input or output — deterministic, zero LLM cost",
+    type: "rule",
+    prompt: "",
+    ruleConfig: {
+      match: "any",
+      conditions: [
+        { field: "input", op: "is_empty" },
+        { field: "output", op: "is_empty" },
+      ],
+    },
+    outputSchema: [],
+    defaultConditions: [],
+  },
+  {
     id: "blank",
     label: "Blank",
     description: "Write your own detector from scratch",
@@ -124,7 +147,9 @@ export function buildTemplateDetectorInput(template: DetectorTemplate): CreateDe
   return {
     name: `${template.label} Detector`,
     template: template.id,
+    type: template.type ?? "llm",
     prompt: template.prompt,
+    ruleConfig: template.ruleConfig,
     outputSchema: template.outputSchema,
     triggerConditions: template.defaultConditions,
     sampleRate: DEFAULT_DETECTOR_SAMPLE_RATE,
