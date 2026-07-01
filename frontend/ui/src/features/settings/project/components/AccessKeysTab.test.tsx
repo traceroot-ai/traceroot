@@ -173,6 +173,10 @@ describe("AccessKeysTab", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
+    await waitFor(() => {
+      expect(mocks.createAccessKey).toHaveBeenCalledWith("proj_123", "Production");
+    });
+
     expect(await screen.findByText(".env")).toBeDefined();
     expect(screen.getByText('TRACEROOT_API_KEY = "tr-full-secret-value"')).toBeDefined();
 
