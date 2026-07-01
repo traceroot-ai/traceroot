@@ -55,4 +55,44 @@ describe("BillingTab", () => {
     expect(screen.getByText("BYOK")).toBeTruthy();
     expect(screen.getByText("1,500 tokens · < $0.01 (not billed)")).toBeTruthy();
   });
+
+  it("hides unattributed unknown model rows", () => {
+    const usage: UsageStats = {
+      traces: 0,
+      spans: 0,
+      tokens: 0,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+      detector: {
+        scansRun: 2,
+        systemTokenCost: 0.02,
+        systemInputTokens: 2,
+        systemOutputTokens: 157,
+        byModel: [
+          {
+            model: "unknown",
+            provider: "unknown",
+            isByok: false,
+            messages: 1,
+            inputTokens: 0,
+            outputTokens: 0,
+            cost: 0,
+          },
+          {
+            model: "claude-opus-4-8",
+            provider: "anthropic",
+            isByok: false,
+            messages: 1,
+            inputTokens: 2,
+            outputTokens: 157,
+            cost: 0.021204,
+          },
+        ],
+      },
+    };
+
+    render(<BillingTab workspaceId="ws_1" currentPlan={PlanType.PRO} currentUsage={usage} />);
+
+    expect(screen.queryByText("unknown")).toBeNull();
+    expect(screen.getByText("claude-opus-4-8")).toBeTruthy();
+  });
 });

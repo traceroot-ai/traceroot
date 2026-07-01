@@ -360,7 +360,9 @@ async function evaluateTrace(
   // Persist one AIMessage row per scan with kind="detector". This is the
   // source of truth for detector by-model + cost aggregations in the hourly
   // billing cron — same role aIMessage plays for chat + RCA.
-  const usages = fulfilled.map((o) => o.usage).filter((u): u is ScanUsage => u !== null);
+  const usages = fulfilled
+    .map((o) => o.usage)
+    .filter((u): u is ScanUsage => u !== null && u.inferenceModel !== null);
   if (usages.length > 0 && workspaceId) {
     const aiMessageRows = await Promise.all(
       usages.map(async (u) => ({
