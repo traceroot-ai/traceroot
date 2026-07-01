@@ -56,11 +56,32 @@ describe("ModelSelector", () => {
         value={{ model: "", provider: "", source: "system", adapter: "" }}
         onChange={mocks.onChange}
         workspaceId="workspace-1"
+        includeFallbackModels={false}
       />,
     );
 
     expect(screen.getByRole("button").textContent).toContain("Loading models...");
     expect(mocks.onChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps fallback auto-selection for existing selector consumers by default", () => {
+    mocks.models = undefined;
+    mocks.isLoading = true;
+
+    render(
+      <ModelSelector
+        value={{ model: "", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+      />,
+    );
+
+    expect(mocks.onChange).toHaveBeenCalledWith({
+      model: "claude-opus-4-8",
+      provider: "Anthropic",
+      source: "system",
+      adapter: "anthropic",
+    });
   });
 
   it("shows a load-error state without auto-picking fallback models", () => {
@@ -72,6 +93,7 @@ describe("ModelSelector", () => {
         value={{ model: "", provider: "", source: "system", adapter: "" }}
         onChange={mocks.onChange}
         workspaceId="workspace-1"
+        includeFallbackModels={false}
       />,
     );
 
@@ -97,6 +119,7 @@ describe("ModelSelector", () => {
         value={{ model: "", provider: "", source: "system", adapter: "" }}
         onChange={mocks.onChange}
         workspaceId="workspace-1"
+        includeFallbackModels={false}
       />,
     );
 
@@ -135,6 +158,7 @@ describe("ModelSelector", () => {
         value={{ model: "", provider: "", source: "system", adapter: "" }}
         onChange={mocks.onChange}
         workspaceId="workspace-1"
+        includeFallbackModels={false}
       />,
     );
 
@@ -174,58 +198,6 @@ describe("ModelSelector", () => {
     );
 
     expect(screen.getByRole("button").textContent).toContain("local-llm");
-    expect(mocks.onChange).not.toHaveBeenCalled();
-  });
-
-  it("does not auto-pick a model when autoSelectDefault is disabled", () => {
-    mocks.models = {
-      byokProviders: [],
-      systemModels: [
-        {
-          provider: "anthropic",
-          adapter: "anthropic",
-          source: "system",
-          models: [{ id: "claude-4", label: "Claude 4" }],
-        },
-      ],
-    };
-
-    render(
-      <ModelSelector
-        value={{ model: "", provider: "", source: "system", adapter: "" }}
-        onChange={mocks.onChange}
-        workspaceId="workspace-1"
-        autoSelectDefault={false}
-      />,
-    );
-
-    expect(screen.getByRole("button").textContent).toContain("Select model");
-    expect(mocks.onChange).not.toHaveBeenCalled();
-  });
-
-  it("displays legacy system provider labels without dirtying edit forms", () => {
-    mocks.models = {
-      byokProviders: [],
-      systemModels: [
-        {
-          provider: "anthropic",
-          adapter: "anthropic",
-          source: "system",
-          models: [{ id: "claude-4", label: "Claude 4" }],
-        },
-      ],
-    };
-
-    render(
-      <ModelSelector
-        value={{ model: "claude-4", provider: "Anthropic", source: "system", adapter: "" }}
-        onChange={mocks.onChange}
-        workspaceId="workspace-1"
-        autoSelectDefault={false}
-      />,
-    );
-
-    expect(screen.getByRole("button").textContent).toContain("Claude 4");
     expect(mocks.onChange).not.toHaveBeenCalled();
   });
 

@@ -201,6 +201,7 @@ export default function NewDetectorPage() {
                     value={modelSelection}
                     onChange={setModelSelection}
                     workspaceId={workspaceId}
+                    includeFallbackModels={false}
                   />
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     Used to evaluate each trace for this detector.

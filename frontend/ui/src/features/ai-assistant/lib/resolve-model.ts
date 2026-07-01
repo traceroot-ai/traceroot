@@ -28,7 +28,7 @@ const FALLBACK_MODELS: ResolvedModel[] = SYSTEM_MODELS.flatMap((s) =>
   s.models.map((m) => ({
     id: m.id,
     label: m.label,
-    provider: s.piAIProvider,
+    provider: s.provider,
     adapter: s.piAIProvider,
     source: "system" as const,
     supported: true,

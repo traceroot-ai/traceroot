@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { getAvailableLLMModels } from "@/lib/api";
-import { flattenAvailableModels, pickDefaultModel, type ResolvedModel } from "../lib/resolve-model";
+import { flattenAvailableModels, pickDefaultModel } from "../lib/resolve-model";
 
 export interface ModelSelection {
   model: string;
@@ -22,38 +22,21 @@ interface ModelSelectorProps {
   onChange: (selection: ModelSelection) => void;
   workspaceId?: string;
   /**
-   * Empty create/chat forms should auto-pick the first available live model.
-   * Persisted edit forms opt out so default/legacy null model selections do not
-   * become dirty just because the model catalog loaded.
+   * Interactive create flows that must reflect only workspace-configured models
+   * can disable the compiled-in fallback used while the model catalog loads.
    */
-  autoSelectDefault?: boolean;
+  includeFallbackModels?: boolean;
 }
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
   return `${m.source}:${m.provider}:${m.id ?? m.model}`;
 }
 
-function providersMatch(model: ResolvedModel, value: ModelSelection) {
-  if (model.provider === value.provider) return true;
-  if (model.source !== "system" || value.source !== "system") return false;
-  const normalizedValueProvider = value.provider.toLowerCase();
-  return (
-    normalizedValueProvider === model.provider.toLowerCase() ||
-    normalizedValueProvider === model.adapter.toLowerCase()
-  );
-}
-
-function modelMatchesSelection(model: ResolvedModel, value: ModelSelection) {
-  if (model.id !== value.model) return false;
-  if (!value.provider) return true;
-  return model.source === value.source && providersMatch(model, value);
-}
-
 export function ModelSelector({
   value,
   onChange,
   workspaceId,
-  autoSelectDefault = true,
+  includeFallbackModels = true,
 }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
@@ -64,7 +47,7 @@ export function ModelSelector({
   });
 
   // BYOK models first, then system models. No deduplication.
-  const models = flattenAvailableModels(data, { includeFallback: false });
+  const models = flattenAvailableModels(data, { includeFallback: includeFallbackModels });
   const selectableModels = models.filter((m) => m.supported !== false);
   const isLoadingModels = !!workspaceId && isLoading;
   const hasModelLoadError = !!workspaceId && isError;
@@ -83,7 +66,9 @@ export function ModelSelector({
   useEffect(() => {
     if (selectableModels.length === 0) return;
 
-    const exact = selectableModels.find((m) => modelMatchesSelection(m, value));
+    const exact = selectableModels.find(
+      (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
+    );
     const modelOnly =
       !exact && value.model && !value.provider
         ? selectableModels.find((m) => m.id === value.model)
@@ -91,7 +76,7 @@ export function ModelSelector({
     const match = exact ?? modelOnly;
 
     if (!match) {
-      if (autoSelectDefault && !value.model) {
+      if (!value.model) {
         const pick = pickDefaultModel(selectableModels);
         if (pick) {
           onChange({
@@ -109,11 +94,10 @@ export function ModelSelector({
     // legacy selections often store as `""` and which `currentExists`-style
     // checks elsewhere ignore).
     if (
-      autoSelectDefault &&
-      (match.id !== value.model ||
-        match.provider !== value.provider ||
-        match.source !== value.source ||
-        match.adapter !== value.adapter)
+      match.id !== value.model ||
+      match.provider !== value.provider ||
+      match.source !== value.source ||
+      match.adapter !== value.adapter
     ) {
       onChange({
         model: match.id,
@@ -122,10 +106,10 @@ export function ModelSelector({
         adapter: match.adapter,
       });
     }
-  }, [selectableModels, value, onChange, autoSelectDefault]);
+  }, [selectableModels, value, onChange]);
 
   const selectedKey = modelKey({ id: value.model, source: value.source, provider: value.provider });
-  const selectedModel = selectableModels.find((m) => modelMatchesSelection(m, value));
+  const selectedModel = selectableModels.find((m) => modelKey(m) === selectedKey);
   const selectedModelKey = selectedModel ? modelKey(selectedModel) : selectedKey;
 
   return (
