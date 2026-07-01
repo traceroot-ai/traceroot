@@ -352,7 +352,7 @@ model Detector {
   template     String   @db.VarChar  // "failure"|"hallucination"|"logic"|"task"|"safety"|"intent"|"blank"
   prompt       String   @db.Text
   outputSchema       Json     @map("output_schema") @db.JsonB
-  sampleRate         Int      @default(25) @map("sample_rate")  // 1–100
+  sampleRate         Int      @default(25) @map("sample_rate")  // 0–100
   enabled            Boolean  @default(true)
   enableRca          Boolean  @default(true) @map("enable_rca")  // run agent-model RCA on this detector's findings
   detectionModel     String?  @map("detection_model") @db.VarChar    // model id; null = worker picks default
