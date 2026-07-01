@@ -167,22 +167,15 @@ describe("POST .../detectors — model selection validation", () => {
     });
   });
 
-  it("defaults an omitted legacy model selection to BYOK before system for the same adapter priority", async () => {
-    modelProviderFindManyMock.mockResolvedValue([
-      {
-        provider: "workspace-anthropic",
-        adapter: "anthropic",
-        customModels: ["claude-workspace"],
-      },
-    ]);
-
+  it("does not let BYOK providers change omitted legacy defaults when system credentials exist", async () => {
     const res = await POST(makeRequest(validBodyWithoutModel()), makeParams());
 
     expect(res.status).toBe(201);
+    expect(modelProviderFindManyMock).not.toHaveBeenCalled();
     expect(detectorCreateMock.mock.calls[0][0].data).toMatchObject({
-      detectionModel: "claude-workspace",
-      detectionProvider: "workspace-anthropic",
-      detectionSource: "byok",
+      detectionModel: "claude-4",
+      detectionProvider: "Anthropic",
+      detectionSource: "system",
     });
   });
 
@@ -216,7 +209,7 @@ describe("POST .../detectors — model selection validation", () => {
     });
   });
 
-  it("keeps provider priority ahead of BYOK-first ordering across different adapters", async () => {
+  it("keeps omitted legacy model selection on the highest-priority system provider", async () => {
     modelProviderFindManyMock.mockResolvedValue([
       {
         provider: "workspace-openai",

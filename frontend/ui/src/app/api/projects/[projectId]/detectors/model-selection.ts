@@ -29,9 +29,43 @@ interface DefaultModelCandidate extends ResolvedDetectorModelSelection {
   adapter: string;
 }
 
+function pickDefaultCandidate(
+  candidates: DefaultModelCandidate[],
+): ResolvedDetectorModelSelection | null {
+  for (const adapter of PROVIDER_PRIORITY) {
+    const match = candidates.find((candidate) => candidate.adapter === adapter);
+    if (match) return { model: match.model, provider: match.provider, source: match.source };
+  }
+
+  const fallback = candidates[0];
+  if (fallback) {
+    return { model: fallback.model, provider: fallback.provider, source: fallback.source };
+  }
+
+  return null;
+}
+
 export async function resolveDefaultDetectorModelSelection(
   workspaceId: string,
 ): Promise<ResolvedDetectorModelSelection | { error: string }> {
+  const systemModels: DefaultModelCandidate[] = SYSTEM_MODELS.filter(
+    (provider) => !!process.env[provider.envVar],
+  ).flatMap((provider) =>
+    provider.models.map((model) => ({
+      model: model.id,
+      provider: provider.provider,
+      source: ModelSource.SYSTEM,
+      adapter: provider.piAIProvider,
+    })),
+  );
+
+  // Omitted detector model fields come from legacy/internal creation paths. Keep
+  // those defaults pinned to the same env-backed system credential scope when it
+  // exists so adding a workspace BYOK provider does not silently change future
+  // detector traffic, billing, or data egress for callers that did not opt in.
+  const systemDefault = pickDefaultCandidate(systemModels);
+  if (systemDefault) return systemDefault;
+
   const byokProviders = await prisma.modelProvider.findMany({
     where: { workspaceId, enabled: true },
     select: { provider: true, adapter: true, customModels: true },
@@ -49,27 +83,8 @@ export async function resolveDefaultDetectorModelSelection(
         adapter: provider.adapter,
       })),
   );
-  const systemModels: DefaultModelCandidate[] = SYSTEM_MODELS.filter(
-    (provider) => !!process.env[provider.envVar],
-  ).flatMap((provider) =>
-    provider.models.map((model) => ({
-      model: model.id,
-      provider: provider.provider,
-      source: ModelSource.SYSTEM,
-      adapter: provider.piAIProvider,
-    })),
-  );
-  const candidates = [...byokModels, ...systemModels];
-
-  for (const adapter of PROVIDER_PRIORITY) {
-    const match = candidates.find((candidate) => candidate.adapter === adapter);
-    if (match) return { model: match.model, provider: match.provider, source: match.source };
-  }
-
-  const fallback = candidates[0];
-  if (fallback) {
-    return { model: fallback.model, provider: fallback.provider, source: fallback.source };
-  }
+  const byokDefault = pickDefaultCandidate(byokModels);
+  if (byokDefault) return byokDefault;
 
   return modelSelectionError(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR);
 }
