@@ -1,6 +1,6 @@
 import { Worker, Queue, DelayedError, type Job } from "bullmq";
 import { createHash } from "crypto";
-import { prisma, PlanType } from "@traceroot/core";
+import { prisma, PlanType, calculateCost } from "@traceroot/core";
 import type {
   DetectorRunJob,
   DetectorRcaJob,
@@ -133,6 +133,31 @@ export interface ScanUsage {
   inferenceSource: "system" | "byok" | null;
   inferenceModel: string | null;
   inferenceProvider: string | null;
+}
+
+async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
+  if (
+    usage.inferenceCost > 0 ||
+    !usage.inferenceModel ||
+    usage.inferenceInputTokens + usage.inferenceOutputTokens <= 0
+  ) {
+    return usage.inferenceCost;
+  }
+
+  try {
+    const fallback = await calculateCost(
+      usage.inferenceModel,
+      usage.inferenceInputTokens,
+      usage.inferenceOutputTokens,
+    );
+    return fallback > 0 ? fallback : usage.inferenceCost;
+  } catch (err) {
+    console.error(
+      `[Detector] Failed to calculate local pricing fallback for model ${usage.inferenceModel}:`,
+      err,
+    );
+    return usage.inferenceCost;
+  }
 }
 
 interface SingleDetectorOutcome {
@@ -337,19 +362,21 @@ async function evaluateTrace(
   // billing cron — same role aIMessage plays for chat + RCA.
   const usages = fulfilled.map((o) => o.usage).filter((u): u is ScanUsage => u !== null);
   if (usages.length > 0 && workspaceId) {
-    const aiMessageRows = usages.map((u) => ({
-      workspaceId,
-      sessionId: null,
-      kind: "detector",
-      role: "assistant",
-      content: "", // detector scans don't have a chat-like content payload
-      model: u.inferenceModel,
-      provider: u.inferenceProvider,
-      isByok: u.inferenceSource === "byok",
-      inputTokens: u.inferenceInputTokens,
-      outputTokens: u.inferenceOutputTokens,
-      cost: u.inferenceCost,
-    }));
+    const aiMessageRows = await Promise.all(
+      usages.map(async (u) => ({
+        workspaceId,
+        sessionId: null,
+        kind: "detector",
+        role: "assistant",
+        content: "", // detector scans don't have a chat-like content payload
+        model: u.inferenceModel,
+        provider: u.inferenceProvider,
+        isByok: u.inferenceSource === "byok",
+        inputTokens: u.inferenceInputTokens,
+        outputTokens: u.inferenceOutputTokens,
+        cost: await detectorInferenceCost(u),
+      })),
+    );
     try {
       await prisma.aIMessage.createMany({ data: aiMessageRows });
     } catch (err) {
