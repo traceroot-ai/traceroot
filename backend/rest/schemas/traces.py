@@ -117,3 +117,38 @@ class TraceDetailResponse(BaseModel):
     output: str | None
     metadata: str | None
     spans: list[SpanResponse]
+
+
+class FilterField(BaseModel):
+    """A single filterable column, serialized from the registry for the UI."""
+
+    field: str
+    label: str
+    type: str
+    level: str
+    operators: list[str]
+    value_source: str
+    enum_values: list[str] = []
+    # True for integer-typed numeric fields (tokens/latency/errors), so the UI can
+    # restrict their inputs to whole numbers.
+    integer: bool = False
+
+
+class FilterFieldsResponse(BaseModel):
+    """The full set of filterable fields driving the filter dropdown."""
+
+    fields: list[FilterField]
+
+
+class FilterValueCount(BaseModel):
+    """A distinct categorical value and how often it occurs."""
+
+    value: str
+    count: int
+
+
+class FilterValuesResponse(BaseModel):
+    """Distinct values for one categorical filter field, by frequency."""
+
+    field: str
+    values: list[FilterValueCount]

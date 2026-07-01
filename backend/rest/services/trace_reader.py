@@ -1,8 +1,10 @@
 """Service for reading traces from ClickHouse."""
 
+import time
 from datetime import datetime
 
 from db.clickhouse import get_clickhouse_client
+from rest.services.filters.translate import Predicate, build_conditions
 from rest.sql_utils import escape_ilike, to_utc_naive
 from worker.tokens.buckets import TokenBuckets, reconcile_cache_write_1h
 from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
@@ -15,6 +17,14 @@ from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
 # month with toYYYYMM(span_start_time), values under about a month usually skip
 # the same old monthly partitions.
 TRACE_SPAN_LOOKBACK_HOURS = 1
+
+# Distinct-values endpoint: cap the option list and cache briefly. The dropdown only
+# needs the frequent values, and the GROUP BY over spans is the heavy part — a short
+# TTL absorbs repeated opens of the same filter without staleness mattering.
+DISTINCT_VALUES_LIMIT = 100
+DISTINCT_VALUES_CACHE_TTL_SECONDS = 30
+# Bound the in-process cache so it can't grow without limit across projects/windows.
+DISTINCT_VALUES_CACHE_MAX = 256
 
 
 def span_cost_details(
@@ -56,6 +66,72 @@ class TraceReaderService:
 
     def __init__(self):
         self._client = get_clickhouse_client()
+        # Per-(project, column, window) cache of distinct values: key -> (expiry, rows).
+        self._distinct_cache: dict[tuple, tuple[float, list[dict]]] = {}
+
+    def get_distinct_span_values(
+        self,
+        project_id: str,
+        column: str,
+        start_after: datetime | None = None,
+    ) -> list[dict]:
+        """Distinct values of a span column within the active window, by frequency.
+
+        Powers the filter dropdown's categorical options (model, environment).
+        Time-bounded and briefly cached so repeatedly opening the same filter does
+        not re-scan spans.
+
+        Args:
+            project_id (str): Project that scopes the span scan (tenant isolation).
+            column (str): A spans column name. MUST be a registry-resolved identifier,
+                never raw user input — it is interpolated into the SQL because column
+                names cannot be bound as query parameters.
+            start_after (datetime | None): Lower bound on ``span_start_time``; prunes
+                monthly partitions. ``None`` scans all time.
+
+        Returns:
+            list[dict]: ``[{"value": str, "count": int}]`` ordered by descending
+            frequency, capped at ``DISTINCT_VALUES_LIMIT``.
+        """
+        normalized_start = to_utc_naive(start_after) if start_after is not None else None
+        cache_key = (project_id, column, normalized_start)
+        now = time.time()
+        cached = self._distinct_cache.get(cache_key)
+        if cached is not None and cached[0] > now:
+            return cached[1]
+
+        params: dict = {"project_id": project_id}
+        inner_conditions = ["project_id = {project_id:String}"]
+        if normalized_start is not None:
+            inner_conditions.append("span_start_time >= {start_after:DateTime64(3)}")
+            params["start_after"] = normalized_start
+        inner_where = " AND ".join(inner_conditions)
+
+        # Dedup ReplacingMergeTree spans to the latest version per span BEFORE counting, so
+        # a since-updated span can't inflate a value's count or surface a stale value. The
+        # column non-empty filter runs on the deduped (latest) value in the outer query.
+        query = f"""
+            SELECT value, count() AS n
+            FROM (
+                SELECT {column} AS value
+                FROM spans
+                WHERE {inner_where}
+                ORDER BY ch_update_time DESC
+                LIMIT 1 BY project_id, trace_id, span_id
+            )
+            WHERE value IS NOT NULL AND value != ''
+            GROUP BY value
+            ORDER BY n DESC
+            LIMIT {DISTINCT_VALUES_LIMIT}
+        """
+        result = self._client.query(query, parameters=params)
+        rows = [{"value": str(row[0]), "count": int(row[1])} for row in result.result_rows]
+        # Bound the cache: drop expired entries, then evict oldest if still at capacity.
+        self._distinct_cache = {k: v for k, v in self._distinct_cache.items() if v[0] > now}
+        if len(self._distinct_cache) >= DISTINCT_VALUES_CACHE_MAX:
+            self._distinct_cache.pop(next(iter(self._distinct_cache)))
+        self._distinct_cache[cache_key] = (now + DISTINCT_VALUES_CACHE_TTL_SECONDS, rows)
+        return rows
 
     def list_traces(
         self,
@@ -67,6 +143,7 @@ class TraceReaderService:
         start_after: datetime | None = None,
         end_before: datetime | None = None,
         search_query: str | None = None,
+        filters: list[Predicate] | None = None,
     ) -> dict:
         """List traces with aggregated metrics from spans."""
         offset = page * limit
@@ -101,6 +178,11 @@ class TraceReaderService:
                 "OR t.user_id ILIKE {search_kw:String})"
             )
             params["search_kw"] = f"%{escape_ilike(search_query)}%"
+
+        # Registry-driven attribute filters (model/cost/errors/...). Appended to the
+        # SHARED conditions so they land in both the page query and the count query;
+        # the span sub-queries reuse start_after (above) as a span-scan lower bound.
+        conditions.extend(build_conditions(filters or [], params))
 
         where_clause = " AND ".join(conditions)
 
