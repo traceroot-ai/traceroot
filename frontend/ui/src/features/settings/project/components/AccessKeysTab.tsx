@@ -120,7 +120,6 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                 <button
                   type="button"
                   aria-label="About Project API Keys"
-                  title={PROJECT_API_KEYS_HELP_TEXT}
                   className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <Info aria-hidden="true" className="h-3.5 w-3.5" />
