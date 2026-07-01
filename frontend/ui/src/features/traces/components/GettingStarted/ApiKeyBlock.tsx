@@ -34,7 +34,7 @@ export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
   if (generatedKey) {
     return (
       <div className="space-y-1.5">
-        <div className="flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs">
+        <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-muted px-3 font-mono text-xs">
           <span className="text-muted-foreground">TRACEROOT_API_KEY=</span>
           <span className="flex-1 truncate text-foreground">&quot;{generatedKey}&quot;</span>
           <CopyButton value={`TRACEROOT_API_KEY="${generatedKey}"`} className="h-6 w-6 shrink-0" />
@@ -50,7 +50,7 @@ export function ApiKeyBlock({ projectId }: ApiKeyBlockProps) {
   return (
     <div className="space-y-1.5">
       <div className="flex gap-2">
-        <div className="flex flex-1 items-center rounded-md border border-border bg-muted px-3 py-2 font-mono text-xs">
+        <div className="flex h-9 flex-1 items-center rounded-md border border-border bg-muted px-3 font-mono text-xs">
           <span className="text-muted-foreground">TRACEROOT_API_KEY=</span>
           <span className="text-muted-foreground/50">&quot;your_key_here&quot;</span>
         </div>
