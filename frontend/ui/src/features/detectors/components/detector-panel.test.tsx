@@ -22,7 +22,9 @@ vi.mock("./agent-model-link", () => ({
   AgentModelLink: () => null,
 }));
 vi.mock("@/features/ai-assistant/components/model-selector", () => ({
-  ModelSelector: () => null,
+  ModelSelector: ({ autoSelectDefault }: { autoSelectDefault?: boolean }) => (
+    <span data-testid="detector-model-auto-select">{String(autoSelectDefault)}</span>
+  ),
 }));
 vi.mock("./rca-toggle", () => ({
   RcaToggle: ({
@@ -116,6 +118,24 @@ describe("DetectorPanel", () => {
     const options = mocks.mutate.mock.calls[0][1] as { onSuccess: () => void };
     options.onSuccess();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("does not persist an auto-selected model during unrelated legacy detector edits", () => {
+    mocks.detector = {
+      ...baseDetector,
+      detectionSource: null,
+      detectionProvider: null,
+      detectionModel: null,
+    };
+    renderPanel();
+
+    expect(screen.getByTestId("detector-model-auto-select").textContent).toBe("false");
+
+    fireEvent.change(promptBox(), { target: { value: "new prompt" } });
+    fireEvent.click(saveButton());
+
+    expect(mocks.mutate).toHaveBeenCalledTimes(1);
+    expect(mocks.mutate.mock.calls[0][0]).toEqual({ prompt: "new prompt" });
   });
 
   it("closes without a network call when nothing changed", () => {

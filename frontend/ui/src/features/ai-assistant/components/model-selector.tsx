@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { getAvailableLLMModels } from "@/lib/api";
-import { flattenAvailableModels, pickDefaultModel } from "../lib/resolve-model";
+import { flattenAvailableModels, pickDefaultModel, type ResolvedModel } from "../lib/resolve-model";
 
 export interface ModelSelection {
   model: string;
@@ -20,23 +21,56 @@ interface ModelSelectorProps {
   value: ModelSelection;
   onChange: (selection: ModelSelection) => void;
   workspaceId?: string;
+  /**
+   * Empty create/chat forms should auto-pick the first available live model.
+   * Persisted edit forms opt out so default/legacy null model selections do not
+   * become dirty just because the model catalog loaded.
+   */
+  autoSelectDefault?: boolean;
 }
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
   return `${m.source}:${m.provider}:${m.id ?? m.model}`;
 }
 
-export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorProps) {
+function providersMatch(model: ResolvedModel, value: ModelSelection) {
+  if (model.provider === value.provider) return true;
+  if (model.source !== "system" || value.source !== "system") return false;
+  const normalizedValueProvider = value.provider.toLowerCase();
+  return (
+    normalizedValueProvider === model.provider.toLowerCase() ||
+    normalizedValueProvider === model.adapter.toLowerCase()
+  );
+}
+
+function modelMatchesSelection(model: ResolvedModel, value: ModelSelection) {
+  if (model.id !== value.model) return false;
+  if (!value.provider) return true;
+  return model.source === value.source && providersMatch(model, value);
+}
+
+export function ModelSelector({
+  value,
+  onChange,
+  workspaceId,
+  autoSelectDefault = true,
+}: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
-  const { data } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["llm-models", workspaceId],
     queryFn: () => getAvailableLLMModels(workspaceId!),
     enabled: !!workspaceId,
   });
 
   // BYOK models first, then system models. No deduplication.
-  const models = flattenAvailableModels(data);
+  const models = flattenAvailableModels(data, { includeFallback: false });
+  const selectableModels = models.filter((m) => m.supported !== false);
+  const isLoadingModels = !!workspaceId && isLoading;
+  const hasModelLoadError = !!workspaceId && isError;
+  const hasReturnedModels = models.length > 0;
+  const hasUnsupportedOnlyModelList = !!data && hasReturnedModels && selectableModels.length === 0;
+  const hasLoadedEmptyModelList = !!data && !hasReturnedModels;
 
   // Reconcile the incoming selection against the catalog:
   //   1. exact match on (model, provider, source) → check adapter; backfill if empty/wrong
@@ -47,18 +81,18 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
   // Without case 2 the selector would silently auto-pick a default when a
   // partially-hydrated saved selection arrives, clobbering the user's choice.
   useEffect(() => {
-    if (models.length === 0) return;
+    if (selectableModels.length === 0) return;
 
-    const exact = models.find(
-      (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
-    );
+    const exact = selectableModels.find((m) => modelMatchesSelection(m, value));
     const modelOnly =
-      !exact && value.model && !value.provider ? models.find((m) => m.id === value.model) : null;
+      !exact && value.model && !value.provider
+        ? selectableModels.find((m) => m.id === value.model)
+        : null;
     const match = exact ?? modelOnly;
 
     if (!match) {
-      if (!value.model) {
-        const pick = pickDefaultModel(models);
+      if (autoSelectDefault && !value.model) {
+        const pick = pickDefaultModel(selectableModels);
         if (pick) {
           onChange({
             model: pick.id,
@@ -75,10 +109,11 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
     // legacy selections often store as `""` and which `currentExists`-style
     // checks elsewhere ignore).
     if (
-      match.id !== value.model ||
-      match.provider !== value.provider ||
-      match.source !== value.source ||
-      match.adapter !== value.adapter
+      autoSelectDefault &&
+      (match.id !== value.model ||
+        match.provider !== value.provider ||
+        match.source !== value.source ||
+        match.adapter !== value.adapter)
     ) {
       onChange({
         model: match.id,
@@ -87,10 +122,11 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
         adapter: match.adapter,
       });
     }
-  }, [models, value, onChange]);
+  }, [selectableModels, value, onChange, autoSelectDefault]);
 
   const selectedKey = modelKey({ id: value.model, source: value.source, provider: value.provider });
-  const selectedModel = models.find((m) => modelKey(m) === selectedKey);
+  const selectedModel = selectableModels.find((m) => modelMatchesSelection(m, value));
+  const selectedModelKey = selectedModel ? modelKey(selectedModel) : selectedKey;
 
   return (
     <div className="flex items-center">
@@ -101,7 +137,17 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
             size="sm"
             className="h-7 gap-1 rounded-sm px-2 text-[11px] text-muted-foreground hover:text-foreground"
           >
-            {selectedModel?.label || value.model || "Select model"}
+            {selectedModel?.label ||
+              value.model ||
+              (hasModelLoadError
+                ? "Models unavailable"
+                : hasUnsupportedOnlyModelList
+                  ? "No supported models"
+                  : hasLoadedEmptyModelList
+                    ? "No model configured"
+                    : isLoadingModels
+                      ? "Loading models..."
+                      : "Select model")}
             <ChevronDown className="h-3 w-3" />
           </Button>
         </PopoverTrigger>
@@ -111,9 +157,9 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
           className="z-[70] max-h-[320px] w-[280px] overflow-y-auto p-1"
           sideOffset={4}
         >
-          {models.map((m) => {
+          {selectableModels.map((m) => {
             const key = modelKey(m);
-            const isSelected = key === selectedKey;
+            const isSelected = key === selectedModelKey;
             // Show provider tag for BYOK models to distinguish from system ones
             const showProvider = m.source === "byok";
             return (
@@ -136,9 +182,6 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
                 <span className="flex items-center gap-1.5">
                   {isSelected && <span className="text-[11px]">&#10003;</span>}
                   {m.label}
-                  {m.source === "byok" && !m.supported && (
-                    <span className="text-[10px] text-yellow-600">(unsupported)</span>
-                  )}
                 </span>
                 {showProvider && (
                   <span className="shrink-0 text-[10px] text-muted-foreground">{m.provider}</span>
@@ -146,9 +189,58 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
               </button>
             );
           })}
-          {models.length === 0 && (
+          {selectableModels.length === 0 && (
             <div className="px-2.5 py-3 text-center text-[11px] text-muted-foreground">
-              No models available
+              {isLoadingModels ? (
+                "Loading models..."
+              ) : hasModelLoadError ? (
+                <div className="space-y-1.5">
+                  <p>Unable to load models</p>
+                  <p>Refresh the page, or check the workspace model provider configuration.</p>
+                  {workspaceId && (
+                    <Link
+                      href={`/workspaces/${workspaceId}/settings/model-providers`}
+                      className="font-medium text-foreground underline underline-offset-2"
+                    >
+                      Configure model providers
+                    </Link>
+                  )}
+                </div>
+              ) : hasUnsupportedOnlyModelList ? (
+                <div className="space-y-1.5">
+                  <p>No supported models</p>
+                  <p>
+                    A provider is configured, but none of its models are currently supported by
+                    Traceroot.
+                  </p>
+                  {workspaceId && (
+                    <Link
+                      href={`/workspaces/${workspaceId}/settings/model-providers`}
+                      className="font-medium text-foreground underline underline-offset-2"
+                    >
+                      Configure model providers
+                    </Link>
+                  )}
+                </div>
+              ) : hasLoadedEmptyModelList ? (
+                <div className="space-y-1.5">
+                  <p>No model configured</p>
+                  <p>
+                    Self-hosted deployments need an `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the
+                    server environment, or a BYOK provider.
+                  </p>
+                  {workspaceId && (
+                    <Link
+                      href={`/workspaces/${workspaceId}/settings/model-providers`}
+                      className="font-medium text-foreground underline underline-offset-2"
+                    >
+                      Configure model providers
+                    </Link>
+                  )}
+                </div>
+              ) : (
+                "No models available"
+              )}
             </div>
           )}
         </PopoverContent>

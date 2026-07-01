@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 
 const fetchProviderConfigMock = vi.fn();
 const resolvePiModelMock = vi.fn();
@@ -79,24 +79,17 @@ describe("resolveProjectModel", () => {
     });
   });
 
-  it("resolves legacy BYOK via model provider lookup when rcaSource is null", async () => {
+  it("does not scan workspace BYOK providers for legacy null-source RCA models", async () => {
     modelProviderFindMany.mockResolvedValue([
       { provider: "my-deepseek", customModels: ["deepseek-chat"] },
     ]);
-    fetchProviderConfigMock.mockResolvedValue({
-      adapter: "deepseek",
-      key: "sk-xxx",
-      baseUrl: null,
-      config: null,
-    });
-    resolvePiModelMock.mockReturnValue({ id: "deepseek-chat", provider: "openai" });
 
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
     const res = await resolveProjectModel("deepseek-chat", null, null, "ws-123");
 
-    expect(modelProviderFindMany).toHaveBeenCalled();
-    expect(fetchProviderConfigMock).toHaveBeenCalledWith("ws-123", "my-deepseek");
-    expect(res).toEqual({ model: "deepseek-chat", providerName: "my-deepseek", source: "byok" });
+    expect(res).toBeNull();
+    expect(modelProviderFindMany).not.toHaveBeenCalled();
+    expect(fetchProviderConfigMock).not.toHaveBeenCalled();
   });
 
   it("returns null for unknown models not in system catalog", async () => {
@@ -113,14 +106,13 @@ describe("resolveProjectModel", () => {
     expect(await resolveProjectModel(undefined, null, null, "ws-123")).toBeNull();
   });
 
-  it("handles errors in legacy BYOK provider lookup gracefully", async () => {
-    modelProviderFindMany.mockRejectedValue(new Error("DB down"));
-
+  it("returns null for BYOK RCA models without an explicit provider", async () => {
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("unknown-custom-model", null, null, "ws-123");
+    const res = await resolveProjectModel("gpt-5.3", null, "byok", "ws-123");
 
     expect(res).toBeNull();
-    expect(modelProviderFindMany).toHaveBeenCalled();
+    expect(modelProviderFindMany).not.toHaveBeenCalled();
+    expect(fetchProviderConfigMock).not.toHaveBeenCalled();
   });
 });
 

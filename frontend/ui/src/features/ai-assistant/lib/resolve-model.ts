@@ -3,8 +3,10 @@
  * Shared by ModelSelector (interactive picker) and AgentModelLink (read-only label).
  *
  * Behavior:
- * - When the API response is undefined (loading / no workspace), fall back to the
- *   compiled-in SYSTEM_MODELS so the UI still renders something usable.
+ * - When the API response is undefined (loading / no workspace), callers may
+ *   fall back to the compiled-in SYSTEM_MODELS so read-only labels can still
+ *   render something useful. Interactive selectors should opt out so they do
+ *   not auto-pick a model before the workspace's configured providers are known.
  * - When the API response is defined, BYOK models come first, then system models.
  *   No deduplication — both consumers depend on this ordering.
  * - Default-pick walks PROVIDER_PRIORITY by adapter, then falls back to models[0].
@@ -26,15 +28,22 @@ const FALLBACK_MODELS: ResolvedModel[] = SYSTEM_MODELS.flatMap((s) =>
   s.models.map((m) => ({
     id: m.id,
     label: m.label,
-    provider: s.provider,
+    provider: s.piAIProvider,
     adapter: s.piAIProvider,
     source: "system" as const,
     supported: true,
   })),
 );
 
-export function flattenAvailableModels(data: LLMModelsResponse | undefined): ResolvedModel[] {
-  if (!data) return FALLBACK_MODELS;
+interface FlattenAvailableModelsOptions {
+  includeFallback?: boolean;
+}
+
+export function flattenAvailableModels(
+  data: LLMModelsResponse | undefined,
+  { includeFallback = true }: FlattenAvailableModelsOptions = {},
+): ResolvedModel[] {
+  if (!data) return includeFallback ? FALLBACK_MODELS : [];
   const systemList: ResolvedModel[] = data.systemModels.flatMap((g) =>
     g.models.map((m) => ({
       id: m.id,

@@ -1,10 +1,32 @@
 import { NextRequest } from "next/server";
-import { prisma, ModelSource, PlanType, isBillingEnabled } from "@traceroot/core";
+import { prisma, PlanType, isBillingEnabled } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
+import { validateWorkspaceModelSelection } from "@/lib/server/model-availability";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 
 type RouteParams = { params: Promise<{ projectId: string; sessionId: string }> };
+
+function jsonError(message: string, status: number) {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function readOptionalContextId(
+  body: Record<string, unknown>,
+  key: "traceId" | "traceSessionId",
+): { ok: true; value: string | undefined } | { ok: false; response: Response } {
+  const raw = body[key];
+  if (raw === undefined || raw === null) return { ok: true, value: undefined };
+  if (typeof raw !== "string") {
+    return { ok: false, response: jsonError(`${key} must be a string`, 400) };
+  }
+
+  if (raw.length === 0) return { ok: true, value: undefined };
+  return { ok: true, value: raw };
+}
 
 // GET /api/projects/[projectId]/ai/sessions/[sessionId]/messages — Load message history
 export async function GET(_request: NextRequest, { params }: RouteParams) {
@@ -46,19 +68,33 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   const accessResult = await requireProjectAccess(user.id, projectId);
   if (accessResult.error) return accessResult.error;
 
-  const body = await request.json();
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonError("Invalid JSON", 400);
+  }
 
-  // Validate BYOK source: verify workspace actually has a configured provider
-  if (body.source === ModelSource.BYOK) {
-    const hasConfiguredByok = await prisma.modelProvider.findFirst({
-      where: { workspaceId: accessResult.project.workspaceId },
-    });
-    if (!hasConfiguredByok) {
-      return new Response(JSON.stringify({ error: "No BYOK provider configured." }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return jsonError("Body must be a JSON object", 400);
+  }
+
+  const requestBody = body as Record<string, unknown>;
+  if (typeof requestBody.message !== "string" || requestBody.message.trim().length === 0) {
+    return jsonError("message must be a non-empty string", 400);
+  }
+  const traceId = readOptionalContextId(requestBody, "traceId");
+  if (!traceId.ok) return traceId.response;
+  const traceSessionId = readOptionalContextId(requestBody, "traceSessionId");
+  if (!traceSessionId.ok) return traceSessionId.response;
+
+  const modelSelection = await validateWorkspaceModelSelection(accessResult.project.workspaceId, {
+    source: requestBody.source,
+    provider: requestBody.providerName,
+    model: requestBody.model,
+  });
+  if (!modelSelection.ok) {
+    return jsonError(modelSelection.message, modelSelection.status);
   }
 
   // Check if AI runs are blocked (free plan hard cap — paid plans are never blocked)
@@ -86,21 +122,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         "x-workspace-id": accessResult.project.workspaceId,
       },
       body: JSON.stringify({
-        message: body.message,
-        model: body.model,
-        providerName: body.providerName,
-        source: body.source,
-        traceId: body.traceId,
-        traceSessionId: body.traceSessionId,
+        message: requestBody.message,
+        model: modelSelection.model,
+        providerName: modelSelection.provider,
+        source: modelSelection.source,
+        traceId: traceId.value,
+        traceSessionId: traceSessionId.value,
       }),
+      signal: request.signal,
     },
   );
 
-  if (!agentRes.ok || !agentRes.body) {
-    return new Response(JSON.stringify({ error: "Agent service error" }), {
-      status: agentRes.status,
-      headers: { "Content-Type": "application/json" },
-    });
+  if (!agentRes.ok) {
+    return jsonError("Agent service error", agentRes.status);
+  }
+  if (!agentRes.body) {
+    return jsonError("Agent service error", 502);
   }
 
   // Passthrough the SSE stream

@@ -179,121 +179,153 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     await updateSessionTitle(sessionId, title);
   }
 
+  const abortController = new AbortController();
+  const abortAgentRun = () => {
+    if (!abortController.signal.aborted) {
+      abortController.abort();
+      agent.abort();
+    }
+  };
+  c.req.raw.signal.addEventListener("abort", abortAgentRun, { once: true });
+
   return streamSSE(c, async (stream) => {
-    let assistantText = "";
-    let loggedFirstUpdate = false;
+    stream.onAbort(abortAgentRun);
 
-    // Accumulate token usage across all message_end events (tool-use loops)
-    let totalInputTokens = 0;
-    let totalOutputTokens = 0;
-    let totalCacheReadTokens = 0;
-    let totalCacheWriteTokens = 0;
-    let totalCost = 0;
-    let responseModel: string | undefined;
-    let responseProvider: string | undefined;
+    try {
+      let assistantText = "";
+      let loggedFirstUpdate = false;
 
-    await new Promise<void>((resolve) => {
-      runAgent(agent, body.message, {
-        onEvent: (event) => {
-          if (event.type === "message_update") {
-            // Log only the very first message_update for debugging
-            if (!loggedFirstUpdate) {
-              loggedFirstUpdate = true;
-              console.log(`[Agent] First message_update:`, JSON.stringify(event).slice(0, 500));
-            }
-          } else if (event.type !== "message_start") {
-            // Skip noisy message_start, log other event types
-            console.log(`[Agent] Event: ${event.type}`);
-          }
-          // Log error details and accumulate token usage from message_end
-          if (event.type === "message_end") {
-            const msg = (event as any).message;
-            console.log(
-              `[Agent] message_end:`,
-              JSON.stringify({
-                model: msg?.model,
-                provider: msg?.provider,
-                usage: msg?.usage,
-                stopReason: msg?.stopReason,
-              }).slice(0, 500),
-            );
-            if (msg?.stopReason === "error") {
-              console.error(`[Agent] API error:`, msg.errorMessage || "unknown");
-            }
-            // Accumulate token usage
-            const usage = msg?.usage;
-            if (usage) {
-              totalInputTokens += usage.input ?? usage.inputTokens ?? 0;
-              totalOutputTokens += usage.output ?? usage.outputTokens ?? 0;
-              totalCacheReadTokens += usage.cacheRead ?? 0;
-              totalCacheWriteTokens += usage.cacheWrite ?? 0;
-              totalCost += usage.cost?.total ?? 0;
-            }
-            if (msg?.model) responseModel = msg.model;
-            if (msg?.provider) responseProvider = msg.provider;
-          }
-          // Forward all events to the frontend
-          stream.writeSSE({
-            event: event.type,
-            data: JSON.stringify(event),
-          });
+      // Accumulate token usage across all message_end events (tool-use loops)
+      let totalInputTokens = 0;
+      let totalOutputTokens = 0;
+      let totalCacheReadTokens = 0;
+      let totalCacheWriteTokens = 0;
+      let totalCost = 0;
+      let responseModel: string | undefined;
+      let responseProvider: string | undefined;
 
-          // Accumulate assistant text for DB persistence
-          if (event.type === "message_update") {
-            const msgEvent = event as any;
-            const delta = msgEvent.assistantMessageEvent;
-            if ((delta?.type === "text_delta" || delta?.type === "thinking_delta") && delta.delta) {
-              assistantText += delta.delta;
-            }
-          }
-        },
-        onError: (error) => {
-          console.error(`[Agent] ERROR:`, error.message);
-          stream.writeSSE({
-            event: "error",
-            data: JSON.stringify({ message: error.message }),
-          });
-          resolve();
-        },
-        onDone: async () => {
-          console.log(`[Agent] Done. Assistant text length: ${assistantText.length}`);
-          // Persist assistant response to DB via SessionManager
-          if (assistantText) {
-            // Use our pricing table if pi-ai returned 0 cost
-            const cost =
-              totalCost > 0
-                ? totalCost
-                : responseModel
-                  ? await calculateCost(
-                      responseModel,
-                      totalInputTokens,
-                      totalOutputTokens,
-                      totalCacheReadTokens,
-                      totalCacheWriteTokens,
-                    )
-                  : 0;
-            if (cost === 0 && responseModel && (totalInputTokens > 0 || totalOutputTokens > 0)) {
-              console.warn(
-                `[Agent] Standard model pricing missing for "${responseModel}", cost recorded as $0`,
-              );
-            }
-            const tokenUsage = responseModel
-              ? {
-                  model: responseModel,
-                  provider: responseProvider || "unknown",
-                  isByok: body.source === ModelSource.BYOK,
-                  inputTokens: totalInputTokens,
-                  outputTokens: totalOutputTokens,
-                  cost,
+      await new Promise<void>((resolve) => {
+        void runAgent(
+          agent,
+          body.message,
+          {
+            onEvent: (event) => {
+              if (event.type === "message_update") {
+                // Log only the very first message_update for debugging
+                if (!loggedFirstUpdate) {
+                  loggedFirstUpdate = true;
+                  console.log(`[Agent] First message_update:`, JSON.stringify(event).slice(0, 500));
                 }
-              : undefined;
-            await sessionManager.appendMessage("assistant", assistantText, undefined, tokenUsage);
-          }
-          stream.writeSSE({ event: "done", data: "{}" });
-          resolve();
-        },
+              } else if (event.type !== "message_start") {
+                // Skip noisy message_start, log other event types
+                console.log(`[Agent] Event: ${event.type}`);
+              }
+              // Log error details and accumulate token usage from message_end
+              if (event.type === "message_end") {
+                const msg = (event as any).message;
+                console.log(
+                  `[Agent] message_end:`,
+                  JSON.stringify({
+                    model: msg?.model,
+                    provider: msg?.provider,
+                    usage: msg?.usage,
+                    stopReason: msg?.stopReason,
+                  }).slice(0, 500),
+                );
+                if (msg?.stopReason === "error") {
+                  console.error(`[Agent] API error:`, msg.errorMessage || "unknown");
+                }
+                // Accumulate token usage
+                const usage = msg?.usage;
+                if (usage) {
+                  totalInputTokens += usage.input ?? usage.inputTokens ?? 0;
+                  totalOutputTokens += usage.output ?? usage.outputTokens ?? 0;
+                  totalCacheReadTokens += usage.cacheRead ?? 0;
+                  totalCacheWriteTokens += usage.cacheWrite ?? 0;
+                  totalCost += usage.cost?.total ?? 0;
+                }
+                if (msg?.model) responseModel = msg.model;
+                if (msg?.provider) responseProvider = msg.provider;
+              }
+              // Forward all events to the frontend
+              stream.writeSSE({
+                event: event.type,
+                data: JSON.stringify(event),
+              });
+
+              // Accumulate assistant text for DB persistence
+              if (event.type === "message_update") {
+                const msgEvent = event as any;
+                const delta = msgEvent.assistantMessageEvent;
+                if (
+                  (delta?.type === "text_delta" || delta?.type === "thinking_delta") &&
+                  delta.delta
+                ) {
+                  assistantText += delta.delta;
+                }
+              }
+            },
+            onError: (error) => {
+              console.error(`[Agent] ERROR:`, error.message);
+              stream.writeSSE({
+                event: "error",
+                data: JSON.stringify({ message: error.message }),
+              });
+              resolve();
+            },
+            onDone: async () => {
+              console.log(`[Agent] Done. Assistant text length: ${assistantText.length}`);
+              // Persist assistant response to DB via SessionManager
+              if (assistantText) {
+                // Use our pricing table if pi-ai returned 0 cost
+                const cost =
+                  totalCost > 0
+                    ? totalCost
+                    : responseModel
+                      ? await calculateCost(
+                          responseModel,
+                          totalInputTokens,
+                          totalOutputTokens,
+                          totalCacheReadTokens,
+                          totalCacheWriteTokens,
+                        )
+                      : 0;
+                if (
+                  cost === 0 &&
+                  responseModel &&
+                  (totalInputTokens > 0 || totalOutputTokens > 0)
+                ) {
+                  console.warn(
+                    `[Agent] Standard model pricing missing for "${responseModel}", cost recorded as $0`,
+                  );
+                }
+                const tokenUsage = responseModel
+                  ? {
+                      model: responseModel,
+                      provider: responseProvider || "unknown",
+                      isByok: body.source === ModelSource.BYOK,
+                      inputTokens: totalInputTokens,
+                      outputTokens: totalOutputTokens,
+                      cost,
+                    }
+                  : undefined;
+                await sessionManager.appendMessage(
+                  "assistant",
+                  assistantText,
+                  undefined,
+                  tokenUsage,
+                );
+              }
+              stream.writeSSE({ event: "done", data: "{}" });
+              resolve();
+            },
+          },
+          { signal: abortController.signal },
+        ).finally(resolve);
       });
-    });
+    } finally {
+      c.req.raw.signal.removeEventListener("abort", abortAgentRun);
+    }
   });
 });
 

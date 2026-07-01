@@ -17,7 +17,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   // System models: include entries where env var is set
   const systemModels = SYSTEM_MODELS.filter((s) => !!process.env[s.envVar]).map((s) => ({
-    provider: s.provider,
+    provider: s.piAIProvider,
     adapter: s.piAIProvider,
     source: ModelSource.SYSTEM,
     models: s.models,

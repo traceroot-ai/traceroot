@@ -45,8 +45,16 @@ export async function resolveProjectModel(
 ): Promise<{ model: string; providerName: string; source: ModelSource } | null> {
   if (!rcaModel) return null;
 
-  // 1. BYOK: read provider from saved config (same pattern as sandbox-eval.ts L126-136)
-  if (rcaSource === "byok" && rcaProvider) {
+  // 1. BYOK: read provider from saved config (same pattern as sandbox-eval.ts L126-136).
+  // BYOK resolution must be explicit; legacy/null-source RCA settings should
+  // not scan workspace providers and accidentally consume a tenant BYOK key.
+  if (rcaSource === ModelSource.BYOK) {
+    if (!rcaProvider) {
+      console.warn(
+        `[detector-rca] BYOK rca_model "${rcaModel}" has no provider in workspace ${workspaceId}`,
+      );
+      return null;
+    }
     const providerConfig = await fetchProviderConfig(workspaceId, rcaProvider);
     if (!providerConfig) {
       console.warn(
@@ -61,52 +69,18 @@ export async function resolveProjectModel(
     return { model: model.id, providerName: rcaProvider, source: ModelSource.BYOK };
   }
 
-  // 2. System model: validate against catalog, then use shared resolver
-  for (const group of SYSTEM_MODELS) {
-    if (group.models.some((m) => m.id === rcaModel)) {
-      const model = resolvePiModel(rcaModel, null);
-      return { model: model.id, providerName: model.provider, source: ModelSource.SYSTEM };
-    }
-  }
-
-  // 3. Legacy BYOK fallback for pre-existing configs
-  const legacy = await resolveLegacyByok(rcaModel, workspaceId);
-  if (legacy) return legacy;
-
-  console.warn(`[detector-rca] Unknown rca_model "${rcaModel}", falling back to default`);
-  return null;
-}
-
-// 3. Legacy BYOK fallback: projects that saved a BYOK model before
-//    rcaSource and rcaProvider fields existed have both set to NULL.
-//    Try to resolve the model from the workspace's enabled providers.
-async function resolveLegacyByok(
-  rcaModel: string,
-  workspaceId: string,
-): Promise<{ model: string; providerName: string; source: ModelSource } | null> {
-  try {
-    const dbProviders = await prisma.modelProvider.findMany({
-      where: { workspaceId, enabled: true },
-      select: { provider: true, customModels: true },
-      orderBy: { id: "asc" },
-    });
-
-    for (const p of dbProviders) {
-      if (p.customModels.some((m) => m.trim() === rcaModel)) {
-        const providerConfig = await fetchProviderConfig(workspaceId, p.provider);
-        if (providerConfig) {
-          const model = resolvePiModel(rcaModel, providerConfig);
-          // Forward the BYOK provider LABEL the agent expects (see step 1 above).
-          return { model: model.id, providerName: p.provider, source: ModelSource.BYOK };
-        }
+  // 2. System model: validate against catalog, then use shared resolver.
+  // Null legacy source is treated as system only for catalog-backed system models.
+  if (rcaSource === ModelSource.SYSTEM || rcaSource == null) {
+    for (const group of SYSTEM_MODELS) {
+      if (group.models.some((m) => m.id === rcaModel)) {
+        const model = resolvePiModel(rcaModel, null);
+        return { model: model.id, providerName: model.provider, source: ModelSource.SYSTEM };
       }
     }
-  } catch (err) {
-    console.error(
-      `[detector-rca] Failed to resolve legacy BYOK for workspace ${workspaceId}:`,
-      err,
-    );
   }
+
+  console.warn(`[detector-rca] Unknown rca_model "${rcaModel}", falling back to default`);
   return null;
 }
 

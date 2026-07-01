@@ -21,7 +21,9 @@ vi.mock("@/features/integrations/hooks/useSlackIntegration", () => ({
   useSlackStatus: () => ({ data: undefined }),
 }));
 vi.mock("@/features/ai-assistant/components/model-selector", () => ({
-  ModelSelector: () => null,
+  ModelSelector: ({ autoSelectDefault }: { autoSelectDefault?: boolean }) => (
+    <span data-testid="agent-model-auto-select">{String(autoSelectDefault)}</span>
+  ),
 }));
 vi.mock("@/features/detectors/components/alert-channels-editor", () => ({
   AlertChannelsEditor: () => null,
@@ -75,6 +77,12 @@ afterEach(() => {
 });
 
 describe("DetectorsTab alert window", () => {
+  it("does not auto-select the saved agent model while editing persisted settings", () => {
+    renderTab();
+
+    expect(screen.getByTestId("agent-model-auto-select").textContent).toBe("false");
+  });
+
   it("hydrates the saved window from the project", () => {
     mocks.project.alert_window = "1h";
     renderTab();

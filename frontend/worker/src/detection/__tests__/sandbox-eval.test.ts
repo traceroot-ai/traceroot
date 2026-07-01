@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockComplete, mockResolvePiModel, mockFetchProviderConfig, mockFindByokKey } = vi.hoisted(
+const { mockComplete, mockGetEnvApiKey, mockResolvePiModel, mockFetchProviderConfig } = vi.hoisted(
   () => ({
     mockComplete: vi.fn(),
+    mockGetEnvApiKey: vi.fn(),
     mockResolvePiModel: vi.fn(),
     mockFetchProviderConfig: vi.fn(),
-    mockFindByokKey: vi.fn().mockResolvedValue(null),
   }),
 );
 
@@ -16,13 +16,13 @@ vi.mock("@earendil-works/pi-ai", async (importOriginal) => {
   return {
     ...actual,
     complete: mockComplete,
+    getEnvApiKey: mockGetEnvApiKey,
   };
 });
 
 vi.mock("@traceroot/core/model-resolver", () => ({
   resolvePiModel: mockResolvePiModel,
   fetchProviderConfig: mockFetchProviderConfig,
-  findByokKeyForPiProvider: mockFindByokKey,
 }));
 
 import {
@@ -71,9 +71,7 @@ describe("runDetectionForTrace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockResolvePiModel.mockReturnValue(ANTHROPIC_MODEL);
-    // Default: workspace BYOK scan returns a key. Individual tests can override
-    // by chaining mockResolvedValueOnce(null) before the call to simulate "no key".
-    mockFindByokKey.mockResolvedValue("test-api-key");
+    mockGetEnvApiKey.mockReturnValue("test-api-key");
   });
 
   it("returns identified=true when LLM emits a submit_result toolCall", async () => {
@@ -136,6 +134,46 @@ describe("runDetectionForTrace", () => {
     expect(result.identified).toBe(true);
     expect(result.summary).toBe("Found on retry");
     expect(mockComplete).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets system detectors without a stored model use the env-aware resolver default", async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system" },
+      workspaceId: "ws-1",
+    });
+
+    expect(mockResolvePiModel).toHaveBeenCalledWith(undefined, null);
+  });
+
+  it("does not fall back to workspace BYOK keys for system detectors", async () => {
+    mockGetEnvApiKey.mockReturnValueOnce(null);
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system", detectionModel: "claude-haiku-4-5" },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(false);
+    expect(result.error).toBe('No API key configured for provider "anthropic"');
+    expect(result.inferenceSource).toBe("system");
+    expect(mockFetchProviderConfig).not.toHaveBeenCalled();
+    expect(mockComplete).not.toHaveBeenCalled();
   });
 
   it("returns error and does not call complete() when BYOK provider not found", async () => {

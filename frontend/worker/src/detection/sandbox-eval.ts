@@ -1,7 +1,6 @@
 import { complete, getEnvApiKey } from "@earendil-works/pi-ai";
 import type { Message, ToolCall, ProviderStreamOptions } from "@earendil-works/pi-ai";
 import {
-  findByokKeyForPiProvider,
   fetchProviderConfig,
   resolvePiModel,
   type ProviderModelConfig,
@@ -40,15 +39,13 @@ export interface EvalResult {
 const MAX_ATTEMPTS = 2;
 /**
  * Hard character cap on per-trace context sent to the judge.
- * Set at ~19% of claude-haiku-4-5's 200k-token window (~37k tokens at 4 chars/token),
- * leaving generous headroom for the system prompt + tool definitions + response budget.
+ * Set at ~150k chars (~37k tokens at 4 chars/token), leaving generous
+ * headroom for the system prompt + tool definitions + response budget.
  * Smart compression (type-aware truncation + path-based dedup + base64
  * stripping) is a future improvement when we see real customer complaints
  * about traces being truncated. For now, rely on this hard cap.
  */
 const SAFETY_TRUNCATE_CHARS = 150_000;
-/** Default screening model for system source — cheap-and-fast, not the agent default. */
-const SYSTEM_DEFAULT_MODEL = "claude-haiku-4-5";
 /** Fallback per-attempt timeout when DETECTOR_EVAL_TIMEOUT_MS is unset or invalid. */
 export const DEFAULT_DETECTOR_EVAL_TIMEOUT_MS = 60_000;
 /** Node's setTimeout max delay; larger values clamp to 1ms (an instant abort). */
@@ -109,20 +106,17 @@ function errorResult(
  * Resolve the API key for a detector eval call.
  *   1. BYOK source → the explicit row's decrypted key (in `providerConfig`)
  *   2. System source → env var (pi-ai owns the provider→env-var mapping)
- *   3. System source fallback → any enabled BYOK row in the workspace whose
- *      adapter maps to the same pi-ai provider (matches agent behavior)
  */
-async function resolveDetectorApiKey(
-  workspaceId: string,
+function resolveDetectorApiKey(
   providerConfig: ProviderModelConfig | null,
   piProvider: string,
-): Promise<string | null> {
+): string | null {
   if (providerConfig) return providerConfig.key;
 
   const envKey = getEnvApiKey(piProvider);
   if (envKey) return envKey;
 
-  return findByokKeyForPiProvider(workspaceId, piProvider);
+  return null;
 }
 
 /**
@@ -155,12 +149,11 @@ export async function runDetectionForTrace(params: {
   }
 
   // 2. Resolve model
-  const modelId =
-    detector.detectionModel ?? (source === "system" ? SYSTEM_DEFAULT_MODEL : undefined);
+  const modelId = detector.detectionModel ?? undefined;
   const model = resolvePiModel(modelId, providerConfig);
 
-  // 3. Resolve API key (BYOK row → env var → workspace BYOK scan)
-  const apiKey = await resolveDetectorApiKey(workspaceId, providerConfig, model.provider);
+  // 3. Resolve API key (BYOK row → env var)
+  const apiKey = resolveDetectorApiKey(providerConfig, model.provider);
   if (!apiKey) {
     return errorResult(`No API key configured for provider "${model.provider}"`, source);
   }

@@ -123,6 +123,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
             value={agentModelSelection}
             onChange={setAgentModelSelection}
             workspaceId={project?.workspace_id}
+            autoSelectDefault={false}
           />
           <p className="mt-2 text-[12px] text-muted-foreground">
             Used for deep analysis when a finding is triggered. Shared across all detectors.
