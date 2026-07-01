@@ -165,6 +165,25 @@ describe("POST .../detectors — model selection validation", () => {
     });
   });
 
+  it("defaults an omitted legacy model selection to BYOK before system for the same adapter priority", async () => {
+    modelProviderFindManyMock.mockResolvedValue([
+      {
+        provider: "workspace-anthropic",
+        adapter: "anthropic",
+        customModels: ["claude-workspace"],
+      },
+    ]);
+
+    const res = await POST(makeRequest(validBodyWithoutModel()), makeParams());
+
+    expect(res.status).toBe(201);
+    expect(detectorCreateMock.mock.calls[0][0].data).toMatchObject({
+      detectionModel: "claude-workspace",
+      detectionProvider: "workspace-anthropic",
+      detectionSource: "byok",
+    });
+  });
+
   it("rejects partial model selections instead of guessing missing tuple fields", async () => {
     const res = await POST(
       makeRequest(validBodyWithoutModel({ detectionModel: "claude-4" })),
@@ -173,6 +192,38 @@ describe("POST .../detectors — model selection validation", () => {
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
+      error:
+        "Detector model selection is required. Choose a configured system model or BYOK provider.",
+    });
+    expect(detectorCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects blank or non-string model fields instead of treating them as omitted defaults", async () => {
+    const blankRes = await POST(
+      makeRequest(
+        validBodyWithoutModel({
+          detectionModel: "",
+          detectionProvider: "",
+          detectionSource: null,
+        }),
+      ),
+      makeParams(),
+    );
+    expect(blankRes.status).toBe(400);
+    expect(detectorCreateMock).not.toHaveBeenCalled();
+
+    const nonStringRes = await POST(
+      makeRequest(
+        validBodyWithoutModel({
+          detectionModel: 123,
+          detectionProvider: "Anthropic",
+          detectionSource: "system",
+        }),
+      ),
+      makeParams(),
+    );
+    expect(nonStringRes.status).toBe(400);
+    expect(await nonStringRes.json()).toEqual({
       error:
         "Detector model selection is required. Choose a configured system model or BYOK provider.",
     });

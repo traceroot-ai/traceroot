@@ -25,43 +25,49 @@ function byokModelIsSupported(adapter: string, model: string): boolean {
   return !catalog || catalog.some((candidate) => candidate.id === model);
 }
 
+interface DefaultModelCandidate extends ResolvedDetectorModelSelection {
+  adapter: string;
+}
+
 export async function resolveDefaultDetectorModelSelection(
   workspaceId: string,
 ): Promise<ResolvedDetectorModelSelection | { error: string }> {
-  for (const adapter of PROVIDER_PRIORITY) {
-    const systemProvider = SYSTEM_MODELS.find(
-      (candidate) => candidate.piAIProvider === adapter && !!process.env[candidate.envVar],
-    );
-    const defaultModel = systemProvider?.models[0];
-    if (systemProvider && defaultModel) {
-      return {
-        model: defaultModel.id,
-        provider: systemProvider.provider,
-        source: ModelSource.SYSTEM,
-      };
-    }
-  }
-
   const byokProviders = await prisma.modelProvider.findMany({
     where: { workspaceId, enabled: true },
     select: { provider: true, adapter: true, customModels: true },
   });
-  const byokModels = byokProviders.flatMap((provider) =>
+  const byokModels: DefaultModelCandidate[] = byokProviders.flatMap((provider) =>
     provider.customModels
       .map((id) => id.trim())
       .filter(Boolean)
       .filter((id) => byokModelIsSupported(provider.adapter, id))
-      .map((id) => ({ model: id, provider: provider.provider, adapter: provider.adapter })),
+      .map((id) => ({
+        model: id,
+        provider: provider.provider,
+        source: ModelSource.BYOK,
+        adapter: provider.adapter,
+      })),
   );
+  const systemModels: DefaultModelCandidate[] = SYSTEM_MODELS.filter(
+    (provider) => !!process.env[provider.envVar],
+  ).flatMap((provider) =>
+    provider.models.map((model) => ({
+      model: model.id,
+      provider: provider.provider,
+      source: ModelSource.SYSTEM,
+      adapter: provider.piAIProvider,
+    })),
+  );
+  const candidates = [...byokModels, ...systemModels];
 
   for (const adapter of PROVIDER_PRIORITY) {
-    const match = byokModels.find((candidate) => candidate.adapter === adapter);
-    if (match) return { model: match.model, provider: match.provider, source: ModelSource.BYOK };
+    const match = candidates.find((candidate) => candidate.adapter === adapter);
+    if (match) return { model: match.model, provider: match.provider, source: match.source };
   }
 
-  const fallback = byokModels[0];
+  const fallback = candidates[0];
   if (fallback) {
-    return { model: fallback.model, provider: fallback.provider, source: ModelSource.BYOK };
+    return { model: fallback.model, provider: fallback.provider, source: fallback.source };
   }
 
   return modelSelectionError(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR);

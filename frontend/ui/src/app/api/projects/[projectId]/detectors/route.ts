@@ -136,22 +136,33 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   // else with 400 so a typo (e.g. "syetm") doesn't silently store null and
   // produce a misconfigured detector.
   let sourceStr: "system" | "byok" | null = null;
-  if (detectionSource !== undefined && detectionSource !== null) {
-    if (detectionSource !== "system" && detectionSource !== "byok") {
+  if (detectionSource !== undefined) {
+    if (detectionSource === null || detectionSource === "") {
+      sourceStr = null;
+    } else if (detectionSource === "system" || detectionSource === "byok") {
+      sourceStr = detectionSource;
+    } else {
       return errorResponse(`detectionSource must be "system" or "byok"`, 400);
     }
-    sourceStr = detectionSource;
   }
   const resolvedDetectionModel = typeof detectionModel === "string" ? detectionModel.trim() : "";
   const resolvedDetectionProvider =
     typeof detectionProvider === "string" ? detectionProvider.trim() : "";
   const hasAnyModelSelectionField =
-    resolvedDetectionModel !== "" || resolvedDetectionProvider !== "" || sourceStr !== null;
+    detectionModel !== undefined ||
+    detectionProvider !== undefined ||
+    detectionSource !== undefined;
 
   let modelSelection: ResolvedDetectorModelSelection | { error: string };
   if (!hasAnyModelSelectionField) {
     modelSelection = await resolveDefaultDetectorModelSelection(accessResult.project.workspaceId);
-  } else if (!resolvedDetectionModel || !resolvedDetectionProvider || sourceStr === null) {
+  } else if (
+    typeof detectionModel !== "string" ||
+    typeof detectionProvider !== "string" ||
+    !resolvedDetectionModel ||
+    !resolvedDetectionProvider ||
+    sourceStr === null
+  ) {
     return errorResponse(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR, 400);
   } else {
     modelSelection = await validateDetectorModelSelection(accessResult.project.workspaceId, {
