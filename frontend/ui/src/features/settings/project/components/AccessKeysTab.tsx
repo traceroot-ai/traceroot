@@ -114,6 +114,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     : accessKeys.length > 0
       ? ".env masked hint"
       : ".env example";
+  const showsMaskedEnvHint = !hasCopyableEnvValue && accessKeys.length > 0;
 
   return (
     <div className="space-y-4">
@@ -157,6 +158,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
         <div className="bg-muted px-4 py-3 font-mono text-xs">
           <pre className="whitespace-pre-wrap">{envBlockContent}</pre>
         </div>
+        {showsMaskedEnvHint && (
+          <p className="border-t px-4 py-2 text-xs text-muted-foreground">
+            Create a new API key to copy a full TRACEROOT_API_KEY value.
+          </p>
+        )}
       </div>
 
       {newKeyData && (

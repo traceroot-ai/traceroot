@@ -72,6 +72,9 @@ describe("AccessKeysTab", () => {
     renderAccessKeysTab();
 
     expect(await screen.findByText(".env masked hint")).toBeDefined();
+    expect(
+      screen.getByText(/create a new api key to copy a full traceroot_api_key value/i),
+    ).toBeDefined();
 
     const copyMaskedHint = screen.getByRole("button", {
       name: /create a new api key to copy the full environment variable/i,
