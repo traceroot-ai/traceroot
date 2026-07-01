@@ -251,6 +251,13 @@ describe("AccessKeysTab", () => {
     });
     expect(screen.getByText(".env example")).toBeDefined();
     expect(screen.getByText('TRACEROOT_API_KEY="tr-..."')).toBeDefined();
+
+    rerenderWithProject("proj_123");
+
+    await waitFor(() => {
+      expect(screen.queryByText('TRACEROOT_API_KEY="tr-project-one-secret"')).toBeNull();
+    });
+    expect(screen.queryByRole("button", { name: /copy api key environment variable/i })).toBeNull();
   });
 
   it("ignores in-flight key creation that resolves after switching projects", async () => {
@@ -290,6 +297,13 @@ describe("AccessKeysTab", () => {
 
     expect(screen.queryByRole("button", { name: /copy api key environment variable/i })).toBeNull();
     expect(clipboardWriteText).not.toHaveBeenCalled();
+
+    rerenderWithProject("proj_123");
+
+    await waitFor(() => {
+      expect(screen.queryByText('TRACEROOT_API_KEY="tr-project-one-pending-secret"')).toBeNull();
+    });
+    expect(screen.queryByRole("button", { name: /copy api key environment variable/i })).toBeNull();
   });
 
   it("shows an in-flight created secret if the user returns to the origin project before it resolves", async () => {

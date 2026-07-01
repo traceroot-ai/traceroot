@@ -36,11 +36,6 @@ type CreateAccessKeyMutationVariables = {
   requestId: number;
 };
 
-type CreateAccessKeyMutationResult = {
-  projectId: string;
-  requestId: number;
-};
-
 type UpdateAccessKeyMutationVariables = {
   projectId: string;
   keyId: string;
@@ -201,15 +196,10 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     queryFn: () => getAccessKeys(projectId),
   });
 
-  const createMutation = useMutation<
-    CreateAccessKeyMutationResult,
-    Error,
-    CreateAccessKeyMutationVariables
-  >({
+  const createMutation = useMutation<void, Error, CreateAccessKeyMutationVariables>({
     mutationFn: async ({ projectId: requestProjectId, name, requestId }) => {
       const response = await createAccessKey(requestProjectId, name || undefined);
       createSecretByRequestIdRef.current.set(requestId, response.data.key);
-      return { projectId: requestProjectId, requestId };
     },
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["access-keys", variables.projectId] });
@@ -220,7 +210,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
         pendingCreateRequestsRef.current[variables.projectId] === variables.requestId;
       clearPendingCreateRequest(variables.projectId, variables.requestId);
 
-      if (isLatestProjectRequest && createdKey) {
+      if (
+        isLatestProjectRequest &&
+        createdKey &&
+        variables.projectId === currentProjectIdRef.current
+      ) {
         setProjectNewKeyData(variables.projectId, {
           key: createdKey,
         });
@@ -287,6 +281,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   resetDeleteMutationRef.current = deleteMutation.reset;
 
   useEffect(() => {
+    setNewKeyDataByProject({});
     setNewKeyName("");
     setShowCreateDialog(false);
     closeEditDialog();
