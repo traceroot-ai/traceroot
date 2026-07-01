@@ -9,6 +9,7 @@ import { getSessions, getSession, type SessionDetailOptions } from "@/lib/api/se
 import { getUsers, type UserQueryOptions } from "@/lib/api/users";
 import type { SessionQueryOptions, TraceQueryOptions } from "@/types/api";
 import type { TraceApiUser } from "@/lib/api/client";
+import { canonicalizeFilters } from "@/features/filters/predicate";
 
 // Composed state hooks
 export { useTraceListState } from "./use-trace-list-state";
@@ -32,6 +33,9 @@ export function tracesQueryKey(projectId: string, options: TraceQueryOptions = {
     options.end_before,
     options.user_id,
     options.session_id,
+    // Canonical (order-independent) filter key so two equivalent filter sets share
+    // one cache entry and hover-prefetch lands under the key the list hook reads.
+    canonicalizeFilters(options.filters),
   ] as const;
 }
 

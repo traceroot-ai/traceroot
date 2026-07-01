@@ -13,6 +13,7 @@ interface UseUrlPaginationReturn {
   goToPage: (page: number) => void;
   setLimit: (limit: number) => void;
   resetPage: () => void;
+  resetPageState: () => void;
 }
 
 const DEFAULT_PAGE = 0;
@@ -105,11 +106,17 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
     });
   }, [limit, updateUrl]);
 
+  // Reset only the page STATE to the first page, WITHOUT writing the URL — for callers
+  // (e.g. filters) that reset page_index inside their own single URL mutation, so a
+  // second write here can't clobber it from a stale searchParams closure.
+  const resetPageState = useCallback(() => setPageState(DEFAULT_PAGE), []);
+
   return {
     page,
     limit,
     goToPage,
     setLimit,
     resetPage,
+    resetPageState,
   };
 }
