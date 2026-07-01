@@ -55,7 +55,6 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const [newKeyData, setNewKeyData] = useState<{
     projectId: string;
     key: string;
-    keyHint: string;
   } | null>(null);
   const [editingKey, setEditingKey] = useState<{ id: string; name: string } | null>(null);
   const [keyToDelete, setKeyToDelete] = useState<AccessKey | null>(null);
@@ -76,7 +75,6 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
         setNewKeyData({
           projectId: variables.projectId,
           key: response.data.key,
-          keyHint: response.data.key_hint,
         });
         setNewKeyName("");
         setShowCreateDialog(false);
@@ -110,6 +108,9 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     setNewKeyData((current) => (current?.projectId === projectId ? current : null));
     setNewKeyName("");
     setShowCreateDialog(false);
+    setEditingKey(null);
+    setKeyToDelete(null);
+    setDeleteConfirmText("");
     resetCreateMutationRef.current();
   }, [projectId]);
 
@@ -372,6 +373,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                   <td className="px-3 py-2">
                     <DeleteIconButton
                       className="h-6 w-6"
+                      aria-label="Delete API key"
                       onClick={() => {
                         setKeyToDelete(key);
                         setDeleteConfirmText("");

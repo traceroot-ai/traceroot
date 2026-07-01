@@ -127,6 +127,42 @@ describe("AccessKeysTab", () => {
     expect(copyMaskedHint).toHaveProperty("disabled", true);
   });
 
+  it("closes project-scoped edit and delete dialogs when the project changes", async () => {
+    mocks.getAccessKeys.mockResolvedValue({
+      access_keys: [
+        {
+          id: "key_123",
+          key_hint: "tr-1234567890abcdef",
+          name: "Production",
+          expire_time: null,
+          last_use_time: null,
+          create_time: "2026-07-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const { rerenderWithProject } = renderAccessKeysTab("proj_123");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Production" }));
+    expect(screen.getByText("Edit Note")).toBeDefined();
+
+    rerenderWithProject("proj_456");
+
+    await waitFor(() => {
+      expect(screen.queryByText("Edit Note")).toBeNull();
+    });
+    await screen.findByRole("button", { name: "Production" });
+
+    fireEvent.click(screen.getByRole("button", { name: /delete api key/i }));
+    expect(screen.getAllByText("Delete API Key").length).toBeGreaterThan(0);
+
+    rerenderWithProject("proj_789");
+
+    await waitFor(() => {
+      expect(screen.queryByText("Delete API Key")).toBeNull();
+    });
+  });
+
   it("copies the full environment variable only after a new key is created", async () => {
     mocks.createAccessKey.mockResolvedValue({
       data: {
