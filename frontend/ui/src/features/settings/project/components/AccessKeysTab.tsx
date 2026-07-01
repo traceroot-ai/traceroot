@@ -31,7 +31,7 @@ interface AccessKeysTabProps {
 }
 
 const PROJECT_API_KEYS_HELP_TEXT =
-  "Project API keys authenticate TraceRoot SDK and API requests for this project. Copy the .env value into your app, and save new keys immediately because the full secret is shown only once.";
+  "Project API keys authenticate TraceRoot SDK and API requests for this project. When you create a new key, copy the full secret immediately and store it as TRACEROOT_API_KEY. Later, only a masked hint is shown.";
 
 function formatKeyHint(keyHint: string): string {
   if (keyHint.startsWith("tr-")) {

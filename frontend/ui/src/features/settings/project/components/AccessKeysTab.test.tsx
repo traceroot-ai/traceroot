@@ -50,6 +50,8 @@ describe("AccessKeysTab", () => {
 
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip.textContent).toMatch(/authenticate traceroot sdk and api requests/i);
-    expect(tooltip.textContent).toMatch(/full secret is shown only once/i);
+    expect(tooltip.textContent).toMatch(/copy the full secret immediately/i);
+    expect(tooltip.textContent).toMatch(/store it as traceroot_api_key/i);
+    expect(tooltip.textContent).toMatch(/only a masked hint is shown/i);
   });
 });
