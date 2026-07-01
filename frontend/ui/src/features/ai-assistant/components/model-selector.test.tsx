@@ -57,6 +57,7 @@ describe("ModelSelector", () => {
         onChange={mocks.onChange}
         workspaceId="workspace-1"
         includeFallbackModels={false}
+        hideUnsupportedModels
       />,
     );
 
@@ -94,6 +95,7 @@ describe("ModelSelector", () => {
         onChange={mocks.onChange}
         workspaceId="workspace-1"
         includeFallbackModels={false}
+        hideUnsupportedModels
       />,
     );
 
@@ -120,6 +122,7 @@ describe("ModelSelector", () => {
         onChange={mocks.onChange}
         workspaceId="workspace-1"
         includeFallbackModels={false}
+        hideUnsupportedModels
       />,
     );
 
@@ -159,6 +162,7 @@ describe("ModelSelector", () => {
         onChange={mocks.onChange}
         workspaceId="workspace-1"
         includeFallbackModels={false}
+        hideUnsupportedModels
       />,
     );
 
@@ -174,6 +178,34 @@ describe("ModelSelector", () => {
       ),
     ).toBeDefined();
     expect(screen.queryByText("Legacy Local")).toBeNull();
+  });
+
+  it("keeps unsupported BYOK entries visible for existing selector consumers by default", () => {
+    mocks.models = {
+      systemModels: [],
+      byokProviders: [
+        {
+          provider: "openai-compatible",
+          adapter: "openai",
+          source: "byok",
+          models: [{ id: "legacy-local", label: "Legacy Local", supported: false }],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{ model: "", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+        includeFallbackModels={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button"));
+
+    expect(screen.getByText("Legacy Local")).toBeDefined();
+    expect(screen.getByText("(unsupported)")).toBeDefined();
   });
 
   it("preserves a saved but unmatched selection instead of auto-picking a default", () => {

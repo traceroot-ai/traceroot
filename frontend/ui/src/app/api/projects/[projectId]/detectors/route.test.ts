@@ -1,11 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("next/server", () => ({ NextRequest: class {} }));
 
 const detectorCreateMock = vi.fn();
 const modelProviderFindFirstMock = vi.fn();
+const modelProviderFindManyMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
   ModelSource: { SYSTEM: "system", BYOK: "byok" },
+  PROVIDER_PRIORITY: ["anthropic", "openai"],
   SYSTEM_MODELS: [
     {
       provider: "Anthropic",
@@ -23,6 +25,7 @@ vi.mock("@traceroot/core", () => ({
     },
     modelProvider: {
       findFirst: (...args: unknown[]) => modelProviderFindFirstMock(...args),
+      findMany: (...args: unknown[]) => modelProviderFindManyMock(...args),
     },
   },
 }));
@@ -72,15 +75,21 @@ function validBodyWithoutModel(extra: Record<string, unknown> = {}) {
 beforeEach(() => {
   detectorCreateMock.mockReset();
   modelProviderFindFirstMock.mockReset();
+  modelProviderFindManyMock.mockReset();
   requireAuthMock.mockReset();
   requireProjectAccessMock.mockReset();
-  process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+  vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
   requireAuthMock.mockResolvedValue({ user: { id: "user-1" } });
   requireProjectAccessMock.mockResolvedValue({
     project: { id: "proj-1", workspaceId: "workspace-1", name: "Project" },
     membership: { workspaceId: "workspace-1", userId: "user-1", role: "MEMBER" },
   });
   detectorCreateMock.mockResolvedValue({ id: "det-1" });
+  modelProviderFindManyMock.mockResolvedValue([]);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("POST .../detectors — sampleRate default", () => {
@@ -108,8 +117,59 @@ describe("POST .../detectors — sampleRate default", () => {
 });
 
 describe("POST .../detectors — model selection validation", () => {
-  it("requires a detector model selection", async () => {
+  it("defaults an omitted legacy model selection to an available system model", async () => {
     const res = await POST(makeRequest(validBodyWithoutModel()), makeParams());
+
+    expect(res.status).toBe(201);
+    expect(detectorCreateMock.mock.calls[0][0].data).toMatchObject({
+      detectionModel: "claude-4",
+      detectionProvider: "Anthropic",
+      detectionSource: "system",
+    });
+  });
+
+  it("rejects an omitted model selection when no provider is available", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+
+    const res = await POST(makeRequest(validBodyWithoutModel()), makeParams());
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error:
+        "Detector model selection is required. Choose a configured system model or BYOK provider.",
+    });
+    expect(modelProviderFindManyMock).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace-1", enabled: true },
+      select: { provider: true, adapter: true, customModels: true },
+    });
+    expect(detectorCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("defaults an omitted legacy model selection to an available BYOK model", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    modelProviderFindManyMock.mockResolvedValue([
+      {
+        provider: "my-openai",
+        adapter: "openai",
+        customModels: ["not-supported", "gpt-5.4-mini"],
+      },
+    ]);
+
+    const res = await POST(makeRequest(validBodyWithoutModel()), makeParams());
+
+    expect(res.status).toBe(201);
+    expect(detectorCreateMock.mock.calls[0][0].data).toMatchObject({
+      detectionModel: "gpt-5.4-mini",
+      detectionProvider: "my-openai",
+      detectionSource: "byok",
+    });
+  });
+
+  it("rejects partial model selections instead of guessing missing tuple fields", async () => {
+    const res = await POST(
+      makeRequest(validBodyWithoutModel({ detectionModel: "claude-4" })),
+      makeParams(),
+    );
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
@@ -134,7 +194,7 @@ describe("POST .../detectors — model selection validation", () => {
   });
 
   it("rejects system models when the provider env var is unavailable", async () => {
-    delete process.env.ANTHROPIC_API_KEY;
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
 
     const res = await POST(makeRequest(validBody()), makeParams());
 

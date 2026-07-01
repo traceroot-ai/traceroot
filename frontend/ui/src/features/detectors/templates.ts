@@ -129,6 +129,5 @@ export function buildTemplateDetectorInput(template: DetectorTemplate): CreateDe
     triggerConditions: template.defaultConditions,
     sampleRate: DEFAULT_DETECTOR_SAMPLE_RATE,
     enableRca: true,
-    detectionSource: "system",
   };
 }

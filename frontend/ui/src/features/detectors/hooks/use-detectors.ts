@@ -112,7 +112,9 @@ async function updateDetector(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Failed to update detector: ${res.status}`);
+  if (!res.ok) {
+    throw new Error(await readApiError(res, `Failed to update detector: ${res.status}`));
+  }
   const data = (await res.json()) as { detector: Detector };
   return data.detector;
 }

@@ -6,6 +6,10 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import {
+  DETECTOR_MODEL_SELECTION_REQUIRED_ERROR,
+  validateDetectorModelSelection,
+} from "../model-selection";
 
 type RouteParams = { params: Promise<{ projectId: string; detectorId: string }> };
 
@@ -117,6 +121,22 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     return errorResponse("prompt must be a non-empty string", 400);
   }
 
+  let sourceStr: "system" | "byok" | null | undefined;
+  if (detectionSource !== undefined) {
+    if (detectionSource === null || detectionSource === "") {
+      sourceStr = null;
+    } else if (detectionSource === "system" || detectionSource === "byok") {
+      sourceStr = detectionSource;
+    } else {
+      return errorResponse(`detectionSource must be "system" or "byok"`, 400);
+    }
+  }
+
+  const touchesModelSelection =
+    detectionModel !== undefined ||
+    detectionProvider !== undefined ||
+    detectionSource !== undefined;
+
   // Build detector update data (only include defined fields)
   // Note: template is not updatable - it's set at creation time and cannot be changed
   const detectorData: Record<string, unknown> = {};
@@ -126,17 +146,43 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (sampleRate !== undefined) detectorData.sampleRate = sampleRate;
   if (enabled !== undefined) detectorData.enabled = enabled;
   if (enableRca !== undefined) detectorData.enableRca = enableRca;
-  if (detectionModel !== undefined) detectorData.detectionModel = detectionModel || null;
-  if (detectionProvider !== undefined) detectorData.detectionProvider = detectionProvider || null;
-  if (detectionSource !== undefined) {
-    // null/empty-string clear the field; otherwise must be a valid enum value.
-    if (detectionSource === null || detectionSource === "") {
-      detectorData.detectionSource = null;
-    } else if (detectionSource === "system" || detectionSource === "byok") {
-      detectorData.detectionSource = detectionSource;
-    } else {
-      return errorResponse(`detectionSource must be "system" or "byok"`, 400);
+
+  if (touchesModelSelection) {
+    const nextModel =
+      detectionModel !== undefined
+        ? typeof detectionModel === "string"
+          ? detectionModel.trim()
+          : ""
+        : existing.detectionModel?.trim() || "";
+    const nextProvider =
+      detectionProvider !== undefined
+        ? typeof detectionProvider === "string"
+          ? detectionProvider.trim()
+          : ""
+        : existing.detectionProvider?.trim() || "";
+    const nextSource: "system" | "byok" | null =
+      sourceStr !== undefined
+        ? sourceStr
+        : existing.detectionSource === "system" || existing.detectionSource === "byok"
+          ? existing.detectionSource
+          : null;
+
+    if (!nextModel || !nextProvider || nextSource === null) {
+      return errorResponse(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR, 400);
     }
+
+    const modelSelection = await validateDetectorModelSelection(accessResult.project.workspaceId, {
+      model: nextModel,
+      provider: nextProvider,
+      source: nextSource,
+    });
+    if ("error" in modelSelection) {
+      return errorResponse(modelSelection.error, 400);
+    }
+
+    detectorData.detectionModel = modelSelection.model;
+    detectorData.detectionProvider = modelSelection.provider;
+    detectorData.detectionSource = modelSelection.source;
   }
 
   const detector = await prisma.detector.update({

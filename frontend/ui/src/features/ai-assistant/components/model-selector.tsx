@@ -26,6 +26,12 @@ interface ModelSelectorProps {
    * can disable the compiled-in fallback used while the model catalog loads.
    */
   includeFallbackModels?: boolean;
+  /**
+   * Create flows can hide BYOK models Traceroot cannot run yet. Existing
+   * selector consumers keep the historical behavior of showing them with an
+   * unsupported badge.
+   */
+  hideUnsupportedModels?: boolean;
 }
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
@@ -37,6 +43,7 @@ export function ModelSelector({
   onChange,
   workspaceId,
   includeFallbackModels = true,
+  hideUnsupportedModels = false,
 }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
@@ -48,11 +55,14 @@ export function ModelSelector({
 
   // BYOK models first, then system models. No deduplication.
   const models = flattenAvailableModels(data, { includeFallback: includeFallbackModels });
-  const selectableModels = models.filter((m) => m.supported !== false);
+  const visibleModels = hideUnsupportedModels
+    ? models.filter((m) => m.supported !== false)
+    : models;
   const isLoadingModels = !!workspaceId && isLoading;
   const hasModelLoadError = !!workspaceId && isError;
   const hasReturnedModels = models.length > 0;
-  const hasUnsupportedOnlyModelList = !!data && hasReturnedModels && selectableModels.length === 0;
+  const hasUnsupportedOnlyModelList =
+    hideUnsupportedModels && !!data && hasReturnedModels && visibleModels.length === 0;
   const hasLoadedEmptyModelList = !!data && !hasReturnedModels;
   const modelStatusLabel = hasModelLoadError
     ? "Models unavailable"
@@ -73,20 +83,20 @@ export function ModelSelector({
   // Without case 2 the selector would silently auto-pick a default when a
   // partially-hydrated saved selection arrives, clobbering the user's choice.
   useEffect(() => {
-    if (selectableModels.length === 0) return;
+    if (visibleModels.length === 0) return;
 
-    const exact = selectableModels.find(
+    const exact = visibleModels.find(
       (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
     );
     const modelOnly =
       !exact && value.model && !value.provider
-        ? selectableModels.find((m) => m.id === value.model)
+        ? visibleModels.find((m) => m.id === value.model)
         : null;
     const match = exact ?? modelOnly;
 
     if (!match) {
       if (!value.model) {
-        const pick = pickDefaultModel(selectableModels);
+        const pick = pickDefaultModel(visibleModels);
         if (pick) {
           onChange({
             model: pick.id,
@@ -115,10 +125,10 @@ export function ModelSelector({
         adapter: match.adapter,
       });
     }
-  }, [selectableModels, value, onChange]);
+  }, [visibleModels, value, onChange]);
 
   const selectedKey = modelKey({ id: value.model, source: value.source, provider: value.provider });
-  const selectedModel = selectableModels.find((m) => modelKey(m) === selectedKey);
+  const selectedModel = visibleModels.find((m) => modelKey(m) === selectedKey);
   const selectedModelKey = selectedModel ? modelKey(selectedModel) : selectedKey;
 
   return (
@@ -141,7 +151,7 @@ export function ModelSelector({
           className="z-[70] max-h-[320px] w-[280px] overflow-y-auto p-1"
           sideOffset={4}
         >
-          {selectableModels.map((m) => {
+          {visibleModels.map((m) => {
             const key = modelKey(m);
             const isSelected = key === selectedModelKey;
             // Show provider tag for BYOK models to distinguish from system ones
@@ -167,6 +177,9 @@ export function ModelSelector({
                 <span className="flex items-center gap-1.5">
                   {isSelected && <span className="text-[11px]">&#10003;</span>}
                   {m.label}
+                  {m.source === "byok" && !m.supported && (
+                    <span className="text-[10px] text-yellow-600">(unsupported)</span>
+                  )}
                 </span>
                 {showProvider && (
                   <span className="shrink-0 text-[10px] text-muted-foreground">{m.provider}</span>
@@ -174,14 +187,17 @@ export function ModelSelector({
               </button>
             );
           })}
-          {selectableModels.length === 0 && (
+          {visibleModels.length === 0 && (
             <div className="px-2.5 py-3 text-center text-[11px] text-muted-foreground">
               {isLoadingModels ? (
                 "Loading models..."
               ) : hasModelLoadError ? (
                 <div className="space-y-1.5">
                   <p>Unable to load models</p>
-                  <p>Refresh the page, or check the workspace model provider configuration.</p>
+                  <p>
+                    Refresh the page. If you use BYOK, check Model Providers. If you rely on system
+                    models, ask an admin to verify server env vars and `/llm-models` availability.
+                  </p>
                   {workspaceId && (
                     <Link
                       href={`/workspaces/${workspaceId}/settings/model-providers`}

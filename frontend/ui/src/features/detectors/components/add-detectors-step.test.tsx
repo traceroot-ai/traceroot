@@ -78,7 +78,6 @@ describe("AddDetectorsStep", () => {
         name: "Failure Detector",
         sampleRate: 25,
         enableRca: true,
-        detectionSource: "system",
       }),
     );
     expect(payloads).toContainEqual(expect.objectContaining({ template: "safety" }));

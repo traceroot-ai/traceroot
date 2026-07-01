@@ -1,11 +1,5 @@
 import { NextRequest } from "next/server";
-import {
-  prisma,
-  SYSTEM_MODELS,
-  ADAPTER_MODELS,
-  ModelSource,
-  type LLMAdapter,
-} from "@traceroot/core";
+import { prisma } from "@traceroot/core";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import {
   requireAuth,
@@ -13,66 +7,14 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import {
+  DETECTOR_MODEL_SELECTION_REQUIRED_ERROR,
+  resolveDefaultDetectorModelSelection,
+  validateDetectorModelSelection,
+  type ResolvedDetectorModelSelection,
+} from "./model-selection";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
-
-interface ResolvedDetectorModelSelection {
-  model: string;
-  provider: string;
-  source: "system" | "byok";
-}
-
-function modelSelectionError(message: string): { error: string } {
-  return { error: message };
-}
-
-async function validateDetectorModelSelection(
-  workspaceId: string,
-  selection: ResolvedDetectorModelSelection,
-): Promise<ResolvedDetectorModelSelection | { error: string }> {
-  const model = selection.model.trim();
-  const provider = selection.provider.trim();
-
-  if (selection.source === ModelSource.SYSTEM) {
-    const normalizedProvider = provider.toLowerCase();
-    const systemProvider = SYSTEM_MODELS.find(
-      (candidate) =>
-        candidate.provider.toLowerCase() === normalizedProvider ||
-        candidate.piAIProvider.toLowerCase() === normalizedProvider,
-    );
-
-    if (!systemProvider || !process.env[systemProvider.envVar]) {
-      return modelSelectionError("Selected system provider is not available for this workspace");
-    }
-
-    if (!systemProvider.models.some((candidate) => candidate.id === model)) {
-      return modelSelectionError("Selected system model is not available for this workspace");
-    }
-
-    return { model, provider: systemProvider.provider, source: ModelSource.SYSTEM };
-  }
-
-  const byokProvider = await prisma.modelProvider.findFirst({
-    where: { workspaceId, provider, enabled: true },
-    select: { provider: true, adapter: true, customModels: true },
-  });
-
-  if (!byokProvider) {
-    return modelSelectionError("Selected BYOK provider is not available for this workspace");
-  }
-
-  const configuredModels = byokProvider.customModels.map((id) => id.trim()).filter(Boolean);
-  if (!configuredModels.includes(model)) {
-    return modelSelectionError("Selected BYOK model is not configured for this provider");
-  }
-
-  const catalog = ADAPTER_MODELS[byokProvider.adapter as LLMAdapter];
-  if (catalog && !catalog.some((candidate) => candidate.id === model)) {
-    return modelSelectionError("Selected BYOK model is not supported by Traceroot");
-  }
-
-  return { model, provider: byokProvider.provider, source: ModelSource.BYOK };
-}
 
 // GET /api/projects/[projectId]/detectors - List detectors for the project.
 // Supports `search_query` (substring on name/template/prompt), `page`, `limit`.
@@ -200,25 +142,24 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
     sourceStr = detectionSource;
   }
-  const hasModelSelection =
-    typeof detectionModel === "string" &&
-    detectionModel.trim().length > 0 &&
-    typeof detectionProvider === "string" &&
-    detectionProvider.trim().length > 0 &&
-    sourceStr !== null;
+  const resolvedDetectionModel = typeof detectionModel === "string" ? detectionModel.trim() : "";
+  const resolvedDetectionProvider =
+    typeof detectionProvider === "string" ? detectionProvider.trim() : "";
+  const hasAnyModelSelectionField =
+    resolvedDetectionModel !== "" || resolvedDetectionProvider !== "" || sourceStr !== null;
 
-  if (!hasModelSelection) {
-    return errorResponse(
-      "Detector model selection is required. Choose a configured system model or BYOK provider.",
-      400,
-    );
+  let modelSelection: ResolvedDetectorModelSelection | { error: string };
+  if (!hasAnyModelSelectionField) {
+    modelSelection = await resolveDefaultDetectorModelSelection(accessResult.project.workspaceId);
+  } else if (!resolvedDetectionModel || !resolvedDetectionProvider || sourceStr === null) {
+    return errorResponse(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR, 400);
+  } else {
+    modelSelection = await validateDetectorModelSelection(accessResult.project.workspaceId, {
+      model: resolvedDetectionModel,
+      provider: resolvedDetectionProvider,
+      source: sourceStr,
+    });
   }
-
-  const modelSelection = await validateDetectorModelSelection(accessResult.project.workspaceId, {
-    model: detectionModel as string,
-    provider: detectionProvider as string,
-    source: sourceStr,
-  });
   if ("error" in modelSelection) {
     return errorResponse(modelSelection.error, 400);
   }

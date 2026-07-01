@@ -86,4 +86,21 @@ describe("detector mutations surface API errors", () => {
     expect(invalidateSpy).not.toHaveBeenCalled();
     expect(FakeBroadcastChannel.posted).toEqual([]);
   });
+
+  it("surfaces update error bodies and does not broadcast failures", async () => {
+    const { wrapper, invalidateSpy } = setup();
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: "Selected BYOK model is not supported by Traceroot" }),
+    } as Response);
+
+    const { result } = renderHook(() => useUpdateDetector("proj-1", "det-1"), { wrapper });
+
+    await expect(result.current.mutateAsync({ detectionModel: "not-supported" })).rejects.toThrow(
+      "Selected BYOK model is not supported by Traceroot",
+    );
+    expect(invalidateSpy).not.toHaveBeenCalled();
+    expect(FakeBroadcastChannel.posted).toEqual([]);
+  });
 });

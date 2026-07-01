@@ -6,6 +6,7 @@ import type { Detector } from "../hooks/use-detectors";
 const mocks = vi.hoisted(() => ({
   detector: undefined as Detector | undefined,
   mutate: vi.fn(),
+  modelSelectorProps: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("../hooks/use-detectors", () => ({
@@ -22,7 +23,10 @@ vi.mock("./agent-model-link", () => ({
   AgentModelLink: () => null,
 }));
 vi.mock("@/features/ai-assistant/components/model-selector", () => ({
-  ModelSelector: () => null,
+  ModelSelector: (props: Record<string, unknown>) => {
+    mocks.modelSelectorProps.push(props);
+    return null;
+  },
 }));
 vi.mock("./rca-toggle", () => ({
   RcaToggle: ({
@@ -81,6 +85,7 @@ afterEach(() => {
   cleanup();
   mocks.detector = undefined;
   mocks.mutate.mockReset();
+  mocks.modelSelectorProps = [];
 });
 
 describe("DetectorPanel", () => {
@@ -116,6 +121,31 @@ describe("DetectorPanel", () => {
     const options = mocks.mutate.mock.calls[0][1] as { onSuccess: () => void };
     options.onSuccess();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("does not allow fallback model auto-pick in the detector edit selector", () => {
+    mocks.detector = baseDetector;
+    renderPanel();
+    expect(mocks.modelSelectorProps.at(-1)).toMatchObject({
+      includeFallbackModels: false,
+      hideUnsupportedModels: true,
+    });
+  });
+
+  it("shows update API errors inline without closing the panel", async () => {
+    mocks.detector = baseDetector;
+    const { onClose } = renderPanel();
+    mocks.mutate.mockImplementation((_patch, options: { onError: (error: Error) => void }) => {
+      options.onError(new Error("Selected BYOK model is not supported by Traceroot"));
+    });
+
+    fireEvent.change(promptBox(), { target: { value: "new prompt" } });
+    fireEvent.click(saveButton());
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Selected BYOK model is not supported by Traceroot",
+    );
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("closes without a network call when nothing changed", () => {

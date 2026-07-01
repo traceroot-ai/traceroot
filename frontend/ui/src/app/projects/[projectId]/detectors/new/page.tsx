@@ -202,6 +202,7 @@ export default function NewDetectorPage() {
                     onChange={setModelSelection}
                     workspaceId={workspaceId}
                     includeFallbackModels={false}
+                    hideUnsupportedModels
                   />
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     Used to evaluate each trace for this detector.
@@ -214,8 +215,10 @@ export default function NewDetectorPage() {
                         "Loading workspace models before detector creation can continue."
                       ) : isModelsError ? (
                         <>
-                          Unable to load workspace models. Refresh the page, or check model provider
-                          settings. {modelProviderSettingsLink}
+                          Unable to load workspace models. Refresh the page. If you use BYOK, check
+                          Model Providers. If you rely on system models, ask an admin to verify
+                          server env vars and `/llm-models` availability.{" "}
+                          {modelProviderSettingsLink}
                         </>
                       ) : hasUnsupportedOnlyDetectorModels ? (
                         <>
