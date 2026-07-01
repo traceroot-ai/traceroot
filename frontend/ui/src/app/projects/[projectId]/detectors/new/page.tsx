@@ -69,6 +69,7 @@ export default function NewDetectorPage() {
       name,
       prompt,
       sampleRate,
+      enabled: sampleRate > 0,
       enableRca,
       triggerConditions,
       detectionModel: modelSelection.model || undefined,
@@ -211,7 +212,7 @@ export default function NewDetectorPage() {
               <div className="flex items-center gap-3 p-3">
                 <input
                   type="range"
-                  min={1}
+                  min={0}
                   max={100}
                   value={sampleRate}
                   onChange={(e) => setSampleRate(Number(e.target.value))}
