@@ -41,6 +41,32 @@ interface RunAgentOptions {
   signal?: AbortSignal;
 }
 
+export interface AgentRunAbortBridge {
+  signal: AbortSignal;
+  abort: () => void;
+  cleanup: () => void;
+}
+
+export function createAgentRunAbortBridge(requestSignal: AbortSignal): AgentRunAbortBridge {
+  const abortController = new AbortController();
+  const abort = () => {
+    if (!abortController.signal.aborted) {
+      abortController.abort();
+    }
+  };
+
+  requestSignal.addEventListener("abort", abort, { once: true });
+  if (requestSignal.aborted) {
+    abort();
+  }
+
+  return {
+    signal: abortController.signal,
+    abort,
+    cleanup: () => requestSignal.removeEventListener("abort", abort),
+  };
+}
+
 /**
  * Get or create an Agent + SessionManager for a conversation session.
  */
@@ -149,6 +175,7 @@ export async function runAgent(
 ): Promise<void> {
   const { signal } = options;
   if (signal?.aborted) {
+    agent.abort();
     return;
   }
 

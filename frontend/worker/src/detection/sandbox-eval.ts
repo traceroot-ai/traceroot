@@ -38,6 +38,13 @@ export interface EvalResult {
 
 const MAX_ATTEMPTS = 2;
 /**
+ * Preserve the historical detector default when an older detector row has no
+ * stored model. The shared system resolver intentionally picks the first
+ * env-backed model for interactive AI, which may be a much more expensive
+ * model than the detector path should use by default.
+ */
+export const DEFAULT_DETECTOR_SYSTEM_MODEL = "claude-haiku-4-5";
+/**
  * Hard character cap on per-trace context sent to the judge.
  * Set at ~150k chars (~37k tokens at 4 chars/token), leaving generous
  * headroom for the system prompt + tool definitions + response budget.
@@ -149,7 +156,10 @@ export async function runDetectionForTrace(params: {
   }
 
   // 2. Resolve model
-  const modelId = detector.detectionModel ?? undefined;
+  const modelId =
+    source === "byok"
+      ? (detector.detectionModel ?? undefined)
+      : (detector.detectionModel ?? DEFAULT_DETECTOR_SYSTEM_MODEL);
   const model = resolvePiModel(modelId, providerConfig);
 
   // 3. Resolve API key (BYOK row → env var)

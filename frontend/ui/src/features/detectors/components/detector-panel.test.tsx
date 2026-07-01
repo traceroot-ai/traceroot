@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, act } from "@testing-library/react";
 import type { Detector } from "../hooks/use-detectors";
 
 const mocks = vi.hoisted(() => ({
@@ -118,6 +118,24 @@ describe("DetectorPanel", () => {
     const options = mocks.mutate.mock.calls[0][1] as { onSuccess: () => void };
     options.onSuccess();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("shows backend model-validation errors inline when save fails", () => {
+    mocks.detector = baseDetector;
+    const { onClose } = renderPanel();
+    fireEvent.change(promptBox(), { target: { value: "new prompt" } });
+    fireEvent.click(saveButton());
+
+    expect(mocks.mutate).toHaveBeenCalledTimes(1);
+    const options = mocks.mutate.mock.calls[0][1] as { onError: (error: Error) => void };
+    act(() => {
+      options.onError(new Error("Selected BYOK model is not available for this workspace"));
+    });
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Selected BYOK model is not available for this workspace",
+    );
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("does not persist an auto-selected model during unrelated legacy detector edits", () => {

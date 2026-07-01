@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/server", () => ({ NextRequest: class {} }));
+vi.mock("@/env", () => ({ env: { INTERNAL_API_SECRET: "test-internal-secret" } }));
 
 const modelProviderFindFirstMock = vi.fn();
 const workspaceFindUniqueMock = vi.fn();

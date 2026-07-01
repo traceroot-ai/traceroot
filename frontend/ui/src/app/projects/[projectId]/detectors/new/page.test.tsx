@@ -157,6 +157,26 @@ describe("NewDetectorPage", () => {
     });
   });
 
+  it("shows server model-validation errors inline without navigating", async () => {
+    mocks.mutateAsync.mockRejectedValueOnce(
+      new Error("Selected system provider is not available for this workspace"),
+    );
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Create Detector" })).not.toHaveProperty(
+        "disabled",
+        true,
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Selected system provider is not available for this workspace",
+    );
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
   it("keeps Create Detector disabled while workspace models are loading", async () => {
     mocks.getAvailableLLMModels.mockImplementation(
       () => new Promise<MockAvailableModels>(() => {}),

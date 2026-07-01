@@ -13,6 +13,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { env } from "@/env";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 
@@ -20,7 +21,7 @@ async function invalidateAgentProviderCache(workspaceId: string, providerName: s
   try {
     await fetch(`${AGENT_SERVICE_URL}/api/v1/cache/invalidate-provider`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Internal-Secret": env.INTERNAL_API_SECRET },
       body: JSON.stringify({ workspaceId, providerName }),
     });
   } catch {

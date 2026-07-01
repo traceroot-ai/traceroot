@@ -10,11 +10,18 @@ import {
   deleteSession,
   updateSessionTitle,
 } from "./session.js";
-import { getOrCreateAgent, runAgent, removeAgent, invalidateProviderCache } from "./agent.js";
+import {
+  getOrCreateAgent,
+  runAgent,
+  removeAgent,
+  invalidateProviderCache,
+  createAgentRunAbortBridge,
+} from "./agent.js";
 import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor } from "./executors/index.js";
 import { createTools } from "./tools/index.js";
 import type { Executor } from "./executors/interface.js";
+import { hasValidInternalSecret } from "./internal-auth.js";
 
 const app = new Hono();
 
@@ -24,9 +31,23 @@ const PORT = parseInt(new URL(AGENT_SERVICE_URL).port || "8100", 10);
 // Per-session executor cache (executor lifecycle tied to session)
 const sessionExecutors = new Map<string, Executor>();
 
+function requestAbortedResponse(): Response {
+  return new Response(JSON.stringify({ error: "request aborted" }), {
+    status: 499,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 // Health check
 app.get("/health", (c) => {
   return c.json({ status: "ok", service: "traceroot-agent" });
+});
+
+app.use("/api/v1/*", async (c, next) => {
+  if (!hasValidInternalSecret(c.req.raw)) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  await next();
 });
 
 // Cache invalidation — called by Next.js API when a model provider is updated/deleted
@@ -110,7 +131,6 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   const projectId = c.req.param("projectId");
   const sessionId = c.req.param("sessionId");
   const userId = c.req.header("x-user-id") || "";
-  const workspaceId = c.req.header("x-workspace-id") || "";
   const body = await c.req.json<{
     message: string;
     model?: string;
@@ -127,6 +147,12 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   const ownedSession = await getSession(sessionId, userId, projectId);
   if (!ownedSession) {
     return c.json({ error: "session not found" }, 404);
+  }
+
+  const abortBridge = createAgentRunAbortBridge(c.req.raw.signal);
+  if (abortBridge.signal.aborted) {
+    abortBridge.cleanup();
+    return requestAbortedResponse();
   }
 
   const systemPrompt = getSystemPrompt({
@@ -155,41 +181,53 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     `[Agent] POST message: session=${sessionId}, model=${body.model}, provider=${body.providerName}, source=${body.source}`,
   );
 
-  const { agent, sessionManager } = await getOrCreateAgent({
-    sessionId,
-    projectId,
-    workspaceId: ownedSession.workspaceId,
-    userId,
-    systemPrompt,
-    tools,
-    model: body.model,
-    providerName: body.providerName,
-    source: body.source,
-  });
+  let agentSession: Awaited<ReturnType<typeof getOrCreateAgent>>;
+  try {
+    agentSession = await getOrCreateAgent({
+      sessionId,
+      projectId,
+      workspaceId: ownedSession.workspaceId,
+      userId,
+      systemPrompt,
+      tools,
+      model: body.model,
+      providerName: body.providerName,
+      source: body.source,
+    });
+  } catch (error) {
+    abortBridge.cleanup();
+    throw error;
+  }
+  const { agent, sessionManager } = agentSession;
+  if (abortBridge.signal.aborted) {
+    abortBridge.cleanup();
+    return requestAbortedResponse();
+  }
 
   console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
 
-  // Persist user message to DB via SessionManager
-  await sessionManager.appendMessage("user", body.message);
+  try {
+    // Persist user message to DB via SessionManager
+    await sessionManager.appendMessage("user", body.message);
 
-  // Auto-generate session title from first user message (we already have
-  // the session loaded above for the auth check — reuse it).
-  if (!ownedSession.title) {
-    const title = body.message.slice(0, 80) + (body.message.length > 80 ? "..." : "");
-    await updateSessionTitle(sessionId, title);
+    // Auto-generate session title from first user message (we already have
+    // the session loaded above for the auth check — reuse it).
+    if (!ownedSession.title) {
+      const title = body.message.slice(0, 80) + (body.message.length > 80 ? "..." : "");
+      await updateSessionTitle(sessionId, title);
+    }
+  } catch (error) {
+    abortBridge.cleanup();
+    throw error;
   }
 
-  const abortController = new AbortController();
-  const abortAgentRun = () => {
-    if (!abortController.signal.aborted) {
-      abortController.abort();
-      agent.abort();
-    }
-  };
-  c.req.raw.signal.addEventListener("abort", abortAgentRun, { once: true });
+  if (abortBridge.signal.aborted) {
+    abortBridge.cleanup();
+    return requestAbortedResponse();
+  }
 
   return streamSSE(c, async (stream) => {
-    stream.onAbort(abortAgentRun);
+    stream.onAbort(abortBridge.abort);
 
     try {
       let assistantText = "";
@@ -320,11 +358,11 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
               resolve();
             },
           },
-          { signal: abortController.signal },
+          { signal: abortBridge.signal },
         ).finally(resolve);
       });
     } finally {
-      c.req.raw.signal.removeEventListener("abort", abortAgentRun);
+      abortBridge.cleanup();
     }
   });
 });

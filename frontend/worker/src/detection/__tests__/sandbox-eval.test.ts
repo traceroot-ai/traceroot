@@ -28,6 +28,7 @@ vi.mock("@traceroot/core/model-resolver", () => ({
 import {
   runDetectionForTrace,
   parseDetectorEvalTimeoutMs,
+  DEFAULT_DETECTOR_SYSTEM_MODEL,
   DEFAULT_DETECTOR_EVAL_TIMEOUT_MS,
   MAX_DETECTOR_EVAL_TIMEOUT_MS,
 } from "../sandbox-eval.js";
@@ -136,7 +137,7 @@ describe("runDetectionForTrace", () => {
     expect(mockComplete).toHaveBeenCalledTimes(2);
   });
 
-  it("lets system detectors without a stored model use the env-aware resolver default", async () => {
+  it("preserves the detector-safe system default when no model is stored", async () => {
     mockComplete.mockResolvedValueOnce({
       content: [
         {
@@ -156,7 +157,7 @@ describe("runDetectionForTrace", () => {
       workspaceId: "ws-1",
     });
 
-    expect(mockResolvePiModel).toHaveBeenCalledWith(undefined, null);
+    expect(mockResolvePiModel).toHaveBeenCalledWith(DEFAULT_DETECTOR_SYSTEM_MODEL, null);
   });
 
   it("does not fall back to workspace BYOK keys for system detectors", async () => {

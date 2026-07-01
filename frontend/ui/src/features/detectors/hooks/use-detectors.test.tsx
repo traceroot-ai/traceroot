@@ -68,3 +68,32 @@ describe("detector mutations notify other tabs on success", () => {
     expectNotified(invalidateSpy);
   });
 });
+
+describe("detector mutation errors", () => {
+  it("create: surfaces backend validation messages", async () => {
+    const { wrapper } = setup();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json(
+        {
+          error: "Selected system provider is not available for this workspace",
+        },
+        { status: 400 },
+      ),
+    );
+    const { result } = renderHook(() => useCreateDetector("proj-1"), { wrapper });
+
+    await expect(
+      result.current.mutateAsync({ name: "n", template: "t", prompt: "p", outputSchema: [] }),
+    ).rejects.toThrow("Selected system provider is not available for this workspace");
+  });
+
+  it("update: falls back to status text when the backend error is not JSON", async () => {
+    const { wrapper } = setup();
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("not json", { status: 503 }));
+    const { result } = renderHook(() => useUpdateDetector("proj-1", "det-1"), { wrapper });
+
+    await expect(result.current.mutateAsync({ enableRca: false })).rejects.toThrow(
+      "Failed to update detector: 503",
+    );
+  });
+});

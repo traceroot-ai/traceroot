@@ -18,6 +18,7 @@ import {
 } from "../queues/digest-queue.js";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
+const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
 
 // Settle margin past the window's end before the flush reads ClickHouse, so a
 // finding written at windowEnd−ε is visible. With finding-timestamp keying
@@ -32,41 +33,59 @@ function getDigestQueue(): Queue<DigestFlushJob> {
   return digestQueue;
 }
 
+export type ProjectModelResolution =
+  | { kind: "unset" }
+  | { kind: "invalid"; error: string }
+  | { kind: "resolved"; model: string; providerName: string; source: ModelSource };
+
 // Resolve a project-configured rca_model to the agent service body fields.
 // Uses the same pattern as sandbox-eval.ts: reads the provider from saved
 // config (BYOK) or the shared system-model resolver — no fragile prefix
 // matching or adapter guessing.
-// Returns null when the model is unset or unknown (caller should omit fields).
+// Invalid partial/legacy configuration is fail-closed so RCA does not silently
+// consume the workspace's default system model when a configured BYOK tuple can
+// no longer be resolved.
 export async function resolveProjectModel(
   rcaModel: string | null | undefined,
   rcaProvider: string | null | undefined,
   rcaSource: string | null | undefined,
   workspaceId: string,
-): Promise<{ model: string; providerName: string; source: ModelSource } | null> {
-  if (!rcaModel) return null;
+): Promise<ProjectModelResolution> {
+  if (!rcaModel) {
+    if (!rcaProvider && !rcaSource) return { kind: "unset" };
+    return {
+      kind: "invalid",
+      error: "RCA model configuration is incomplete; model is missing",
+    };
+  }
 
   // 1. BYOK: read provider from saved config (same pattern as sandbox-eval.ts L126-136).
   // BYOK resolution must be explicit; legacy/null-source RCA settings should
   // not scan workspace providers and accidentally consume a tenant BYOK key.
   if (rcaSource === ModelSource.BYOK) {
     if (!rcaProvider) {
-      console.warn(
-        `[detector-rca] BYOK rca_model "${rcaModel}" has no provider in workspace ${workspaceId}`,
-      );
-      return null;
+      return {
+        kind: "invalid",
+        error: `BYOK RCA model "${rcaModel}" has no provider`,
+      };
     }
     const providerConfig = await fetchProviderConfig(workspaceId, rcaProvider);
     if (!providerConfig) {
-      console.warn(
-        `[detector-rca] BYOK provider "${rcaProvider}" not found or disabled in workspace ${workspaceId}`,
-      );
-      return null;
+      return {
+        kind: "invalid",
+        error: `BYOK provider "${rcaProvider}" was not found or is disabled`,
+      };
     }
     const model = resolvePiModel(rcaModel, providerConfig);
     // Forward the saved BYOK provider LABEL (e.g. "myopenai"), not the pi-ai
     // provider name. The agent resolves BYOK via fetchProviderConfig(workspaceId,
     // providerName), which keys on ModelProvider.provider (the user label).
-    return { model: model.id, providerName: rcaProvider, source: ModelSource.BYOK };
+    return {
+      kind: "resolved",
+      model: model.id,
+      providerName: rcaProvider,
+      source: ModelSource.BYOK,
+    };
   }
 
   // 2. System model: validate against catalog, then use shared resolver.
@@ -75,13 +94,26 @@ export async function resolveProjectModel(
     for (const group of SYSTEM_MODELS) {
       if (group.models.some((m) => m.id === rcaModel)) {
         const model = resolvePiModel(rcaModel, null);
-        return { model: model.id, providerName: model.provider, source: ModelSource.SYSTEM };
+        if (rcaSource === ModelSource.SYSTEM && rcaProvider && rcaProvider !== model.provider) {
+          return {
+            kind: "invalid",
+            error: `System provider "${rcaProvider}" does not match model provider "${model.provider}"`,
+          };
+        }
+        return {
+          kind: "resolved",
+          model: model.id,
+          providerName: model.provider,
+          source: ModelSource.SYSTEM,
+        };
       }
     }
   }
 
-  console.warn(`[detector-rca] Unknown rca_model "${rcaModel}", falling back to default`);
-  return null;
+  return {
+    kind: "invalid",
+    error: `RCA model "${rcaModel}" is not available for source "${rcaSource ?? "system"}"`,
+  };
 }
 
 export async function runRcaSession(params: {
@@ -95,6 +127,16 @@ export async function runRcaSession(params: {
   rcaProvider?: string | null;
   rcaSource?: string | null;
 }): Promise<{ result: string; sessionId: string }> {
+  const resolved = await resolveProjectModel(
+    params.rcaModel,
+    params.rcaProvider,
+    params.rcaSource,
+    params.workspaceId,
+  );
+  if (resolved.kind === "invalid") {
+    throw new Error(`Invalid RCA model configuration: ${resolved.error}`);
+  }
+
   const sessionRes = await fetch(
     `${AGENT_SERVICE_URL}/api/v1/projects/${params.projectId}/sessions`,
     {
@@ -102,6 +144,7 @@ export async function runRcaSession(params: {
       headers: {
         "Content-Type": "application/json",
         "x-workspace-id": params.workspaceId,
+        "X-Internal-Secret": INTERNAL_API_SECRET,
         // no x-user-id — system session, userId stored as null
       },
       body: JSON.stringify({
@@ -155,14 +198,9 @@ Output your findings in this format:
   const msgHeaders: Record<string, string> = {
     "Content-Type": "application/json",
     "x-workspace-id": params.workspaceId,
+    "X-Internal-Secret": INTERNAL_API_SECRET,
   };
 
-  const resolved = await resolveProjectModel(
-    params.rcaModel,
-    params.rcaProvider,
-    params.rcaSource,
-    params.workspaceId,
-  );
   const msgBody: {
     message: string;
     traceId: string;
@@ -170,7 +208,7 @@ Output your findings in this format:
     providerName?: string;
     source?: ModelSource;
   } = { message: prompt, traceId: params.traceId };
-  if (resolved) {
+  if (resolved.kind === "resolved") {
     msgBody.model = resolved.model;
     msgBody.providerName = resolved.providerName;
     msgBody.source = resolved.source;

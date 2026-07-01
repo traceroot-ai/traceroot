@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   agentOptions: undefined as
@@ -48,7 +48,12 @@ vi.mock("../session.js", () => ({
 }));
 
 import { ModelSource } from "@traceroot/core";
-import { getOrCreateAgent, runAgent } from "../agent.js";
+import { createAgentRunAbortBridge, getOrCreateAgent, runAgent } from "../agent.js";
+import { hasValidInternalSecret, INTERNAL_SECRET_HEADER } from "../internal-auth.js";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 function baseConfig(extra: Partial<Parameters<typeof getOrCreateAgent>[0]> = {}) {
   return {
@@ -162,5 +167,116 @@ describe("runAgent abort handling", () => {
     expect(handler.onDone).not.toHaveBeenCalled();
     expect(handler.onError).not.toHaveBeenCalled();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("bridges request aborts into the active agent run exactly once", async () => {
+    const requestController = new AbortController();
+    const bridge = createAgentRunAbortBridge(requestController.signal);
+    let resolvePrompt: () => void = () => {};
+    const promptPromise = new Promise<void>((resolve) => {
+      resolvePrompt = resolve;
+    });
+    const unsubscribe = vi.fn();
+    const fakeAgent = {
+      subscribe: vi.fn(() => unsubscribe),
+      prompt: vi.fn(() => promptPromise),
+      abort: vi.fn(() => resolvePrompt()),
+    };
+    const handler = {
+      onEvent: vi.fn(),
+      onError: vi.fn(),
+      onDone: vi.fn(),
+    };
+
+    try {
+      const run = runAgent(
+        fakeAgent as unknown as Parameters<typeof runAgent>[0],
+        "hello",
+        handler,
+        {
+          signal: bridge.signal,
+        },
+      );
+      requestController.abort();
+      await run;
+
+      expect(fakeAgent.abort).toHaveBeenCalledTimes(1);
+      expect(handler.onDone).not.toHaveBeenCalled();
+      expect(handler.onError).not.toHaveBeenCalled();
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+    } finally {
+      bridge.cleanup();
+    }
+  });
+
+  it("cancels before prompting when the bridged request has already aborted", async () => {
+    const requestController = new AbortController();
+    requestController.abort();
+    const bridge = createAgentRunAbortBridge(requestController.signal);
+    const fakeAgent = {
+      subscribe: vi.fn(() => vi.fn()),
+      prompt: vi.fn(),
+      abort: vi.fn(),
+    };
+    const handler = {
+      onEvent: vi.fn(),
+      onError: vi.fn(),
+      onDone: vi.fn(),
+    };
+
+    try {
+      await runAgent(fakeAgent as unknown as Parameters<typeof runAgent>[0], "hello", handler, {
+        signal: bridge.signal,
+      });
+
+      expect(fakeAgent.abort).toHaveBeenCalledTimes(1);
+      expect(fakeAgent.prompt).not.toHaveBeenCalled();
+      expect(fakeAgent.subscribe).not.toHaveBeenCalled();
+      expect(handler.onDone).not.toHaveBeenCalled();
+      expect(handler.onError).not.toHaveBeenCalled();
+    } finally {
+      bridge.cleanup();
+    }
+  });
+});
+
+describe("internal agent-service auth", () => {
+  it("rejects missing or incorrect internal secrets", () => {
+    vi.stubEnv("INTERNAL_API_SECRET", "agent-secret");
+
+    expect(
+      hasValidInternalSecret(new Request("http://agent.test/api/v1/projects/p1/sessions")),
+    ).toBe(false);
+    expect(
+      hasValidInternalSecret(
+        new Request("http://agent.test/api/v1/projects/p1/sessions", {
+          headers: { [INTERNAL_SECRET_HEADER]: "wrong-secret" },
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts the configured internal secret", () => {
+    vi.stubEnv("INTERNAL_API_SECRET", "agent-secret");
+
+    expect(
+      hasValidInternalSecret(
+        new Request("http://agent.test/api/v1/projects/p1/sessions", {
+          headers: { [INTERNAL_SECRET_HEADER]: "agent-secret" },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails closed when the internal secret is not configured", () => {
+    vi.stubEnv("INTERNAL_API_SECRET", "");
+
+    expect(
+      hasValidInternalSecret(
+        new Request("http://agent.test/api/v1/projects/p1/sessions", {
+          headers: { [INTERNAL_SECRET_HEADER]: "" },
+        }),
+      ),
+    ).toBe(false);
   });
 });

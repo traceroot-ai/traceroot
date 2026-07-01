@@ -35,6 +35,18 @@ interface DetectorListResponse {
   meta: PaginationMeta;
 }
 
+async function getApiErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: unknown };
+    if (typeof body.error === "string" && body.error.trim()) {
+      return body.error;
+    }
+  } catch {
+    // The response may not be JSON; keep the status-based fallback below.
+  }
+  return `${fallback}: ${res.status}`;
+}
+
 export interface CreateDetectorInput {
   name: string;
   template: string;
@@ -78,7 +90,7 @@ async function createDetector(projectId: string, input: CreateDetectorInput): Pr
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Failed to create detector: ${res.status}`);
+  if (!res.ok) throw new Error(await getApiErrorMessage(res, "Failed to create detector"));
   const data = (await res.json()) as { detector: Detector };
   return data.detector;
 }
@@ -105,7 +117,7 @@ async function updateDetector(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Failed to update detector: ${res.status}`);
+  if (!res.ok) throw new Error(await getApiErrorMessage(res, "Failed to update detector"));
   const data = (await res.json()) as { detector: Detector };
   return data.detector;
 }

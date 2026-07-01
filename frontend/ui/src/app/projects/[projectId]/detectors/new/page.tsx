@@ -54,6 +54,7 @@ export default function NewDetectorPage() {
     adapter: "",
   });
   const [enableRca, setEnableRca] = useState(true);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const workspaceId = project?.workspace_id;
   const {
     data: availableModels,
@@ -102,6 +103,7 @@ export default function NewDetectorPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!hasSelectedModel) return;
+    setSubmitError(null);
 
     const template = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate)!;
     const input: CreateDetectorInput = {
@@ -116,8 +118,12 @@ export default function NewDetectorPage() {
       detectionProvider: modelSelection.provider || undefined,
       detectionSource: modelSelection.source === "byok" ? "byok" : "system",
     };
-    await createMutation.mutateAsync(input);
-    router.push(`/projects/${projectId}/detectors`);
+    try {
+      await createMutation.mutateAsync(input);
+      router.push(`/projects/${projectId}/detectors`);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Failed to create detector");
+    }
   };
 
   const selectedTemplateDef = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate);
@@ -225,6 +231,11 @@ export default function NewDetectorPage() {
                       ) : (
                         "Select an available model before creating a detector."
                       )}
+                    </p>
+                  )}
+                  {submitError && (
+                    <p className="mt-2 text-[11px] text-destructive" role="alert">
+                      {submitError}
                     </p>
                   )}
                 </div>

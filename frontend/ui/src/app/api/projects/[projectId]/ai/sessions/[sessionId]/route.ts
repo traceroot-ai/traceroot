@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
+import { env } from "@/env";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 
@@ -20,7 +21,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     `${AGENT_SERVICE_URL}/api/v1/projects/${projectId}/sessions/${sessionId}`,
     {
       method: "DELETE",
-      headers: { "x-user-id": user.id },
+      headers: { "x-user-id": user.id, "X-Internal-Secret": env.INTERNAL_API_SECRET },
     },
   );
 
