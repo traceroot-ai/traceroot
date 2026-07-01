@@ -94,6 +94,16 @@ describe("buildDetectorPatch", () => {
     const patch = buildDetectorPatch(baseForm, { ...baseForm, conditions });
     expect(patch).toEqual({ triggerConditions: conditions });
   });
+
+  it("disables the detector when the sample rate drops to 0%", () => {
+    const patch = buildDetectorPatch(baseForm, { ...baseForm, sampleRate: 0 });
+    expect(patch).toEqual({ sampleRate: 0, enabled: false });
+  });
+
+  it("enables the detector when the sample rate is positive", () => {
+    const patch = buildDetectorPatch(baseForm, { ...baseForm, sampleRate: 10 });
+    expect(patch).toEqual({ sampleRate: 10, enabled: true });
+  });
 });
 
 describe("mergeDetectorIntoForm", () => {
