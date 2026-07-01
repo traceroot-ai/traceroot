@@ -25,6 +25,13 @@ function formatTokens(input: number, output: number): string {
   return `${(input + output).toLocaleString()} tokens`;
 }
 
+function formatModelUsage(row: AIUsageByModel): string {
+  const cost = formatCost(row.cost);
+  return row.isByok
+    ? `${formatTokens(row.inputTokens, row.outputTokens)} · ${cost} (not billed)`
+    : `${formatTokens(row.inputTokens, row.outputTokens)} · ${cost}`;
+}
+
 interface UsageSectionProps {
   title: string;
   runsLabel: string;
@@ -86,10 +93,7 @@ function UsageSection({
                     {row.model}
                     {row.isByok && <span className="ml-1 text-xs opacity-60">BYOK</span>}
                   </span>
-                  <span className="text-muted-foreground">
-                    {formatTokens(row.inputTokens, row.outputTokens)}
-                    {!row.isByok && ` · ${formatCost(row.cost)}`}
-                  </span>
+                  <span className="text-muted-foreground">{formatModelUsage(row)}</span>
                 </div>
               ))}
             </div>
