@@ -257,4 +257,36 @@ describe("processTrace — finding + RCA", () => {
       ],
     });
   });
+
+  it("does not write detector AI usage when inference has no model attribution", async () => {
+    mockFetches(60_000, '{"span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        name: "Slow",
+        prompt: "p",
+        outputSchema: [],
+        detectionModel: null,
+        detectionProvider: null,
+        detectionSource: "system",
+        enableRca: false,
+      },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: false,
+      summary: "Analysis failed",
+      data: {},
+      error: 'No API key configured for provider "anthropic"',
+      inferenceCost: 0,
+      inferenceInputTokens: 0,
+      inferenceOutputTokens: 0,
+      inferenceSource: "system",
+      inferenceModel: null,
+      inferenceProvider: null,
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockPrisma.aIMessage.createMany).not.toHaveBeenCalled();
+  });
 });
