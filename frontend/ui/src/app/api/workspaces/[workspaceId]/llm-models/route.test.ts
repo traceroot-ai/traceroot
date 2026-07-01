@@ -69,7 +69,6 @@ describe("GET .../llm-models", () => {
     expect(modelProviderFindManyMock).toHaveBeenCalledWith({
       where: { workspaceId: "workspace-1", enabled: true },
       select: {
-        id: true,
         adapter: true,
         provider: true,
         customModels: true,

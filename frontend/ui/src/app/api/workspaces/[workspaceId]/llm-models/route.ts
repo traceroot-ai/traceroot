@@ -27,7 +27,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   const dbProviders = await prisma.modelProvider.findMany({
     where: { workspaceId, enabled: true },
     select: {
-      id: true,
       adapter: true,
       provider: true,
       customModels: true,
