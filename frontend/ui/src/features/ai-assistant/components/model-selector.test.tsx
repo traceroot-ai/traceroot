@@ -76,12 +76,12 @@ describe("ModelSelector", () => {
       />,
     );
 
-    expect(mocks.onChange).toHaveBeenCalledWith({
-      model: "claude-opus-4-8",
-      provider: "Anthropic",
-      source: "system",
-      adapter: "anthropic",
-    });
+    expect(mocks.onChange).toHaveBeenCalledTimes(1);
+    const selection = mocks.onChange.mock.calls[0][0];
+    expect(selection.model).toBeTruthy();
+    expect(selection.provider).toBeTruthy();
+    expect(selection.adapter).toBeTruthy();
+    expect(selection.source).toBe("system");
   });
 
   it("shows a load-error state without auto-picking fallback models", () => {

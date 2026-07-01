@@ -132,6 +132,32 @@ describe("NewDetectorPage", () => {
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors");
   });
 
+  it("submits a changed template's defaults when the name has not been edited", async () => {
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Create Detector" })).not.toHaveProperty(
+        "disabled",
+        true,
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Hallucination" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
+    const hallucination = getTemplate("hallucination")!;
+    expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({
+      name: "Hallucination Detector",
+      template: "hallucination",
+      prompt: hallucination.prompt,
+      outputSchema: hallucination.outputSchema,
+      triggerConditions: hallucination.defaultConditions,
+      detectionModel: "claude-4",
+      detectionProvider: "anthropic",
+      detectionSource: "system",
+    });
+  });
+
   it("submits user-edited name and prompt over the template defaults", async () => {
     renderPage();
     await waitFor(() =>
