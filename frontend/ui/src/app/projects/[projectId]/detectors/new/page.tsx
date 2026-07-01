@@ -170,48 +170,49 @@ export default function NewDetectorPage() {
 
             {/* Model — hidden for rule detectors (no LLM call, zero cost) */}
             {!isRuleType && (
-            <div className="border border-border">
-              <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-                <span className="text-[12px] font-medium text-muted-foreground">Model</span>
-              </div>
-              <div className="divide-y divide-border">
-                {/* Detector Model — per-detector, editable */}
-                <div className="p-3">
-                  <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">
-                    Detector Model
-                  </p>
-                  <ModelSelector
-                    value={modelSelection}
-                    onChange={setModelSelection}
-                    workspaceId={project?.workspace_id}
-                  />
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Used to evaluate each trace for this detector.
-                  </p>
+              <div className="border border-border">
+                <div className="border-b border-border bg-muted/50 px-3 py-1.5">
+                  <span className="text-[12px] font-medium text-muted-foreground">Model</span>
                 </div>
-                {/* Agent Model — project-scoped, click to configure in settings */}
-                <div className="p-3">
-                  <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">
-                    Agent Model
-                  </p>
-                  <AgentModelLink
-                    projectId={projectId}
-                    rcaModel={project?.rca_model}
-                    workspaceId={project?.workspace_id}
-                  />
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Used for deep analysis when findings are triggered. Shared across all detectors.
-                  </p>
-                  <RcaToggle id="enable-rca" checked={enableRca} onCheckedChange={setEnableRca} />
+                <div className="divide-y divide-border">
+                  {/* Detector Model — per-detector, editable */}
+                  <div className="p-3">
+                    <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">
+                      Detector Model
+                    </p>
+                    <ModelSelector
+                      value={modelSelection}
+                      onChange={setModelSelection}
+                      workspaceId={project?.workspace_id}
+                    />
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Used to evaluate each trace for this detector.
+                    </p>
+                  </div>
+                  {/* Agent Model — project-scoped, click to configure in settings */}
+                  <div className="p-3">
+                    <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">
+                      Agent Model
+                    </p>
+                    <AgentModelLink
+                      projectId={projectId}
+                      rcaModel={project?.rca_model}
+                      workspaceId={project?.workspace_id}
+                    />
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Used for deep analysis when findings are triggered. Shared across all
+                      detectors.
+                    </p>
+                    <RcaToggle id="enable-rca" checked={enableRca} onCheckedChange={setEnableRca} />
+                  </div>
                 </div>
               </div>
-            </div>
             )}
 
             {/* Prompt (LLM detectors) or Rule Config (rule detectors) */}
             {isRuleType ? (
               <div className="border border-border">
-                <div className="border-b border-border bg-muted/50 px-3 py-1.5 flex items-center justify-between">
+                <div className="flex items-center justify-between border-b border-border bg-muted/50 px-3 py-1.5">
                   <span className="text-[12px] font-medium text-muted-foreground">Rule Config</span>
                   <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                     deterministic · zero LLM cost
@@ -220,16 +221,16 @@ export default function NewDetectorPage() {
                 <div className="p-3">
                   <p className="mb-2 text-[11px] text-muted-foreground">
                     JSON object with a <code className="font-mono">conditions</code> array. Each
-                    condition has a <code className="font-mono">field</code> (dot path into the span),
-                    an <code className="font-mono">op</code> (
+                    condition has a <code className="font-mono">field</code> (dot path into the
+                    span), an <code className="font-mono">op</code> (
                     <code className="font-mono">
                       is_empty · is_missing · exists · equals · not_equals · contains · greater_than
                       · less_than
                     </code>
                     ), and an optional <code className="font-mono">value</code>. Set{" "}
                     <code className="font-mono">match</code> to{" "}
-                    <code className="font-mono">"all"</code> to require every condition (AND); default
-                    is <code className="font-mono">"any"</code> (OR).
+                    <code className="font-mono">"all"</code> to require every condition (AND);
+                    default is <code className="font-mono">"any"</code> (OR).
                   </p>
                   <textarea
                     value={ruleConfigText}
@@ -248,21 +249,21 @@ export default function NewDetectorPage() {
                 </div>
               </div>
             ) : (
-            <div className="border border-border">
-              <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-                <span className="text-[12px] font-medium text-muted-foreground">Prompt</span>
+              <div className="border border-border">
+                <div className="border-b border-border bg-muted/50 px-3 py-1.5">
+                  <span className="text-[12px] font-medium text-muted-foreground">Prompt</span>
+                </div>
+                <div className="p-3">
+                  <textarea
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    rows={10}
+                    placeholder="Describe what to detect..."
+                    className="resize-vertical w-full border border-input bg-background px-3 py-2 font-mono text-[12px] leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    required
+                  />
+                </div>
               </div>
-              <div className="p-3">
-                <textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  rows={10}
-                  placeholder="Describe what to detect..."
-                  className="resize-vertical w-full border border-input bg-background px-3 py-2 font-mono text-[12px] leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                  required
-                />
-              </div>
-            </div>
             )}
 
             {/* Filter */}

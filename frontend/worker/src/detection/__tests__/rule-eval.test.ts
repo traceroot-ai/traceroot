@@ -49,9 +49,9 @@ describe("evaluateRuleDetector", () => {
       ],
     };
     const onlyInputEmpty = JSON.stringify({ span_id: "s1", input: "", output: "has data" });
-    expect(evaluateRuleDetector({ spansJsonl: onlyInputEmpty, ruleConfig: config }).identified).toBe(
-      false,
-    );
+    expect(
+      evaluateRuleDetector({ spansJsonl: onlyInputEmpty, ruleConfig: config }).identified,
+    ).toBe(false);
 
     const bothEmpty = JSON.stringify({ span_id: "s1", input: "", output: null });
     expect(evaluateRuleDetector({ spansJsonl: bothEmpty, ruleConfig: config }).identified).toBe(

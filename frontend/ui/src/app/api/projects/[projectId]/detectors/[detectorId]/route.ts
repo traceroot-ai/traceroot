@@ -114,7 +114,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (name !== undefined && (typeof name !== "string" || name.trim().length === 0)) {
     return errorResponse("name must be a non-empty string", 400);
   }
-  if (prompt !== undefined && (typeof prompt !== "string" || (existing.type !== "rule" && prompt.trim().length === 0))) {
+  if (
+    prompt !== undefined &&
+    (typeof prompt !== "string" || (existing.type !== "rule" && prompt.trim().length === 0))
+  ) {
     return errorResponse("prompt must be a non-empty string", 400);
   }
   if (ruleConfig !== undefined) {

@@ -177,7 +177,10 @@ async function runSingleDetector(params: {
     try {
       ruleResult = evaluateRuleDetector({ spansJsonl, ruleConfig: detector.ruleConfig });
     } catch (e) {
-      console.error(`[Detector] Rule eval threw for detector ${detector.id} on trace ${traceId}:`, e);
+      console.error(
+        `[Detector] Rule eval threw for detector ${detector.id} on trace ${traceId}:`,
+        e,
+      );
       await writeDetectorRun({
         runId,
         detectorId: detector.id,

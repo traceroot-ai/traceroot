@@ -1,7 +1,4 @@
-import type {
-  CreateDetectorInput,
-  RuleConfig,
-} from "@/features/detectors/hooks/use-detectors";
+import type { CreateDetectorInput, RuleConfig } from "@/features/detectors/hooks/use-detectors";
 
 export interface DetectorTemplate {
   id: string;

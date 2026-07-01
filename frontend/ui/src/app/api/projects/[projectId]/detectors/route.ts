@@ -129,7 +129,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       (ruleConfig as { conditions: unknown[] }).conditions.length === 0
     ) {
       return errorResponse(
-        "ruleConfig.conditions must be a non-empty array when type is \"rule\"",
+        'ruleConfig.conditions must be a non-empty array when type is "rule"',
         400,
       );
     }
