@@ -1,4 +1,4 @@
-import { complete, getEnvApiKey } from "@earendil-works/pi-ai";
+import { complete, getEnvApiKey } from "@earendil-works/pi-ai/compat";
 import type { Message, ToolCall, ProviderStreamOptions } from "@earendil-works/pi-ai";
 import {
   findByokKeyForPiProvider,
