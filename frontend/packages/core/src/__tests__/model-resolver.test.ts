@@ -24,31 +24,6 @@ import {
 import { prisma } from "../lib/prisma.ts";
 
 describe("resolvePiModel", () => {
-  it("uses the first available system provider env var for unset system models", () => {
-    const originalAnthropicKey = process.env.ANTHROPIC_API_KEY;
-    const originalOpenAiKey = process.env.OPENAI_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
-    process.env.OPENAI_API_KEY = "test-openai-key";
-
-    try {
-      const m = resolvePiModel(undefined, null);
-      expect(m.provider).toBe("openai");
-      expect(m.id).toMatch(/^gpt-/);
-      expect(m.id).not.toMatch(/claude/i);
-    } finally {
-      if (originalAnthropicKey === undefined) {
-        delete process.env.ANTHROPIC_API_KEY;
-      } else {
-        process.env.ANTHROPIC_API_KEY = originalAnthropicKey;
-      }
-      if (originalOpenAiKey === undefined) {
-        delete process.env.OPENAI_API_KEY;
-      } else {
-        process.env.OPENAI_API_KEY = originalOpenAiKey;
-      }
-    }
-  });
-
   it("uses anthropic-messages for system Claude", () => {
     const m = resolvePiModel("claude-sonnet-4-5", null);
     expect(m.api).toBe("anthropic-messages");

@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
-import { validateWorkspaceModelSelection } from "@/lib/server/model-availability";
 import {
   requireAuth,
   requireProjectAccess,
@@ -57,10 +56,6 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     return errorResponse("Invalid JSON", 400);
   }
 
-  if (body === null || typeof body !== "object" || Array.isArray(body)) {
-    return errorResponse("Body must be a JSON object", 400);
-  }
-
   const {
     name,
     template: _template,
@@ -102,9 +97,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   }
 
   // String field type checks — reject invalid types up front instead of
-  // letting Prisma throw on the update. Touched detection fields are validated
-  // as one coherent model-selection tuple below; required fields (name, prompt)
-  // must be non-empty strings.
+  // letting Prisma throw on the update. Detection fields accept "" / null
+  // as "unset"; required fields (name, prompt) must be non-empty strings.
   for (const [key, val] of [
     ["name", name],
     ["prompt", prompt],
@@ -123,47 +117,6 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     return errorResponse("prompt must be a non-empty string", 400);
   }
 
-  const touchesModelSelection =
-    detectionModel !== undefined ||
-    detectionProvider !== undefined ||
-    detectionSource !== undefined;
-  let validatedModelSelection: {
-    source: "system" | "byok" | null;
-    provider: string | null;
-    model: string | null;
-  } | null = null;
-  if (touchesModelSelection) {
-    const existingSource = existing.detectionSource === "byok" ? "byok" : "system";
-    const nextSource =
-      detectionSource === undefined
-        ? existingSource
-        : detectionSource === "" || detectionSource === null
-          ? existingSource
-          : detectionSource;
-    const nextProvider =
-      detectionProvider === undefined
-        ? existing.detectionProvider
-        : typeof detectionProvider === "string"
-          ? detectionProvider
-          : detectionProvider;
-    const nextModel =
-      detectionModel === undefined
-        ? existing.detectionModel
-        : typeof detectionModel === "string"
-          ? detectionModel
-          : detectionModel;
-
-    const modelValidation = await validateWorkspaceModelSelection(
-      accessResult.project.workspaceId,
-      { source: nextSource, provider: nextProvider, model: nextModel },
-      { allowDefaultSystem: true },
-    );
-    if (!modelValidation.ok) {
-      return errorResponse(modelValidation.message, modelValidation.status);
-    }
-    validatedModelSelection = modelValidation;
-  }
-
   // Build detector update data (only include defined fields)
   // Note: template is not updatable - it's set at creation time and cannot be changed
   const detectorData: Record<string, unknown> = {};
@@ -173,10 +126,17 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (sampleRate !== undefined) detectorData.sampleRate = sampleRate;
   if (enabled !== undefined) detectorData.enabled = enabled;
   if (enableRca !== undefined) detectorData.enableRca = enableRca;
-  if (validatedModelSelection) {
-    detectorData.detectionModel = validatedModelSelection.model;
-    detectorData.detectionProvider = validatedModelSelection.provider;
-    detectorData.detectionSource = validatedModelSelection.source;
+  if (detectionModel !== undefined) detectorData.detectionModel = detectionModel || null;
+  if (detectionProvider !== undefined) detectorData.detectionProvider = detectionProvider || null;
+  if (detectionSource !== undefined) {
+    // null/empty-string clear the field; otherwise must be a valid enum value.
+    if (detectionSource === null || detectionSource === "") {
+      detectorData.detectionSource = null;
+    } else if (detectionSource === "system" || detectionSource === "byok") {
+      detectorData.detectionSource = detectionSource;
+    } else {
+      return errorResponse(`detectionSource must be "system" or "byok"`, 400);
+    }
   }
 
   const detector = await prisma.detector.update({

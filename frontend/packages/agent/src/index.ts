@@ -10,18 +10,11 @@ import {
   deleteSession,
   updateSessionTitle,
 } from "./session.js";
-import {
-  getOrCreateAgent,
-  runAgent,
-  removeAgent,
-  invalidateProviderCache,
-  createAgentRunAbortBridge,
-} from "./agent.js";
+import { getOrCreateAgent, runAgent, removeAgent, invalidateProviderCache } from "./agent.js";
 import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor } from "./executors/index.js";
 import { createTools } from "./tools/index.js";
 import type { Executor } from "./executors/interface.js";
-import { hasValidInternalSecret } from "./internal-auth.js";
 
 const app = new Hono();
 
@@ -31,23 +24,9 @@ const PORT = parseInt(new URL(AGENT_SERVICE_URL).port || "8100", 10);
 // Per-session executor cache (executor lifecycle tied to session)
 const sessionExecutors = new Map<string, Executor>();
 
-function requestAbortedResponse(): Response {
-  return new Response(JSON.stringify({ error: "request aborted" }), {
-    status: 499,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
 // Health check
 app.get("/health", (c) => {
   return c.json({ status: "ok", service: "traceroot-agent" });
-});
-
-app.use("/api/v1/*", async (c, next) => {
-  if (!hasValidInternalSecret(c.req.raw)) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-  await next();
 });
 
 // Cache invalidation — called by Next.js API when a model provider is updated/deleted
@@ -131,6 +110,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   const projectId = c.req.param("projectId");
   const sessionId = c.req.param("sessionId");
   const userId = c.req.header("x-user-id") || "";
+  const workspaceId = c.req.header("x-workspace-id") || "";
   const body = await c.req.json<{
     message: string;
     model?: string;
@@ -147,12 +127,6 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   const ownedSession = await getSession(sessionId, userId, projectId);
   if (!ownedSession) {
     return c.json({ error: "session not found" }, 404);
-  }
-
-  const abortBridge = createAgentRunAbortBridge(c.req.raw.signal);
-  if (abortBridge.signal.aborted) {
-    abortBridge.cleanup();
-    return requestAbortedResponse();
   }
 
   const systemPrompt = getSystemPrompt({
@@ -181,189 +155,145 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     `[Agent] POST message: session=${sessionId}, model=${body.model}, provider=${body.providerName}, source=${body.source}`,
   );
 
-  let agentSession: Awaited<ReturnType<typeof getOrCreateAgent>>;
-  try {
-    agentSession = await getOrCreateAgent({
-      sessionId,
-      projectId,
-      workspaceId: ownedSession.workspaceId,
-      userId,
-      systemPrompt,
-      tools,
-      model: body.model,
-      providerName: body.providerName,
-      source: body.source,
-    });
-  } catch (error) {
-    abortBridge.cleanup();
-    throw error;
-  }
-  const { agent, sessionManager } = agentSession;
-  if (abortBridge.signal.aborted) {
-    abortBridge.cleanup();
-    return requestAbortedResponse();
-  }
+  const { agent, sessionManager } = await getOrCreateAgent({
+    sessionId,
+    projectId,
+    workspaceId: ownedSession.workspaceId,
+    userId,
+    systemPrompt,
+    tools,
+    model: body.model,
+    providerName: body.providerName,
+    source: body.source,
+  });
 
   console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
 
-  try {
-    // Persist user message to DB via SessionManager
-    await sessionManager.appendMessage("user", body.message);
+  // Persist user message to DB via SessionManager
+  await sessionManager.appendMessage("user", body.message);
 
-    // Auto-generate session title from first user message (we already have
-    // the session loaded above for the auth check — reuse it).
-    if (!ownedSession.title) {
-      const title = body.message.slice(0, 80) + (body.message.length > 80 ? "..." : "");
-      await updateSessionTitle(sessionId, title);
-    }
-  } catch (error) {
-    abortBridge.cleanup();
-    throw error;
-  }
-
-  if (abortBridge.signal.aborted) {
-    abortBridge.cleanup();
-    return requestAbortedResponse();
+  // Auto-generate session title from first user message (we already have
+  // the session loaded above for the auth check — reuse it).
+  if (!ownedSession.title) {
+    const title = body.message.slice(0, 80) + (body.message.length > 80 ? "..." : "");
+    await updateSessionTitle(sessionId, title);
   }
 
   return streamSSE(c, async (stream) => {
-    stream.onAbort(abortBridge.abort);
+    let assistantText = "";
+    let loggedFirstUpdate = false;
 
-    try {
-      let assistantText = "";
-      let loggedFirstUpdate = false;
+    // Accumulate token usage across all message_end events (tool-use loops)
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let totalCacheReadTokens = 0;
+    let totalCacheWriteTokens = 0;
+    let totalCost = 0;
+    let responseModel: string | undefined;
+    let responseProvider: string | undefined;
 
-      // Accumulate token usage across all message_end events (tool-use loops)
-      let totalInputTokens = 0;
-      let totalOutputTokens = 0;
-      let totalCacheReadTokens = 0;
-      let totalCacheWriteTokens = 0;
-      let totalCost = 0;
-      let responseModel: string | undefined;
-      let responseProvider: string | undefined;
+    await new Promise<void>((resolve) => {
+      runAgent(agent, body.message, {
+        onEvent: (event) => {
+          if (event.type === "message_update") {
+            // Log only the very first message_update for debugging
+            if (!loggedFirstUpdate) {
+              loggedFirstUpdate = true;
+              console.log(`[Agent] First message_update:`, JSON.stringify(event).slice(0, 500));
+            }
+          } else if (event.type !== "message_start") {
+            // Skip noisy message_start, log other event types
+            console.log(`[Agent] Event: ${event.type}`);
+          }
+          // Log error details and accumulate token usage from message_end
+          if (event.type === "message_end") {
+            const msg = (event as any).message;
+            console.log(
+              `[Agent] message_end:`,
+              JSON.stringify({
+                model: msg?.model,
+                provider: msg?.provider,
+                usage: msg?.usage,
+                stopReason: msg?.stopReason,
+              }).slice(0, 500),
+            );
+            if (msg?.stopReason === "error") {
+              console.error(`[Agent] API error:`, msg.errorMessage || "unknown");
+            }
+            // Accumulate token usage
+            const usage = msg?.usage;
+            if (usage) {
+              totalInputTokens += usage.input ?? usage.inputTokens ?? 0;
+              totalOutputTokens += usage.output ?? usage.outputTokens ?? 0;
+              totalCacheReadTokens += usage.cacheRead ?? 0;
+              totalCacheWriteTokens += usage.cacheWrite ?? 0;
+              totalCost += usage.cost?.total ?? 0;
+            }
+            if (msg?.model) responseModel = msg.model;
+            if (msg?.provider) responseProvider = msg.provider;
+          }
+          // Forward all events to the frontend
+          stream.writeSSE({
+            event: event.type,
+            data: JSON.stringify(event),
+          });
 
-      await new Promise<void>((resolve) => {
-        void runAgent(
-          agent,
-          body.message,
-          {
-            onEvent: (event) => {
-              if (event.type === "message_update") {
-                // Log only the very first message_update for debugging
-                if (!loggedFirstUpdate) {
-                  loggedFirstUpdate = true;
-                  console.log(`[Agent] First message_update:`, JSON.stringify(event).slice(0, 500));
+          // Accumulate assistant text for DB persistence
+          if (event.type === "message_update") {
+            const msgEvent = event as any;
+            const delta = msgEvent.assistantMessageEvent;
+            if ((delta?.type === "text_delta" || delta?.type === "thinking_delta") && delta.delta) {
+              assistantText += delta.delta;
+            }
+          }
+        },
+        onError: (error) => {
+          console.error(`[Agent] ERROR:`, error.message);
+          stream.writeSSE({
+            event: "error",
+            data: JSON.stringify({ message: error.message }),
+          });
+          resolve();
+        },
+        onDone: async () => {
+          console.log(`[Agent] Done. Assistant text length: ${assistantText.length}`);
+          // Persist assistant response to DB via SessionManager
+          if (assistantText) {
+            // Use our pricing table if pi-ai returned 0 cost
+            const cost =
+              totalCost > 0
+                ? totalCost
+                : responseModel
+                  ? await calculateCost(
+                      responseModel,
+                      totalInputTokens,
+                      totalOutputTokens,
+                      totalCacheReadTokens,
+                      totalCacheWriteTokens,
+                    )
+                  : 0;
+            if (cost === 0 && responseModel && (totalInputTokens > 0 || totalOutputTokens > 0)) {
+              console.warn(
+                `[Agent] Standard model pricing missing for "${responseModel}", cost recorded as $0`,
+              );
+            }
+            const tokenUsage = responseModel
+              ? {
+                  model: responseModel,
+                  provider: responseProvider || "unknown",
+                  isByok: body.source === ModelSource.BYOK,
+                  inputTokens: totalInputTokens,
+                  outputTokens: totalOutputTokens,
+                  cost,
                 }
-              } else if (event.type !== "message_start") {
-                // Skip noisy message_start, log other event types
-                console.log(`[Agent] Event: ${event.type}`);
-              }
-              // Log error details and accumulate token usage from message_end
-              if (event.type === "message_end") {
-                const msg = (event as any).message;
-                console.log(
-                  `[Agent] message_end:`,
-                  JSON.stringify({
-                    model: msg?.model,
-                    provider: msg?.provider,
-                    usage: msg?.usage,
-                    stopReason: msg?.stopReason,
-                  }).slice(0, 500),
-                );
-                if (msg?.stopReason === "error") {
-                  console.error(`[Agent] API error:`, msg.errorMessage || "unknown");
-                }
-                // Accumulate token usage
-                const usage = msg?.usage;
-                if (usage) {
-                  totalInputTokens += usage.input ?? usage.inputTokens ?? 0;
-                  totalOutputTokens += usage.output ?? usage.outputTokens ?? 0;
-                  totalCacheReadTokens += usage.cacheRead ?? 0;
-                  totalCacheWriteTokens += usage.cacheWrite ?? 0;
-                  totalCost += usage.cost?.total ?? 0;
-                }
-                if (msg?.model) responseModel = msg.model;
-                if (msg?.provider) responseProvider = msg.provider;
-              }
-              // Forward all events to the frontend
-              stream.writeSSE({
-                event: event.type,
-                data: JSON.stringify(event),
-              });
-
-              // Accumulate assistant text for DB persistence
-              if (event.type === "message_update") {
-                const msgEvent = event as any;
-                const delta = msgEvent.assistantMessageEvent;
-                if (
-                  (delta?.type === "text_delta" || delta?.type === "thinking_delta") &&
-                  delta.delta
-                ) {
-                  assistantText += delta.delta;
-                }
-              }
-            },
-            onError: (error) => {
-              console.error(`[Agent] ERROR:`, error.message);
-              stream.writeSSE({
-                event: "error",
-                data: JSON.stringify({ message: error.message }),
-              });
-              resolve();
-            },
-            onDone: async () => {
-              console.log(`[Agent] Done. Assistant text length: ${assistantText.length}`);
-              // Persist assistant response to DB via SessionManager
-              if (assistantText) {
-                // Use our pricing table if pi-ai returned 0 cost
-                const cost =
-                  totalCost > 0
-                    ? totalCost
-                    : responseModel
-                      ? await calculateCost(
-                          responseModel,
-                          totalInputTokens,
-                          totalOutputTokens,
-                          totalCacheReadTokens,
-                          totalCacheWriteTokens,
-                        )
-                      : 0;
-                if (
-                  cost === 0 &&
-                  responseModel &&
-                  (totalInputTokens > 0 || totalOutputTokens > 0)
-                ) {
-                  console.warn(
-                    `[Agent] Standard model pricing missing for "${responseModel}", cost recorded as $0`,
-                  );
-                }
-                const tokenUsage = responseModel
-                  ? {
-                      model: responseModel,
-                      provider: responseProvider || "unknown",
-                      isByok: body.source === ModelSource.BYOK,
-                      inputTokens: totalInputTokens,
-                      outputTokens: totalOutputTokens,
-                      cost,
-                    }
-                  : undefined;
-                await sessionManager.appendMessage(
-                  "assistant",
-                  assistantText,
-                  undefined,
-                  tokenUsage,
-                );
-              }
-              stream.writeSSE({ event: "done", data: "{}" });
-              resolve();
-            },
-          },
-          { signal: abortBridge.signal },
-        ).finally(resolve);
+              : undefined;
+            await sessionManager.appendMessage("assistant", assistantText, undefined, tokenUsage);
+          }
+          stream.writeSSE({ event: "done", data: "{}" });
+          resolve();
+        },
       });
-    } finally {
-      abortBridge.cleanup();
-    }
+    });
   });
 });
 

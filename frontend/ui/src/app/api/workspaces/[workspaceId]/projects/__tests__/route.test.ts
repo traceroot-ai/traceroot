@@ -1,4 +1,4 @@
-import { beforeEach, describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import path from "path";
 import { pathToFileURL } from "url";
 import { z } from "zod";
@@ -16,7 +16,6 @@ const mockRequireAuth = vi.fn();
 const mockRequireWorkspaceMembership = vi.fn();
 const mockFindFirst = vi.fn();
 const mockProjectUpdate = vi.fn();
-const mockModelProviderFindFirst = vi.fn();
 
 vi.mock("@/lib/auth-helpers", () => ({
   requireAuth: (...a: any[]) => mockRequireAuth(...a),
@@ -34,9 +33,6 @@ vi.mock("@traceroot/core", async (orig) => {
       project: {
         findFirst: (...a: any[]) => mockFindFirst(...a),
         update: (...a: any[]) => mockProjectUpdate(...a),
-      },
-      modelProvider: {
-        findFirst: (...a: any[]) => mockModelProviderFindFirst(...a),
       },
     },
     Role: { ADMIN: "ADMIN" },
@@ -60,12 +56,6 @@ const project = {
 const routePath = path.join(__dirname, "..", "[projectId]", "route.ts");
 
 describe("Workspace project route", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.unstubAllEnvs();
-    mockModelProviderFindFirst.mockResolvedValue(null);
-  });
-
   it("schema accepts rca_provider and rca_source", () => {
     const r = updateProjectSchema.safeParse({ rca_provider: "anthropic", rca_source: "system" });
     expect(r.success).toBe(true);
@@ -89,47 +79,26 @@ describe("Workspace project route", () => {
     expect(body.rca_source).toBe("byok");
   });
 
-  it("PATCH updates a complete RCA BYOK tuple", async () => {
+  it("PATCH updates rca_provider and rca_source", async () => {
     mockRequireAuth.mockResolvedValue({ user: { id: "u1" }, error: null });
     mockRequireWorkspaceMembership.mockResolvedValue({ error: null });
     mockFindFirst.mockResolvedValue({ ...project });
-    mockProjectUpdate.mockResolvedValue({
-      ...project,
-      rcaModel: "gpt-5.4-mini",
-      rcaProvider: "my-openai",
-      rcaSource: "byok",
-    });
-    mockModelProviderFindFirst.mockResolvedValue({
-      adapter: "openai",
-      customModels: ["gpt-5.4-mini"],
-    });
+    mockProjectUpdate.mockResolvedValue({ ...project });
 
     const mod = await import(pathToFileURL(routePath).href);
     const res = await mod.PATCH(
       new Request("http://localhost/", {
         method: "PATCH",
-        body: JSON.stringify({
-          rca_model: "gpt-5.4-mini",
-          rca_provider: "my-openai",
-          rca_source: "byok",
-        }),
+        body: JSON.stringify({ rca_provider: "anthropic", rca_source: "system" }),
       }),
       { params: Promise.resolve({ workspaceId: "ws1", projectId: "p1" }) },
     );
     const body = await res.json();
     expect(body.rca_provider).toBe("my-openai");
     expect(body.rca_source).toBe("byok");
-    expect(mockModelProviderFindFirst).toHaveBeenCalledWith({
-      where: { workspaceId: "ws1", provider: "my-openai", enabled: true },
-      select: { adapter: true, customModels: true },
-    });
     expect(mockProjectUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
-          rcaModel: "gpt-5.4-mini",
-          rcaProvider: "my-openai",
-          rcaSource: "byok",
-        }),
+        data: expect.objectContaining({ rcaProvider: "anthropic", rcaSource: "system" }),
       }),
     );
   });

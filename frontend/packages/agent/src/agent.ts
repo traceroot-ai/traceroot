@@ -9,10 +9,27 @@ import { ADAPTER_TO_PI_AI, BEDROCK_USE_DEFAULT_CREDENTIALS, ModelSource } from "
 import {
   resolvePiModel,
   fetchProviderConfig,
+  findByokKeyForPiProvider,
   invalidateProviderConfigCache,
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
 import { SessionManager } from "./session.js";
+
+/**
+ * Resolve an API key for a pi-ai provider — workspace BYOK first, env var fallback.
+ * Used as the getApiKey callback for the Agent.
+ */
+async function fetchProviderKey(workspaceId: string, provider: string): Promise<string> {
+  const byokKey = await findByokKeyForPiProvider(workspaceId, provider);
+  if (byokKey) return byokKey;
+
+  const envKey = getEnvApiKey(provider);
+  if (!envKey) {
+    console.warn(`[Agent] No API key for provider "${provider}" (no BYOK, no env var)`);
+    return "";
+  }
+  return envKey;
+}
 
 // Agent cache: one Agent per conversation session
 const sessionAgents = new Map<string, Agent>();
@@ -33,38 +50,8 @@ export interface AgentRunnerConfig {
 
 export interface AgentEventHandler {
   onEvent: (event: AgentEvent) => void;
-  onError: (error: Error) => void | Promise<void>;
-  onDone: () => void | Promise<void>;
-}
-
-interface RunAgentOptions {
-  signal?: AbortSignal;
-}
-
-export interface AgentRunAbortBridge {
-  signal: AbortSignal;
-  abort: () => void;
-  cleanup: () => void;
-}
-
-export function createAgentRunAbortBridge(requestSignal: AbortSignal): AgentRunAbortBridge {
-  const abortController = new AbortController();
-  const abort = () => {
-    if (!abortController.signal.aborted) {
-      abortController.abort();
-    }
-  };
-
-  requestSignal.addEventListener("abort", abort, { once: true });
-  if (requestSignal.aborted) {
-    abort();
-  }
-
-  return {
-    signal: abortController.signal,
-    abort,
-    cleanup: () => requestSignal.removeEventListener("abort", abort),
-  };
+  onError: (error: Error) => void;
+  onDone: () => void;
 }
 
 /**
@@ -92,11 +79,7 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
 
   // Fetch BYOK provider config if this is a BYOK model
   let providerConfig: ProviderModelConfig | null = null;
-  if (config.source === ModelSource.BYOK) {
-    if (!config.providerName) {
-      throw new Error("BYOK provider is required for BYOK model selections.");
-    }
-
+  if (config.source === ModelSource.BYOK && config.providerName) {
     providerConfig = await fetchProviderConfig(config.workspaceId, config.providerName);
     if (!providerConfig) {
       throw new Error(
@@ -122,27 +105,19 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
     // TODO: implement proper convertToLlm instead of identity cast
     convertToLlm: (messages: AgentMessage[]) => messages as Message[],
     getApiKey: async (provider: string) => {
-      if (config.source === ModelSource.BYOK) {
-        if (!providerConfig) {
-          return "";
-        }
+      // If we have BYOK config with a decrypted key, use it directly
+      if (providerConfig && providerConfig.key !== BEDROCK_USE_DEFAULT_CREDENTIALS) {
         const expectedPiAi = ADAPTER_TO_PI_AI[providerConfig.adapter];
         if (expectedPiAi === provider) {
-          if (providerConfig.key === BEDROCK_USE_DEFAULT_CREDENTIALS) {
-            return "";
-          }
           return providerConfig.key;
         }
-        console.warn(
-          `[Agent] BYOK provider "${config.providerName}" maps to "${expectedPiAi}", not requested provider "${provider}"`,
-        );
-        return "";
       }
-
       // System models: always use env var, never fall through to BYOK keys
-      const envKey = getEnvApiKey(provider);
-      if (envKey) return envKey;
-      return "";
+      if (config.source !== ModelSource.BYOK) {
+        const envKey = getEnvApiKey(provider);
+        if (envKey) return envKey;
+      }
+      return fetchProviderKey(config.workspaceId, provider);
     },
   });
 
@@ -171,17 +146,7 @@ export async function runAgent(
   agent: Agent,
   userMessage: string,
   handler: AgentEventHandler,
-  options: RunAgentOptions = {},
 ): Promise<void> {
-  const { signal } = options;
-  if (signal?.aborted) {
-    agent.abort();
-    return;
-  }
-
-  const abortAgent = () => agent.abort();
-  signal?.addEventListener("abort", abortAgent, { once: true });
-
   const unsubscribe = agent.subscribe((event: AgentEvent) => {
     try {
       handler.onEvent(event);
@@ -192,15 +157,10 @@ export async function runAgent(
 
   try {
     await agent.prompt(userMessage);
-    if (!signal?.aborted) {
-      await handler.onDone();
-    }
+    handler.onDone();
   } catch (error) {
-    if (!signal?.aborted) {
-      await handler.onError(error instanceof Error ? error : new Error(String(error)));
-    }
+    handler.onError(error instanceof Error ? error : new Error(String(error)));
   } finally {
-    signal?.removeEventListener("abort", abortAgent);
     unsubscribe();
   }
 }

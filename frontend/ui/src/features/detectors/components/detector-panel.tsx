@@ -55,7 +55,6 @@ export function DetectorPanel({
   });
   const [editConditions, setEditConditions] = useState<TriggerCondition[]>([]);
   const [editEnableRca, setEditEnableRca] = useState(true);
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   const emptyForm: DetectorFormValues = {
     name: "",
@@ -155,13 +154,7 @@ export function DetectorPanel({
       onClose();
       return;
     }
-    setSaveError(null);
-    updateMutation.mutate(patch, {
-      onError: (error) => {
-        setSaveError(error instanceof Error ? error.message : "Failed to update detector");
-      },
-      onSuccess: () => onClose(),
-    });
+    updateMutation.mutate(patch, { onSuccess: () => onClose() });
   };
 
   return (
@@ -244,16 +237,10 @@ export function DetectorPanel({
                 value={editModelSelection}
                 onChange={setEditModelSelection}
                 workspaceId={workspaceId}
-                autoSelectDefault={false}
               />
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Used to evaluate each trace for this detector.
               </p>
-              {saveError && (
-                <p className="mt-2 text-[11px] text-destructive" role="alert">
-                  {saveError}
-                </p>
-              )}
             </div>
             {/* Agent Model — project-scoped, click to configure in settings */}
             <div className="p-3">

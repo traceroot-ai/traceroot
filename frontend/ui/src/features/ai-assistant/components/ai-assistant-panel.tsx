@@ -1,7 +1,6 @@
 "use client";
 
 import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
-import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -39,11 +38,7 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
     : "flex h-14 items-center gap-1 border-b px-3";
   const btnCls = compact ? "h-7 w-7 shrink-0 p-0" : "h-8 w-8 shrink-0";
   const iconCls = compact ? "h-3.5 w-3.5" : "h-4 w-4";
-  const {
-    data: project,
-    isLoading: isProjectLoading,
-    isError: isProjectError,
-  } = useQuery({
+  const { data: project } = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => getProject(projectId!),
     enabled: !!projectId,
@@ -53,32 +48,15 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
   const workspaceId = project?.workspace_id;
 
   // Check if any models are available (system or BYOK)
-  const {
-    data: llmModels,
-    isLoading: isModelsLoading,
-    isError: isModelsError,
-  } = useQuery({
+  const { data: llmModels } = useQuery({
     queryKey: ["llm-models", workspaceId],
     queryFn: () => getAvailableLLMModels(workspaceId!),
     enabled: !!workspaceId,
   });
-  const hasSupportedModels = Boolean(
-    llmModels &&
-    (llmModels.systemModels.some((g) => g.models.length > 0) ||
-      llmModels.byokProviders.some((g) => g.models.some((m) => m.supported !== false))),
-  );
-  const hasReturnedModels = Boolean(
-    llmModels &&
-    (llmModels.systemModels.some((g) => g.models.length > 0) ||
-      llmModels.byokProviders.some((g) => g.models.length > 0)),
-  );
-  const cannotResolveWorkspace = !!projectId && !workspaceId && !isProjectLoading;
-  const isCheckingModels =
-    (!!projectId && !workspaceId && isProjectLoading) || (!!workspaceId && isModelsLoading);
-  const hasModelLoadError =
-    isProjectError || cannotResolveWorkspace || (!!workspaceId && isModelsError);
-  const hasUnsupportedOnlyModelList = !!llmModels && hasReturnedModels && !hasSupportedModels;
-  const hasLoadedEmptyModelList = !!llmModels && !hasReturnedModels;
+  const hasModels =
+    !llmModels ||
+    llmModels.systemModels.some((g) => g.models.length > 0) ||
+    llmModels.byokProviders.some((g) => g.models.length > 0);
 
   const unsupportedModels = llmModels
     ? llmModels.byokProviders.flatMap((g) =>
@@ -159,7 +137,7 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
       </div>
 
       {/* Unsupported model warning */}
-      {unsupportedModels.length > 0 && !hasUnsupportedOnlyModelList && (
+      {unsupportedModels.length > 0 && (
         <div className="mx-3 mt-2 flex items-start gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-[12px] dark:border-yellow-900 dark:bg-yellow-950">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-600" />
           <div>
@@ -170,12 +148,12 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
               {unsupportedModels.map((m) => m.id).join(", ")}{" "}
               {unsupportedModels.length > 1 ? "are" : "is"} no longer in the supported model list.
               Update in{" "}
-              <Link
+              <a
                 href={`/workspaces/${workspaceId}/settings/model-providers`}
                 className="font-medium underline"
               >
                 Settings &rarr; Model Providers
-              </Link>
+              </a>
               .
             </p>
           </div>
@@ -183,66 +161,17 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
       )}
 
       {/* Messages */}
-      {isCheckingModels ? (
-        <div className="flex flex-1 items-center justify-center px-6">
-          <div className="flex max-w-[280px] flex-col items-center gap-3 text-center">
-            <p className="text-[13px] font-medium">Loading LLM models...</p>
-            <p className="text-[12px] text-muted-foreground">
-              Checking the models available to this workspace.
-            </p>
-          </div>
-        </div>
-      ) : hasModelLoadError ? (
-        <div className="flex flex-1 items-center justify-center px-6">
-          <div className="flex max-w-[280px] flex-col items-center gap-3 text-center">
-            <AlertTriangle className="h-8 w-8 text-yellow-500" />
-            <p className="text-[13px] font-medium">Unable to load LLM models</p>
-            <p className="text-[12px] text-muted-foreground">
-              Refresh the page. If the problem persists, check model provider settings or server
-              API-key configuration.{" "}
-              {workspaceId && (
-                <Link
-                  href={`/workspaces/${workspaceId}/settings/model-providers`}
-                  className="font-medium text-foreground underline underline-offset-2"
-                >
-                  Configure model providers
-                </Link>
-              )}
-            </p>
-          </div>
-        </div>
-      ) : hasUnsupportedOnlyModelList ? (
-        <div className="flex flex-1 items-center justify-center px-6">
-          <div className="flex max-w-[280px] flex-col items-center gap-3 text-center">
-            <AlertTriangle className="h-8 w-8 text-yellow-500" />
-            <p className="text-[13px] font-medium">No supported LLM models available</p>
-            <p className="text-[12px] text-muted-foreground">
-              A model provider is configured, but none of its models are currently supported by
-              Traceroot. Update the provider model list in{" "}
-              <Link
-                href={`/workspaces/${workspaceId}/settings/model-providers`}
-                className="font-medium text-foreground underline underline-offset-2"
-              >
-                Workspace Settings &rarr; Model Providers
-              </Link>
-              .
-            </p>
-          </div>
-        </div>
-      ) : hasLoadedEmptyModelList ? (
+      {!hasModels ? (
         <div className="flex flex-1 items-center justify-center px-6">
           <div className="flex max-w-[280px] flex-col items-center gap-3 text-center">
             <AlertTriangle className="h-8 w-8 text-yellow-500" />
             <p className="text-[13px] font-medium">No LLM models available</p>
             <p className="text-[12px] text-muted-foreground">
-              To use the AI assistant, set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in your server
+              To use the AI assistant, configure a system API key (e.g. Anthropic, OpenAI) in your
               environment, or add a BYOK provider in{" "}
-              <Link
-                href={`/workspaces/${workspaceId}/settings/model-providers`}
-                className="font-medium text-foreground underline underline-offset-2"
-              >
+              <span className="font-medium text-foreground">
                 Workspace Settings &rarr; Model Providers
-              </Link>
+              </span>
               .
             </p>
           </div>
@@ -254,13 +183,7 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
       {/* Input */}
       <MessageInput
         onSend={handleSend}
-        disabled={
-          !projectId ||
-          isCheckingModels ||
-          hasModelLoadError ||
-          hasUnsupportedOnlyModelList ||
-          hasLoadedEmptyModelList
-        }
+        disabled={!projectId || !hasModels}
         workspaceId={workspaceId}
         actions={
           isStreaming && (

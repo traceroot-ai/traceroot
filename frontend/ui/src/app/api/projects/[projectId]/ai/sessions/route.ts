@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
-import { env } from "@/env";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 
@@ -21,7 +20,6 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     headers: {
       "x-user-id": user.id,
       "x-workspace-id": accessResult.project.workspaceId,
-      "X-Internal-Secret": env.INTERNAL_API_SECRET,
     },
   });
 
@@ -55,7 +53,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       "Content-Type": "application/json",
       "x-user-id": user.id,
       "x-workspace-id": accessResult.project.workspaceId,
-      "X-Internal-Secret": env.INTERNAL_API_SECRET,
     },
     body: JSON.stringify({
       title: body.title,

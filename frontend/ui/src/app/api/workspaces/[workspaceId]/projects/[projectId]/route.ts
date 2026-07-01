@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, Role, isAlertWindow, DEFAULT_ALERT_WINDOW } from "@traceroot/core";
-import { validateWorkspaceModelSelection } from "@/lib/server/model-availability";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -119,38 +118,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   const { name, trace_ttl_days, rca_model, rca_provider, rca_source, alert_emails, alert_window } =
     result.data;
 
-  const rcaModelTouched =
-    rca_model !== undefined || rca_provider !== undefined || rca_source !== undefined;
-  const rcaData: {
-    rcaModel?: string | null;
-    rcaProvider?: string | null;
-    rcaSource?: string | null;
-  } = {};
-
-  if (rcaModelTouched) {
-    const nextModel = rca_model !== undefined ? rca_model : existingProject.rcaModel;
-    const nextProvider = rca_provider !== undefined ? rca_provider : existingProject.rcaProvider;
-    const nextSource = rca_source !== undefined ? rca_source : existingProject.rcaSource;
-
-    if (nextModel === null && nextProvider === null) {
-      rcaData.rcaModel = null;
-      rcaData.rcaProvider = null;
-      rcaData.rcaSource = null;
-    } else {
-      const validatedRcaModel = await validateWorkspaceModelSelection(workspaceId, {
-        source: nextSource,
-        provider: nextProvider,
-        model: nextModel,
-      });
-      if (!validatedRcaModel.ok) {
-        return errorResponse(validatedRcaModel.message, validatedRcaModel.status);
-      }
-      rcaData.rcaModel = validatedRcaModel.model;
-      rcaData.rcaProvider = validatedRcaModel.provider;
-      rcaData.rcaSource = validatedRcaModel.source;
-    }
-  }
-
   // Check for duplicate name if name is being changed
   if (name && name !== existingProject.name) {
     const duplicateProject = await prisma.project.findFirst({
@@ -172,7 +139,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     data: {
       ...(name !== undefined && { name }),
       ...(trace_ttl_days !== undefined && { traceTtlDays: trace_ttl_days }),
-      ...rcaData,
+      ...(rca_model !== undefined && { rcaModel: rca_model }),
+      ...(rca_provider !== undefined && { rcaProvider: rca_provider }),
+      ...(rca_source !== undefined && { rcaSource: rca_source }),
       ...((alert_emails !== undefined || alert_window !== undefined) && {
         alertConfig: {
           upsert: {

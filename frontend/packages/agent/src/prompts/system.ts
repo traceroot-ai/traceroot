@@ -4,24 +4,13 @@ export interface SystemPromptContext {
   traceSessionId?: string;
 }
 
-const MAX_CONTEXT_ID_CHARS = 512;
-
-function formatOpaqueContextId(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  const truncated =
-    value.length > MAX_CONTEXT_ID_CHARS ? `${value.slice(0, MAX_CONTEXT_ID_CHARS)}…` : value;
-  return JSON.stringify(truncated);
-}
-
 export function getSystemPrompt(ctx: SystemPromptContext): string {
-  const traceId = formatOpaqueContextId(ctx.traceId);
-  const traceSessionId = formatOpaqueContextId(ctx.traceSessionId);
-  const traceContext = traceId
-    ? `\n- Currently viewing Trace ID: ${traceId}\n  The user opened the AI assistant from this trace's detail view. They likely want to ask about this specific trace.`
+  const traceContext = ctx.traceId
+    ? `\n- Currently viewing Trace ID: ${ctx.traceId}\n  The user opened the AI assistant from this trace's detail view. They likely want to ask about this specific trace.`
     : "";
 
-  const sessionContext = traceSessionId
-    ? `\n- Currently viewing Session ID: ${traceSessionId}\n  The user opened the AI assistant from this session's detail view.\n  Call query_sessions with this sessionId to see all traces and their I/O.\n  Call download_session with this sessionId for a full deep-dive across all traces.`
+  const sessionContext = ctx.traceSessionId
+    ? `\n- Currently viewing Session ID: ${ctx.traceSessionId}\n  The user opened the AI assistant from this session's detail view.\n  Call query_sessions with this sessionId to see all traces and their I/O.\n  Call download_session with this sessionId for a full deep-dive across all traces.`
     : "";
 
   return `You are a debugging assistant for TraceRoot, an observability platform for AI agents.

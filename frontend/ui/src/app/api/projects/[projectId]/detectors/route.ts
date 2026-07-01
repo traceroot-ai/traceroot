@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
-import { validateWorkspaceModelSelection } from "@/lib/server/model-availability";
 import {
   requireAuth,
   requireProjectAccess,
@@ -127,31 +126,20 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return errorResponse("outputSchema must be an array", 400);
   }
 
-  // Omitted detectionSource defaults to an explicit system source, while null
-  // or invalid values are rejected so direct API callers cannot create a
-  // detector with an ambiguous/unavailable model source.
-  let sourceStr: "system" | "byok" = "system";
-  if (detectionSource !== undefined) {
+  // detectionSource: only "system" / "byok" / null are valid. Reject anything
+  // else with 400 so a typo (e.g. "syetm") doesn't silently store null and
+  // produce a misconfigured detector.
+  let sourceStr: "system" | "byok" | null = null;
+  if (detectionSource !== undefined && detectionSource !== null) {
     if (detectionSource !== "system" && detectionSource !== "byok") {
       return errorResponse(`detectionSource must be "system" or "byok"`, 400);
     }
     sourceStr = detectionSource;
   }
-  const modelValidation = await validateWorkspaceModelSelection(
-    accessResult.project.workspaceId,
-    {
-      source: sourceStr,
-      provider: detectionProvider,
-      model: detectionModel,
-    },
-    { allowDefaultSystem: true },
-  );
-  if (!modelValidation.ok) {
-    return errorResponse(modelValidation.message, modelValidation.status);
-  }
-  const resolvedModel = modelValidation.model;
-  const resolvedProvider = modelValidation.provider;
-  const resolvedSource = modelValidation.source;
+  const resolvedModel =
+    typeof detectionModel === "string" && detectionModel ? detectionModel : null;
+  const resolvedProvider =
+    typeof detectionProvider === "string" && detectionProvider ? detectionProvider : null;
 
   // enableRca: optional boolean, defaults true (RCA on). Reject non-booleans
   // so "false"/0 can't silently coerce.
@@ -180,7 +168,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       enableRca: resolvedEnableRca,
       detectionModel: resolvedModel,
       detectionProvider: resolvedProvider,
-      detectionSource: resolvedSource,
+      detectionSource: sourceStr,
       trigger: {
         create: {
           conditions: (triggerConditions as object) ?? [],
