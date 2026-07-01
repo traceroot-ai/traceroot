@@ -123,9 +123,7 @@ describe("AccessKeysTab", () => {
     renderAccessKeysTab();
 
     expect(await screen.findByText(".env masked hint")).toBeDefined();
-    expect(
-      screen.getByText(/create a new api key to copy a full traceroot_api_key value/i),
-    ).toBeDefined();
+    expect(screen.getByText(/create a new api key and update traceroot_api_key/i)).toBeDefined();
 
     expect(screen.queryByRole("button", { name: /copy api key environment variable/i })).toBeNull();
   });
@@ -196,6 +194,14 @@ describe("AccessKeysTab", () => {
 
     await waitFor(() => {
       expect(clipboardWriteText).toHaveBeenCalledWith('TRACEROOT_API_KEY="tr-full-secret-value"');
+    });
+
+    clipboardWriteText.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: /copy new api key/i }));
+
+    await waitFor(() => {
+      expect(clipboardWriteText).toHaveBeenCalledWith("tr-full-secret-value");
     });
   });
 
@@ -463,7 +469,7 @@ describe("AccessKeysTab", () => {
     expect(screen.getByText("Edit Note")).toBeDefined();
   });
 
-  it("does not let an older note update close a newly opened edit dialog after returning to the same project", async () => {
+  it("keeps same-project note updates disabled until the older request settles", async () => {
     mocks.getAccessKeys.mockResolvedValue({
       access_keys: [
         {
@@ -494,15 +500,85 @@ describe("AccessKeysTab", () => {
     rerenderWithProject("proj_456");
     rerenderWithProject("proj_123");
 
-    fireEvent.click(await screen.findByRole("button", { name: "Production" }));
-    expect(screen.getByText("Edit Note")).toBeDefined();
+    const sameProjectNoteButton = await screen.findByRole("button", { name: "Production" });
+    expect(sameProjectNoteButton).toHaveProperty("disabled", true);
+
+    fireEvent.click(sameProjectNoteButton);
+    expect(screen.queryByText("Edit Note")).toBeNull();
 
     await act(async () => {
       deferredUpdate.resolve();
       await deferredUpdate.promise;
     });
 
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Production" })).toHaveProperty("disabled", false);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Production" }));
     expect(screen.getByText("Edit Note")).toBeDefined();
+  });
+
+  it("keeps the active note update pending when an older project update resolves first", async () => {
+    mocks.getAccessKeys.mockResolvedValue({
+      access_keys: [
+        {
+          id: "key_123",
+          key_hint: "tr-1234567890abcdef",
+          name: "Production",
+          expire_time: null,
+          last_use_time: null,
+          create_time: "2026-07-01T00:00:00.000Z",
+        },
+      ],
+    });
+    const projectOneUpdate = createDeferred<void>();
+    const projectTwoUpdate = createDeferred<void>();
+    mocks.updateAccessKey
+      .mockReturnValueOnce(projectOneUpdate.promise)
+      .mockReturnValueOnce(projectTwoUpdate.promise);
+
+    const { rerenderWithProject } = renderAccessKeysTab("proj_123");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Production" }));
+    fireEvent.change(screen.getByPlaceholderText(/production, development/i), {
+      target: { value: "Renamed One" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(mocks.updateAccessKey).toHaveBeenCalledWith("proj_123", "key_123", "Renamed One");
+    });
+
+    rerenderWithProject("proj_456");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Production" }));
+    fireEvent.change(screen.getByPlaceholderText(/production, development/i), {
+      target: { value: "Renamed Two" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(mocks.updateAccessKey).toHaveBeenCalledWith("proj_456", "key_123", "Renamed Two");
+    });
+    expect(await screen.findByRole("button", { name: /saving/i })).toHaveProperty("disabled", true);
+
+    await act(async () => {
+      projectOneUpdate.resolve();
+      await projectOneUpdate.promise;
+    });
+
+    expect(screen.getByRole("button", { name: /saving/i })).toHaveProperty("disabled", true);
+    expect(screen.getByText("Edit Note")).toBeDefined();
+
+    await act(async () => {
+      projectTwoUpdate.resolve();
+      await projectTwoUpdate.promise;
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Edit Note")).toBeNull();
+    });
   });
 
   it("does not let an in-flight delete close the next project's delete dialog", async () => {
@@ -556,7 +632,7 @@ describe("AccessKeysTab", () => {
     expect(screen.getByRole("heading", { name: "Delete API Key" })).toBeDefined();
   });
 
-  it("does not let an older delete close a newly opened delete dialog after returning to the same project", async () => {
+  it("keeps same-project delete controls disabled until the older request settles", async () => {
     mocks.getAccessKeys.mockResolvedValue({
       access_keys: [
         {
@@ -587,14 +663,90 @@ describe("AccessKeysTab", () => {
     rerenderWithProject("proj_456");
     rerenderWithProject("proj_123");
 
-    fireEvent.click(await screen.findByRole("button", { name: "Delete API key" }));
-    expect(screen.getByRole("heading", { name: "Delete API Key" })).toBeDefined();
+    const sameProjectDeleteButton = await screen.findByRole("button", { name: "Delete API key" });
+    expect(sameProjectDeleteButton).toHaveProperty("disabled", true);
+
+    fireEvent.click(sameProjectDeleteButton);
+    expect(screen.queryByRole("heading", { name: "Delete API Key" })).toBeNull();
 
     await act(async () => {
       deferredDelete.resolve();
       await deferredDelete.promise;
     });
 
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Delete API key" })).toHaveProperty(
+        "disabled",
+        false,
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete API key" }));
     expect(screen.getByRole("heading", { name: "Delete API Key" })).toBeDefined();
+  });
+
+  it("keeps the active delete pending when an older project delete resolves first", async () => {
+    mocks.getAccessKeys.mockResolvedValue({
+      access_keys: [
+        {
+          id: "key_123",
+          key_hint: "tr-1234567890abcdef",
+          name: "Production",
+          expire_time: null,
+          last_use_time: null,
+          create_time: "2026-07-01T00:00:00.000Z",
+        },
+      ],
+    });
+    const projectOneDelete = createDeferred<void>();
+    const projectTwoDelete = createDeferred<void>();
+    mocks.deleteAccessKey
+      .mockReturnValueOnce(projectOneDelete.promise)
+      .mockReturnValueOnce(projectTwoDelete.promise);
+
+    const { rerenderWithProject } = renderAccessKeysTab("proj_123");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Delete API key" }));
+    fireEvent.change(screen.getByPlaceholderText("API key name"), {
+      target: { value: "Production" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Delete API Key" }));
+
+    await waitFor(() => {
+      expect(mocks.deleteAccessKey).toHaveBeenCalledWith("proj_123", "key_123");
+    });
+
+    rerenderWithProject("proj_456");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Delete API key" }));
+    fireEvent.change(screen.getByPlaceholderText("API key name"), {
+      target: { value: "Production" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Delete API Key" }));
+
+    await waitFor(() => {
+      expect(mocks.deleteAccessKey).toHaveBeenCalledWith("proj_456", "key_123");
+    });
+    expect(await screen.findByRole("button", { name: /deleting/i })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    await act(async () => {
+      projectOneDelete.resolve();
+      await projectOneDelete.promise;
+    });
+
+    expect(screen.getByRole("button", { name: /deleting/i })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("heading", { name: "Delete API Key" })).toBeDefined();
+
+    await act(async () => {
+      projectTwoDelete.resolve();
+      await projectTwoDelete.promise;
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Delete API Key" })).toBeNull();
+    });
   });
 });

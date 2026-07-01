@@ -55,12 +55,11 @@ type DeleteAccessKeyMutationVariables = {
 };
 
 type NewKeyData = {
-  requestId: number;
   key: string;
 };
 
 const PROJECT_API_KEYS_HELP_TEXT =
-  "Project API keys authenticate TraceRoot SDK and API requests for this project. When you create a new key, copy the full secret immediately and store it as TRACEROOT_API_KEY. Later, only a masked hint is shown.";
+  "Project API keys authenticate TraceRoot SDK and API requests for this project. When you create a new key, copy the full secret immediately and store it as TRACEROOT_API_KEY. The full secret cannot be viewed again after this one-time display; later, only a masked hint is shown.";
 
 function formatKeyHint(keyHint: string): string {
   if (keyHint.startsWith("tr-")) {
@@ -80,9 +79,9 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const pendingCreateRequestsRef = useRef<Record<string, number>>({});
   const createSecretByRequestIdRef = useRef(new Map<number, string>());
   const updateRequestCounterRef = useRef(0);
-  const activeUpdateRequestIdRef = useRef<number | null>(null);
+  const pendingUpdateRequestsRef = useRef<Record<string, number>>({});
   const deleteRequestCounterRef = useRef(0);
-  const activeDeleteRequestIdRef = useRef<number | null>(null);
+  const pendingDeleteRequestsRef = useRef<Record<string, number>>({});
   const resetCreateMutationRef = useRef<() => void>(() => {});
   const resetUpdateMutationRef = useRef<() => void>(() => {});
   const resetDeleteMutationRef = useRef<() => void>(() => {});
@@ -96,10 +95,14 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     Record<string, number>
   >({});
   const [editingKey, setEditingKey] = useState<{ id: string; name: string } | null>(null);
-  const [pendingUpdateRequestId, setPendingUpdateRequestId] = useState<number | null>(null);
+  const [pendingUpdateRequestsByProject, setPendingUpdateRequestsByProject] = useState<
+    Record<string, number>
+  >({});
   const [keyToDelete, setKeyToDelete] = useState<AccessKey | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
-  const [pendingDeleteRequestId, setPendingDeleteRequestId] = useState<number | null>(null);
+  const [pendingDeleteRequestsByProject, setPendingDeleteRequestsByProject] = useState<
+    Record<string, number>
+  >({});
 
   const setPendingCreateRequest = (requestProjectId: string, requestId: number) => {
     const next = { ...pendingCreateRequestsRef.current, [requestProjectId]: requestId };
@@ -116,6 +119,40 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     delete next[requestProjectId];
     pendingCreateRequestsRef.current = next;
     setPendingCreateRequestsByProject(next);
+  };
+
+  const setPendingUpdateRequest = (requestProjectId: string, requestId: number) => {
+    const next = { ...pendingUpdateRequestsRef.current, [requestProjectId]: requestId };
+    pendingUpdateRequestsRef.current = next;
+    setPendingUpdateRequestsByProject(next);
+  };
+
+  const clearPendingUpdateRequest = (requestProjectId: string, requestId: number) => {
+    if (pendingUpdateRequestsRef.current[requestProjectId] !== requestId) {
+      return;
+    }
+
+    const next = { ...pendingUpdateRequestsRef.current };
+    delete next[requestProjectId];
+    pendingUpdateRequestsRef.current = next;
+    setPendingUpdateRequestsByProject(next);
+  };
+
+  const setPendingDeleteRequest = (requestProjectId: string, requestId: number) => {
+    const next = { ...pendingDeleteRequestsRef.current, [requestProjectId]: requestId };
+    pendingDeleteRequestsRef.current = next;
+    setPendingDeleteRequestsByProject(next);
+  };
+
+  const clearPendingDeleteRequest = (requestProjectId: string, requestId: number) => {
+    if (pendingDeleteRequestsRef.current[requestProjectId] !== requestId) {
+      return;
+    }
+
+    const next = { ...pendingDeleteRequestsRef.current };
+    delete next[requestProjectId];
+    pendingDeleteRequestsRef.current = next;
+    setPendingDeleteRequestsByProject(next);
   };
 
   const setProjectNewKeyData = (requestProjectId: string, data: NewKeyData) => {
@@ -136,15 +173,27 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
 
   const closeEditDialog = () => {
     setEditingKey(null);
-    activeUpdateRequestIdRef.current = null;
-    setPendingUpdateRequestId(null);
+  };
+
+  const requestCloseEditDialog = () => {
+    if (pendingUpdateRequestsRef.current[projectId] !== undefined) {
+      return;
+    }
+
+    closeEditDialog();
   };
 
   const closeDeleteDialog = () => {
     setKeyToDelete(null);
     setDeleteConfirmText("");
-    activeDeleteRequestIdRef.current = null;
-    setPendingDeleteRequestId(null);
+  };
+
+  const requestCloseDeleteDialog = () => {
+    if (pendingDeleteRequestsRef.current[projectId] !== undefined) {
+      return;
+    }
+
+    closeDeleteDialog();
   };
 
   const { data, isLoading } = useQuery({
@@ -173,7 +222,6 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
 
       if (isLatestProjectRequest && createdKey) {
         setProjectNewKeyData(variables.projectId, {
-          requestId: variables.requestId,
           key: createdKey,
         });
       }
@@ -199,21 +247,17 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       updateAccessKey(requestProjectId, keyId, name),
     onSuccess: (_response, variables) => {
       queryClient.invalidateQueries({ queryKey: ["access-keys", variables.projectId] });
-      const isActiveRequest =
-        variables.requestId === activeUpdateRequestIdRef.current &&
-        variables.projectId === currentProjectIdRef.current;
+      const isLatestProjectRequest =
+        pendingUpdateRequestsRef.current[variables.projectId] === variables.requestId;
 
-      if (isActiveRequest) {
-        setEditingKey(null);
-        activeUpdateRequestIdRef.current = null;
-        setPendingUpdateRequestId(null);
+      if (isLatestProjectRequest && variables.projectId === currentProjectIdRef.current) {
+        closeEditDialog();
         resetUpdateMutationRef.current();
       }
     },
     onSettled: (_data, _error, variables) => {
-      if (variables?.requestId === activeUpdateRequestIdRef.current) {
-        activeUpdateRequestIdRef.current = null;
-        setPendingUpdateRequestId(null);
+      if (variables) {
+        clearPendingUpdateRequest(variables.projectId, variables.requestId);
       }
     },
   });
@@ -225,22 +269,17 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       deleteAccessKey(requestProjectId, keyId),
     onSuccess: (_response, variables) => {
       queryClient.invalidateQueries({ queryKey: ["access-keys", variables.projectId] });
-      const isActiveRequest =
-        variables.requestId === activeDeleteRequestIdRef.current &&
-        variables.projectId === currentProjectIdRef.current;
+      const isLatestProjectRequest =
+        pendingDeleteRequestsRef.current[variables.projectId] === variables.requestId;
 
-      if (isActiveRequest) {
-        setKeyToDelete(null);
-        setDeleteConfirmText("");
-        activeDeleteRequestIdRef.current = null;
-        setPendingDeleteRequestId(null);
+      if (isLatestProjectRequest && variables.projectId === currentProjectIdRef.current) {
+        closeDeleteDialog();
         resetDeleteMutationRef.current();
       }
     },
     onSettled: (_data, _error, variables) => {
-      if (variables?.requestId === activeDeleteRequestIdRef.current) {
-        activeDeleteRequestIdRef.current = null;
-        setPendingDeleteRequestId(null);
+      if (variables) {
+        clearPendingDeleteRequest(variables.projectId, variables.requestId);
       }
     },
   });
@@ -250,13 +289,8 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   useEffect(() => {
     setNewKeyName("");
     setShowCreateDialog(false);
-    setEditingKey(null);
-    activeUpdateRequestIdRef.current = null;
-    setPendingUpdateRequestId(null);
-    setKeyToDelete(null);
-    setDeleteConfirmText("");
-    activeDeleteRequestIdRef.current = null;
-    setPendingDeleteRequestId(null);
+    closeEditDialog();
+    closeDeleteDialog();
     resetCreateMutationRef.current();
     resetUpdateMutationRef.current();
     resetDeleteMutationRef.current();
@@ -279,11 +313,10 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   };
 
   const handleSaveNote = () => {
-    if (editingKey && pendingUpdateRequestId === null) {
+    if (editingKey && pendingUpdateRequestsRef.current[projectId] === undefined) {
       const requestId = updateRequestCounterRef.current + 1;
       updateRequestCounterRef.current = requestId;
-      activeUpdateRequestIdRef.current = requestId;
-      setPendingUpdateRequestId(requestId);
+      setPendingUpdateRequest(projectId, requestId);
       updateMutation.mutate({
         projectId,
         keyId: editingKey.id,
@@ -296,6 +329,8 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const accessKeys = data?.access_keys || [];
   const activeNewKeyData = newKeyDataByProject[projectId] ?? null;
   const isCreatePendingForProject = pendingCreateRequestsByProject[projectId] !== undefined;
+  const pendingUpdateRequestId = pendingUpdateRequestsByProject[projectId] ?? null;
+  const pendingDeleteRequestId = pendingDeleteRequestsByProject[projectId] ?? null;
 
   const hasCopyableEnvValue = !!activeNewKeyData;
   const envBlockContent = hasCopyableEnvValue
@@ -352,7 +387,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
         </div>
         {showsMaskedEnvHint && (
           <p className="border-t px-4 py-2 text-xs text-muted-foreground">
-            Create a new API key to copy a full TRACEROOT_API_KEY value.
+            Create a new API key and update TRACEROOT_API_KEY if you need a full secret value.
           </p>
         )}
       </div>
@@ -361,7 +396,8 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
         <div className="border border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950">
           <div className="px-4 py-3">
             <p className="mb-2 text-xs font-medium text-green-800 dark:text-green-200">
-              New API key created! Copy it now - you won&apos;t see it again.
+              New API key created! Copy it now. This full secret can&apos;t be recovered after you
+              dismiss it.
             </p>
             <div className="mb-2 flex items-center gap-2">
               <code className="flex-1 border bg-white px-2 py-1.5 font-mono text-xs dark:bg-black">
@@ -413,7 +449,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editingKey} onOpenChange={(open) => !open && closeEditDialog()}>
+      <Dialog open={!!editingKey} onOpenChange={(open) => !open && requestCloseEditDialog()}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Note</DialogTitle>
@@ -430,7 +466,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeEditDialog}>
+            <Button
+              variant="outline"
+              onClick={requestCloseEditDialog}
+              disabled={pendingUpdateRequestId !== null}
+            >
               Cancel
             </Button>
             <Button onClick={handleSaveNote} disabled={pendingUpdateRequestId !== null}>
@@ -444,7 +484,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
         open={!!keyToDelete}
         onOpenChange={(open) => {
           if (!open) {
-            closeDeleteDialog();
+            requestCloseDeleteDialog();
           }
         }}
       >
@@ -475,17 +515,20 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeDeleteDialog}>
+            <Button
+              variant="outline"
+              onClick={requestCloseDeleteDialog}
+              disabled={pendingDeleteRequestId !== null}
+            >
               Cancel
             </Button>
             <Button
               variant="destructive"
               onClick={() => {
-                if (keyToDelete && pendingDeleteRequestId === null) {
+                if (keyToDelete && pendingDeleteRequestsRef.current[projectId] === undefined) {
                   const requestId = deleteRequestCounterRef.current + 1;
                   deleteRequestCounterRef.current = requestId;
-                  activeDeleteRequestIdRef.current = requestId;
-                  setPendingDeleteRequestId(requestId);
+                  setPendingDeleteRequest(projectId, requestId);
                   deleteMutation.mutate({ projectId, keyId: keyToDelete.id, requestId });
                 }
               }}
@@ -526,7 +569,8 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
                   <td className="px-3 py-2">
                     <button
                       onClick={() => setEditingKey({ id: key.id, name: key.name || "" })}
-                      className="cursor-pointer text-left hover:underline"
+                      className="cursor-pointer text-left hover:underline disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:no-underline"
+                      disabled={pendingUpdateRequestId !== null}
                     >
                       {key.name || <span className="text-muted-foreground">-</span>}
                     </button>
