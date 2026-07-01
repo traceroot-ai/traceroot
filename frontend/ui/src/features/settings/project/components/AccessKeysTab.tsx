@@ -8,6 +8,7 @@ import { AddButton } from "@/components/ui/add-button";
 import { DeleteIconButton } from "@/components/ui/delete-button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -28,6 +29,9 @@ import {
 interface AccessKeysTabProps {
   projectId: string;
 }
+
+const PROJECT_API_KEYS_HELP_TEXT =
+  "Project API keys authenticate TraceRoot SDK and API requests for this project. Copy the .env value into your app, and save new keys immediately because the full secret is shown only once.";
 
 function formatKeyHint(keyHint: string): string {
   if (keyHint.startsWith("tr-")) {
@@ -110,7 +114,23 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <h2 className="text-lg font-semibold">Project API Keys</h2>
-          <Info className="h-3.5 w-3.5 text-muted-foreground" />
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="About Project API Keys"
+                  title={PROJECT_API_KEYS_HELP_TEXT}
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <Info aria-hidden="true" className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-left">
+                {PROJECT_API_KEYS_HELP_TEXT}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
         <AddButton onClick={() => setShowCreateDialog(true)}>Create new API key</AddButton>
       </div>
