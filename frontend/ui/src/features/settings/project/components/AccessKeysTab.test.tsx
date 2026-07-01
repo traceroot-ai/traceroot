@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const mocks = vi.hoisted(() => ({
@@ -20,6 +20,17 @@ vi.mock("@/lib/api", () => ({
 import { AccessKeysTab } from "./AccessKeysTab";
 
 const clipboardWriteText = vi.fn();
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, resolve, reject };
+}
 
 function renderAccessKeysTab(projectId = "proj_123") {
   const queryClient = new QueryClient({
@@ -167,5 +178,43 @@ describe("AccessKeysTab", () => {
     });
     expect(screen.getByText(".env example")).toBeDefined();
     expect(screen.getByText('TRACEROOT_API_KEY = "tr-..."')).toBeDefined();
+  });
+
+  it("ignores in-flight key creation that resolves after switching projects", async () => {
+    const createResult = {
+      data: {
+        key: "tr-project-one-pending-secret",
+        key_hint: "tr-pend...cret",
+      },
+    };
+    const deferredCreate = createDeferred<typeof createResult>();
+    mocks.createAccessKey.mockReturnValue(deferredCreate.promise);
+
+    const { rerenderWithProject } = renderAccessKeysTab("proj_123");
+
+    fireEvent.click(screen.getByRole("button", { name: /create new api key/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
+
+    await waitFor(() => {
+      expect(mocks.createAccessKey).toHaveBeenCalledWith("proj_123", undefined);
+    });
+
+    rerenderWithProject("proj_456");
+
+    await act(async () => {
+      deferredCreate.resolve(createResult);
+      await deferredCreate.promise;
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('TRACEROOT_API_KEY = "tr-project-one-pending-secret"')).toBeNull();
+    });
+    expect(screen.getByText(".env example")).toBeDefined();
+
+    const copyEnv = screen.getByRole("button", {
+      name: /create a new api key to copy the full environment variable/i,
+    });
+    expect(copyEnv).toHaveProperty("disabled", true);
+    expect(clipboardWriteText).not.toHaveBeenCalled();
   });
 });

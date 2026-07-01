@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,8 @@ function formatKeyHint(keyHint: string): string {
 
 export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   const queryClient = useQueryClient();
+  const currentProjectIdRef = useRef(projectId);
+  currentProjectIdRef.current = projectId;
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
@@ -64,10 +66,20 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   });
 
   const createMutation = useMutation({
-    mutationFn: (name: string) => createAccessKey(projectId, name || undefined),
-    onSuccess: (response) => {
-      queryClient.invalidateQueries({ queryKey: ["access-keys", projectId] });
-      setNewKeyData({ projectId, key: response.data.key, keyHint: response.data.key_hint });
+    mutationFn: ({ projectId: requestProjectId, name }: { projectId: string; name: string }) =>
+      createAccessKey(requestProjectId, name || undefined),
+    onSuccess: (response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["access-keys", variables.projectId] });
+
+      if (variables.projectId !== currentProjectIdRef.current) {
+        return;
+      }
+
+      setNewKeyData({
+        projectId: variables.projectId,
+        key: response.data.key,
+        keyHint: response.data.key_hint,
+      });
       setNewKeyName("");
       setShowCreateDialog(false);
     },
@@ -93,10 +105,12 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
 
   useEffect(() => {
     setNewKeyData((current) => (current?.projectId === projectId ? current : null));
+    setNewKeyName("");
+    setShowCreateDialog(false);
   }, [projectId]);
 
   const handleCreate = () => {
-    createMutation.mutate(newKeyName);
+    createMutation.mutate({ projectId, name: newKeyName });
   };
 
   const handleCloseNewKey = () => {
