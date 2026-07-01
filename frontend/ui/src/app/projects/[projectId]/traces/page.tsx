@@ -7,6 +7,7 @@ import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
 import { Workflow, Users, Layers, X } from "lucide-react";
 import { SearchFilterBar } from "@/components/search-filter-bar";
+import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-input";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import {
@@ -56,6 +57,7 @@ export default function TracesPage() {
     updateDateFilter,
     updateCustomRange,
     updateKeyword,
+    updateFilters,
     updateLimit,
     goToPage,
     queryOptions,
@@ -161,9 +163,16 @@ export default function TracesPage() {
         {/* Filters bar — hidden during onboarding or while checking */}
         {!checking && !showGettingStarted && (
           <SearchFilterBar
-            searchValue={state.keyword}
-            onSearchChange={updateKeyword}
-            searchPlaceholder="Search..."
+            searchInput={
+              <TraceSearchFilterInput
+                searchValue={state.keyword}
+                onSearchChange={updateKeyword}
+                projectId={projectId}
+                filters={state.filters}
+                onFiltersChange={updateFilters}
+                startAfter={queryOptions.start_after}
+              />
+            }
             dateFilter={state.dateFilter}
             customStartDate={state.customStartDate}
             customEndDate={state.customEndDate}
