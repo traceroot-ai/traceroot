@@ -35,6 +35,7 @@ export async function resolveDefaultDetectorModelSelection(
   const byokProviders = await prisma.modelProvider.findMany({
     where: { workspaceId, enabled: true },
     select: { provider: true, adapter: true, customModels: true },
+    orderBy: [{ createTime: "asc" }, { id: "asc" }],
   });
   const byokModels: DefaultModelCandidate[] = byokProviders.flatMap((provider) =>
     provider.customModels

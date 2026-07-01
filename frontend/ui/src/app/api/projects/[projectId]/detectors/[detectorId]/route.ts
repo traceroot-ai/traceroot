@@ -101,8 +101,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   }
 
   // String field type checks — reject invalid types up front instead of
-  // letting Prisma throw on the update. Detection fields accept "" / null
-  // as "unset"; required fields (name, prompt) must be non-empty strings.
+  // letting Prisma throw on the update. Required fields (name, prompt) must be
+  // non-empty strings. Model-selection fields are merged with existing values
+  // below and, when touched, must resolve to a complete valid tuple; explicit
+  // "" / null clears therefore fail with the model-selection validation error.
   for (const [key, val] of [
     ["name", name],
     ["prompt", prompt],

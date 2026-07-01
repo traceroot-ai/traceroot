@@ -141,6 +141,7 @@ describe("POST .../detectors — model selection validation", () => {
     expect(modelProviderFindManyMock).toHaveBeenCalledWith({
       where: { workspaceId: "workspace-1", enabled: true },
       select: { provider: true, adapter: true, customModels: true },
+      orderBy: [{ createTime: "asc" }, { id: "asc" }],
     });
     expect(detectorCreateMock).not.toHaveBeenCalled();
   });
@@ -181,6 +182,55 @@ describe("POST .../detectors — model selection validation", () => {
       detectionModel: "claude-workspace",
       detectionProvider: "workspace-anthropic",
       detectionSource: "byok",
+    });
+  });
+
+  it("uses the stable provider order when defaulting among multiple same-adapter BYOK providers", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    modelProviderFindManyMock.mockResolvedValue([
+      {
+        provider: "first-openai",
+        adapter: "openai",
+        customModels: ["gpt-5.4-mini"],
+      },
+      {
+        provider: "second-openai",
+        adapter: "openai",
+        customModels: ["gpt-5.4-mini"],
+      },
+    ]);
+
+    const res = await POST(makeRequest(validBodyWithoutModel()), makeParams());
+
+    expect(res.status).toBe(201);
+    expect(modelProviderFindManyMock).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace-1", enabled: true },
+      select: { provider: true, adapter: true, customModels: true },
+      orderBy: [{ createTime: "asc" }, { id: "asc" }],
+    });
+    expect(detectorCreateMock.mock.calls[0][0].data).toMatchObject({
+      detectionModel: "gpt-5.4-mini",
+      detectionProvider: "first-openai",
+      detectionSource: "byok",
+    });
+  });
+
+  it("keeps provider priority ahead of BYOK-first ordering across different adapters", async () => {
+    modelProviderFindManyMock.mockResolvedValue([
+      {
+        provider: "workspace-openai",
+        adapter: "openai",
+        customModels: ["gpt-5.4-mini"],
+      },
+    ]);
+
+    const res = await POST(makeRequest(validBodyWithoutModel()), makeParams());
+
+    expect(res.status).toBe(201);
+    expect(detectorCreateMock.mock.calls[0][0].data).toMatchObject({
+      detectionModel: "claude-4",
+      detectionProvider: "Anthropic",
+      detectionSource: "system",
     });
   });
 
