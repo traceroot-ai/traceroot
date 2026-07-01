@@ -179,6 +179,45 @@ describe("POST .../detectors — model selection validation", () => {
     });
   });
 
+  it("preserves legacy source-only system creates by resolving a system default", async () => {
+    const res = await POST(
+      makeRequest(validBodyWithoutModel({ detectionSource: "system" })),
+      makeParams(),
+    );
+
+    expect(res.status).toBe(201);
+    expect(modelProviderFindManyMock).not.toHaveBeenCalled();
+    expect(detectorCreateMock.mock.calls[0][0].data).toMatchObject({
+      detectionModel: "claude-4",
+      detectionProvider: "Anthropic",
+      detectionSource: "system",
+    });
+  });
+
+  it("rejects source-only system creates when no system default exists", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    modelProviderFindManyMock.mockResolvedValue([
+      {
+        provider: "my-openai",
+        adapter: "openai",
+        customModels: ["gpt-5.4-mini"],
+      },
+    ]);
+
+    const res = await POST(
+      makeRequest(validBodyWithoutModel({ detectionSource: "system" })),
+      makeParams(),
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error:
+        "Detector model selection is required. Choose a configured system model or BYOK provider.",
+    });
+    expect(modelProviderFindManyMock).not.toHaveBeenCalled();
+    expect(detectorCreateMock).not.toHaveBeenCalled();
+  });
+
   it("uses the stable provider order when defaulting among multiple same-adapter BYOK providers", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "");
     modelProviderFindManyMock.mockResolvedValue([

@@ -10,6 +10,7 @@ import {
 import {
   DETECTOR_MODEL_SELECTION_REQUIRED_ERROR,
   resolveDefaultDetectorModelSelection,
+  resolveDefaultSystemDetectorModelSelection,
   validateDetectorModelSelection,
   type ResolvedDetectorModelSelection,
 } from "./model-selection";
@@ -153,9 +154,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     detectionProvider !== undefined ||
     detectionSource !== undefined;
 
+  const hasOnlySystemSource =
+    sourceStr === "system" && detectionModel === undefined && detectionProvider === undefined;
+
   let modelSelection: ResolvedDetectorModelSelection | { error: string };
   if (!hasAnyModelSelectionField) {
     modelSelection = await resolveDefaultDetectorModelSelection(accessResult.project.workspaceId);
+  } else if (hasOnlySystemSource) {
+    modelSelection = resolveDefaultSystemDetectorModelSelection();
   } else if (
     typeof detectionModel !== "string" ||
     typeof detectionProvider !== "string" ||

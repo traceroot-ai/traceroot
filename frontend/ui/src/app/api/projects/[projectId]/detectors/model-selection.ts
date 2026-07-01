@@ -29,6 +29,17 @@ interface DefaultModelCandidate extends ResolvedDetectorModelSelection {
   adapter: string;
 }
 
+function buildSystemModelCandidates(): DefaultModelCandidate[] {
+  return SYSTEM_MODELS.filter((provider) => !!process.env[provider.envVar]).flatMap((provider) =>
+    provider.models.map((model) => ({
+      model: model.id,
+      provider: provider.provider,
+      source: ModelSource.SYSTEM,
+      adapter: provider.piAIProvider,
+    })),
+  );
+}
+
 function pickDefaultCandidate(
   candidates: DefaultModelCandidate[],
 ): ResolvedDetectorModelSelection | null {
@@ -45,26 +56,24 @@ function pickDefaultCandidate(
   return null;
 }
 
+export function resolveDefaultSystemDetectorModelSelection():
+  | ResolvedDetectorModelSelection
+  | { error: string } {
+  const systemDefault = pickDefaultCandidate(buildSystemModelCandidates());
+  if (systemDefault) return systemDefault;
+
+  return modelSelectionError(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR);
+}
+
 export async function resolveDefaultDetectorModelSelection(
   workspaceId: string,
 ): Promise<ResolvedDetectorModelSelection | { error: string }> {
-  const systemModels: DefaultModelCandidate[] = SYSTEM_MODELS.filter(
-    (provider) => !!process.env[provider.envVar],
-  ).flatMap((provider) =>
-    provider.models.map((model) => ({
-      model: model.id,
-      provider: provider.provider,
-      source: ModelSource.SYSTEM,
-      adapter: provider.piAIProvider,
-    })),
-  );
-
   // Omitted detector model fields come from legacy/internal creation paths. Keep
   // those defaults pinned to the same env-backed system credential scope when it
   // exists so adding a workspace BYOK provider does not silently change future
   // detector traffic, billing, or data egress for callers that did not opt in.
-  const systemDefault = pickDefaultCandidate(systemModels);
-  if (systemDefault) return systemDefault;
+  const systemDefault = resolveDefaultSystemDetectorModelSelection();
+  if (!("error" in systemDefault)) return systemDefault;
 
   const byokProviders = await prisma.modelProvider.findMany({
     where: { workspaceId, enabled: true },
