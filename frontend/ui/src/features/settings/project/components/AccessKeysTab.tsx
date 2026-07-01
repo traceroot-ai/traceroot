@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -49,7 +49,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
-  const [newKeyData, setNewKeyData] = useState<{ key: string; keyHint: string } | null>(null);
+  const [newKeyData, setNewKeyData] = useState<{
+    projectId: string;
+    key: string;
+    keyHint: string;
+  } | null>(null);
   const [editingKey, setEditingKey] = useState<{ id: string; name: string } | null>(null);
   const [keyToDelete, setKeyToDelete] = useState<AccessKey | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -63,7 +67,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     mutationFn: (name: string) => createAccessKey(projectId, name || undefined),
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ["access-keys", projectId] });
-      setNewKeyData({ key: response.data.key, keyHint: response.data.key_hint });
+      setNewKeyData({ projectId, key: response.data.key, keyHint: response.data.key_hint });
       setNewKeyName("");
       setShowCreateDialog(false);
     },
@@ -87,6 +91,10 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
     },
   });
 
+  useEffect(() => {
+    setNewKeyData((current) => (current?.projectId === projectId ? current : null));
+  }, [projectId]);
+
   const handleCreate = () => {
     createMutation.mutate(newKeyName);
   };
@@ -102,10 +110,11 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
   };
 
   const accessKeys = data?.access_keys || [];
+  const activeNewKeyData = newKeyData?.projectId === projectId ? newKeyData : null;
 
-  const hasCopyableEnvValue = !!newKeyData;
+  const hasCopyableEnvValue = !!activeNewKeyData;
   const envBlockContent = hasCopyableEnvValue
-    ? `TRACEROOT_API_KEY = "${newKeyData.key}"`
+    ? `TRACEROOT_API_KEY = "${activeNewKeyData.key}"`
     : accessKeys.length > 0
       ? `TRACEROOT_API_KEY = "${formatKeyHint(accessKeys[0].key_hint)}"`
       : `TRACEROOT_API_KEY = "tr-..."`;
@@ -165,7 +174,7 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
         )}
       </div>
 
-      {newKeyData && (
+      {activeNewKeyData && (
         <div className="border border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950">
           <div className="px-4 py-3">
             <p className="mb-2 text-xs font-medium text-green-800 dark:text-green-200">
@@ -173,9 +182,13 @@ export function AccessKeysTab({ projectId }: AccessKeysTabProps) {
             </p>
             <div className="mb-2 flex items-center gap-2">
               <code className="flex-1 border bg-white px-2 py-1.5 font-mono text-xs dark:bg-black">
-                {newKeyData.key}
+                {activeNewKeyData.key}
               </code>
-              <CopyButton value={newKeyData.key} variant="outline" aria-label="Copy new API key" />
+              <CopyButton
+                value={activeNewKeyData.key}
+                variant="outline"
+                aria-label="Copy new API key"
+              />
             </div>
             <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={handleCloseNewKey}>
               I&apos;ve copied the key
