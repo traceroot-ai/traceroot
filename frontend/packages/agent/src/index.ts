@@ -193,7 +193,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     let responseProvider: string | undefined;
 
     await new Promise<void>((resolve) => {
-      runAgent(agent, body.message, {
+      void runAgent(agent, body.message, {
         onEvent: (event) => {
           if (event.type === "message_update") {
             // Log only the very first message_update for debugging
@@ -292,7 +292,15 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           stream.writeSSE({ event: "done", data: "{}" });
           resolve();
         },
-      });
+      })
+        .catch((error) => {
+          console.error(`[Agent] ERROR:`, error.message);
+          stream.writeSSE({
+            event: "error",
+            data: JSON.stringify({ message: error.message }),
+          });
+        })
+        .finally(resolve);
     });
   });
 });

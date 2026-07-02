@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import path from "path";
 import { pathToFileURL } from "url";
 import { z } from "zod";
@@ -16,6 +16,7 @@ const mockRequireAuth = vi.fn();
 const mockRequireWorkspaceMembership = vi.fn();
 const mockFindFirst = vi.fn();
 const mockProjectUpdate = vi.fn();
+const mockModelProviderFindFirst = vi.fn();
 
 vi.mock("@/lib/auth-helpers", () => ({
   requireAuth: (...a: any[]) => mockRequireAuth(...a),
@@ -33,6 +34,9 @@ vi.mock("@traceroot/core", async (orig) => {
       project: {
         findFirst: (...a: any[]) => mockFindFirst(...a),
         update: (...a: any[]) => mockProjectUpdate(...a),
+      },
+      modelProvider: {
+        findFirst: (...a: any[]) => mockModelProviderFindFirst(...a),
       },
     },
     Role: { ADMIN: "ADMIN" },
@@ -56,6 +60,19 @@ const project = {
 const routePath = path.join(__dirname, "..", "[projectId]", "route.ts");
 
 describe("Workspace project route", () => {
+  beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    mockRequireAuth.mockReset();
+    mockRequireWorkspaceMembership.mockReset();
+    mockFindFirst.mockReset();
+    mockProjectUpdate.mockReset();
+    mockModelProviderFindFirst.mockReset().mockResolvedValue({
+      provider: "anthropic",
+      adapter: "anthropic",
+      customModels: ["claude-haiku-4-5"],
+    });
+  });
+
   it("schema accepts rca_provider and rca_source", () => {
     const r = updateProjectSchema.safeParse({ rca_provider: "anthropic", rca_source: "system" });
     expect(r.success).toBe(true);
@@ -83,22 +100,35 @@ describe("Workspace project route", () => {
     mockRequireAuth.mockResolvedValue({ user: { id: "u1" }, error: null });
     mockRequireWorkspaceMembership.mockResolvedValue({ error: null });
     mockFindFirst.mockResolvedValue({ ...project });
-    mockProjectUpdate.mockResolvedValue({ ...project });
+    mockProjectUpdate.mockResolvedValue({
+      ...project,
+      rcaModel: "claude-haiku-4-5",
+      rcaProvider: "Anthropic",
+      rcaSource: "system",
+    });
 
     const mod = await import(pathToFileURL(routePath).href);
     const res = await mod.PATCH(
       new Request("http://localhost/", {
         method: "PATCH",
-        body: JSON.stringify({ rca_provider: "anthropic", rca_source: "system" }),
+        body: JSON.stringify({
+          rca_model: "claude-haiku-4-5",
+          rca_provider: "anthropic",
+          rca_source: "system",
+        }),
       }),
       { params: Promise.resolve({ workspaceId: "ws1", projectId: "p1" }) },
     );
     const body = await res.json();
-    expect(body.rca_provider).toBe("my-openai");
-    expect(body.rca_source).toBe("byok");
+    expect(body.rca_provider).toBe("Anthropic");
+    expect(body.rca_source).toBe("system");
     expect(mockProjectUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ rcaProvider: "anthropic", rcaSource: "system" }),
+        data: expect.objectContaining({
+          rcaModel: "claude-haiku-4-5",
+          rcaProvider: "Anthropic",
+          rcaSource: "system",
+        }),
       }),
     );
   });

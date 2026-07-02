@@ -4,13 +4,19 @@ export interface SystemPromptContext {
   traceSessionId?: string;
 }
 
+const MAX_OPAQUE_CONTEXT_ID_LENGTH = 512;
+
+function formatOpaqueContextId(id: string): string {
+  return JSON.stringify(id.slice(0, MAX_OPAQUE_CONTEXT_ID_LENGTH));
+}
+
 export function getSystemPrompt(ctx: SystemPromptContext): string {
   const traceContext = ctx.traceId
-    ? `\n- Currently viewing Trace ID: ${ctx.traceId}\n  The user opened the AI assistant from this trace's detail view. They likely want to ask about this specific trace.`
+    ? `\n- Currently viewing Trace ID: ${formatOpaqueContextId(ctx.traceId)}\n  The user opened the AI assistant from this trace's detail view. They likely want to ask about this specific trace.`
     : "";
 
   const sessionContext = ctx.traceSessionId
-    ? `\n- Currently viewing Session ID: ${ctx.traceSessionId}\n  The user opened the AI assistant from this session's detail view.\n  Call query_sessions with this sessionId to see all traces and their I/O.\n  Call download_session with this sessionId for a full deep-dive across all traces.`
+    ? `\n- Currently viewing Session ID: ${formatOpaqueContextId(ctx.traceSessionId)}\n  The user opened the AI assistant from this session's detail view.\n  Call query_sessions with this sessionId to see all traces and their I/O.\n  Call download_session with this sessionId for a full deep-dive across all traces.`
     : "";
 
   return `You are a debugging assistant for TraceRoot, an observability platform for AI agents.
