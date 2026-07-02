@@ -18,6 +18,7 @@ import { ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AIMessage, ToolCallStep } from "../types";
 import { PANEL_MAX_WIDTH } from "../constants";
+import { analyzeBreakdown, BreakdownChart } from "./breakdown-chart";
 
 // ---------------------------------------------------------------------------
 // Lightweight markdown normalization for streamed, partial content.
@@ -147,6 +148,23 @@ function parseMarkdownTable(children: ReactNode): ParsedMarkdownTable | null {
   };
 }
 
+// Flatten parsed table cells to plain text so breakdown detection can inspect
+// numeric shapes (durations / percentages) independent of markdown formatting.
+function buildBreakdownRows(parsed: ParsedMarkdownTable): string[][] {
+  return parsed.rows.map((row) =>
+    Array.from({ length: parsed.columnCount }, (_, c) => flattenNodeText(row[c] ?? "").trim()),
+  );
+}
+
+// Rebuild a markdown table string for the chart's "copy" affordance so users
+// can still grab the exact values.
+function buildBreakdownCopy(headers: string[], rows: string[][]): string {
+  const head = `| ${headers.join(" | ")} |`;
+  const sep = `| ${headers.map(() => "---").join(" | ")} |`;
+  const body = rows.map((r) => `| ${r.join(" | ")} |`).join("\n");
+  return [head, sep, body].join("\n");
+}
+
 interface MarkdownLayoutOptions {
   containerWidth: number;
 }
@@ -199,6 +217,7 @@ function getMarkdownComponents(layout: MarkdownLayoutOptions): Components {
       const parsed = parseMarkdownTable(children);
       const mode = parsed ? getTableRenderMode(parsed, layout.containerWidth) : "table";
 
+      const fallback = (() => {
       if (parsed && mode === "stacked") {
         return (
           <div className="my-2 space-y-2">
@@ -259,6 +278,25 @@ function getMarkdownComponents(layout: MarkdownLayoutOptions): Components {
           {children}
         </table>
       );
+      })();
+
+      // Recognize performance-breakdown tables (stage / duration / percentage /
+      // issue) and render a chart, keeping the exact table one click away.
+      if (parsed) {
+        const textRows = buildBreakdownRows(parsed);
+        const breakdown = analyzeBreakdown(parsed.headers, textRows);
+        if (breakdown) {
+          return (
+            <BreakdownChart
+              data={breakdown}
+              rawTable={fallback}
+              copyValue={buildBreakdownCopy(parsed.headers, textRows)}
+            />
+          );
+        }
+      }
+
+      return fallback;
     },
     // Custom block/inline detection - prose styles pre/code but can't detect
     // unlabelled fences (no language-* class) without this heuristic
