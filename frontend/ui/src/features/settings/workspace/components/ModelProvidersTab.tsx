@@ -614,33 +614,33 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
             )}
 
             {/* Test Connection */}
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!canTest || testMutation.isPending}
-                onClick={handleTest}
-              >
-                {testMutation.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-                Test Connection
-              </Button>
-              {testResult && (
-                <span className="flex items-center gap-1 text-xs">
-                  {testResult.success ? (
-                    <>
-                      <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-                      <span className="text-green-600">Connected</span>
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="h-3.5 w-3.5 text-destructive" />
-                      <span className="text-destructive">{testResult.error}</span>
-                    </>
-                  )}
-                </span>
-              )}
-            </div>
+<div className="flex flex-col gap-2">
+  <div className="flex items-center gap-2">
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      disabled={!canTest || testMutation.isPending}
+      onClick={handleTest}
+    >
+      {testMutation.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+      Test Connection
+    </Button>
+    {testResult?.success && (
+      <span className="flex items-center gap-1 text-xs">
+        <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+        <span className="text-green-600">Connected</span>
+      </span>
+    )}
+  </div>
+  {testResult && !testResult.success && (
+    <div className="flex items-start gap-1 text-xs text-destructive">
+      <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+      <span>{testResult.error}</span>
+    </div>
+  )}
+</div>
+
           </div>
 
           {saveError && (
