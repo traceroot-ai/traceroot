@@ -75,14 +75,24 @@ describe("FilterBuilder (Basic row)", () => {
     expect(onSubmit).toHaveBeenCalledWith({ field: "status", op: "in", value: ["ERROR"] });
   });
 
-  it("numeric `greater than` lowers to a between with an open upper bound", () => {
+  it("numeric `greater than or equal to` lowers to a between with an open upper bound", () => {
     const onSubmit = renderBuilder([COST]);
     pickField(/Cost/);
     fireEvent.click(screen.getByRole("button", { name: "equals" })); // operator dropdown
-    fireEvent.click(screen.getByRole("option", { name: "greater than" }));
+    fireEvent.click(screen.getByRole("option", { name: "greater than or equal to" }));
     fireEvent.change(screen.getByLabelText("value"), { target: { value: "0.5" } });
     fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
     expect(onSubmit).toHaveBeenCalledWith({ field: "cost", op: "between", value: [0.5, null] });
+  });
+
+  it("numeric `less than or equal to` lowers to a between with an open lower bound", () => {
+    const onSubmit = renderBuilder([COST]);
+    pickField(/Cost/);
+    fireEvent.click(screen.getByRole("button", { name: "equals" }));
+    fireEvent.click(screen.getByRole("option", { name: "less than or equal to" }));
+    fireEvent.change(screen.getByLabelText("value"), { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
+    expect(onSubmit).toHaveBeenCalledWith({ field: "cost", op: "between", value: [null, 10] });
   });
 
   it("does not offer a `between` operator", () => {
@@ -90,8 +100,8 @@ describe("FilterBuilder (Basic row)", () => {
     pickField(/Cost/);
     fireEvent.click(screen.getByRole("button", { name: "equals" }));
     expect(screen.queryByRole("option", { name: "between" })).toBeNull();
-    expect(screen.getByRole("option", { name: "greater than" })).toBeTruthy();
-    expect(screen.getByRole("option", { name: "less than" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "greater than or equal to" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "less than or equal to" })).toBeTruthy();
   });
 
   it("resets the row after adding so another filter can be entered", () => {

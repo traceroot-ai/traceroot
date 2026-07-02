@@ -5,9 +5,9 @@
  * [ field ▾ ] [ operator ▾ ] [ value ] [ Add filter ].
  *
  * Friendly operators lower to the backend `in`/`between` predicates: numeric
- * equals/greater-than/less-than all emit a `between` predicate with the right (possibly
- * null) bounds, and categorical `is` emits a one-element `in`. "Add filter" emits one
- * predicate (the parent appends it as a chip) and resets the row so another can be added.
+ * equals / greater-than-or-equal / less-than-or-equal all emit a `between` predicate with
+ * the right (possibly null) bounds, and categorical `is` emits a one-element `in`. "Add
+ * filter" emits one predicate (the parent appends it as a chip) and resets the row.
  */
 import { useState } from "react";
 import {
@@ -48,20 +48,20 @@ const FIELD_UNIT: Record<string, { prefix?: string; suffix?: string }> = {
   duration_ms: { suffix: "ms" },
 };
 
-type UiOp = "is" | "equals" | "gt" | "lt";
+type UiOp = "is" | "equals" | "gte" | "lte";
 const OP_LABEL: Record<UiOp, string> = {
   is: "is",
   equals: "equals",
-  // "greater than" is an INCLUSIVE >= bound (lowered to >= in translate.py); "less
-  // than" is a strict < bound. Labels are kept short; the semantics live in the comment.
-  gt: "greater than",
-  lt: "less than",
+  // Verbose + honest: both bounds are inclusive (lowered to >= / <= in translate.py),
+  // so the operator name matches the actual comparison at the boundary.
+  gte: "greater than or equal to",
+  lte: "less than or equal to",
 };
 // "between" is intentionally not offered in the UI — a range is two filters
-// ("greater than X" and "less than Y"). The backend still supports a two-bound
+// (a gte and an lte on the same field). The backend still supports a two-bound
 // predicate (and `equals` uses it as `[x, x]`).
 const opsFor = (f: FilterFieldDef): UiOp[] =>
-  f.type === "categorical" ? ["is"] : ["equals", "gt", "lt"];
+  f.type === "categorical" ? ["is"] : ["equals", "gte", "lte"];
 
 interface FilterBuilderProps {
   projectId: string;
@@ -103,8 +103,8 @@ export function FilterBuilder({
     if (lo === null || !Number.isFinite(lo)) return null;
     if (field.integer && !Number.isInteger(lo)) return null;
     if (op === "equals") return buildBetweenPredicate(field.field, lo, lo);
-    if (op === "gt") return buildBetweenPredicate(field.field, lo, null);
-    return buildBetweenPredicate(field.field, null, lo); // lt
+    if (op === "gte") return buildBetweenPredicate(field.field, lo, null);
+    return buildBetweenPredicate(field.field, null, lo); // lte
   };
   const built = predicate();
   // Immediate apply, then clear the row so another filter can be added without the
