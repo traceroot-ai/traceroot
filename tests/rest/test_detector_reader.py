@@ -270,6 +270,30 @@ def test_list_detectors_is_project_scoped_limited_and_newest_first(reader, monke
     assert "order by create_time desc" in sql.lower()  # newest first
 
 
+def test_list_detectors_applies_create_time_window(reader, monkeypatch):
+    captured: list[tuple] = []
+
+    def fake_pg(sql, params):
+        captured.append((sql.lower(), params))
+        return [(0,)] if "count(" in sql.lower() else []
+
+    monkeypatch.setattr(reader, "_pg_rows", fake_pg)
+
+    reader.list_detectors(
+        project_id="p1",
+        limit=50,
+        start_after=datetime(2026, 6, 1),
+        end_before=datetime(2026, 6, 30),
+    )
+
+    # Both the count and list queries carry the inclusive-lower / exclusive-upper
+    # create_time window, so pagination totals match the returned page.
+    assert captured
+    for sql, _params in captured:
+        assert "create_time >= %s" in sql
+        assert "create_time < %s" in sql
+
+
 def test_get_detector_reader_service_is_singleton(monkeypatch):
     import rest.services.detector_reader as mod
 
