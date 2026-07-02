@@ -8,8 +8,8 @@ import type { Predicate } from "@/types/api";
 /**
  * Human-readable label for an active-filter chip. Mirrors how the predicate reads:
  * a single `in` value shows as `=`, multiple as `in [...]`; a `between` with a null
- * bound shows as `>` (the "greater than" operator, an INCLUSIVE >= bound — see
- * translate.py) or `<` (the strict "less than" bound); both bounds as `between … and …`.
+ * bound shows as `≥` (the inclusive "greater than or equal to" bound) or `≤` (the
+ * inclusive "less than or equal to" bound); both bounds as `between … and …`.
  *
  * `name` is the field's display name (its registry label, lowercased — e.g. `latency`
  * for `duration_ms`); it defaults to the raw field key when a label isn't available.
@@ -23,8 +23,8 @@ export function predicateLabel(p: Predicate, name: string = p.field): string {
   if (lo !== null && hi !== null) {
     return lo === hi ? `${name} = ${lo}` : `${name} between ${lo} and ${hi}`;
   }
-  if (lo !== null) return `${name} > ${lo}`;
-  if (hi !== null) return `${name} < ${hi}`;
+  if (lo !== null) return `${name} ≥ ${lo}`;
+  if (hi !== null) return `${name} ≤ ${hi}`;
   return name;
 }
 
@@ -56,10 +56,10 @@ function slotOf(p: Predicate): Slot {
 
 /**
  * Add `next` to the active filter set, merging by slot so a range can be built from
- * two one-sided filters: a lower bound (`greater than`) and an upper bound (`less
- * than`) on the same field coexist (e.g. `latency > 5` AND `latency < 10`, which the
- * backend AND-combines). A same-direction bound, an exact `equals`, a full range, or a
- * categorical value replaces the matching predicate on that field rather than stacking.
+ * two one-sided filters: a lower bound (`greater than or equal to`) and an upper bound
+ * (`less than or equal to`) on the same field coexist (e.g. `latency ≥ 5` AND `latency
+ * ≤ 10`, which the backend AND-combines). A same-direction bound, an exact `equals`, a
+ * full range, or a categorical value replaces the matching predicate rather than stacking.
  */
 export function upsertPredicate(filters: Predicate[], next: Predicate): Predicate[] {
   const ns = slotOf(next);
@@ -69,7 +69,7 @@ export function upsertPredicate(filters: Predicate[], next: Predicate): Predicat
     if (ns === "in" || ns === "exact" || ns === "full") return false;
     // A new one-sided bound keeps the opposite existing bound ONLY if the two form a
     // non-empty range; a same-direction bound, or a contradictory opposite bound (e.g.
-    // errors > 5 then errors < 3, which no value satisfies), is superseded by the
+    // errors ≥ 5 then errors ≤ 3, which no value satisfies), is superseded by the
     // just-entered predicate.
     const es = slotOf(e);
     if (ns === "lower" && es === "upper") return boundsFormRange(next, e);
@@ -80,11 +80,12 @@ export function upsertPredicate(filters: Predicate[], next: Predicate): Predicat
 }
 
 // Whether a lower bound (`[lo, null]`, inclusive `>=`) and an upper bound (`[null, hi]`,
-// strict `<`) describe a non-empty range — i.e. `lo < hi`. A contradictory pair
-// (`lo >= hi`) must not coexist; the newer predicate wins instead.
+// inclusive `<=`) describe a non-empty range. Both bounds are inclusive, so `lo === hi`
+// is a valid one-value range (`>= x AND <= x` matches exactly x) — non-empty iff
+// `lo <= hi`. A contradictory pair (`lo > hi`) must not coexist; the newer predicate wins.
 function boundsFormRange(lower: Predicate, upper: Predicate): boolean {
   if (lower.op !== "between" || upper.op !== "between") return false;
   const lo = lower.value[0];
   const hi = upper.value[1];
-  return lo !== null && hi !== null && lo < hi;
+  return lo !== null && hi !== null && lo <= hi;
 }
