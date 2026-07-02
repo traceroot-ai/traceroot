@@ -65,13 +65,12 @@ async function checkEndpoint(
     const res = await fetch(url, { headers, signal });
     if (res.ok) return { ok: true as const };
     const message = await readErrorMessage(res, signal);
-    
+
     const normalizedError =
       res.status === 401 || res.status === 403
         ? "Invalid API key"
-        : message ?? `HTTP ${res.status}: ${res.statusText}`;
+        : (message ?? `HTTP ${res.status}: ${res.statusText}`);
     return { ok: false as const, error: normalizedError };
-
   });
 }
 
