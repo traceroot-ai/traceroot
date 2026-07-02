@@ -20,12 +20,42 @@ from rest.rate_limit import (
 )
 from rest.routers.public.deps import StampedAuth
 from rest.schemas.common import PaginationMeta
-from rest.schemas.public import FindingDetail, PublicFindingListResponse
+from rest.schemas.public import (
+    FindingDetail,
+    PublicDetectorListResponse,
+    PublicFindingListResponse,
+)
 from rest.services.detector_reader import DetectorReaderService, get_detector_reader_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/public/detectors", tags=["Detectors (Public)"])
+
+
+@router.get("", response_model=PublicDetectorListResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def list_detectors(
+    request: Request,
+    response: Response,
+    auth: StampedAuth,
+    service: DetectorReaderService = Depends(get_detector_reader_service),
+    limit: int = Query(50, ge=1, le=200, description="Items per page"),
+):
+    """List the detectors in the API key's project (newest first)."""
+    try:
+        items, total = service.list_detectors(project_id=auth.project_id, limit=limit)
+    except Exception as e:
+        logger.exception(f"Error listing detectors: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list detectors",
+        ) from e
+
+    return PublicDetectorListResponse(
+        data=items, meta=PaginationMeta(page=0, limit=limit, total=total)
+    )
 
 
 @router.get("/findings", response_model=PublicFindingListResponse)
