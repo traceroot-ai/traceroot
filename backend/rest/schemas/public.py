@@ -134,3 +134,24 @@ class PublicFindingListResponse(BaseModel):
 
     data: list[FindingSummary]
     meta: PaginationMeta
+
+
+class DetectorItem(BaseModel):
+    """A detector from the project's catalog (Postgres ``detectors``).
+
+    ``detector_id`` is the value to pass to ``findings list --detector`` to filter
+    findings to this detector.
+    """
+
+    detector_id: str
+    name: str
+    template: str
+    enabled: bool
+    created_at: datetime
+
+
+class PublicDetectorListResponse(BaseModel):
+    """Paginated list of the project's detectors for the public API."""
+
+    data: list[DetectorItem]
+    meta: PaginationMeta

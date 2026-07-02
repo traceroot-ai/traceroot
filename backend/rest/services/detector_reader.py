@@ -20,6 +20,7 @@ import psycopg2
 
 from db.clickhouse import get_clickhouse_client
 from rest.schemas.public import (
+    DetectorItem,
     DetectorResultItem,
     FindingDetail,
     FindingSummary,
@@ -69,6 +70,38 @@ class DetectorReaderService:
             for item in self._parse_payload(payload)
             if isinstance(item, dict) and item.get("detectorName") is not None
         ]
+
+    # ------------------------------------------------------------------ #
+    # detector catalog
+    # ------------------------------------------------------------------ #
+    def list_detectors(self, project_id: str, limit: int) -> tuple[list[DetectorItem], int]:
+        """List the project's detectors (Postgres catalog), newest first.
+
+        Returns the page of items plus the total match count. Unlike the RCA /
+        template enrichment reads, a catalog-read failure is NOT swallowed — it
+        propagates so the router can return a controlled 500.
+        """
+        count_rows = self._pg_rows(
+            "SELECT count(*) FROM detectors WHERE project_id = %s", (project_id,)
+        )
+        total = count_rows[0][0] if count_rows else 0
+
+        rows = self._pg_rows(
+            "SELECT id, name, template, enabled, create_time FROM detectors "
+            "WHERE project_id = %s ORDER BY create_time DESC LIMIT %s",
+            (project_id, limit),
+        )
+        items = [
+            DetectorItem(
+                detector_id=row[0],
+                name=row[1],
+                template=row[2],
+                enabled=row[3],
+                created_at=row[4],
+            )
+            for row in rows
+        ]
+        return items, total
 
     # ------------------------------------------------------------------ #
     # list

@@ -223,6 +223,53 @@ def test_get_finding_by_trace_is_project_and_trace_scoped(reader, monkeypatch):
     assert params["trace_id"] == "t9"
 
 
+def test_list_detectors_returns_items_and_total(reader, monkeypatch):
+    def fake_pg(sql, params):
+        if "count(" in sql.lower():
+            return [(2,)]
+        return [
+            (
+                "d1",
+                "My Hallucination Detector",
+                "hallucination",
+                True,
+                datetime(2026, 6, 29, 10, 42),
+            ),
+            ("d2", "Failure Watch", "failure", False, datetime(2026, 6, 28, 9, 0)),
+        ]
+
+    monkeypatch.setattr(reader, "_pg_rows", fake_pg)
+
+    items, total = reader.list_detectors(project_id="p1", limit=50)
+
+    assert total == 2
+    assert [i.detector_id for i in items] == ["d1", "d2"]
+    assert items[0].name == "My Hallucination Detector"
+    assert items[0].template == "hallucination"
+    assert items[0].enabled is True
+    assert items[1].enabled is False
+
+
+def test_list_detectors_is_project_scoped_limited_and_newest_first(reader, monkeypatch):
+    captured: list[tuple] = []
+
+    def fake_pg(sql, params):
+        captured.append((sql, params))
+        return [(0,)] if "count(" in sql.lower() else []
+
+    monkeypatch.setattr(reader, "_pg_rows", fake_pg)
+
+    reader.list_detectors(project_id="p1", limit=25)
+
+    assert captured, "expected Postgres queries"
+    assert all("p1" in params for _, params in captured)  # every query project-scoped
+    list_calls = [(sql, params) for sql, params in captured if "count(" not in sql.lower()]
+    assert list_calls
+    sql, params = list_calls[0]
+    assert 25 in params  # limit forwarded
+    assert "order by create_time desc" in sql.lower()  # newest first
+
+
 def test_get_detector_reader_service_is_singleton(monkeypatch):
     import rest.services.detector_reader as mod
 
