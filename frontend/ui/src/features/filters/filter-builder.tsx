@@ -67,10 +67,17 @@ interface FilterBuilderProps {
   projectId: string;
   fields: FilterFieldDef[];
   startAfter?: string;
+  endBefore?: string;
   onSubmit: (predicate: Predicate) => void;
 }
 
-export function FilterBuilder({ projectId, fields, startAfter, onSubmit }: FilterBuilderProps) {
+export function FilterBuilder({
+  projectId,
+  fields,
+  startAfter,
+  endBefore,
+  onSubmit,
+}: FilterBuilderProps) {
   const [field, setField] = useState<FilterFieldDef | null>(null);
   const [op, setOp] = useState<UiOp>("is");
   const [value, setValue] = useState("");
@@ -136,6 +143,7 @@ export function FilterBuilder({ projectId, fields, startAfter, onSubmit }: Filte
         projectId={projectId}
         field={field}
         startAfter={startAfter}
+        endBefore={endBefore}
         value={value}
         onValue={setValue}
         onEnter={submit}
@@ -156,6 +164,7 @@ function ValueControl({
   projectId,
   field,
   startAfter,
+  endBefore,
   value,
   onValue,
   onEnter,
@@ -163,6 +172,7 @@ function ValueControl({
   projectId: string;
   field: FilterFieldDef | null;
   startAfter?: string;
+  endBefore?: string;
   value: string;
   onValue: (v: string) => void;
   onEnter: () => void;
@@ -184,6 +194,7 @@ function ValueControl({
         projectId={projectId}
         field={field}
         startAfter={startAfter}
+        endBefore={endBefore}
         value={value}
         onValue={onValue}
       />
@@ -255,17 +266,19 @@ function CategoricalValue({
   projectId,
   field,
   startAfter,
+  endBefore,
   value,
   onValue,
 }: {
   projectId: string;
   field: FilterFieldDef;
   startAfter?: string;
+  endBefore?: string;
   value: string;
   onValue: (v: string) => void;
 }) {
   const isStatic = field.value_source === "static_enum";
-  const { values } = useFilterValues(projectId, field.field, startAfter, !isStatic);
+  const { values } = useFilterValues(projectId, field.field, startAfter, endBefore, !isStatic);
   const options: { value: string; count?: number }[] = isStatic
     ? field.enum_values.map((v) => ({ value: v }))
     : values.map((v) => ({ value: v.value, count: v.count }));
