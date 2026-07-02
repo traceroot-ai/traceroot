@@ -249,3 +249,12 @@ def test_start_after_in_params_bounds_both_semijoins():
     assert len(conditions) == 2  # one membership semi-join, one aggregate semi-join
     for cond in conditions:
         assert "span_start_time >= {start_after:DateTime64(3)}" in cond
+
+
+def test_span_time_bound_backs_off_for_boundary_drift():
+    """The span-scan lower bound subtracts a small lookback from start_after, so a span
+    that started just before the window boundary (clock skew vs. trace_start_time) is not
+    dropped — which would false-negative an otherwise-matching in-window trace."""
+    params = {"project_id": "p1", "start_after": "2026-06-01 00:00:00"}
+    conditions = build_conditions([Predicate(field="model_name", op="in", value=["gpt-4"])], params)
+    assert "span_start_time >= {start_after:DateTime64(3)} - INTERVAL" in conditions[0]

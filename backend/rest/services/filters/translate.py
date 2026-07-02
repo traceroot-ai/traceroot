@@ -158,15 +158,28 @@ def _validate_value(pred: Predicate, col: FilterColumn) -> None:
                 raise ValueError(f"'between' filter on {pred.field!r} exceeds its maximum value")
 
 
+# Back off the span-scan lower bound from ``start_after`` by this much. ``start_after``
+# bounds the TRACE query exactly, but a span can start slightly before its trace's stored
+# ``trace_start_time`` (clock skew / trace_start_time isn't always the true earliest span —
+# the same drift ``TRACE_SPAN_LOOKBACK_HOURS`` allows for in the trace-detail read). Without
+# this, a matching span of an in-window trace that started just before the window boundary
+# would be dropped — a silent false negative. Well under a month, so partition pruning holds.
+SPAN_TIME_BOUND_LOOKBACK_HOURS = 1
+
+
 def _span_time_bound(params: dict) -> str:
     """The active-window lower bound on span scans, when the list has a start date.
 
-    Every span starts at or after its trace's start, so the list's ``start_after``
-    is a valid lower bound on ``span_start_time`` — it prunes monthly partitions in
-    the span sub-queries. Emitted only when the caller has bound ``start_after``.
+    Bounds ``span_start_time`` at ``start_after`` minus a small lookback so a span that
+    started just before the window boundary (clock skew vs. the stored ``trace_start_time``)
+    isn't dropped, which would false-negative an otherwise-matching in-window trace. Still
+    prunes monthly partitions. Emitted only when the caller has bound ``start_after``.
     """
     if "start_after" in params:
-        return " AND span_start_time >= {start_after:DateTime64(3)}"
+        return (
+            " AND span_start_time >= "
+            f"{{start_after:DateTime64(3)}} - INTERVAL {SPAN_TIME_BOUND_LOOKBACK_HOURS} HOUR"
+        )
     return ""
 
 
