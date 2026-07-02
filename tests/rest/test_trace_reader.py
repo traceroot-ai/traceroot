@@ -3,7 +3,7 @@
 Pure logic — get_model_price is patched, so no DB/ClickHouse is needed.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -113,7 +113,7 @@ def test_span_cost_details_empty_for_unknown_model():
 # ---------------------------------------------------------------------------
 
 
-def _make_service(query_side_effect):
+def _make_service(query_side_effect, **service_kwargs):
     """Build a TraceReaderService backed by a mock ClickHouse client.
 
     ``query_side_effect`` is a callable invoked with each query string; it
@@ -127,12 +127,726 @@ def _make_service(query_side_effect):
         "rest.services.trace_reader.get_clickhouse_client",
         return_value=client,
     ):
-        service = TraceReaderService()
+        service = TraceReaderService(**service_kwargs)
     return service, client
 
 
 def _rows(rows):
     return SimpleNamespace(result_rows=rows)
+
+
+class _FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
+
+
+def _trace_row(
+    trace_id="abc123",
+    project_id="proj",
+    trace_start_time=datetime(2024, 1, 1),
+    input_value="trace-in",
+    output_value="trace-out",
+    metadata="trace-meta",
+):
+    return (
+        trace_id,
+        project_id,
+        "trace-name",
+        trace_start_time,
+        None,
+        None,
+        None,
+        None,
+        input_value,
+        output_value,
+        metadata,
+    )
+
+
+def _span_row(span_id="span-1", trace_id="abc123", name="root"):
+    return (
+        span_id,
+        trace_id,
+        None,
+        name,
+        "SPAN",
+        datetime(2024, 1, 1),
+        datetime(2024, 1, 1),
+        "OK",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        {},
+        "file.py",
+        12,
+        "fn",
+    )
+
+
+def _list_trace_row(
+    trace_id="abc123",
+    project_id="proj",
+    trace_start_time=datetime(2024, 1, 1),
+    input_value="trace-in",
+    output_value="trace-out",
+):
+    return (
+        trace_id,
+        project_id,
+        "trace-name",
+        trace_start_time,
+        None,
+        None,
+        1,
+        42,
+        0,
+        input_value,
+        output_value,
+        10,
+        20,
+        0.01,
+    )
+
+
+class TestTraceReadCache:
+    def test_list_traces_reuses_identical_query_within_ttl(self):
+        clock = _FakeClock()
+
+        def side_effect(query, parameters=None):
+            if "count(DISTINCT t.trace_id)" in query:
+                return _rows([(1,)])
+            return _rows([_list_trace_row()])
+
+        service, client = _make_service(
+            side_effect,
+            cache_ttl_seconds=10.0,
+            clock=clock,
+        )
+
+        first = service.list_traces("proj", limit=5, search_query="trace", use_cache=True)
+        first["data"][0]["trace_url"] = "caller mutation"
+        second = service.list_traces("proj", limit=5, search_query="trace", use_cache=True)
+        second["data"][0]["trace_url"] = "cached-return mutation"
+        third = service.list_traces("proj", limit=5, search_query="trace", use_cache=True)
+
+        assert client.query.call_count == 2
+        assert second["data"][0]["trace_id"] == "abc123"
+        assert "trace_url" not in third["data"][0]
+
+    def test_list_traces_cache_key_distinguishes_filters(self):
+        cases = [
+            ({"project_id": "proj-a"}, {"project_id": "proj-b"}),
+            ({"page": 0}, {"page": 1}),
+            ({"limit": 5}, {"limit": 10}),
+            ({"name": "first"}, {"name": "second"}),
+            ({"user_id": "user-a"}, {"user_id": "user-b"}),
+            ({"search_query": "first"}, {"search_query": "second"}),
+            (
+                {"end_before": datetime(2024, 1, 1, 12, 0, tzinfo=UTC)},
+                {"end_before": datetime(2024, 1, 1, 12, 1, tzinfo=UTC)},
+            ),
+        ]
+
+        for first_kwargs, second_kwargs in cases:
+            client = MagicMock()
+
+            def side_effect(query, parameters=None):
+                if "count(DISTINCT t.trace_id)" in query:
+                    return _rows([(1,)])
+                return _rows([_list_trace_row(project_id=parameters["project_id"])])
+
+            client.query.side_effect = side_effect
+            with patch("rest.services.trace_reader.get_clickhouse_client", return_value=client):
+                from rest.services.trace_reader import TraceReaderService
+
+                service = TraceReaderService()
+
+            service.list_traces(
+                **{"project_id": "proj", "limit": 5, "use_cache": True, **first_kwargs}
+            )
+            service.list_traces(
+                **{"project_id": "proj", "limit": 5, "use_cache": True, **second_kwargs}
+            )
+
+            assert client.query.call_count == 4
+
+    @pytest.mark.parametrize("filter_name", ["name", "user_id", "search_query"])
+    def test_list_traces_empty_filter_cache_key_matches_omitted_filter(self, filter_name):
+        def side_effect(query, parameters=None):
+            if "count(DISTINCT t.trace_id)" in query:
+                return _rows([(1,)])
+            return _rows([_list_trace_row()])
+
+        service, client = _make_service(side_effect)
+
+        service.list_traces("proj", use_cache=True, **{filter_name: ""})
+        service.list_traces("proj", use_cache=True)
+
+        assert client.query.call_count == 2
+
+    def test_list_traces_bypasses_cache_when_requested(self):
+        def side_effect(query, parameters=None):
+            if "count(DISTINCT t.trace_id)" in query:
+                return _rows([(1,)])
+            return _rows([_list_trace_row()])
+
+        service, client = _make_service(side_effect)
+
+        service.list_traces("proj", limit=5, use_cache=False)
+        service.list_traces("proj", limit=5, use_cache=False)
+
+        assert client.query.call_count == 4
+
+    def test_list_traces_bypass_does_not_build_cache_key(self):
+        def side_effect(query, parameters=None):
+            if "count(DISTINCT t.trace_id)" in query:
+                return _rows([(1,)])
+            return _rows([_list_trace_row()])
+
+        service, client = _make_service(side_effect)
+
+        with patch.object(service, "_cache_key_string", side_effect=AssertionError):
+            result = service.list_traces("proj", limit=5, use_cache=False)
+
+        assert result["data"][0]["trace_id"] == "abc123"
+        assert client.query.call_count == 2
+
+    def test_list_traces_defaults_to_fresh_reads(self):
+        def side_effect(query, parameters=None):
+            if "count(DISTINCT t.trace_id)" in query:
+                return _rows([(1,)])
+            return _rows([_list_trace_row()])
+
+        service, client = _make_service(side_effect)
+
+        service.list_traces("proj", limit=5)
+        service.list_traces("proj", limit=5)
+
+        assert client.query.call_count == 4
+
+    def test_list_traces_bypass_does_not_seed_empty_cache(self):
+        trace_rows = iter(
+            [
+                _list_trace_row(input_value="fresh-bypass"),
+                _list_trace_row(input_value="cacheable"),
+            ]
+        )
+
+        def side_effect(query, parameters=None):
+            if "count(DISTINCT t.trace_id)" in query:
+                return _rows([(1,)])
+            return _rows([next(trace_rows)])
+
+        service, client = _make_service(side_effect)
+
+        fresh_bypass = service.list_traces("proj", limit=5, use_cache=False)
+        cacheable = service.list_traces("proj", limit=5, use_cache=True)
+        cached_again = service.list_traces("proj", limit=5, use_cache=True)
+
+        assert fresh_bypass["data"][0]["input"] == "fresh-bypass"
+        assert cacheable["data"][0]["input"] == "cacheable"
+        assert cached_again["data"][0]["input"] == "cacheable"
+        assert client.query.call_count == 4
+
+    def test_list_traces_bypass_does_not_update_existing_cache_entry(self):
+        trace_rows = iter(
+            [
+                _list_trace_row(input_value="cached"),
+                _list_trace_row(input_value="fresh-bypass"),
+            ]
+        )
+
+        def side_effect(query, parameters=None):
+            if "count(DISTINCT t.trace_id)" in query:
+                return _rows([(1,)])
+            return _rows([next(trace_rows)])
+
+        service, client = _make_service(side_effect)
+
+        cached_seed = service.list_traces("proj", limit=5, use_cache=True)
+        fresh_bypass = service.list_traces("proj", limit=5, use_cache=False)
+        cached_again = service.list_traces("proj", limit=5, use_cache=True)
+
+        assert cached_seed["data"][0]["input"] == "cached"
+        assert fresh_bypass["data"][0]["input"] == "fresh-bypass"
+        assert cached_again["data"][0]["input"] == "cached"
+        assert client.query.call_count == 4
+
+    def test_list_traces_cache_expires_after_ttl(self):
+        clock = _FakeClock()
+
+        def side_effect(query, parameters=None):
+            if "count(DISTINCT t.trace_id)" in query:
+                return _rows([(1,)])
+            return _rows([_list_trace_row()])
+
+        service, client = _make_service(
+            side_effect,
+            cache_ttl_seconds=10.0,
+            clock=clock,
+        )
+
+        service.list_traces("proj", limit=5, use_cache=True)
+        clock.advance(10.1)
+        service.list_traces("proj", limit=5, use_cache=True)
+
+        assert client.query.call_count == 4
+
+    @pytest.mark.parametrize("datetime_filter", ["start_after", "end_before"])
+    def test_list_traces_datetime_cache_key_matches_query_precision(self, datetime_filter):
+        def side_effect(query, parameters=None):
+            if "count(DISTINCT t.trace_id)" in query:
+                return _rows([(1,)])
+            return _rows([_list_trace_row()])
+
+        service, client = _make_service(side_effect)
+        first_value = datetime(2024, 1, 1, 12, 0, 0, 123400, tzinfo=UTC)
+        same_millisecond_value = datetime(
+            2024,
+            1,
+            1,
+            4,
+            0,
+            0,
+            123499,
+            tzinfo=timezone(timedelta(hours=-8)),
+        )
+        adjacent_millisecond_value = datetime(2024, 1, 1, 12, 0, 0, 124000, tzinfo=UTC)
+
+        service.list_traces("proj", use_cache=True, **{datetime_filter: first_value})
+        service.list_traces("proj", use_cache=True, **{datetime_filter: same_millisecond_value})
+        service.list_traces("proj", use_cache=True, **{datetime_filter: adjacent_millisecond_value})
+
+        assert client.query.call_count == 4
+
+    def test_list_traces_records_cache_fetch_time_before_clickhouse_queries(self):
+        clock = _FakeClock()
+
+        def side_effect(query, parameters=None):
+            clock.advance(5.0)
+            if "count(DISTINCT t.trace_id)" in query:
+                return _rows([(1,)])
+            return _rows([_list_trace_row()])
+
+        service, _ = _make_service(side_effect, clock=clock)
+        original_write_cache = service._write_cache
+        captured = {}
+
+        def capture_write_cache(key, value, *, fetched_at=None):
+            captured["fetched_at"] = fetched_at
+            original_write_cache(key, value, fetched_at=fetched_at)
+
+        with patch.object(service, "_write_cache", side_effect=capture_write_cache):
+            service.list_traces("proj", use_cache=True)
+
+        assert captured["fetched_at"] == 0.0
+
+    def test_list_traces_cache_evicts_oldest_entry_at_capacity(self):
+        def side_effect(query, parameters=None):
+            if "count(DISTINCT t.trace_id)" in query:
+                return _rows([(1,)])
+            return _rows([_list_trace_row()])
+
+        service, client = _make_service(side_effect, cache_max_entries=2)
+
+        service.list_traces("proj", search_query="first", use_cache=True)
+        service.list_traces("proj", search_query="second", use_cache=True)
+        service.list_traces("proj", search_query="third", use_cache=True)
+        service.list_traces("proj", search_query="second", use_cache=True)
+        service.list_traces("proj", search_query="first", use_cache=True)
+        service.list_traces("proj", search_query="third", use_cache=True)
+
+        assert client.query.call_count == 10
+
+    def test_list_traces_skips_entries_over_size_cap(self):
+        def side_effect(query, parameters=None):
+            if "count(DISTINCT t.trace_id)" in query:
+                return _rows([(1,)])
+            return _rows([_list_trace_row(input_value="x" * 2048)])
+
+        service, client = _make_service(side_effect, cache_max_entry_bytes=512)
+
+        service.list_traces("proj", limit=5, use_cache=True)
+        service.list_traces("proj", limit=5, use_cache=True)
+
+        assert client.query.call_count == 4
+
+    def test_cache_rejects_oversized_entry_before_deepcopy(self, monkeypatch):
+        def side_effect(query, parameters=None):
+            return _rows([])
+
+        service, _ = _make_service(side_effect, cache_max_entry_bytes=1)
+
+        def fail_deepcopy(value):
+            raise AssertionError("oversized cache values must be rejected before deepcopy")
+
+        monkeypatch.setattr("rest.services.trace_reader.deepcopy", fail_deepcopy)
+
+        service._write_cache(("oversized",), {"payload": "x" * 2048})
+
+        assert service._trace_read_cache == {}
+
+    def test_cache_evicts_oldest_entry_when_total_byte_cap_is_exceeded(self):
+        clock = _FakeClock()
+
+        def side_effect(query, parameters=None):
+            return _rows([])
+
+        service, _ = _make_service(side_effect, clock=clock)
+        from rest.services.trace_reader import _CACHE_MISS
+
+        first_key = ("first",)
+        second_key = ("second",)
+        first_payload = {"payload": "a" * 128}
+        second_payload = {"payload": "b" * 128}
+        first_size = service._cache_value_size(first_key) + service._cache_value_size(first_payload)
+        second_size = service._cache_value_size(second_key) + service._cache_value_size(
+            second_payload
+        )
+        service._cache_max_bytes = first_size + second_size - 1
+
+        service._write_cache(first_key, first_payload, fetched_at=1.0)
+        service._write_cache(second_key, second_payload, fetched_at=2.0)
+
+        assert service._read_cache(first_key) is _CACHE_MISS
+        assert service._read_cache(second_key) == second_payload
+        assert service._trace_read_cache_bytes == second_size
+
+    def test_cache_budget_counts_key_bytes_and_hashes_user_filter_key_strings(self):
+        short_search_query = "secret@example.com"
+        long_search_query = "x" * 100_000
+
+        def side_effect(query, parameters=None):
+            if "count(DISTINCT t.trace_id)" in query:
+                return _rows([(0,)])
+            return _rows([])
+
+        service, _ = _make_service(side_effect)
+
+        service.list_traces("proj", search_query=short_search_query, use_cache=True)
+        service.list_traces("proj", search_query=long_search_query, use_cache=True)
+
+        cache_keys = list(service._trace_read_cache.keys())
+        assert len(cache_keys) == 2
+        for cache_key in cache_keys:
+            assert "proj" not in cache_key
+            assert short_search_query not in cache_key
+            assert long_search_query not in cache_key
+            assert service._trace_read_cache_bytes >= service._cache_value_size(cache_key)
+
+    def test_cache_does_not_overwrite_newer_snapshot_with_older_write(self):
+        clock = _FakeClock()
+
+        def side_effect(query, parameters=None):
+            return _rows([])
+
+        service, _ = _make_service(side_effect, clock=clock)
+        key = ("get_trace", "proj", "abc123")
+
+        service._write_cache(key, {"version": "newer"}, fetched_at=2.0)
+        service._write_cache(key, {"version": "older"}, fetched_at=1.0)
+
+        cached = service._read_cache(key)
+        assert cached == {"version": "newer"}
+
+    def test_cache_does_not_overwrite_snapshot_with_equal_fetch_time(self):
+        clock = _FakeClock()
+
+        def side_effect(query, parameters=None):
+            return _rows([])
+
+        service, _ = _make_service(side_effect, clock=clock)
+        key = ("get_trace", "proj", "abc123")
+
+        service._write_cache(key, {"version": "first"}, fetched_at=1.0)
+        service._write_cache(key, {"version": "same-tick-second"}, fetched_at=1.0)
+
+        cached = service._read_cache(key)
+        assert cached == {"version": "first"}
+
+    def test_cache_skips_result_when_fetch_already_exceeded_ttl(self):
+        clock = _FakeClock()
+
+        def side_effect(query, parameters=None):
+            return _rows([])
+
+        service, _ = _make_service(side_effect, cache_ttl_seconds=10.0, clock=clock)
+        key = ("get_trace", "proj", "abc123")
+
+        clock.advance(10.1)
+        service._write_cache(key, {"version": "too-old"}, fetched_at=0.0)
+
+        from rest.services.trace_reader import _CACHE_MISS
+
+        assert service._read_cache(key) is _CACHE_MISS
+
+    def test_get_trace_reuses_skeleton_within_ttl_without_sharing_mutations(self):
+        def side_effect(query, parameters=None):
+            if "FROM traces" in query and "FROM spans" not in query:
+                return _rows([_trace_row()])
+            return _rows([_span_row()])
+
+        service, client = _make_service(side_effect)
+
+        first = service.get_trace("proj", "abc123", use_cache=True)
+        first["spans"][0]["input"] = "hydrated by caller"
+        first["spans"].append({"span_id": "caller-added"})
+        second = service.get_trace("proj", "abc123", use_cache=True)
+        second["spans"][0]["input"] = "mutated cached return"
+        third = service.get_trace("proj", "abc123", use_cache=True)
+
+        assert client.query.call_count == 2
+        assert len(second["spans"]) == 1
+        assert len(third["spans"]) == 1
+        assert "input" not in third["spans"][0]
+        assert third["spans"][0]["span_id"] == "span-1"
+
+    def test_get_trace_cache_survives_projection_hydration_without_pollution(self):
+        def side_effect(query, parameters=None):
+            if "FROM traces" in query and "FROM spans" not in query:
+                return _rows([_trace_row()])
+            return _rows([_span_row()])
+
+        service, client = _make_service(side_effect)
+        from rest.projection import FULL, SKELETON, hydrate_span_io
+
+        hydrated = service.get_trace("proj", "abc123", use_cache=True)
+        with patch.object(
+            service,
+            "get_trace_spans_io",
+            return_value={"span-1": {"input": "the-in", "output": "the-out", "metadata": "m"}},
+        ):
+            hydrate_span_io(
+                service,
+                hydrated,
+                project_id="proj",
+                trace_id="abc123",
+                groups=FULL,
+            )
+
+        skeleton = service.get_trace("proj", "abc123", use_cache=True)
+        hydrate_span_io(service, skeleton, project_id="proj", trace_id="abc123", groups=SKELETON)
+
+        assert client.query.call_count == 2
+        assert "input" not in skeleton["spans"][0]
+        assert "output" not in skeleton["spans"][0]
+        assert "metadata" not in skeleton["spans"][0]
+
+    def test_get_trace_cache_key_distinguishes_project_and_trace(self):
+        def side_effect(query, parameters=None):
+            if "FROM traces" in query and "FROM spans" not in query:
+                return _rows(
+                    [
+                        _trace_row(
+                            trace_id=parameters["trace_id"],
+                            project_id=parameters["project_id"],
+                        )
+                    ]
+                )
+            return _rows(
+                [
+                    _span_row(
+                        trace_id=parameters["trace_id"],
+                        name=f"root-{parameters['project_id']}",
+                    )
+                ]
+            )
+
+        service, client = _make_service(side_effect)
+
+        project_a = service.get_trace("proj-a", "abc123", use_cache=True)
+        project_b = service.get_trace("proj-b", "abc123", use_cache=True)
+        trace_b = service.get_trace("proj-a", "trace-b", use_cache=True)
+
+        assert client.query.call_count == 6
+        assert project_a["project_id"] == "proj-a"
+        assert project_b["project_id"] == "proj-b"
+        assert trace_b["trace_id"] == "trace-b"
+
+    def test_get_trace_cache_key_hashes_project_and_trace_strings(self):
+        def side_effect(query, parameters=None):
+            if "FROM traces" in query and "FROM spans" not in query:
+                return _rows(
+                    [
+                        _trace_row(
+                            trace_id=parameters["trace_id"],
+                            project_id=parameters["project_id"],
+                        )
+                    ]
+                )
+            return _rows([_span_row(trace_id=parameters["trace_id"])])
+
+        service, _ = _make_service(side_effect)
+
+        service.get_trace("secret-project", "secret-trace-id", use_cache=True)
+
+        [cache_key] = service._trace_read_cache.keys()
+        assert "secret-project" not in cache_key
+        assert "secret-trace-id" not in cache_key
+        assert service._trace_read_cache_bytes >= service._cache_value_size(cache_key)
+
+    def test_get_trace_cache_expires_after_ttl(self):
+        clock = _FakeClock()
+
+        def side_effect(query, parameters=None):
+            if "FROM traces" in query and "FROM spans" not in query:
+                return _rows([_trace_row()])
+            return _rows([_span_row()])
+
+        service, client = _make_service(
+            side_effect,
+            cache_ttl_seconds=10.0,
+            clock=clock,
+        )
+
+        service.get_trace("proj", "abc123", use_cache=True)
+        clock.advance(10.1)
+        service.get_trace("proj", "abc123", use_cache=True)
+
+        assert client.query.call_count == 4
+
+    def test_get_trace_records_cache_fetch_time_before_clickhouse_queries(self):
+        clock = _FakeClock()
+
+        def side_effect(query, parameters=None):
+            clock.advance(5.0)
+            if "FROM traces" in query and "FROM spans" not in query:
+                return _rows([_trace_row()])
+            return _rows([_span_row()])
+
+        service, _ = _make_service(side_effect, clock=clock)
+        original_write_cache = service._write_cache
+        captured = {}
+
+        def capture_write_cache(key, value, *, fetched_at=None):
+            captured["fetched_at"] = fetched_at
+            original_write_cache(key, value, fetched_at=fetched_at)
+
+        with patch.object(service, "_write_cache", side_effect=capture_write_cache):
+            service.get_trace("proj", "abc123", use_cache=True)
+
+        assert captured["fetched_at"] == 0.0
+
+    def test_get_trace_bypasses_cache_when_requested(self):
+        def side_effect(query, parameters=None):
+            if "FROM traces" in query and "FROM spans" not in query:
+                return _rows([_trace_row()])
+            return _rows([_span_row()])
+
+        service, client = _make_service(side_effect)
+
+        service.get_trace("proj", "abc123", use_cache=False)
+        service.get_trace("proj", "abc123", use_cache=False)
+
+        assert client.query.call_count == 4
+
+    def test_get_trace_bypass_does_not_build_cache_key(self):
+        def side_effect(query, parameters=None):
+            if "FROM traces" in query and "FROM spans" not in query:
+                return _rows([_trace_row()])
+            return _rows([_span_row()])
+
+        service, client = _make_service(side_effect)
+
+        with patch.object(service, "_cache_key_string", side_effect=AssertionError):
+            result = service.get_trace("proj", "abc123", use_cache=False)
+
+        assert result["trace_id"] == "abc123"
+        assert client.query.call_count == 2
+
+    def test_get_trace_defaults_to_fresh_reads(self):
+        def side_effect(query, parameters=None):
+            if "FROM traces" in query and "FROM spans" not in query:
+                return _rows([_trace_row()])
+            return _rows([_span_row()])
+
+        service, client = _make_service(side_effect)
+
+        service.get_trace("proj", "abc123")
+        service.get_trace("proj", "abc123")
+
+        assert client.query.call_count == 4
+
+    def test_get_trace_bypass_does_not_seed_empty_cache(self):
+        trace_rows = iter(
+            [
+                _trace_row(input_value="fresh-bypass"),
+                _trace_row(input_value="cacheable"),
+            ]
+        )
+
+        def side_effect(query, parameters=None):
+            if "FROM traces" in query and "FROM spans" not in query:
+                return _rows([next(trace_rows)])
+            return _rows([_span_row()])
+
+        service, client = _make_service(side_effect)
+
+        fresh_bypass = service.get_trace("proj", "abc123", use_cache=False)
+        cacheable = service.get_trace("proj", "abc123", use_cache=True)
+        cached_again = service.get_trace("proj", "abc123", use_cache=True)
+
+        assert fresh_bypass["input"] == "fresh-bypass"
+        assert cacheable["input"] == "cacheable"
+        assert cached_again["input"] == "cacheable"
+        assert client.query.call_count == 4
+
+    def test_get_trace_bypass_does_not_update_existing_cache_entry(self):
+        trace_rows = iter(
+            [
+                _trace_row(input_value="cached"),
+                _trace_row(input_value="fresh-bypass"),
+            ]
+        )
+
+        def side_effect(query, parameters=None):
+            if "FROM traces" in query and "FROM spans" not in query:
+                return _rows([next(trace_rows)])
+            return _rows([_span_row()])
+
+        service, client = _make_service(side_effect)
+
+        cached_seed = service.get_trace("proj", "abc123", use_cache=True)
+        fresh_bypass = service.get_trace("proj", "abc123", use_cache=False)
+        cached_again = service.get_trace("proj", "abc123", use_cache=True)
+
+        assert cached_seed["input"] == "cached"
+        assert fresh_bypass["input"] == "fresh-bypass"
+        assert cached_again["input"] == "cached"
+        assert client.query.call_count == 4
+
+    def test_get_trace_skips_entries_over_size_cap(self):
+        def side_effect(query, parameters=None):
+            if "FROM traces" in query and "FROM spans" not in query:
+                return _rows([_trace_row(input_value="x" * 2048)])
+            return _rows([_span_row()])
+
+        service, client = _make_service(side_effect, cache_max_entry_bytes=512)
+
+        service.get_trace("proj", "abc123", use_cache=True)
+        service.get_trace("proj", "abc123", use_cache=True)
+
+        assert client.query.call_count == 4
+
+    def test_get_trace_missing_result_is_not_cached(self):
+        def side_effect(query, parameters=None):
+            return _rows([])
+
+        service, client = _make_service(side_effect)
+
+        assert service.get_trace("proj", "missing", use_cache=True) is None
+        assert service.get_trace("proj", "missing", use_cache=True) is None
+
+        assert client.query.call_count == 2
 
 
 class TestGetTraceSkeleton:

@@ -106,6 +106,7 @@ class TestPublicListTraces:
         resp = client.get("/api/v1/public/traces", headers=AUTH_HEADER)
         assert resp.status_code == 200
         assert mock_reader.list_traces.call_args.kwargs["project_id"] == "proj-A"
+        assert mock_reader.list_traces.call_args.kwargs["use_cache"] is False
 
     def test_client_cannot_override_project_id(self, client, mock_reader):
         mock_reader.list_traces.return_value = {
@@ -214,6 +215,7 @@ class TestPublicGetTrace:
         kw = mock_reader.get_trace.call_args.kwargs
         assert kw["project_id"] == "proj-A"
         assert kw["trace_id"] == "abc123"
+        assert kw["use_cache"] is False
 
     def test_returns_full_payload_with_trace_url(self, client, mock_reader):
         mock_reader.get_trace.return_value = dict(TRACE_DETAIL)

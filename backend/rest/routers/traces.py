@@ -19,13 +19,28 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
-from rest.routers.deps import ProjectAccess, RateLimitedProjectAccess
+from rest.routers.deps import ProjectAccess, ProjectAccessInfo, RateLimitedProjectAccess
 from rest.schemas.traces import SpanIOResponse, TraceDetailResponse, TraceListResponse
 from rest.services.trace_reader import get_trace_reader_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects/{project_id}/traces", tags=["Traces"])
+
+
+def _uses_dashboard_trace_cache(
+    access: ProjectAccessInfo, *, groups: frozenset[str] | None = None
+) -> bool:
+    """Only user-authenticated dashboard reads opt into short-lived trace caching.
+
+    Internal-secret callers do not carry a workspace id and are used by agent
+    and system flows that need fresh trace reads. Detail reads cache only the
+    default skeleton projection; full or partial I/O projections load fresh
+    before hydrating blobs.
+    """
+    if not access.workspace_id:
+        return False
+    return groups is None or groups == SKELETON
 
 
 @router.get("", response_model=TraceListResponse)
@@ -59,6 +74,7 @@ async def list_traces(
             start_after=start_after,
             end_before=end_before,
             search_query=search_query,
+            use_cache=_uses_dashboard_trace_cache(_access),
         )
         return result
     except Exception as e:
@@ -110,7 +126,8 @@ async def get_trace(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     service = get_trace_reader_service()
-    trace = service.get_trace(project_id=project_id, trace_id=trace_id)
+    use_cache = _uses_dashboard_trace_cache(_access, groups=groups)
+    trace = service.get_trace(project_id=project_id, trace_id=trace_id, use_cache=use_cache)
 
     if not trace:
         raise HTTPException(
