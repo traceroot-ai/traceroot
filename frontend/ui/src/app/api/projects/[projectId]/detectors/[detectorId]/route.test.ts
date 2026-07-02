@@ -11,6 +11,7 @@ const modelProviderFindManyMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
   ModelSource: { SYSTEM: "system", BYOK: "byok" },
   PROVIDER_PRIORITY: ["anthropic", "openai"],
+  DETECTOR_SYSTEM_DEFAULT_MODEL_IDS: ["claude-haiku-4-5", "gpt-5.4-mini"],
   SYSTEM_MODELS: [
     {
       provider: "Anthropic",
@@ -106,12 +107,24 @@ describe("PATCH .../detectors/[detectorId] — model selection validation", () =
     expect(detectorUpdateMock).not.toHaveBeenCalled();
   });
 
-  it("does not revalidate the detector model tuple for unrelated updates", async () => {
+  it("revalidates the existing detector model tuple for unrelated updates", async () => {
     const res = await PATCH(makeRequest({ prompt: "New prompt" }), makeParams());
 
     expect(res.status).toBe(200);
     expect(modelProviderFindFirstMock).not.toHaveBeenCalled();
     expect(detectorUpdateMock.mock.calls[0][0].data).toEqual({ prompt: "New prompt" });
+  });
+
+  it("rejects unrelated updates when the stored system provider becomes unavailable", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+
+    const res = await PATCH(makeRequest({ prompt: "New prompt" }), makeParams());
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Selected system provider is not available for this workspace",
+    });
+    expect(detectorUpdateMock).not.toHaveBeenCalled();
   });
 
   it("accepts and normalizes canonical system provider keys", async () => {
@@ -158,6 +171,53 @@ describe("PATCH .../detectors/[detectorId] — model selection validation", () =
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
       error: "Selected system provider is not available for this workspace",
+    });
+    expect(detectorUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts configured and supported BYOK model updates", async () => {
+    modelProviderFindFirstMock.mockResolvedValue({
+      provider: "my-openai",
+      adapter: "openai",
+      customModels: ["gpt-5.4-mini"],
+    });
+
+    const res = await PATCH(
+      makeRequest({
+        detectionModel: "gpt-5.4-mini",
+        detectionProvider: "my-openai",
+        detectionSource: "byok",
+      }),
+      makeParams(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(modelProviderFindFirstMock).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace-1", provider: "my-openai", enabled: true },
+      select: { provider: true, adapter: true, customModels: true },
+    });
+    expect(detectorUpdateMock.mock.calls[0][0].data).toMatchObject({
+      detectionModel: "gpt-5.4-mini",
+      detectionProvider: "my-openai",
+      detectionSource: "byok",
+    });
+  });
+
+  it("rejects missing BYOK providers", async () => {
+    modelProviderFindFirstMock.mockResolvedValue(null);
+
+    const res = await PATCH(
+      makeRequest({
+        detectionModel: "gpt-5.4-mini",
+        detectionProvider: "missing-openai",
+        detectionSource: "byok",
+      }),
+      makeParams(),
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Selected BYOK provider is not available for this workspace",
     });
     expect(detectorUpdateMock).not.toHaveBeenCalled();
   });

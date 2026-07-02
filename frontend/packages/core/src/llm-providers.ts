@@ -6,9 +6,11 @@ export const ModelSource = {
 export type ModelSource = (typeof ModelSource)[keyof typeof ModelSource];
 
 // Detector evals run against every sampled trace, so their implicit system
-// default intentionally stays on the cheap/fast screening model instead of the
-// general catalog's first/highest-capability model.
-export const DETECTOR_SYSTEM_DEFAULT_MODEL_ID = "claude-haiku-4-5";
+// defaults intentionally stay on cheap/fast screening models instead of the
+// general catalog's first/highest-capability models. Keep this list in
+// preference order for system fallback selection.
+export const DETECTOR_SYSTEM_DEFAULT_MODEL_IDS = ["claude-haiku-4-5", "gpt-5.4-mini"] as const;
+export const DETECTOR_SYSTEM_DEFAULT_MODEL_ID = DETECTOR_SYSTEM_DEFAULT_MODEL_IDS[0];
 
 // Adapter enum — maps to pi-ai provider names
 export const LLMAdapter = {

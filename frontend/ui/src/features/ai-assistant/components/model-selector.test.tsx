@@ -121,6 +121,42 @@ describe("ModelSelector", () => {
     });
   });
 
+  it("prefers the first available requested default from a list", () => {
+    mocks.models = {
+      byokProviders: [],
+      systemModels: [
+        {
+          provider: "OpenAI",
+          adapter: "openai",
+          source: "system",
+          models: [
+            { id: "gpt-5.5", label: "gpt-5.5" },
+            { id: "gpt-5.4-mini", label: "gpt-5.4-mini" },
+          ],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{ model: "", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+        includeFallbackModels={false}
+        hideUnsupportedModels
+        preferredDefaultModelIds={["claude-haiku-4-5", "gpt-5.4-mini"]}
+        preferredDefaultModelSource="system"
+      />,
+    );
+
+    expect(mocks.onChange).toHaveBeenCalledWith({
+      model: "gpt-5.4-mini",
+      provider: "OpenAI",
+      source: "system",
+      adapter: "openai",
+    });
+  });
+
   it("shows a load-error state without auto-picking fallback models", () => {
     mocks.models = undefined;
     mocks.isError = true;

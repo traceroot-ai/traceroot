@@ -1,13 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockComplete, mockResolvePiModel, mockFetchProviderConfig, mockFindByokKey } = vi.hoisted(
-  () => ({
-    mockComplete: vi.fn(),
-    mockResolvePiModel: vi.fn(),
-    mockFetchProviderConfig: vi.fn(),
-    mockFindByokKey: vi.fn().mockResolvedValue(null),
-  }),
-);
+const {
+  mockComplete,
+  mockGetEnvApiKey,
+  mockResolvePiModel,
+  mockFetchProviderConfig,
+  mockFindByokKey,
+} = vi.hoisted(() => ({
+  mockComplete: vi.fn(),
+  mockGetEnvApiKey: vi.fn(),
+  mockResolvePiModel: vi.fn(),
+  mockFetchProviderConfig: vi.fn(),
+  mockFindByokKey: vi.fn().mockResolvedValue(null),
+}));
 
 // Forward unmocked exports (Type, getModel, etc.) so submit-result-tool.ts's
 // TypeBox imports still work; only `complete` is replaced with the mock.
@@ -16,6 +21,7 @@ vi.mock("@earendil-works/pi-ai", async (importOriginal) => {
   return {
     ...actual,
     complete: mockComplete,
+    getEnvApiKey: mockGetEnvApiKey,
   };
 });
 
@@ -47,6 +53,14 @@ const ANTHROPIC_MODEL = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
 
+const OPENAI_MODEL = {
+  id: "gpt-5.4-mini",
+  api: "openai-completions",
+  provider: "openai",
+  baseUrl: "",
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+};
+
 const ZERO_USAGE = {
   input: 0,
   output: 0,
@@ -70,6 +84,7 @@ function usageWithCost(total: number) {
 describe("runDetectionForTrace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetEnvApiKey.mockReturnValue("test-api-key");
     mockResolvePiModel.mockReturnValue(ANTHROPIC_MODEL);
     // Default: workspace BYOK scan returns a key. Individual tests can override
     // by chaining mockResolvedValueOnce(null) before the call to simulate "no key".
@@ -154,6 +169,73 @@ describe("runDetectionForTrace", () => {
 
     expect(result.identified).toBe(false);
     expect(result.error).toMatch(/not found or disabled/i);
+    expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  it("uses the detector system default for legacy null-source detectors without a stored model", async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: null, detectionModel: null },
+      workspaceId: "ws-1",
+    });
+
+    expect(mockResolvePiModel).toHaveBeenCalledWith("claude-haiku-4-5", null);
+  });
+
+  it("uses the OpenAI detector system default when Anthropic env is absent", async () => {
+    mockGetEnvApiKey.mockImplementation((provider: string) =>
+      provider === "openai" ? "openai-key" : null,
+    );
+    mockResolvePiModel.mockReturnValueOnce(OPENAI_MODEL);
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system", detectionModel: null },
+      workspaceId: "ws-1",
+    });
+
+    expect(mockResolvePiModel).toHaveBeenCalledWith("gpt-5.4-mini", null);
+  });
+
+  it("does not use workspace BYOK keys for explicit system-source detectors", async () => {
+    mockGetEnvApiKey.mockReturnValue(null);
+    mockFindByokKey.mockResolvedValueOnce("workspace-byok-key");
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system", detectionModel: null },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(false);
+    expect(result.error).toBe('No API key configured for provider "anthropic"');
+    expect(mockFindByokKey).not.toHaveBeenCalled();
     expect(mockComplete).not.toHaveBeenCalled();
   });
 

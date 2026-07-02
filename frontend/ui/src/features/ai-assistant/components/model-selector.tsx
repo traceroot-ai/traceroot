@@ -32,8 +32,9 @@ interface ModelSelectorProps {
    * unsupported badge.
    */
   hideUnsupportedModels?: boolean;
-  /** Prefer a known detector/default model when it is present in the live catalog. */
+  /** Prefer known detector/default models when present in the live catalog. */
   preferredDefaultModelId?: string;
+  preferredDefaultModelIds?: readonly string[];
   preferredDefaultModelSource?: "system" | "byok";
 }
 
@@ -48,6 +49,7 @@ export function ModelSelector({
   includeFallbackModels = true,
   hideUnsupportedModels = false,
   preferredDefaultModelId,
+  preferredDefaultModelIds,
   preferredDefaultModelSource,
 }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
@@ -103,6 +105,7 @@ export function ModelSelector({
       if (!value.model) {
         const pick = pickDefaultModel(visibleModels, {
           preferredModelId: preferredDefaultModelId,
+          preferredModelIds: preferredDefaultModelIds,
           preferredSource: preferredDefaultModelSource,
         });
         if (pick) {
@@ -133,7 +136,14 @@ export function ModelSelector({
         adapter: match.adapter,
       });
     }
-  }, [visibleModels, value, onChange, preferredDefaultModelId, preferredDefaultModelSource]);
+  }, [
+    visibleModels,
+    value,
+    onChange,
+    preferredDefaultModelId,
+    preferredDefaultModelIds,
+    preferredDefaultModelSource,
+  ]);
 
   const selectedKey = modelKey({ id: value.model, source: value.source, provider: value.provider });
   const selectedModel = visibleModels.find((m) => modelKey(m) === selectedKey);

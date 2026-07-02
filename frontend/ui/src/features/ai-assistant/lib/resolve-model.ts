@@ -69,12 +69,13 @@ export function flattenAvailableModels(
 
 interface PickDefaultModelOptions {
   preferredModelId?: string;
+  preferredModelIds?: readonly string[];
   preferredSource?: "system" | "byok";
 }
 
 export function pickDefaultModel(
   models: ResolvedModel[],
-  { preferredModelId, preferredSource }: PickDefaultModelOptions = {},
+  { preferredModelId, preferredModelIds, preferredSource }: PickDefaultModelOptions = {},
 ): ResolvedModel | undefined {
   // Skip BYOK entries marked `supported: false` (model in the BYOK provider's
   // catalog but flagged unsupported by us). Auto-selecting one would put the
@@ -82,11 +83,10 @@ export function pickDefaultModel(
   const usable = models.filter((m) => m.supported !== false);
   if (usable.length === 0) return undefined;
 
-  if (preferredModelId) {
+  const preferredIds = preferredModelIds ?? (preferredModelId ? [preferredModelId] : []);
+  for (const modelId of preferredIds) {
     const preferred = usable.find(
-      (m) =>
-        m.id === preferredModelId &&
-        (preferredSource === undefined || m.source === preferredSource),
+      (m) => m.id === modelId && (preferredSource === undefined || m.source === preferredSource),
     );
     if (preferred) return preferred;
   }

@@ -1,5 +1,9 @@
 import { complete, getEnvApiKey } from "@earendil-works/pi-ai";
-import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core";
+import {
+  DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+  DETECTOR_SYSTEM_DEFAULT_MODEL_IDS,
+  SYSTEM_MODELS,
+} from "@traceroot/core";
 import type { Message, ToolCall, ProviderStreamOptions } from "@earendil-works/pi-ai";
 import {
   findByokKeyForPiProvider,
@@ -104,22 +108,35 @@ function errorResult(
   };
 }
 
+function resolveDetectorSystemDefaultModelId(): string {
+  for (const modelId of DETECTOR_SYSTEM_DEFAULT_MODEL_IDS) {
+    const provider = SYSTEM_MODELS.find((candidate) =>
+      candidate.models.some((model) => model.id === modelId),
+    );
+    if (provider && getEnvApiKey(provider.piAIProvider)) return modelId;
+  }
+
+  return DETECTOR_SYSTEM_DEFAULT_MODEL_ID;
+}
+
 /**
  * Resolve the API key for a detector eval call.
  *   1. BYOK source → the explicit row's decrypted key (in `providerConfig`)
- *   2. System source → env var (pi-ai owns the provider→env-var mapping)
- *   3. System source fallback → any enabled BYOK row in the workspace whose
- *      adapter maps to the same pi-ai provider (matches agent behavior)
+ *   2. System source → env var only (never silently switch to workspace BYOK)
+ *   3. Legacy null source → env var, then workspace BYOK scan for compatibility
  */
 async function resolveDetectorApiKey(
   workspaceId: string,
   providerConfig: ProviderModelConfig | null,
   piProvider: string,
+  source: "system" | "byok" | null,
 ): Promise<string | null> {
   if (providerConfig) return providerConfig.key;
 
   const envKey = getEnvApiKey(piProvider);
   if (envKey) return envKey;
+
+  if (source === "system") return null;
 
   return findByokKeyForPiProvider(workspaceId, piProvider);
 }
@@ -153,13 +170,19 @@ export async function runDetectionForTrace(params: {
     }
   }
 
-  // 2. Resolve model
+  // 2. Resolve model. Legacy detectors may have neither source nor model; keep
+  // those on the detector-specific cheap system default instead of the generic
+  // catalog-first default while preserving null source attribution.
+  const shouldUseDetectorDefault =
+    !detector.detectionModel &&
+    (source === "system" || (source === null && !detector.detectionProvider));
   const modelId =
-    detector.detectionModel ?? (source === "system" ? DETECTOR_SYSTEM_DEFAULT_MODEL_ID : undefined);
+    detector.detectionModel ??
+    (shouldUseDetectorDefault ? resolveDetectorSystemDefaultModelId() : undefined);
   const model = resolvePiModel(modelId, providerConfig);
 
-  // 3. Resolve API key (BYOK row → env var → workspace BYOK scan)
-  const apiKey = await resolveDetectorApiKey(workspaceId, providerConfig, model.provider);
+  // 3. Resolve API key (BYOK row → env var; legacy null source may scan BYOK)
+  const apiKey = await resolveDetectorApiKey(workspaceId, providerConfig, model.provider, source);
   if (!apiKey) {
     return errorResult(`No API key configured for provider "${model.provider}"`, source);
   }

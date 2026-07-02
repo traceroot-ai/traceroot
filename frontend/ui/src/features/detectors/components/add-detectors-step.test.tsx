@@ -3,8 +3,38 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 import { getTemplate } from "../templates";
 
-const mocks = vi.hoisted(() => ({
-  mutateAsync: vi.fn(),
+const mocks = vi.hoisted(() => {
+  const defaultModels = {
+    byokProviders: [],
+    systemModels: [
+      {
+        provider: "Anthropic",
+        adapter: "anthropic",
+        source: "system" as const,
+        models: [{ id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],
+      },
+    ],
+  };
+
+  return {
+    mutateAsync: vi.fn(),
+    defaultModels,
+    models: defaultModels as typeof defaultModels | undefined,
+    isLoading: false,
+    isError: false,
+  };
+});
+
+vi.mock("@tanstack/react-query", () => ({
+  useQuery: () => ({
+    data: mocks.models,
+    isLoading: mocks.isLoading,
+    isError: mocks.isError,
+  }),
+}));
+
+vi.mock("@/lib/api", () => ({
+  getAvailableLLMModels: vi.fn(),
 }));
 
 vi.mock("../hooks/use-detectors", () => ({
@@ -32,6 +62,9 @@ const continueButton = () => screen.getByRole("button", { name: "Continue" });
 afterEach(() => {
   cleanup();
   mocks.mutateAsync.mockReset();
+  mocks.models = mocks.defaultModels;
+  mocks.isLoading = false;
+  mocks.isError = false;
 });
 
 describe("AddDetectorsStep", () => {
@@ -67,6 +100,38 @@ describe("AddDetectorsStep", () => {
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
     expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks selected quick-add templates before posting when no detector model is available", () => {
+    mocks.models = { byokProviders: [], systemModels: [] };
+    renderStep();
+
+    fireEvent.click(pill("Failure"));
+
+    expect(screen.getByText("No supported detector model is configured yet.")).toBeDefined();
+    expect(screen.getByText(/Self-hosted deployments need an admin/).textContent).toContain(
+      "OPENAI_API_KEY",
+    );
+    expect(
+      screen.getByRole("link", { name: "Configure BYOK providers" }).getAttribute("href"),
+    ).toBe("/workspaces/workspace-1/settings/model-providers");
+    expect((continueButton() as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(continueButton());
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("blocks selected quick-add templates while detector models are loading", () => {
+    mocks.models = undefined;
+    mocks.isLoading = true;
+    renderStep();
+
+    fireEvent.click(pill("Failure"));
+
+    expect(
+      screen.getByText("Loading detector models before quick-add can continue."),
+    ).toBeDefined();
+    expect((continueButton() as HTMLButtonElement).disabled).toBe(true);
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
   });
 
   it("creates one detector per selected template with the shared defaults", async () => {

@@ -153,7 +153,12 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (enabled !== undefined) detectorData.enabled = enabled;
   if (enableRca !== undefined) detectorData.enableRca = enableRca;
 
-  if (touchesModelSelection) {
+  const shouldValidateModelSelection =
+    touchesModelSelection ||
+    Object.keys(detectorData).length > 0 ||
+    triggerConditions !== undefined;
+
+  if (shouldValidateModelSelection) {
     const nextModel =
       detectionModel !== undefined
         ? typeof detectionModel === "string"
@@ -186,9 +191,16 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return errorResponse(modelSelection.error, 400);
     }
 
-    detectorData.detectionModel = modelSelection.model;
-    detectorData.detectionProvider = modelSelection.provider;
-    detectorData.detectionSource = modelSelection.source;
+    if (
+      touchesModelSelection ||
+      modelSelection.model !== existing.detectionModel ||
+      modelSelection.provider !== existing.detectionProvider ||
+      modelSelection.source !== existing.detectionSource
+    ) {
+      detectorData.detectionModel = modelSelection.model;
+      detectorData.detectionProvider = modelSelection.provider;
+      detectorData.detectionSource = modelSelection.source;
+    }
   }
 
   const detector = await prisma.detector.update({

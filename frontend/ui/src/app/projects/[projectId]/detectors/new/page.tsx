@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_IDS } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -204,7 +204,7 @@ export default function NewDetectorPage() {
                     workspaceId={workspaceId}
                     includeFallbackModels={false}
                     hideUnsupportedModels
-                    preferredDefaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
+                    preferredDefaultModelIds={DETECTOR_SYSTEM_DEFAULT_MODEL_IDS}
                     preferredDefaultModelSource="system"
                   />
                   <p className="mt-1 text-[11px] text-muted-foreground">

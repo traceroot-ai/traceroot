@@ -9,6 +9,7 @@ vi.mock("@traceroot/core", () => ({
   ModelSource: { SYSTEM: "system", BYOK: "byok" },
   PROVIDER_PRIORITY: ["anthropic", "openai"],
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID: "claude-haiku-4-5",
+  DETECTOR_SYSTEM_DEFAULT_MODEL_IDS: ["claude-haiku-4-5", "gpt-5.4-mini"],
   SYSTEM_MODELS: [
     {
       provider: "Anthropic",
@@ -18,6 +19,15 @@ vi.mock("@traceroot/core", () => ({
         { id: "claude-opus-4-8", label: "Claude Opus 4.8" },
         { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
         { id: "claude-4", label: "Claude 4" },
+      ],
+    },
+    {
+      provider: "OpenAI",
+      envVar: "OPENAI_API_KEY",
+      piAIProvider: "openai",
+      models: [
+        { id: "gpt-5.5", label: "gpt-5.5" },
+        { id: "gpt-5.4-mini", label: "gpt-5.4-mini" },
       ],
     },
   ],
@@ -85,6 +95,7 @@ beforeEach(() => {
   requireAuthMock.mockReset();
   requireProjectAccessMock.mockReset();
   vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+  vi.stubEnv("OPENAI_API_KEY", "");
   requireAuthMock.mockResolvedValue({ user: { id: "user-1" } });
   requireProjectAccessMock.mockResolvedValue({
     project: { id: "proj-1", workspaceId: "workspace-1", name: "Project" },
@@ -130,6 +141,43 @@ describe("POST .../detectors — model selection validation", () => {
     expect(detectorCreateMock.mock.calls[0][0].data).toMatchObject({
       detectionModel: "claude-haiku-4-5",
       detectionProvider: "Anthropic",
+      detectionSource: "system",
+    });
+  });
+
+  it("defaults an omitted legacy model selection to an OpenAI system model when Anthropic is unavailable", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+
+    const res = await POST(makeRequest(validBodyWithoutModel()), makeParams());
+
+    expect(res.status).toBe(201);
+    expect(modelProviderFindManyMock).not.toHaveBeenCalled();
+    expect(detectorCreateMock.mock.calls[0][0].data).toMatchObject({
+      detectionModel: "gpt-5.4-mini",
+      detectionProvider: "OpenAI",
+      detectionSource: "system",
+    });
+  });
+
+  it("keeps omitted legacy defaults on OpenAI system credentials before BYOK fallback", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+    modelProviderFindManyMock.mockResolvedValue([
+      {
+        provider: "workspace-openai",
+        adapter: "openai",
+        customModels: ["gpt-5.4-mini"],
+      },
+    ]);
+
+    const res = await POST(makeRequest(validBodyWithoutModel()), makeParams());
+
+    expect(res.status).toBe(201);
+    expect(modelProviderFindManyMock).not.toHaveBeenCalled();
+    expect(detectorCreateMock.mock.calls[0][0].data).toMatchObject({
+      detectionModel: "gpt-5.4-mini",
+      detectionProvider: "OpenAI",
       detectionSource: "system",
     });
   });
@@ -197,6 +245,47 @@ describe("POST .../detectors — model selection validation", () => {
       detectionProvider: "Anthropic",
       detectionSource: "system",
     });
+  });
+
+  it("preserves source-only system creates with the OpenAI detector system default", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
+
+    const res = await POST(
+      makeRequest(validBodyWithoutModel({ detectionSource: "system" })),
+      makeParams(),
+    );
+
+    expect(res.status).toBe(201);
+    expect(modelProviderFindManyMock).not.toHaveBeenCalled();
+    expect(detectorCreateMock.mock.calls[0][0].data).toMatchObject({
+      detectionModel: "gpt-5.4-mini",
+      detectionProvider: "OpenAI",
+      detectionSource: "system",
+    });
+  });
+
+  it("rejects source-only BYOK creates instead of guessing a provider", async () => {
+    modelProviderFindManyMock.mockResolvedValue([
+      {
+        provider: "my-openai",
+        adapter: "openai",
+        customModels: ["gpt-5.4-mini"],
+      },
+    ]);
+
+    const res = await POST(
+      makeRequest(validBodyWithoutModel({ detectionSource: "byok" })),
+      makeParams(),
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error:
+        "Detector model selection is required. Choose a configured system model or BYOK provider.",
+    });
+    expect(modelProviderFindManyMock).not.toHaveBeenCalled();
+    expect(detectorCreateMock).not.toHaveBeenCalled();
   });
 
   it("rejects source-only system creates when no system default exists", async () => {

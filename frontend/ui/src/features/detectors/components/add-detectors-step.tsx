@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   DETECTOR_QUICK_ADD_TEMPLATES,
@@ -9,6 +10,8 @@ import {
   getTemplate,
 } from "@/features/detectors/templates";
 import { useCreateDetector } from "@/features/detectors/hooks/use-detectors";
+import { getAvailableLLMModels } from "@/lib/api";
+import { flattenAvailableModels } from "@/features/ai-assistant/lib/resolve-model";
 
 interface AddDetectorsStepProps {
   projectId: string;
@@ -35,6 +38,30 @@ export function AddDetectorsStep({
   const [failureDetails, setFailureDetails] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const createMutation = useCreateDetector(projectId);
+  const modelsQuery = useQuery({
+    queryKey: ["llm-models", workspaceId],
+    queryFn: () => getAvailableLLMModels(workspaceId!),
+    enabled: Boolean(workspaceId),
+  });
+  const configuredModels = flattenAvailableModels(modelsQuery.data, { includeFallback: false });
+  const selectableModels = configuredModels.filter((model) => model.supported !== false);
+  const modelSetupBlocked =
+    Boolean(workspaceId) &&
+    (modelsQuery.isLoading || modelsQuery.isError || selectableModels.length === 0);
+  const modelStatusMessage = !workspaceId
+    ? null
+    : modelsQuery.isLoading
+      ? "Loading detector models before quick-add can continue."
+      : modelsQuery.isError
+        ? "Unable to load workspace models. Refresh this page before adding detectors."
+        : configuredModels.length === 0
+          ? "No supported detector model is configured yet."
+          : selectableModels.length === 0
+            ? "Configured providers only expose unsupported detector models."
+            : null;
+  const createBlockedByModels = selected.length > 0 && modelSetupBlocked;
+  const createDisabled = submitting || createBlockedByModels;
+  const createStatus = submitting ? "Adding..." : "Continue";
   const modelProviderSettingsLink = workspaceId ? (
     <Link
       href={`/workspaces/${workspaceId}/settings/model-providers`}
@@ -53,6 +80,11 @@ export function AddDetectorsStep({
   const handleContinue = async () => {
     if (selected.length === 0) {
       onDone();
+      return;
+    }
+    if (modelSetupBlocked) {
+      setFailedLabels([]);
+      setFailureDetails(null);
       return;
     }
     setSubmitting(true);
@@ -115,6 +147,18 @@ export function AddDetectorsStep({
           </p>
         </div>
       </div>
+      {selected.length > 0 && modelStatusMessage && (
+        <div role="alert" className="space-y-1 text-[12px] text-muted-foreground">
+          <p>{modelStatusMessage}</p>
+          {modelSetupBlocked && !modelsQuery.isLoading && (
+            <p>
+              Self-hosted deployments need an admin to set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`
+              in the server environment. To use a workspace-scoped key instead, add a BYOK provider.{" "}
+              {modelProviderSettingsLink}
+            </p>
+          )}
+        </div>
+      )}
       {failedLabels.length > 0 && (
         <div role="alert" className="space-y-1 text-[12px] text-destructive">
           <p>Couldn&apos;t create: {failedLabels.join(", ")}. Try again or skip.</p>
@@ -142,9 +186,9 @@ export function AddDetectorsStep({
           size="sm"
           className="h-7 text-[12px]"
           onClick={handleContinue}
-          disabled={submitting}
+          disabled={createDisabled}
         >
-          {submitting ? "Adding..." : "Continue"}
+          {createStatus}
         </Button>
       </div>
     </div>
