@@ -84,6 +84,13 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             op["responses"].setdefault("404", _error_response("Trace not found"))
             op["responses"].setdefault("500", _error_response("Failed to get trace"))
 
+    # Detector catalog list error contract (matches the route code).
+    detectors_list_op = schema["paths"].get("/api/v1/public/detectors", {}).get("get")
+    if detectors_list_op is not None:
+        detectors_list_op["responses"].setdefault(
+            "500", _error_response("Failed to list detectors")
+        )
+
     # Detector findings read error contract (matches the route code).
     findings_list_op = schema["paths"].get("/api/v1/public/detectors/findings", {}).get("get")
     if findings_list_op is not None:
