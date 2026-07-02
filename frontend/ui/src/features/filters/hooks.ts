@@ -43,13 +43,14 @@ export function useFilterValues(
   projectId: string,
   field: string | null,
   startAfter: string | undefined,
+  endBefore: string | undefined,
   enabled: boolean,
 ): { values: FilterValue[]; isLoading: boolean } {
   const { user, sessionReady } = useApiUser();
   const active = sessionReady && !!projectId && !!field && enabled;
   const { data, isLoading } = useQuery({
-    queryKey: ["filter-values", projectId, field, startAfter ?? null],
-    queryFn: () => getFilterValues(projectId, field!, startAfter, user),
+    queryKey: ["filter-values", projectId, field, startAfter ?? null, endBefore ?? null],
+    queryFn: () => getFilterValues(projectId, field!, startAfter, endBefore, user),
     enabled: active,
     staleTime: 30_000,
   });

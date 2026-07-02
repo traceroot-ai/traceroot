@@ -53,6 +53,12 @@ export function useUrlFilters(onFiltersChange?: () => void): UseUrlFiltersReturn
       // searchParams and drop the filter we just set (refresh/share/back would lose it).
       params.delete("page_index");
 
+      // If the URL wouldn't actually change (re-applying an identical filter set),
+      // router.replace is a no-op, so the sync effect never runs and the guard would
+      // stay armed — silently swallowing the NEXT real back/forward. Only arm the
+      // guard and write when the query string actually changes.
+      if (params.toString() === searchParams.toString()) return;
+
       isProgrammaticUpdate.current = true;
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
 
