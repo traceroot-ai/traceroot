@@ -69,18 +69,34 @@ describe("useUrlFilters", () => {
     expect(url.searchParams.has("filters")).toBe(false);
   });
 
-  it("does not re-sync from the URL after its own write (ref guard)", () => {
+  it("skips the echo of its own write so it isn't re-parsed and clobbered", () => {
     const { result, rerender } = renderHook(() => useUrlFilters());
     const mine: Predicate[] = [{ field: "model_name", op: "in", value: ["a"] }];
     act(() => result.current.setFilters(mine));
 
-    // The next searchParams change is the echo of our own replace(); the guard
-    // must skip it so our just-set value isn't clobbered by a re-parse.
-    currentParams = new URLSearchParams({
-      filters: JSON.stringify([{ field: "status", op: "in", value: ["ERROR"] }]),
-    });
+    // Echo our OWN write back through searchParams (the real value we just wrote,
+    // not an unrelated one). The guard must skip it so `mine` isn't re-parsed away.
+    currentParams = new URL(replace.mock.calls[0][0] as string, "http://x").searchParams;
     rerender();
 
     expect(result.current.filters).toEqual(mine);
+  });
+
+  it("re-applying an identical filter set is a no-op that keeps back/forward working", () => {
+    const f: Predicate[] = [{ field: "model_name", op: "in", value: ["a"] }];
+    currentParams = new URLSearchParams({ filters: JSON.stringify(f) });
+    const { result, rerender } = renderHook(() => useUrlFilters());
+
+    // Same predicates → identical URL → no write. The guard must NOT be left armed
+    // (an unchanged router.replace would never fire the sync effect to reset it).
+    act(() => result.current.setFilters(f));
+    expect(replace).not.toHaveBeenCalled();
+
+    // A genuine back/forward must still sync into state — it would be swallowed if
+    // the guard were stuck armed from the no-op write above.
+    const external: Predicate[] = [{ field: "status", op: "in", value: ["ERROR"] }];
+    currentParams = new URLSearchParams({ filters: JSON.stringify(external) });
+    rerender();
+    expect(result.current.filters).toEqual(external);
   });
 });

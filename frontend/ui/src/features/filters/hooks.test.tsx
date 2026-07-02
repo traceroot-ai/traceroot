@@ -4,6 +4,7 @@ import { render, cleanup, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useFilterFields, useFilterValues } from "./hooks";
 import { STATIC_FILTER_FIELDS } from "./registry";
+import { getFilterValues } from "@/lib/api/traces";
 
 vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({ data: { user: { id: "u1", email: "e@x.com" } }, isPending: false }),
@@ -42,8 +43,16 @@ function FieldsProbe() {
   return <div data-testid="fields">{fields.map((f) => f.field).join(",")}</div>;
 }
 
-function ValuesProbe({ enabled }: { enabled: boolean }) {
-  const { values } = useFilterValues("p1", "model_name", undefined, enabled);
+function ValuesProbe({
+  enabled,
+  startAfter,
+  endBefore,
+}: {
+  enabled: boolean;
+  startAfter?: string;
+  endBefore?: string;
+}) {
+  const { values } = useFilterValues("p1", "model_name", startAfter, endBefore, enabled);
   return <div data-testid="values">{values.map((v) => v.value).join(",")}</div>;
 }
 
@@ -67,5 +76,23 @@ describe("useFilterValues", () => {
   it("stays empty while disabled (lazy until the field is picked)", () => {
     render(<ValuesProbe enabled={false} />, { wrapper: wrapper() });
     expect(screen.getByTestId("values").textContent).toBe("");
+  });
+
+  it("passes both window bounds to the distinct-values request", async () => {
+    render(
+      <ValuesProbe enabled startAfter="2026-06-01T00:00:00Z" endBefore="2026-06-02T00:00:00Z" />,
+      {
+        wrapper: wrapper(),
+      },
+    );
+    await waitFor(() =>
+      expect(getFilterValues).toHaveBeenCalledWith(
+        "p1",
+        "model_name",
+        "2026-06-01T00:00:00Z",
+        "2026-06-02T00:00:00Z",
+        expect.anything(),
+      ),
+    );
   });
 });
