@@ -74,22 +74,38 @@ class DetectorReaderService:
     # ------------------------------------------------------------------ #
     # detector catalog
     # ------------------------------------------------------------------ #
-    def list_detectors(self, project_id: str, limit: int) -> tuple[list[DetectorItem], int]:
+    def list_detectors(
+        self,
+        project_id: str,
+        limit: int,
+        start_after: datetime | None = None,
+        end_before: datetime | None = None,
+    ) -> tuple[list[DetectorItem], int]:
         """List the project's detectors (Postgres catalog), newest first.
 
-        Returns the page of items plus the total match count. Unlike the RCA /
-        template enrichment reads, a catalog-read failure is NOT swallowed — it
-        propagates so the router can return a controlled 500.
+        The optional ``start_after`` / ``end_before`` bounds filter on the
+        detector's creation time (inclusive lower, exclusive upper), mirroring the
+        findings/traces list windows. Returns the page of items plus the total
+        match count. Unlike the RCA / template enrichment reads, a catalog-read
+        failure is NOT swallowed — it propagates so the router returns a 500.
         """
-        count_rows = self._pg_rows(
-            "SELECT count(*) FROM detectors WHERE project_id = %s", (project_id,)
-        )
+        conditions = ["project_id = %s"]
+        params: list[Any] = [project_id]
+        if start_after is not None:
+            conditions.append("create_time >= %s")
+            params.append(to_utc_naive(start_after))
+        if end_before is not None:
+            conditions.append("create_time < %s")
+            params.append(to_utc_naive(end_before))
+        where = " AND ".join(conditions)
+
+        count_rows = self._pg_rows(f"SELECT count(*) FROM detectors WHERE {where}", tuple(params))
         total = count_rows[0][0] if count_rows else 0
 
         rows = self._pg_rows(
-            "SELECT id, name, template, enabled, create_time FROM detectors "
-            "WHERE project_id = %s ORDER BY create_time DESC LIMIT %s",
-            (project_id, limit),
+            f"SELECT id, name, template, enabled, create_time FROM detectors "
+            f"WHERE {where} ORDER BY create_time DESC LIMIT %s",
+            (*params, limit),
         )
         items = [
             DetectorItem(
