@@ -116,7 +116,14 @@ export function buildDetectorPatch(
   const patch: UpdateDetectorInput = {};
   if (form.name !== loaded.name) patch.name = form.name;
   if (form.prompt !== loaded.prompt) patch.prompt = form.prompt;
-  if (form.sampleRate !== loaded.sampleRate) patch.sampleRate = form.sampleRate;
+  if (form.sampleRate !== loaded.sampleRate) {
+    patch.sampleRate = form.sampleRate;
+    // The sampling rate is the only control on this form that governs whether
+    // the judge runs, so bind it to the enabled flag: 0% disables the detector
+    // (instead of leaving an "enabled but never fires" state on the list page),
+    // and any positive rate re-enables it.
+    patch.enabled = form.sampleRate > 0;
+  }
   if (form.enableRca !== loaded.enableRca) patch.enableRca = form.enableRca;
   if (options.forceTriggerConditions || !conditionsEqual(form.conditions, loaded.conditions)) {
     patch.triggerConditions = form.conditions;

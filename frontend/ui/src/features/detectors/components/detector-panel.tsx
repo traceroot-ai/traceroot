@@ -391,7 +391,7 @@ export function DetectorPanel({
           <div className="flex items-center gap-3 p-3">
             <input
               type="range"
-              min={1}
+              min={0}
               max={100}
               value={editSampleRate}
               onChange={(e) => setEditSampleRate(Number(e.target.value))}

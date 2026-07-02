@@ -83,6 +83,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   const prompt = hasOwn(record, "prompt") ? record.prompt : undefined;
   const outputSchema = hasOwn(record, "outputSchema") ? record.outputSchema : undefined;
   const sampleRate = hasOwn(record, "sampleRate") ? record.sampleRate : undefined;
+  const enabled = hasOwn(record, "enabled") ? record.enabled : undefined;
   const triggerConditions = hasOwn(record, "triggerConditions")
     ? record.triggerConditions
     : undefined;
@@ -161,6 +162,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   }
   const resolvedEnableRca = enableRca ?? true;
 
+  // enabled: optional boolean. Defaults to true, but a detector created at 0%
+  // sampling should not show as "enabled but never fires" — fall back to
+  // sampleRate > 0 so a 0% rate creates a paused detector.
+  if (enabled !== undefined && typeof enabled !== "boolean") {
+    return errorResponse("enabled must be a boolean", 400);
+  }
+  const resolvedEnabled = enabled ?? resolvedSampleRate > 0;
+
   const detector = await prisma.detector.create({
     data: {
       projectId,
@@ -169,6 +178,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       prompt,
       outputSchema: (outputSchema as object) ?? [],
       sampleRate: resolvedSampleRate,
+      enabled: resolvedEnabled,
       enableRca: resolvedEnableRca,
       detectionModel: resolvedModel,
       detectionProvider: resolvedProvider,

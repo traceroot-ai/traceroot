@@ -41,6 +41,7 @@ export interface CreateDetectorInput {
   prompt: string;
   outputSchema: Array<{ name: string; type: string }>;
   sampleRate?: number;
+  enabled?: boolean;
   enableRca?: boolean;
   triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
   detectionModel?: string;
@@ -186,6 +187,7 @@ export interface UpdateDetectorInput {
   name?: string;
   prompt?: string;
   sampleRate?: number;
+  enabled?: boolean;
   enableRca?: boolean;
   triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
   detectionModel?: string;
