@@ -8,9 +8,10 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
 
 from rest.main import app
-from rest.routers.public.traces import AuthResult, authenticate_api_key
+from rest.routers.public.traces import AuthResult, authenticate_api_key, decode_otlp_protobuf
 
 
 def make_auth_result(project_id: str = "test-project") -> AuthResult:
@@ -44,6 +45,11 @@ def client(monkeypatch):
 
 
 class TestIngestTraces:
+    def test_decode_otlp_protobuf_returns_otlp_json_dict(self):
+        payload = ExportTraceServiceRequest()
+        decoded = decode_otlp_protobuf(payload.SerializeToString())
+        assert decoded == {}
+
     def test_valid_protobuf(self, client):
         test_client, mock_s3, mock_task = client
         response = test_client.post(
