@@ -185,6 +185,13 @@ async def ingest_traces(
         logger.info(f"Enqueued Celery task for {s3_key}")
     except Exception as e:
         logger.error(f"Failed to enqueue Celery task for {s3_key}: {e}")
+        try:
+            s3_service.delete_object(s3_key)
+        except Exception as cleanup_error:
+            logger.warning(
+                f"Failed to delete unqueued OTEL JSON {s3_key}: {cleanup_error}",
+                exc_info=True,
+            )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Ingest temporarily unavailable, please retry",
