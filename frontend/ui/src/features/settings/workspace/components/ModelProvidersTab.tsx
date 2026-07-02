@@ -44,6 +44,17 @@ interface ModelProvidersTabProps {
   workspaceId: string;
 }
 
+export function getBaseUrlPayload(
+  baseUrl: string,
+  isEditMode: boolean,
+): { baseUrl?: string | null } {
+  const trimmedBaseUrl = baseUrl.trim();
+
+  if (trimmedBaseUrl) return { baseUrl: trimmedBaseUrl };
+  if (isEditMode) return { baseUrl: null };
+  return {};
+}
+
 export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -179,12 +190,10 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     }
     const config: Record<string, unknown> = {};
     if (Object.keys(filteredProtocols).length > 0) config.modelProtocols = filteredProtocols;
-    const trimmedBaseUrl = baseUrl.trim();
-
     const base: Record<string, unknown> = {
       adapter,
       provider: providerName,
-      baseUrl: trimmedBaseUrl || (editProvider ? null : undefined),
+      ...getBaseUrlPayload(baseUrl, !!editProvider),
       customModels: trimmedModels,
       withDefaultModels: true,
       ...(Object.keys(config).length > 0 ? { config } : {}),
@@ -321,7 +330,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       : editProvider
         ? true // existing key is kept
         : !!apiKey;
-  const hasRequiredBaseUrl = adapterConfig?.requiresBaseUrl ? !!baseUrl : true;
+  const hasRequiredBaseUrl = adapterConfig?.requiresBaseUrl ? !!baseUrl.trim() : true;
   const canSave = adapter && providerName && hasCredentials && hasRequiredBaseUrl;
 
   const curatedModelsForAdapter = adapter ? ADAPTER_MODELS[adapter as LLMAdapter] : null;
