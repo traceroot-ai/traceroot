@@ -1,6 +1,41 @@
 {
   "components": {
     "schemas": {
+      "DetectorItem": {
+        "description": "A detector from the project's catalog (Postgres ``detectors``).\n\n``detector_id`` is the value to pass to ``findings list --detector`` to filter\nfindings to this detector.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detector_id",
+          "name",
+          "template",
+          "enabled",
+          "created_at"
+        ],
+        "title": "DetectorItem",
+        "type": "object"
+      },
       "DetectorResultItem": {
         "description": "One detector's result within a finding, normalized from the stored payload.\n\nThe stored finding ``payload`` uses camelCase keys (``detectorId`` /\n``detectorName``); the public API exposes snake_case. Only triggered detectors\nare persisted, so ``identified`` is always ``True`` for a present item. ``data``\nis the detector's opaque output, passed through verbatim. ``template`` is looked\nup from the Postgres ``detectors`` row and is ``None`` when that row is absent\n(e.g. a deleted detector).",
         "properties": {
@@ -334,6 +369,27 @@
           "total"
         ],
         "title": "PaginationMeta",
+        "type": "object"
+      },
+      "PublicDetectorListResponse": {
+        "description": "Paginated list of the project's detectors for the public API.",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/DetectorItem"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/PaginationMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "PublicDetectorListResponse",
         "type": "object"
       },
       "PublicFindingListResponse": {
@@ -1051,6 +1107,104 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/public/detectors": {
+      "get": {
+        "description": "List the detectors in the API key's project (newest first).",
+        "operationId": "list_detectors_api_v1_public_detectors_get",
+        "parameters": [
+          {
+            "description": "Items per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicDetectorListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Failed to list detectors"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Detectors",
+        "tags": [
+          "Detectors (Public)"
+        ]
+      }
+    },
     "/api/v1/public/detectors/findings": {
       "get": {
         "description": "List recent detector findings for the API key's project (newest first).",
