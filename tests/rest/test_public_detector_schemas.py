@@ -4,12 +4,47 @@ from datetime import datetime
 
 from rest.schemas.common import PaginationMeta
 from rest.schemas.public import (
+    DetectorItem,
     DetectorResultItem,
     FindingDetail,
     FindingSummary,
+    PublicDetectorListResponse,
     PublicFindingListResponse,
     RCAResult,
 )
+
+
+def test_detector_item_fields_are_snake_case():
+    item = DetectorItem(
+        detector_id="d1",
+        name="My Hallucination Detector",
+        template="hallucination",
+        enabled=True,
+        created_at=datetime(2026, 6, 29, 10, 42),
+    )
+    dumped = item.model_dump()
+    assert dumped["detector_id"] == "d1"
+    assert dumped["name"] == "My Hallucination Detector"
+    assert dumped["template"] == "hallucination"
+    assert dumped["enabled"] is True
+
+
+def test_public_detector_list_response_wraps_items_with_pagination():
+    resp = PublicDetectorListResponse(
+        data=[
+            DetectorItem(
+                detector_id="d1",
+                name="n",
+                template="failure",
+                enabled=False,
+                created_at=datetime(2026, 6, 29),
+            )
+        ],
+        meta=PaginationMeta(page=0, limit=50, total=1),
+    )
+    assert resp.meta.total == 1
+    assert resp.data[0].detector_id == "d1"
+    assert resp.data[0].enabled is False
 
 
 def test_detector_result_item_fields_are_snake_case():
