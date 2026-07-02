@@ -1,4 +1,4 @@
-import { complete, getEnvApiKey } from "@earendil-works/pi-ai";
+import { complete, getEnvApiKey } from "@earendil-works/pi-ai/compat";
 import {
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
   DETECTOR_SYSTEM_DEFAULT_MODEL_IDS,
