@@ -188,7 +188,7 @@ export interface TraceListResponse {
  * of the backend predicate IR, serialized into the `?filters=` JSON array.
  * Discriminated on `op`: categorical fields use `in` (the UI selects one value, so the
  * array carries a single element), numeric fields use `between` with nullable bounds
- * (`[0.5, null]` = ≥ 0.5, `[null, 10]` = < 10, a strict upper bound).
+ * (`[0.5, null]` = ≥ 0.5, `[null, 10]` = ≤ 10; both bounds inclusive).
  */
 export type Predicate =
   | { field: string; op: "in"; value: string[] }
