@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Eye, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchFilterBar } from "@/components/search-filter-bar";
@@ -20,6 +21,36 @@ import { useProject } from "@/features/projects/hooks";
 import { DeleteDetectorDialog } from "@/features/detectors/components/delete-detector-dialog";
 import { DetectorPanel } from "@/features/detectors/components/detector-panel";
 import { getTemplate } from "@/features/detectors/templates";
+
+function formatDetectorModel(detector: {
+  detectionModel: string | null;
+  detectionProvider: string | null;
+  detectionSource: "system" | "byok" | null;
+}) {
+  const providerLabel = detector.detectionProvider ?? "configured provider";
+
+  if (detector.detectionModel) {
+    if (detector.detectionSource === "byok") {
+      return { label: `BYOK (${providerLabel}): ${detector.detectionModel}`, isDefault: false };
+    }
+
+    if (detector.detectionSource === "system") {
+      return { label: `System pinned: ${detector.detectionModel}`, isDefault: false };
+    }
+
+    return { label: detector.detectionModel, isDefault: false };
+  }
+
+  if (detector.detectionSource === "byok") {
+    return { label: `BYOK provider: ${providerLabel}`, isDefault: false };
+  }
+
+  if (detector.detectionSource === "system") {
+    return { label: `System default: ${DETECTOR_SYSTEM_DEFAULT_MODEL_ID}`, isDefault: true };
+  }
+
+  return { label: "Auto-selected default", isDefault: true };
+}
 
 export default function DetectorsPage() {
   const params = useParams();
@@ -199,6 +230,7 @@ export default function DetectorsPage() {
               <tbody>
                 {detectors.map((detector) => {
                   const template = getTemplate(detector.template);
+                  const detectorModel = formatDetectorModel(detector);
                   const c = counts?.[detector.id];
                   const findingCount = c?.finding_count ?? 0;
                   const runCount = c?.run_count ?? 0;
@@ -222,7 +254,12 @@ export default function DetectorsPage() {
                         {template?.label ?? detector.template}
                       </td>
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                        {detector.detectionModel ?? "Default"}
+                        {detectorModel.label}
+                        {detectorModel.isDefault && (
+                          <span className="ml-1 text-[11px] text-muted-foreground/70">
+                            (default)
+                          </span>
+                        )}
                       </td>
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                         {detector.sampleRate}%

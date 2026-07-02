@@ -6,6 +6,7 @@ import {
   resolvePiModel,
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { buildSubmitResultTool, type SubmitResultInput } from "./submit-result-tool.js";
 
 export interface DetectorConfig {
@@ -47,8 +48,6 @@ const MAX_ATTEMPTS = 2;
  * about traces being truncated. For now, rely on this hard cap.
  */
 const SAFETY_TRUNCATE_CHARS = 150_000;
-/** Default screening model for system source — cheap-and-fast, not the agent default. */
-const SYSTEM_DEFAULT_MODEL = "claude-haiku-4-5";
 /** Fallback per-attempt timeout when DETECTOR_EVAL_TIMEOUT_MS is unset or invalid. */
 export const DEFAULT_DETECTOR_EVAL_TIMEOUT_MS = 60_000;
 /** Node's setTimeout max delay; larger values clamp to 1ms (an instant abort). */
@@ -156,7 +155,7 @@ export async function runDetectionForTrace(params: {
 
   // 2. Resolve model
   const modelId =
-    detector.detectionModel ?? (source === "system" ? SYSTEM_DEFAULT_MODEL : undefined);
+    detector.detectionModel ?? (source === "system" ? DETECTOR_SYSTEM_DEFAULT_MODEL_ID : undefined);
   const model = resolvePiModel(modelId, providerConfig);
 
   // 3. Resolve API key (BYOK row → env var → workspace BYOK scan)
