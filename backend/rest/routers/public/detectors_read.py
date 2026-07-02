@@ -42,10 +42,21 @@ async def list_detectors(
     auth: StampedAuth,
     service: DetectorReaderService = Depends(get_detector_reader_service),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
+    start_after: datetime | None = Query(
+        None, description="Only detectors created at or after this time (inclusive, ISO 8601)"
+    ),
+    end_before: datetime | None = Query(
+        None, description="Only detectors created before this time (exclusive, ISO 8601)"
+    ),
 ):
     """List the detectors in the API key's project (newest first)."""
     try:
-        items, total = service.list_detectors(project_id=auth.project_id, limit=limit)
+        items, total = service.list_detectors(
+            project_id=auth.project_id,
+            limit=limit,
+            start_after=start_after,
+            end_before=end_before,
+        )
     except Exception as e:
         logger.exception(f"Error listing detectors: {e}")
         raise HTTPException(
