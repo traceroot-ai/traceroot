@@ -200,13 +200,7 @@ Agentic Debugging Runtime의 기반을 제공하는 [pi-mono](https://github.com
 
 이 프로젝트는 [Apache 2.0 라이선스](LICENSE)를 기반으로 제공되며, 추가 [Enterprise 기능](./ee/LICENSE)을 포함합니다.
 
-## Contributors
-
-<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" />
-</a>
-
-## ⭐️ Star History
+## Star History
 
 <a href="https://star-history.com/#traceroot-ai/traceroot&Date">
  <picture>
@@ -214,6 +208,12 @@ Agentic Debugging Runtime의 기반을 제공하는 [pi-mono](https://github.com
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date" />
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date" style="border-radius: 15px;" />
  </picture>
+</a>
+
+## Contributors
+
+<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" />
 </a>
 
 <!-- Links -->

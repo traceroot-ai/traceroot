@@ -200,13 +200,7 @@ Special Thanks for [pi-mono](https://github.com/badlogic/pi-mono) project, which
 
 This project is licensed under [Apache 2.0](LICENSE) with additional [Enterprise features](./ee/LICENSE).
 
-## Contributors
-
-<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" />
-</a>
-
-## ⭐️ Star History
+## Star History
 
 <a href="https://star-history.com/#traceroot-ai/traceroot&Date">
  <picture>
@@ -214,6 +208,12 @@ This project is licensed under [Apache 2.0](LICENSE) with additional [Enterprise
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date" />
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date" style="border-radius: 15px;" />
  </picture>
+</a>
+
+## Contributors
+
+<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" />
 </a>
 
 <!-- Links -->
