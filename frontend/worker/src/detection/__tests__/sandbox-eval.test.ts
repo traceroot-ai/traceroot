@@ -31,6 +31,7 @@ import {
   DEFAULT_DETECTOR_EVAL_TIMEOUT_MS,
   MAX_DETECTOR_EVAL_TIMEOUT_MS,
 } from "../sandbox-eval.js";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 
 const DETECTOR = {
   id: "det-1",
@@ -45,6 +46,13 @@ const ANTHROPIC_MODEL = {
   provider: "anthropic",
   baseUrl: "",
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+};
+
+const BYOK_PROVIDER_CONFIG = {
+  adapter: "anthropic",
+  key: "byok-key",
+  baseUrl: null,
+  config: null,
 };
 
 const ZERO_USAGE = {
@@ -105,6 +113,75 @@ describe("runDetectionForTrace", () => {
     expect(result.data).toEqual({ category: "tool_error" });
     expect(result.error).toBeUndefined();
     expect(mockComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves the shared detector default for unpinned system detectors", async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean trace", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system", detectionModel: null },
+      workspaceId: "ws-1",
+    });
+
+    expect(mockResolvePiModel).toHaveBeenCalledWith(DETECTOR_SYSTEM_DEFAULT_MODEL_ID, null);
+  });
+
+  it("keeps legacy null-source detectors on the availability-aware resolver default", async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean trace", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: null, detectionModel: null },
+      workspaceId: "ws-1",
+    });
+
+    expect(mockResolvePiModel).toHaveBeenCalledWith(undefined, null);
+  });
+
+  it("passes pinned system detector models through to the resolver", async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean trace", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system", detectionModel: "claude-opus-4-8" },
+      workspaceId: "ws-1",
+    });
+
+    expect(mockResolvePiModel).toHaveBeenCalledWith("claude-opus-4-8", null);
   });
 
   it("retries on plain-text response and succeeds on second attempt", async () => {
@@ -416,11 +493,7 @@ describe("runDetectionForTrace", () => {
     });
 
     it("captures BYOK source attribution with positive cost", async () => {
-      mockFetchProviderConfig.mockResolvedValueOnce({
-        key: "byok-key",
-        provider: "anthropic",
-        model: "claude-haiku-4-5",
-      });
+      mockFetchProviderConfig.mockResolvedValueOnce(BYOK_PROVIDER_CONFIG);
       mockComplete.mockResolvedValueOnce({
         content: [
           {
@@ -446,6 +519,7 @@ describe("runDetectionForTrace", () => {
 
       expect(result.inferenceSource).toBe("byok");
       expect(result.inferenceCost).toBeCloseTo(0.005, 6);
+      expect(mockResolvePiModel).toHaveBeenCalledWith(undefined, BYOK_PROVIDER_CONFIG);
     });
 
     it("preserves source on error path with cost=0 (early-exit, BYOK provider missing)", async () => {

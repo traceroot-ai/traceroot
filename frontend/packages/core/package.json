@@ -10,6 +10,10 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./llm-providers": {
+      "types": "./src/llm-providers.ts",
+      "default": "./src/llm-providers.ts"
+    },
     "./model-resolver": {
       "types": "./src/model-resolver.ts",
       "default": "./src/model-resolver.ts"
