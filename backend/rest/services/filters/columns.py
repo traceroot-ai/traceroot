@@ -35,10 +35,11 @@ class FilterOperator(StrEnum):
 
     IN = "in"
     # The single numeric operator: a [min, max] range where either bound may be null,
-    # which is how the UI's greater-than / less-than / equals are expressed without
-    # separate ops. Lowering (see translate.py:_having_clause):
-    #   value [0.5, null]  -> agg >= 0.5            (UI "greater than", inclusive lower)
-    #   value [null, 10]   -> agg < 10              (UI "less than", STRICT upper)
+    # which is how the UI's "greater/less than or equal to" and "equals" are expressed
+    # without separate ops. Lowering (see translate.py:_having_clause) — both bounds
+    # inclusive:
+    #   value [0.5, null]  -> agg >= 0.5            (UI "greater than or equal to")
+    #   value [null, 10]   -> agg <= 10             (UI "less than or equal to")
     #   value [0.5, 10]    -> agg BETWEEN 0.5 AND 10  (inclusive; "equals" uses [x, x])
     # The translator keys off which bounds are present.
     BETWEEN = "between"

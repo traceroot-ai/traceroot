@@ -203,12 +203,11 @@ def _membership_semijoin(frags: list[tuple[int, FilterColumn, Predicate]], param
 def _having_clause(idx: int, col: FilterColumn, pred: Predicate, params: dict) -> str | None:
     """One per-trace aggregate HAVING comparison, with nullable open-ended bounds.
 
-    Bound semantics (note: the "greater than" UI operator is an INCLUSIVE ``>=`` bound):
-    ``[lo, None]`` -> ``>=`` (UI "greater than", i.e. greater-than-or-equal),
-    ``[None, hi]`` -> ``<`` (UI "less than", strict), both bounds -> inclusive ``BETWEEN``
-    (colloquial "between a and b"). Returns ``None`` when both bounds are absent (a no-op
-    filter). Param names carry ``idx`` so duplicate predicates on the same field don't
-    collide.
+    Bound semantics — both bounds are INCLUSIVE, matching the UI's "greater than or equal
+    to" / "less than or equal to" operators so the label never misrepresents the result:
+    ``[lo, None]`` -> ``>=``, ``[None, hi]`` -> ``<=``, both bounds -> inclusive ``BETWEEN``.
+    Returns ``None`` when both bounds are absent (a no-op filter). Param names carry
+    ``idx`` so duplicate predicates on the same field don't collide.
     """
     lo, hi = pred.value[0], pred.value[1]
     agg, ch = col.aggregate_expr, col.ch_type
@@ -224,10 +223,10 @@ def _having_clause(idx: int, col: FilterColumn, pred: Predicate, params: dict) -
         return f"{agg} BETWEEN {{{lo_name}:{ch}}} AND {{{hi_name}:{ch}}}"
     if lo is not None:
         params[lo_name] = lo
-        return f"{agg} >= {{{lo_name}:{ch}}}"  # "greater than" is an inclusive >= bound
+        return f"{agg} >= {{{lo_name}:{ch}}}"  # "greater than or equal to"
     if hi is not None:
         params[hi_name] = hi
-        return f"{agg} < {{{hi_name}:{ch}}}"
+        return f"{agg} <= {{{hi_name}:{ch}}}"  # "less than or equal to" (inclusive)
     return None
 
 

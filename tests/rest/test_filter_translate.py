@@ -201,14 +201,14 @@ def test_aggregate_between_lowers_to_a_having_semijoin_with_both_bounds():
 def test_aggregate_open_lower_bound_lowers_to_inclusive_gte():
     params = {"project_id": "p1"}
     cond = build_conditions([Predicate(field="cost", op="between", value=[0.5, None])], params)[0]
-    assert "sum(cost) >=" in cond  # "greater than" is an inclusive >= bound
+    assert "sum(cost) >=" in cond  # "greater than or equal to" is an inclusive >= bound
     assert "BETWEEN" not in cond and "<" not in cond
 
 
-def test_aggregate_open_upper_bound_lowers_to_strict_lt():
+def test_aggregate_open_upper_bound_lowers_to_inclusive_lte():
     params = {"project_id": "p1"}
     cond = build_conditions([Predicate(field="cost", op="between", value=[None, 10])], params)[0]
-    assert "sum(cost) <" in cond and "<=" not in cond  # standalone upper bound is strict
+    assert "sum(cost) <=" in cond  # "less than or equal to" is an inclusive <= bound
     assert "BETWEEN" not in cond and ">=" not in cond
 
 
