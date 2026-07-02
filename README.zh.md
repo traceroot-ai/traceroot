@@ -200,13 +200,7 @@ main().catch(console.error);
 
 本项目基于 [Apache 2.0](LICENSE) 许可证，并包含额外的[企业版功能](./ee/LICENSE)。
 
-## 贡献者
-
-<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" />
-</a>
-
-## ⭐️ Star 趋势
+## Star 趋势
 
 <a href="https://star-history.com/#traceroot-ai/traceroot&Date">
  <picture>
@@ -214,6 +208,12 @@ main().catch(console.error);
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date" />
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=traceroot-ai/traceroot&type=Date" style="border-radius: 15px;" />
  </picture>
+</a>
+
+## 贡献者
+
+<a href="https://github.com/traceroot-ai/traceroot/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=traceroot-ai/traceroot" />
 </a>
 
 <!-- Links -->
