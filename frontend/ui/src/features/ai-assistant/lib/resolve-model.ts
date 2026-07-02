@@ -67,12 +67,30 @@ export function flattenAvailableModels(
   return [...byokList, ...systemList];
 }
 
-export function pickDefaultModel(models: ResolvedModel[]): ResolvedModel | undefined {
+interface PickDefaultModelOptions {
+  preferredModelId?: string;
+  preferredSource?: "system" | "byok";
+}
+
+export function pickDefaultModel(
+  models: ResolvedModel[],
+  { preferredModelId, preferredSource }: PickDefaultModelOptions = {},
+): ResolvedModel | undefined {
   // Skip BYOK entries marked `supported: false` (model in the BYOK provider's
   // catalog but flagged unsupported by us). Auto-selecting one would put the
   // selector into an unrunnable state on first render.
   const usable = models.filter((m) => m.supported !== false);
   if (usable.length === 0) return undefined;
+
+  if (preferredModelId) {
+    const preferred = usable.find(
+      (m) =>
+        m.id === preferredModelId &&
+        (preferredSource === undefined || m.source === preferredSource),
+    );
+    if (preferred) return preferred;
+  }
+
   for (const adapter of PROVIDER_PRIORITY) {
     const match = usable.find((m) => m.adapter === adapter);
     if (match) return match;

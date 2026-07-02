@@ -85,6 +85,42 @@ describe("ModelSelector", () => {
     expect(selection.source).toBe("system");
   });
 
+  it("prefers a requested default model when it is available", () => {
+    mocks.models = {
+      byokProviders: [],
+      systemModels: [
+        {
+          provider: "Anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [
+            { id: "claude-opus-4-8", label: "Claude Opus 4.8" },
+            { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+          ],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{ model: "", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+        includeFallbackModels={false}
+        hideUnsupportedModels
+        preferredDefaultModelId="claude-haiku-4-5"
+        preferredDefaultModelSource="system"
+      />,
+    );
+
+    expect(mocks.onChange).toHaveBeenCalledWith({
+      model: "claude-haiku-4-5",
+      provider: "Anthropic",
+      source: "system",
+      adapter: "anthropic",
+    });
+  });
+
   it("shows a load-error state without auto-picking fallback models", () => {
     mocks.models = undefined;
     mocks.isError = true;

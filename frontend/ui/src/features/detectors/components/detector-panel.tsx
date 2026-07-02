@@ -19,6 +19,7 @@ import {
   ModelSelector,
   type ModelSelection,
 } from "@/features/ai-assistant/components/model-selector";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -245,6 +246,8 @@ export function DetectorPanel({
                 workspaceId={workspaceId}
                 includeFallbackModels={false}
                 hideUnsupportedModels
+                preferredDefaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
+                preferredDefaultModelSource="system"
               />
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Used to evaluate each trace for this detector.

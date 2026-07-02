@@ -8,12 +8,17 @@ const modelProviderFindManyMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
   ModelSource: { SYSTEM: "system", BYOK: "byok" },
   PROVIDER_PRIORITY: ["anthropic", "openai"],
+  DETECTOR_SYSTEM_DEFAULT_MODEL_ID: "claude-haiku-4-5",
   SYSTEM_MODELS: [
     {
       provider: "Anthropic",
       envVar: "ANTHROPIC_API_KEY",
       piAIProvider: "anthropic",
-      models: [{ id: "claude-4", label: "Claude 4" }],
+      models: [
+        { id: "claude-opus-4-8", label: "Claude Opus 4.8" },
+        { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+        { id: "claude-4", label: "Claude 4" },
+      ],
     },
   ],
   ADAPTER_MODELS: {
@@ -118,12 +123,12 @@ describe("POST .../detectors — sampleRate default", () => {
 });
 
 describe("POST .../detectors — model selection validation", () => {
-  it("defaults an omitted legacy model selection to an available system model", async () => {
+  it("defaults an omitted legacy model selection to the detector system model", async () => {
     const res = await POST(makeRequest(validBodyWithoutModel()), makeParams());
 
     expect(res.status).toBe(201);
     expect(detectorCreateMock.mock.calls[0][0].data).toMatchObject({
-      detectionModel: "claude-4",
+      detectionModel: "claude-haiku-4-5",
       detectionProvider: "Anthropic",
       detectionSource: "system",
     });
@@ -173,13 +178,13 @@ describe("POST .../detectors — model selection validation", () => {
     expect(res.status).toBe(201);
     expect(modelProviderFindManyMock).not.toHaveBeenCalled();
     expect(detectorCreateMock.mock.calls[0][0].data).toMatchObject({
-      detectionModel: "claude-4",
+      detectionModel: "claude-haiku-4-5",
       detectionProvider: "Anthropic",
       detectionSource: "system",
     });
   });
 
-  it("preserves legacy source-only system creates by resolving a system default", async () => {
+  it("preserves legacy source-only system creates by resolving the detector system default", async () => {
     const res = await POST(
       makeRequest(validBodyWithoutModel({ detectionSource: "system" })),
       makeParams(),
@@ -188,7 +193,7 @@ describe("POST .../detectors — model selection validation", () => {
     expect(res.status).toBe(201);
     expect(modelProviderFindManyMock).not.toHaveBeenCalled();
     expect(detectorCreateMock.mock.calls[0][0].data).toMatchObject({
-      detectionModel: "claude-4",
+      detectionModel: "claude-haiku-4-5",
       detectionProvider: "Anthropic",
       detectionSource: "system",
     });
@@ -248,7 +253,7 @@ describe("POST .../detectors — model selection validation", () => {
     });
   });
 
-  it("keeps omitted legacy model selection on the highest-priority system provider", async () => {
+  it("does not replace the detector system default with other available system providers", async () => {
     modelProviderFindManyMock.mockResolvedValue([
       {
         provider: "workspace-openai",
@@ -261,7 +266,7 @@ describe("POST .../detectors — model selection validation", () => {
 
     expect(res.status).toBe(201);
     expect(detectorCreateMock.mock.calls[0][0].data).toMatchObject({
-      detectionModel: "claude-4",
+      detectionModel: "claude-haiku-4-5",
       detectionProvider: "Anthropic",
       detectionSource: "system",
     });

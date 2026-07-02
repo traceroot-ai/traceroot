@@ -4,6 +4,7 @@ import {
   ADAPTER_MODELS,
   ModelSource,
   PROVIDER_PRIORITY,
+  DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
   type LLMAdapter,
 } from "@traceroot/core";
 
@@ -29,15 +30,17 @@ interface DefaultModelCandidate extends ResolvedDetectorModelSelection {
   adapter: string;
 }
 
-function buildSystemModelCandidates(): DefaultModelCandidate[] {
-  return SYSTEM_MODELS.filter((provider) => !!process.env[provider.envVar]).flatMap((provider) =>
-    provider.models.map((model) => ({
-      model: model.id,
-      provider: provider.provider,
-      source: ModelSource.SYSTEM,
-      adapter: provider.piAIProvider,
-    })),
+function resolveDetectorSystemDefaultCandidate(): ResolvedDetectorModelSelection | null {
+  const provider = SYSTEM_MODELS.find((candidate) =>
+    candidate.models.some((model) => model.id === DETECTOR_SYSTEM_DEFAULT_MODEL_ID),
   );
+  if (!provider || !process.env[provider.envVar]) return null;
+
+  return {
+    model: DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+    provider: provider.provider,
+    source: ModelSource.SYSTEM,
+  };
 }
 
 function pickDefaultCandidate(
@@ -59,7 +62,7 @@ function pickDefaultCandidate(
 export function resolveDefaultSystemDetectorModelSelection():
   | ResolvedDetectorModelSelection
   | { error: string } {
-  const systemDefault = pickDefaultCandidate(buildSystemModelCandidates());
+  const systemDefault = resolveDetectorSystemDefaultCandidate();
   if (systemDefault) return systemDefault;
 
   return modelSelectionError(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR);

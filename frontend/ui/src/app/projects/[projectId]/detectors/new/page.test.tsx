@@ -30,7 +30,10 @@ const mocks = vi.hoisted(() => ({
         provider: "anthropic",
         adapter: "anthropic",
         source: "system",
-        models: [{ id: "claude-4", label: "Claude 4" }],
+        models: [
+          { id: "claude-opus-4-8", label: "Claude Opus 4.8" },
+          { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+        ],
       },
     ],
   } as MockAvailableModels,
@@ -88,7 +91,10 @@ beforeEach(() => {
         provider: "anthropic",
         adapter: "anthropic",
         source: "system",
-        models: [{ id: "claude-4", label: "Claude 4" }],
+        models: [
+          { id: "claude-opus-4-8", label: "Claude Opus 4.8" },
+          { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+        ],
       },
     ],
   };
@@ -125,7 +131,7 @@ describe("NewDetectorPage", () => {
       sampleRate: 25,
       enabled: true,
       enableRca: true,
-      detectionModel: "claude-4",
+      detectionModel: "claude-haiku-4-5",
       detectionProvider: "anthropic",
       detectionSource: "system",
     });
@@ -152,7 +158,7 @@ describe("NewDetectorPage", () => {
       prompt: hallucination.prompt,
       outputSchema: hallucination.outputSchema,
       triggerConditions: hallucination.defaultConditions,
-      detectionModel: "claude-4",
+      detectionModel: "claude-haiku-4-5",
       detectionProvider: "anthropic",
       detectionSource: "system",
     });
