@@ -9,6 +9,7 @@ keyed on ``t.trace_id`` filters the page and the total identically.
 import pytest
 
 from rest.services.filters.translate import (
+    SPAN_TIME_BOUND_LOOKBACK_HOURS,
     Predicate,
     build_conditions,
     parse_filters_param,
@@ -172,6 +173,56 @@ def test_membership_predicate_lowers_to_a_project_scoped_span_semijoin():
     assert "claude-opus-4.8" not in cond
 
 
+def test_membership_predicates_on_different_fields_emit_independent_semijoins():
+    # Independent existence: each membership predicate is its OWN semi-join, AND-combined,
+    # so a trace matches if it has >=1 span for EACH predicate independently (NOT one span
+    # satisfying both). Two fields -> two separate t.trace_id IN (...) conditions.
+    params = {"project_id": "p1"}
+    conditions = build_conditions(
+        [
+            Predicate(field="model_name", op="in", value=["gpt-4"]),
+            Predicate(field="environment", op="in", value=["prod"]),
+        ],
+        params,
+    )
+    assert len(conditions) == 2
+    assert all(c.startswith("t.trace_id IN (") for c in conditions)
+    # Each semi-join carries only its own field's condition, not the other's (not merged).
+    model_cond = next(c for c in conditions if "model_name IN" in c)
+    env_cond = next(c for c in conditions if "environment IN" in c)
+    assert "environment IN" not in model_cond
+    assert "model_name IN" not in env_cond
+    # Per-predicate param indexing keeps the two from colliding.
+    assert params["f_model_name_0"] == ["gpt-4"]
+    assert params["f_environment_1"] == ["prod"]
+
+
+def test_aggregate_inner_projection_is_registry_driven():
+    # The aggregate inner SELECT projects the structural columns plus only the active
+    # field's source_columns — a cost filter projects cost, NOT total_tokens or status.
+    params = {"project_id": "p1"}
+    cond = build_conditions([Predicate(field="cost", op="between", value=[0.5, None])], params)[0]
+    # The inner projection is the SELECT list feeding "FROM spans" (not the outer wrapper).
+    inner_select_start = cond.index("SELECT", cond.index("SELECT") + 1)
+    select = cond[inner_select_start : cond.index("FROM spans")]
+    assert "cost" in select
+    assert "total_tokens" not in select
+    assert "status" not in select
+    # A cost filter doesn't need span_start_time projected — it's only filtered in the
+    # inner WHERE, not selected — so it isn't over-projected here.
+    assert "span_start_time" not in select
+    # The dedup/group keys are always present.
+    for structural in ("trace_id", "span_id", "project_id"):
+        assert structural in select
+    # A duration filter DOES project span_start_time + span_end_time — supplied by its
+    # source_columns, not hardcoded — confirming the projection is registry-driven.
+    dcond = build_conditions(
+        [Predicate(field="duration_ms", op="between", value=[5, None])], {"project_id": "p1"}
+    )[0]
+    dsel = dcond[dcond.index("SELECT", dcond.index("SELECT") + 1) : dcond.index("FROM spans")]
+    assert "span_start_time" in dsel and "span_end_time" in dsel
+
+
 def test_unknown_field_is_rejected():
     with pytest.raises(ValueError):
         build_conditions([Predicate(field="not_a_field", op="in", value=["x"])], {})
@@ -257,4 +308,7 @@ def test_span_time_bound_backs_off_for_boundary_drift():
     dropped — which would false-negative an otherwise-matching in-window trace."""
     params = {"project_id": "p1", "start_after": "2026-06-01 00:00:00"}
     conditions = build_conditions([Predicate(field="model_name", op="in", value=["gpt-4"])], params)
-    assert "span_start_time >= {start_after:DateTime64(3)} - INTERVAL" in conditions[0]
+    assert (
+        f"span_start_time >= {{start_after:DateTime64(3)}} - INTERVAL "
+        f"{SPAN_TIME_BOUND_LOOKBACK_HOURS} HOUR" in conditions[0]
+    )
