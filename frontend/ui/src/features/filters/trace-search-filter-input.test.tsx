@@ -40,12 +40,12 @@ function renderInput(props: Partial<React.ComponentProps<typeof TraceSearchFilte
 describe("TraceSearchFilterInput", () => {
   it("renders a labeled chip inside the box per active filter", () => {
     renderInput({ filters: [{ field: "cost", op: "between", value: [0.5, null] }] });
-    expect(screen.getByText("cost > 0.5")).toBeTruthy();
+    expect(screen.getByText("cost ≥ 0.5")).toBeTruthy();
   });
 
   it("labels a chip with the field's lowercased display name (latency, not duration_ms)", () => {
     renderInput({ filters: [{ field: "duration_ms", op: "between", value: [5, null] }] });
-    expect(screen.getByText("latency > 5")).toBeTruthy();
+    expect(screen.getByText("latency ≥ 5")).toBeTruthy();
     expect(screen.queryByText(/duration_ms/)).toBeNull();
   });
 

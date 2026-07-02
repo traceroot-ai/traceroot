@@ -46,11 +46,11 @@ export function TraceSearchFilterInput({
   const anchorRef = useRef<HTMLDivElement>(null);
 
   const addPredicate = (p: Predicate) => {
-    // Merge into the active set: a lower bound (`greater than`) and an upper bound
-    // (`less than`) on the same field coexist to form a range (e.g. latency > 5 and
-    // latency < 10, AND-combined by the backend); a same-direction bound, an exact
-    // `equals`, a categorical value, or a contradictory opposite bound that would make
-    // an empty range (e.g. errors > 5 then errors < 3) is superseded by the new one. The
+    // Merge into the active set: a lower bound (`greater than or equal to`) and an upper
+    // bound (`less than or equal to`) on the same field coexist to form a range (e.g.
+    // latency ≥ 5 and latency ≤ 10, AND-combined by the backend); a same-direction bound,
+    // an exact `equals`, a categorical value, or a contradictory opposite bound that would
+    // make an empty range (e.g. errors ≥ 5 then errors ≤ 3) is superseded by the new one. The
     // popover stays open and the builder resets, so another filter can be added at once.
     onFiltersChange(upsertPredicate(filters, p));
   };
