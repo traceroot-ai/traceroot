@@ -235,7 +235,11 @@ describe("NewDetectorPage", () => {
     renderPage();
 
     expect(await screen.findByText("Models unavailable")).toBeDefined();
-    expect(screen.getByText(/Unable to load workspace models/)).toBeDefined();
+    expect(
+      screen.getByText(
+        "Unable to load workspace models. Refresh the page before creating a detector.",
+      ),
+    ).toBeDefined();
     expect(screen.getByRole("button", { name: "Create Detector" })).toHaveProperty(
       "disabled",
       true,

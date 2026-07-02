@@ -35,7 +35,7 @@ The pipeline that runs on every trace:
 
 1. **Ingest.** A trace lands in the project.
 2. **Match.** TraceRoot decides which detectors apply (default: all enabled detectors in the project).
-3. **Evaluate.** The selected detector model reads the trace and returns `identified` plus a short summary. Omitted legacy/internal detector creates use a configured detector-safe default model when available.
+3. **Evaluate.** The selected detector model reads the trace and returns `identified` plus a short summary.
 4. **Diagnose.** When `identified` is true, the trace becomes a **finding** and — provided at least one detector that fired on the trace has **Run root cause analysis on findings** enabled — the TraceRoot AI agent investigates: it downloads the trace, reads your production source code at the failure point, checks recent commits and PRs touching that file, and produces a root cause analysis.
 5. **Alert.** The combined finding plus RCA is sent to your configured channels (email, Slack).
 

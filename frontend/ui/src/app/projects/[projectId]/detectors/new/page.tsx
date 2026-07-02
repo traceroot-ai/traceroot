@@ -217,12 +217,7 @@ export default function NewDetectorPage() {
                       ) : isModelsLoading ? (
                         "Loading workspace models before detector creation can continue."
                       ) : isModelsError ? (
-                        <>
-                          Unable to load workspace models. Refresh the page. If you use BYOK, check
-                          Model Providers. If you rely on system models, ask an admin to verify
-                          server env vars and workspace model catalog availability.{" "}
-                          {modelProviderSettingsLink}
-                        </>
+                        "Unable to load workspace models. Refresh the page before creating a detector."
                       ) : hasUnsupportedOnlyDetectorModels ? (
                         <>
                           This workspace has model providers configured, but none expose

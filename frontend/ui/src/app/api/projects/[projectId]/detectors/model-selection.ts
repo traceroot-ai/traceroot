@@ -106,6 +106,45 @@ export async function resolveDefaultDetectorModelSelection(
   return modelSelectionError(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR);
 }
 
+export async function resolveLegacyDetectorModelSelection(
+  workspaceId: string,
+  selection: { model: string; provider: string },
+): Promise<ResolvedDetectorModelSelection | { error: string }> {
+  const model = selection.model.trim();
+  const provider = selection.provider.trim();
+
+  if (!model || !provider) {
+    return modelSelectionError(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR);
+  }
+
+  const normalizedProvider = provider.toLowerCase();
+  const systemProvider = SYSTEM_MODELS.find(
+    (candidate) =>
+      candidate.provider.toLowerCase() === normalizedProvider ||
+      candidate.piAIProvider.toLowerCase() === normalizedProvider,
+  );
+  const matchesSystemModel = Boolean(
+    systemProvider?.models.some((candidate) => candidate.id === model),
+  );
+
+  if (systemProvider && matchesSystemModel && process.env[systemProvider.envVar]) {
+    return { model, provider: systemProvider.provider, source: ModelSource.SYSTEM };
+  }
+
+  const byokSelection = await validateDetectorModelSelection(workspaceId, {
+    model,
+    provider,
+    source: ModelSource.BYOK,
+  });
+  if (!("error" in byokSelection)) return byokSelection;
+
+  if (systemProvider && matchesSystemModel) {
+    return modelSelectionError("Selected system provider is not available for this workspace");
+  }
+
+  return byokSelection;
+}
+
 export async function validateDetectorModelSelection(
   workspaceId: string,
   selection: ResolvedDetectorModelSelection,

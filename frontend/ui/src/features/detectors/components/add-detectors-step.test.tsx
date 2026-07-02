@@ -173,12 +173,41 @@ describe("AddDetectorsStep", () => {
     expect(
       screen.getByText("Configured providers only expose unsupported detector models."),
     ).toBeDefined();
-    expect(screen.getByText(/Self-hosted deployments need an admin/).textContent).toContain(
-      "OPENAI_API_KEY",
-    );
+    expect(
+      screen.getByText(/A provider is configured, but its models are not supported/),
+    ).toBeDefined();
+    expect(screen.queryByText(/Self-hosted deployments need an admin/)).toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Configure BYOK providers" }).getAttribute("href"),
+    ).toBe("/workspaces/workspace-1/settings/model-providers");
     expect((continueButton() as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(continueButton());
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("allows quick-add templates when a supported BYOK detector model is configured", async () => {
+    mocks.models = {
+      systemModels: [],
+      byokProviders: [
+        {
+          provider: "workspace-openai",
+          adapter: "openai",
+          source: "byok",
+          models: [{ id: "gpt-5.4-mini", label: "GPT 5.4 mini", supported: true }],
+        },
+      ],
+    };
+    mocks.mutateAsync.mockResolvedValue({ id: "det-1" });
+    const { onDone } = renderStep();
+
+    fireEvent.click(pill("Failure"));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect((continueButton() as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(mocks.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({ template: "failure" });
   });
 
   it("creates one detector per selected template with the shared defaults", async () => {

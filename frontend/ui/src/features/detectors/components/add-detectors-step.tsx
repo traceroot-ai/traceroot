@@ -59,9 +59,12 @@ export function AddDetectorsStep({
           : selectableModels.length === 0
             ? "Configured providers only expose unsupported detector models."
             : null;
+  const hasUnsupportedOnlyModels = configuredModels.length > 0 && selectableModels.length === 0;
   const createBlockedByModels = selected.length > 0 && modelSetupBlocked;
   const showModelSetupGuidance =
     modelSetupBlocked && !modelsQuery.isLoading && !modelsQuery.isError;
+  const showUnsupportedModelGuidance = showModelSetupGuidance && hasUnsupportedOnlyModels;
+  const showMissingModelGuidance = showModelSetupGuidance && !hasUnsupportedOnlyModels;
   const createDisabled = submitting || createBlockedByModels;
   const createStatus = submitting ? "Adding..." : "Continue";
   const modelProviderSettingsLink = workspaceId ? (
@@ -152,7 +155,14 @@ export function AddDetectorsStep({
       {selected.length > 0 && modelStatusMessage && (
         <div role="alert" className="space-y-1 text-[12px] text-muted-foreground">
           <p>{modelStatusMessage}</p>
-          {showModelSetupGuidance && (
+          {showUnsupportedModelGuidance && (
+            <p>
+              A provider is configured, but its models are not supported for detector evaluation.
+              Update the provider model list to a Traceroot-supported model, then return here.{" "}
+              {modelProviderSettingsLink}
+            </p>
+          )}
+          {showMissingModelGuidance && (
             <p>
               Self-hosted deployments need an admin to set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`
               in the server environment. To use a workspace-scoped key instead, add a BYOK provider.{" "}
@@ -168,8 +178,9 @@ export function AddDetectorsStep({
           {failureDetails && /model|provider|byok|system/i.test(failureDetails) && (
             <p>
               No supported detector model is configured yet. Self-hosted deployments need an admin
-              to set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the server environment. To use a
-              workspace-scoped key instead, add a BYOK provider. {modelProviderSettingsLink}
+              to set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the server environment. If a
+              provider is already configured, update it to expose a Traceroot-supported model. To
+              use a workspace-scoped key instead, add a BYOK provider. {modelProviderSettingsLink}
             </p>
           )}
         </div>

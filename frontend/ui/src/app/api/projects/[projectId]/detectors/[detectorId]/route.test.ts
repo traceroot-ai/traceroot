@@ -115,6 +115,70 @@ describe("PATCH .../detectors/[detectorId] — model selection validation", () =
     expect(detectorUpdateMock.mock.calls[0][0].data).toEqual({ prompt: "New prompt" });
   });
 
+  it("backfills a legacy source-null system tuple on unrelated updates", async () => {
+    detectorFindFirstMock.mockResolvedValueOnce({
+      ...existingDetector,
+      detectionSource: null,
+    });
+
+    const res = await PATCH(makeRequest({ prompt: "New prompt" }), makeParams());
+
+    expect(res.status).toBe(200);
+    expect(modelProviderFindFirstMock).not.toHaveBeenCalled();
+    expect(detectorUpdateMock.mock.calls[0][0].data).toMatchObject({
+      prompt: "New prompt",
+      detectionModel: "claude-4",
+      detectionProvider: "Anthropic",
+      detectionSource: "system",
+    });
+  });
+
+  it("backfills a legacy source-null BYOK tuple on unrelated updates", async () => {
+    detectorFindFirstMock.mockResolvedValueOnce({
+      ...existingDetector,
+      detectionModel: "gpt-5.4-mini",
+      detectionProvider: "my-openai",
+      detectionSource: null,
+    });
+    modelProviderFindFirstMock.mockResolvedValue({
+      provider: "my-openai",
+      adapter: "openai",
+      customModels: ["gpt-5.4-mini"],
+    });
+
+    const res = await PATCH(makeRequest({ prompt: "New prompt" }), makeParams());
+
+    expect(res.status).toBe(200);
+    expect(modelProviderFindFirstMock).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace-1", provider: "my-openai", enabled: true },
+      select: { provider: true, adapter: true, customModels: true },
+    });
+    expect(detectorUpdateMock.mock.calls[0][0].data).toMatchObject({
+      prompt: "New prompt",
+      detectionModel: "gpt-5.4-mini",
+      detectionProvider: "my-openai",
+      detectionSource: "byok",
+    });
+  });
+
+  it("rejects unrelated updates when a legacy source-null BYOK tuple is no longer available", async () => {
+    detectorFindFirstMock.mockResolvedValueOnce({
+      ...existingDetector,
+      detectionModel: "gpt-5.4-mini",
+      detectionProvider: "missing-openai",
+      detectionSource: null,
+    });
+    modelProviderFindFirstMock.mockResolvedValue(null);
+
+    const res = await PATCH(makeRequest({ prompt: "New prompt" }), makeParams());
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Selected BYOK provider is not available for this workspace",
+    });
+    expect(detectorUpdateMock).not.toHaveBeenCalled();
+  });
+
   it("rejects unrelated updates when the stored system provider becomes unavailable", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "");
 

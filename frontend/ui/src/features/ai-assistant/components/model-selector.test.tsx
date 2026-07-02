@@ -177,9 +177,8 @@ describe("ModelSelector", () => {
     fireEvent.click(screen.getByRole("button"));
 
     expect(screen.getByText("Unable to load models")).toBeDefined();
-    expect(
-      screen.getByRole("link", { name: "Configure BYOK providers" }).getAttribute("href"),
-    ).toBe("/workspaces/workspace-1/settings/model-providers");
+    expect(screen.getByText("Refresh the page before selecting a model.")).toBeDefined();
+    expect(screen.queryByRole("link", { name: "Configure BYOK providers" })).toBeNull();
   });
 
   it("shows an empty-provider state without auto-picking when no models are configured", () => {

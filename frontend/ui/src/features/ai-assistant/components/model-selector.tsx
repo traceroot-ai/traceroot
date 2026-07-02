@@ -212,19 +212,7 @@ export function ModelSelector({
               ) : hasModelLoadError ? (
                 <div className="space-y-1.5">
                   <p>Unable to load models</p>
-                  <p>
-                    Refresh the page. If you use BYOK, check Model Providers. If you rely on system
-                    models, ask an admin to verify server env vars and workspace model catalog
-                    availability.
-                  </p>
-                  {workspaceId && (
-                    <Link
-                      href={`/workspaces/${workspaceId}/settings/model-providers`}
-                      className="font-medium text-foreground underline underline-offset-2"
-                    >
-                      Configure BYOK providers
-                    </Link>
-                  )}
+                  <p>Refresh the page before selecting a model.</p>
                 </div>
               ) : hasUnsupportedOnlyModelList ? (
                 <div className="space-y-1.5">

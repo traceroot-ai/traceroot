@@ -8,6 +8,8 @@ import {
 } from "@/lib/auth-helpers";
 import {
   DETECTOR_MODEL_SELECTION_REQUIRED_ERROR,
+  type ResolvedDetectorModelSelection,
+  resolveLegacyDetectorModelSelection,
   validateDetectorModelSelection,
 } from "../model-selection";
 
@@ -178,15 +180,29 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
           ? existing.detectionSource
           : null;
 
-    if (!nextModel || !nextProvider || nextSource === null) {
+    if (!nextModel || !nextProvider) {
       return errorResponse(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR, 400);
     }
 
-    const modelSelection = await validateDetectorModelSelection(accessResult.project.workspaceId, {
-      model: nextModel,
-      provider: nextProvider,
-      source: nextSource,
-    });
+    const shouldNormalizeLegacyTuple =
+      nextSource === null && sourceStr === undefined && !touchesModelSelection;
+
+    let modelSelection: ResolvedDetectorModelSelection | { error: string };
+    if (shouldNormalizeLegacyTuple) {
+      modelSelection = await resolveLegacyDetectorModelSelection(accessResult.project.workspaceId, {
+        model: nextModel,
+        provider: nextProvider,
+      });
+    } else {
+      if (nextSource === null) {
+        return errorResponse(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR, 400);
+      }
+      modelSelection = await validateDetectorModelSelection(accessResult.project.workspaceId, {
+        model: nextModel,
+        provider: nextProvider,
+        source: nextSource,
+      });
+    }
     if ("error" in modelSelection) {
       return errorResponse(modelSelection.error, 400);
     }

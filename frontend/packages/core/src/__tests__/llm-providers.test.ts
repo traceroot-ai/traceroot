@@ -8,6 +8,10 @@ import {
 } from "../llm-providers.ts";
 
 describe("DETECTOR_SYSTEM_DEFAULT_MODEL_IDS", () => {
+  it("preserves the detector system fallback order", () => {
+    expect([...DETECTOR_SYSTEM_DEFAULT_MODEL_IDS]).toEqual(["claude-haiku-4-5", "gpt-5.4-mini"]);
+  });
+
   it("references real system models in fallback order", () => {
     for (const modelId of DETECTOR_SYSTEM_DEFAULT_MODEL_IDS) {
       const provider = SYSTEM_MODELS.find((system) =>
