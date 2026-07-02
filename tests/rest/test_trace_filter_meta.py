@@ -102,6 +102,17 @@ class TestFilterValues:
             "start_after"
         ] == datetime(2026, 6, 1, 0, 0, 0)
 
+    def test_end_before_is_threaded_to_the_service(self, client, mock_trace_reader):
+        mock_trace_reader.get_distinct_span_values.return_value = []
+        resp = client.get(
+            "/api/v1/projects/p1/traces/filter-values/environment"
+            "?start_after=2026-06-01T00:00:00&end_before=2026-06-02T00:00:00"
+        )
+        assert resp.status_code == 200
+        kw = mock_trace_reader.get_distinct_span_values.call_args.kwargs
+        assert kw["start_after"] == datetime(2026, 6, 1, 0, 0, 0)
+        assert kw["end_before"] == datetime(2026, 6, 2, 0, 0, 0)
+
     def test_unknown_field_is_404(self, client, mock_trace_reader):
         resp = client.get("/api/v1/projects/p1/traces/filter-values/not_a_field")
         assert resp.status_code == 404
@@ -139,7 +150,44 @@ class TestGetDistinctSpanValues:
         assert "project_id = {project_id:String}" in query_text
         params = kwargs["parameters"]
         assert params["project_id"] == "p1"
-        assert "start_after" not in params  # no window → no time bound
+
+    def test_no_window_defaults_a_lookback_bound_never_unbounded(self, monkeypatch):
+        """A direct caller passing no window must not trigger an all-time span scan:
+        a default lower bound is injected (symmetric with the filtered trace list)."""
+        from datetime import UTC, datetime, timedelta
+
+        from rest.services.trace_reader import DEFAULT_SPAN_SCAN_LOOKBACK_HOURS
+
+        mock_client = MagicMock()
+        mock_client.query.return_value.result_rows = []
+        svc = self._service(monkeypatch, mock_client)
+
+        before = datetime.now(UTC).replace(tzinfo=None)
+        svc.get_distinct_span_values(project_id="p1", column="model_name")
+        after = datetime.now(UTC).replace(tzinfo=None)
+
+        sql, kwargs = mock_client.query.call_args
+        assert "span_start_time >= {start_after:DateTime64(3)}" in sql[0]
+        lo, hi = (
+            before - timedelta(hours=DEFAULT_SPAN_SCAN_LOOKBACK_HOURS),
+            after - timedelta(hours=DEFAULT_SPAN_SCAN_LOOKBACK_HOURS),
+        )
+        assert lo <= kwargs["parameters"]["start_after"] <= hi
+
+    def test_end_before_only_defaults_start_relative_to_it(self, monkeypatch):
+        from datetime import datetime, timedelta
+
+        from rest.services.trace_reader import DEFAULT_SPAN_SCAN_LOOKBACK_HOURS
+
+        mock_client = MagicMock()
+        mock_client.query.return_value.result_rows = []
+        svc = self._service(monkeypatch, mock_client)
+
+        end = datetime(2026, 6, 2, 12, 0, 0)
+        svc.get_distinct_span_values(project_id="p1", column="model_name", end_before=end)
+
+        params = mock_client.query.call_args.kwargs["parameters"]
+        assert params["start_after"] == end - timedelta(hours=DEFAULT_SPAN_SCAN_LOOKBACK_HOURS)
 
     def test_start_after_adds_a_time_bound(self, monkeypatch):
         mock_client = MagicMock()
@@ -152,6 +200,36 @@ class TestGetDistinctSpanValues:
         sql, kwargs = mock_client.query.call_args
         assert "span_start_time >= {start_after:DateTime64(3)}" in sql[0]
         assert kwargs["parameters"]["start_after"] is not None
+
+    def test_end_before_adds_an_upper_time_bound(self, monkeypatch):
+        mock_client = MagicMock()
+        mock_client.query.return_value.result_rows = []
+        svc = self._service(monkeypatch, mock_client)
+
+        svc.get_distinct_span_values(
+            project_id="p1",
+            column="model_name",
+            start_after=datetime(2026, 6, 1),
+            end_before=datetime(2026, 6, 2),
+        )
+        sql, kwargs = mock_client.query.call_args
+        assert "span_start_time < {end_before:DateTime64(3)}" in sql[0]
+        assert kwargs["parameters"]["end_before"] == datetime(2026, 6, 2)
+
+    def test_subminute_window_jitter_reuses_the_cache(self, monkeypatch):
+        """Sub-minute jitter in the window (the UI recomputes "now" each render) must
+        share one cache entry, so it can't trivially bypass the cache."""
+        mock_client = MagicMock()
+        mock_client.query.return_value.result_rows = [("gpt-4", 10)]
+        svc = self._service(monkeypatch, mock_client)
+
+        svc.get_distinct_span_values(
+            project_id="p1", column="model_name", start_after=datetime(2026, 6, 1, 0, 0, 5)
+        )
+        svc.get_distinct_span_values(
+            project_id="p1", column="model_name", start_after=datetime(2026, 6, 1, 0, 0, 45)
+        )
+        mock_client.query.assert_called_once()  # same minute → one heavy GROUP BY
 
     def test_results_are_cached_per_project_field_window(self, monkeypatch):
         mock_client = MagicMock()

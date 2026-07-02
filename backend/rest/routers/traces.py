@@ -88,9 +88,14 @@ async def list_traces(
 
 
 @router.get("/filter-fields", response_model=FilterFieldsResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
 async def get_filter_fields(
+    request: Request,
+    response: Response,
     project_id: str,
-    _access: ProjectAccess,  # Validates user has access to project
+    _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
 ):
     """Serialize the filter field registry that drives the filter dropdown.
 
@@ -100,7 +105,7 @@ async def get_filter_fields(
     Args:
         project_id (str): Project from the path; scopes access (the field set itself
             is the same for every project).
-        _access (ProjectAccess): Validates the user's access to the project.
+        _access (RateLimitedProjectAccess): Validates access and sets rate-limit identity.
 
     Returns:
         FilterFieldsResponse: One entry per registry column with its UI metadata.
@@ -123,12 +128,20 @@ async def get_filter_fields(
 
 
 @router.get("/filter-values/{field}", response_model=FilterValuesResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
 async def get_filter_values(
+    request: Request,
+    response: Response,
     project_id: str,
     field: str,
-    _access: ProjectAccess,  # Validates user has access to project
+    _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
     start_after: datetime | None = Query(
         None, description="Only consider spans starting at or after this timestamp"
+    ),
+    end_before: datetime | None = Query(
+        None, description="Only consider spans starting before this timestamp"
     ),
 ):
     """Distinct values for an open-ended categorical filter field.
@@ -141,8 +154,10 @@ async def get_filter_values(
     Args:
         project_id (str): Project that owns the spans; server-bound for isolation.
         field (str): The categorical field to enumerate.
-        _access (ProjectAccess): Validates the user's access to the project.
+        _access (RateLimitedProjectAccess): Validates access and sets rate-limit identity.
         start_after (datetime | None): Lower bound on span start time (active window).
+        end_before (datetime | None): Upper bound on span start time (active window),
+            symmetric with ``start_after`` so options match the list's window.
 
     Returns:
         FilterValuesResponse: Distinct values ordered by descending frequency.
@@ -165,7 +180,7 @@ async def get_filter_values(
 
     service = get_trace_reader_service()
     values = service.get_distinct_span_values(
-        project_id=project_id, column=column.name, start_after=start_after
+        project_id=project_id, column=column.name, start_after=start_after, end_before=end_before
     )
     return {"field": field, "values": values}
 
