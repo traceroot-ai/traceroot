@@ -97,7 +97,7 @@ def _sample_passes(trace_id: str, detector_id: str, sample_rate: float | None) -
         trace_id (str): Trace being considered.
         detector_id (str): Detector whose sampling is being rolled.
         sample_rate (float | None): Detector sample rate as a percentage. The
-            schema constrains this to an int in 1-100, but it is read straight
+            schema constrains this to an int in 0-100, but it is read straight
             from the DB, so we guard against a missing or out-of-range value
             rather than trust it.
 

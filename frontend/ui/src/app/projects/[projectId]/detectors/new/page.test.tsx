@@ -80,6 +80,7 @@ describe("NewDetectorPage", () => {
       outputSchema: failure.outputSchema,
       triggerConditions: failure.defaultConditions,
       sampleRate: 25,
+      enabled: true,
       enableRca: true,
       detectionModel: undefined,
       detectionProvider: undefined,
