@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Plus, Settings, Slash } from "lucide-react";
+import { Check, ChevronDown, Plus, Settings, Slash } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -172,12 +172,10 @@ function BreadcrumbOptionContent({
 }) {
   return (
     <span className="flex w-full items-center justify-between">
-      <span className="flex min-w-0 items-center gap-1.5">
-        {option.isCurrent && (
-          <span aria-hidden="true" className="shrink-0 text-[11px]">
-            &#10003;
-          </span>
-        )}
+      <span className="flex min-w-0 items-center pl-6">
+        <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+          {option.isCurrent && <Check aria-hidden="true" className="h-4 w-4" />}
+        </span>
         <span className="max-w-36 truncate" title={option.label}>
           {option.label}
         </span>
