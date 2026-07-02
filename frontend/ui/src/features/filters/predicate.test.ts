@@ -21,6 +21,14 @@ describe("canonicalizeFilters", () => {
   it("maps empty and undefined to the same stable key", () => {
     expect(canonicalizeFilters([])).toBe(canonicalizeFilters(undefined));
   });
+
+  it("folds an `in` value list that differs only in order to one key", () => {
+    // The matched-value set is order-independent, so hover-prefetch and the list hook
+    // must produce the same cache entry regardless of value order.
+    const a = canonicalizeFilters([{ field: "model_name", op: "in", value: ["a", "b"] }]);
+    const b = canonicalizeFilters([{ field: "model_name", op: "in", value: ["b", "a"] }]);
+    expect(a).toBe(b);
+  });
 });
 
 describe("serializeFiltersParam", () => {
@@ -33,6 +41,19 @@ describe("serializeFiltersParam", () => {
     const raw = serializeFiltersParam([modelFilter, costFilter]);
     expect(raw).not.toBeNull();
     expect(parseFiltersParam(raw)).toEqual([modelFilter, costFilter]);
+  });
+
+  it("drops invalid predicates on the way out (symmetric with parse)", () => {
+    const emptyIn = { field: "model_name", op: "in", value: [] } as unknown as Predicate;
+    // Assert the RAW serialized output — NOT laundered back through parseFiltersParam,
+    // which would re-drop the empty `in` itself and make the test pass even if serialize
+    // failed to filter. A serialize that kept it would yield a two-element array here.
+    expect(JSON.parse(serializeFiltersParam([modelFilter, emptyIn])!)).toEqual([modelFilter]);
+  });
+
+  it("returns null when every predicate is invalid (no param emitted)", () => {
+    const emptyIn = { field: "model_name", op: "in", value: [] } as unknown as Predicate;
+    expect(serializeFiltersParam([emptyIn])).toBeNull();
   });
 });
 
@@ -50,6 +71,11 @@ describe("parseFiltersParam", () => {
       { field: "cost", op: "between", value: [1] }, // wrong arity
       { field: "model_name", op: "in", value: "notarray" }, // wrong value type
     ]);
+    expect(parseFiltersParam(raw)).toEqual([modelFilter]);
+  });
+
+  it("drops an empty `in` predicate (matches nothing; backend would 422 the list)", () => {
+    const raw = JSON.stringify([modelFilter, { field: "model_name", op: "in", value: [] }]);
     expect(parseFiltersParam(raw)).toEqual([modelFilter]);
   });
 
