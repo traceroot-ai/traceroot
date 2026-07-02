@@ -256,51 +256,69 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           resolve();
         },
         onDone: async () => {
-          console.log(`[Agent] Done. Assistant text length: ${assistantText.length}`);
-          // Persist assistant response to DB via SessionManager
-          if (assistantText) {
-            // Use our pricing table if pi-ai returned 0 cost
-            const cost =
-              totalCost > 0
-                ? totalCost
-                : responseModel
-                  ? await calculateCost(
-                      responseModel,
-                      totalInputTokens,
-                      totalOutputTokens,
-                      totalCacheReadTokens,
-                      totalCacheWriteTokens,
-                    )
-                  : 0;
-            if (cost === 0 && responseModel && (totalInputTokens > 0 || totalOutputTokens > 0)) {
-              console.warn(
-                `[Agent] Standard model pricing missing for "${responseModel}", cost recorded as $0`,
-              );
+          try {
+            console.log(`[Agent] Done. Assistant text length: ${assistantText.length}`);
+            // Persist assistant response to DB via SessionManager
+            if (assistantText) {
+              // Use our pricing table if pi-ai returned 0 cost
+              const cost =
+                totalCost > 0
+                  ? totalCost
+                  : responseModel
+                    ? await calculateCost(
+                        responseModel,
+                        totalInputTokens,
+                        totalOutputTokens,
+                        totalCacheReadTokens,
+                        totalCacheWriteTokens,
+                      )
+                    : 0;
+              if (cost === 0 && responseModel && (totalInputTokens > 0 || totalOutputTokens > 0)) {
+                console.warn(
+                  `[Agent] Standard model pricing missing for "${responseModel}", cost recorded as $0`,
+                );
+              }
+              const tokenUsage = responseModel
+                ? {
+                    model: responseModel,
+                    provider: responseProvider || "unknown",
+                    isByok: body.source === ModelSource.BYOK,
+                    inputTokens: totalInputTokens,
+                    outputTokens: totalOutputTokens,
+                    cost,
+                  }
+                : undefined;
+              await sessionManager.appendMessage("assistant", assistantText, undefined, tokenUsage);
             }
-            const tokenUsage = responseModel
-              ? {
-                  model: responseModel,
-                  provider: responseProvider || "unknown",
-                  isByok: body.source === ModelSource.BYOK,
-                  inputTokens: totalInputTokens,
-                  outputTokens: totalOutputTokens,
-                  cost,
-                }
-              : undefined;
-            await sessionManager.appendMessage("assistant", assistantText, undefined, tokenUsage);
+            stream.writeSSE({ event: "done", data: "{}" });
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "Unknown agent completion error";
+            console.error(`[Agent] ERROR:`, message);
+            stream.writeSSE({
+              event: "error",
+              data: JSON.stringify({ message }),
+            });
+          } finally {
+            resolve();
           }
-          stream.writeSSE({ event: "done", data: "{}" });
-          resolve();
         },
-      })
-        .catch((error) => {
+      }).catch((error) => {
+        if (error instanceof Error) {
           console.error(`[Agent] ERROR:`, error.message);
           stream.writeSSE({
             event: "error",
             data: JSON.stringify({ message: error.message }),
           });
-        })
-        .finally(resolve);
+        } else {
+          console.error(`[Agent] ERROR:`, error);
+          stream.writeSSE({
+            event: "error",
+            data: JSON.stringify({ message: "Unknown agent runner error" }),
+          });
+        }
+        resolve();
+      });
     });
   });
 });
