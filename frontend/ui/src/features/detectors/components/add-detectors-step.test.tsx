@@ -2,9 +2,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 import { getTemplate } from "../templates";
+import type { LLMModelsResponse } from "@/lib/api";
 
 const mocks = vi.hoisted(() => {
-  const defaultModels = {
+  const defaultModels: LLMModelsResponse = {
     byokProviders: [],
     systemModels: [
       {
@@ -19,7 +20,7 @@ const mocks = vi.hoisted(() => {
   return {
     mutateAsync: vi.fn(),
     defaultModels,
-    models: defaultModels as typeof defaultModels | undefined,
+    models: defaultModels as LLMModelsResponse | undefined,
     isLoading: false,
     isError: false,
   };
@@ -131,6 +132,52 @@ describe("AddDetectorsStep", () => {
       screen.getByText("Loading detector models before quick-add can continue."),
     ).toBeDefined();
     expect((continueButton() as HTMLButtonElement).disabled).toBe(true);
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("blocks selected quick-add templates when detector models cannot be loaded", () => {
+    mocks.models = undefined;
+    mocks.isError = true;
+    renderStep();
+
+    fireEvent.click(pill("Failure"));
+
+    expect(
+      screen.getByText(
+        "Unable to load workspace models. Refresh this page before adding detectors.",
+      ),
+    ).toBeDefined();
+    expect(screen.queryByText(/Self-hosted deployments need an admin/)).toBeNull();
+    expect(screen.queryByRole("link", { name: "Configure BYOK providers" })).toBeNull();
+    expect((continueButton() as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(continueButton());
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("blocks selected quick-add templates when only unsupported BYOK models are configured", () => {
+    mocks.models = {
+      systemModels: [],
+      byokProviders: [
+        {
+          provider: "legacy-provider",
+          adapter: "openai",
+          source: "byok",
+          models: [{ id: "legacy-local", label: "Legacy Local", supported: false }],
+        },
+      ],
+    };
+    renderStep();
+
+    fireEvent.click(pill("Failure"));
+
+    expect(
+      screen.getByText("Configured providers only expose unsupported detector models."),
+    ).toBeDefined();
+    expect(screen.getByText(/Self-hosted deployments need an admin/).textContent).toContain(
+      "OPENAI_API_KEY",
+    );
+    expect((continueButton() as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(continueButton());
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
   });
 

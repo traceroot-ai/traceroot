@@ -157,7 +157,7 @@ describe("fetchProviderConfig", () => {
 });
 
 describe("findByokKeyForPiProvider", () => {
-  it("returns key from first BYOK row whose adapter maps to the requested pi-ai provider", async () => {
+  it("returns key from the first deterministically ordered BYOK row whose adapter maps to the requested pi-ai provider", async () => {
     invalidateProviderConfigCache("ws-2", "my-claude");
     (prisma.modelProvider.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
       { provider: "my-claude", adapter: "anthropic" },
@@ -172,6 +172,11 @@ describe("findByokKeyForPiProvider", () => {
     });
     const key = await findByokKeyForPiProvider("ws-2", "anthropic");
     expect(key).toBe("decrypted-key");
+    expect(prisma.modelProvider.findMany).toHaveBeenCalledWith({
+      where: { workspaceId: "ws-2", enabled: true },
+      select: { provider: true, adapter: true },
+      orderBy: [{ createTime: "asc" }, { id: "asc" }],
+    });
   });
 
   it("matches BYOK rows whose adapter is OpenAI-compatible (e.g. deepseek → openai)", async () => {

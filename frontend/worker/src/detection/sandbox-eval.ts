@@ -172,10 +172,11 @@ export async function runDetectionForTrace(params: {
 
   // 2. Resolve model. Legacy detectors may have neither source nor model; keep
   // those on the detector-specific cheap system default instead of the generic
-  // catalog-first default while preserving null source attribution.
+  // catalog-first default while preserving null source attribution. Source-null
+  // legacy rows ignore stale provider-only values because there is no trusted
+  // source/provider tuple to resolve.
   const shouldUseDetectorDefault =
-    !detector.detectionModel &&
-    (source === "system" || (source === null && !detector.detectionProvider));
+    !detector.detectionModel && (source === "system" || source === null);
   const modelId =
     detector.detectionModel ??
     (shouldUseDetectorDefault ? resolveDetectorSystemDefaultModelId() : undefined);

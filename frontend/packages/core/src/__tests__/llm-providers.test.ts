@@ -4,7 +4,30 @@ import {
   SYSTEM_MODELS,
   ADAPTER_API_PROTOCOL,
   LLMAdapter,
+  DETECTOR_SYSTEM_DEFAULT_MODEL_IDS,
 } from "../llm-providers.ts";
+
+describe("DETECTOR_SYSTEM_DEFAULT_MODEL_IDS", () => {
+  it("references real system models in fallback order", () => {
+    for (const modelId of DETECTOR_SYSTEM_DEFAULT_MODEL_IDS) {
+      const provider = SYSTEM_MODELS.find((system) =>
+        system.models.some((model) => model.id === modelId),
+      );
+
+      expect(provider, `detector default "${modelId}" is missing from SYSTEM_MODELS`).toBeDefined();
+    }
+  });
+
+  it("keeps the OpenAI detector fallback backed by the OpenAI system provider", () => {
+    const openAiFallback = SYSTEM_MODELS.find((system) =>
+      system.models.some((model) => model.id === "gpt-5.4-mini"),
+    );
+
+    expect(openAiFallback?.provider).toBe("OpenAI");
+    expect(openAiFallback?.envVar).toBe("OPENAI_API_KEY");
+    expect(DETECTOR_SYSTEM_DEFAULT_MODEL_IDS).toContain("gpt-5.4-mini");
+  });
+});
 
 describe("ADAPTER_MODELS", () => {
   it("contains no duplicate model IDs within a single adapter", () => {

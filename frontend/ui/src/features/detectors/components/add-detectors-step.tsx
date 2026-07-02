@@ -60,6 +60,8 @@ export function AddDetectorsStep({
             ? "Configured providers only expose unsupported detector models."
             : null;
   const createBlockedByModels = selected.length > 0 && modelSetupBlocked;
+  const showModelSetupGuidance =
+    modelSetupBlocked && !modelsQuery.isLoading && !modelsQuery.isError;
   const createDisabled = submitting || createBlockedByModels;
   const createStatus = submitting ? "Adding..." : "Continue";
   const modelProviderSettingsLink = workspaceId ? (
@@ -150,7 +152,7 @@ export function AddDetectorsStep({
       {selected.length > 0 && modelStatusMessage && (
         <div role="alert" className="space-y-1 text-[12px] text-muted-foreground">
           <p>{modelStatusMessage}</p>
-          {modelSetupBlocked && !modelsQuery.isLoading && (
+          {showModelSetupGuidance && (
             <p>
               Self-hosted deployments need an admin to set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`
               in the server environment. To use a workspace-scoped key instead, add a BYOK provider.{" "}
