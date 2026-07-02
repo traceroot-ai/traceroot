@@ -94,7 +94,7 @@ describe("BreadcrumbDropdown current option", () => {
 
     const menu = await screen.findByRole("menu");
     const current = within(menu).getByText("Workspace One");
-    expect(current.previousElementSibling?.textContent).toBe("✓");
+    expect(current.previousElementSibling?.querySelector("svg")).not.toBeNull();
     expect(current.closest("a")).toBeNull();
 
     const other = within(menu).getByText("Workspace Two").closest("a");
