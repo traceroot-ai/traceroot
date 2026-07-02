@@ -23,7 +23,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.74.0",
+    "@earendil-works/pi-ai": "0.80.3",
     "@traceroot/core": "workspace:*",
     "@traceroot/slack": "workspace:*",
     "bullmq": "^5.73.3",
