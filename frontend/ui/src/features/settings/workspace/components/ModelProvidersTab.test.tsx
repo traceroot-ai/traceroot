@@ -49,7 +49,7 @@ vi.mock("@/components/ui/select", () => ({
   ),
 }));
 
-import { ModelProvidersTab } from "./ModelProvidersTab";
+import { getBaseUrlPayload, ModelProvidersTab } from "./ModelProvidersTab";
 
 function renderTab() {
   const queryClient = new QueryClient({
@@ -155,6 +155,23 @@ describe("ModelProvidersTab - Test Connection error display", () => {
 });
 
 describe("ModelProvidersTab", () => {
+  describe("getBaseUrlPayload", () => {
+    it("omits empty Base URL in create mode", () => {
+      expect(getBaseUrlPayload("", false)).toEqual({});
+      expect(getBaseUrlPayload("   ", false)).toEqual({});
+    });
+
+    it("sends null when Base URL is cleared in edit mode", () => {
+      expect(getBaseUrlPayload("", true)).toEqual({ baseUrl: null });
+    });
+
+    it("trims a provided Base URL", () => {
+      expect(getBaseUrlPayload(" https://example.com/v1testing ", false)).toEqual({
+        baseUrl: "https://example.com/v1testing",
+      });
+    });
+  });
+
   it("sends null when a saved Base URL is cleared in edit mode", async () => {
     mocks.getModelProviders.mockResolvedValue({
       byokEnabled: true,
