@@ -144,6 +144,15 @@ def test_list_detectors_forwards_limit_and_project_scope(client, reader):
     assert args["limit"] == 10
 
 
+def test_list_detectors_forwards_time_window(client, reader):
+    client.get(
+        "/api/v1/public/detectors?start_after=2026-06-01T00:00:00Z&end_before=2026-06-30T00:00:00Z"
+    )
+    args = reader.detectors_args
+    assert args["start_after"] is not None
+    assert args["end_before"] is not None
+
+
 @pytest.mark.parametrize("limit", [0, 500])
 def test_list_detectors_rejects_out_of_range_limit(client, limit):
     assert client.get(f"/api/v1/public/detectors?limit={limit}").status_code == 422

@@ -1125,6 +1125,44 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "description": "Only detectors created at or after this time (inclusive, ISO 8601)",
+            "in": "query",
+            "name": "start_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only detectors created at or after this time (inclusive, ISO 8601)",
+              "title": "Start After"
+            }
+          },
+          {
+            "description": "Only detectors created before this time (exclusive, ISO 8601)",
+            "in": "query",
+            "name": "end_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only detectors created before this time (exclusive, ISO 8601)",
+              "title": "End Before"
+            }
           }
         ],
         "responses": {
