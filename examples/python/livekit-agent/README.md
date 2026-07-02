@@ -1,6 +1,6 @@
 # LiveKit Agent
 
-Voice agent using LiveKit Agents, instrumented with [TraceRoot](https://traceroot.ai).
+LiveKit Agents text-mode agent, instrumented with [TraceRoot](https://traceroot.ai).
 
 ## Setup
 
@@ -16,8 +16,9 @@ uv run --no-project --python 3.13 --with-requirements requirements.txt python ma
 
 ## What it does
 
-Starts a LiveKit voice agent and routes LiveKit's native OpenTelemetry spans
-through TraceRoot.
+Starts a LiveKit agent and routes LiveKit's native OpenTelemetry spans through
+TraceRoot. The example is intentionally text-mode friendly so it can be run from
+the console without microphone, STT, TTS, or turn-detector setup.
 
 The TraceRoot setup is intentionally small:
 

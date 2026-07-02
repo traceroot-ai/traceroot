@@ -15,8 +15,6 @@ else:
     print("No .env file found. Using process environment variables.")
 
 from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli, inference
-from livekit.plugins import silero
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 import traceroot
 from traceroot import Integration, using_attributes
@@ -36,15 +34,13 @@ server = AgentServer()
 @server.rtc_session(agent_name="traceroot-livekit-agent")
 async def entrypoint(ctx: JobContext) -> None:
     traceroot.initialize(integrations=[Integration.LIVEKIT])
-    ctx.add_shutdown_callback(traceroot.flush)
 
-    session = AgentSession(
-        stt=inference.STT(model="deepgram/nova-3", language="multi"),
-        tts=inference.TTS(model="cartesia/sonic-3"),
-        turn_detection=MultilingualModel(),
-        vad=silero.VAD.load(),
-        preemptive_generation=True,
-    )
+    async def flush_trace() -> None:
+        traceroot.flush()
+
+    ctx.add_shutdown_callback(flush_trace)
+
+    session = AgentSession()
 
     with using_attributes(session_id=ctx.room.name):
         await session.start(
