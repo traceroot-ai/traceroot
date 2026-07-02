@@ -7,7 +7,7 @@ const modelProviderFindFirstMock = vi.fn();
 const modelProviderFindManyMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
   ModelSource: { SYSTEM: "system", BYOK: "byok" },
-  PROVIDER_PRIORITY: ["anthropic", "openai"],
+  PROVIDER_PRIORITY: ["openai", "anthropic"],
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID: "claude-haiku-4-5",
   DETECTOR_SYSTEM_DEFAULT_MODEL_IDS: ["claude-haiku-4-5", "gpt-5.4-mini"],
   SYSTEM_MODELS: [

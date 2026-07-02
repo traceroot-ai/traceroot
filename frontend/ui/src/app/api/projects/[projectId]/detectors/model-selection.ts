@@ -77,10 +77,18 @@ function pickDefaultCandidate(
   return null;
 }
 
+function pickFirstCandidate(
+  candidates: DefaultModelCandidate[],
+): ResolvedDetectorModelSelection | null {
+  const fallback = candidates[0];
+  if (!fallback) return null;
+  return { model: fallback.model, provider: fallback.provider, source: fallback.source };
+}
+
 export function resolveDefaultSystemDetectorModelSelection():
   | ResolvedDetectorModelSelection
   | { error: string } {
-  const systemDefault = pickDefaultCandidate(buildDetectorSystemDefaultCandidates());
+  const systemDefault = pickFirstCandidate(buildDetectorSystemDefaultCandidates());
   if (systemDefault) return systemDefault;
 
   return modelSelectionError(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR);
