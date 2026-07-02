@@ -14,9 +14,7 @@ if dotenv_path:
 else:
     print("No .env file found. Using process environment variables.")
 
-from livekit.agents import Agent, AgentServer, AgentSession, JobContext, JobProcess, cli, inference
-from livekit.plugins import silero
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
+from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli
 
 import traceroot
 from traceroot import Integration, using_attributes
@@ -26,18 +24,10 @@ class Assistant(Agent):
     def __init__(self) -> None:
         super().__init__(
             instructions="You are a helpful voice AI assistant.",
-            llm=inference.LLM(model="openai/gpt-5.2-chat-latest"),
         )
 
 
 server = AgentServer()
-
-
-def prewarm(proc: JobProcess) -> None:
-    proc.userdata["vad"] = silero.VAD.load()
-
-
-server.setup_fnc = prewarm
 
 
 @server.rtc_session(agent_name="traceroot-livekit-agent")
@@ -50,11 +40,9 @@ async def entrypoint(ctx: JobContext) -> None:
     ctx.add_shutdown_callback(flush_trace)
 
     session = AgentSession(
-        stt=inference.STT(model="deepgram/nova-3", language="multi"),
-        tts=inference.TTS(model="cartesia/sonic-3"),
-        turn_detection=MultilingualModel(),
-        vad=ctx.proc.userdata["vad"],
-        preemptive_generation=True,
+        stt="deepgram/nova-3:en",
+        llm="openai/chat-latest",
+        tts="cartesia/sonic-3",
     )
 
     with using_attributes(session_id=ctx.room.name):

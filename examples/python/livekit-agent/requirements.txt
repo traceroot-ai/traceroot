@@ -1,7 +1,5 @@
 python-dotenv>=1.0.0
 
 livekit-agents>=1.0.0
-livekit-plugins-silero>=1.0.0
-livekit-plugins-turn-detector>=1.0.0
 
 traceroot>=0.1.12

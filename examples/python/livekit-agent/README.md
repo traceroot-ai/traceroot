@@ -24,7 +24,8 @@ uv run --no-project --python 3.13 --with-requirements requirements.txt python ma
 
 Starts a LiveKit agent and routes LiveKit's native OpenTelemetry spans through
 TraceRoot. The agent uses LiveKit Inference for STT, TTS, and LLM calls, plus
-Silero VAD and LiveKit's multilingual turn detector for voice interaction.
+LiveKit Agents' default bundled VAD and default turn detection for voice
+interaction.
 
 The TraceRoot setup is intentionally small:
 
@@ -37,5 +38,5 @@ The TraceRoot setup is intentionally small:
   away from TraceRoot.
 
 LiveKit currently emits an `agent_turn` span for each completed turn. The user's
-utterance is attached as that span's input, and the assistant response is
-attached as its output.
+voice input is emitted as a `user_turn` span, and the assistant response is
+emitted as an `agent_turn` span.
