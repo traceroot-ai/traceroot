@@ -2,11 +2,12 @@ import { complete, getEnvApiKey } from "@earendil-works/pi-ai";
 import {
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
   DETECTOR_SYSTEM_DEFAULT_MODEL_IDS,
+  ADAPTER_MODELS,
   SYSTEM_MODELS,
+  type LLMAdapter,
 } from "@traceroot/core";
 import type { Message, ToolCall, ProviderStreamOptions } from "@earendil-works/pi-ai";
 import {
-  findByokKeyForPiProvider,
   fetchProviderConfig,
   resolvePiModel,
   type ProviderModelConfig,
@@ -119,18 +120,45 @@ function resolveDetectorSystemDefaultModelId(): string {
   return DETECTOR_SYSTEM_DEFAULT_MODEL_ID;
 }
 
+function findSystemProviderForDetectorTuple(
+  modelId: string | null | undefined,
+  provider: string | null | undefined,
+) {
+  const trimmedModel = modelId?.trim();
+  const normalizedProvider = provider?.trim().toLowerCase();
+  if (!trimmedModel || !normalizedProvider) return null;
+
+  return (
+    SYSTEM_MODELS.find(
+      (candidate) =>
+        (candidate.provider.toLowerCase() === normalizedProvider ||
+          candidate.piAIProvider.toLowerCase() === normalizedProvider) &&
+        candidate.models.some((model) => model.id === trimmedModel),
+    ) ?? null
+  );
+}
+
+function byokProviderSupportsDetectorModel(
+  providerConfig: ProviderModelConfig,
+  modelId: string,
+): boolean {
+  const configuredModels = providerConfig.customModels?.map((id) => id.trim()).filter(Boolean);
+  if (configuredModels && !configuredModels.includes(modelId)) return false;
+
+  const catalog = ADAPTER_MODELS[providerConfig.adapter as LLMAdapter];
+  return !catalog || catalog.some((candidate) => candidate.id === modelId);
+}
+
 /**
  * Resolve the API key for a detector eval call.
  *   1. BYOK source → the explicit row's decrypted key (in `providerConfig`)
  *   2. System source → env var only (never silently switch to workspace BYOK)
- *   3. Legacy null source → env var, then workspace BYOK scan for compatibility
  */
-async function resolveDetectorApiKey(
-  workspaceId: string,
+function resolveDetectorApiKey(
   providerConfig: ProviderModelConfig | null,
   piProvider: string,
-  source: "system" | "byok" | null,
-): Promise<string | null> {
+  source: "system" | "byok",
+): string | null {
   if (providerConfig) return providerConfig.key;
 
   const envKey = getEnvApiKey(piProvider);
@@ -138,7 +166,7 @@ async function resolveDetectorApiKey(
 
   if (source === "system") return null;
 
-  return findByokKeyForPiProvider(workspaceId, piProvider);
+  return null;
 }
 
 /**
@@ -154,6 +182,7 @@ export async function runDetectionForTrace(params: {
 }): Promise<EvalResult> {
   const { traceId, spansJsonl, detector, workspaceId } = params;
   const source = detector.detectionSource ?? null;
+  let runtimeSource: "system" | "byok" = source === "byok" ? "byok" : "system";
 
   // 1. BYOK config
   let providerConfig: ProviderModelConfig | null = null;
@@ -168,11 +197,34 @@ export async function runDetectionForTrace(params: {
         source,
       );
     }
+  } else if (source === null) {
+    const storedModel = detector.detectionModel?.trim();
+    const storedProvider = detector.detectionProvider?.trim();
+    const legacySystemProvider = findSystemProviderForDetectorTuple(storedModel, storedProvider);
+
+    if (legacySystemProvider) {
+      runtimeSource = "system";
+    } else if (storedModel && storedProvider) {
+      providerConfig = await fetchProviderConfig(workspaceId, storedProvider);
+      if (!providerConfig) {
+        return errorResult(
+          `BYOK provider "${storedProvider}" not found or disabled in workspace settings`,
+          "byok",
+        );
+      }
+      if (!byokProviderSupportsDetectorModel(providerConfig, storedModel)) {
+        return errorResult(
+          `BYOK model "${storedModel}" is not configured or supported for provider "${storedProvider}"`,
+          "byok",
+        );
+      }
+      runtimeSource = "byok";
+    }
   }
 
   // 2. Resolve model. Legacy detectors may have neither source nor model; keep
   // those on the detector-specific cheap system default instead of the generic
-  // catalog-first default while preserving null source attribution. Source-null
+  // catalog-first default while resolving source attribution. Source-null
   // legacy rows ignore stale provider-only values because there is no trusted
   // source/provider tuple to resolve.
   const shouldUseDetectorDefault =
@@ -182,10 +234,10 @@ export async function runDetectionForTrace(params: {
     (shouldUseDetectorDefault ? resolveDetectorSystemDefaultModelId() : undefined);
   const model = resolvePiModel(modelId, providerConfig);
 
-  // 3. Resolve API key (BYOK row → env var; legacy null source may scan BYOK)
-  const apiKey = await resolveDetectorApiKey(workspaceId, providerConfig, model.provider, source);
+  // 3. Resolve API key (BYOK row → its exact key; system → env var only).
+  const apiKey = resolveDetectorApiKey(providerConfig, model.provider, runtimeSource);
   if (!apiKey) {
-    return errorResult(`No API key configured for provider "${model.provider}"`, source);
+    return errorResult(`No API key configured for provider "${model.provider}"`, runtimeSource);
   }
 
   // 4. Build prompt + tool
@@ -268,7 +320,7 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
           inferenceCost,
           inferenceInputTokens,
           inferenceOutputTokens,
-          inferenceSource: source,
+          inferenceSource: runtimeSource,
           inferenceModel,
           inferenceProvider,
         };
@@ -314,7 +366,7 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
 
   return errorResult(
     lastError ?? "LLM did not call submit_result after retry",
-    source,
+    runtimeSource,
     inferenceCost,
     inferenceInputTokens,
     inferenceOutputTokens,

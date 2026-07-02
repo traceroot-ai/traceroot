@@ -32,6 +32,7 @@ export interface ProviderModelConfig {
   key: string;
   baseUrl: string | null;
   config: Record<string, unknown> | null;
+  customModels?: string[];
 }
 
 // Build system model lookup from SYSTEM_MODELS.
@@ -194,6 +195,7 @@ export async function fetchProviderConfig(
         enabled: true,
         baseUrl: true,
         config: true,
+        customModels: true,
       },
     });
 
@@ -204,6 +206,7 @@ export async function fetchProviderConfig(
         key,
         baseUrl: row.baseUrl,
         config: row.config as Record<string, unknown> | null,
+        ...(row.customModels ? { customModels: row.customModels } : {}),
       };
       configCache.set(cacheKey, {
         config: providerConfig,

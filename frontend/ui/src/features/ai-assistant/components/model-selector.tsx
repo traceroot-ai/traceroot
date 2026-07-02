@@ -226,7 +226,7 @@ export function ModelSelector({
                       href={`/workspaces/${workspaceId}/settings/model-providers`}
                       className="font-medium text-foreground underline underline-offset-2"
                     >
-                      Configure BYOK providers
+                      Open Model Providers
                     </Link>
                   )}
                 </div>

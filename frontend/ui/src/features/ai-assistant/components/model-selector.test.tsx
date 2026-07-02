@@ -248,6 +248,9 @@ describe("ModelSelector", () => {
         "A provider is configured, but none of its models are currently supported by Traceroot.",
       ),
     ).toBeDefined();
+    expect(screen.getByRole("link", { name: "Open Model Providers" }).getAttribute("href")).toBe(
+      "/workspaces/workspace-1/settings/model-providers",
+    );
     expect(screen.queryByText("Legacy Local")).toBeNull();
   });
 

@@ -177,9 +177,9 @@ describe("AddDetectorsStep", () => {
       screen.getByText(/A provider is configured, but its models are not supported/),
     ).toBeDefined();
     expect(screen.queryByText(/Self-hosted deployments need an admin/)).toBeNull();
-    expect(
-      screen.getByRole("link", { name: "Configure BYOK providers" }).getAttribute("href"),
-    ).toBe("/workspaces/workspace-1/settings/model-providers");
+    expect(screen.getByRole("link", { name: "Open Model Providers" }).getAttribute("href")).toBe(
+      "/workspaces/workspace-1/settings/model-providers",
+    );
     expect((continueButton() as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(continueButton());
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
@@ -291,5 +291,23 @@ describe("AddDetectorsStep", () => {
     expect(
       screen.getByRole("link", { name: "Configure BYOK providers" }).getAttribute("href"),
     ).toBe("/workspaces/workspace-1/settings/model-providers");
+  });
+
+  it("shows unsupported-model recovery guidance when quick-add races stale provider data", async () => {
+    mocks.mutateAsync.mockRejectedValue(
+      new Error("Selected BYOK model is not supported by Traceroot"),
+    );
+    renderStep();
+    fireEvent.click(pill("Failure"));
+    fireEvent.click(continueButton());
+
+    await waitFor(() =>
+      expect(screen.getByText("Selected BYOK model is not supported by Traceroot")).toBeDefined(),
+    );
+    expect(screen.getByText(/does not expose a Traceroot-supported detector model/)).toBeDefined();
+    expect(screen.queryByText(/Self-hosted deployments need an admin/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Open Model Providers" }).getAttribute("href")).toBe(
+      "/workspaces/workspace-1/settings/model-providers",
+    );
   });
 });

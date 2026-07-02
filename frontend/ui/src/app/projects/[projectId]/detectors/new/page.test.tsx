@@ -294,6 +294,9 @@ describe("NewDetectorPage", () => {
 
     expect(await screen.findByText("No supported models")).toBeDefined();
     expect(screen.getByText(/none expose Traceroot-supported models/)).toBeDefined();
+    expect(screen.getByRole("link", { name: "Open Model Providers" }).getAttribute("href")).toBe(
+      "/workspaces/workspace-1/settings/model-providers",
+    );
     expect(screen.getByRole("button", { name: "Create Detector" })).toHaveProperty(
       "disabled",
       true,

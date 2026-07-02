@@ -67,14 +67,15 @@ export function AddDetectorsStep({
   const showMissingModelGuidance = showModelSetupGuidance && !hasUnsupportedOnlyModels;
   const createDisabled = submitting || createBlockedByModels;
   const createStatus = submitting ? "Adding..." : "Continue";
-  const modelProviderSettingsLink = workspaceId ? (
-    <Link
-      href={`/workspaces/${workspaceId}/settings/model-providers`}
-      className="font-medium underline underline-offset-2"
-    >
-      Configure BYOK providers
-    </Link>
-  ) : null;
+  const modelProviderSettingsLink = (label = "Configure BYOK providers") =>
+    workspaceId ? (
+      <Link
+        href={`/workspaces/${workspaceId}/settings/model-providers`}
+        className="font-medium underline underline-offset-2"
+      >
+        {label}
+      </Link>
+    ) : null;
 
   const toggle = (templateId: string) => {
     setSelected((prev) =>
@@ -159,14 +160,14 @@ export function AddDetectorsStep({
             <p>
               A provider is configured, but its models are not supported for detector evaluation.
               Update the provider model list to a Traceroot-supported model, then return here.{" "}
-              {modelProviderSettingsLink}
+              {modelProviderSettingsLink("Open Model Providers")}
             </p>
           )}
           {showMissingModelGuidance && (
             <p>
               Self-hosted deployments need an admin to set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`
               in the server environment. To use a workspace-scoped key instead, add a BYOK provider.{" "}
-              {modelProviderSettingsLink}
+              {modelProviderSettingsLink()}
             </p>
           )}
         </div>
@@ -175,14 +176,31 @@ export function AddDetectorsStep({
         <div role="alert" className="space-y-1 text-[12px] text-destructive">
           <p>Couldn&apos;t create: {failedLabels.join(", ")}. Try again or skip.</p>
           {failureDetails && <p>{failureDetails}</p>}
-          {failureDetails && /model|provider|byok|system/i.test(failureDetails) && (
+          {failureDetails && /unsupported|not supported/i.test(failureDetails) && (
             <p>
-              No supported detector model is configured yet. Self-hosted deployments need an admin
-              to set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the server environment. If a
-              provider is already configured, update it to expose a Traceroot-supported model. To
-              use a workspace-scoped key instead, add a BYOK provider. {modelProviderSettingsLink}
+              The configured provider does not expose a Traceroot-supported detector model. Update
+              the provider model list, then try again.{" "}
+              {modelProviderSettingsLink("Open Model Providers")}
             </p>
           )}
+          {failureDetails &&
+            !/unsupported|not supported/i.test(failureDetails) &&
+            /model selection is required/i.test(failureDetails) && (
+              <p>
+                No supported detector model is configured yet. Self-hosted deployments need an admin
+                to set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the server environment. To use a
+                workspace-scoped key instead, add a BYOK provider. {modelProviderSettingsLink()}
+              </p>
+            )}
+          {failureDetails &&
+            !/unsupported|not supported|model selection is required/i.test(failureDetails) &&
+            /model|provider|byok|system/i.test(failureDetails) && (
+              <p>
+                The selected provider or model is no longer available. Open Model Providers, verify
+                a supported detector model is enabled, then try again.{" "}
+                {modelProviderSettingsLink("Open Model Providers")}
+              </p>
+            )}
         </div>
       )}
       <div className="flex items-center justify-between pt-1">

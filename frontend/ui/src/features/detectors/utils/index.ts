@@ -62,15 +62,16 @@ export function buildDetectorPatch(
   if (!conditionsEqual(form.conditions, loaded.conditions)) {
     patch.triggerConditions = form.conditions;
   }
-  if (form.detectionModel !== loaded.detectionModel && form.detectionModel !== "") {
-    patch.detectionModel = form.detectionModel;
-  }
-  if (form.detectionProvider !== loaded.detectionProvider && form.detectionProvider !== "") {
-    patch.detectionProvider = form.detectionProvider;
-  }
   const touchedModelTuple =
-    patch.detectionModel !== undefined || patch.detectionProvider !== undefined;
-  if (form.detectionSource !== loaded.detectionSource || touchedModelTuple) {
+    form.detectionModel !== loaded.detectionModel ||
+    form.detectionProvider !== loaded.detectionProvider ||
+    form.detectionSource !== loaded.detectionSource;
+  if (touchedModelTuple && form.detectionModel !== "" && form.detectionProvider !== "") {
+    // The PATCH API validates detector model selections as an atomic tuple, so
+    // any selector edit sends all three fields rather than mixing an omitted
+    // provider/source with stale server state.
+    patch.detectionModel = form.detectionModel;
+    patch.detectionProvider = form.detectionProvider;
     patch.detectionSource = form.detectionSource;
   }
   return patch;

@@ -127,22 +127,19 @@ export async function resolveLegacyDetectorModelSelection(
     systemProvider?.models.some((candidate) => candidate.id === model),
   );
 
-  if (systemProvider && matchesSystemModel && process.env[systemProvider.envVar]) {
-    return { model, provider: systemProvider.provider, source: ModelSource.SYSTEM };
+  if (systemProvider && matchesSystemModel) {
+    if (process.env[systemProvider.envVar]) {
+      return { model, provider: systemProvider.provider, source: ModelSource.SYSTEM };
+    }
+
+    return modelSelectionError("Selected system provider is not available for this workspace");
   }
 
-  const byokSelection = await validateDetectorModelSelection(workspaceId, {
+  return validateDetectorModelSelection(workspaceId, {
     model,
     provider,
     source: ModelSource.BYOK,
   });
-  if (!("error" in byokSelection)) return byokSelection;
-
-  if (systemProvider && matchesSystemModel) {
-    return modelSelectionError("Selected system provider is not available for this workspace");
-  }
-
-  return byokSelection;
 }
 
 export async function validateDetectorModelSelection(

@@ -82,14 +82,15 @@ export default function NewDetectorPage() {
     modelSelection.model && modelSelection.provider && selectedModelIsAvailable,
   );
 
-  const modelProviderSettingsLink = workspaceId ? (
-    <Link
-      href={`/workspaces/${workspaceId}/settings/model-providers`}
-      className="font-medium text-foreground underline underline-offset-2"
-    >
-      Configure BYOK providers
-    </Link>
-  ) : null;
+  const modelProviderSettingsLink = (label = "Configure BYOK providers") =>
+    workspaceId ? (
+      <Link
+        href={`/workspaces/${workspaceId}/settings/model-providers`}
+        className="font-medium text-foreground underline underline-offset-2"
+      >
+        {label}
+      </Link>
+    ) : null;
 
   const handleTemplateChange = (templateId: string) => {
     const template = DETECTOR_TEMPLATES.find((t) => t.id === templateId);
@@ -222,14 +223,14 @@ export default function NewDetectorPage() {
                         <>
                           This workspace has model providers configured, but none expose
                           Traceroot-supported models. Update Model Providers settings, then return
-                          here to select one. {modelProviderSettingsLink}
+                          here to select one. {modelProviderSettingsLink("Open Model Providers")}
                         </>
                       ) : hasLoadedEmptyDetectorModels ? (
                         <>
                           No supported model is configured. Self-hosted deployments need an admin to
                           set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the server environment. To
                           use a workspace-scoped key instead, add a BYOK provider.{" "}
-                          {modelProviderSettingsLink}
+                          {modelProviderSettingsLink()}
                         </>
                       ) : (
                         "Select an available model before creating a detector."

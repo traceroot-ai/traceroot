@@ -191,6 +191,28 @@ describe("PATCH .../detectors/[detectorId] — model selection validation", () =
     expect(detectorUpdateMock).not.toHaveBeenCalled();
   });
 
+  it("does not reinterpret a legacy source-null system tuple as BYOK on provider-label collisions", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    detectorFindFirstMock.mockResolvedValueOnce({
+      ...existingDetector,
+      detectionSource: null,
+    });
+    modelProviderFindFirstMock.mockResolvedValue({
+      provider: "Anthropic",
+      adapter: "anthropic",
+      customModels: ["claude-4"],
+    });
+
+    const res = await PATCH(makeRequest({ prompt: "New prompt" }), makeParams());
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Selected system provider is not available for this workspace",
+    });
+    expect(modelProviderFindFirstMock).not.toHaveBeenCalled();
+    expect(detectorUpdateMock).not.toHaveBeenCalled();
+  });
+
   it("accepts and normalizes canonical system provider keys", async () => {
     const res = await PATCH(
       makeRequest({
@@ -211,6 +233,39 @@ describe("PATCH .../detectors/[detectorId] — model selection validation", () =
 
   it("rejects partial model tuple updates", async () => {
     const res = await PATCH(makeRequest({ detectionModel: "" }), makeParams());
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error:
+        "Detector model selection is required. Choose a configured system model or BYOK provider.",
+    });
+    expect(detectorUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "detectionSource",
+      {
+        detectionModel: "claude-4",
+        detectionProvider: "Anthropic",
+      },
+    ],
+    [
+      "detectionProvider",
+      {
+        detectionModel: "claude-4",
+        detectionSource: "system",
+      },
+    ],
+    [
+      "detectionModel",
+      {
+        detectionProvider: "Anthropic",
+        detectionSource: "system",
+      },
+    ],
+  ])("rejects direct model tuple updates missing %s", async (_field, body) => {
+    const res = await PATCH(makeRequest(body), makeParams());
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({

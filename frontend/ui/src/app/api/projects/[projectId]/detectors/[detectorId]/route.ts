@@ -161,47 +161,44 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     triggerConditions !== undefined;
 
   if (shouldValidateModelSelection) {
-    const nextModel =
-      detectionModel !== undefined
-        ? typeof detectionModel === "string"
-          ? detectionModel.trim()
-          : ""
-        : existing.detectionModel?.trim() || "";
-    const nextProvider =
-      detectionProvider !== undefined
-        ? typeof detectionProvider === "string"
-          ? detectionProvider.trim()
-          : ""
-        : existing.detectionProvider?.trim() || "";
-    const nextSource: "system" | "byok" | null =
-      sourceStr !== undefined
-        ? sourceStr
-        : existing.detectionSource === "system" || existing.detectionSource === "byok"
+    let modelSelection: ResolvedDetectorModelSelection | { error: string };
+
+    if (touchesModelSelection) {
+      const requestModel = typeof detectionModel === "string" ? detectionModel.trim() : "";
+      const requestProvider = typeof detectionProvider === "string" ? detectionProvider.trim() : "";
+
+      if (!requestModel || !requestProvider || sourceStr === undefined || sourceStr === null) {
+        return errorResponse(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR, 400);
+      }
+
+      modelSelection = await validateDetectorModelSelection(accessResult.project.workspaceId, {
+        model: requestModel,
+        provider: requestProvider,
+        source: sourceStr,
+      });
+    } else {
+      const nextModel = existing.detectionModel?.trim() || "";
+      const nextProvider = existing.detectionProvider?.trim() || "";
+      const nextSource: "system" | "byok" | null =
+        existing.detectionSource === "system" || existing.detectionSource === "byok"
           ? existing.detectionSource
           : null;
 
-    if (!nextModel || !nextProvider) {
-      return errorResponse(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR, 400);
-    }
-
-    const shouldNormalizeLegacyTuple =
-      nextSource === null && sourceStr === undefined && !touchesModelSelection;
-
-    let modelSelection: ResolvedDetectorModelSelection | { error: string };
-    if (shouldNormalizeLegacyTuple) {
-      modelSelection = await resolveLegacyDetectorModelSelection(accessResult.project.workspaceId, {
-        model: nextModel,
-        provider: nextProvider,
-      });
-    } else {
-      if (nextSource === null) {
+      if (!nextModel || !nextProvider) {
         return errorResponse(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR, 400);
       }
-      modelSelection = await validateDetectorModelSelection(accessResult.project.workspaceId, {
-        model: nextModel,
-        provider: nextProvider,
-        source: nextSource,
-      });
+
+      modelSelection =
+        nextSource === null
+          ? await resolveLegacyDetectorModelSelection(accessResult.project.workspaceId, {
+              model: nextModel,
+              provider: nextProvider,
+            })
+          : await validateDetectorModelSelection(accessResult.project.workspaceId, {
+              model: nextModel,
+              provider: nextProvider,
+              source: nextSource,
+            });
     }
     if ("error" in modelSelection) {
       return errorResponse(modelSelection.error, 400);

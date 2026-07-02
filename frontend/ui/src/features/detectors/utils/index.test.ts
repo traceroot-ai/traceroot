@@ -109,6 +109,18 @@ describe("buildDetectorPatch", () => {
     });
   });
 
+  it("sends the complete model tuple when only the model changes", () => {
+    const patch = buildDetectorPatch(baseForm, {
+      ...baseForm,
+      detectionModel: "model-b",
+    });
+    expect(patch).toEqual({
+      detectionModel: "model-b",
+      detectionProvider: "provider-a",
+      detectionSource: "system",
+    });
+  });
+
   it("sends changed trigger conditions as triggerConditions", () => {
     const conditions = [{ field: "status", op: "eq", value: "error" }];
     const patch = buildDetectorPatch(baseForm, { ...baseForm, conditions });

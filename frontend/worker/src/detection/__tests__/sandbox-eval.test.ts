@@ -318,6 +318,97 @@ describe("runDetectionForTrace", () => {
     expect(mockComplete).not.toHaveBeenCalled();
   });
 
+  it("does not reinterpret legacy source-null system tuples as BYOK when the env key is missing", async () => {
+    mockGetEnvApiKey.mockReturnValue(null);
+    mockFindByokKey.mockResolvedValueOnce("workspace-anthropic-byok-key");
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: null,
+        detectionModel: "claude-haiku-4-5",
+        detectionProvider: "Anthropic",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(false);
+    expect(result.error).toBe('No API key configured for provider "anthropic"');
+    expect(result.inferenceSource).toBe("system");
+    expect(mockFetchProviderConfig).not.toHaveBeenCalled();
+    expect(mockFindByokKey).not.toHaveBeenCalled();
+    expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  it("uses the exact stored BYOK provider for legacy source-null tuples", async () => {
+    mockFetchProviderConfig.mockResolvedValueOnce({
+      adapter: "openai",
+      key: "exact-byok-key",
+      baseUrl: "https://api.openai.example/v1",
+      config: null,
+      customModels: ["gpt-5.4-mini"],
+    });
+    mockResolvePiModel.mockReturnValueOnce(OPENAI_MODEL);
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: null,
+        detectionModel: "gpt-5.4-mini",
+        detectionProvider: "workspace-openai",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.inferenceSource).toBe("byok");
+    expect(mockFetchProviderConfig).toHaveBeenCalledWith("ws-1", "workspace-openai");
+    expect(mockResolvePiModel).toHaveBeenCalledWith(
+      "gpt-5.4-mini",
+      expect.objectContaining({ key: "exact-byok-key", adapter: "openai" }),
+    );
+    expect(mockFindByokKey).not.toHaveBeenCalled();
+    expect((mockComplete.mock.calls[0][2] as { apiKey: string }).apiKey).toBe("exact-byok-key");
+  });
+
+  it("fails closed when a legacy source-null BYOK tuple no longer resolves exactly", async () => {
+    mockFetchProviderConfig.mockResolvedValueOnce(null);
+    mockFindByokKey.mockResolvedValueOnce("some-other-byok-key");
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: null,
+        detectionModel: "gpt-5.4-mini",
+        detectionProvider: "missing-openai",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(false);
+    expect(result.error).toMatch(/not found or disabled/i);
+    expect(result.inferenceSource).toBe("byok");
+    expect(mockFindByokKey).not.toHaveBeenCalled();
+    expect(mockComplete).not.toHaveBeenCalled();
+  });
+
   it("always passes toolChoice='auto' regardless of protocol", async () => {
     // We send "auto" universally — the system prompt + retry loop are what
     // get the model to call submit_result, not a protocol-level force flag.
@@ -644,7 +735,7 @@ describe("runDetectionForTrace", () => {
       expect(result.inferenceSource).toBe("system");
     });
 
-    it("treats null source as null on the EvalResult (processor normalizes)", async () => {
+    it("attributes source-null detectors without a stored tuple to the resolved system default", async () => {
       mockComplete.mockResolvedValueOnce({
         content: [
           {
@@ -665,7 +756,7 @@ describe("runDetectionForTrace", () => {
         workspaceId: "ws-1",
       });
 
-      expect(result.inferenceSource).toBeNull();
+      expect(result.inferenceSource).toBe("system");
       expect(result.inferenceCost).toBeCloseTo(0.002, 6);
     });
   });
