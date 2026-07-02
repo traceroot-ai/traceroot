@@ -26,6 +26,19 @@ function byokModelIsSupported(adapter: string, model: string): boolean {
   return !catalog || catalog.some((candidate) => candidate.id === model);
 }
 
+function configuredByokModels(provider: { customModels: string[] }): string[] {
+  return provider.customModels.map((id) => id.trim()).filter(Boolean);
+}
+
+function byokProviderHasSupportedModel(
+  provider: { adapter: string; customModels: string[] } | null,
+  model: string,
+): boolean {
+  if (!provider) return false;
+  const configuredModels = configuredByokModels(provider);
+  return configuredModels.includes(model) && byokModelIsSupported(provider.adapter, model);
+}
+
 interface DefaultModelCandidate extends ResolvedDetectorModelSelection {
   adapter: string;
 }
@@ -128,6 +141,16 @@ export async function resolveLegacyDetectorModelSelection(
   );
 
   if (systemProvider && matchesSystemModel) {
+    const byokProvider = await prisma.modelProvider.findFirst({
+      where: { workspaceId, provider, enabled: true },
+      select: { adapter: true, customModels: true },
+    });
+    if (byokProviderHasSupportedModel(byokProvider, model)) {
+      return modelSelectionError(
+        "Legacy detector model selection is ambiguous. Re-select the detector model before saving.",
+      );
+    }
+
     if (process.env[systemProvider.envVar]) {
       return { model, provider: systemProvider.provider, source: ModelSource.SYSTEM };
     }
@@ -177,13 +200,12 @@ export async function validateDetectorModelSelection(
     return modelSelectionError("Selected BYOK provider is not available for this workspace");
   }
 
-  const configuredModels = byokProvider.customModels.map((id) => id.trim()).filter(Boolean);
+  const configuredModels = configuredByokModels(byokProvider);
   if (!configuredModels.includes(model)) {
     return modelSelectionError("Selected BYOK model is not configured for this provider");
   }
 
-  const catalog = ADAPTER_MODELS[byokProvider.adapter as LLMAdapter];
-  if (catalog && !catalog.some((candidate) => candidate.id === model)) {
+  if (!byokModelIsSupported(byokProvider.adapter, model)) {
     return modelSelectionError("Selected BYOK model is not supported by Traceroot");
   }
 

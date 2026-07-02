@@ -120,11 +120,15 @@ describe("PATCH .../detectors/[detectorId] — model selection validation", () =
       ...existingDetector,
       detectionSource: null,
     });
+    modelProviderFindFirstMock.mockResolvedValue(null);
 
     const res = await PATCH(makeRequest({ prompt: "New prompt" }), makeParams());
 
     expect(res.status).toBe(200);
-    expect(modelProviderFindFirstMock).not.toHaveBeenCalled();
+    expect(modelProviderFindFirstMock).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace-1", provider: "Anthropic", enabled: true },
+      select: { adapter: true, customModels: true },
+    });
     expect(detectorUpdateMock.mock.calls[0][0].data).toMatchObject({
       prompt: "New prompt",
       detectionModel: "claude-4",
@@ -200,7 +204,7 @@ describe("PATCH .../detectors/[detectorId] — model selection validation", () =
     modelProviderFindFirstMock.mockResolvedValue({
       provider: "Anthropic",
       adapter: "anthropic",
-      customModels: ["claude-4"],
+      customModels: ["not-the-stored-system-model"],
     });
 
     const res = await PATCH(makeRequest({ prompt: "New prompt" }), makeParams());
@@ -209,7 +213,35 @@ describe("PATCH .../detectors/[detectorId] — model selection validation", () =
     expect(await res.json()).toEqual({
       error: "Selected system provider is not available for this workspace",
     });
-    expect(modelProviderFindFirstMock).not.toHaveBeenCalled();
+    expect(modelProviderFindFirstMock).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace-1", provider: "Anthropic", enabled: true },
+      select: { adapter: true, customModels: true },
+    });
+    expect(detectorUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects ambiguous legacy source-null tuples that also match exact BYOK providers", async () => {
+    detectorFindFirstMock.mockResolvedValueOnce({
+      ...existingDetector,
+      detectionSource: null,
+    });
+    modelProviderFindFirstMock.mockResolvedValue({
+      provider: "Anthropic",
+      adapter: "anthropic",
+      customModels: ["claude-4"],
+    });
+
+    const res = await PATCH(makeRequest({ prompt: "New prompt" }), makeParams());
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error:
+        "Legacy detector model selection is ambiguous. Re-select the detector model before saving.",
+    });
+    expect(modelProviderFindFirstMock).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace-1", provider: "Anthropic", enabled: true },
+      select: { adapter: true, customModels: true },
+    });
     expect(detectorUpdateMock).not.toHaveBeenCalled();
   });
 

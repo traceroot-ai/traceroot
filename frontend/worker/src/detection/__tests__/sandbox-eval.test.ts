@@ -163,12 +163,43 @@ describe("runDetectionForTrace", () => {
         ...DETECTOR,
         detectionSource: "byok",
         detectionProvider: "missing-provider",
+        detectionModel: "gpt-5.4-mini",
       },
       workspaceId: "ws-1",
     });
 
     expect(result.identified).toBe(false);
     expect(result.error).toMatch(/not found or disabled/i);
+    expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  it("returns error and does not call complete() when explicit BYOK model is not configured", async () => {
+    mockFetchProviderConfig.mockResolvedValueOnce({
+      adapter: "openai",
+      key: "exact-byok-key",
+      baseUrl: null,
+      config: null,
+      customModels: ["gpt-5.5"],
+    });
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: "byok",
+        detectionProvider: "workspace-openai",
+        detectionModel: "gpt-5.4-mini",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(false);
+    expect(result.error).toBe(
+      'BYOK model "gpt-5.4-mini" is not configured or supported for provider "workspace-openai"',
+    );
+    expect(result.inferenceSource).toBe("byok");
+    expect(mockResolvePiModel).not.toHaveBeenCalled();
     expect(mockComplete).not.toHaveBeenCalled();
   });
 
@@ -321,6 +352,7 @@ describe("runDetectionForTrace", () => {
   it("does not reinterpret legacy source-null system tuples as BYOK when the env key is missing", async () => {
     mockGetEnvApiKey.mockReturnValue(null);
     mockFindByokKey.mockResolvedValueOnce("workspace-anthropic-byok-key");
+    mockFetchProviderConfig.mockResolvedValueOnce(null);
 
     const result = await runDetectionForTrace({
       traceId: "trace-abc",
@@ -337,8 +369,38 @@ describe("runDetectionForTrace", () => {
     expect(result.identified).toBe(false);
     expect(result.error).toBe('No API key configured for provider "anthropic"');
     expect(result.inferenceSource).toBe("system");
-    expect(mockFetchProviderConfig).not.toHaveBeenCalled();
+    expect(mockFetchProviderConfig).toHaveBeenCalledWith("ws-1", "Anthropic");
     expect(mockFindByokKey).not.toHaveBeenCalled();
+    expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a legacy source-null tuple also matches an exact BYOK provider", async () => {
+    mockFetchProviderConfig.mockResolvedValueOnce({
+      adapter: "anthropic",
+      key: "exact-byok-key",
+      baseUrl: null,
+      config: null,
+      customModels: ["claude-haiku-4-5"],
+    });
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: null,
+        detectionModel: "claude-haiku-4-5",
+        detectionProvider: "Anthropic",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(false);
+    expect(result.error).toBe(
+      'Legacy detector model selection for provider "Anthropic" is ambiguous; re-select the detector model before evaluation',
+    );
+    expect(result.inferenceSource).toBeNull();
+    expect(mockResolvePiModel).not.toHaveBeenCalled();
     expect(mockComplete).not.toHaveBeenCalled();
   });
 
@@ -669,9 +731,11 @@ describe("runDetectionForTrace", () => {
 
     it("captures BYOK source attribution with positive cost", async () => {
       mockFetchProviderConfig.mockResolvedValueOnce({
+        adapter: "anthropic",
         key: "byok-key",
-        provider: "anthropic",
-        model: "claude-haiku-4-5",
+        baseUrl: null,
+        config: null,
+        customModels: ["claude-haiku-4-5"],
       });
       mockComplete.mockResolvedValueOnce({
         content: [
@@ -692,6 +756,7 @@ describe("runDetectionForTrace", () => {
           ...DETECTOR,
           detectionSource: "byok",
           detectionProvider: "byok-provider",
+          detectionModel: "claude-haiku-4-5",
         },
         workspaceId: "ws-1",
       });
@@ -710,6 +775,7 @@ describe("runDetectionForTrace", () => {
           ...DETECTOR,
           detectionSource: "byok",
           detectionProvider: "missing",
+          detectionModel: "claude-haiku-4-5",
         },
         workspaceId: "ws-1",
       });

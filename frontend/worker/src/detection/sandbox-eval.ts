@@ -190,10 +190,20 @@ export async function runDetectionForTrace(params: {
     if (!detector.detectionProvider) {
       return errorResult("BYOK detector has no detectionProvider", source);
     }
+    const storedModel = detector.detectionModel?.trim();
+    if (!storedModel) {
+      return errorResult("BYOK detector has no detectionModel", source);
+    }
     providerConfig = await fetchProviderConfig(workspaceId, detector.detectionProvider);
     if (!providerConfig) {
       return errorResult(
         `BYOK provider "${detector.detectionProvider}" not found or disabled in workspace settings`,
+        source,
+      );
+    }
+    if (!byokProviderSupportsDetectorModel(providerConfig, storedModel)) {
+      return errorResult(
+        `BYOK model "${storedModel}" is not configured or supported for provider "${detector.detectionProvider}"`,
         source,
       );
     }
@@ -202,7 +212,17 @@ export async function runDetectionForTrace(params: {
     const storedProvider = detector.detectionProvider?.trim();
     const legacySystemProvider = findSystemProviderForDetectorTuple(storedModel, storedProvider);
 
-    if (legacySystemProvider) {
+    if (legacySystemProvider && storedModel && storedProvider) {
+      const exactProviderConfig = await fetchProviderConfig(workspaceId, storedProvider);
+      if (
+        exactProviderConfig &&
+        byokProviderSupportsDetectorModel(exactProviderConfig, storedModel)
+      ) {
+        return errorResult(
+          `Legacy detector model selection for provider "${storedProvider}" is ambiguous; re-select the detector model before evaluation`,
+          null,
+        );
+      }
       runtimeSource = "system";
     } else if (storedModel && storedProvider) {
       providerConfig = await fetchProviderConfig(workspaceId, storedProvider);
