@@ -4,10 +4,10 @@ import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import { FilterBuilder } from "./filter-builder";
 import type { FilterFieldDef } from "./registry";
 
-// Distinct-values hook is irrelevant here (status is a static enum); stub it.
-vi.mock("./hooks", () => ({
-  useFilterValues: () => ({ values: [], isLoading: false }),
-}));
+// Stub the distinct-values hook; keep it as a spy so we can assert the window bounds
+// are threaded through to it for a distinct-query categorical field.
+const mockUseFilterValues = vi.hoisted(() => vi.fn(() => ({ values: [], isLoading: false })));
+vi.mock("./hooks", () => ({ useFilterValues: mockUseFilterValues }));
 
 afterEach(cleanup);
 
@@ -38,6 +38,16 @@ const TOKENS: FilterFieldDef = {
   value_source: "range",
   enum_values: [],
   integer: true,
+};
+
+const MODEL: FilterFieldDef = {
+  field: "model_name",
+  label: "Model",
+  type: "categorical",
+  level: "SPAN_MEMBERSHIP",
+  operators: ["in"],
+  value_source: "distinct_query",
+  enum_values: [],
 };
 
 function renderBuilder(fields: FilterFieldDef[], onSubmit = vi.fn()) {
@@ -150,5 +160,27 @@ describe("FilterBuilder (Basic row)", () => {
     renderBuilder([COST]);
     pickField(/Cost/);
     expect(screen.getByText("$")).toBeTruthy();
+  });
+
+  it("threads both window bounds into the distinct-values query for a categorical field", () => {
+    mockUseFilterValues.mockClear();
+    render(
+      <FilterBuilder
+        projectId="p1"
+        fields={[MODEL]}
+        startAfter="2026-06-01T00:00:00Z"
+        endBefore="2026-06-02T00:00:00Z"
+        onSubmit={vi.fn()}
+      />,
+    );
+    pickField(/Model/);
+    // The distinct-query field enables the lazy fetch, bounded on BOTH ends.
+    expect(mockUseFilterValues).toHaveBeenCalledWith(
+      "p1",
+      "model_name",
+      "2026-06-01T00:00:00Z",
+      "2026-06-02T00:00:00Z",
+      true,
+    );
   });
 });

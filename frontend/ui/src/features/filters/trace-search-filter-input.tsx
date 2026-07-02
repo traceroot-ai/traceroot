@@ -25,8 +25,9 @@ interface TraceSearchFilterInputProps {
   projectId: string;
   filters: Predicate[];
   onFiltersChange: (filters: Predicate[]) => void;
-  /** Active-window lower bound, threaded to the lazy distinct-values query. */
+  /** Active-window bounds, threaded to the lazy distinct-values query. */
   startAfter?: string;
+  endBefore?: string;
 }
 
 export function TraceSearchFilterInput({
@@ -37,6 +38,7 @@ export function TraceSearchFilterInput({
   filters,
   onFiltersChange,
   startAfter,
+  endBefore,
 }: TraceSearchFilterInputProps) {
   const fields = useFilterFields(projectId);
   const [open, setOpen] = useState(false);
@@ -141,6 +143,7 @@ export function TraceSearchFilterInput({
           projectId={projectId}
           fields={fields}
           startAfter={startAfter}
+          endBefore={endBefore}
           onSubmit={addPredicate}
         />
       </PopoverContent>

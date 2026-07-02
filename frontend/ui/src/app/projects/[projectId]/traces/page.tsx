@@ -171,6 +171,7 @@ export default function TracesPage() {
                 filters={state.filters}
                 onFiltersChange={updateFilters}
                 startAfter={queryOptions.start_after}
+                endBefore={queryOptions.end_before}
               />
             }
             dateFilter={state.dateFilter}
