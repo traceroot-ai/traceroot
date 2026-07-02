@@ -15,7 +15,9 @@ export function isValidPredicate(p: unknown): p is Predicate {
   const { field, op, value } = p as Record<string, unknown>;
   if (typeof field !== "string" || !VALID_OPS.has(op as Predicate["op"])) return false;
   if (op === "in") {
-    return Array.isArray(value) && value.every((v) => typeof v === "string");
+    // Non-empty: an empty `in` matches nothing and the backend 422s it, so a
+    // hand-edited/degenerate empty-`in` is dropped here rather than sinking the fetch.
+    return Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === "string");
   }
   // between: exactly two bounds, each a FINITE number or null (nullable open range).
   // Number.isFinite rejects Infinity/NaN — e.g. a hand-edited `1e999` parses to Infinity,
@@ -35,15 +37,25 @@ export function isValidPredicate(p: unknown): p is Predicate {
 export function canonicalizeFilters(filters?: Predicate[]): string {
   if (!filters || filters.length === 0) return "";
   return filters
-    .map((p) => JSON.stringify({ field: p.field, op: p.op, value: p.value }))
+    .map((p) => {
+      // Sort the `in` values so ["a","b"] and ["b","a"] fold to one key — the set of
+      // matched values is order-independent, so hover-prefetch and the list hook must
+      // agree on the same cache entry. `between` bounds are positional; leave them.
+      const value = p.op === "in" && Array.isArray(p.value) ? [...p.value].sort() : p.value;
+      return JSON.stringify({ field: p.field, op: p.op, value });
+    })
     .sort()
     .join("|");
 }
 
-/** Serialize filters for the `?filters=` URL param; null when there is nothing to add. */
+/**
+ * Serialize filters for the `?filters=` URL param; null when there is nothing to add.
+ * Drops invalid predicates on the way out (symmetric with `parseFiltersParam` on the way
+ * in), so a malformed shape — e.g. an empty `in` — can't reach the URL/backend and 422.
+ */
 export function serializeFiltersParam(filters?: Predicate[]): string | null {
-  if (!filters || filters.length === 0) return null;
-  return JSON.stringify(filters);
+  const valid = (filters ?? []).filter(isValidPredicate);
+  return valid.length === 0 ? null : JSON.stringify(valid);
 }
 
 /**

@@ -56,9 +56,13 @@ export async function getFilterValues(
   projectId: string,
   field: string,
   startAfter: string | undefined,
+  endBefore: string | undefined,
   user?: TraceApiUser,
 ): Promise<FilterValuesResponse> {
-  const query = startAfter ? `?start_after=${encodeURIComponent(startAfter)}` : "";
+  const params = new URLSearchParams();
+  if (startAfter) params.set("start_after", startAfter);
+  if (endBefore) params.set("end_before", endBefore);
+  const query = params.toString() ? `?${params.toString()}` : "";
   return fetchTraceApi<FilterValuesResponse>(
     `/projects/${projectId}/traces/filter-values/${encodeURIComponent(field)}${query}`,
     {},
