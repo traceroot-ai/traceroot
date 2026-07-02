@@ -70,9 +70,17 @@ describe("buildDetectorPatch", () => {
     expect(patch).toEqual({ prompt: "New prompt" });
   });
 
-  it("omits a model cleared to empty (omission means leave unchanged)", () => {
-    const patch = buildDetectorPatch(baseForm, { ...baseForm, detectionModel: "" });
-    expect(patch).toEqual({});
+  it("clears model and provider while retaining the system default source", () => {
+    const patch = buildDetectorPatch(baseForm, {
+      ...baseForm,
+      detectionModel: "",
+      detectionProvider: "",
+    });
+    expect(patch).toEqual({
+      detectionModel: "",
+      detectionProvider: "",
+      detectionSource: "system",
+    });
   });
 
   it("includes a changed detection model, provider, and source", () => {
@@ -86,6 +94,26 @@ describe("buildDetectorPatch", () => {
       detectionModel: "model-b",
       detectionProvider: "provider-b",
       detectionSource: "byok",
+    });
+  });
+
+  it("includes detectionSource when pinning a model from default tracking", () => {
+    const loaded = {
+      ...baseForm,
+      detectionModel: "",
+      detectionProvider: "",
+      detectionSource: "system" as const,
+    };
+    const patch = buildDetectorPatch(loaded, {
+      ...loaded,
+      detectionModel: "model-b",
+      detectionProvider: "provider-b",
+      detectionSource: "system",
+    });
+    expect(patch).toEqual({
+      detectionModel: "model-b",
+      detectionProvider: "provider-b",
+      detectionSource: "system",
     });
   });
 

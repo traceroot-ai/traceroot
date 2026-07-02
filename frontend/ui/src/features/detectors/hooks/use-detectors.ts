@@ -92,7 +92,7 @@ export interface UpdateDetectorInput {
   triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
   detectionModel?: string;
   detectionProvider?: string;
-  detectionSource?: "system" | "byok";
+  detectionSource?: "system" | "byok" | "";
 }
 
 async function updateDetector(
