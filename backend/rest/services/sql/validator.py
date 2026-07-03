@@ -142,6 +142,13 @@ _SKIP_FUNC_TYPES = (exp.Cast, exp.TryCast, exp.Extract, exp.Lambda, exp.Case)
 # Internal view names that must never be referenced directly.
 _INTERNAL_VIEWS: frozenset[str] = frozenset({"spans_public_v1", "traces_public_v1"})
 
+# Bound-parameter namespace reserved for server-side project scoping. User SQL
+# may use its own {name:Type} placeholders, but never one in this namespace: a
+# {scope_*:Type} placeholder could collide with (or attempt to override) the
+# scope bind the rewriter/service injects. Enforced as defense-in-depth here at
+# Layer 1, independent of how the service later merges the bind map.
+_RESERVED_PARAM_PREFIX = "scope_"
+
 
 def _func_name(node: exp.Func) -> str:
     """Return the lowercased canonical name for a function node.
@@ -277,6 +284,16 @@ def validate(sql: str) -> exp.Query:
         # 7. project_id as an output alias (… AS project_id).
         if isinstance(node, exp.Alias) and node.alias.lower() == "project_id":
             raise SqlValidationError("Output alias 'project_id' is not allowed")
+
+        # 11. Reserved scope-parameter placeholder ({scope_*:Type}). ClickHouse
+        #     bound-parameter names parse as Placeholder(this=Var(name)).
+        if isinstance(node, exp.Placeholder):
+            var = node.this
+            param_name = var.name if isinstance(var, exp.Expression) else str(var or "")
+            if param_name.lower().startswith(_RESERVED_PARAM_PREFIX):
+                raise SqlValidationError(
+                    "Bound parameters in the reserved 'scope_' namespace are not allowed"
+                )
 
         # 10. Function gate — allowlist-primary.
         if isinstance(node, exp.Func) and not isinstance(node, _SKIP_FUNC_TYPES):

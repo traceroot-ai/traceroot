@@ -252,3 +252,36 @@ def test_validate_raises_sql_validation_error_not_generic_exception() -> None:
 
 def test_sql_validation_error_is_value_error_subclass() -> None:
     assert issubclass(SqlValidationError, ValueError)
+
+
+# ---------------------------------------------------------------------------
+# Reserved scope-parameter placeholders (defense-in-depth: user SQL must not
+# reference the server-side scope bind namespace)
+# ---------------------------------------------------------------------------
+RESERVED_PLACEHOLDER_CASES = [
+    pytest.param(
+        "SELECT span_id FROM spans WHERE span_id = {scope_project_id:String}",
+        id="reject-user-scope-project-id-placeholder",
+    ),
+    pytest.param(
+        "SELECT span_id FROM spans WHERE span_id = {scope_evil:String}",
+        id="reject-user-scope-namespace-placeholder",
+    ),
+    pytest.param(
+        "SELECT span_id FROM spans WHERE span_id = {SCOPE_PROJECT_ID:String}",
+        id="reject-user-scope-placeholder-uppercase",
+    ),
+]
+
+
+@pytest.mark.parametrize("sql", RESERVED_PLACEHOLDER_CASES)
+def test_reserved_scope_placeholders_are_rejected(sql: str) -> None:
+    with pytest.raises(SqlValidationError):
+        validate(sql)
+
+
+def test_user_placeholder_outside_scope_namespace_is_allowed() -> None:
+    # A user's own bound parameter is a legitimate feature; only the reserved
+    # `scope_` namespace is off-limits.
+    result = validate("SELECT span_id FROM spans WHERE span_id = {myval:String}")
+    assert isinstance(result, exp.Query)
