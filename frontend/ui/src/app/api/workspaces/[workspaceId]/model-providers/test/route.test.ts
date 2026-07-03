@@ -301,7 +301,7 @@ describe("POST model-providers/test - error responses", () => {
     expect(await res.json()).toEqual({ success: true });
   });
 
-  it("surfaces the provider's own error message when the body has one", async () => {
+  it("openai 401 normalizes to Invalid API key, ignoring the provider's own message", async () => {
     fetchMock.mockResolvedValue({
       ok: false,
       status: 401,
@@ -309,10 +309,21 @@ describe("POST model-providers/test - error responses", () => {
       json: async () => ({ error: { message: "Incorrect API key provided" } }),
     });
     const res = await POST(makeRequest({ adapter: "openai", apiKey: "bad" }), makeParams());
-    expect(await res.json()).toEqual({ success: false, error: "Incorrect API key provided" });
+    expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
   });
 
-  it("anthropic 401 surfaces the provider error message when present", async () => {
+  it("openai surfaces the provider's own error message on non-401 statuses", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      json: async () => ({ error: { message: "Malformed request body" } }),
+    });
+    const res = await POST(makeRequest({ adapter: "openai", apiKey: "k" }), makeParams());
+    expect(await res.json()).toEqual({ success: false, error: "Malformed request body" });
+  });
+
+  it("anthropic 401 always normalizes to Invalid API key, ignoring the provider's own message", async () => {
     fetchMock.mockResolvedValue({
       ok: false,
       status: 401,
@@ -320,7 +331,19 @@ describe("POST model-providers/test - error responses", () => {
       json: async () => ({ error: { message: "invalid x-api-key" } }),
     });
     const res = await POST(makeRequest({ adapter: "anthropic", apiKey: "bad" }), makeParams());
-    expect(await res.json()).toEqual({ success: false, error: "invalid x-api-key" });
+    expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
+  });
+
+  it("anthropic 403 is treated as connectable (success), not an invalid key", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 403, statusText: "Forbidden" });
+    const res = await POST(makeRequest({ adapter: "anthropic", apiKey: "k" }), makeParams());
+    expect(await res.json()).toEqual({ success: true });
+  });
+
+  it("openai/azure-style 403 is not normalized to Invalid API key (401 only)", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 403, statusText: "Forbidden" });
+    const res = await POST(makeRequest({ adapter: "openai", apiKey: "k" }), makeParams());
+    expect(await res.json()).toEqual({ success: false, error: "HTTP 403: Forbidden" });
   });
 
   it("azure without baseUrl fails before any network call", async () => {
@@ -450,9 +473,9 @@ describe("POST model-providers/test - timeout (acceptance criteria)", () => {
     expect(body.error).toMatch(/timed out/i);
   });
 
-  it("times out when the anthropic 401 body read stalls", async () => {
-    // The anthropic branch has its own inline withTimeout + body read; a 401
-    // whose body never finishes must still abort at the deadline.
+  it("anthropic 401 short-circuits without reading the body, so it cannot time out", async () => {
+    // The anthropic branch hardcodes "Invalid API key" on 401 without touching
+    // the response body at all, so a stalled body read is a non-issue here.
     fetchMock.mockImplementation((_url: string, init?: { signal?: AbortSignal }) =>
       Promise.resolve({
         ok: false,
@@ -468,7 +491,6 @@ describe("POST model-providers/test - timeout (acceptance criteria)", () => {
     );
     const res = await POST(makeRequest({ adapter: "anthropic", apiKey: "bad" }), makeParams());
     const body = (await res.json()) as { success: boolean; error: string };
-    expect(body.success).toBe(false);
-    expect(body.error).toMatch(/timed out/i);
+    expect(body).toEqual({ success: false, error: "Invalid API key" });
   });
 });
