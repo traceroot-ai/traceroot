@@ -336,3 +336,12 @@ F5_ALLOWED_CASES = [
 @pytest.mark.parametrize("sql", F5_ALLOWED_CASES)
 def test_f5_widened_functions_are_allowed(sql: str) -> None:
     assert isinstance(validate(sql), exp.Query)
+
+
+def test_restricted_column_error_does_not_name_project_id() -> None:
+    # The blocked-column error must not echo the reserved column name (keeps the
+    # message sanitized and avoids confirming the internal scoping column).
+    for sql in ("SELECT project_id FROM spans", "SELECT span_id AS project_id FROM spans"):
+        with pytest.raises(SqlValidationError) as exc_info:
+            validate(sql)
+        assert "project_id" not in str(exc_info.value)
