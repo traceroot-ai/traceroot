@@ -3,7 +3,11 @@ LiveKit Agents with TraceRoot observability.
 
 Usage:
     cp .env.example .env
-    uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py console
+    python main.py dev
+    python main.py start
+    python main.py console
+
+See README.md for PR-review installation commands using a local TraceRoot SDK.
 """
 
 from dotenv import find_dotenv, load_dotenv
