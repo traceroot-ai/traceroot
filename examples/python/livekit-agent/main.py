@@ -3,12 +3,16 @@ LiveKit Agents with TraceRoot observability.
 
 Usage:
     cp .env.example .env
+    python main.py smoke
     python main.py dev
     python main.py start
     python main.py console
 
 See README.md for PR-review installation commands using a local TraceRoot SDK.
 """
+
+import asyncio
+import sys
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -43,16 +47,37 @@ class Assistant(Agent):
 server = AgentServer()
 
 
+def _new_session(*, voice: bool) -> AgentSession:
+    if not voice:
+        return AgentSession(llm="openai/chat-latest")
+
+    return AgentSession(
+        stt="deepgram/nova-3:en",
+        llm="openai/chat-latest",
+        tts="cartesia/sonic-3",
+    )
+
+
+async def run_smoke() -> None:
+    traceroot.initialize(integrations=[Integration.LIVEKIT])
+
+    session = _new_session(voice=False)
+    try:
+        with using_attributes(session_id="livekit-smoke"):
+            await session.start(agent=Assistant())
+            result = session.run(user_input="What is 12 plus 30? Use the add_numbers tool.")
+            await result
+    finally:
+        await session.aclose()
+        await traceroot.flush_async()
+
+
 @server.rtc_session(agent_name="traceroot-livekit-agent")
 async def entrypoint(ctx: JobContext) -> None:
     traceroot.initialize(integrations=[Integration.LIVEKIT])
     ctx.add_shutdown_callback(traceroot.flush_async)
 
-    session = AgentSession(
-        stt="deepgram/nova-3:en",
-        llm="openai/chat-latest",
-        tts="cartesia/sonic-3",
-    )
+    session = _new_session(voice=True)
 
     with using_attributes(session_id=ctx.room.name):
         await session.start(
@@ -63,4 +88,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
 
 if __name__ == "__main__":
-    cli.run_app(server)
+    if len(sys.argv) == 1 or sys.argv[1] == "smoke":
+        asyncio.run(run_smoke())
+    else:
+        cli.run_app(server)

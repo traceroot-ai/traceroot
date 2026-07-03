@@ -20,16 +20,17 @@ grep -v '^traceroot' requirements.txt > /tmp/livekit-agent-requirements-pr.txt
 uv run --no-project --python 3.13 \
   --with-requirements /tmp/livekit-agent-requirements-pr.txt \
   --with /path/to/traceroot-py/dist/traceroot-*.whl \
-  python main.py dev
+  python main.py smoke
 
 # Or use a local SDK source checkout:
 uv run --no-project --python 3.13 \
   --with-requirements /tmp/livekit-agent-requirements-pr.txt \
   --with "traceroot @ file:///path/to/traceroot-py" \
-  python main.py dev
+  python main.py smoke
 ```
 
-To talk to the agent from your terminal:
+The `smoke` command runs one text-only turn, calls the `add_numbers` tool, flushes
+TraceRoot, and exits. To talk to the voice agent from your terminal:
 
 ```bash
 uv run --no-project --python 3.13 \
@@ -42,6 +43,7 @@ After `traceroot>=0.1.12` is published to PyPI, you can use
 `requirements.txt` directly:
 
 ```bash
+uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py smoke
 uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py dev
 uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py start
 uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py console
@@ -50,9 +52,10 @@ uv run --no-project --python 3.13 --with-requirements requirements.txt python ma
 ## What it does
 
 Starts a LiveKit agent and routes LiveKit's native OpenTelemetry spans through
-TraceRoot. The agent uses LiveKit Inference for STT, TTS, and LLM calls, plus
-LiveKit Agents' default bundled VAD and default turn detection for voice
-interaction.
+TraceRoot. The default `smoke` path runs a text-only turn with LiveKit Inference
+LLM and exits. The `console`, `dev`, and `start` paths use LiveKit Inference for
+STT, TTS, and LLM calls, plus LiveKit Agents' default bundled VAD and default
+turn detection for voice interaction.
 
 The TraceRoot setup is intentionally small:
 
@@ -63,10 +66,9 @@ The TraceRoot setup is intentionally small:
 - `ctx.add_shutdown_callback(traceroot.flush_async)` flushes spans before the
   job exits.
 
-LiveKit currently emits an `agent_turn` span for each completed turn. The user's
-voice input is emitted as a `user_turn` span, and the assistant response is
-emitted as an `agent_turn` span.
+LiveKit currently emits an `agent_turn` span for each completed turn. Voice runs
+also emit `user_turn` spans for user input.
 
-The demo agent also exposes an `add_numbers` function tool. Ask something like
-"what is 12 plus 30?" to generate a tool call span during an apple-to-apple
-comparison run.
+The demo agent exposes an `add_numbers` function tool. The `smoke` command asks
+"what is 12 plus 30?" automatically to generate a tool call span during an
+apple-to-apple comparison run.
