@@ -264,6 +264,14 @@ def test_sql_validation_error_is_value_error_subclass() -> None:
 # ---------------------------------------------------------------------------
 RESERVED_PLACEHOLDER_CASES = [
     pytest.param(
+        "SELECT span_id FROM spans WHERE span_id = {project_id:String}",
+        id="reject-user-project-id-placeholder",
+    ),
+    pytest.param(
+        "SELECT span_id FROM spans WHERE span_id = {PROJECT_ID:String}",
+        id="reject-user-project-id-placeholder-uppercase",
+    ),
+    pytest.param(
         "SELECT span_id FROM spans WHERE span_id = {scope_project_id:String}",
         id="reject-user-scope-project-id-placeholder",
     ),

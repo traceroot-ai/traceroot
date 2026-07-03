@@ -300,15 +300,21 @@ def validate(sql: str) -> exp.Query:
         if isinstance(node, exp.Alias) and node.alias.lower() == "project_id":
             raise SqlValidationError("Output alias 'project_id' is not allowed")
 
-        # 11. Reserved scope-parameter placeholder ({scope_*:Type}). ClickHouse
+        # 11. Reserved bound-parameter names ({name:Type}). ClickHouse
         #     bound-parameter names parse as Placeholder(this=Var(name)).
+        #     User SQL may use its OWN placeholders (a legitimate product
+        #     feature — the request's `parameters` payload binds them), but never
+        #     a name reserved for server-side project scoping: the exact tenant
+        #     key `project_id` or anything in the `scope_` namespace. Blocking
+        #     these here (Layer 1, case-insensitive) means a user placeholder can
+        #     never collide with or override the scope bind, independent of how
+        #     the service later merges the bind map.
         if isinstance(node, exp.Placeholder):
             var = node.this
             param_name = var.name if isinstance(var, exp.Expression) else str(var or "")
-            if param_name.lower().startswith(_RESERVED_PARAM_PREFIX):
-                raise SqlValidationError(
-                    "Bound parameters in the reserved 'scope_' namespace are not allowed"
-                )
+            lowered = param_name.lower()
+            if lowered == "project_id" or lowered.startswith(_RESERVED_PARAM_PREFIX):
+                raise SqlValidationError("Bound parameters may not use a reserved name")
 
         # 10. Function gate — allowlist-primary.
         if isinstance(node, exp.Func) and not isinstance(node, _SKIP_FUNC_TYPES):
