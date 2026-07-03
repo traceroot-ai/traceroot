@@ -43,6 +43,10 @@ from rest.services.sql.validator import (
 ALLOWED_CASES = [
     # Aggregate over public table
     "SELECT count() FROM spans",
+    # count(*) — exp.Count(this=Star); name-extraction must resolve to `count`
+    "SELECT count(*) FROM spans",
+    "SELECT count(*) FROM traces",
+    "SELECT model_name, count(*) FROM spans GROUP BY model_name",
     # Group-by with aggregate
     "SELECT model_name, sum(cost) FROM spans GROUP BY model_name",
     # now() + INTERVAL — now is Anonymous, INTERVAL is not a Func node
@@ -260,6 +264,14 @@ def test_sql_validation_error_is_value_error_subclass() -> None:
 # ---------------------------------------------------------------------------
 RESERVED_PLACEHOLDER_CASES = [
     pytest.param(
+        "SELECT span_id FROM spans WHERE span_id = {project_id:String}",
+        id="reject-user-project-id-placeholder",
+    ),
+    pytest.param(
+        "SELECT span_id FROM spans WHERE span_id = {PROJECT_ID:String}",
+        id="reject-user-project-id-placeholder-uppercase",
+    ),
+    pytest.param(
         "SELECT span_id FROM spans WHERE span_id = {scope_project_id:String}",
         id="reject-user-scope-project-id-placeholder",
     ),
@@ -320,3 +332,42 @@ def test_is_blocked_function_false_for_safe_and_non_function() -> None:
     # a non-function node (a column) is not blocked
     col = next(iter(tree.find_all(exp.Column)))
     assert is_blocked_function(col) is False
+
+
+# ---------------------------------------------------------------------------
+# F5: widened analytics-function allowlist (one case per added function, so a
+# sqlglot canonical-name change surfaces as a failure rather than silent drift)
+# ---------------------------------------------------------------------------
+F5_ALLOWED_CASES = [
+    "SELECT toStartOfMinute(span_start_time) FROM spans",
+    "SELECT toStartOfHour(span_start_time) FROM spans",
+    "SELECT toStartOfDay(span_start_time) FROM spans",
+    "SELECT toStartOfInterval(span_start_time, INTERVAL 1 HOUR) FROM spans",
+    "SELECT toYYYYMM(span_start_time) FROM spans",
+    "SELECT toHour(span_start_time) FROM spans",
+    "SELECT formatDateTime(span_start_time, '%Y-%m') FROM spans",
+    "SELECT concat(name, status) FROM spans",
+    "SELECT any(name) FROM spans",
+    "SELECT argMax(name, cost) FROM spans",
+    "SELECT argMin(name, cost) FROM spans",
+    "SELECT groupArray(name) FROM spans",
+    "SELECT stddevPop(cost) FROM spans",
+    "SELECT stddevSamp(cost) FROM spans",
+    "SELECT row_number() OVER (ORDER BY cost) FROM spans",
+    "SELECT rank() OVER (ORDER BY cost) FROM spans",
+    "SELECT dense_rank() OVER (ORDER BY cost) FROM spans",
+]
+
+
+@pytest.mark.parametrize("sql", F5_ALLOWED_CASES)
+def test_f5_widened_functions_are_allowed(sql: str) -> None:
+    assert isinstance(validate(sql), exp.Query)
+
+
+def test_restricted_column_error_does_not_name_project_id() -> None:
+    # The blocked-column error must not echo the reserved column name (keeps the
+    # message sanitized and avoids confirming the internal scoping column).
+    for sql in ("SELECT project_id FROM spans", "SELECT span_id AS project_id FROM spans"):
+        with pytest.raises(SqlValidationError) as exc_info:
+            validate(sql)
+        assert "project_id" not in str(exc_info.value)

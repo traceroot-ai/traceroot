@@ -94,6 +94,28 @@ ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
         "toint64",
         "tofloat64",
         "todecimal64",
+        # --- F5: common analytics functions (date bucketing, string, agg, window).
+        # These are the lowercased names `_func_name` yields. Most match the
+        # ClickHouse spelling, but a few sqlglot MODELLED functions canonicalise
+        # to a different name (documented per line); a per-function test pins each
+        # so a sqlglot upgrade that changes normalisation fails loudly.
+        "tostartofminute",
+        "tostartofhour",
+        "tostartofday",
+        "tostartofinterval",
+        "toyyyymm",
+        "tohour",
+        "time_to_str",  # ClickHouse formatDateTime() -> exp.TimeToStr
+        "concat",
+        "any_value",  # ClickHouse any() -> exp.AnyValue
+        "arg_max",  # ClickHouse argMax() -> exp.ArgMax
+        "arg_min",  # ClickHouse argMin() -> exp.ArgMin
+        "grouparray",  # exp.AnonymousAggFunc, name preserved
+        "stddevpop",  # exp.AnonymousAggFunc, name preserved
+        "stddevsamp",  # exp.AnonymousAggFunc, name preserved
+        "row_number",  # ClickHouse row_number() -> exp.RowNumber
+        "rank",
+        "dense_rank",
     }
 )
 
@@ -153,17 +175,29 @@ _INTERNAL_VIEWS: frozenset[str] = frozenset({"spans_public_v1", "traces_public_v
 _RESERVED_PARAM_PREFIX = "scope_"
 
 
+# Func node types that preserve the user-written name in ``node.name``. Every
+# other ``exp.Func`` is a modelled subclass (Count, Sum, Quantile, …) whose
+# ``node.name`` is the *argument* text, not the function name.
+_NAME_PRESERVING_FUNC_TYPES = (exp.Anonymous, exp.AnonymousAggFunc, exp.ParameterizedAgg)
+
+
 def _func_name(node: exp.Func) -> str:
     """Return the lowercased canonical name for a function node.
 
     For ``exp.Anonymous``, ``exp.AnonymousAggFunc``, and ``exp.ParameterizedAgg``
-    sqlglot preserves the original user-written name in ``node.name``.  For
-    modelled subclasses (``Count``, ``Sum``, ``Quantile``, ``DateDiff``, …) the
-    ``name`` attribute is empty and we fall back to ``sql_name()`` which is a
-    stable uppercase identifier (e.g. ``COUNT``, ``DATEDIFF``).
+    sqlglot preserves the original user-written name in ``node.name`` (these are
+    NOT subclasses of one another, so all three are listed explicitly).
+
+    For every other (modelled) subclass, ``node.name`` returns the *first
+    argument's* text — e.g. ``count(*)`` is ``exp.Count(this=Star())`` whose
+    ``name`` is ``"*"`` — so it must NOT be used as the function name. We use
+    ``sql_name()`` instead, a stable canonical identifier (``COUNT``, ``SUM``,
+    ``QUANTILE``, …). This makes ``count(*)``, ``count()`` and ``count(col)`` all
+    resolve to ``count``.
     """
-    raw: str = node.name  # type: ignore[assignment]
-    return raw.lower() if raw else node.sql_name().lower()
+    if isinstance(node, _NAME_PRESERVING_FUNC_TYPES):
+        return (node.name or "").lower()
+    return node.sql_name().lower()
 
 
 def is_blocked_function(node: exp.Expression) -> bool:
@@ -299,23 +333,31 @@ def validate(sql: str) -> exp.Query:
             if table_name not in public_table_names:
                 raise SqlValidationError("Table is not in the allowed public schema")
 
-        # 7. project_id as a column reference (SELECT project_id / WHERE project_id = …).
+        # 7. project_id as a column reference (SELECT project_id / WHERE project_id = …)
+        #    or as an output alias (… AS project_id). Both use the same generic
+        #    wording so the error never names the reserved tenant-scoping column
+        #    (keeps messages sanitized / avoids confirming internal schema).
         if isinstance(node, exp.Column) and node.name.lower() == "project_id":
-            raise SqlValidationError("Column 'project_id' is not accessible")
+            raise SqlValidationError("Access to a restricted column is not allowed")
 
-        # 7. project_id as an output alias (… AS project_id).
         if isinstance(node, exp.Alias) and node.alias.lower() == "project_id":
-            raise SqlValidationError("Output alias 'project_id' is not allowed")
+            raise SqlValidationError("Access to a restricted column is not allowed")
 
-        # 11. Reserved scope-parameter placeholder ({scope_*:Type}). ClickHouse
+        # 11. Reserved bound-parameter names ({name:Type}). ClickHouse
         #     bound-parameter names parse as Placeholder(this=Var(name)).
+        #     User SQL may use its OWN placeholders (a legitimate product
+        #     feature — the request's `parameters` payload binds them), but never
+        #     a name reserved for server-side project scoping: the exact tenant
+        #     key `project_id` or anything in the `scope_` namespace. Blocking
+        #     these here (Layer 1, case-insensitive) means a user placeholder can
+        #     never collide with or override the scope bind, independent of how
+        #     the service later merges the bind map.
         if isinstance(node, exp.Placeholder):
             var = node.this
             param_name = var.name if isinstance(var, exp.Expression) else str(var or "")
-            if param_name.lower().startswith(_RESERVED_PARAM_PREFIX):
-                raise SqlValidationError(
-                    "Bound parameters in the reserved 'scope_' namespace are not allowed"
-                )
+            lowered = param_name.lower()
+            if lowered == "project_id" or lowered.startswith(_RESERVED_PARAM_PREFIX):
+                raise SqlValidationError("Bound parameters may not use a reserved name")
 
         # 10. Function gate — allowlist-primary.
         if isinstance(node, exp.Func) and not isinstance(node, _SKIP_FUNC_TYPES):
