@@ -42,11 +42,7 @@ server = AgentServer()
 @server.rtc_session(agent_name="traceroot-livekit-agent")
 async def entrypoint(ctx: JobContext) -> None:
     traceroot.initialize(integrations=[Integration.LIVEKIT])
-
-    async def flush_trace() -> None:
-        traceroot.flush()
-
-    ctx.add_shutdown_callback(flush_trace)
+    ctx.add_shutdown_callback(traceroot.flush_async)
 
     session = AgentSession(
         stt="deepgram/nova-3:en",
