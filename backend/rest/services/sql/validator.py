@@ -290,13 +290,16 @@ def validate(sql: str) -> exp.Query:
     # Walk the full AST (including subqueries, CTEs, window bodies) for all
     # remaining policy checks.
     for node in tree.walk():
-        # 8. SETTINGS at any nesting level.
-        if isinstance(node, exp.Select) and node.args.get("settings"):
-            raise SqlValidationError("SETTINGS clause is not allowed")
-
-        # 9. FORMAT clause (e.g. SELECT … FORMAT JSON).
-        if isinstance(node, exp.Select) and node.args.get("format"):
-            raise SqlValidationError("FORMAT clause is not allowed")
+        # 8/9. SETTINGS and FORMAT clauses, at any nesting level. Checked on
+        #      exp.Query (not just exp.Select): these modifiers can attach to a
+        #      set-operation root (exp.Union) or a Subquery — e.g.
+        #      `A UNION ALL (B) SETTINGS …` or `(A UNION ALL B) FORMAT JSON` —
+        #      which an exp.Select-only check would miss.
+        if isinstance(node, exp.Query):
+            if node.args.get("settings"):
+                raise SqlValidationError("SETTINGS clause is not allowed")
+            if node.args.get("format"):
+                raise SqlValidationError("FORMAT clause is not allowed")
 
         # 5a. FINAL modifier — sqlglot represents this as exp.Final wrapping
         #     the Table node; it is NOT stored in table.args["final"].

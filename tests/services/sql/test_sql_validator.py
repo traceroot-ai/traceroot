@@ -133,6 +133,17 @@ REJECTED_CASES = [
         "SELECT count() FROM spans SETTINGS max_execution_time = 99999",
         id="reject-settings",
     ),
+    # SETTINGS/FORMAT can attach to a set-operation (Union) or Subquery root,
+    # not just a Select — those must be rejected too.
+    pytest.param(
+        "SELECT span_id FROM spans UNION ALL (SELECT span_id FROM spans) "
+        "SETTINGS max_execution_time = 99999",
+        id="reject-settings-union-root",
+    ),
+    pytest.param(
+        "(SELECT span_id FROM spans UNION ALL SELECT span_id FROM spans) FORMAT JSON",
+        id="reject-format-union-subquery-root",
+    ),
     # ----- Unknown functions (allowlist-primary: reject unknown) ------------
     pytest.param("SELECT mystery(span_id) FROM spans", id="reject-fn-unknown-mystery"),
     pytest.param("SELECT reverse(name) FROM spans", id="reject-fn-unknown-reverse"),
