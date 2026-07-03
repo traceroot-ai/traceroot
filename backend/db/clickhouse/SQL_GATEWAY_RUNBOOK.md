@@ -10,8 +10,8 @@ forms proven against the pinned ClickHouse **24.3.18.7** during the Issue 0 spik
 > physical tables, other application databases, and — via access-management grants — most
 > `system.*` tables. But ClickHouse still exposes some system metadata (e.g. `system.settings`,
 > `system.functions`, `system.databases`) to any user for query processing, so the gateway's
-> SQL validator must reject **all** `system.*` references (a later issue); do not rely on DB
-> grants alone to hide `system.*`.
+> SQL validator must reject **all** `system.*` references (the SQL validator, Issue 2); do not
+> rely on DB grants alone to hide `system.*`.
 
 ## Components
 
