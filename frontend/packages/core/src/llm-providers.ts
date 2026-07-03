@@ -154,7 +154,6 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "o4-mini", label: "o4-mini" },
   ],
   anthropic: [
-    { id: "claude-fable-5", label: "claude-fable-5" },
     { id: "claude-opus-4-8", label: "claude-opus-4-8" },
     { id: "claude-opus-4-7", label: "claude-opus-4-7" },
     { id: "claude-opus-4-6", label: "claude-opus-4-6" },
@@ -162,6 +161,7 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "claude-opus-4-5", label: "claude-opus-4-5" },
     { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
     { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
+    { id: "claude-fable-5", label: "claude-fable-5" },
   ],
   google: [
     { id: "gemini-3.5-flash", label: "gemini-3.5-flash" },
