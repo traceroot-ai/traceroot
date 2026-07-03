@@ -31,6 +31,8 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "watchfiles>=0.21",
     "httpx>=0.28.1",
+    # SQL validation
+    "sqlglot>=25,<27",
     # Tokenization
     "tiktoken>=0.5.0",
     # PostgreSQL (for standard model pricing lookup)
