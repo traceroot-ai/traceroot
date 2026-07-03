@@ -47,12 +47,12 @@ class PublicTable:
     """A logical table in the public schema and its curated columns."""
 
     name: str
-    columns: list[PublicColumn]
+    columns: tuple[PublicColumn, ...]
 
 
 _SPANS = PublicTable(
     name="spans",
-    columns=[
+    columns=(
         PublicColumn("span_id", "String"),
         PublicColumn("trace_id", "String"),
         PublicColumn("parent_span_id", "Nullable(String)"),
@@ -72,12 +72,12 @@ _SPANS = PublicTable(
         PublicColumn("git_source_file", "Nullable(String)"),
         PublicColumn("git_source_line", "Nullable(Int32)"),
         PublicColumn("git_source_function", "Nullable(String)"),
-    ],
+    ),
 )
 
 _TRACES = PublicTable(
     name="traces",
-    columns=[
+    columns=(
         PublicColumn("trace_id", "String"),
         PublicColumn("trace_start_time", "DateTime64(3)"),
         PublicColumn("name", "String"),
@@ -86,7 +86,7 @@ _TRACES = PublicTable(
         PublicColumn("git_ref", "Nullable(String)"),
         PublicColumn("git_repo", "Nullable(String)"),
         PublicColumn("environment", "Nullable(String)"),
-    ],
+    ),
 )
 
 #: Curated logical tables exposed by the SQL Gateway, keyed by logical name.
