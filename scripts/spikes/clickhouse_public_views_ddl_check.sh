@@ -2,9 +2,10 @@
 # clickhouse_public_views_ddl_check.sh
 #
 # Reproducible verification that migration 006 (public SQL gateway views) applies
-# AS WRITTEN on ClickHouse 24.3, what SHOW CREATE VIEW reports for
-# `SQL SECURITY DEFINER` with no explicit DEFINER, and that a read-only user with
-# SELECT on the views only can read the views but NOT the physical tables.
+# AS WRITTEN on ClickHouse 24.3: that SHOW CREATE VIEW records the explicit
+# DEFINER = sql_gateway_writer (the migration pins it), that parameterization is
+# preserved, and that a read-only user with SELECT on the views only can read the
+# views but NOT the physical tables.
 #
 # This is a disposable spike check (uses a throwaway `pubviews` database/user), not
 # the full live security matrix. Prereq: a running container `ch_sql_spike` on
