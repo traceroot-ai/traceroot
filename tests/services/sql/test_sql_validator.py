@@ -43,6 +43,10 @@ from rest.services.sql.validator import (
 ALLOWED_CASES = [
     # Aggregate over public table
     "SELECT count() FROM spans",
+    # count(*) — exp.Count(this=Star); name-extraction must resolve to `count`
+    "SELECT count(*) FROM spans",
+    "SELECT count(*) FROM traces",
+    "SELECT model_name, count(*) FROM spans GROUP BY model_name",
     # Group-by with aggregate
     "SELECT model_name, sum(cost) FROM spans GROUP BY model_name",
     # now() + INTERVAL — now is Anonymous, INTERVAL is not a Func node

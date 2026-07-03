@@ -153,17 +153,29 @@ _INTERNAL_VIEWS: frozenset[str] = frozenset({"spans_public_v1", "traces_public_v
 _RESERVED_PARAM_PREFIX = "scope_"
 
 
+# Func node types that preserve the user-written name in ``node.name``. Every
+# other ``exp.Func`` is a modelled subclass (Count, Sum, Quantile, …) whose
+# ``node.name`` is the *argument* text, not the function name.
+_NAME_PRESERVING_FUNC_TYPES = (exp.Anonymous, exp.AnonymousAggFunc, exp.ParameterizedAgg)
+
+
 def _func_name(node: exp.Func) -> str:
     """Return the lowercased canonical name for a function node.
 
     For ``exp.Anonymous``, ``exp.AnonymousAggFunc``, and ``exp.ParameterizedAgg``
-    sqlglot preserves the original user-written name in ``node.name``.  For
-    modelled subclasses (``Count``, ``Sum``, ``Quantile``, ``DateDiff``, …) the
-    ``name`` attribute is empty and we fall back to ``sql_name()`` which is a
-    stable uppercase identifier (e.g. ``COUNT``, ``DATEDIFF``).
+    sqlglot preserves the original user-written name in ``node.name`` (these are
+    NOT subclasses of one another, so all three are listed explicitly).
+
+    For every other (modelled) subclass, ``node.name`` returns the *first
+    argument's* text — e.g. ``count(*)`` is ``exp.Count(this=Star())`` whose
+    ``name`` is ``"*"`` — so it must NOT be used as the function name. We use
+    ``sql_name()`` instead, a stable canonical identifier (``COUNT``, ``SUM``,
+    ``QUANTILE``, …). This makes ``count(*)``, ``count()`` and ``count(col)`` all
+    resolve to ``count``.
     """
-    raw: str = node.name  # type: ignore[assignment]
-    return raw.lower() if raw else node.sql_name().lower()
+    if isinstance(node, _NAME_PRESERVING_FUNC_TYPES):
+        return (node.name or "").lower()
+    return node.sql_name().lower()
 
 
 def validate(sql: str) -> exp.Query:
