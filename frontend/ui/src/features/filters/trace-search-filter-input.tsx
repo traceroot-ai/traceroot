@@ -1,16 +1,13 @@
 "use client";
 
 /**
- * The combined search-and-filter input: one box that holds the active-filter chips, the
- * keyword text field, and — anchored to it — the filter builder popover.
- *
- * Clicking/focusing the box opens the builder (per "a popup from the search bar"); the
- * popover keeps keyboard focus in the text field (`onOpenAutoFocus` prevented) so you can
- * still type a keyword while it's open. Chips render INSIDE the box, each removable.
- * Replaces the old separate "Add filter" button that sat beside the search bar.
+ * The trace filter input: one box holding the active-filter chips and — anchored to it —
+ * the filter builder popover. Clicking/focusing the box opens the builder; chips render
+ * INSIDE the box, each removable (or backspace removes the last). Filter-only: there is no
+ * free-text keyword search — find a trace by id via the `trace_id` = / contains filter.
  */
 import { useRef, useState } from "react";
-import { Search, X } from "lucide-react";
+import { ListFilter, X } from "lucide-react";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import type { Predicate } from "@/types/api";
@@ -19,9 +16,6 @@ import { FilterBuilder } from "./filter-builder";
 import { predicateLabel, upsertPredicate } from "./predicate-ui";
 
 interface TraceSearchFilterInputProps {
-  searchValue: string;
-  onSearchChange: (value: string) => void;
-  searchPlaceholder?: string;
   projectId: string;
   filters: Predicate[];
   onFiltersChange: (filters: Predicate[]) => void;
@@ -31,9 +25,6 @@ interface TraceSearchFilterInputProps {
 }
 
 export function TraceSearchFilterInput({
-  searchValue,
-  onSearchChange,
-  searchPlaceholder = "Search or filter…",
   projectId,
   filters,
   onFiltersChange,
@@ -85,7 +76,7 @@ export function TraceSearchFilterInput({
             }
           }}
         >
-          <Search className="mr-1 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <ListFilter className="mr-1 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           {filters.map((p, i) => (
             <span
               key={`${p.field}-${i}`}
@@ -106,19 +97,19 @@ export function TraceSearchFilterInput({
           ))}
           <input
             ref={inputRef}
-            value={searchValue}
-            onChange={(e) => onSearchChange(e.target.value)}
+            readOnly
+            value=""
             onFocus={() => setOpen(true)}
             onClick={() => setOpen(true)}
             onKeyDown={(e) => {
-              // Backspace on an empty text field removes the last filter chip, one per
-              // press — the standard tokenized-input behavior.
-              if (e.key === "Backspace" && searchValue === "" && filters.length > 0) {
+              // Backspace removes the last filter chip, one per press (tokenized-input
+              // behavior). The box is filter-only — there's no keyword text to delete.
+              if (e.key === "Backspace" && filters.length > 0) {
                 removeAt(filters.length - 1);
               }
             }}
-            placeholder={filters.length === 0 ? searchPlaceholder : "Add filter or search…"}
-            className="h-6 min-w-[6rem] flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+            placeholder={filters.length === 0 ? "Filter traces…" : "Add filter…"}
+            className="h-6 min-w-[6rem] flex-1 cursor-text bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
           />
         </div>
       </PopoverAnchor>
@@ -137,7 +128,7 @@ export function TraceSearchFilterInput({
         // Width is 75% of the search bar (left-aligned, so the right ~25% stays
         // uncovered) with a min floor so the field/operator/value/Add-filter row never
         // cramps when the bar itself is narrow.
-        className="z-40 w-[calc(var(--radix-popover-trigger-width)*0.75)] min-w-[28rem] p-0"
+        className="z-40 w-[calc(var(--radix-popover-trigger-width)*0.75)] min-w-[22rem] p-0"
       >
         <FilterBuilder
           projectId={projectId}

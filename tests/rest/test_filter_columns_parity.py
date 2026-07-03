@@ -14,11 +14,14 @@ from rest.services.filters import columns as reg
 
 MEMBERSHIP_FIELDS = {"model_name", "environment"}
 AGGREGATE_FIELDS = {"cost", "total_tokens", "duration_ms", "errors"}
+TRACE_FIELDS = {"trace_id"}
 
 
-def test_registry_column_set_is_exactly_the_two_tiers():
-    """The registry holds precisely the membership + aggregate fields — nothing else."""
-    assert {c.name for c in reg.FILTER_COLUMNS} == MEMBERSHIP_FIELDS | AGGREGATE_FIELDS
+def test_registry_column_set_is_exactly_the_declared_tiers():
+    """The registry holds precisely the membership + aggregate + trace fields."""
+    assert {c.name for c in reg.FILTER_COLUMNS} == (
+        MEMBERSHIP_FIELDS | AGGREGATE_FIELDS | TRACE_FIELDS
+    )
 
 
 def test_membership_fields_are_span_membership_categorical_in():
@@ -31,14 +34,31 @@ def test_membership_fields_are_span_membership_categorical_in():
         assert col.aggregate_expr is None
 
 
-def test_aggregate_fields_are_span_aggregate_numeric_between():
-    """Aggregate fields lower to a HAVING semi-join and take a numeric ``between``."""
+def test_aggregate_fields_are_span_aggregate_numeric_comparisons():
+    """Aggregate fields lower to a HAVING semi-join and take the numeric comparison ops."""
     for name in AGGREGATE_FIELDS:
         col = reg.get_column(name)
         assert col.level is reg.FilterLevel.SPAN_AGGREGATE
         assert col.type is reg.FilterType.NUMERIC
-        assert col.operators == (reg.FilterOperator.BETWEEN,)
+        assert col.operators == (
+            reg.FilterOperator.EQ,
+            reg.FilterOperator.GT,
+            reg.FilterOperator.GTE,
+            reg.FilterOperator.LT,
+            reg.FilterOperator.LTE,
+        )
         assert col.value_source is reg.ValueSource.RANGE
+
+
+def test_trace_id_is_a_text_trace_level_field():
+    """trace_id filters the traces row inline (TRACE level) and takes text = / contains."""
+    col = reg.get_column("trace_id")
+    assert col.level is reg.FilterLevel.TRACE
+    assert col.type is reg.FilterType.TEXT
+    assert col.operators == (reg.FilterOperator.EQ, reg.FilterOperator.CONTAINS)
+    assert col.ch_type == "String"
+    assert col.aggregate_expr is None
+    assert col.source_columns == ()
 
 
 def test_errors_is_a_numeric_count_of_error_spans():
@@ -73,7 +93,7 @@ def test_aggregate_source_columns_name_the_referenced_spans_columns():
     assert reg.get_column("total_tokens").source_columns == ("total_tokens",)
     assert reg.get_column("duration_ms").source_columns == ("span_start_time", "span_end_time")
     assert reg.get_column("errors").source_columns == ("status",)
-    for name in MEMBERSHIP_FIELDS:
+    for name in MEMBERSHIP_FIELDS | TRACE_FIELDS:
         assert reg.get_column(name).source_columns == ()
 
 

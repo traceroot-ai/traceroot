@@ -7,7 +7,7 @@
  */
 import type { Predicate } from "@/types/api";
 
-const VALID_OPS = new Set<Predicate["op"]>(["in", "between"]);
+const VALID_OPS = new Set<Predicate["op"]>(["in", "eq", "gt", "gte", "lt", "lte", "contains"]);
 
 /** Shape-guard for a single predicate parsed from untrusted input (e.g. a URL). */
 export function isValidPredicate(p: unknown): p is Predicate {
@@ -15,18 +15,23 @@ export function isValidPredicate(p: unknown): p is Predicate {
   const { field, op, value } = p as Record<string, unknown>;
   if (typeof field !== "string" || !VALID_OPS.has(op as Predicate["op"])) return false;
   if (op === "in") {
-    // Non-empty: an empty `in` matches nothing and the backend 422s it, so a
-    // hand-edited/degenerate empty-`in` is dropped here rather than sinking the fetch.
+    // Non-empty list of strings: an empty `in` matches nothing and the backend 422s it,
+    // so a hand-edited/degenerate empty-`in` is dropped here rather than sinking the fetch.
     return Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === "string");
   }
-  // between: exactly two bounds, each a FINITE number or null (nullable open range).
-  // Number.isFinite rejects Infinity/NaN — e.g. a hand-edited `1e999` parses to Infinity,
-  // which JSON.stringify would silently coerce to null (corrupting the key/payload).
-  return (
-    Array.isArray(value) &&
-    value.length === 2 &&
-    value.every((v) => v === null || Number.isFinite(v))
-  );
+  if (op === "contains") {
+    return typeof value === "string" && value.length > 0;
+  }
+  if (op === "eq") {
+    // Numeric equality OR a text exact match — a finite number or a non-empty string.
+    return (
+      (typeof value === "number" && Number.isFinite(value)) ||
+      (typeof value === "string" && value.length > 0)
+    );
+  }
+  // gt/gte/lt/lte: a single FINITE number. Number.isFinite rejects Infinity/NaN — e.g. a
+  // hand-edited `1e999` parses to Infinity, which JSON.stringify would coerce to null.
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 /**
@@ -40,7 +45,7 @@ export function canonicalizeFilters(filters?: Predicate[]): string {
     .map((p) => {
       // Sort the `in` values so ["a","b"] and ["b","a"] fold to one key — the set of
       // matched values is order-independent, so hover-prefetch and the list hook must
-      // agree on the same cache entry. `between` bounds are positional; leave them.
+      // agree on the same cache entry. Scalar values (numbers/strings) are left as-is.
       const value = p.op === "in" && Array.isArray(p.value) ? [...p.value].sort() : p.value;
       return JSON.stringify({ field: p.field, op: p.op, value });
     })

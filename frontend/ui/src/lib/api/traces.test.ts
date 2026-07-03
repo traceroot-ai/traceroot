@@ -76,7 +76,7 @@ describe("getTraces filters serialization", () => {
 
     const filters: Predicate[] = [
       { field: "model_name", op: "in", value: ["claude-opus-4.8"] },
-      { field: "cost", op: "between", value: [0.5, null] },
+      { field: "cost", op: "gte", value: 0.5 },
     ];
     await getTraces("proj-1", "", { filters }, { id: "user-1" });
 

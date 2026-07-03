@@ -36,7 +36,7 @@ describe("useUrlFilters", () => {
   it("setFilters writes the encoded param to the URL and resets the page", () => {
     const onChange = vi.fn();
     const { result } = renderHook(() => useUrlFilters(onChange));
-    const next: Predicate[] = [{ field: "cost", op: "between", value: [0.5, null] }];
+    const next: Predicate[] = [{ field: "cost", op: "gte", value: 0.5 }];
 
     act(() => result.current.setFilters(next));
 
@@ -50,7 +50,7 @@ describe("useUrlFilters", () => {
   it("resets page_index in the same write so a filter applied on page >1 isn't lost", () => {
     currentParams = new URLSearchParams({ page_index: "2" });
     const { result } = renderHook(() => useUrlFilters());
-    const next: Predicate[] = [{ field: "cost", op: "between", value: [0.5, null] }];
+    const next: Predicate[] = [{ field: "cost", op: "gte", value: 0.5 }];
     act(() => result.current.setFilters(next));
     // A single write carries the new filter AND drops the stale page — no separate
     // page-reset write to clobber the filter from stale params.

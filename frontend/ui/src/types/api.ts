@@ -184,15 +184,17 @@ export interface TraceListResponse {
 }
 
 /**
- * A single trace-list filter predicate `{field, op, value}` — the frontend mirror
- * of the backend predicate IR, serialized into the `?filters=` JSON array.
- * Discriminated on `op`: categorical fields use `in` (the UI selects one value, so the
- * array carries a single element), numeric fields use `between` with nullable bounds
- * (`[0.5, null]` = ≥ 0.5, `[null, 10]` = ≤ 10; both bounds inclusive).
+ * A single trace-list filter predicate `{field, op, value}` — the frontend mirror of the
+ * backend predicate IR, serialized into the `?filters=` JSON array. Explicit scalar
+ * operators: categorical `in` (a list of strings; the UI selects one),
+ * numeric `eq`/`gt`/`gte`/`lt`/`lte` (a single number), and text `eq`/`contains` (a string).
+ * A numeric range is two one-sided predicates the backend AND-combines.
  */
 export type Predicate =
   | { field: string; op: "in"; value: string[] }
-  | { field: string; op: "between"; value: [number | null, number | null] };
+  | { field: string; op: "gt" | "gte" | "lt" | "lte"; value: number }
+  | { field: string; op: "eq"; value: number | string }
+  | { field: string; op: "contains"; value: string };
 
 export interface TraceQueryOptions {
   page?: number;

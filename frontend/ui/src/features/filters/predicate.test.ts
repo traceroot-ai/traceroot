@@ -3,7 +3,7 @@ import type { Predicate } from "@/types/api";
 import { canonicalizeFilters, serializeFiltersParam, parseFiltersParam } from "./predicate";
 
 const modelFilter: Predicate = { field: "model_name", op: "in", value: ["a", "b"] };
-const costFilter: Predicate = { field: "cost", op: "between", value: [0.5, null] };
+const costFilter: Predicate = { field: "cost", op: "gte", value: 0.5 };
 
 describe("canonicalizeFilters", () => {
   it("is independent of predicate order — order-only differences collapse to one key", () => {
@@ -68,7 +68,7 @@ describe("parseFiltersParam", () => {
     const raw = JSON.stringify([
       modelFilter,
       { field: "x", op: "like", value: ["y"] }, // unknown op
-      { field: "cost", op: "between", value: [1] }, // wrong arity
+      { field: "cost", op: "gt", value: [1] }, // numeric op needs a number, not an array
       { field: "model_name", op: "in", value: "notarray" }, // wrong value type
     ]);
     expect(parseFiltersParam(raw)).toEqual([modelFilter]);
@@ -79,16 +79,17 @@ describe("parseFiltersParam", () => {
     expect(parseFiltersParam(raw)).toEqual([modelFilter]);
   });
 
-  it("accepts a between predicate with nullable open bounds", () => {
-    const open: Predicate = { field: "cost", op: "between", value: [null, 10] };
-    expect(parseFiltersParam(JSON.stringify([open]))).toEqual([open]);
+  it("accepts numeric comparison and text predicates", () => {
+    const preds: Predicate[] = [
+      { field: "cost", op: "lte", value: 10 },
+      { field: "trace_id", op: "contains", value: "abc" },
+    ];
+    expect(parseFiltersParam(JSON.stringify(preds))).toEqual(preds);
   });
 
-  it("drops a between predicate with a non-finite bound (1e999 -> Infinity)", () => {
-    // JSON.parse turns 1e999 into Infinity; it must not survive validation — it would
-    // JSON.stringify back to null, silently converting the bound to an open range.
-    expect(parseFiltersParam('[{"field":"cost","op":"between","value":[1e999, null]}]')).toEqual(
-      [],
-    );
+  it("drops a numeric predicate with a non-finite value (1e999 -> Infinity)", () => {
+    // JSON.parse turns 1e999 into Infinity; it must not survive validation (JSON.stringify
+    // would coerce it back to null and corrupt the payload).
+    expect(parseFiltersParam('[{"field":"cost","op":"gt","value":1e999}]')).toEqual([]);
   });
 });
