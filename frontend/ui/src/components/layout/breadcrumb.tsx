@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Plus, Settings, Slash } from "lucide-react";
+import { Check, ChevronDown, Plus, Settings, Slash } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -16,6 +16,8 @@ export interface BreadcrumbDropdownOption {
   id: string;
   label: string;
   href: string;
+  /** True when this option represents the entity currently in view. */
+  isCurrent?: boolean;
   /** Optional settings page for the entity, shown as a gear on the row. */
   settingsHref?: string;
 }
@@ -126,36 +128,23 @@ function BreadcrumbDropdown({ item }: { item: BreadcrumbItem }) {
           </>
         )}
         <div className="max-h-36 overflow-y-auto">
-          {item.options?.map((option) => (
-            <DropdownMenuItem key={option.id} asChild className="rounded-none text-[13px]">
-              <Link href={option.href} className="flex justify-between">
-                <span className="max-w-36 truncate" title={option.label}>
-                  {option.label}
-                </span>
-                {option.settingsHref && (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      openSettings(option.settingsHref!);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        openSettings(option.settingsHref!);
-                      }
-                    }}
-                    className="-my-0.5 ml-4 flex h-6 w-6 items-center justify-center text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
-                  >
-                    <Settings size={12} />
-                  </span>
-                )}
-              </Link>
-            </DropdownMenuItem>
-          ))}
+          {item.options?.map((option) =>
+            option.isCurrent ? (
+              <DropdownMenuItem
+                key={option.id}
+                className="rounded-none text-[13px] font-medium text-foreground"
+                onSelect={(event) => event.preventDefault()}
+              >
+                <BreadcrumbOptionContent option={option} onOpenSettings={openSettings} />
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem key={option.id} asChild className="rounded-none text-[13px]">
+                <Link href={option.href}>
+                  <BreadcrumbOptionContent option={option} onOpenSettings={openSettings} />
+                </Link>
+              </DropdownMenuItem>
+            ),
+          )}
         </div>
         {item.createNew && (
           <>
@@ -171,5 +160,47 @@ function BreadcrumbDropdown({ item }: { item: BreadcrumbItem }) {
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function BreadcrumbOptionContent({
+  option,
+  onOpenSettings,
+}: {
+  option: BreadcrumbDropdownOption;
+  onOpenSettings: (href: string) => void;
+}) {
+  return (
+    <span className="flex w-full items-center justify-between">
+      <span className="flex min-w-0 items-center pl-6">
+        <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+          {option.isCurrent && <Check aria-hidden="true" className="h-4 w-4" />}
+        </span>
+        <span className="max-w-36 truncate" title={option.label}>
+          {option.label}
+        </span>
+      </span>
+      {option.settingsHref && (
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onOpenSettings(option.settingsHref!);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              onOpenSettings(option.settingsHref!);
+            }
+          }}
+          className="-my-0.5 ml-4 flex h-6 w-6 items-center justify-center text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+        >
+          <Settings size={12} />
+        </span>
+      )}
+    </span>
   );
 }
