@@ -12,7 +12,7 @@ forms proven against the pinned ClickHouse **24.3.18.7** during the Issue 0 spik
 ## Components
 
 1. **Curated views** `spans_public_v1` / `traces_public_v1` — created by migration
-   `005_create_public_sql_views.sql`. Parameterized on `{project_id:String}`, `SQL SECURITY
+   `006_create_public_sql_views.sql`. Parameterized on `{project_id:String}`, `SQL SECURITY
    DEFINER`, deduped after the project filter. They project curated analytical columns only
    (never `project_id`, `ch_create_time`, `ch_update_time`, or `input`/`output`/`metadata`).
 2. **Scoped writer user** — the view DEFINER. Holds `SELECT` on the physical `spans`/`traces`
@@ -50,7 +50,7 @@ GRANT SELECT ON <database>.traces_public_v1 TO <CLICKHOUSE_RO_USER>;
 
 ## DEFINER: make the scoped writer the definer
 
-Migration 005 sets no explicit `DEFINER`, so ClickHouse defaults the view's definer to the
+Migration 006 sets no explicit `DEFINER`, so ClickHouse defaults the view's definer to the
 user that applies the migration.
 
 > **Verified on ClickHouse 24.3.18.7** (`scripts/spikes/clickhouse_public_views_ddl_check.sh`):
@@ -64,12 +64,12 @@ user that applies the migration.
 For the hardened model, the definer must be the scoped writer (step 1), **not** an
 admin/superuser. Two ways:
 
-- **Recommended:** create the writer (step 1) **before** migration 005, then apply migration
-  005 as `sql_gateway_writer` (run `goose up` with that user's credentials, or execute the
+- **Recommended:** create the writer (step 1) **before** migration 006, then apply migration
+  006 as `sql_gateway_writer` (run `goose up` with that user's credentials, or execute the
   `-- +goose Up` DDL directly as that user). `SHOW CREATE VIEW spans_public_v1` should then
   read `DEFINER = sql_gateway_writer SQL SECURITY DEFINER`.
 - If migrations must run as an admin user, recreate the two views as `sql_gateway_writer`
-  afterward using the exact `-- +goose Up` DDL from migration 005.
+  afterward using the exact `-- +goose Up` DDL from migration 006.
 
 Verify:
 

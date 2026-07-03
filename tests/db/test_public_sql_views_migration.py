@@ -1,6 +1,6 @@
 """Static contract tests for the public SQL gateway views migration (Issue 4).
 
-These assert the *text* of migration 005 — they do not run against a live
+These assert the *text* of migration 006 — they do not run against a live
 ClickHouse (the full live security matrix is Issue 7). They guard the curated
 projection, the parameterized + DEFINER + dedup shape, and that no forbidden
 column is projected.
@@ -13,7 +13,7 @@ import pytest
 
 MIGRATION = (
     Path(__file__).resolve().parents[2]
-    / "backend/db/clickhouse/migrations/005_create_public_sql_views.sql"
+    / "backend/db/clickhouse/migrations/006_create_public_sql_views.sql"
 )
 
 # Curated public columns the views MUST project (the public schema contract).
@@ -85,7 +85,7 @@ def _outer_projection(text: str, view: str) -> str:
 
 
 def test_migration_exists(text):
-    assert text.strip(), "migration 005 is empty or missing"
+    assert text.strip(), "migration 006 is empty or missing"
 
 
 def test_both_views_created(text):

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # clickhouse_public_views_ddl_check.sh
 #
-# Reproducible verification that migration 005 (public SQL gateway views) applies
+# Reproducible verification that migration 006 (public SQL gateway views) applies
 # AS WRITTEN on ClickHouse 24.3, what SHOW CREATE VIEW reports for
 # `SQL SECURITY DEFINER` with no explicit DEFINER, and that a read-only user with
 # SELECT on the views only can read the views but NOT the physical tables.
@@ -15,7 +15,7 @@
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
-MIG="$ROOT/backend/db/clickhouse/migrations/005_create_public_sql_views.sql"
+MIG="$ROOT/backend/db/clickhouse/migrations/006_create_public_sql_views.sql"
 
 ch() { docker exec ch_sql_spike clickhouse-client "$@"; }
 ch_ro() { docker exec ch_sql_spike clickhouse-client --user pubviews_ro "$@"; }
@@ -31,10 +31,10 @@ ch --query "CREATE DATABASE pubviews"
 ch --query "CREATE TABLE pubviews.spans (span_id String, trace_id String, parent_span_id Nullable(String), project_id String, span_start_time DateTime64(3), span_end_time Nullable(DateTime64(3)), name String, span_kind String, status String DEFAULT 'OK', status_message Nullable(String), model_name Nullable(String), cost Nullable(Decimal64(9)), input_tokens Nullable(Int64), output_tokens Nullable(Int64), total_tokens Nullable(Int64), input Nullable(String), output Nullable(String), metadata Nullable(String), git_source_file Nullable(String), git_source_line Nullable(Int32), git_source_function Nullable(String), ch_create_time DateTime64(3) DEFAULT now64(3), ch_update_time DateTime64(3) DEFAULT now64(3), environment Nullable(String), usage_details Map(LowCardinality(String), Int64)) ENGINE=ReplacingMergeTree(ch_update_time) ORDER BY (project_id, span_kind, toDate(span_start_time), span_id)"
 ch --query "CREATE TABLE pubviews.traces (trace_id String, project_id String, trace_start_time DateTime64(3), name String, user_id Nullable(String), session_id Nullable(String), git_ref Nullable(String), git_repo Nullable(String), input Nullable(String), output Nullable(String), metadata Nullable(String), ch_create_time DateTime64(3) DEFAULT now64(3), ch_update_time DateTime64(3) DEFAULT now64(3), environment Nullable(String)) ENGINE=ReplacingMergeTree(ch_update_time) ORDER BY (project_id, toDate(trace_start_time), trace_id)"
 
-echo "== apply migration 005 Up section AS WRITTEN =="
+echo "== apply migration 006 Up section AS WRITTEN =="
 awk '/-- \+goose Up/{f=1;next} /-- \+goose Down/{f=0} f' "$MIG" \
   | docker exec -i ch_sql_spike clickhouse-client --database pubviews --multiquery
-echo "migration 005 Up applied OK"
+echo "migration 006 Up applied OK"
 
 echo "== SHOW CREATE VIEW pubviews.spans_public_v1 =="
 SHOW_OUT="$(ch --query "SHOW CREATE VIEW pubviews.spans_public_v1")"
