@@ -6,8 +6,12 @@ forms proven against the pinned ClickHouse **24.3.18.7** during the Issue 0 spik
 > **Tenant isolation is application-enforced.** DB grants do **not** restrict which
 > `project_id` a caller passes to a curated view — a holder of the view grant can call
 > `spans_public_v1(project_id = '<any>')`. The application MUST bind the *authenticated*
-> `project_id` into the view call. The DB layer only prevents access to the raw physical
-> tables and to other databases/`system.*`.
+> `project_id` into the view call. At the DB layer the read-only user is denied the raw
+> physical tables, other application databases, and — via access-management grants — most
+> `system.*` tables. But ClickHouse still exposes some system metadata (e.g. `system.settings`,
+> `system.functions`, `system.databases`) to any user for query processing, so the gateway's
+> SQL validator must reject **all** `system.*` references (a later issue); do not rely on DB
+> grants alone to hide `system.*`.
 
 ## Components
 
@@ -17,15 +21,18 @@ forms proven against the pinned ClickHouse **24.3.18.7** during the Issue 0 spik
    (never `project_id`, `ch_create_time`, `ch_update_time`, or `input`/`output`/`metadata`).
 2. **Scoped writer user** — the view DEFINER. Holds `SELECT` on the physical `spans`/`traces`
    tables only. NOT a superuser.
-3. **Read-only user** (`CLICKHOUSE_RO_USER` / `CLICKHOUSE_RO_PASSWORD`) — the identity the
-   backend uses to run user SQL. Granted `SELECT` on the curated views **only**.
+3. **Read-only user** — the identity the backend uses to run user SQL, granted `SELECT` on the
+   curated views **only**. Called `sql_gateway_ro` in the examples below; set the backend's
+   `CLICKHOUSE_RO_USER` / `CLICKHOUSE_RO_PASSWORD` to this user's credentials.
 4. **Settings profile** — enforces the resource caps as immutable (`CONST`) settings.
 
 ## Provisioning order (run once, with an admin client)
 
 ```sql
 -- 1) Scoped writer user = the view DEFINER. SELECT on the physical tables only; NOT a superuser.
-CREATE USER IF NOT EXISTS sql_gateway_writer IDENTIFIED WITH no_password;  -- use a real secret in prod
+--    Use a REAL secret — never no_password: this account can read raw tenant data.
+CREATE USER IF NOT EXISTS sql_gateway_writer
+    IDENTIFIED WITH sha256_password BY '<writer-secret>';
 GRANT SELECT ON <database>.spans  TO sql_gateway_writer;
 GRANT SELECT ON <database>.traces TO sql_gateway_writer;
 
@@ -43,13 +50,14 @@ CREATE SETTINGS PROFILE IF NOT EXISTS sql_readonly_profile SETTINGS
     max_result_bytes = 536870912 CONST,
     max_memory_usage = 4294967296 CONST;
 
--- 4) Read-only user used by the backend for user SQL.
-CREATE USER IF NOT EXISTS <CLICKHOUSE_RO_USER> IDENTIFIED WITH ...    -- real secret
+-- 4) Read-only user used by the backend for user SQL (set CLICKHOUSE_RO_USER=sql_gateway_ro).
+CREATE USER IF NOT EXISTS sql_gateway_ro
+    IDENTIFIED WITH sha256_password BY '<ro-secret>'
     SETTINGS PROFILE 'sql_readonly_profile';
 
 -- 5) Grant the RO user SELECT on the curated views ONLY (never the physical tables).
-GRANT SELECT ON <database>.spans_public_v1  TO <CLICKHOUSE_RO_USER>;
-GRANT SELECT ON <database>.traces_public_v1 TO <CLICKHOUSE_RO_USER>;
+GRANT SELECT ON <database>.spans_public_v1  TO sql_gateway_ro;
+GRANT SELECT ON <database>.traces_public_v1 TO sql_gateway_ro;
 ```
 
 ## DEFINER: explicit scoped writer
