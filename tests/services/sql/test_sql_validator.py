@@ -306,3 +306,33 @@ def test_uniqexact_allowed_but_uniq_rejected() -> None:
     assert isinstance(validate("SELECT uniqExact(span_id) FROM spans"), exp.Query)
     with pytest.raises(SqlValidationError):
         validate("SELECT uniq(span_id) FROM spans")
+
+
+# ---------------------------------------------------------------------------
+# F5: widened analytics-function allowlist (one case per added function, so a
+# sqlglot canonical-name change surfaces as a failure rather than silent drift)
+# ---------------------------------------------------------------------------
+F5_ALLOWED_CASES = [
+    "SELECT toStartOfMinute(span_start_time) FROM spans",
+    "SELECT toStartOfHour(span_start_time) FROM spans",
+    "SELECT toStartOfDay(span_start_time) FROM spans",
+    "SELECT toStartOfInterval(span_start_time, INTERVAL 1 HOUR) FROM spans",
+    "SELECT toYYYYMM(span_start_time) FROM spans",
+    "SELECT toHour(span_start_time) FROM spans",
+    "SELECT formatDateTime(span_start_time, '%Y-%m') FROM spans",
+    "SELECT concat(name, status) FROM spans",
+    "SELECT any(name) FROM spans",
+    "SELECT argMax(name, cost) FROM spans",
+    "SELECT argMin(name, cost) FROM spans",
+    "SELECT groupArray(name) FROM spans",
+    "SELECT stddevPop(cost) FROM spans",
+    "SELECT stddevSamp(cost) FROM spans",
+    "SELECT row_number() OVER (ORDER BY cost) FROM spans",
+    "SELECT rank() OVER (ORDER BY cost) FROM spans",
+    "SELECT dense_rank() OVER (ORDER BY cost) FROM spans",
+]
+
+
+@pytest.mark.parametrize("sql", F5_ALLOWED_CASES)
+def test_f5_widened_functions_are_allowed(sql: str) -> None:
+    assert isinstance(validate(sql), exp.Query)

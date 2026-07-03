@@ -94,6 +94,28 @@ ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
         "toint64",
         "tofloat64",
         "todecimal64",
+        # --- F5: common analytics functions (date bucketing, string, agg, window).
+        # These are the lowercased names `_func_name` yields. Most match the
+        # ClickHouse spelling, but a few sqlglot MODELLED functions canonicalise
+        # to a different name (documented per line); a per-function test pins each
+        # so a sqlglot upgrade that changes normalisation fails loudly.
+        "tostartofminute",
+        "tostartofhour",
+        "tostartofday",
+        "tostartofinterval",
+        "toyyyymm",
+        "tohour",
+        "time_to_str",  # ClickHouse formatDateTime() -> exp.TimeToStr
+        "concat",
+        "any_value",  # ClickHouse any() -> exp.AnyValue
+        "arg_max",  # ClickHouse argMax() -> exp.ArgMax
+        "arg_min",  # ClickHouse argMin() -> exp.ArgMin
+        "grouparray",  # exp.AnonymousAggFunc, name preserved
+        "stddevpop",  # exp.AnonymousAggFunc, name preserved
+        "stddevsamp",  # exp.AnonymousAggFunc, name preserved
+        "row_number",  # ClickHouse row_number() -> exp.RowNumber
+        "rank",
+        "dense_rank",
     }
 )
 
