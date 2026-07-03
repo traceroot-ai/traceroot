@@ -76,7 +76,7 @@ def sql() -> str:
 def _outer_projection(text: str, view: str) -> str:
     """Return the outer SELECT projection (between `AS SELECT` and `FROM (`) for a view."""
     block = re.search(
-        rf"CREATE VIEW[^\n]*\b{view}\b.*?\bAS\s+SELECT(?P<proj>.*?)\bFROM\s*\(",
+        rf"CREATE (?:OR REPLACE )?VIEW[^\n]*\b{view}\b.*?\bAS\s+SELECT(?P<proj>.*?)\bFROM\s*\(",
         text,
         re.DOTALL | re.IGNORECASE,
     )

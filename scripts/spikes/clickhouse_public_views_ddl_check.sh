@@ -38,6 +38,11 @@ ch --query "CREATE USER IF NOT EXISTS sql_gateway_writer IDENTIFIED WITH no_pass
 ch --query "GRANT SELECT ON pubviews.spans  TO sql_gateway_writer"
 ch --query "GRANT SELECT ON pubviews.traces TO sql_gateway_writer"
 
+echo "== simulate a stale prior version: pre-create the views WITHOUT the explicit definer =="
+echo "   (proves CREATE OR REPLACE re-applies DEFINER = sql_gateway_writer even when the view already exists)"
+ch --query "CREATE VIEW pubviews.spans_public_v1 AS SELECT 1 AS stale"
+ch --query "CREATE VIEW pubviews.traces_public_v1 AS SELECT 1 AS stale"
+
 echo "== apply migration 006 Up section AS WRITTEN (DEFINER = sql_gateway_writer) =="
 awk '/-- \+goose Up/{f=1;next} /-- \+goose Down/{f=0} f' "$MIG" \
   | docker exec -i ch_sql_spike clickhouse-client --database pubviews --multiquery

@@ -57,7 +57,7 @@ GRANT SELECT ON <database>.traces_public_v1 TO <CLICKHOUSE_RO_USER>;
 Migration 006 sets the view definer **explicitly** to `sql_gateway_writer`:
 
 ```sql
-CREATE VIEW IF NOT EXISTS spans_public_v1
+CREATE OR REPLACE VIEW spans_public_v1
     DEFINER = sql_gateway_writer SQL SECURITY DEFINER AS ...
 ```
 

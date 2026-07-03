@@ -14,7 +14,9 @@
 -- before this migration runs, or the CREATE VIEW fails; this makes the security
 -- dependency explicit and enforced rather than silently defaulting to whoever
 -- applies the migration. An admin/deploy user may run this migration as long as
--- it has permission to create a view with this definer. See the runbook:
+-- it has permission to create a view with this definer. The views use CREATE OR
+-- REPLACE (not IF NOT EXISTS) so re-applying reliably (re)sets this definer even if
+-- a view already exists from a prior version. See the runbook:
 -- backend/db/clickhouse/SQL_GATEWAY_RUNBOOK.md
 --
 -- Dedup: spans/traces are ReplacingMergeTree(ch_update_time); the project filter
@@ -22,7 +24,7 @@
 -- version of each row. Curated projection excludes project_id, ch_create_time,
 -- ch_update_time, and the input/output/metadata blobs.
 
-CREATE VIEW IF NOT EXISTS spans_public_v1
+CREATE OR REPLACE VIEW spans_public_v1
     DEFINER = sql_gateway_writer SQL SECURITY DEFINER AS
 SELECT
     span_id,
@@ -53,7 +55,7 @@ FROM
     LIMIT 1 BY span_id
 );
 
-CREATE VIEW IF NOT EXISTS traces_public_v1
+CREATE OR REPLACE VIEW traces_public_v1
     DEFINER = sql_gateway_writer SQL SECURITY DEFINER AS
 SELECT
     trace_id,
