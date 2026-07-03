@@ -134,22 +134,29 @@ class DetectorReaderService:
         """List findings for a project, newest first, with the total match count."""
         params: dict[str, Any] = {"project_id": project_id, "limit": limit}
 
-        # Immutable filters — safe to apply BEFORE dedup because a finding's
-        # project_id and trace_id never change across re-ingested versions.
+        # Filters safe to apply BEFORE dedup — they scope the (expensive) dedup +
+        # count aggregation to fewer rows instead of the project's full finding
+        # history. project_id/trace_id are immutable across re-ingested versions.
+        # start_after is safe too: a finding's LATEST version has the MAX timestamp,
+        # so the finding survives `timestamp >= start` in the pre-dedup scan iff its
+        # latest version does — no stale version can slip through the lower bound.
+        # Since `--since` sets only start_after, the common windowed query is now
+        # bounded to the window rather than deduping every finding ever produced.
         base_conditions = ["project_id = {project_id:String}"]
         if trace_id is not None:
             base_conditions.append("trace_id = {trace_id:String}")
             params["trace_id"] = trace_id
+        if start_after is not None:
+            base_conditions.append("timestamp >= {start_after:DateTime64(3)}")
+            params["start_after"] = to_utc_naive(start_after)
 
         # Version-sensitive filters — applied AFTER dedup, to the latest version
-        # only. detector_findings is a ReplacingMergeTree(timestamp); filtering the
-        # time window or the payload-based detector predicate on raw pre-merge rows
-        # could surface a stale finding version whose latest version no longer
-        # matches. So we dedup to the latest row per finding first, then filter.
+        # only. detector_findings is a ReplacingMergeTree(timestamp); an UPPER time
+        # bound or the payload-based detector predicate on raw pre-merge rows could
+        # surface a stale finding whose latest version no longer matches (an older
+        # version < end_before, or an outdated payload). So we dedup to the latest
+        # row per finding first, then filter.
         outer_conditions: list[str] = []
-        if start_after is not None:
-            outer_conditions.append("timestamp >= {start_after:DateTime64(3)}")
-            params["start_after"] = to_utc_naive(start_after)
         if end_before is not None:
             outer_conditions.append("timestamp < {end_before:DateTime64(3)}")
             params["end_before"] = to_utc_naive(end_before)
