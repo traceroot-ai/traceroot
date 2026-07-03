@@ -81,13 +81,22 @@ class DetectorReaderService:
         start_after: datetime | None = None,
         end_before: datetime | None = None,
     ) -> tuple[list[DetectorItem], int]:
-        """List the project's detectors (Postgres catalog), newest first.
+        """List the project's detectors from the Postgres catalog, newest first.
 
-        The optional ``start_after`` / ``end_before`` bounds filter on the
-        detector's creation time (inclusive lower, exclusive upper), mirroring the
-        findings/traces list windows. Returns the page of items plus the total
-        match count. Unlike the RCA / template enrichment reads, a catalog-read
-        failure is NOT swallowed — it propagates so the router returns a 500.
+        Args:
+            project_id: Owning project; every query is scoped to it.
+            limit: Max items in the returned page (already validated by the router).
+            start_after: Inclusive lower bound on the detector's ``create_time``.
+            end_before: Exclusive upper bound on the detector's ``create_time``.
+
+        Returns:
+            ``(items, total)`` — the page of :class:`DetectorItem` ordered by
+            ``create_time`` DESC, plus the total number of catalog rows matching the
+            filters (for pagination).
+
+        The ``start_after`` / ``end_before`` window mirrors the findings/traces list
+        windows. Unlike the best-effort RCA/template enrichment reads, a failure
+        here is NOT swallowed: it propagates so the router returns a controlled 500.
         """
         conditions = ["project_id = %s"]
         params: list[Any] = [project_id]
@@ -131,17 +140,40 @@ class DetectorReaderService:
         detector: str | None,
         trace_id: str | None,
     ) -> tuple[list[FindingSummary], int]:
-        """List findings for a project, newest first, with the total match count."""
+        """List a project's detector findings, newest first, with the total match count.
+
+        Args:
+            project_id: Owning project; every query is scoped to it.
+            limit: Max findings in the returned page (already validated by the router).
+            start_after: Inclusive lower bound on a finding's (latest) ``timestamp``.
+            end_before: Exclusive upper bound on a finding's ``timestamp``.
+            detector: Optional selector (id / name / template); resolved server-side
+                to the set of matching detector names+ids and matched against the
+                stored payload. An unresolved token simply matches nothing.
+            trace_id: Optional restriction to a single trace's finding.
+
+        Returns:
+            ``(items, total)`` — the page of :class:`FindingSummary` ordered by
+            ``timestamp`` DESC, plus the total number of distinct findings matching
+            the filters.
+
+        ``detector_findings`` is a ``ReplacingMergeTree(timestamp)``, so every query
+        first dedups to the latest row per ``finding_id`` (``LIMIT 1 BY``), and
+        filter placement is both correctness- and cost-critical:
+
+        * ``project_id`` / ``trace_id`` (immutable across re-ingested versions) and
+          ``start_after`` are applied BEFORE the dedup. ``start_after`` is safe
+          there because a finding's latest version carries the max timestamp, so it
+          survives ``timestamp >= start`` iff its latest version does — this scopes
+          the expensive dedup + count to the window instead of all history.
+        * ``end_before`` and the payload-based ``detector`` predicate are
+          version-sensitive and applied AFTER the dedup; on raw pre-merge rows an
+          older version ``< end_before`` (or an outdated payload) could otherwise
+          resurface a finding whose latest version no longer matches.
+        """
         params: dict[str, Any] = {"project_id": project_id, "limit": limit}
 
-        # Filters safe to apply BEFORE dedup — they scope the (expensive) dedup +
-        # count aggregation to fewer rows instead of the project's full finding
-        # history. project_id/trace_id are immutable across re-ingested versions.
-        # start_after is safe too: a finding's LATEST version has the MAX timestamp,
-        # so the finding survives `timestamp >= start` in the pre-dedup scan iff its
-        # latest version does — no stale version can slip through the lower bound.
-        # Since `--since` sets only start_after, the common windowed query is now
-        # bounded to the window rather than deduping every finding ever produced.
+        # Pre-dedup filters (see the docstring: safe here + they prune the scan).
         base_conditions = ["project_id = {project_id:String}"]
         if trace_id is not None:
             base_conditions.append("trace_id = {trace_id:String}")
@@ -150,12 +182,7 @@ class DetectorReaderService:
             base_conditions.append("timestamp >= {start_after:DateTime64(3)}")
             params["start_after"] = to_utc_naive(start_after)
 
-        # Version-sensitive filters — applied AFTER dedup, to the latest version
-        # only. detector_findings is a ReplacingMergeTree(timestamp); an UPPER time
-        # bound or the payload-based detector predicate on raw pre-merge rows could
-        # surface a stale finding whose latest version no longer matches (an older
-        # version < end_before, or an outdated payload). So we dedup to the latest
-        # row per finding first, then filter.
+        # Post-dedup, version-sensitive filters (see the docstring).
         outer_conditions: list[str] = []
         if end_before is not None:
             outer_conditions.append("timestamp < {end_before:DateTime64(3)}")
