@@ -395,3 +395,22 @@ def test_bound_placeholder_renders_as_clickhouse_string_form() -> None:
     assert PID not in out
     # exactly one bind key, reserved for server-side scoping
     assert binds == {"scope_project_id": PID}
+
+
+# ---------------------------------------------------------------------------
+# Structural assertion on the injected scope filter (a wrong column or operator
+# would otherwise be invisible to substring-only checks)
+# ---------------------------------------------------------------------------
+def test_injected_view_filter_is_project_scoped() -> None:
+    import re
+
+    rendered, _ = scope_and_render(
+        "SELECT s.span_id FROM spans s JOIN traces t ON s.trace_id = t.trace_id", PID
+    )
+    # Each rewritten table must carry exactly `project_id = {scope_project_id:String}`
+    # (correct column, `=` operator, reserved bound param) — not e.g. a different
+    # column or a `!=`.
+    pattern = re.compile(r"project_id\s*=\s*\{\s*scope_project_id\s*:\s*String\s*\}")
+    assert len(pattern.findall(rendered)) == 2
+    # and no other column is used as the scope filter
+    assert "!=" not in rendered
