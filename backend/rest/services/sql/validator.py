@@ -341,14 +341,23 @@ def validate(sql: str) -> exp.Query:
             if table_name not in public_table_names:
                 raise SqlValidationError("Table is not in the allowed public schema")
 
-        # 7. project_id as a column reference (SELECT project_id / WHERE project_id = …)
-        #    or as an output alias (… AS project_id). Both use the same generic
-        #    wording so the error never names the reserved tenant-scoping column
-        #    (keeps messages sanitized / avoids confirming internal schema).
-        if isinstance(node, exp.Column) and node.name.lower() == "project_id":
+        # 7. The reserved tenant-scoping name `project_id` is blocked in EVERY
+        #    identifier position, for policy consistency: a column reference
+        #    (SELECT project_id / WHERE project_id = …), a column's table
+        #    qualifier (project_id.col), an output alias (… AS project_id), and a
+        #    table alias (FROM spans AS project_id). All share the same generic
+        #    wording so the error never names the reserved column. (Tenant scoping
+        #    itself is enforced by the rewriter's view injection, independent of
+        #    these checks; this keeps the surface tidy and free of footguns.)
+        if isinstance(node, exp.Column) and (
+            node.name.lower() == "project_id" or node.table.lower() == "project_id"
+        ):
             raise SqlValidationError("Access to a restricted column is not allowed")
 
         if isinstance(node, exp.Alias) and node.alias.lower() == "project_id":
+            raise SqlValidationError("Access to a restricted column is not allowed")
+
+        if isinstance(node, exp.Table) and node.alias.lower() == "project_id":
             raise SqlValidationError("Access to a restricted column is not allowed")
 
         # 11. Reserved bound-parameter names ({name:Type}). ClickHouse
