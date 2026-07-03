@@ -76,6 +76,9 @@ ALLOWED_CASES = [
     "WITH evil AS (SELECT 1 AS n) SELECT n FROM evil",
     # Chained CTEs: later CTE references earlier CTE in the same WITH block
     "WITH a AS (SELECT span_id FROM spans), b AS (SELECT span_id FROM a) SELECT count() FROM b",
+    # Mixed-case CTE alias — the in-scope reference must be allowed (identifier
+    # matching is case-insensitive; scope.cte_sources preserves original case).
+    "WITH MyCte AS (SELECT trace_id FROM traces) SELECT count() FROM MyCte",
 ]
 
 
@@ -127,6 +130,13 @@ REJECTED_CASES = [
     pytest.param(
         "WITH spans AS (SELECT 1 AS x) SELECT x FROM spans",
         id="reject-cte-shadow-spans",
+    ),
+    # Case-insensitive CTE matching must NOT reopen the scope-aware bypass: the
+    # outer `Evil` is a real out-of-scope table; the same-named CTE lives only in
+    # the subquery, so it must still be rejected despite the case difference.
+    pytest.param(
+        "SELECT span_id FROM Evil WHERE 1 IN (WITH evil AS (SELECT 1 AS n) SELECT n FROM evil)",
+        id="reject-mixed-case-out-of-scope-table",
     ),
     # ----- SETTINGS ---------------------------------------------------------
     pytest.param(
