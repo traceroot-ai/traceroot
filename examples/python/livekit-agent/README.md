@@ -34,8 +34,6 @@ The TraceRoot setup is intentionally small:
 - `using_attributes(session_id=ctx.room.name)` groups all spans from the room
   into one TraceRoot session.
 - `ctx.add_shutdown_callback(traceroot.flush)` flushes spans before the job exits.
-- `record={"traces": False}` avoids LiveKit Cloud re-binding the tracer provider
-  away from TraceRoot.
 
 LiveKit currently emits an `agent_turn` span for each completed turn. The user's
 voice input is emitted as a `user_turn` span, and the assistant response is

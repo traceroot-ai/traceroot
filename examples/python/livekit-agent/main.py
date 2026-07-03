@@ -58,7 +58,6 @@ async def entrypoint(ctx: JobContext) -> None:
         await session.start(
             agent=Assistant(),
             room=ctx.room,
-            record={"traces": False},
         )
         await ctx.connect()
 
