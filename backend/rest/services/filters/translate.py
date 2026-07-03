@@ -22,8 +22,10 @@ from rest.services.filters.columns import (
     FilterColumn,
     FilterLevel,
     FilterOperator,
+    FilterType,
     get_column,
 )
+from rest.sql_utils import escape_ilike
 
 
 class Predicate(BaseModel):
@@ -32,8 +34,9 @@ class Predicate(BaseModel):
     Attributes:
         field (str): The registry column name to filter on.
         op (str): The operator (validated against the field's whitelist).
-        value (Any): The operand — a list for ``in``, a ``[min, max]`` pair for
-            ``between`` (either bound may be ``None`` for an open-ended range).
+        value (Any): The operand, shaped by the field's type — a list of strings for
+            ``in``, a single number for a numeric comparison (``eq``/``gt``/``gte``/
+            ``lt``/``lte``), or a string for a text match (``eq``/``contains``).
     """
 
     field: str
@@ -112,51 +115,57 @@ _NUMERIC_TYPE_MAX = {"Int64": 2**63 - 1, "UInt64": 2**64 - 1, "Decimal64(9)": 10
 
 
 def _validate_value(pred: Predicate, col: FilterColumn) -> None:
-    """Check the value matches the operator's shape, so a malformed (but typed) filter
-    is a 422 at the edge rather than a 500 from deep in query building.
+    """Check the value matches the field's type, so a malformed (but typed) filter is a
+    422 at the edge rather than a 500 from deep in query building. The value's shape is
+    keyed off the field type; the operator whitelist (checked in ``validate_predicate``)
+    already guaranteed the op is valid for the field.
 
     Raises:
-        ValueError: If ``in`` lacks a list of strings; if ``between`` lacks a two-element
-            ``[min, max]`` list of numbers (either bound may be ``null``); or if a bound
-            can't safely bind to the column's ClickHouse type — non-finite (NaN/inf),
-            negative (the metrics are all non-negative; a negative can't bind to a
-            ``UInt64``), fractional on an integer field, or beyond the column type's
-            range. Each of these would otherwise be a BAD_QUERY_PARAMETER 500.
+        ValueError: If a categorical ``in`` isn't a non-empty list of strings; if a text
+            value isn't a non-empty string; or if a numeric value can't bind to the
+            column's ClickHouse type (see ``_validate_numeric``).
     """
-    if pred.op == FilterOperator.IN:
+    if col.type == FilterType.CATEGORICAL:
         if (
             not isinstance(pred.value, list)
             or not pred.value  # an empty IN list matches nothing — reject it
             or not all(isinstance(v, str) for v in pred.value)
         ):
             raise ValueError(f"'in' filter on {pred.field!r} requires a non-empty list of strings")
-    elif pred.op == FilterOperator.BETWEEN:
-        v = pred.value
-        if not isinstance(v, list) or len(v) != 2 or not all(x is None or _is_number(x) for x in v):
-            raise ValueError(
-                f"'between' filter on {pred.field!r} requires [min, max] numbers "
-                "(either bound may be null)"
-            )
-        max_val = _NUMERIC_TYPE_MAX.get(col.ch_type)
-        for x in v:
-            if x is None:
-                continue
-            # A bound must bind safely to the column's type or ClickHouse 500s. Guard the
-            # float coercions: math.isfinite()/is_integer() OverflowError on an
-            # arbitrary-size JSON int, so only NaN/inf-check floats and compare ranges
-            # directly (int/Decimal alike — an oversized cost overflows Decimal64 too).
-            if isinstance(x, float) and not math.isfinite(x):
-                raise ValueError(f"'between' filter on {pred.field!r} bounds must be finite")
-            if x < 0:
-                raise ValueError(
-                    f"'between' filter on {pred.field!r} takes non-negative numbers (got {x!r})"
-                )
-            if col.is_integer and isinstance(x, float) and not x.is_integer():
-                raise ValueError(
-                    f"'between' filter on {pred.field!r} takes whole numbers only (got {x!r})"
-                )
-            if max_val is not None and x > max_val:
-                raise ValueError(f"'between' filter on {pred.field!r} exceeds its maximum value")
+    elif col.type == FilterType.TEXT:
+        # bool is not a str, so a JSON boolean is correctly rejected here.
+        if not isinstance(pred.value, str) or pred.value == "":
+            raise ValueError(f"{pred.op!r} filter on {pred.field!r} requires a non-empty string")
+    elif col.type == FilterType.NUMERIC:
+        _validate_numeric(pred.value, pred, col)
+
+
+def _validate_numeric(x: object, pred: Predicate, col: FilterColumn) -> None:
+    """Validate a single numeric comparison operand can bind to the column's type.
+
+    A value that can't bind is a BAD_QUERY_PARAMETER 500 in ClickHouse, so reject it at
+    the edge (422): not a number, non-finite (NaN/inf), negative (the metrics are all
+    non-negative; a negative can't bind to a ``UInt64``), fractional on an integer field,
+    or beyond the column type's range. Guards the float coercions — ``math.isfinite()`` /
+    ``is_integer()`` OverflowError on an arbitrary-size JSON int, so only NaN/inf-check
+    floats and compare ranges directly (int / Decimal alike; an oversized cost overflows
+    Decimal64 too).
+    """
+    if not _is_number(x):
+        raise ValueError(f"{pred.op!r} filter on {pred.field!r} requires a number (got {x!r})")
+    if isinstance(x, float) and not math.isfinite(x):
+        raise ValueError(f"{pred.op!r} filter on {pred.field!r} value must be finite")
+    if x < 0:
+        raise ValueError(
+            f"{pred.op!r} filter on {pred.field!r} takes non-negative numbers (got {x!r})"
+        )
+    if col.is_integer and isinstance(x, float) and not x.is_integer():
+        raise ValueError(
+            f"{pred.op!r} filter on {pred.field!r} takes whole numbers only (got {x!r})"
+        )
+    max_val = _NUMERIC_TYPE_MAX.get(col.ch_type)
+    if max_val is not None and x > max_val:
+        raise ValueError(f"{pred.op!r} filter on {pred.field!r} exceeds its maximum value")
 
 
 # Back off the span-scan lower bound from ``start_after`` by this much. ``start_after``
@@ -213,49 +222,58 @@ def _membership_semijoin(idx: int, col: FilterColumn, pred: Predicate, params: d
     return f"t.trace_id IN (SELECT trace_id FROM ({inner}) WHERE {where})"
 
 
-def _having_clause(idx: int, col: FilterColumn, pred: Predicate, params: dict) -> str | None:
-    """One per-trace aggregate HAVING comparison, with nullable open-ended bounds.
+# Numeric comparison operators -> their literal SQL. The operand always binds as a param.
+_COMPARISON_SQL = {
+    FilterOperator.EQ: "=",
+    FilterOperator.GT: ">",
+    FilterOperator.GTE: ">=",
+    FilterOperator.LT: "<",
+    FilterOperator.LTE: "<=",
+}
 
-    Bound semantics — both bounds are INCLUSIVE, matching the UI's "greater than or equal
-    to" / "less than or equal to" operators so the label never misrepresents the result:
-    ``[lo, None]`` -> ``>=``, ``[None, hi]`` -> ``<=``, both bounds -> inclusive ``BETWEEN``.
-    Returns ``None`` when both bounds are absent (a no-op filter). Param names carry
-    ``idx`` so duplicate predicates on the same field don't collide.
+
+def _trace_condition(idx: int, col: FilterColumn, pred: Predicate, params: dict) -> str:
+    """One inline predicate on the traces row for a TRACE-level (text) field.
+
+    Filters ``t.<col>`` directly — no span scan — keyed on the outer query so it lands in
+    both the page and count queries. ``eq`` is an exact match; ``contains`` is a
+    case-insensitive ILIKE with the search value's wildcards escaped so a literal ``%``/
+    ``_`` matches literally. The value binds as a parameter, never interpolated.
     """
-    lo, hi = pred.value[0], pred.value[1]
-    agg, ch = col.aggregate_expr, col.ch_type
+    pname = f"f_{col.name}_{idx}"
+    if pred.op == FilterOperator.CONTAINS:
+        params[pname] = f"%{escape_ilike(pred.value)}%"
+        return f"t.{col.name} ILIKE {{{pname}:String}}"
+    params[pname] = pred.value  # EQ — exact match
+    return f"t.{col.name} = {{{pname}:String}}"
+
+
+def _having_clause(idx: int, col: FilterColumn, pred: Predicate, params: dict) -> str:
+    """One per-trace aggregate HAVING comparison: ``<agg> <op> {param}``.
+
+    The operand binds as a parameter (never interpolated). Multiple predicates on the same
+    field are AND-combined by the caller, so a range is two one-sided comparisons (e.g.
+    ``> 5`` and ``<= 10``). Param names carry ``idx`` so duplicate predicates on the same
+    field don't collide.
+    """
+    val = pred.value
     if col.is_integer:
-        # Bounds are validated whole numbers; bind them as int so a JSON float like 5.0
-        # doesn't reach ClickHouse as "5.0" (unparseable as Int64/UInt64).
-        lo = int(lo) if lo is not None else None
-        hi = int(hi) if hi is not None else None
-    lo_name, hi_name = f"f_{col.name}_{idx}_min", f"f_{col.name}_{idx}_max"
-    if lo is not None and hi is not None:
-        params[lo_name] = lo
-        params[hi_name] = hi
-        return f"{agg} BETWEEN {{{lo_name}:{ch}}} AND {{{hi_name}:{ch}}}"
-    if lo is not None:
-        params[lo_name] = lo
-        return f"{agg} >= {{{lo_name}:{ch}}}"  # "greater than or equal to"
-    if hi is not None:
-        params[hi_name] = hi
-        return f"{agg} <= {{{hi_name}:{ch}}}"  # "less than or equal to" (inclusive)
-    return None
+        # Bind a validated whole number as int so a JSON float like 5.0 doesn't reach
+        # ClickHouse as "5.0" (unparseable as Int64/UInt64).
+        val = int(val)
+    pname = f"f_{col.name}_{idx}"
+    params[pname] = val
+    return f"{col.aggregate_expr} {_COMPARISON_SQL[pred.op]} {{{pname}:{col.ch_type}}}"
 
 
-def _aggregate_semijoin(
-    frags: list[tuple[int, FilterColumn, Predicate]], params: dict
-) -> str | None:
+def _aggregate_semijoin(frags: list[tuple[int, FilterColumn, Predicate]], params: dict) -> str:
     """Merge aggregate predicates into one time-bounded GROUP BY ... HAVING semi-join.
 
     Dedups ReplacingMergeTree spans (latest ``ch_update_time`` per span) within the
     active window, rolls them up per trace, and keeps traces whose aggregates satisfy
     all HAVING comparisons. Keyed on ``t.trace_id`` so it filters page and count alike.
-    Returns ``None`` if every predicate was an empty (no-bound) range.
     """
-    having = [c for c in (_having_clause(i, col, pred, params) for i, col, pred in frags) if c]
-    if not having:
-        return None
+    having = [_having_clause(i, col, pred, params) for i, col, pred in frags]
     # Project the dedup/group keys, UNIONED with the source_columns of the active aggregate
     # predicates. Registry-driven, so a new aggregate field is one registry entry (its
     # source_columns) with no change here. dict.fromkeys dedups with stable order.
@@ -295,22 +313,27 @@ def build_conditions(filters: list[Predicate], params: dict) -> list[str]:
     """
     membership: list[tuple[int, FilterColumn, Predicate]] = []
     aggregate: list[tuple[int, FilterColumn, Predicate]] = []
+    trace: list[tuple[int, FilterColumn, Predicate]] = []
     for i, pred in enumerate(filters):
         col = validate_predicate(pred)
         if col.level == FilterLevel.SPAN_MEMBERSHIP:
             membership.append((i, col, pred))
         elif col.level == FilterLevel.SPAN_AGGREGATE:
             aggregate.append((i, col, pred))
+        elif col.level == FilterLevel.TRACE:
+            trace.append((i, col, pred))
         else:
             raise NotImplementedError(f"level {col.level} not yet lowered: {col.name}")
 
     conditions: list[str] = []
+    # Inline trace-row predicates (t.*), keyed on the outer query so they land in both the
+    # page and count queries.
+    for i, col, pred in trace:
+        conditions.append(_trace_condition(i, col, pred, params))
     # One semi-join per membership predicate (independent existence), each AND-combined via
     # the shared conditions list so every one lands in both the page and count queries.
     for i, col, pred in membership:
         conditions.append(_membership_semijoin(i, col, pred, params))
     if aggregate:
-        agg = _aggregate_semijoin(aggregate, params)
-        if agg:
-            conditions.append(agg)
+        conditions.append(_aggregate_semijoin(aggregate, params))
     return conditions

@@ -8,10 +8,10 @@
 export interface FilterFieldDef {
   field: string;
   label: string;
-  type: "categorical" | "numeric";
+  type: "categorical" | "numeric" | "text";
   level: string;
   operators: string[];
-  value_source: "static_enum" | "distinct_query" | "range";
+  value_source: "static_enum" | "distinct_query" | "range" | "free_text";
   enum_values: string[];
   /** Integer-typed numeric field (tokens/latency/errors) — restrict input to whole numbers. */
   integer?: boolean;
@@ -36,6 +36,15 @@ export interface FilterValuesResponse {
 
 export const STATIC_FILTER_FIELDS: FilterFieldDef[] = [
   {
+    field: "trace_id",
+    label: "Trace ID",
+    type: "text",
+    level: "TRACE",
+    operators: ["eq", "contains"],
+    value_source: "free_text",
+    enum_values: [],
+  },
+  {
     field: "model_name",
     label: "Model",
     type: "categorical",
@@ -58,7 +67,7 @@ export const STATIC_FILTER_FIELDS: FilterFieldDef[] = [
     label: "Cost",
     type: "numeric",
     level: "SPAN_AGGREGATE",
-    operators: ["between"],
+    operators: ["eq", "gt", "gte", "lt", "lte"],
     value_source: "range",
     enum_values: [],
   },
@@ -67,7 +76,7 @@ export const STATIC_FILTER_FIELDS: FilterFieldDef[] = [
     label: "Tokens",
     type: "numeric",
     level: "SPAN_AGGREGATE",
-    operators: ["between"],
+    operators: ["eq", "gt", "gte", "lt", "lte"],
     value_source: "range",
     enum_values: [],
     integer: true,
@@ -77,7 +86,7 @@ export const STATIC_FILTER_FIELDS: FilterFieldDef[] = [
     label: "Latency",
     type: "numeric",
     level: "SPAN_AGGREGATE",
-    operators: ["between"],
+    operators: ["eq", "gt", "gte", "lt", "lte"],
     value_source: "range",
     enum_values: [],
     integer: true,
@@ -87,7 +96,7 @@ export const STATIC_FILTER_FIELDS: FilterFieldDef[] = [
     label: "Errors",
     type: "numeric",
     level: "SPAN_AGGREGATE",
-    operators: ["between"],
+    operators: ["eq", "gt", "gte", "lt", "lte"],
     value_source: "range",
     enum_values: [],
     integer: true,

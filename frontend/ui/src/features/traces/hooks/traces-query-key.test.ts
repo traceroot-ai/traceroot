@@ -3,7 +3,7 @@ import { tracesQueryKey } from "./index";
 import type { Predicate } from "@/types/api";
 
 const model: Predicate = { field: "model_name", op: "in", value: ["a", "b"] };
-const cost: Predicate = { field: "cost", op: "between", value: [0.5, null] };
+const cost: Predicate = { field: "cost", op: "gte", value: 0.5 };
 
 describe("tracesQueryKey", () => {
   it("includes project id and all paging/filter fields in a stable order", () => {

@@ -28,21 +28,25 @@ class FilterType(StrEnum):
 
     CATEGORICAL = "categorical"  # single-select value dropdown
     NUMERIC = "numeric"  # number input
+    TEXT = "text"  # free-text input (e.g. trace_id)
 
 
 class FilterOperator(StrEnum):
-    """Operators the translator whitelists per field (safety boundary)."""
+    """Operators the translator whitelists per field (safety boundary).
 
-    IN = "in"
-    # The single numeric operator: a [min, max] range where either bound may be null,
-    # which is how the UI's "greater/less than or equal to" and "equals" are expressed
-    # without separate ops. Lowering (see translate.py:_having_clause) — both bounds
-    # inclusive:
-    #   value [0.5, null]  -> agg >= 0.5            (UI "greater than or equal to")
-    #   value [null, 10]   -> agg <= 10             (UI "less than or equal to")
-    #   value [0.5, 10]    -> agg BETWEEN 0.5 AND 10  (inclusive; "equals" uses [x, x])
-    # The translator keys off which bounds are present.
-    BETWEEN = "between"
+    Explicit scalar operators: categorical membership (``in``, a list),
+    numeric comparisons (``eq``/``gt``/``gte``/``lt``/``lte``, each a single number), and
+    text match (``eq`` exact / ``contains`` case-insensitive substring). Each lowers to a
+    literal SQL comparison in ``translate.py``; the value's shape is validated per field.
+    """
+
+    IN = "in"  # categorical membership — value is a list of strings
+    EQ = "eq"  # =   (numeric equality, or text exact match)
+    GT = "gt"  # >
+    GTE = "gte"  # >=
+    LT = "lt"  # <
+    LTE = "lte"  # <=
+    CONTAINS = "contains"  # case-insensitive substring (text)
 
 
 class ValueSource(StrEnum):
@@ -51,6 +55,7 @@ class ValueSource(StrEnum):
     STATIC_ENUM = "static_enum"  # a fixed shared StrEnum (no field uses this currently)
     DISTINCT_QUERY = "distinct_query"  # a distinct-values query (model_name, environment)
     RANGE = "range"  # numeric field — no enumerated options, a number input
+    FREE_TEXT = "free_text"  # text field — a free-text input, no options (trace_id)
 
 
 @dataclass(frozen=True)
@@ -98,9 +103,29 @@ class FilterColumn:
 # the trace's spans — the same expression the list query's span_agg already uses.
 _DURATION_EXPR = "dateDiff('millisecond', min(span_start_time), max(span_end_time))"
 
+# The comparison operators every numeric field accepts.
+_NUMERIC_OPS = (
+    FilterOperator.EQ,
+    FilterOperator.GT,
+    FilterOperator.GTE,
+    FilterOperator.LT,
+    FilterOperator.LTE,
+)
+
 # A tuple, not a list/frozenset: an immutable constant whose order is the UI render
 # / serialization order; keyed lookup is FILTER_COLUMNS_BY_NAME below.
 FILTER_COLUMNS: tuple[FilterColumn, ...] = (
+    # Trace-identifier tier — inline predicate on the traces row (t.trace_id), not a span
+    # scan. Text match: exact `=` or case-insensitive `contains` (the search-by-id path).
+    FilterColumn(
+        name="trace_id",
+        label="Trace ID",
+        ch_type="String",
+        level=FilterLevel.TRACE,
+        type=FilterType.TEXT,
+        operators=(FilterOperator.EQ, FilterOperator.CONTAINS),
+        value_source=ValueSource.FREE_TEXT,
+    ),
     # Membership tier — "trace has ≥1 span where …" (span semi-join).
     FilterColumn(
         name="model_name",
@@ -120,14 +145,14 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         operators=(FilterOperator.IN,),
         value_source=ValueSource.DISTINCT_QUERY,
     ),
-    # Aggregate tier — time-bounded GROUP BY trace_id HAVING <agg> BETWEEN ….
+    # Aggregate tier — time-bounded GROUP BY trace_id HAVING <agg> <op> <value>.
     FilterColumn(
         name="cost",
         label="Cost",
         ch_type="Decimal64(9)",
         level=FilterLevel.SPAN_AGGREGATE,
         type=FilterType.NUMERIC,
-        operators=(FilterOperator.BETWEEN,),
+        operators=_NUMERIC_OPS,
         value_source=ValueSource.RANGE,
         aggregate_expr="sum(cost)",
         source_columns=("cost",),
@@ -138,7 +163,7 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         ch_type="Int64",
         level=FilterLevel.SPAN_AGGREGATE,
         type=FilterType.NUMERIC,
-        operators=(FilterOperator.BETWEEN,),
+        operators=_NUMERIC_OPS,
         value_source=ValueSource.RANGE,
         aggregate_expr="sum(total_tokens)",
         source_columns=("total_tokens",),
@@ -149,13 +174,13 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         ch_type="Int64",
         level=FilterLevel.SPAN_AGGREGATE,
         type=FilterType.NUMERIC,
-        operators=(FilterOperator.BETWEEN,),
+        operators=_NUMERIC_OPS,
         value_source=ValueSource.RANGE,
         aggregate_expr=_DURATION_EXPR,
         source_columns=("span_start_time", "span_end_time"),
     ),
     # Per-trace error-span count, filtered like the other numeric aggregates
-    # (e.g. "errors between 3 and ∞"). `errors` is derived, not a stored column —
+    # (e.g. "errors >= 3"). `errors` is derived, not a stored column —
     # the aggregate_expr counts spans whose status is ERROR.
     FilterColumn(
         name="errors",
@@ -163,7 +188,7 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         ch_type="UInt64",
         level=FilterLevel.SPAN_AGGREGATE,
         type=FilterType.NUMERIC,
-        operators=(FilterOperator.BETWEEN,),
+        operators=_NUMERIC_OPS,
         value_source=ValueSource.RANGE,
         aggregate_expr="countIf(status = 'ERROR')",
         source_columns=("status",),

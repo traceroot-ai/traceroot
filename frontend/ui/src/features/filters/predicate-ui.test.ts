@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   predicateLabel,
   buildInPredicate,
-  buildBetweenPredicate,
+  buildNumericPredicate,
+  buildTextPredicate,
   upsertPredicate,
 } from "./predicate-ui";
 
@@ -19,28 +20,27 @@ describe("predicateLabel", () => {
     ).toBe("model_name in [claude-opus-4.8, gpt-4]");
   });
 
-  it("renders an open lower bound as inclusive ≥", () => {
-    expect(predicateLabel({ field: "cost", op: "between", value: [0.5, null] })).toBe("cost ≥ 0.5");
+  it("renders numeric comparison operators as their symbols", () => {
+    expect(predicateLabel({ field: "cost", op: "eq", value: 5 })).toBe("cost = 5");
+    expect(predicateLabel({ field: "cost", op: "gt", value: 0.5 })).toBe("cost > 0.5");
+    expect(predicateLabel({ field: "cost", op: "gte", value: 0.5 })).toBe("cost ≥ 0.5");
+    expect(predicateLabel({ field: "cost", op: "lt", value: 10 })).toBe("cost < 10");
+    expect(predicateLabel({ field: "cost", op: "lte", value: 10 })).toBe("cost ≤ 10");
   });
 
-  it("renders an open upper bound as inclusive ≤", () => {
-    expect(predicateLabel({ field: "cost", op: "between", value: [null, 10] })).toBe("cost ≤ 10");
-  });
-
-  it("renders a closed range as between", () => {
-    expect(predicateLabel({ field: "cost", op: "between", value: [0.5, 10] })).toBe(
-      "cost between 0.5 and 10",
+  it("renders text `eq` as an equality and `contains` as `contains`", () => {
+    expect(predicateLabel({ field: "trace_id", op: "eq", value: "abc123" })).toBe(
+      "trace_id = abc123",
+    );
+    expect(predicateLabel({ field: "trace_id", op: "contains", value: "abc" })).toBe(
+      "trace_id contains abc",
     );
   });
 
-  it("renders equal bounds (from `equals`) as `=`", () => {
-    expect(predicateLabel({ field: "cost", op: "between", value: [5, 5] })).toBe("cost = 5");
-  });
-
   it("uses the supplied display name in place of the raw field key", () => {
-    expect(
-      predicateLabel({ field: "duration_ms", op: "between", value: [5, null] }, "latency"),
-    ).toBe("latency ≥ 5");
+    expect(predicateLabel({ field: "duration_ms", op: "gte", value: 5 }, "latency")).toBe(
+      "latency ≥ 5",
+    );
     expect(predicateLabel({ field: "model_name", op: "in", value: ["gpt-4"] }, "model")).toBe(
       "model = gpt-4",
     );
@@ -56,27 +56,38 @@ describe("predicate builders", () => {
     });
   });
 
-  it("buildBetweenPredicate makes a numeric `between` predicate with nullable bounds", () => {
-    expect(buildBetweenPredicate("cost", 0.5, null)).toEqual({
+  it("buildNumericPredicate makes a scalar numeric comparison predicate", () => {
+    expect(buildNumericPredicate("cost", "gte", 0.5)).toEqual({
       field: "cost",
-      op: "between",
-      value: [0.5, null],
+      op: "gte",
+      value: 0.5,
+    });
+  });
+
+  it("buildTextPredicate makes a scalar text predicate", () => {
+    expect(buildTextPredicate("trace_id", "contains", "abc")).toEqual({
+      field: "trace_id",
+      op: "contains",
+      value: "abc",
     });
   });
 });
 
 describe("upsertPredicate", () => {
-  const gte = (f: string, lo: number) => buildBetweenPredicate(f, lo, null);
-  const lte = (f: string, hi: number) => buildBetweenPredicate(f, null, hi);
+  const gt = (f: string, v: number) => buildNumericPredicate(f, "gt", v);
+  const gte = (f: string, v: number) => buildNumericPredicate(f, "gte", v);
+  const lt = (f: string, v: number) => buildNumericPredicate(f, "lt", v);
+  const lte = (f: string, v: number) => buildNumericPredicate(f, "lte", v);
+  const eq = (f: string, v: number) => buildNumericPredicate(f, "eq", v);
 
   it("keeps a lower and an upper bound on the same field to form a range", () => {
-    const afterLower = upsertPredicate([], gte("duration_ms", 5));
+    const afterLower = upsertPredicate([], gt("duration_ms", 5));
     const afterRange = upsertPredicate(afterLower, lte("duration_ms", 10));
-    expect(afterRange).toEqual([gte("duration_ms", 5), lte("duration_ms", 10)]);
+    expect(afterRange).toEqual([gt("duration_ms", 5), lte("duration_ms", 10)]);
   });
 
   it("replaces a same-direction bound rather than stacking two lower bounds", () => {
-    const start = [gte("duration_ms", 5), lte("duration_ms", 10)];
+    const start = [gt("duration_ms", 5), lte("duration_ms", 10)];
     expect(upsertPredicate(start, gte("duration_ms", 8))).toEqual([
       lte("duration_ms", 10),
       gte("duration_ms", 8),
@@ -89,30 +100,31 @@ describe("upsertPredicate", () => {
   });
 
   it("a new lower bound that contradicts the upper bound supersedes it", () => {
-    // errors ≤ 3 then errors ≥ 5 — the newer lower bound wins.
     expect(upsertPredicate([lte("errors", 3)], gte("errors", 5))).toEqual([gte("errors", 5)]);
   });
 
-  it("keeps equal bounds as an exact-value range (both inclusive: ≥ x AND ≤ x matches x)", () => {
-    // errors ≥ 5 then errors ≤ 5 — 5 <= x <= 5 matches exactly 5, a valid non-empty range.
+  it("keeps equal INCLUSIVE bounds as an exact-value range (≥ x AND ≤ x matches x)", () => {
     expect(upsertPredicate([gte("errors", 5)], lte("errors", 5))).toEqual([
       gte("errors", 5),
       lte("errors", 5),
     ]);
   });
 
+  it("drops equal bounds when either is STRICT (> x AND ≤ x at x is empty)", () => {
+    // gt 5 then lte 5 — nothing satisfies x > 5 AND x <= 5, so the newer one wins.
+    expect(upsertPredicate([gt("errors", 5)], lte("errors", 5))).toEqual([lte("errors", 5)]);
+  });
+
   it("keeps a valid (non-empty) opposite bound: lower < upper", () => {
-    expect(upsertPredicate([gte("duration_ms", 3)], lte("duration_ms", 5))).toEqual([
-      gte("duration_ms", 3),
-      lte("duration_ms", 5),
+    expect(upsertPredicate([gt("duration_ms", 3)], lt("duration_ms", 5))).toEqual([
+      gt("duration_ms", 3),
+      lt("duration_ms", 5),
     ]);
   });
 
-  it("an exact `equals` (both bounds equal) supersedes both range bounds", () => {
+  it("an exact `eq` supersedes both range bounds on the field", () => {
     const start = [gte("cost", 1), lte("cost", 5)];
-    expect(upsertPredicate(start, buildBetweenPredicate("cost", 3, 3))).toEqual([
-      buildBetweenPredicate("cost", 3, 3),
-    ]);
+    expect(upsertPredicate(start, eq("cost", 3))).toEqual([eq("cost", 3)]);
   });
 
   it("a categorical value replaces the existing one on its field, untouched others", () => {
@@ -120,6 +132,13 @@ describe("upsertPredicate", () => {
     expect(upsertPredicate(start, buildInPredicate("model_name", ["claude"]))).toEqual([
       gte("cost", 1),
       buildInPredicate("model_name", ["claude"]),
+    ]);
+  });
+
+  it("a text predicate replaces any existing predicate on its field", () => {
+    const start = [buildTextPredicate("trace_id", "contains", "abc")];
+    expect(upsertPredicate(start, buildTextPredicate("trace_id", "eq", "xyz"))).toEqual([
+      buildTextPredicate("trace_id", "eq", "xyz"),
     ]);
   });
 
