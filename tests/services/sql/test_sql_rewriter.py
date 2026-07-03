@@ -235,8 +235,10 @@ class TestLiteralFallback:
         # A safe pid that, if injected raw, might look like SQL
         safe = "abc123"
         rendered, _ = scope_and_render("SELECT count() FROM spans", safe)
-        # Should be quoted in the rendered SQL: 'abc123'
-        assert f"'{safe}'" in rendered or safe in rendered
+        # The pid must appear SQL-string-quoted ('abc123'), never bare. The
+        # earlier `or safe in rendered` fallback made this vacuous (a quoted
+        # literal always contains the bare substring), so it is removed.
+        assert f"'{safe}'" in rendered
 
 
 # ---------------------------------------------------------------------------
