@@ -3,7 +3,8 @@ LiveKit Agents with TraceRoot observability.
 
 Usage:
     cp .env.example .env
-    python main.py smoke
+    python main.py
+    python main.py demo
     python main.py dev
     python main.py start
     python main.py console
@@ -58,12 +59,12 @@ def _new_session(*, voice: bool) -> AgentSession:
     )
 
 
-async def run_smoke() -> None:
+async def run_demo() -> None:
     traceroot.initialize(integrations=[Integration.LIVEKIT])
 
     session = _new_session(voice=False)
     try:
-        with using_attributes(session_id="livekit-smoke"):
+        with using_attributes(session_id="livekit-demo"):
             await session.start(agent=Assistant())
             result = session.run(user_input="What is 12 plus 30? Use the add_numbers tool.")
             await result
@@ -88,7 +89,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 1 or sys.argv[1] == "smoke":
-        asyncio.run(run_smoke())
+    if len(sys.argv) == 1 or sys.argv[1] == "demo":
+        asyncio.run(run_demo())
     else:
         cli.run_app(server)
