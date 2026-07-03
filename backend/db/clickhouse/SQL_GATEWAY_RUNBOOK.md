@@ -24,14 +24,18 @@ forms proven against the pinned ClickHouse **24.3.18.7** during the Issue 0 spik
 ## Provisioning order (run once, with an admin client)
 
 ```sql
--- 1) Scoped writer user = the view DEFINER. SELECT on the physical tables only.
+-- 1) Scoped writer user = the view DEFINER. SELECT on the physical tables only; NOT a superuser.
 CREATE USER IF NOT EXISTS sql_gateway_writer IDENTIFIED WITH no_password;  -- use a real secret in prod
 GRANT SELECT ON <database>.spans  TO sql_gateway_writer;
 GRANT SELECT ON <database>.traces TO sql_gateway_writer;
--- so the writer can own the views:
-GRANT CREATE VIEW, DROP VIEW ON <database>.* TO sql_gateway_writer;
 
--- 2) Settings profile — caps as CONST (immutable; a readonly=1 user cannot change them).
+-- 2) Apply migration 006 — it creates spans_public_v1 / traces_public_v1 with
+--    DEFINER = sql_gateway_writer. MUST run AFTER step 1, or the CREATE VIEW fails
+--    ("There is no user 'sql_gateway_writer'"). May be applied by an admin/deploy user
+--    (it does not have to run AS the writer); the stored definer is sql_gateway_writer.
+--    e.g.  goose -dir backend/db/clickhouse/migrations clickhouse "<dsn>" up
+
+-- 3) Settings profile — caps as CONST (immutable; a readonly=1 user cannot change them).
 CREATE SETTINGS PROFILE IF NOT EXISTS sql_readonly_profile SETTINGS
     readonly = 1,
     max_execution_time = 30 CONST,
@@ -39,46 +43,53 @@ CREATE SETTINGS PROFILE IF NOT EXISTS sql_readonly_profile SETTINGS
     max_result_bytes = 536870912 CONST,
     max_memory_usage = 4294967296 CONST;
 
--- 3) Read-only user used by the backend for user SQL.
+-- 4) Read-only user used by the backend for user SQL.
 CREATE USER IF NOT EXISTS <CLICKHOUSE_RO_USER> IDENTIFIED WITH ...    -- real secret
     SETTINGS PROFILE 'sql_readonly_profile';
 
--- 4) Grant the RO user SELECT on the curated views ONLY (never the physical tables).
+-- 5) Grant the RO user SELECT on the curated views ONLY (never the physical tables).
 GRANT SELECT ON <database>.spans_public_v1  TO <CLICKHOUSE_RO_USER>;
 GRANT SELECT ON <database>.traces_public_v1 TO <CLICKHOUSE_RO_USER>;
 ```
 
-## DEFINER: make the scoped writer the definer
+## DEFINER: explicit scoped writer
 
-Migration 006 sets no explicit `DEFINER`, so ClickHouse defaults the view's definer to the
-user that applies the migration.
+Migration 006 sets the view definer **explicitly** to `sql_gateway_writer`:
 
-> **Verified on ClickHouse 24.3.18.7** (`scripts/spikes/clickhouse_public_views_ddl_check.sh`):
-> applying the migration `Up` DDL as written and running `SHOW CREATE VIEW` reports the
-> applying user as an *explicit* definer — e.g. applied as `default` it stores
-> `DEFINER = default SQL SECURITY DEFINER`. The parameterization (`WHERE project_id =
-> {project_id:String}`) is preserved, and a read-only user granted `SELECT` on the view only
-> can read the view but is denied the physical table (Code 497). So **the migration-running
-> user becomes the definer** — choose that user deliberately.
+```sql
+CREATE VIEW IF NOT EXISTS spans_public_v1
+    DEFINER = sql_gateway_writer SQL SECURITY DEFINER AS ...
+```
 
-For the hardened model, the definer must be the scoped writer (step 1), **not** an
-admin/superuser. Two ways:
-
-- **Recommended:** create the writer (step 1) **before** migration 006, then apply migration
-  006 as `sql_gateway_writer` (run `goose up` with that user's credentials, or execute the
-  `-- +goose Up` DDL directly as that user). `SHOW CREATE VIEW spans_public_v1` should then
-  read `DEFINER = sql_gateway_writer SQL SECURITY DEFINER`.
-- If migrations must run as an admin user, recreate the two views as `sql_gateway_writer`
-  afterward using the exact `-- +goose Up` DDL from migration 006.
+- **`sql_gateway_writer` MUST exist before migration 006 runs** (provisioning step 1). If it
+  does not, `CREATE VIEW` fails with `There is no user 'sql_gateway_writer'`. This makes the
+  security dependency explicit and enforced instead of silently defaulting to whoever applies
+  the migration.
+- The migration **may be applied by an admin/deploy user** — it does not have to run *as*
+  `sql_gateway_writer` — provided that user has permission to create a view with a different
+  definer (admins do). The stored definer is `sql_gateway_writer` regardless of who runs the DDL.
+- `sql_gateway_writer` is a **dedicated, non-superuser role** holding only `SELECT` on the
+  physical `spans`/`traces` tables. `sql_gateway_ro` holds `SELECT` on the curated
+  `*_public_v1` views **only** (never the physical tables); it reads the views because the
+  view body runs under the writer's privileges.
 
 Verify:
 
 ```sql
-SHOW CREATE VIEW <database>.spans_public_v1;   -- expect DEFINER = sql_gateway_writer
+SHOW CREATE VIEW <database>.spans_public_v1;
+--   expect: DEFINER = sql_gateway_writer SQL SECURITY DEFINER
 -- RO user can read the view but NOT the physical table:
 --   SELECT 1 FROM <database>.spans_public_v1(project_id = 'x')   -> ok
 --   SELECT 1 FROM <database>.spans                               -> ACCESS_DENIED (Code 497)
 ```
+
+> **Verified on ClickHouse 24.3.18.7** (`scripts/spikes/clickhouse_public_views_ddl_check.sh`):
+> after creating `sql_gateway_writer` (SELECT on physical tables), applying migration 006's
+> `Up` DDL stores `DEFINER = sql_gateway_writer SQL SECURITY DEFINER`; parameterization
+> (`WHERE project_id = {project_id:String}`) is preserved; the RO user reads the view but is
+> denied the physical table (Code 497); and a foreign `project_id` returns that project's rows
+> — the DB has no tenant-choice backstop, so the application must bind the authenticated
+> `project_id`.
 
 ## Backend behavior
 
