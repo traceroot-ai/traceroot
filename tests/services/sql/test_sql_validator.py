@@ -285,3 +285,12 @@ def test_user_placeholder_outside_scope_namespace_is_allowed() -> None:
     # `scope_` namespace is off-limits.
     result = validate("SELECT span_id FROM spans WHERE span_id = {myval:String}")
     assert isinstance(result, exp.Query)
+
+
+def test_uniqexact_allowed_but_uniq_rejected() -> None:
+    # uniqExact keeps its name and is in the allowlist; uniq normalises to
+    # ApproxDistinct and is (intentionally) rejected. Pin both so a sqlglot
+    # upgrade that changes normalisation cannot silently flip the outcome.
+    assert isinstance(validate("SELECT uniqExact(span_id) FROM spans"), exp.Query)
+    with pytest.raises(SqlValidationError):
+        validate("SELECT uniq(span_id) FROM spans")

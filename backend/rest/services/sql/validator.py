@@ -67,7 +67,10 @@ ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
         "max",
         "quantile",
         "quantileexact",
-        "uniq",
+        # NOTE: `uniq` is intentionally absent. sqlglot normalises `uniq()` to
+        # exp.ApproxDistinct (sql_name "APPROX_DISTINCT"), which is not in this
+        # allowlist, so `uniq()` is rejected. `uniqExact` keeps its name and is
+        # allowed. To support `uniq`, add "approx_distinct" here deliberately.
         "uniqexact",
         "now",
         "datediff",
