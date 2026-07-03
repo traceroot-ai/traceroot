@@ -208,4 +208,40 @@ describe("ModelProvidersTab", () => {
       expect.objectContaining({ baseUrl: null }),
     );
   });
+
+  it("trims Base URL when testing a provider", async () => {
+    mocks.getModelProviders.mockResolvedValue({
+      byokEnabled: true,
+      providers: [
+        {
+          id: "provider-1",
+          adapter: "google",
+          provider: "Google Gemini",
+          keyPreview: "sk-...",
+          baseUrl: "https://example.com/v1testing",
+          customModels: [],
+          withDefaultModels: true,
+          config: null,
+          enabled: true,
+          createdBy: "user-1",
+          createTime: "2026-06-17T00:00:00.000Z",
+          updateTime: "2026-06-17T00:00:00.000Z",
+        },
+      ],
+    });
+    mocks.testModelProvider.mockResolvedValue({ success: true });
+
+    renderTab();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    const baseUrlInput = screen.getByDisplayValue("https://example.com/v1testing");
+    fireEvent.change(baseUrlInput, { target: { value: " https://example.com/v1testing " } });
+    fireEvent.click(screen.getByRole("button", { name: "Test Connection" }));
+
+    await waitFor(() => expect(mocks.testModelProvider).toHaveBeenCalledTimes(1));
+    expect(mocks.testModelProvider).toHaveBeenCalledWith(
+      "ws-1",
+      expect.objectContaining({ baseUrl: "https://example.com/v1testing" }),
+    );
+  });
 });

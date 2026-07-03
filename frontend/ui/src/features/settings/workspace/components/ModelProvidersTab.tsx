@@ -237,7 +237,8 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       // Use stored key from DB
       testData.providerId = editProvider.id;
     }
-    if (baseUrl) testData.baseUrl = baseUrl;
+    const trimmedBaseUrl = baseUrl.trim();
+    if (trimmedBaseUrl) testData.baseUrl = trimmedBaseUrl;
     setTestResult(null);
     testMutation.mutate(testData as any);
   }
