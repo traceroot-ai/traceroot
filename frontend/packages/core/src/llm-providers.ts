@@ -154,6 +154,7 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "o4-mini", label: "o4-mini" },
   ],
   anthropic: [
+    { id: "claude-fable-5", label: "claude-fable-5" },
     { id: "claude-opus-4-8", label: "claude-opus-4-8" },
     { id: "claude-opus-4-7", label: "claude-opus-4-7" },
     { id: "claude-opus-4-6", label: "claude-opus-4-6" },
