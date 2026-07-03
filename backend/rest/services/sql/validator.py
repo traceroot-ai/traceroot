@@ -281,10 +281,15 @@ def validate(sql: str) -> exp.Query:
         raise SqlValidationError("SQL could not be analyzed for table access")
 
     # Mark every exp.Table node whose name is visible as a CTE in its own scope.
+    # Match case-insensitively (like every other identifier check here):
+    # scope.cte_sources preserves the CTE's original case, so a mixed-case CTE
+    # reference (WITH MyCte … FROM MyCte) must be compared with both sides
+    # lowercased or it would be wrongly rejected as an unknown table.
     cte_ref_ids: set[int] = set()
     for scope in root_scope.traverse():
+        visible_cte_names = {name.lower() for name in scope.cte_sources}
         for table in scope.tables:
-            if table.name.lower() in scope.cte_sources:
+            if table.name.lower() in visible_cte_names:
                 cte_ref_ids.add(id(table))
 
     # Walk the full AST (including subqueries, CTEs, window bodies) for all
