@@ -67,9 +67,7 @@ async function checkEndpoint(
     const message = await readErrorMessage(res, signal);
 
     const normalizedError =
-      res.status === 401 || res.status === 403
-        ? "Invalid API key"
-        : (message ?? `HTTP ${res.status}: ${res.statusText}`);
+      res.status === 401 ? "Invalid API key" : (message ?? `HTTP ${res.status}: ${res.statusText}`);
     return { ok: false as const, error: normalizedError };
   });
 }
@@ -145,8 +143,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             signal,
           });
           if (res.ok || res.status !== 401) return { invalid: false as const };
-          const message = await readErrorMessage(res, signal);
-          return { invalid: true as const, error: message ?? "Invalid API key" };
+          return { invalid: true as const, error: "Invalid API key" };
         });
         if (check.invalid) return successResponse({ success: false, error: check.error });
         break;
