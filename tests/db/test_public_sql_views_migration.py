@@ -101,6 +101,12 @@ def test_views_use_sql_security_definer(sql):
     assert len(re.findall(r"SQL SECURITY DEFINER", sql)) == 2
 
 
+def test_views_set_explicit_scoped_writer_definer(sql):
+    # both views must pin the definer to the dedicated scoped writer, not default
+    # to whoever applies the migration
+    assert len(re.findall(r"DEFINER = sql_gateway_writer SQL SECURITY DEFINER", sql)) == 2
+
+
 def test_replacingmergetree_dedup_after_project_filter(text, sql):
     assert "LIMIT 1 BY span_id" in text
     assert "LIMIT 1 BY trace_id" in text

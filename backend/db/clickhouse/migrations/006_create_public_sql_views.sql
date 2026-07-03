@@ -8,11 +8,13 @@
 --
 -- SQL SECURITY DEFINER: the view body reads the physical tables under the view
 -- DEFINER's privileges, so the read-only gateway user can be granted SELECT on
--- these views ONLY (never on the physical spans/traces tables). No explicit
--- DEFINER is set here, so ClickHouse defaults the definer to the user that runs
--- this migration. For the hardened cloud model, run this migration (or create
--- these views) AS the dedicated scoped writer user that holds SELECT on the
--- physical tables only — NOT a superuser. See the operational runbook:
+-- these views ONLY (never on the physical spans/traces tables). The definer is
+-- set EXPLICITLY to `sql_gateway_writer` — a dedicated, non-superuser role that
+-- holds SELECT on the physical spans/traces tables only. That role MUST exist
+-- before this migration runs, or the CREATE VIEW fails; this makes the security
+-- dependency explicit and enforced rather than silently defaulting to whoever
+-- applies the migration. An admin/deploy user may run this migration as long as
+-- it has permission to create a view with this definer. See the runbook:
 -- backend/db/clickhouse/SQL_GATEWAY_RUNBOOK.md
 --
 -- Dedup: spans/traces are ReplacingMergeTree(ch_update_time); the project filter
@@ -21,7 +23,7 @@
 -- ch_update_time, and the input/output/metadata blobs.
 
 CREATE VIEW IF NOT EXISTS spans_public_v1
-    SQL SECURITY DEFINER AS
+    DEFINER = sql_gateway_writer SQL SECURITY DEFINER AS
 SELECT
     span_id,
     trace_id,
@@ -52,7 +54,7 @@ FROM
 );
 
 CREATE VIEW IF NOT EXISTS traces_public_v1
-    SQL SECURITY DEFINER AS
+    DEFINER = sql_gateway_writer SQL SECURITY DEFINER AS
 SELECT
     trace_id,
     trace_start_time,
