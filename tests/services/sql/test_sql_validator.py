@@ -338,6 +338,32 @@ def test_uniqexact_allowed_but_uniq_rejected() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Public is_blocked_function helper (exposed for the rewriter's re-scan)
+# ---------------------------------------------------------------------------
+def test_is_blocked_function_flags_blocked_name_and_prefix() -> None:
+    import sqlglot
+
+    from rest.services.sql.validator import is_blocked_function
+
+    for sql in ("SELECT sleep(1)", "SELECT dictGet('d', 'a', toUInt64(1))"):
+        tree = sqlglot.parse_one(sql, read="clickhouse")
+        assert any(is_blocked_function(n) for n in tree.find_all(exp.Func))
+
+
+def test_is_blocked_function_false_for_safe_and_non_function() -> None:
+    import sqlglot
+
+    from rest.services.sql.validator import is_blocked_function
+
+    tree = sqlglot.parse_one("SELECT count() FROM spans WHERE span_id = 'x'", read="clickhouse")
+    # safe/allowed function nodes are not blocked
+    assert all(not is_blocked_function(n) for n in tree.find_all(exp.Func))
+    # a non-function node (a column) is not blocked
+    col = next(iter(tree.find_all(exp.Column)))
+    assert is_blocked_function(col) is False
+
+
+# ---------------------------------------------------------------------------
 # F5: widened analytics-function allowlist (one case per added function, so a
 # sqlglot canonical-name change surfaces as a failure rather than silent drift)
 # ---------------------------------------------------------------------------
