@@ -126,6 +126,14 @@ REJECTED_CASES = [
     pytest.param("SELECT project_id FROM spans", id="reject-project-id-select"),
     pytest.param("SELECT count() FROM spans WHERE project_id = 'x'", id="reject-project-id-where"),
     pytest.param("SELECT span_id AS project_id FROM spans", id="reject-project-id-alias"),
+    # project_id blocked as a table alias and as a column table-qualifier too
+    # (policy consistency; not a scoping bypass — the rewriter scopes by table
+    # identity regardless of alias).
+    pytest.param("SELECT span_id FROM spans AS project_id", id="reject-project-id-table-alias"),
+    pytest.param(
+        "SELECT project_id.span_id FROM spans AS project_id",
+        id="reject-project-id-column-qualifier",
+    ),
     # ----- CTE shadow -------------------------------------------------------
     pytest.param(
         "WITH spans AS (SELECT 1 AS x) SELECT x FROM spans",
