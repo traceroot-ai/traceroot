@@ -40,3 +40,7 @@ The TraceRoot setup is intentionally small:
 LiveKit currently emits an `agent_turn` span for each completed turn. The user's
 voice input is emitted as a `user_turn` span, and the assistant response is
 emitted as an `agent_turn` span.
+
+The demo agent also exposes an `add_numbers` function tool. Ask something like
+"what is 12 plus 30?" to generate a tool call span during an apple-to-apple
+comparison run.

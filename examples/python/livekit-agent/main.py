@@ -14,7 +14,7 @@ if dotenv_path:
 else:
     print("No .env file found. Using process environment variables.")
 
-from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli
+from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli, function_tool
 
 import traceroot
 from traceroot import Integration, using_attributes
@@ -23,8 +23,17 @@ from traceroot import Integration, using_attributes
 class Assistant(Agent):
     def __init__(self) -> None:
         super().__init__(
-            instructions="You are a helpful voice AI assistant.",
+            instructions=(
+                "You are a helpful voice AI assistant. Keep replies short. "
+                "When the user asks you to add two numbers, call add_numbers "
+                "before answering."
+            ),
         )
+
+    @function_tool(description="Add two numbers and return the sum.")
+    async def add_numbers(self, a: float, b: float) -> str:
+        """Return a deterministic addition result for tool tracing."""
+        return f"{a} + {b} = {a + b}"
 
 
 server = AgentServer()
