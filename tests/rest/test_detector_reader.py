@@ -126,7 +126,7 @@ def test_list_findings_detector_filter_matches_detector_id_without_resolution(re
     assert names == ["d1"]
 
 
-def test_list_findings_deduplicates_before_version_sensitive_filters(reader, monkeypatch):
+def test_list_findings_places_time_filters_for_dedup_correctness(reader, monkeypatch):
     reader._client.rows = []
     reader._client.count_rows = [(0,)]
     monkeypatch.setattr(reader, "_pg_rows", lambda sql, params: [])
@@ -135,18 +135,23 @@ def test_list_findings_deduplicates_before_version_sensitive_filters(reader, mon
         project_id="p1",
         limit=50,
         start_after=datetime(2026, 6, 1),
-        end_before=None,
+        end_before=datetime(2026, 6, 30),
         detector="hallucination",
         trace_id=None,
     )
 
-    # The version-sensitive filters (timestamp window + payload predicate) must be
-    # applied to the deduped subquery, i.e. AFTER `LIMIT 1 BY finding_id` — otherwise
-    # a stale finding version could be surfaced on a ReplacingMergeTree table.
+    # Filter placement is correctness- AND performance-critical on a
+    # ReplacingMergeTree(timestamp):
+    #   - start_after (lower bound) goes BEFORE `LIMIT 1 BY finding_id` so the
+    #     dedup + count only process the window's rows; it's safe because a
+    #     finding's latest version has the max timestamp.
+    #   - end_before (upper bound) and the payload predicate go AFTER dedup, or a
+    #     stale version could resurface a finding whose latest version is excluded.
     for query, _ in reader._client.calls:
-        assert "LIMIT 1 BY finding_id" in query
-        assert query.index("LIMIT 1 BY finding_id") < query.index("arrayExists")
-        assert query.index("LIMIT 1 BY finding_id") < query.index("timestamp >=")
+        dedup = query.index("LIMIT 1 BY finding_id")
+        assert query.index("timestamp >=") < dedup
+        assert query.index("timestamp <") > dedup
+        assert query.index("arrayExists") > dedup
 
 
 def test_get_finding_normalizes_results_and_attaches_rca(reader, monkeypatch):
