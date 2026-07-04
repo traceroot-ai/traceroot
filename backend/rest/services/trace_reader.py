@@ -1,8 +1,10 @@
 """Service for reading traces from ClickHouse."""
 
-from datetime import datetime
+import time
+from datetime import UTC, datetime, timedelta
 
 from db.clickhouse import get_clickhouse_client
+from rest.services.filters.translate import Predicate, build_conditions
 from rest.sql_utils import escape_ilike, to_utc_naive
 from worker.tokens.buckets import TokenBuckets, reconcile_cache_write_1h
 from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
@@ -15,6 +17,44 @@ from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
 # month with toYYYYMM(span_start_time), values under about a month usually skip
 # the same old monthly partitions.
 TRACE_SPAN_LOOKBACK_HOURS = 1
+
+# Distinct-values endpoint: cap the option list and cache briefly. The dropdown only
+# needs the frequent values, and the GROUP BY over spans is the heavy part — a short
+# TTL absorbs repeated opens of the same filter without staleness mattering.
+DISTINCT_VALUES_LIMIT = 100
+DISTINCT_VALUES_CACHE_TTL_SECONDS = 30
+# Bound the in-process cache so it can't grow without limit across projects/windows.
+DISTINCT_VALUES_CACHE_MAX = 256
+
+# Default lookback for a span scan that arrives with no lower time bound (the filtered
+# trace list AND the categorical distinct-values dropdown). Those scan spans, so an
+# unbounded window is a full-project span scan — the OOM-prone class. The dashboard
+# always sends at least its default window, so this only bounds direct API callers and
+# open-ended custom ranges. Matches the UI's own default preset ("Last 24 hours").
+DEFAULT_SPAN_SCAN_LOOKBACK_HOURS = 24
+
+
+def _floor_minute(dt: datetime | None) -> datetime | None:
+    """Truncate a datetime to the whole minute (for the distinct-values cache key)."""
+    return dt.replace(second=0, microsecond=0) if dt is not None else None
+
+
+def _default_lookback_start(normalized_end: datetime | None) -> datetime:
+    """Default lower bound for an otherwise-unbounded span scan.
+
+    A fixed lookback before the window's end (``normalized_end``) — or before now when
+    the window is open-ended — so the filtered list and the distinct-values query share
+    one symmetric default and neither ever scans spans all-time.
+
+    Args:
+        normalized_end (datetime | None): Naive-UTC upper bound of the active window,
+            or ``None`` for an open-ended window.
+
+    Returns:
+        datetime: Naive-UTC lower bound, ``lookback`` hours before the upper bound/now.
+    """
+    upper = normalized_end if normalized_end is not None else datetime.now(UTC).replace(tzinfo=None)
+    return upper - timedelta(hours=DEFAULT_SPAN_SCAN_LOOKBACK_HOURS)
 
 
 def span_cost_details(
@@ -56,6 +96,94 @@ class TraceReaderService:
 
     def __init__(self):
         self._client = get_clickhouse_client()
+        # Per-(project, column, window) cache of distinct values: key -> (expiry, rows).
+        self._distinct_cache: dict[tuple, tuple[float, list[dict]]] = {}
+
+    def get_distinct_span_values(
+        self,
+        project_id: str,
+        column: str,
+        start_after: datetime | None = None,
+        end_before: datetime | None = None,
+    ) -> list[dict]:
+        """Distinct values of a span column within the active window, by frequency.
+
+        Powers the filter dropdown's categorical options (model, environment).
+        Time-bounded and briefly cached so repeatedly opening the same filter does
+        not re-scan spans.
+
+        Args:
+            project_id (str): Project that scopes the span scan (tenant isolation).
+            column (str): A spans column name. MUST be a registry-resolved identifier,
+                never raw user input — it is interpolated into the SQL because column
+                names cannot be bound as query parameters.
+            start_after (datetime | None): Lower bound on ``span_start_time``; prunes
+                monthly partitions. ``None`` scans all time.
+            end_before (datetime | None): Upper bound on ``span_start_time`` (exclusive),
+                symmetric with the trace list's window so the dropdown never offers
+                values from traces newer than the active window's end.
+
+        Returns:
+            list[dict]: ``[{"value": str, "count": int}]`` ordered by descending
+            frequency, capped at ``DISTINCT_VALUES_LIMIT``.
+        """
+        normalized_start = to_utc_naive(start_after) if start_after is not None else None
+        normalized_end = to_utc_naive(end_before) if end_before is not None else None
+        # Never scan spans unbounded (the OOM class the filtered list guards against): if no
+        # lower bound was given, default one — symmetric with the filtered trace list. The UI
+        # always sends a window; this bounds a direct API caller that omits one.
+        if normalized_start is None:
+            normalized_start = _default_lookback_start(normalized_end)
+        # Quantize the cache key to whole minutes so per-render jitter in the window
+        # bounds (the UI recomputes "now - duration" every render) can't trivially
+        # bypass the cache and force a fresh full-project GROUP BY on every open. The
+        # 30s TTL already accepts this much staleness in the returned option list.
+        cache_key = (
+            project_id,
+            column,
+            _floor_minute(normalized_start),
+            _floor_minute(normalized_end),
+        )
+        now = time.time()
+        cached = self._distinct_cache.get(cache_key)
+        if cached is not None and cached[0] > now:
+            return cached[1]
+
+        params: dict = {"project_id": project_id}
+        inner_conditions = ["project_id = {project_id:String}"]
+        if normalized_start is not None:
+            inner_conditions.append("span_start_time >= {start_after:DateTime64(3)}")
+            params["start_after"] = normalized_start
+        if normalized_end is not None:
+            inner_conditions.append("span_start_time < {end_before:DateTime64(3)}")
+            params["end_before"] = normalized_end
+        inner_where = " AND ".join(inner_conditions)
+
+        # Dedup ReplacingMergeTree spans to the latest version per span BEFORE counting, so
+        # a since-updated span can't inflate a value's count or surface a stale value. The
+        # column non-empty filter runs on the deduped (latest) value in the outer query.
+        query = f"""
+            SELECT value, count() AS n
+            FROM (
+                SELECT {column} AS value
+                FROM spans
+                WHERE {inner_where}
+                ORDER BY ch_update_time DESC
+                LIMIT 1 BY project_id, trace_id, span_id
+            )
+            WHERE value IS NOT NULL AND value != ''
+            GROUP BY value
+            ORDER BY n DESC
+            LIMIT {DISTINCT_VALUES_LIMIT}
+        """
+        result = self._client.query(query, parameters=params)
+        rows = [{"value": str(row[0]), "count": int(row[1])} for row in result.result_rows]
+        # Bound the cache: drop expired entries, then evict oldest if still at capacity.
+        self._distinct_cache = {k: v for k, v in self._distinct_cache.items() if v[0] > now}
+        if len(self._distinct_cache) >= DISTINCT_VALUES_CACHE_MAX:
+            self._distinct_cache.pop(next(iter(self._distinct_cache)))
+        self._distinct_cache[cache_key] = (now + DISTINCT_VALUES_CACHE_TTL_SECONDS, rows)
+        return rows
 
     def list_traces(
         self,
@@ -67,6 +195,7 @@ class TraceReaderService:
         start_after: datetime | None = None,
         end_before: datetime | None = None,
         search_query: str | None = None,
+        filters: list[Predicate] | None = None,
     ) -> dict:
         """List traces with aggregated metrics from spans."""
         offset = page * limit
@@ -88,9 +217,10 @@ class TraceReaderService:
             conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
             params["start_after"] = to_utc_naive(start_after)
 
-        if end_before is not None:
+        normalized_end = to_utc_naive(end_before) if end_before is not None else None
+        if normalized_end is not None:
             conditions.append("t.trace_start_time < {end_before:DateTime64(3)}")
-            params["end_before"] = to_utc_naive(end_before)
+            params["end_before"] = normalized_end
 
         # Multi-field keyword search (trace_id, name, session_id, user_id)
         if search_query:
@@ -101,6 +231,19 @@ class TraceReaderService:
                 "OR t.user_id ILIKE {search_kw:String})"
             )
             params["search_kw"] = f"%{escape_ilike(search_query)}%"
+
+        # Filters scan spans (semi-joins), so a filtered list with no lower time bound
+        # would be an unbounded full-project span scan in both the page and count queries.
+        # Default a lookback window so those sub-queries prune monthly partitions, and bound
+        # the trace query to the same window so the page, count, and span scans stay consistent.
+        if filters and start_after is None:
+            params["start_after"] = _default_lookback_start(normalized_end)
+            conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
+
+        # Registry-driven attribute filters (model/cost/errors/...). Appended to the
+        # SHARED conditions so they land in both the page query and the count query;
+        # the span sub-queries reuse start_after (above) as a span-scan lower bound.
+        conditions.extend(build_conditions(filters or [], params))
 
         where_clause = " AND ".join(conditions)
 
