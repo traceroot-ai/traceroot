@@ -172,6 +172,46 @@ describe("FilterBuilder (Basic row)", () => {
     expect(screen.getByText("$")).toBeTruthy();
   });
 
+  it("derives the operator set from the field's `operators` (numeric `between` → equals/gte/lte, not `is`)", () => {
+    renderBuilder([COST]);
+    pickField(/Cost/);
+    fireEvent.click(screen.getByRole("button", { name: "equals" })); // open operator dropdown
+    expect(screen.getByRole("option", { name: "equals" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "greater than or equal to" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "less than or equal to" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "is" })).toBeNull();
+  });
+
+  it("derives the operator set from the field's `operators` (categorical `in` → `is`)", () => {
+    renderBuilder([STATUS]);
+    pickField(/Status/);
+    // The lone `is` operator is shown on the disabled-until-picked operator trigger.
+    expect(screen.getByRole("button", { name: "is" })).toBeTruthy();
+  });
+
+  it("yields no operators for an unknown op in `operators` (defensive)", () => {
+    // A field whose registry op isn't in the UI map contributes no UI operators,
+    // so the operator dropdown offers nothing to choose.
+    const UNKNOWN: FilterFieldDef = {
+      field: "mystery",
+      label: "Mystery",
+      type: "numeric",
+      level: "SPAN_AGGREGATE",
+      operators: ["not_a_real_op"],
+      value_source: "range",
+      enum_values: [],
+    };
+    renderBuilder([UNKNOWN]);
+    pickField(/Mystery/);
+    // DOM order of buttons: [field, operator, Add filter] — open the operator dropdown.
+    fireEvent.click(screen.getAllByRole("button")[1]);
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+    // With no operator selected, entering a value must still build nothing — "Add filter"
+    // stays disabled rather than silently falling through to a bound.
+    fireEvent.change(screen.getByLabelText("value"), { target: { value: "5" } });
+    expect(screen.getByRole("button", { name: "Add filter" })).toHaveProperty("disabled", true);
+  });
+
   it("threads both window bounds into the distinct-values query for a categorical field", () => {
     mockUseFilterValues.mockClear();
     render(

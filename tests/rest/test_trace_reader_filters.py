@@ -48,6 +48,33 @@ def test_membership_filter_lands_in_both_page_and_count_queries():
     assert params["f_model_name_0"] == ["gpt-4"]
 
 
+def test_independent_membership_predicates_emit_two_semijoins_in_both_queries():
+    """Two membership predicates on different fields lower to TWO separate
+    ``t.trace_id IN (...)`` semi-joins (independent existence, not one merged match), and
+    both must reach the page AND the count query so page and total stay consistent."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(
+        project_id="p1",
+        filters=[
+            Predicate(field="model_name", op="in", value=["gpt-4"]),
+            Predicate(field="environment", op="in", value=["prod"]),
+        ],
+    )
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    count_sql = svc._client.query.call_args_list[1].args[0]
+    for sql in (page_sql, count_sql):
+        # Two independent semi-joins, each keyed on t.trace_id with its own field.
+        assert sql.count("t.trace_id IN (") == 2
+        assert "model_name IN" in sql
+        assert "environment IN" in sql
+    params = svc._client.query.call_args_list[0].kwargs["parameters"]
+    assert params["f_model_name_0"] == ["gpt-4"]
+    assert params["f_environment_1"] == ["prod"]
+
+
 def test_aggregate_filter_lands_in_both_page_and_count_queries():
     svc = _service_with_mock_client()
     _drive(svc)

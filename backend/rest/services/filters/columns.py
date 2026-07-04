@@ -69,6 +69,10 @@ class FilterColumn:
         aggregate_expr (str | None): For ``SPAN_AGGREGATE`` fields, the per-trace
             aggregate the HAVING clause filters on (e.g. ``sum(cost)``). ``None`` for
             non-aggregate fields.
+        source_columns (tuple[str, ...]): The spans columns ``aggregate_expr``
+            references. The aggregate semi-join derives its inner projection from these
+            (plus the structural columns), so adding an aggregate field needs no change
+            to the translator. Empty for non-aggregate fields.
     """
 
     name: str
@@ -80,6 +84,7 @@ class FilterColumn:
     value_source: str
     enum_values: tuple[str, ...] = ()
     aggregate_expr: str | None = None
+    source_columns: tuple[str, ...] = ()
 
     @property
     def is_integer(self) -> bool:
@@ -125,6 +130,7 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         operators=(FilterOperator.BETWEEN,),
         value_source=ValueSource.RANGE,
         aggregate_expr="sum(cost)",
+        source_columns=("cost",),
     ),
     FilterColumn(
         name="total_tokens",
@@ -135,6 +141,7 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         operators=(FilterOperator.BETWEEN,),
         value_source=ValueSource.RANGE,
         aggregate_expr="sum(total_tokens)",
+        source_columns=("total_tokens",),
     ),
     FilterColumn(
         name="duration_ms",
@@ -145,6 +152,7 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         operators=(FilterOperator.BETWEEN,),
         value_source=ValueSource.RANGE,
         aggregate_expr=_DURATION_EXPR,
+        source_columns=("span_start_time", "span_end_time"),
     ),
     # Per-trace error-span count, filtered like the other numeric aggregates
     # (e.g. "errors between 3 and ∞"). `errors` is derived, not a stored column —
@@ -158,6 +166,7 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         operators=(FilterOperator.BETWEEN,),
         value_source=ValueSource.RANGE,
         aggregate_expr="countIf(status = 'ERROR')",
+        source_columns=("status",),
     ),
 )
 
