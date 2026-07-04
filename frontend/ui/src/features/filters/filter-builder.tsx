@@ -18,6 +18,7 @@ import {
   CircleStop,
   Clock,
   Globe,
+  Hash,
   type LucideIcon,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -27,11 +28,12 @@ import { cn } from "@/lib/utils";
 import type { Predicate } from "@/types/api";
 import { useFilterValues } from "./hooks";
 import type { FilterFieldDef } from "./registry";
-import { buildBetweenPredicate, buildInPredicate } from "./predicate-ui";
+import { buildInPredicate, buildNumericPredicate, buildTextPredicate } from "./predicate-ui";
 
 // Icons mirror the trace detail / list UI for consistency; the model and environment
 // fields, which have no trace-detail icon, use a generic one.
 const FIELD_ICONS: Record<string, LucideIcon> = {
+  trace_id: Hash,
   cost: CircleDollarSign,
   total_tokens: CircleStop,
   duration_ms: Clock,
@@ -48,30 +50,32 @@ const FIELD_UNIT: Record<string, { prefix?: string; suffix?: string }> = {
   duration_ms: { suffix: "ms" },
 };
 
-type UiOp = "is" | "equals" | "gte" | "lte";
+type UiOp = "is" | "eq" | "gt" | "gte" | "lt" | "lte" | "contains";
 const OP_LABEL: Record<UiOp, string> = {
   is: "is",
-  equals: "equals",
-  // Verbose + honest: both bounds are inclusive (lowered to >= / <= in translate.py),
-  // so the operator name matches the actual comparison at the boundary.
-  gte: "greater than or equal to",
-  lte: "less than or equal to",
+  // Short symbols matching the chip labels and the backend comparison exactly.
+  eq: "=",
+  gt: ">",
+  gte: "≥",
+  lt: "<",
+  lte: "≤",
+  contains: "contains",
 };
-// "between" is intentionally not offered in the UI — a range is two filters
-// (a gte and an lte on the same field). The backend still supports a two-bound
-// predicate (and `equals` uses it as `[x, x]`).
-//
-// The UI operators are derived from the registry field's `operators` whitelist
-// (the backend op names) rather than branching on `f.type`, so adding a field
-// with a new operator set is one entry in this map — no type branch to touch.
-// `between` expands into three UI ops (equals/gte/lte) that all lower to a
-// `between` predicate with the right (possibly null) bounds.
-const REGISTRY_OP_TO_UI: Record<string, UiOp[]> = {
-  in: ["is"],
-  between: ["equals", "gte", "lte"],
+// The UI operators ARE the registry field's `operators` whitelist (the backend op names)
+// mapped to their UI labels — categorical `in` reads as "is". Deriving from the registry
+// (not branching on `f.type`) means adding a field with a new operator set is one entry
+// in this map, no code branch to touch. An unrecognized op contributes nothing.
+const REGISTRY_OP_TO_UI: Record<string, UiOp> = {
+  in: "is",
+  eq: "eq",
+  gt: "gt",
+  gte: "gte",
+  lt: "lt",
+  lte: "lte",
+  contains: "contains",
 };
 const opsFor = (f: FilterFieldDef): UiOp[] =>
-  f.operators.flatMap((op) => REGISTRY_OP_TO_UI[op] ?? []);
+  f.operators.map((op) => REGISTRY_OP_TO_UI[op]).filter((o): o is UiOp => o !== undefined);
 
 interface FilterBuilderProps {
   projectId: string;
@@ -106,17 +110,22 @@ export function FilterBuilder({
   const num = (s: string) => (s.trim() === "" ? null : Number(s));
   const predicate = (): Predicate | null => {
     if (!field) return null;
+    if (field.type === "text") {
+      // trace_id: a `contains` substring or an exact `=` — a string value, not a number.
+      if (value === "") return null;
+      return buildTextPredicate(field.field, op === "contains" ? "contains" : "eq", value);
+    }
     if (op === "is") return value === "" ? null : buildInPredicate(field.field, [value]);
-    const lo = num(value);
-    // Reject NaN/Infinity, and a fractional value on an integer field (e.g. "1e-1"
-    // slips past the input's decimal-point guard but can't bind as Int64).
-    if (lo === null || !Number.isFinite(lo)) return null;
-    if (field.integer && !Number.isInteger(lo)) return null;
-    if (op === "equals") return buildBetweenPredicate(field.field, lo, lo);
-    if (op === "gte") return buildBetweenPredicate(field.field, lo, null);
-    if (op === "lte") return buildBetweenPredicate(field.field, null, lo);
+    // Numeric comparison (eq/gt/gte/lt/lte). Reject NaN/Infinity, and a fractional value
+    // on an integer field (e.g. "1e-1" slips the input's decimal-point guard but can't
+    // bind as Int64).
+    const n = num(value);
+    if (n === null || !Number.isFinite(n)) return null;
+    if (field.integer && !Number.isInteger(n)) return null;
+    if (op === "eq" || op === "gt" || op === "gte" || op === "lt" || op === "lte")
+      return buildNumericPredicate(field.field, op, n);
     // No recognized operator (e.g. a field whose registry `operators` map to none) — build
-    // nothing rather than silently falling through to a bound.
+    // nothing rather than silently falling through to a comparison.
     return null;
   };
   const built = predicate();
@@ -129,13 +138,15 @@ export function FilterBuilder({
   };
 
   return (
-    <div className="flex items-center gap-1.5 p-2">
+    <div className="flex items-center gap-1 p-1.5">
       <FieldDropdown fields={fields} value={field} onPick={pickField} />
       <Dropdown
         disabled={!field}
-        trigger={<span className="truncate">{field ? OP_LABEL[op] : "is"}</span>}
-        triggerClassName="w-[7.5rem] shrink-0"
-        contentClassName="w-[10rem]"
+        trigger={<span className="whitespace-nowrap">{field ? OP_LABEL[op] : "is"}</span>}
+        // Size to the operator label with a floor for the short symbols, so a wide label
+        // (e.g. "contains") sits comfortably instead of truncating in a fixed cell.
+        triggerClassName="min-w-[3.5rem] shrink-0"
+        contentClassName="w-28"
       >
         {(close) =>
           (field ? opsFor(field) : []).map((o) => (
@@ -163,7 +174,7 @@ export function FilterBuilder({
       />
       <Button
         size="sm"
-        className="h-8 shrink-0 rounded-md px-3 text-[13px]"
+        className="h-7 shrink-0 rounded-md px-2.5 text-xs"
         disabled={!built}
         onClick={submit}
       >
@@ -197,7 +208,7 @@ function ValueControl({
         readOnly
         value=""
         placeholder="Enter value"
-        className="h-8 min-w-0 flex-1 rounded-md text-[13px]"
+        className="h-7 min-w-0 flex-1 rounded-md text-[13px]"
       />
     );
   }
@@ -213,6 +224,17 @@ function ValueControl({
       />
     );
   }
+  if (field.type === "text") {
+    return (
+      <TextField
+        ariaLabel="value"
+        placeholder="Enter value"
+        value={value}
+        onChange={onValue}
+        onEnter={onEnter}
+      />
+    );
+  }
   return (
     <NumberField
       ariaLabel="value"
@@ -222,6 +244,33 @@ function ValueControl({
       onEnter={onEnter}
       unit={FIELD_UNIT[field.field]}
       integer={Boolean(field.integer)}
+    />
+  );
+}
+
+function TextField({
+  ariaLabel,
+  placeholder,
+  value,
+  onChange,
+  onEnter,
+}: {
+  ariaLabel: string;
+  placeholder: string;
+  value: string;
+  onChange: (v: string) => void;
+  onEnter: () => void;
+}) {
+  return (
+    <Input
+      aria-label={ariaLabel}
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") onEnter();
+      }}
+      className="h-7 min-w-0 flex-1 rounded-md text-[13px]"
     />
   );
 }
@@ -246,7 +295,7 @@ function NumberField({
   integer?: boolean;
 }) {
   return (
-    <div className="flex h-8 min-w-0 flex-1 items-center gap-1 rounded-md border border-input bg-transparent px-2.5 text-[13px] focus-within:ring-1 focus-within:ring-ring">
+    <div className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded-md border border-input bg-transparent px-2 text-[13px] focus-within:ring-1 focus-within:ring-ring">
       {unit?.prefix && <span className="shrink-0 text-muted-foreground">{unit.prefix}</span>}
       <input
         type="number"
@@ -395,7 +444,7 @@ function Dropdown({
           type="button"
           disabled={disabled}
           className={cn(
-            "flex h-8 items-center justify-between gap-1.5 rounded-md border border-border bg-background px-2.5 text-[13px] font-normal transition-colors",
+            "flex h-7 items-center justify-between gap-1 rounded-md border border-border bg-background px-2 text-[13px] font-normal transition-colors",
             "hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50",
             triggerClassName,
           )}
@@ -430,7 +479,7 @@ function DropdownItem({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] transition-colors hover:bg-muted/50",
+        "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[13px] transition-colors hover:bg-muted/50",
         active && "bg-muted/40",
       )}
     >

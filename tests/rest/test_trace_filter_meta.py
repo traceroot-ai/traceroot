@@ -66,7 +66,7 @@ class TestFilterFields:
 
         cost = fields["cost"]
         assert cost["type"] == "numeric"
-        assert cost["operators"] == ["between"]
+        assert cost["operators"] == ["eq", "gt", "gte", "lt", "lte"]
         assert cost["value_source"] == "range"
         # Integer-typed fields are flagged so the UI restricts them to whole numbers;
         # cost (Decimal) and model (String) are not.

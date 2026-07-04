@@ -56,7 +56,6 @@ export default function TracesPage() {
     state,
     updateDateFilter,
     updateCustomRange,
-    updateKeyword,
     updateFilters,
     updateLimit,
     goToPage,
@@ -165,8 +164,6 @@ export default function TracesPage() {
           <SearchFilterBar
             searchInput={
               <TraceSearchFilterInput
-                searchValue={state.keyword}
-                onSearchChange={updateKeyword}
                 projectId={projectId}
                 filters={state.filters}
                 onFiltersChange={updateFilters}
