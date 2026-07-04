@@ -313,6 +313,11 @@ class TestCalculateCost:
 
 # (model_id, expected modelName) for IDs the worker must price correctly.
 CLAUDE_BEDROCK_VERTEX_CASES = [
+    # Fable 5 — plain, [1m] variant, anthropic/ prefix, Bedrock (no Vertex reversed-alias)
+    ("claude-fable-5", "claude-fable-5"),
+    ("claude-fable-5[1m]", "claude-fable-5"),
+    ("anthropic/claude-fable-5", "claude-fable-5"),
+    ("us.anthropic.claude-fable-5-20260701-v1:0", "claude-fable-5"),
     # Opus 4.8 — plain, [1m] variant, Bedrock, Vertex
     ("claude-opus-4-8", "claude-opus-4-8"),
     ("claude-opus-4-8[1m]", "claude-opus-4-8"),

@@ -15,6 +15,7 @@ TIKTOKEN_MODELS = [
 
 # Claude models (use char approximation)
 CLAUDE_MODELS = [
+    "claude-fable-5",
     "claude-3-5-sonnet",
     "claude-3-5-haiku",
     "claude-3-opus",
