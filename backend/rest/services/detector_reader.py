@@ -83,20 +83,20 @@ class DetectorReaderService:
     ) -> tuple[list[DetectorItem], int]:
         """List the project's detectors from the Postgres catalog, newest first.
 
-        Args:
-            project_id: Owning project; every query is scoped to it.
-            limit: Max items in the returned page (already validated by the router).
-            start_after: Inclusive lower bound on the detector's ``create_time``.
-            end_before: Exclusive upper bound on the detector's ``create_time``.
-
-        Returns:
-            ``(items, total)`` — the page of :class:`DetectorItem` ordered by
-            ``create_time`` DESC, plus the total number of catalog rows matching the
-            filters (for pagination).
-
         The ``start_after`` / ``end_before`` window mirrors the findings/traces list
         windows. Unlike the best-effort RCA/template enrichment reads, a failure
         here is NOT swallowed: it propagates so the router returns a controlled 500.
+
+        Args:
+            project_id (str): Owning project; every query is scoped to it.
+            limit (int): Max items in the returned page (already validated by the router).
+            start_after (datetime | None): Inclusive lower bound on ``create_time``.
+            end_before (datetime | None): Exclusive upper bound on ``create_time``.
+
+        Returns:
+            tuple[list[DetectorItem], int]: The page of :class:`DetectorItem` ordered
+            by ``create_time`` DESC, plus the total number of catalog rows matching
+            the filters (for pagination).
         """
         conditions = ["project_id = %s"]
         params: list[Any] = [project_id]
@@ -142,21 +142,6 @@ class DetectorReaderService:
     ) -> tuple[list[FindingSummary], int]:
         """List a project's detector findings, newest first, with the total match count.
 
-        Args:
-            project_id: Owning project; every query is scoped to it.
-            limit: Max findings in the returned page (already validated by the router).
-            start_after: Inclusive lower bound on a finding's (latest) ``timestamp``.
-            end_before: Exclusive upper bound on a finding's ``timestamp``.
-            detector: Optional selector (id / name / template); resolved server-side
-                to the set of matching detector names+ids and matched against the
-                stored payload. An unresolved token simply matches nothing.
-            trace_id: Optional restriction to a single trace's finding.
-
-        Returns:
-            ``(items, total)`` — the page of :class:`FindingSummary` ordered by
-            ``timestamp`` DESC, plus the total number of distinct findings matching
-            the filters.
-
         ``detector_findings`` is a ``ReplacingMergeTree(timestamp)``, so every query
         first dedups to the latest row per ``finding_id`` (``LIMIT 1 BY``), and
         filter placement is both correctness- and cost-critical:
@@ -170,6 +155,21 @@ class DetectorReaderService:
           version-sensitive and applied AFTER the dedup; on raw pre-merge rows an
           older version ``< end_before`` (or an outdated payload) could otherwise
           resurface a finding whose latest version no longer matches.
+
+        Args:
+            project_id (str): Owning project; every query is scoped to it.
+            limit (int): Max findings in the returned page (already validated by the router).
+            start_after (datetime | None): Inclusive lower bound on ``timestamp``.
+            end_before (datetime | None): Exclusive upper bound on ``timestamp``.
+            detector (str | None): Optional selector (id / name / template); resolved
+                server-side to the matching detector names+ids and matched against
+                the stored payload. An unresolved token simply matches nothing.
+            trace_id (str | None): Optional restriction to a single trace's finding.
+
+        Returns:
+            tuple[list[FindingSummary], int]: The page of :class:`FindingSummary`
+            ordered by ``timestamp`` DESC, plus the total number of distinct findings
+            matching the filters.
         """
         params: dict[str, Any] = {"project_id": project_id, "limit": limit}
 
