@@ -81,13 +81,31 @@ def test_aggregate_filter_lands_in_both_page_and_count_queries():
 
     svc.list_traces(
         project_id="p1",
-        filters=[Predicate(field="cost", op="between", value=[0.5, None])],
+        filters=[Predicate(field="cost", op="gt", value=0.5)],
     )
 
     page_sql = svc._client.query.call_args_list[0].args[0]
     count_sql = svc._client.query.call_args_list[1].args[0]
     assert "GROUP BY trace_id HAVING" in page_sql
     assert "GROUP BY trace_id HAVING" in count_sql
+
+
+def test_trace_id_filter_lands_in_both_page_and_count_queries():
+    """A trace-level trace_id filter is an inline t.trace_id predicate that must reach
+    BOTH the page and count queries so the total stays consistent with the visible rows."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(
+        project_id="p1",
+        filters=[Predicate(field="trace_id", op="contains", value="abc")],
+    )
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    count_sql = svc._client.query.call_args_list[1].args[0]
+    assert "t.trace_id ILIKE" in page_sql
+    assert "t.trace_id ILIKE" in count_sql
+    assert svc._client.query.call_args_list[0].kwargs["parameters"]["f_trace_id_0"] == "%abc%"
 
 
 def test_no_filters_adds_no_semijoin():

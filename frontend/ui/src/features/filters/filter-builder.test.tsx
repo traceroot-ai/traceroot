@@ -25,7 +25,7 @@ const COST: FilterFieldDef = {
   label: "Cost",
   type: "numeric",
   level: "SPAN_AGGREGATE",
-  operators: ["between"],
+  operators: ["eq", "gt", "gte", "lt", "lte"],
   value_source: "range",
   enum_values: [],
 };
@@ -34,7 +34,7 @@ const TOKENS: FilterFieldDef = {
   label: "Tokens",
   type: "numeric",
   level: "SPAN_AGGREGATE",
-  operators: ["between"],
+  operators: ["eq", "gt", "gte", "lt", "lte"],
   value_source: "range",
   enum_values: [],
   integer: true,
@@ -47,6 +47,16 @@ const MODEL: FilterFieldDef = {
   level: "SPAN_MEMBERSHIP",
   operators: ["in"],
   value_source: "distinct_query",
+  enum_values: [],
+};
+
+const TRACE_ID: FilterFieldDef = {
+  field: "trace_id",
+  label: "Trace ID",
+  type: "text",
+  level: "TRACE",
+  operators: ["eq", "contains"],
+  value_source: "free_text",
   enum_values: [],
 };
 
@@ -75,33 +85,53 @@ describe("FilterBuilder (Basic row)", () => {
     expect(onSubmit).toHaveBeenCalledWith({ field: "status", op: "in", value: ["ERROR"] });
   });
 
-  it("numeric `greater than or equal to` lowers to a between with an open upper bound", () => {
+  it("numeric `≥` emits an inclusive `gte` predicate", () => {
     const onSubmit = renderBuilder([COST]);
     pickField(/Cost/);
-    fireEvent.click(screen.getByRole("button", { name: "equals" })); // operator dropdown
-    fireEvent.click(screen.getByRole("option", { name: "greater than or equal to" }));
+    fireEvent.click(screen.getByRole("button", { name: "=" })); // operator dropdown
+    fireEvent.click(screen.getByRole("option", { name: "≥" }));
     fireEvent.change(screen.getByLabelText("value"), { target: { value: "0.5" } });
     fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
-    expect(onSubmit).toHaveBeenCalledWith({ field: "cost", op: "between", value: [0.5, null] });
+    expect(onSubmit).toHaveBeenCalledWith({ field: "cost", op: "gte", value: 0.5 });
   });
 
-  it("numeric `less than or equal to` lowers to a between with an open lower bound", () => {
+  it("numeric `≤` emits an inclusive `lte` predicate", () => {
     const onSubmit = renderBuilder([COST]);
     pickField(/Cost/);
-    fireEvent.click(screen.getByRole("button", { name: "equals" }));
-    fireEvent.click(screen.getByRole("option", { name: "less than or equal to" }));
+    fireEvent.click(screen.getByRole("button", { name: "=" }));
+    fireEvent.click(screen.getByRole("option", { name: "≤" }));
     fireEvent.change(screen.getByLabelText("value"), { target: { value: "10" } });
     fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
-    expect(onSubmit).toHaveBeenCalledWith({ field: "cost", op: "between", value: [null, 10] });
+    expect(onSubmit).toHaveBeenCalledWith({ field: "cost", op: "lte", value: 10 });
   });
 
-  it("does not offer a `between` operator", () => {
+  it("numeric `>` emits a strict `gt` predicate", () => {
+    const onSubmit = renderBuilder([COST]);
+    pickField(/Cost/);
+    fireEvent.click(screen.getByRole("button", { name: "=" }));
+    fireEvent.click(screen.getByRole("option", { name: ">" }));
+    fireEvent.change(screen.getByLabelText("value"), { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
+    expect(onSubmit).toHaveBeenCalledWith({ field: "cost", op: "gt", value: 5 });
+  });
+
+  it("numeric `<` emits a strict `lt` predicate", () => {
+    const onSubmit = renderBuilder([COST]);
+    pickField(/Cost/);
+    fireEvent.click(screen.getByRole("button", { name: "=" }));
+    fireEvent.click(screen.getByRole("option", { name: "<" }));
+    fireEvent.change(screen.getByLabelText("value"), { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
+    expect(onSubmit).toHaveBeenCalledWith({ field: "cost", op: "lt", value: 5 });
+  });
+
+  it("does not offer a `between` operator (a range is two one-sided filters)", () => {
     renderBuilder([COST]);
     pickField(/Cost/);
-    fireEvent.click(screen.getByRole("button", { name: "equals" }));
+    fireEvent.click(screen.getByRole("button", { name: "=" }));
     expect(screen.queryByRole("option", { name: "between" })).toBeNull();
-    expect(screen.getByRole("option", { name: "greater than or equal to" })).toBeTruthy();
-    expect(screen.getByRole("option", { name: "less than or equal to" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "≥" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "≤" })).toBeTruthy();
   });
 
   it("resets the row after adding so another filter can be entered", () => {
@@ -143,11 +173,7 @@ describe("FilterBuilder (Basic row)", () => {
     pickField(/Tokens/);
     fireEvent.change(screen.getByLabelText("value"), { target: { value: "100" } });
     fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
-    expect(onSubmit).toHaveBeenCalledWith({
-      field: "total_tokens",
-      op: "between",
-      value: [100, 100],
-    });
+    expect(onSubmit).toHaveBeenCalledWith({ field: "total_tokens", op: "eq", value: 100 });
   });
 
   it("decimal field (Cost) still accepts a fractional value", () => {
@@ -155,7 +181,7 @@ describe("FilterBuilder (Basic row)", () => {
     pickField(/Cost/);
     fireEvent.change(screen.getByLabelText("value"), { target: { value: "0.5" } });
     fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
-    expect(onSubmit).toHaveBeenCalledWith({ field: "cost", op: "between", value: [0.5, 0.5] });
+    expect(onSubmit).toHaveBeenCalledWith({ field: "cost", op: "eq", value: 0.5 });
   });
 
   it("creates the filter when Enter is pressed in the value field", () => {
@@ -163,7 +189,7 @@ describe("FilterBuilder (Basic row)", () => {
     pickField(/Cost/);
     fireEvent.change(screen.getByLabelText("value"), { target: { value: "5" } });
     fireEvent.keyDown(screen.getByLabelText("value"), { key: "Enter" });
-    expect(onSubmit).toHaveBeenCalledWith({ field: "cost", op: "between", value: [5, 5] });
+    expect(onSubmit).toHaveBeenCalledWith({ field: "cost", op: "eq", value: 5 });
   });
 
   it("shows the field's unit in the numeric value input ($ for cost)", () => {
@@ -172,14 +198,34 @@ describe("FilterBuilder (Basic row)", () => {
     expect(screen.getByText("$")).toBeTruthy();
   });
 
-  it("derives the operator set from the field's `operators` (numeric `between` → equals/gte/lte, not `is`)", () => {
+  it("derives the operator set from the field's `operators` (numeric → = > ≥ < ≤, not `is`)", () => {
     renderBuilder([COST]);
     pickField(/Cost/);
-    fireEvent.click(screen.getByRole("button", { name: "equals" })); // open operator dropdown
-    expect(screen.getByRole("option", { name: "equals" })).toBeTruthy();
-    expect(screen.getByRole("option", { name: "greater than or equal to" })).toBeTruthy();
-    expect(screen.getByRole("option", { name: "less than or equal to" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "=" })); // open operator dropdown
+    for (const sym of ["=", ">", "≥", "<", "≤"]) {
+      expect(screen.getByRole("option", { name: sym })).toBeTruthy();
+    }
     expect(screen.queryByRole("option", { name: "is" })).toBeNull();
+  });
+
+  it("a text field (Trace ID) offers `=` and `contains`, emitting string predicates", () => {
+    // `contains` -> a case-insensitive substring predicate.
+    const onContains = renderBuilder([TRACE_ID]);
+    pickField(/Trace ID/);
+    fireEvent.click(screen.getByRole("button", { name: "=" })); // operator dropdown (default `=`)
+    expect(screen.getByRole("option", { name: "contains" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("option", { name: "contains" }));
+    fireEvent.change(screen.getByLabelText("value"), { target: { value: "abc" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
+    expect(onContains).toHaveBeenCalledWith({ field: "trace_id", op: "contains", value: "abc" });
+
+    cleanup();
+    // `=` -> an exact string match (a string value, not a number).
+    const onEq = renderBuilder([TRACE_ID]);
+    pickField(/Trace ID/);
+    fireEvent.change(screen.getByLabelText("value"), { target: { value: "abc123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
+    expect(onEq).toHaveBeenCalledWith({ field: "trace_id", op: "eq", value: "abc123" });
   });
 
   it("derives the operator set from the field's `operators` (categorical `in` → `is`)", () => {

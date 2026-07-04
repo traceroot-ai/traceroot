@@ -30,7 +30,7 @@ describe("useListPageState filters integration", () => {
 
   it("updateFilters writes the encoded param to the URL", () => {
     const { result } = renderHook(() => useListPageState());
-    const next: Predicate[] = [{ field: "cost", op: "between", value: [1, null] }];
+    const next: Predicate[] = [{ field: "cost", op: "gte", value: 0.5 }];
     act(() => result.current.updateFilters(next));
     const url = new URL(replace.mock.calls.at(-1)![0] as string, "http://x");
     expect(JSON.parse(url.searchParams.get("filters")!)).toEqual(next);
