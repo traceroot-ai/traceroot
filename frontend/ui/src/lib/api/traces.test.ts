@@ -5,7 +5,8 @@ vi.mock("@/lib/auth-client", () => ({
   authClient: { getSession: vi.fn().mockResolvedValue({ data: null }) },
 }));
 
-import { getSpanIO } from "./traces";
+import { getSpanIO, getTraces } from "./traces";
+import type { Predicate } from "@/types/api";
 
 describe("getSpanIO", () => {
   beforeEach(() => {
@@ -58,5 +59,44 @@ describe("getSpanIO", () => {
     await expect(getSpanIO("proj-1", "trace-9", "missing", { id: "user-1" })).rejects.toThrow(
       "Span not found",
     );
+  });
+});
+
+describe("getTraces filters serialization", () => {
+  beforeEach(() => vi.restoreAllMocks());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("serializes filters as one URL-encoded JSON param that round-trips", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [], meta: { page: 0, limit: 50, total: 0 } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const filters: Predicate[] = [
+      { field: "model_name", op: "in", value: ["claude-opus-4.8"] },
+      { field: "cost", op: "between", value: [0.5, null] },
+    ];
+    await getTraces("proj-1", "", { filters }, { id: "user-1" });
+
+    const url = new URL(fetchMock.mock.calls[0][0] as string, "http://x");
+    const raw = url.searchParams.get("filters");
+    expect(raw).not.toBeNull();
+    expect(JSON.parse(raw as string)).toEqual(filters);
+  });
+
+  it("omits the filters param entirely when there are no filters", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [], meta: { page: 0, limit: 50, total: 0 } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getTraces("proj-1", "", { filters: [] }, { id: "user-1" });
+
+    const url = new URL(fetchMock.mock.calls[0][0] as string, "http://x");
+    expect(url.searchParams.has("filters")).toBe(false);
   });
 });
