@@ -183,6 +183,17 @@ export interface TraceListResponse {
   };
 }
 
+/**
+ * A single trace-list filter predicate `{field, op, value}` — the frontend mirror
+ * of the backend predicate IR, serialized into the `?filters=` JSON array.
+ * Discriminated on `op`: categorical fields use `in` (the UI selects one value, so the
+ * array carries a single element), numeric fields use `between` with nullable bounds
+ * (`[0.5, null]` = ≥ 0.5, `[null, 10]` = < 10, a strict upper bound).
+ */
+export type Predicate =
+  | { field: string; op: "in"; value: string[] }
+  | { field: string; op: "between"; value: [number | null, number | null] };
+
 export interface TraceQueryOptions {
   page?: number;
   limit?: number;
@@ -194,6 +205,8 @@ export interface TraceQueryOptions {
   end_before?: string; // ISO timestamp - filter traces before this time
   // Multi-field keyword search (searches trace_id, name, session_id, user_id)
   search_query?: string;
+  // Structured attribute filters, serialized as one URL-encoded JSON array.
+  filters?: Predicate[];
 }
 
 // Session types
