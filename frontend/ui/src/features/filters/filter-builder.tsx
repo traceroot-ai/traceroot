@@ -60,8 +60,18 @@ const OP_LABEL: Record<UiOp, string> = {
 // "between" is intentionally not offered in the UI — a range is two filters
 // (a gte and an lte on the same field). The backend still supports a two-bound
 // predicate (and `equals` uses it as `[x, x]`).
+//
+// The UI operators are derived from the registry field's `operators` whitelist
+// (the backend op names) rather than branching on `f.type`, so adding a field
+// with a new operator set is one entry in this map — no type branch to touch.
+// `between` expands into three UI ops (equals/gte/lte) that all lower to a
+// `between` predicate with the right (possibly null) bounds.
+const REGISTRY_OP_TO_UI: Record<string, UiOp[]> = {
+  in: ["is"],
+  between: ["equals", "gte", "lte"],
+};
 const opsFor = (f: FilterFieldDef): UiOp[] =>
-  f.type === "categorical" ? ["is"] : ["equals", "gte", "lte"];
+  f.operators.flatMap((op) => REGISTRY_OP_TO_UI[op] ?? []);
 
 interface FilterBuilderProps {
   projectId: string;
@@ -104,7 +114,10 @@ export function FilterBuilder({
     if (field.integer && !Number.isInteger(lo)) return null;
     if (op === "equals") return buildBetweenPredicate(field.field, lo, lo);
     if (op === "gte") return buildBetweenPredicate(field.field, lo, null);
-    return buildBetweenPredicate(field.field, null, lo); // lte
+    if (op === "lte") return buildBetweenPredicate(field.field, null, lo);
+    // No recognized operator (e.g. a field whose registry `operators` map to none) — build
+    // nothing rather than silently falling through to a bound.
+    return null;
   };
   const built = predicate();
   // Immediate apply, then clear the row so another filter can be added without the

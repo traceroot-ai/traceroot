@@ -7,8 +7,9 @@ BOTH the page CTE and the separate count query. Every condition is keyed on
 filter narrows the page and the total identically and safely.
 
 Structured as a per-field lowering plus a small assembler that groups predicates by
-registry level. Membership predicates merge into one span semi-join; the safety boundary
-is the per-field operator whitelist validated against the registry here, not downstream.
+registry level. Each membership predicate becomes its own span semi-join (independent
+existence); the safety boundary is the per-field operator whitelist validated against the
+registry here, not downstream.
 """
 
 import json
@@ -183,33 +184,32 @@ def _span_time_bound(params: dict) -> str:
     return ""
 
 
-def _membership_semijoin(frags: list[tuple[int, FilterColumn, Predicate]], params: dict) -> str:
-    """Merge membership predicates into one project-scoped span semi-join.
+def _membership_semijoin(idx: int, col: FilterColumn, pred: Predicate, params: dict) -> str:
+    """One project-scoped span semi-join for a single membership predicate.
 
-    Matches traces with >=1 span satisfying ALL membership predicates. Dedups
-    ReplacingMergeTree spans to the latest ``ch_update_time`` version per span BEFORE
-    applying the categorical predicates (like the aggregate/distinct paths), so a stale
-    row can't match a value the latest version no longer has. Scoped to the same
-    ``project_id`` as the outer query (tenant isolation) and keyed on ``t.trace_id`` so
-    it filters the page and the count alike. Param names carry the predicate's index so
+    Independent-existence semantics: each membership predicate becomes its OWN semi-join,
+    AND-combined by the caller, so a trace matches if it has >=1 span for EACH predicate
+    independently (NOT one span satisfying all). Cross-attribute membership thus reads as
+    "has an X span AND has an error span", not "has one span that is both". A multi-value
+    predicate on a single field stays one ``IN (...)`` (OR within the field).
+
+    Dedups ReplacingMergeTree spans to the latest ``ch_update_time`` version per span
+    BEFORE applying the categorical predicate (like the aggregate/distinct paths), so a
+    stale row can't match a value the latest version no longer has. Scoped to the same
+    ``project_id`` as the outer query (tenant isolation) and keyed on ``t.trace_id`` so it
+    filters the page and the count alike. The param name carries the predicate's index so
     two predicates on the same field don't collide.
     """
-    member_conds: list[str] = []
-    select_cols = ["project_id", "trace_id", "span_id"]
-    for i, col, pred in frags:
-        pname = f"f_{col.name}_{i}"
-        params[pname] = pred.value
-        member_conds.append(f"{col.name} IN {{{pname}:Array({col.ch_type})}}")
-        select_cols.append(col.name)
-    # dict.fromkeys dedups columns (two predicates on the same field select it once).
+    pname = f"f_{col.name}_{idx}"
+    params[pname] = pred.value
     inner = (
-        f"SELECT {', '.join(dict.fromkeys(select_cols))} "
+        f"SELECT project_id, trace_id, span_id, {col.name} "
         "FROM spans "
         "WHERE project_id = {project_id:String}" + _span_time_bound(params) + " "
         "ORDER BY ch_update_time DESC "
         "LIMIT 1 BY project_id, trace_id, span_id"
     )
-    where = " AND ".join(member_conds)
+    where = f"{col.name} IN {{{pname}:Array({col.ch_type})}}"
     return f"t.trace_id IN (SELECT trace_id FROM ({inner}) WHERE {where})"
 
 
@@ -256,9 +256,17 @@ def _aggregate_semijoin(
     having = [c for c in (_having_clause(i, col, pred, params) for i, col, pred in frags) if c]
     if not having:
         return None
+    # Project the dedup/group keys, UNIONED with the source_columns of the active aggregate
+    # predicates. Registry-driven, so a new aggregate field is one registry entry (its
+    # source_columns) with no change here. dict.fromkeys dedups with stable order.
+    # (span_start_time is filtered in the inner WHERE by _span_time_bound but needn't be
+    # projected; duration_ms's source_columns add it when that field is active.)
+    structural = ("trace_id", "span_id", "project_id")
+    select_cols = list(structural)
+    for _, col, _pred in frags:
+        select_cols.extend(col.source_columns)
     inner = (
-        "SELECT trace_id, span_id, project_id, status, cost, total_tokens, "
-        "span_start_time, span_end_time "
+        f"SELECT {', '.join(dict.fromkeys(select_cols))} "
         "FROM spans "
         "WHERE project_id = {project_id:String}" + _span_time_bound(params) + " "
         "ORDER BY ch_update_time DESC "
@@ -297,8 +305,10 @@ def build_conditions(filters: list[Predicate], params: dict) -> list[str]:
             raise NotImplementedError(f"level {col.level} not yet lowered: {col.name}")
 
     conditions: list[str] = []
-    if membership:
-        conditions.append(_membership_semijoin(membership, params))
+    # One semi-join per membership predicate (independent existence), each AND-combined via
+    # the shared conditions list so every one lands in both the page and count queries.
+    for i, col, pred in membership:
+        conditions.append(_membership_semijoin(i, col, pred, params))
     if aggregate:
         agg = _aggregate_semijoin(aggregate, params)
         if agg:

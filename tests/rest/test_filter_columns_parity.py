@@ -66,6 +66,17 @@ def test_duration_aggregates_via_min_max_while_cost_and_tokens_sum():
     assert "sum(" not in dur
 
 
+def test_aggregate_source_columns_name_the_referenced_spans_columns():
+    """Each aggregate field declares the spans columns its aggregate_expr references, so
+    the semi-join's inner projection is registry-driven. Membership fields declare none."""
+    assert reg.get_column("cost").source_columns == ("cost",)
+    assert reg.get_column("total_tokens").source_columns == ("total_tokens",)
+    assert reg.get_column("duration_ms").source_columns == ("span_start_time", "span_end_time")
+    assert reg.get_column("errors").source_columns == ("status",)
+    for name in MEMBERSHIP_FIELDS:
+        assert reg.get_column(name).source_columns == ()
+
+
 def test_get_column_returns_none_for_unknown_field():
     assert reg.get_column("not_a_field") is None
 

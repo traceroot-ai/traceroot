@@ -152,6 +152,9 @@ class TraceReaderService:
         params: dict = {"project_id": project_id}
         inner_conditions = ["project_id = {project_id:String}"]
         if normalized_start is not None:
+            # Exact bound, no lookback back-off: this is a self-contained window scan with
+            # no trace-level semi-join, so the boundary-drift false-negative reasoning that
+            # SPAN_TIME_BOUND_LOOKBACK_HOURS guards against in the filtered list doesn't apply.
             inner_conditions.append("span_start_time >= {start_after:DateTime64(3)}")
             params["start_after"] = normalized_start
         if normalized_end is not None:
