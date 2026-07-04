@@ -4,7 +4,8 @@ import {
   type AgentTool,
   type AgentMessage,
 } from "@earendil-works/pi-agent-core";
-import { getEnvApiKey, type Message } from "@earendil-works/pi-ai";
+import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
+import type { Message } from "@earendil-works/pi-ai";
 import { ADAPTER_TO_PI_AI, BEDROCK_USE_DEFAULT_CREDENTIALS, ModelSource } from "@traceroot/core";
 import {
   resolvePiModel,

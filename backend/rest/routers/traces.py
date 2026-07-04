@@ -19,7 +19,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
-from rest.routers.deps import ProjectAccess, RateLimitedProjectAccess
+from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.traces import (
     FilterFieldsResponse,
     FilterValuesResponse,
@@ -239,11 +239,16 @@ async def get_trace(
 
 
 @router.get("/{trace_id}/spans/{span_id}/io", response_model=SpanIOResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
 async def get_span_io(
+    request: Request,
+    response: Response,
     project_id: str,
     trace_id: str,
     span_id: str,
-    _access: ProjectAccess,  # Validates user has access to project
+    _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
 ):
     """Get full input/output/metadata for a single span on demand."""
     service = get_trace_reader_service()
