@@ -70,6 +70,15 @@ export class DaytonaExecutor implements Executor {
 
   async writeFile(path: string, content: string): Promise<void> {
     if (!this.sandbox) throw new Error("Sandbox not initialized");
+    // fs.uploadFile does not create missing parent directories, so writing into
+    // a nested path fails unless the parent already exists. The download tools
+    // write into per-item subdirs that init() never creates —
+    // /workspace/traces/<id>_<name>/ and /workspace/sessions/<id>/... — so
+    // create the parent first, mirroring DockerExecutor.writeFile.
+    const dir = path.includes("/") ? path.substring(0, path.lastIndexOf("/")) : "";
+    if (dir) {
+      await this.sandbox.process.executeCommand(`mkdir -p ${shellEscape(dir)}`);
+    }
     await this.sandbox.fs.uploadFile(Buffer.from(content), path);
   }
 
@@ -218,4 +227,8 @@ export async function setupGhCliDaytona(
     : "agent@traceroot.ai";
   await executor.exec(`git config --global user.name "${name}"`);
   await executor.exec(`git config --global user.email "${email}"`);
+}
+
+function shellEscape(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
 }
