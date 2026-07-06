@@ -40,3 +40,12 @@ export {
   isRcaRunBlocked,
   isDetectorRunBlocked,
 } from "./plans.ts";
+
+// Free-plan usage-quota notification decision (pure helper + types)
+export {
+  USAGE_WARNING_RATIO,
+  decideUsageNotification,
+  type UsageMeter,
+  type UsageNotificationState,
+  type UsageNotificationDecision,
+} from "./usageNotifications.ts";
