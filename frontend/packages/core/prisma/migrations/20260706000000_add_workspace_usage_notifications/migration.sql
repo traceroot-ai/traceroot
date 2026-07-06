@@ -25,14 +25,17 @@ ALTER TABLE "workspace_usage_notifications"
 -- marked as already-notified, so the first worker tick doesn't mass-email the
 -- existing over-cap population. Both thresholds are stamped: past 100%
 -- implies past 80%, and an "approaching" warning after a block is nonsense.
--- period_start = epoch matches the worker's all-time free-plan usage window.
+-- period_start = epoch matches the worker's all-time free-plan usage window;
+-- a plain TIMESTAMP literal (not to_timestamp(0), which is timestamptz and
+-- shifts with the session timezone) so the stored value equals the worker's
+-- exact-equality epoch anchor regardless of server timezone.
 INSERT INTO "workspace_usage_notifications"
     ("id", "workspace_id", "meter", "period_start", "warning_sent_at", "blocked_sent_at")
 SELECT
     w."id" || ':' || m.meter,
     w."id",
     m.meter,
-    to_timestamp(0),
+    TIMESTAMP '1970-01-01 00:00:00',
     now(),
     now()
 FROM "workspaces" w
