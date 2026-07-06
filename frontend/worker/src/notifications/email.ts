@@ -149,15 +149,15 @@ export async function sendUsageQuotaEmail(params: {
 
   const subject =
     kind === "warning"
-      ? `[TraceRoot] ${workspaceName}: approaching your free-plan ${copy.label} limit`
-      : `[TraceRoot] ${workspaceName}: free-plan ${copy.label} limit reached`;
+      ? `[TraceRoot] ${workspaceName}: approaching your free plan ${copy.label} limit`
+      : `[TraceRoot] ${workspaceName}: free plan ${copy.label} limit reached`;
   const cta =
     kind === "warning"
       ? "Upgrade your plan to avoid interruption once the limit is reached."
       : "Upgrade your plan to resume immediately.";
 
   const text = [
-    `${workspaceName} has used ${usedStr} of ${capStr} free-plan ${copy.label}.`,
+    `${workspaceName} has used ${usedStr} of ${capStr} free plan ${copy.label}.`,
     ...(kind === "blocked" ? [copy.pausedCopy] : []),
     cta,
     billingUrl,
@@ -208,7 +208,7 @@ function buildUsageQuotaHtml(params: {
   const { kind, workspaceName, meterLabel, pausedCopy, cta, usedStr, capStr, billingUrl } = params;
   const safeWorkspaceName = escapeHtml(workspaceName);
 
-  const title = kind === "warning" ? "Approaching your free-plan limit" : "Free-plan limit reached";
+  const title = kind === "warning" ? "Approaching your free plan limit" : "Free plan limit reached";
   const pausedSection =
     kind === "blocked"
       ? `
@@ -257,7 +257,7 @@ function buildUsageQuotaHtml(params: {
       <tr>
         <td style="padding: 0 40px 24px 40px;">
           <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6; text-align: center;">
-            <strong>${safeWorkspaceName}</strong> has used <strong>${usedStr}</strong> of <strong>${capStr}</strong> free-plan ${meterLabel}.
+            <strong>${safeWorkspaceName}</strong> has used <strong>${usedStr}</strong> of <strong>${capStr}</strong> free plan ${meterLabel}.
           </p>
         </td>
       </tr>
