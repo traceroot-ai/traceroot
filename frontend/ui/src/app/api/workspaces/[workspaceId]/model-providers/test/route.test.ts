@@ -334,16 +334,51 @@ describe("POST model-providers/test - error responses", () => {
     expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
   });
 
-  it("anthropic 403 is treated as connectable (success), not an invalid key", async () => {
+  it("anthropic 403 maps to API lacks permission", async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 403, statusText: "Forbidden" });
     const res = await POST(makeRequest({ adapter: "anthropic", apiKey: "k" }), makeParams());
-    expect(await res.json()).toEqual({ success: true });
+    expect(await res.json()).toEqual({ success: false, error: "API lacks permission" });
   });
 
-  it("openai/azure-style 403 is not normalized to Invalid API key (401 only)", async () => {
+  it("openai 403 maps to API lacks permission", async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 403, statusText: "Forbidden" });
     const res = await POST(makeRequest({ adapter: "openai", apiKey: "k" }), makeParams());
-    expect(await res.json()).toEqual({ success: false, error: "HTTP 403: Forbidden" });
+    expect(await res.json()).toEqual({ success: false, error: "API lacks permission" });
+  });
+
+  it("google 400 API_KEY_INVALID maps to Invalid API key", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      json: async () => ({ error: { message: "API key not valid. Reason: API_KEY_INVALID" } }),
+    });
+    const res = await POST(makeRequest({ adapter: "google", apiKey: "bad" }), makeParams());
+    expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
+  });
+
+  it("xai 400 incorrect API key maps to Invalid API key", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      json: async () => ({
+        error: "Incorrect API key provided. You can obtain an API key from https://console.x.ai.",
+      }),
+    });
+    const res = await POST(makeRequest({ adapter: "xai", apiKey: "bad" }), makeParams());
+    expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
+  });
+
+  it("xai 400 with an unrelated error surfaces the raw message", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      json: async () => ({ error: "Model not found: grok-beta" }),
+    });
+    const res = await POST(makeRequest({ adapter: "xai", apiKey: "k" }), makeParams());
+    expect(await res.json()).toEqual({ success: false, error: "Model not found: grok-beta" });
   });
 
   it("azure without baseUrl fails before any network call", async () => {
