@@ -107,6 +107,7 @@ describe("runBillingJob usage-quota notification wiring", () => {
   });
 
   it("a notifier failure neither throws nor stops later workspaces", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mocks.workspaceFindMany.mockResolvedValue([
       workspace({ id: "ws-a" }),
       workspace({ id: "ws-b" }),
@@ -119,5 +120,15 @@ describe("runBillingJob usage-quota notification wiring", () => {
     expect(mocks.workspaceUpdate).toHaveBeenCalledTimes(2);
     expect(mocks.runUsageQuotaNotifications).toHaveBeenCalledTimes(2);
     expect(mocks.runUsageQuotaNotifications.mock.calls[1][0].workspaceId).toBe("ws-b");
+
+    // the failure must be contained by the notification-level catch, not
+    // escape to the per-workspace catch (whose log would mean the billing
+    // flow itself was aborted by a notification problem)
+    const logged = errorSpy.mock.calls.map((call) => String(call[0]));
+    expect(
+      logged.some((m) => m.includes("Usage-quota notifications failed for workspace ws-a")),
+    ).toBe(true);
+    expect(logged.some((m) => m.includes("Error processing workspace"))).toBe(false);
+    errorSpy.mockRestore();
   });
 });
