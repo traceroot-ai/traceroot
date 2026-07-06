@@ -47,8 +47,14 @@ type RouteParams = { params: Promise<{ workspaceId: string }> };
 // timeout; a merely unparseable/empty body falls back to the HTTP status line.
 async function readErrorMessage(res: Response, signal: AbortSignal): Promise<string | undefined> {
   try {
-    const body = (await res.json()) as { error?: { message?: unknown } };
-    return body?.error?.message ? String(body.error.message) : undefined;
+    const body = (await res.json()) as { error?: { message?: unknown } | string };
+    if (body?.error && typeof body.error === "object" && "message" in body.error) {
+      return body.error.message ? String(body.error.message) : undefined;
+    }
+    if (typeof body?.error === "string") {
+      return body.error;
+    }
+    return undefined;
   } catch (err) {
     if (signal.aborted) throw err;
     return undefined;
@@ -66,8 +72,20 @@ async function checkEndpoint(
     if (res.ok) return { ok: true as const };
     const message = await readErrorMessage(res, signal);
 
-    const normalizedError =
-      res.status === 401 ? "Invalid API key" : (message ?? `HTTP ${res.status}: ${res.statusText}`);
+    let normalizedError: string;
+    if (res.status === 401) {
+      normalizedError = "Invalid API key";
+    } else if (res.status === 403) {
+      normalizedError = "API lacks permission";
+    } else if (res.status === 400 && message && /API_KEY_INVALID/i.test(message)) {
+      // Google returns 400 with reason API_KEY_INVALID instead of 401.
+      normalizedError = "Invalid API key";
+    } else if (res.status === 400 && message && /incorrect api key/i.test(message)) {
+      // xAI returns 400 with a plain-string error mentioning "Incorrect API key".
+      normalizedError = "Invalid API key";
+    } else {
+      normalizedError = message ?? `HTTP ${res.status}: ${res.statusText}`;
+    }
     return { ok: false as const, error: normalizedError };
   });
 }
@@ -142,8 +160,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             }),
             signal,
           });
-          if (res.ok || res.status !== 401) return { invalid: false as const };
-          return { invalid: true as const, error: "Invalid API key" };
+          if (res.ok) return { invalid: false as const };
+          if (res.status === 401) return { invalid: true as const, error: "Invalid API key" };
+          if (res.status === 403) return { invalid: true as const, error: "API lacks permission" };
+          return { invalid: false as const };
         });
         if (check.invalid) return successResponse({ success: false, error: check.error });
         break;
