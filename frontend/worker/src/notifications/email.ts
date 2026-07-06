@@ -5,6 +5,7 @@ import {
   traceUrl,
   type DigestEntry,
 } from "@traceroot/slack";
+import type { UsageMeter } from "@traceroot/core";
 
 function escapeHtml(s: string): string {
   return s
@@ -96,4 +97,89 @@ export async function sendDigestAlertEmail(params: {
 ${htmlRows}
     `.trim(),
   });
+}
+
+// Copy for the free-plan usage-quota emails. The blocked line names exactly
+// what paused: for the automatic meters (rca, detector) there is no
+// interactive tell, so the email is the only signal the feature stopped.
+const USAGE_METER_COPY: Record<UsageMeter, { label: string; pausedCopy: string }> = {
+  events: {
+    label: "events",
+    pausedCopy: "Trace and span ingestion is paused — new telemetry is being dropped.",
+  },
+  rca: {
+    label: "root-cause analysis runs",
+    pausedCopy:
+      "Automatic root-cause analysis is paused — new detector findings will not be analyzed.",
+  },
+  detector: {
+    label: "detector runs",
+    pausedCopy: "Detector scans are paused — incoming traces are no longer being scanned.",
+  },
+};
+
+/**
+ * Send a free-plan usage-quota email (80% warning or 100% blocked) to
+ * workspace admins. Returns true ONLY when the message was handed to the
+ * transport, so callers can stamp sent-state on real sends and retry
+ * transient failures (no SMTP config, empty recipient list, SMTP error)
+ * on the next billing run.
+ */
+export async function sendUsageQuotaEmail(params: {
+  to: string[];
+  kind: "warning" | "blocked";
+  meter: UsageMeter;
+  workspaceId: string;
+  workspaceName: string;
+  used: number;
+  cap: number;
+}): Promise<boolean> {
+  const transport = createTransport();
+  if (!transport || params.to.length === 0) return false;
+
+  const { kind, meter, workspaceId, workspaceName, used, cap } = params;
+  const copy = USAGE_METER_COPY[meter];
+  const billingUrl = `${APP_BASE_URL}/workspaces/${workspaceId}/settings/billing`;
+  const usedStr = used.toLocaleString("en-US");
+  const capStr = cap.toLocaleString("en-US");
+
+  const subject =
+    kind === "warning"
+      ? `[TraceRoot] ${workspaceName}: approaching your free-plan ${copy.label} limit`
+      : `[TraceRoot] ${workspaceName}: free-plan ${copy.label} limit reached`;
+  const cta =
+    kind === "warning"
+      ? "Upgrade your plan to avoid interruption once the limit is reached."
+      : "Upgrade your plan to resume immediately.";
+
+  const text = [
+    `${workspaceName} has used ${usedStr} of ${capStr} free-plan ${copy.label}.`,
+    ...(kind === "blocked" ? [copy.pausedCopy] : []),
+    cta,
+    billingUrl,
+  ].join("\n");
+
+  const html = `
+<p><strong>${escapeHtml(workspaceName)}</strong> has used <strong>${usedStr}</strong> of <strong>${capStr}</strong> free-plan ${copy.label}.</p>
+${kind === "blocked" ? `<p>${copy.pausedCopy}</p>` : ""}
+<p>${cta}</p>
+<p><a href="${billingUrl}">Manage your plan</a></p>
+  `.trim();
+
+  try {
+    await transport.sendMail({
+      from: SMTP_FROM,
+      to: params.to.join(", "),
+      subject,
+      text,
+      html,
+    });
+    return true;
+  } catch (error) {
+    console.error(
+      `[Billing] Failed to send usage ${kind} email for workspace ${workspaceId} (${meter}):`,
+      error,
+    );
+    return false;
+  }
 }
