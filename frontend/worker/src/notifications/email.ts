@@ -18,6 +18,10 @@ function escapeHtml(s: string): string {
 const SMTP_URL = process.env.TRACEROOT_SMTP_URL;
 const SMTP_FROM = process.env.TRACEROOT_SMTP_MAIL_FROM || "noreply@traceroot.ai";
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+// Same logo source as the workspace-invite email in frontend/ui.
+const LOGO_URL =
+  process.env.NEXT_PUBLIC_LOGO_URL ||
+  "https://raw.githubusercontent.com/traceroot-ai/traceroot/main/frontend/ui/public/images/traceroot_icon.png";
 
 function createTransport() {
   if (!SMTP_URL) return null;
@@ -159,12 +163,16 @@ export async function sendUsageQuotaEmail(params: {
     billingUrl,
   ].join("\n");
 
-  const html = `
-<p><strong>${escapeHtml(workspaceName)}</strong> has used <strong>${usedStr}</strong> of <strong>${capStr}</strong> free-plan ${copy.label}.</p>
-${kind === "blocked" ? `<p>${copy.pausedCopy}</p>` : ""}
-<p>${cta}</p>
-<p><a href="${billingUrl}">Manage your plan</a></p>
-  `.trim();
+  const html = buildUsageQuotaHtml({
+    kind,
+    workspaceName,
+    meterLabel: copy.label,
+    pausedCopy: copy.pausedCopy,
+    cta,
+    usedStr,
+    capStr,
+    billingUrl,
+  });
 
   try {
     await transport.sendMail({
@@ -182,4 +190,117 @@ ${kind === "blocked" ? `<p>${copy.pausedCopy}</p>` : ""}
     );
     return false;
   }
+}
+
+// Card layout mirrors the workspace-invite email (frontend/ui
+// send-invite-email.ts): table-based markup with inline styles only, so it
+// survives Gmail/Outlook CSS stripping.
+function buildUsageQuotaHtml(params: {
+  kind: "warning" | "blocked";
+  workspaceName: string;
+  meterLabel: string;
+  pausedCopy: string;
+  cta: string;
+  usedStr: string;
+  capStr: string;
+  billingUrl: string;
+}): string {
+  const { kind, workspaceName, meterLabel, pausedCopy, cta, usedStr, capStr, billingUrl } = params;
+  const safeWorkspaceName = escapeHtml(workspaceName);
+
+  const title = kind === "warning" ? "Approaching your free-plan limit" : "Free-plan limit reached";
+  const pausedSection =
+    kind === "blocked"
+      ? `
+      <!-- Paused-feature callout -->
+      <tr>
+        <td style="padding: 0 40px 24px 40px;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #fafafa; border: 1px solid #e5e5e5;">
+            <tr>
+              <td style="padding: 12px 16px;">
+                <p style="margin: 0; color: #333; font-size: 14px; line-height: 1.6; text-align: center;">
+                  <strong>${pausedCopy}</strong>
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>`
+      : "";
+
+  return `
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  </head>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 20px; background-color: #fafafa;">
+    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width: 480px; margin: 0 auto; background: #fff; border: 1px solid #e5e5e5;">
+      <!-- Logo section -->
+      <tr>
+        <td style="padding: 40px 40px 32px 40px; text-align: center;">
+          <img src="${LOGO_URL}" alt="TraceRoot" width="72" height="72" style="display: block; margin: 0 auto; border-radius: 14px;" />
+        </td>
+      </tr>
+
+      <!-- Title -->
+      <tr>
+        <td style="padding: 0 40px 24px 40px; text-align: center;">
+          <h1 style="font-size: 24px; font-weight: 600; margin: 0; color: #000; letter-spacing: -0.5px;">
+            ${title}
+          </h1>
+        </td>
+      </tr>
+
+      <!-- Body -->
+      <tr>
+        <td style="padding: 0 40px 24px 40px;">
+          <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6; text-align: center;">
+            <strong>${safeWorkspaceName}</strong> has used <strong>${usedStr}</strong> of <strong>${capStr}</strong> free-plan ${meterLabel}.
+          </p>
+        </td>
+      </tr>
+${pausedSection}
+      <!-- CTA note -->
+      <tr>
+        <td style="padding: 0 40px 32px 40px;">
+          <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6; text-align: center;">
+            ${cta}
+          </p>
+        </td>
+      </tr>
+
+      <!-- Button -->
+      <tr>
+        <td style="padding: 0 40px 40px 40px; text-align: center;">
+          <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
+            <tr>
+              <td style="background-color: #000;">
+                <a href="${billingUrl}" style="display: inline-block; padding: 10px 20px; color: #ffffff; text-decoration: none; font-weight: 500; font-size: 14px;">
+                  Manage your plan
+                </a>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+
+      <!-- Divider -->
+      <tr>
+        <td style="border-top: 1px solid #e5e5e5;"></td>
+      </tr>
+
+      <!-- Footer -->
+      <tr>
+        <td style="padding: 24px 40px; background-color: #fafafa;">
+          <p style="color: #999; font-size: 12px; margin: 0; text-align: center;">
+            You are receiving this because you are an admin of the ${safeWorkspaceName} workspace on TraceRoot.
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+  `.trim();
 }

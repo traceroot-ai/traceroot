@@ -47,6 +47,10 @@ describe("sendUsageQuotaEmail", () => {
     expect(mail.html).toContain("40,000");
     expect(mail.html).toContain("50,000");
     expect(mail.html).toContain("https://app.example.com/workspaces/ws-1/settings/billing");
+    // house-style card markup: logo, title, and CTA button
+    expect(mail.html).toContain('alt="TraceRoot"');
+    expect(mail.html).toContain("Approaching your free-plan limit");
+    expect(mail.html).toContain("Manage your plan");
     // plain-text twin carries the same essentials
     expect(mail.text).toContain("40,000 of 50,000");
     expect(mail.text).toContain("https://app.example.com/workspaces/ws-1/settings/billing");
@@ -64,7 +68,10 @@ describe("sendUsageQuotaEmail", () => {
 
     const mail = sendMail.mock.calls[0][0];
     expect(mail.subject).toContain("limit reached");
+    expect(mail.html).toContain("Free-plan limit reached");
     expect(mail.html).toContain("Detector scans are paused");
+    expect(mail.html).toContain("https://app.example.com/workspaces/ws-1/settings/billing");
+    expect(mail.html).toContain("Manage your plan");
     expect(mail.text).toContain("Detector scans are paused");
   });
 
