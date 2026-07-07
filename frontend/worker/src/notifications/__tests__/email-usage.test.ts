@@ -73,6 +73,14 @@ describe("sendUsageQuotaEmail", () => {
     expect(mail.html).toContain("https://app.example.com/workspaces/ws-1/settings/billing");
     expect(mail.html).toContain("Manage your plan");
     expect(mail.text).toContain("Detector scans are paused");
+    // blocked lead states the limit; no "used X of Y" (measured usage can
+    // exceed the cap before tick-granular blocking engages)
+    expect(mail.html).toContain(
+      "reached its free plan limit of <strong>100</strong> detector runs",
+    );
+    expect(mail.html).not.toContain("has used");
+    expect(mail.text).toContain("reached its free plan limit of 100 detector runs");
+    expect(mail.text).not.toContain("has used");
   });
 
   it("returns false without sending when the recipient list is empty", async () => {
