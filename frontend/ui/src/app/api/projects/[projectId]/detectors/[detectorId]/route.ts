@@ -60,6 +60,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     name,
     template: _template,
     prompt,
+    ruleConfig,
     outputSchema,
     sampleRate,
     enabled,
@@ -113,8 +114,25 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (name !== undefined && (typeof name !== "string" || name.trim().length === 0)) {
     return errorResponse("name must be a non-empty string", 400);
   }
-  if (prompt !== undefined && (typeof prompt !== "string" || prompt.trim().length === 0)) {
+  if (
+    prompt !== undefined &&
+    (typeof prompt !== "string" || (existing.type !== "rule" && prompt.trim().length === 0))
+  ) {
     return errorResponse("prompt must be a non-empty string", 400);
+  }
+  if (ruleConfig !== undefined) {
+    if (existing.type !== "rule") {
+      return errorResponse('ruleConfig can only be updated on a "rule" type detector', 400);
+    }
+    if (
+      ruleConfig === null ||
+      typeof ruleConfig !== "object" ||
+      Array.isArray(ruleConfig) ||
+      !Array.isArray((ruleConfig as Record<string, unknown>).conditions) ||
+      (ruleConfig as { conditions: unknown[] }).conditions.length === 0
+    ) {
+      return errorResponse("ruleConfig.conditions must be a non-empty array", 400);
+    }
   }
 
   // Build detector update data (only include defined fields)
@@ -122,6 +140,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   const detectorData: Record<string, unknown> = {};
   if (name !== undefined) detectorData.name = name;
   if (prompt !== undefined) detectorData.prompt = prompt;
+  if (ruleConfig !== undefined) detectorData.ruleConfig = ruleConfig;
   if (outputSchema !== undefined) detectorData.outputSchema = outputSchema;
   if (sampleRate !== undefined) detectorData.sampleRate = sampleRate;
   if (enabled !== undefined) detectorData.enabled = enabled;

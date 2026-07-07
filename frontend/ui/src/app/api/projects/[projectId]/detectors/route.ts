@@ -79,10 +79,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   const {
     name,
     template,
+    type,
     prompt,
+    ruleConfig,
     outputSchema,
     sampleRate,
-    enabled,
     triggerConditions,
     detectionModel,
     detectionProvider,
@@ -97,8 +98,44 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   if (typeof template !== "string" || template.trim().length === 0) {
     return errorResponse("template must be a non-empty string", 400);
   }
-  if (typeof prompt !== "string" || prompt.trim().length === 0) {
-    return errorResponse("prompt must be a non-empty string", 400);
+
+  // type: "llm" (default) or "rule" (deterministic, zero LLM cost). "rule"
+  // detectors carry a ruleConfig instead of a free-text prompt; prompt is
+  // still accepted (e.g. as documentation) but not required for them.
+  let resolvedType: "llm" | "rule" = "llm";
+  if (type !== undefined) {
+    if (type !== "llm" && type !== "rule") {
+      return errorResponse(`type must be "llm" or "rule"`, 400);
+    }
+    resolvedType = type;
+  }
+
+  if (resolvedType === "llm") {
+    if (typeof prompt !== "string" || prompt.trim().length === 0) {
+      return errorResponse("prompt must be a non-empty string", 400);
+    }
+  } else if (prompt !== undefined && typeof prompt !== "string") {
+    return errorResponse("prompt must be a string", 400);
+  }
+
+  let resolvedRuleConfig: unknown = null;
+  if (resolvedType === "rule") {
+    if (
+      ruleConfig === undefined ||
+      ruleConfig === null ||
+      typeof ruleConfig !== "object" ||
+      Array.isArray(ruleConfig) ||
+      !Array.isArray((ruleConfig as Record<string, unknown>).conditions) ||
+      (ruleConfig as { conditions: unknown[] }).conditions.length === 0
+    ) {
+      return errorResponse(
+        'ruleConfig.conditions must be a non-empty array when type is "rule"',
+        400,
+      );
+    }
+    resolvedRuleConfig = ruleConfig;
+  } else if (ruleConfig !== undefined && ruleConfig !== null) {
+    return errorResponse('ruleConfig is only valid when type is "rule"', 400);
   }
 
   // Validate sampleRate (integer 0-100). Fall back to the default only when
@@ -148,23 +185,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   }
   const resolvedEnableRca = enableRca ?? true;
 
-  // enabled: optional boolean. Defaults to true, but a detector created at 0%
-  // sampling should not show as "enabled but never fires" — fall back to
-  // sampleRate > 0 so a 0% rate creates a paused detector.
-  if (enabled !== undefined && typeof enabled !== "boolean") {
-    return errorResponse("enabled must be a boolean", 400);
-  }
-  const resolvedEnabled = enabled ?? resolvedSampleRate > 0;
-
   const detector = await prisma.detector.create({
     data: {
       projectId,
       name,
       template,
-      prompt,
+      type: resolvedType,
+      prompt: typeof prompt === "string" ? prompt : "",
+      ruleConfig: resolvedRuleConfig === null ? undefined : (resolvedRuleConfig as object),
       outputSchema: (outputSchema as object) ?? [],
       sampleRate: resolvedSampleRate,
-      enabled: resolvedEnabled,
       enableRca: resolvedEnableRca,
       detectionModel: resolvedModel,
       detectionProvider: resolvedProvider,

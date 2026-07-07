@@ -349,10 +349,12 @@ model Detector {
   id           String   @id @default(cuid()) @db.VarChar
   projectId    String   @map("project_id") @db.VarChar
   name         String   @db.VarChar
-  template     String   @db.VarChar  // "failure"|"hallucination"|"logic"|"task"|"safety"|"intent"|"blank"
-  prompt       String   @db.Text
+  template     String   @db.VarChar  // "failure"|"hallucination"|"logic"|"task"|"safety"|"intent"|"blank"|"missing_data"
+  type         String   @default("llm") @db.VarChar  // "llm" (model judge) | "rule" (deterministic, zero LLM cost)
+  prompt       String   @db.Text // unused when type="rule"; kept non-null for backward compat, "" allowed for rule detectors
+  ruleConfig   Json?    @map("rule_config") @db.JsonB // RuleConfig when type="rule"; null for type="llm"
   outputSchema       Json     @map("output_schema") @db.JsonB
-  sampleRate         Int      @default(25) @map("sample_rate")  // 0–100
+  sampleRate         Int      @default(25) @map("sample_rate")  // 1–100
   enabled            Boolean  @default(true)
   enableRca          Boolean  @default(true) @map("enable_rca")  // run agent-model RCA on this detector's findings
   detectionModel     String?  @map("detection_model") @db.VarChar    // model id; null = worker picks default

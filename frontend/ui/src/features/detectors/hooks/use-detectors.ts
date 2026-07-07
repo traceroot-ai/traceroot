@@ -1,12 +1,35 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { broadcastQueryInvalidation } from "@/lib/cross-tab-sync";
 
+export interface RuleCondition {
+  field: string;
+  op:
+    | "is_empty"
+    | "is_missing"
+    | "exists"
+    | "equals"
+    | "not_equals"
+    | "contains"
+    | "greater_than"
+    | "less_than";
+  value?: unknown;
+}
+
+export interface RuleConfig {
+  conditions: RuleCondition[];
+  match?: "any" | "all";
+}
+
 export interface Detector {
   id: string;
   projectId: string;
   name: string;
   template: string;
+  /** "llm" (model judge, default) or "rule" (deterministic, zero LLM cost). */
+  type: "llm" | "rule";
   prompt: string;
+  /** Only meaningful when type="rule"; null for type="llm". */
+  ruleConfig: RuleConfig | null;
   outputSchema: Array<{ name: string; type: string }>;
   sampleRate: number;
   enableRca: boolean;
@@ -38,10 +61,12 @@ interface DetectorListResponse {
 export interface CreateDetectorInput {
   name: string;
   template: string;
+  /** Defaults to "llm" server-side when omitted. */
+  type?: "llm" | "rule";
   prompt: string;
+  ruleConfig?: RuleConfig;
   outputSchema: Array<{ name: string; type: string }>;
   sampleRate?: number;
-  enabled?: boolean;
   enableRca?: boolean;
   triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
   detectionModel?: string;
@@ -86,8 +111,8 @@ async function createDetector(projectId: string, input: CreateDetectorInput): Pr
 export interface UpdateDetectorInput {
   name?: string;
   prompt?: string;
+  ruleConfig?: RuleConfig;
   sampleRate?: number;
-  enabled?: boolean;
   enableRca?: boolean;
   triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
   detectionModel?: string;
