@@ -156,12 +156,15 @@ export async function sendUsageQuotaEmail(params: {
       ? "Upgrade your plan to avoid interruption once the limit is reached."
       : "Upgrade your plan to resume immediately.";
 
-  const text = [
-    `${workspaceName} has used ${usedStr} of ${capStr} free plan ${copy.label}.`,
-    ...(kind === "blocked" ? [copy.pausedCopy] : []),
-    cta,
-    billingUrl,
-  ].join("\n");
+  // The blocked lead avoids "used X of Y": measured usage can exceed the cap
+  // (blocking is enforced at billing-tick granularity), and "126 of 100"
+  // reads like a bug to the recipient.
+  const lead =
+    kind === "warning"
+      ? `${workspaceName} has used ${usedStr} of ${capStr} free plan ${copy.label}.`
+      : `${workspaceName} has reached its free plan limit of ${capStr} ${copy.label}.`;
+
+  const text = [lead, ...(kind === "blocked" ? [copy.pausedCopy] : []), cta, billingUrl].join("\n");
 
   const html = buildUsageQuotaHtml({
     kind,
@@ -257,7 +260,11 @@ function buildUsageQuotaHtml(params: {
       <tr>
         <td style="padding: 0 40px 24px 40px;">
           <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6; text-align: center;">
-            <strong>${safeWorkspaceName}</strong> has used <strong>${usedStr}</strong> of <strong>${capStr}</strong> free plan ${meterLabel}.
+            ${
+              kind === "warning"
+                ? `<strong>${safeWorkspaceName}</strong> has used <strong>${usedStr}</strong> of <strong>${capStr}</strong> free plan ${meterLabel}.`
+                : `<strong>${safeWorkspaceName}</strong> has reached its free plan limit of <strong>${capStr}</strong> ${meterLabel}.`
+            }
           </p>
         </td>
       </tr>
