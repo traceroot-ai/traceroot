@@ -20,12 +20,17 @@ describe("sendUsageQuotaEmail", () => {
   beforeEach(() => {
     vi.resetModules();
     sendMail.mockReset();
-    sendMail.mockResolvedValue(undefined);
+    // realistic nodemailer SentMessageInfo: every recipient accepted
+    sendMail.mockResolvedValue({
+      accepted: ["admin@example.com", "owner@example.com"],
+      rejected: [],
+    });
     process.env.TRACEROOT_SMTP_URL = "smtp://user:pass@localhost:587";
     process.env.NEXT_PUBLIC_APP_URL = "https://app.example.com";
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     delete process.env.TRACEROOT_SMTP_URL;
     delete process.env.NEXT_PUBLIC_APP_URL;
   });
@@ -108,5 +113,28 @@ describe("sendUsageQuotaEmail", () => {
     sendMail.mockRejectedValue(new Error("smtp down"));
     const { sendUsageQuotaEmail } = await import("../email.js");
     expect(await sendUsageQuotaEmail(baseParams)).toBe(false);
+  });
+
+  it("returns false when the server rejects every recipient", async () => {
+    sendMail.mockResolvedValue({
+      accepted: [],
+      rejected: ["admin@example.com", "owner@example.com"],
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { sendUsageQuotaEmail } = await import("../email.js");
+    // nobody received the email, so callers must not stamp it as sent
+    expect(await sendUsageQuotaEmail(baseParams)).toBe(false);
+  });
+
+  it("returns true and logs when only some recipients are rejected", async () => {
+    sendMail.mockResolvedValue({
+      accepted: ["admin@example.com"],
+      rejected: ["owner@example.com"],
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { sendUsageQuotaEmail } = await import("../email.js");
+    expect(await sendUsageQuotaEmail(baseParams)).toBe(true);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("ws-1"), ["owner@example.com"]);
   });
 });

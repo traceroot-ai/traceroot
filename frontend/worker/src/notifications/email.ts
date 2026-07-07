@@ -140,10 +140,10 @@ const USAGE_METER_COPY: Record<
 
 /**
  * Send a free-plan usage-quota email (80% warning or 100% blocked) to
- * workspace admins. Returns true ONLY when the message was handed to the
- * transport, so callers can stamp sent-state on real sends and retry
- * transient failures (no SMTP config, empty recipient list, SMTP error)
- * on the next billing run.
+ * workspace admins. Returns true ONLY when the SMTP server accepted the
+ * message for at least one recipient, so callers can stamp sent-state on
+ * real sends and retry failures (no SMTP config, empty recipient list,
+ * SMTP error, every recipient rejected) on the next billing run.
  */
 export async function sendUsageQuotaEmail(params: {
   to: string[];
@@ -201,14 +201,22 @@ export async function sendUsageQuotaEmail(params: {
   });
 
   try {
-    await transport.sendMail({
+    const info = await transport.sendMail({
       from: SMTP_FROM,
       to: params.to.join(", "),
       subject,
       text,
       html,
     });
-    return true;
+    if (info?.rejected?.length) {
+      console.warn(
+        `[Billing] Some recipients rejected for usage ${kind} email, workspace ${workspaceId} (${meter}):`,
+        info.rejected,
+      );
+    }
+    // Stamp only if at least one admin actually accepted delivery; a full
+    // rejection must return false so the next billing run retries.
+    return (info?.accepted?.length ?? 0) > 0;
   } catch (error) {
     console.error(
       `[Billing] Failed to send usage ${kind} email for workspace ${workspaceId} (${meter}):`,
