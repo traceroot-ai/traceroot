@@ -76,6 +76,15 @@ export interface LLMModelDef {
 // ──────────────────────────────────────────────
 // System models — always available via env vars.
 // ──────────────────────────────────────────────
+/**
+ * Detector-specific hosted screening model.
+ *
+ * This is intentionally not `resolvePiModel(undefined, null)`: detector evals
+ * use a stable cheap-and-fast model instead of the general provider-priority
+ * fallback used by other model resolution paths.
+ */
+export const DETECTOR_SYSTEM_DEFAULT_MODEL_ID = "claude-haiku-4-5";
+
 export const SYSTEM_MODELS: {
   provider: string;
   envVar: string;
