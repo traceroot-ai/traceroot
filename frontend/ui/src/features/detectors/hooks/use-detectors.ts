@@ -1,6 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { broadcastQueryInvalidation } from "@/lib/cross-tab-sync";
 
+async function readApiError(res: Response, fallback: string): Promise<string> {
+  const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+  return typeof body?.error === "string" && body.error.trim() ? body.error : fallback;
+}
+
 export interface Detector {
   id: string;
   projectId: string;
@@ -78,7 +83,9 @@ async function createDetector(projectId: string, input: CreateDetectorInput): Pr
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Failed to create detector: ${res.status}`);
+  if (!res.ok) {
+    throw new Error(await readApiError(res, `Failed to create detector: ${res.status}`));
+  }
   const data = (await res.json()) as { detector: Detector };
   return data.detector;
 }
@@ -105,7 +112,9 @@ async function updateDetector(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!res.ok) throw new Error(`Failed to update detector: ${res.status}`);
+  if (!res.ok) {
+    throw new Error(await readApiError(res, `Failed to update detector: ${res.status}`));
+  }
   const data = (await res.json()) as { detector: Detector };
   return data.detector;
 }

@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma, Role, isAlertWindow, DEFAULT_ALERT_WINDOW } from "@traceroot/core";
+import {
+  prisma,
+  Role,
+  isAlertWindow,
+  DEFAULT_ALERT_WINDOW,
+  SYSTEM_MODELS,
+  ADAPTER_MODELS,
+  ModelSource,
+} from "@traceroot/core";
+import type { LLMAdapter } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -19,6 +28,85 @@ const updateProjectSchema = z.object({
 });
 
 type RouteParams = { params: Promise<{ workspaceId: string; projectId: string }> };
+
+type RcaModelSelection = {
+  rcaModel: string | null;
+  rcaProvider: string | null;
+  rcaSource: string | null;
+};
+
+function isSupportedByokModel(adapter: string, model: string): boolean {
+  const catalog = ADAPTER_MODELS[adapter as LLMAdapter];
+  return !catalog || catalog.some((candidate) => candidate.id === model);
+}
+
+async function validateRcaModelSelection(
+  workspaceId: string,
+  selection: RcaModelSelection,
+): Promise<RcaModelSelection | { error: string }> {
+  const rcaModel = selection.rcaModel?.trim() || null;
+  const rcaProvider = selection.rcaProvider?.trim() || null;
+  const rcaSource = selection.rcaSource?.trim() || null;
+
+  if (!rcaModel && !rcaProvider && !rcaSource) {
+    return { rcaModel: null, rcaProvider: null, rcaSource: null };
+  }
+
+  if (!rcaModel || !rcaProvider || !rcaSource) {
+    return { error: "RCA model, provider, and source must be provided together" };
+  }
+
+  if (rcaSource === ModelSource.SYSTEM) {
+    const normalizedProvider = rcaProvider.toLowerCase();
+    const systemProvider = SYSTEM_MODELS.find(
+      (candidate) =>
+        candidate.provider.toLowerCase() === normalizedProvider ||
+        candidate.piAIProvider.toLowerCase() === normalizedProvider,
+    );
+
+    if (!systemProvider || !process.env[systemProvider.envVar]) {
+      return { error: "Selected system provider is not available for this workspace" };
+    }
+
+    if (!systemProvider.models.some((candidate) => candidate.id === rcaModel)) {
+      return { error: "Selected system model is not available for this workspace" };
+    }
+
+    return {
+      rcaModel,
+      rcaProvider: systemProvider.provider,
+      rcaSource: ModelSource.SYSTEM,
+    };
+  }
+
+  if (rcaSource !== ModelSource.BYOK) {
+    return { error: "RCA model source must be system or byok" };
+  }
+
+  const byokProvider = await prisma.modelProvider.findFirst({
+    where: { workspaceId, provider: rcaProvider, enabled: true },
+    select: { provider: true, adapter: true, customModels: true },
+  });
+
+  if (!byokProvider) {
+    return { error: "Selected BYOK provider is not available for this workspace" };
+  }
+
+  const configuredModels = byokProvider.customModels.map((id) => id.trim()).filter(Boolean);
+  if (!configuredModels.includes(rcaModel)) {
+    return { error: "Selected BYOK model is not configured for this provider" };
+  }
+
+  if (!isSupportedByokModel(byokProvider.adapter, rcaModel)) {
+    return { error: "Selected BYOK model is not supported by Traceroot" };
+  }
+
+  return {
+    rcaModel,
+    rcaProvider: byokProvider.provider,
+    rcaSource: ModelSource.BYOK,
+  };
+}
 
 // GET /api/workspaces/[workspaceId]/projects/[projectId] - Get project details
 export async function GET(request: NextRequest, { params }: RouteParams) {
@@ -134,14 +222,23 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
   }
 
+  const nextRcaSelection = await validateRcaModelSelection(workspaceId, {
+    rcaModel: rca_model !== undefined ? rca_model : existingProject.rcaModel,
+    rcaProvider: rca_provider !== undefined ? rca_provider : existingProject.rcaProvider,
+    rcaSource: rca_source !== undefined ? rca_source : existingProject.rcaSource,
+  });
+  if ("error" in nextRcaSelection) {
+    return errorResponse(nextRcaSelection.error, 400);
+  }
+
   const project = await prisma.project.update({
     where: { id: projectId },
     data: {
       ...(name !== undefined && { name }),
       ...(trace_ttl_days !== undefined && { traceTtlDays: trace_ttl_days }),
-      ...(rca_model !== undefined && { rcaModel: rca_model }),
-      ...(rca_provider !== undefined && { rcaProvider: rca_provider }),
-      ...(rca_source !== undefined && { rcaSource: rca_source }),
+      ...(rca_model !== undefined && { rcaModel: nextRcaSelection.rcaModel }),
+      ...(rca_provider !== undefined && { rcaProvider: nextRcaSelection.rcaProvider }),
+      ...(rca_source !== undefined && { rcaSource: nextRcaSelection.rcaSource }),
       ...((alert_emails !== undefined || alert_window !== undefined) && {
         alertConfig: {
           upsert: {

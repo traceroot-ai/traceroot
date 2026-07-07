@@ -7,7 +7,10 @@ Detectors evaluate your traces and surface problems the moment they happen. This
 
 ## Prerequisites
 
-You need a project with at least one incoming trace. See [Tracing](/tracing/get-started) if you don't have that yet.
+You need:
+
+- A project with at least one incoming trace. See [Tracing](/tracing/get-started) if you don't have that yet.
+- At least one supported detector model available to the project. TraceRoot Cloud provides system models automatically; self-hosted deployments need an admin to configure a supported system model environment variable such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, or a workspace owner can add a supported BYOK provider in **Settings → Model Providers**.
 
 ## Create a detector
 
@@ -16,7 +19,9 @@ Open your project in [TraceRoot Cloud](https://app.traceroot.ai), select **Detec
 
 ### Pick a starting point
 
-The create sheet offers a handful of templates covering common failure modes — things like tool errors, hallucinations, logic mistakes, incomplete tasks, and safety issues — plus a blank slate if none of them fit. Pick whichever maps to a problem you've seen in production. The template fills in a prompt you can edit; save, and the detector starts running on the next incoming trace.
+The create sheet offers a handful of templates covering common failure modes — things like tool errors, hallucinations, logic mistakes, incomplete tasks, and safety issues — plus a blank slate if none of them fit. Pick whichever maps to a problem you've seen in production. The template fills in a prompt you can edit.
+
+The detector model picker only shows models that are actually available for the project. If the model catalog is still loading, unavailable, empty, or configured with only unsupported BYOK models, TraceRoot blocks creation and shows setup guidance instead of saving a detector that cannot run. Once a supported model is selected, save and the detector starts running on the next incoming trace.
 
 ### Choose whether to run root cause analysis
 
@@ -30,7 +35,7 @@ The pipeline that runs on every trace:
 
 1. **Ingest.** A trace lands in the project.
 2. **Match.** TraceRoot decides which detectors apply (default: all enabled detectors in the project).
-3. **Evaluate.** The LLM-as-a-judge (Claude Haiku by default) reads the trace and returns `identified` plus a short summary.
+3. **Evaluate.** The selected detector model reads the trace and returns `identified` plus a short summary.
 4. **Diagnose.** When `identified` is true, the trace becomes a **finding** and — provided at least one detector that fired on the trace has **Run root cause analysis on findings** enabled — the TraceRoot AI agent investigates: it downloads the trace, reads your production source code at the failure point, checks recent commits and PRs touching that file, and produces a root cause analysis.
 5. **Alert.** The combined finding plus RCA is sent to your configured channels (email, Slack).
 

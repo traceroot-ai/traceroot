@@ -1,7 +1,13 @@
 import { complete, getEnvApiKey } from "@earendil-works/pi-ai/compat";
+import {
+  DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+  DETECTOR_SYSTEM_DEFAULT_MODEL_IDS,
+  ADAPTER_MODELS,
+  SYSTEM_MODELS,
+  type LLMAdapter,
+} from "@traceroot/core";
 import type { Message, ToolCall, ProviderStreamOptions } from "@earendil-works/pi-ai";
 import {
-  findByokKeyForPiProvider,
   fetchProviderConfig,
   resolvePiModel,
   type ProviderModelConfig,
@@ -47,8 +53,6 @@ const MAX_ATTEMPTS = 2;
  * about traces being truncated. For now, rely on this hard cap.
  */
 const SAFETY_TRUNCATE_CHARS = 150_000;
-/** Default screening model for system source — cheap-and-fast, not the agent default. */
-const SYSTEM_DEFAULT_MODEL = "claude-haiku-4-5";
 /** Fallback per-attempt timeout when DETECTOR_EVAL_TIMEOUT_MS is unset or invalid. */
 export const DEFAULT_DETECTOR_EVAL_TIMEOUT_MS = 60_000;
 /** Node's setTimeout max delay; larger values clamp to 1ms (an instant abort). */
@@ -105,24 +109,64 @@ function errorResult(
   };
 }
 
+function resolveDetectorSystemDefaultModelId(): string {
+  for (const modelId of DETECTOR_SYSTEM_DEFAULT_MODEL_IDS) {
+    const provider = SYSTEM_MODELS.find((candidate) =>
+      candidate.models.some((model) => model.id === modelId),
+    );
+    if (provider && getEnvApiKey(provider.piAIProvider)) return modelId;
+  }
+
+  return DETECTOR_SYSTEM_DEFAULT_MODEL_ID;
+}
+
+function findSystemProviderForDetectorTuple(
+  modelId: string | null | undefined,
+  provider: string | null | undefined,
+) {
+  const trimmedModel = modelId?.trim();
+  const normalizedProvider = provider?.trim().toLowerCase();
+  if (!trimmedModel || !normalizedProvider) return null;
+
+  return (
+    SYSTEM_MODELS.find(
+      (candidate) =>
+        (candidate.provider.toLowerCase() === normalizedProvider ||
+          candidate.piAIProvider.toLowerCase() === normalizedProvider) &&
+        candidate.models.some((model) => model.id === trimmedModel),
+    ) ?? null
+  );
+}
+
+function byokProviderSupportsDetectorModel(
+  providerConfig: ProviderModelConfig,
+  modelId: string,
+): boolean {
+  const configuredModels = providerConfig.customModels?.map((id) => id.trim()).filter(Boolean);
+  if (configuredModels && !configuredModels.includes(modelId)) return false;
+
+  const catalog = ADAPTER_MODELS[providerConfig.adapter as LLMAdapter];
+  return !catalog || catalog.some((candidate) => candidate.id === modelId);
+}
+
 /**
  * Resolve the API key for a detector eval call.
  *   1. BYOK source → the explicit row's decrypted key (in `providerConfig`)
- *   2. System source → env var (pi-ai owns the provider→env-var mapping)
- *   3. System source fallback → any enabled BYOK row in the workspace whose
- *      adapter maps to the same pi-ai provider (matches agent behavior)
+ *   2. System source → env var only (never silently switch to workspace BYOK)
  */
-async function resolveDetectorApiKey(
-  workspaceId: string,
+function resolveDetectorApiKey(
   providerConfig: ProviderModelConfig | null,
   piProvider: string,
-): Promise<string | null> {
+  source: "system" | "byok",
+): string | null {
   if (providerConfig) return providerConfig.key;
 
   const envKey = getEnvApiKey(piProvider);
   if (envKey) return envKey;
 
-  return findByokKeyForPiProvider(workspaceId, piProvider);
+  if (source === "system") return null;
+
+  return null;
 }
 
 /**
@@ -138,12 +182,17 @@ export async function runDetectionForTrace(params: {
 }): Promise<EvalResult> {
   const { traceId, spansJsonl, detector, workspaceId } = params;
   const source = detector.detectionSource ?? null;
+  let runtimeSource: "system" | "byok" = source === "byok" ? "byok" : "system";
 
   // 1. BYOK config
   let providerConfig: ProviderModelConfig | null = null;
   if (source === "byok") {
     if (!detector.detectionProvider) {
       return errorResult("BYOK detector has no detectionProvider", source);
+    }
+    const storedModel = detector.detectionModel?.trim();
+    if (!storedModel) {
+      return errorResult("BYOK detector has no detectionModel", source);
     }
     providerConfig = await fetchProviderConfig(workspaceId, detector.detectionProvider);
     if (!providerConfig) {
@@ -152,17 +201,63 @@ export async function runDetectionForTrace(params: {
         source,
       );
     }
+    if (!byokProviderSupportsDetectorModel(providerConfig, storedModel)) {
+      return errorResult(
+        `BYOK model "${storedModel}" is not configured or supported for provider "${detector.detectionProvider}"`,
+        source,
+      );
+    }
+  } else if (source === null) {
+    const storedModel = detector.detectionModel?.trim();
+    const storedProvider = detector.detectionProvider?.trim();
+    const legacySystemProvider = findSystemProviderForDetectorTuple(storedModel, storedProvider);
+
+    if (legacySystemProvider && storedModel && storedProvider) {
+      const exactProviderConfig = await fetchProviderConfig(workspaceId, storedProvider);
+      if (
+        exactProviderConfig &&
+        byokProviderSupportsDetectorModel(exactProviderConfig, storedModel)
+      ) {
+        return errorResult(
+          `Legacy detector model selection for provider "${storedProvider}" is ambiguous; re-select the detector model before evaluation`,
+          null,
+        );
+      }
+      runtimeSource = "system";
+    } else if (storedModel && storedProvider) {
+      providerConfig = await fetchProviderConfig(workspaceId, storedProvider);
+      if (!providerConfig) {
+        return errorResult(
+          `BYOK provider "${storedProvider}" not found or disabled in workspace settings`,
+          "byok",
+        );
+      }
+      if (!byokProviderSupportsDetectorModel(providerConfig, storedModel)) {
+        return errorResult(
+          `BYOK model "${storedModel}" is not configured or supported for provider "${storedProvider}"`,
+          "byok",
+        );
+      }
+      runtimeSource = "byok";
+    }
   }
 
-  // 2. Resolve model
+  // 2. Resolve model. Legacy detectors may have neither source nor model; keep
+  // those on the detector-specific cheap system default instead of the generic
+  // catalog-first default while resolving source attribution. Source-null
+  // legacy rows ignore stale provider-only values because there is no trusted
+  // source/provider tuple to resolve.
+  const shouldUseDetectorDefault =
+    !detector.detectionModel && (source === "system" || source === null);
   const modelId =
-    detector.detectionModel ?? (source === "system" ? SYSTEM_DEFAULT_MODEL : undefined);
+    detector.detectionModel ??
+    (shouldUseDetectorDefault ? resolveDetectorSystemDefaultModelId() : undefined);
   const model = resolvePiModel(modelId, providerConfig);
 
-  // 3. Resolve API key (BYOK row → env var → workspace BYOK scan)
-  const apiKey = await resolveDetectorApiKey(workspaceId, providerConfig, model.provider);
+  // 3. Resolve API key (BYOK row → its exact key; system → env var only).
+  const apiKey = resolveDetectorApiKey(providerConfig, model.provider, runtimeSource);
   if (!apiKey) {
-    return errorResult(`No API key configured for provider "${model.provider}"`, source);
+    return errorResult(`No API key configured for provider "${model.provider}"`, runtimeSource);
   }
 
   // 4. Build prompt + tool
@@ -245,7 +340,7 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
           inferenceCost,
           inferenceInputTokens,
           inferenceOutputTokens,
-          inferenceSource: source,
+          inferenceSource: runtimeSource,
           inferenceModel,
           inferenceProvider,
         };
@@ -291,7 +386,7 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
 
   return errorResult(
     lastError ?? "LLM did not call submit_result after retry",
-    source,
+    runtimeSource,
     inferenceCost,
     inferenceInputTokens,
     inferenceOutputTokens,

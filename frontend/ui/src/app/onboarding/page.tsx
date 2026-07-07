@@ -53,7 +53,11 @@ function OnboardingContent() {
   const { setHeaderContent } = useLayout();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [createdProject, setCreatedProject] = useState<{ id: string; name: string } | null>(null);
+  const [createdProject, setCreatedProject] = useState<{
+    id: string;
+    name: string;
+    workspaceId: string;
+  } | null>(null);
 
   // Set header content
   useEffect(() => {
@@ -121,7 +125,7 @@ function OnboardingContent() {
 
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
 
-      setCreatedProject({ id: project.id, name: project.name });
+      setCreatedProject({ id: project.id, name: project.name, workspaceId });
       setIsLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
@@ -175,6 +179,7 @@ function OnboardingContent() {
                 <AddDetectorsStep
                   projectId={createdProject.id}
                   projectName={createdProject.name}
+                  workspaceId={createdProject.workspaceId}
                   onDone={() => router.push(`/projects/${createdProject.id}/traces`)}
                 />
               </div>

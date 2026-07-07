@@ -32,6 +32,7 @@ export interface ProviderModelConfig {
   key: string;
   baseUrl: string | null;
   config: Record<string, unknown> | null;
+  customModels?: string[];
 }
 
 // Build system model lookup from SYSTEM_MODELS.
@@ -194,6 +195,7 @@ export async function fetchProviderConfig(
         enabled: true,
         baseUrl: true,
         config: true,
+        customModels: true,
       },
     });
 
@@ -204,6 +206,7 @@ export async function fetchProviderConfig(
         key,
         baseUrl: row.baseUrl,
         config: row.config as Record<string, unknown> | null,
+        ...(row.customModels ? { customModels: row.customModels } : {}),
       };
       configCache.set(cacheKey, {
         config: providerConfig,
@@ -226,7 +229,8 @@ export function invalidateProviderConfigCache(workspaceId: string, providerName:
 /**
  * Find any enabled BYOK key in the workspace whose adapter maps to `piProvider`.
  * First match wins (BYOK rows are workspace-unique by `provider` label, but may
- * share an adapter — order is determined by Prisma's default sort).
+ * share an adapter — use the same stable createTime/id order as /llm-models
+ * and detector create defaulting).
  *
  * Returns null if no row matches, the row has no encrypted key, or the DB read fails.
  */
@@ -238,6 +242,7 @@ export async function findByokKeyForPiProvider(
     const rows = await prisma.modelProvider.findMany({
       where: { workspaceId, enabled: true },
       select: { provider: true, adapter: true },
+      orderBy: [{ createTime: "asc" }, { id: "asc" }],
     });
     for (const row of rows) {
       if (ADAPTER_TO_PI_AI[row.adapter] === piProvider) {

@@ -75,6 +75,26 @@ describe("buildDetectorPatch", () => {
     expect(patch).toEqual({});
   });
 
+  it("sends source with backfilled model fields for legacy detectors without a stored source", () => {
+    const loaded = {
+      ...baseForm,
+      detectionModel: "",
+      detectionProvider: "",
+      detectionSource: "system" as const,
+    };
+    const patch = buildDetectorPatch(loaded, {
+      ...loaded,
+      detectionModel: "model-a",
+      detectionProvider: "provider-a",
+      detectionSource: "system",
+    });
+    expect(patch).toEqual({
+      detectionModel: "model-a",
+      detectionProvider: "provider-a",
+      detectionSource: "system",
+    });
+  });
+
   it("includes a changed detection model, provider, and source", () => {
     const patch = buildDetectorPatch(baseForm, {
       ...baseForm,
@@ -86,6 +106,18 @@ describe("buildDetectorPatch", () => {
       detectionModel: "model-b",
       detectionProvider: "provider-b",
       detectionSource: "byok",
+    });
+  });
+
+  it("sends the complete model tuple when only the model changes", () => {
+    const patch = buildDetectorPatch(baseForm, {
+      ...baseForm,
+      detectionModel: "model-b",
+    });
+    expect(patch).toEqual({
+      detectionModel: "model-b",
+      detectionProvider: "provider-a",
+      detectionSource: "system",
     });
   });
 

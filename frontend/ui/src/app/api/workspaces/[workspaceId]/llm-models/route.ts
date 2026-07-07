@@ -31,6 +31,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       provider: true,
       customModels: true,
     },
+    orderBy: [{ createTime: "asc" }, { id: "asc" }],
   });
 
   const byokProviders = dbProviders.map((p) => ({

@@ -26,4 +26,25 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("observations table");
     expect(prompt).toContain("GENERATION|SPAN|EVENT");
   });
+
+  it("escapes trace and session IDs before embedding them", () => {
+    const prompt = getSystemPrompt({
+      projectId: "proj-123",
+      traceId: 'trace-1"\n- injected',
+      traceSessionId: 'session-1"\n- injected',
+    });
+    expect(prompt).toContain('Currently viewing Trace ID: "trace-1\\"\\n- injected"');
+    expect(prompt).toContain('Currently viewing Session ID: "session-1\\"\\n- injected"');
+    expect(prompt).not.toContain('Trace ID: trace-1"\n- injected');
+    expect(prompt).not.toContain('Session ID: session-1"\n- injected');
+  });
+
+  it("caps opaque context IDs before embedding them", () => {
+    const prompt = getSystemPrompt({
+      projectId: "proj-123",
+      traceId: "t".repeat(600),
+    });
+    expect(prompt).toContain(`Currently viewing Trace ID: "${"t".repeat(512)}"`);
+    expect(prompt).not.toContain("t".repeat(513));
+  });
 });

@@ -1,13 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_IDS } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ModelSelector,
   type ModelSelection,
 } from "@/features/ai-assistant/components/model-selector";
+import { flattenAvailableModels } from "@/features/ai-assistant/lib/resolve-model";
 import {
   DEFAULT_DETECTOR_SAMPLE_RATE,
   DETECTOR_TEMPLATES,
@@ -21,6 +25,7 @@ import { AgentModelLink } from "@/features/detectors/components/agent-model-link
 import { RcaToggle } from "@/features/detectors/components/rca-toggle";
 import { useProject } from "@/features/projects/hooks";
 import { ProjectBreadcrumb } from "@/features/projects/components";
+import { getAvailableLLMModels } from "@/lib/api";
 
 export default function NewDetectorPage() {
   const params = useParams();
@@ -50,6 +55,42 @@ export default function NewDetectorPage() {
     adapter: "",
   });
   const [enableRca, setEnableRca] = useState(true);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const workspaceId = project?.workspace_id;
+  const {
+    data: availableModels,
+    isLoading: isModelsLoading,
+    isError: isModelsError,
+  } = useQuery({
+    queryKey: ["llm-models", workspaceId],
+    queryFn: () => getAvailableLLMModels(workspaceId!),
+    enabled: !!workspaceId,
+  });
+  const detectorModelOptions = flattenAvailableModels(availableModels, { includeFallback: false });
+  const selectableDetectorModels = detectorModelOptions.filter((m) => m.supported !== false);
+  const hasReturnedDetectorModels = detectorModelOptions.length > 0;
+  const hasUnsupportedOnlyDetectorModels =
+    !!availableModels && hasReturnedDetectorModels && selectableDetectorModels.length === 0;
+  const hasLoadedEmptyDetectorModels = !!availableModels && !hasReturnedDetectorModels;
+  const selectedModelIsAvailable = selectableDetectorModels.some(
+    (m) =>
+      m.id === modelSelection.model &&
+      m.provider === modelSelection.provider &&
+      m.source === modelSelection.source,
+  );
+  const hasSelectedModel = Boolean(
+    modelSelection.model && modelSelection.provider && selectedModelIsAvailable,
+  );
+
+  const modelProviderSettingsLink = (label = "Configure BYOK providers") =>
+    workspaceId ? (
+      <Link
+        href={`/workspaces/${workspaceId}/settings/model-providers`}
+        className="font-medium text-foreground underline underline-offset-2"
+      >
+        {label}
+      </Link>
+    ) : null;
 
   const handleTemplateChange = (templateId: string) => {
     const template = DETECTOR_TEMPLATES.find((t) => t.id === templateId);
@@ -63,6 +104,9 @@ export default function NewDetectorPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!hasSelectedModel) return;
+    setSubmitError(null);
+
     const template = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate)!;
     const input: CreateDetectorInput = {
       ...buildTemplateDetectorInput(template),
@@ -76,8 +120,12 @@ export default function NewDetectorPage() {
       detectionProvider: modelSelection.provider || undefined,
       detectionSource: modelSelection.source === "byok" ? "byok" : "system",
     };
-    await createMutation.mutateAsync(input);
-    router.push(`/projects/${projectId}/detectors`);
+    try {
+      await createMutation.mutateAsync(input);
+      router.push(`/projects/${projectId}/detectors`);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Failed to create detector");
+    }
   };
 
   const selectedTemplateDef = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate);
@@ -154,11 +202,46 @@ export default function NewDetectorPage() {
                   <ModelSelector
                     value={modelSelection}
                     onChange={setModelSelection}
-                    workspaceId={project?.workspace_id}
+                    workspaceId={workspaceId}
+                    includeFallbackModels={false}
+                    hideUnsupportedModels
+                    preferredDefaultModelIds={DETECTOR_SYSTEM_DEFAULT_MODEL_IDS}
+                    preferredDefaultModelSource="system"
                   />
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     Used to evaluate each trace for this detector.
                   </p>
+                  {!hasSelectedModel && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {!workspaceId ? (
+                        "Loading the project workspace before detector model selection can continue."
+                      ) : isModelsLoading ? (
+                        "Loading workspace models before detector creation can continue."
+                      ) : isModelsError ? (
+                        "Unable to load workspace models. Refresh the page before creating a detector."
+                      ) : hasUnsupportedOnlyDetectorModels ? (
+                        <>
+                          This workspace has model providers configured, but none expose
+                          Traceroot-supported models. Update Model Providers settings, then return
+                          here to select one. {modelProviderSettingsLink("Open Model Providers")}
+                        </>
+                      ) : hasLoadedEmptyDetectorModels ? (
+                        <>
+                          No supported model is configured. Self-hosted deployments need an admin to
+                          set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in the server environment. To
+                          use a workspace-scoped key instead, add a BYOK provider.{" "}
+                          {modelProviderSettingsLink()}
+                        </>
+                      ) : (
+                        "Select an available model before creating a detector."
+                      )}
+                    </p>
+                  )}
+                  {submitError && (
+                    <p className="mt-2 text-[11px] text-destructive" role="alert">
+                      {submitError}
+                    </p>
+                  )}
                 </div>
                 {/* Agent Model — project-scoped, click to configure in settings */}
                 <div className="p-3">
@@ -168,7 +251,7 @@ export default function NewDetectorPage() {
                   <AgentModelLink
                     projectId={projectId}
                     rcaModel={project?.rca_model}
-                    workspaceId={project?.workspace_id}
+                    workspaceId={workspaceId}
                   />
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     Used for deep analysis when findings are triggered. Shared across all detectors.
@@ -239,7 +322,9 @@ export default function NewDetectorPage() {
                 type="submit"
                 size="sm"
                 className="h-7 text-[12px]"
-                disabled={createMutation.isPending || !name.trim() || !prompt.trim()}
+                disabled={
+                  createMutation.isPending || !name.trim() || !prompt.trim() || !hasSelectedModel
+                }
               >
                 {createMutation.isPending ? "Creating..." : "Create Detector"}
               </Button>

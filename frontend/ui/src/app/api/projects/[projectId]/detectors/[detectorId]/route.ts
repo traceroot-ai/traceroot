@@ -6,6 +6,12 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import {
+  DETECTOR_MODEL_SELECTION_REQUIRED_ERROR,
+  type ResolvedDetectorModelSelection,
+  resolveLegacyDetectorModelSelection,
+  validateDetectorModelSelection,
+} from "../model-selection";
 
 type RouteParams = { params: Promise<{ projectId: string; detectorId: string }> };
 
@@ -56,6 +62,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     return errorResponse("Invalid JSON", 400);
   }
 
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return errorResponse("Body must be a JSON object", 400);
+  }
+
   const {
     name,
     template: _template,
@@ -97,8 +107,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   }
 
   // String field type checks — reject invalid types up front instead of
-  // letting Prisma throw on the update. Detection fields accept "" / null
-  // as "unset"; required fields (name, prompt) must be non-empty strings.
+  // letting Prisma throw on the update. Required fields (name, prompt) must be
+  // non-empty strings. Model-selection fields are merged with existing values
+  // below and, when touched, must resolve to a complete valid tuple; explicit
+  // "" / null clears therefore fail with the model-selection validation error.
   for (const [key, val] of [
     ["name", name],
     ["prompt", prompt],
@@ -117,6 +129,22 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     return errorResponse("prompt must be a non-empty string", 400);
   }
 
+  let sourceStr: "system" | "byok" | null | undefined;
+  if (detectionSource !== undefined) {
+    if (detectionSource === null || detectionSource === "") {
+      sourceStr = null;
+    } else if (detectionSource === "system" || detectionSource === "byok") {
+      sourceStr = detectionSource;
+    } else {
+      return errorResponse(`detectionSource must be "system" or "byok"`, 400);
+    }
+  }
+
+  const touchesModelSelection =
+    detectionModel !== undefined ||
+    detectionProvider !== undefined ||
+    detectionSource !== undefined;
+
   // Build detector update data (only include defined fields)
   // Note: template is not updatable - it's set at creation time and cannot be changed
   const detectorData: Record<string, unknown> = {};
@@ -126,16 +154,65 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (sampleRate !== undefined) detectorData.sampleRate = sampleRate;
   if (enabled !== undefined) detectorData.enabled = enabled;
   if (enableRca !== undefined) detectorData.enableRca = enableRca;
-  if (detectionModel !== undefined) detectorData.detectionModel = detectionModel || null;
-  if (detectionProvider !== undefined) detectorData.detectionProvider = detectionProvider || null;
-  if (detectionSource !== undefined) {
-    // null/empty-string clear the field; otherwise must be a valid enum value.
-    if (detectionSource === null || detectionSource === "") {
-      detectorData.detectionSource = null;
-    } else if (detectionSource === "system" || detectionSource === "byok") {
-      detectorData.detectionSource = detectionSource;
+
+  const shouldValidateModelSelection =
+    touchesModelSelection ||
+    Object.keys(detectorData).length > 0 ||
+    triggerConditions !== undefined;
+
+  if (shouldValidateModelSelection) {
+    let modelSelection: ResolvedDetectorModelSelection | { error: string };
+
+    if (touchesModelSelection) {
+      const requestModel = typeof detectionModel === "string" ? detectionModel.trim() : "";
+      const requestProvider = typeof detectionProvider === "string" ? detectionProvider.trim() : "";
+
+      if (!requestModel || !requestProvider || sourceStr === undefined || sourceStr === null) {
+        return errorResponse(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR, 400);
+      }
+
+      modelSelection = await validateDetectorModelSelection(accessResult.project.workspaceId, {
+        model: requestModel,
+        provider: requestProvider,
+        source: sourceStr,
+      });
     } else {
-      return errorResponse(`detectionSource must be "system" or "byok"`, 400);
+      const nextModel = existing.detectionModel?.trim() || "";
+      const nextProvider = existing.detectionProvider?.trim() || "";
+      const nextSource: "system" | "byok" | null =
+        existing.detectionSource === "system" || existing.detectionSource === "byok"
+          ? existing.detectionSource
+          : null;
+
+      if (!nextModel || !nextProvider) {
+        return errorResponse(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR, 400);
+      }
+
+      modelSelection =
+        nextSource === null
+          ? await resolveLegacyDetectorModelSelection(accessResult.project.workspaceId, {
+              model: nextModel,
+              provider: nextProvider,
+            })
+          : await validateDetectorModelSelection(accessResult.project.workspaceId, {
+              model: nextModel,
+              provider: nextProvider,
+              source: nextSource,
+            });
+    }
+    if ("error" in modelSelection) {
+      return errorResponse(modelSelection.error, 400);
+    }
+
+    if (
+      touchesModelSelection ||
+      modelSelection.model !== existing.detectionModel ||
+      modelSelection.provider !== existing.detectionProvider ||
+      modelSelection.source !== existing.detectionSource
+    ) {
+      detectorData.detectionModel = modelSelection.model;
+      detectorData.detectionProvider = modelSelection.provider;
+      detectorData.detectionSource = modelSelection.source;
     }
   }
 

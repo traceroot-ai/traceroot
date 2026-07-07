@@ -44,7 +44,6 @@ describe("buildTemplateDetectorInput", () => {
       triggerConditions: failure.defaultConditions,
       sampleRate: 25,
       enableRca: true,
-      detectionSource: "system",
     });
   });
 

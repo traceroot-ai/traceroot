@@ -7,6 +7,13 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import {
+  DETECTOR_MODEL_SELECTION_REQUIRED_ERROR,
+  resolveDefaultDetectorModelSelection,
+  resolveDefaultSystemDetectorModelSelection,
+  validateDetectorModelSelection,
+  type ResolvedDetectorModelSelection,
+} from "./model-selection";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
@@ -130,16 +137,49 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   // else with 400 so a typo (e.g. "syetm") doesn't silently store null and
   // produce a misconfigured detector.
   let sourceStr: "system" | "byok" | null = null;
-  if (detectionSource !== undefined && detectionSource !== null) {
-    if (detectionSource !== "system" && detectionSource !== "byok") {
+  if (detectionSource !== undefined) {
+    if (detectionSource === null || detectionSource === "") {
+      sourceStr = null;
+    } else if (detectionSource === "system" || detectionSource === "byok") {
+      sourceStr = detectionSource;
+    } else {
       return errorResponse(`detectionSource must be "system" or "byok"`, 400);
     }
-    sourceStr = detectionSource;
   }
-  const resolvedModel =
-    typeof detectionModel === "string" && detectionModel ? detectionModel : null;
-  const resolvedProvider =
-    typeof detectionProvider === "string" && detectionProvider ? detectionProvider : null;
+  const resolvedDetectionModel = typeof detectionModel === "string" ? detectionModel.trim() : "";
+  const resolvedDetectionProvider =
+    typeof detectionProvider === "string" ? detectionProvider.trim() : "";
+  const hasAnyModelSelectionField =
+    detectionModel !== undefined ||
+    detectionProvider !== undefined ||
+    detectionSource !== undefined;
+
+  const hasOnlySystemSource =
+    sourceStr === "system" && detectionModel === undefined && detectionProvider === undefined;
+
+  let modelSelection: ResolvedDetectorModelSelection | { error: string };
+  if (!hasAnyModelSelectionField) {
+    modelSelection = await resolveDefaultDetectorModelSelection(accessResult.project.workspaceId);
+  } else if (hasOnlySystemSource) {
+    modelSelection = resolveDefaultSystemDetectorModelSelection();
+  } else if (
+    typeof detectionModel !== "string" ||
+    typeof detectionProvider !== "string" ||
+    !resolvedDetectionModel ||
+    !resolvedDetectionProvider ||
+    sourceStr === null
+  ) {
+    return errorResponse(DETECTOR_MODEL_SELECTION_REQUIRED_ERROR, 400);
+  } else {
+    modelSelection = await validateDetectorModelSelection(accessResult.project.workspaceId, {
+      model: resolvedDetectionModel,
+      provider: resolvedDetectionProvider,
+      source: sourceStr,
+    });
+  }
+  if ("error" in modelSelection) {
+    return errorResponse(modelSelection.error, 400);
+  }
 
   // enableRca: optional boolean, defaults true (RCA on). Reject non-booleans
   // so "false"/0 can't silently coerce.
@@ -166,9 +206,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       sampleRate: resolvedSampleRate,
       enabled: resolvedEnabled,
       enableRca: resolvedEnableRca,
-      detectionModel: resolvedModel,
-      detectionProvider: resolvedProvider,
-      detectionSource: sourceStr,
+      detectionModel: modelSelection.model,
+      detectionProvider: modelSelection.provider,
+      detectionSource: modelSelection.source,
       trigger: {
         create: {
           conditions: (triggerConditions as object) ?? [],

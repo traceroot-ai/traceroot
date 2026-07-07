@@ -19,6 +19,7 @@ import {
   ModelSelector,
   type ModelSelection,
 } from "@/features/ai-assistant/components/model-selector";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_IDS } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -55,6 +56,7 @@ export function DetectorPanel({
   });
   const [editConditions, setEditConditions] = useState<TriggerCondition[]>([]);
   const [editEnableRca, setEditEnableRca] = useState(true);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const emptyForm: DetectorFormValues = {
     name: "",
@@ -149,12 +151,17 @@ export function DetectorPanel({
     if (!detector || detector.id !== detectorId) return;
     const loaded = loadedRef.current;
     if (!loaded || loaded.id !== detectorId) return;
+    setSaveError(null);
     const patch = buildDetectorPatch(loaded.values, readForm());
     if (Object.keys(patch).length === 0) {
       onClose();
       return;
     }
-    updateMutation.mutate(patch, { onSuccess: () => onClose() });
+    updateMutation.mutate(patch, {
+      onSuccess: () => onClose(),
+      onError: (error) =>
+        setSaveError(error instanceof Error ? error.message : "Failed to update detector"),
+    });
   };
 
   return (
@@ -237,6 +244,10 @@ export function DetectorPanel({
                 value={editModelSelection}
                 onChange={setEditModelSelection}
                 workspaceId={workspaceId}
+                includeFallbackModels={false}
+                hideUnsupportedModels
+                preferredDefaultModelIds={DETECTOR_SYSTEM_DEFAULT_MODEL_IDS}
+                preferredDefaultModelSource="system"
               />
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Used to evaluate each trace for this detector.
@@ -303,6 +314,11 @@ export function DetectorPanel({
         </div>
 
         {/* Save / Cancel */}
+        {saveError && (
+          <p className="text-right text-[11px] text-destructive" role="alert">
+            {saveError}
+          </p>
+        )}
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="outline" size="sm" onClick={onClose} className="h-7 text-[12px]">
             Cancel

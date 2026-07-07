@@ -1,13 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockComplete, mockResolvePiModel, mockFetchProviderConfig, mockFindByokKey } = vi.hoisted(
-  () => ({
-    mockComplete: vi.fn(),
-    mockResolvePiModel: vi.fn(),
-    mockFetchProviderConfig: vi.fn(),
-    mockFindByokKey: vi.fn().mockResolvedValue(null),
-  }),
-);
+const {
+  mockComplete,
+  mockGetEnvApiKey,
+  mockResolvePiModel,
+  mockFetchProviderConfig,
+  mockFindByokKey,
+} = vi.hoisted(() => ({
+  mockComplete: vi.fn(),
+  mockGetEnvApiKey: vi.fn(),
+  mockResolvePiModel: vi.fn(),
+  mockFetchProviderConfig: vi.fn(),
+  mockFindByokKey: vi.fn().mockResolvedValue(null),
+}));
 
 // Forward unmocked exports (Type, getModel, etc.) so submit-result-tool.ts's
 // TypeBox imports still work; only `complete` is replaced with the mock.
@@ -16,6 +21,7 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   return {
     ...actual,
     complete: mockComplete,
+    getEnvApiKey: mockGetEnvApiKey,
   };
 });
 
@@ -47,6 +53,14 @@ const ANTHROPIC_MODEL = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 };
 
+const OPENAI_MODEL = {
+  id: "gpt-5.4-mini",
+  api: "openai-completions",
+  provider: "openai",
+  baseUrl: "",
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+};
+
 const ZERO_USAGE = {
   input: 0,
   output: 0,
@@ -70,6 +84,7 @@ function usageWithCost(total: number) {
 describe("runDetectionForTrace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetEnvApiKey.mockReturnValue("test-api-key");
     mockResolvePiModel.mockReturnValue(ANTHROPIC_MODEL);
     // Default: workspace BYOK scan returns a key. Individual tests can override
     // by chaining mockResolvedValueOnce(null) before the call to simulate "no key".
@@ -148,12 +163,311 @@ describe("runDetectionForTrace", () => {
         ...DETECTOR,
         detectionSource: "byok",
         detectionProvider: "missing-provider",
+        detectionModel: "gpt-5.4-mini",
       },
       workspaceId: "ws-1",
     });
 
     expect(result.identified).toBe(false);
     expect(result.error).toMatch(/not found or disabled/i);
+    expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  it("returns error and does not call complete() when explicit BYOK model is not configured", async () => {
+    mockFetchProviderConfig.mockResolvedValueOnce({
+      adapter: "openai",
+      key: "exact-byok-key",
+      baseUrl: null,
+      config: null,
+      customModels: ["gpt-5.5"],
+    });
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: "byok",
+        detectionProvider: "workspace-openai",
+        detectionModel: "gpt-5.4-mini",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(false);
+    expect(result.error).toBe(
+      'BYOK model "gpt-5.4-mini" is not configured or supported for provider "workspace-openai"',
+    );
+    expect(result.inferenceSource).toBe("byok");
+    expect(mockResolvePiModel).not.toHaveBeenCalled();
+    expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  it("uses the detector system default for legacy null-source detectors without a stored model", async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: null, detectionModel: null },
+      workspaceId: "ws-1",
+    });
+
+    expect(mockResolvePiModel).toHaveBeenCalledWith("claude-haiku-4-5", null);
+  });
+
+  it("ignores stale provider-only fields when defaulting legacy null-source detectors", async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: null,
+        detectionModel: null,
+        detectionProvider: "stale-openai",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(mockResolvePiModel).toHaveBeenCalledWith("claude-haiku-4-5", null);
+  });
+
+  it("uses the OpenAI detector system default for stale provider-only legacy rows when Anthropic env is absent", async () => {
+    mockGetEnvApiKey.mockImplementation((provider: string) =>
+      provider === "openai" ? "openai-key" : null,
+    );
+    mockResolvePiModel.mockReturnValueOnce(OPENAI_MODEL);
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: null,
+        detectionModel: null,
+        detectionProvider: "stale-openai",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(mockResolvePiModel).toHaveBeenCalledWith("gpt-5.4-mini", null);
+  });
+
+  it("uses the OpenAI detector system default when Anthropic env is absent", async () => {
+    mockGetEnvApiKey.mockImplementation((provider: string) =>
+      provider === "openai" ? "openai-key" : null,
+    );
+    mockResolvePiModel.mockReturnValueOnce(OPENAI_MODEL);
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system", detectionModel: null },
+      workspaceId: "ws-1",
+    });
+
+    expect(mockResolvePiModel).toHaveBeenCalledWith("gpt-5.4-mini", null);
+  });
+
+  it("does not use workspace BYOK keys for explicit system-source detectors", async () => {
+    mockGetEnvApiKey.mockReturnValue(null);
+    mockFindByokKey.mockResolvedValueOnce("workspace-byok-key");
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system", detectionModel: null },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(false);
+    expect(result.error).toBe('No API key configured for provider "anthropic"');
+    expect(mockFindByokKey).not.toHaveBeenCalled();
+    expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  it("does not use workspace BYOK keys for explicit OpenAI system-source detectors", async () => {
+    mockGetEnvApiKey.mockReturnValue(null);
+    mockFindByokKey.mockResolvedValueOnce("workspace-openai-byok-key");
+    mockResolvePiModel.mockReturnValueOnce(OPENAI_MODEL);
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system", detectionModel: "gpt-5.4-mini" },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(false);
+    expect(result.error).toBe('No API key configured for provider "openai"');
+    expect(mockResolvePiModel).toHaveBeenCalledWith("gpt-5.4-mini", null);
+    expect(mockFindByokKey).not.toHaveBeenCalled();
+    expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  it("does not reinterpret legacy source-null system tuples as BYOK when the env key is missing", async () => {
+    mockGetEnvApiKey.mockReturnValue(null);
+    mockFindByokKey.mockResolvedValueOnce("workspace-anthropic-byok-key");
+    mockFetchProviderConfig.mockResolvedValueOnce(null);
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: null,
+        detectionModel: "claude-haiku-4-5",
+        detectionProvider: "Anthropic",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(false);
+    expect(result.error).toBe('No API key configured for provider "anthropic"');
+    expect(result.inferenceSource).toBe("system");
+    expect(mockFetchProviderConfig).toHaveBeenCalledWith("ws-1", "Anthropic");
+    expect(mockFindByokKey).not.toHaveBeenCalled();
+    expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a legacy source-null tuple also matches an exact BYOK provider", async () => {
+    mockFetchProviderConfig.mockResolvedValueOnce({
+      adapter: "anthropic",
+      key: "exact-byok-key",
+      baseUrl: null,
+      config: null,
+      customModels: ["claude-haiku-4-5"],
+    });
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: null,
+        detectionModel: "claude-haiku-4-5",
+        detectionProvider: "Anthropic",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(false);
+    expect(result.error).toBe(
+      'Legacy detector model selection for provider "Anthropic" is ambiguous; re-select the detector model before evaluation',
+    );
+    expect(result.inferenceSource).toBeNull();
+    expect(mockResolvePiModel).not.toHaveBeenCalled();
+    expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  it("uses the exact stored BYOK provider for legacy source-null tuples", async () => {
+    mockFetchProviderConfig.mockResolvedValueOnce({
+      adapter: "openai",
+      key: "exact-byok-key",
+      baseUrl: "https://api.openai.example/v1",
+      config: null,
+      customModels: ["gpt-5.4-mini"],
+    });
+    mockResolvePiModel.mockReturnValueOnce(OPENAI_MODEL);
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: null,
+        detectionModel: "gpt-5.4-mini",
+        detectionProvider: "workspace-openai",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.inferenceSource).toBe("byok");
+    expect(mockFetchProviderConfig).toHaveBeenCalledWith("ws-1", "workspace-openai");
+    expect(mockResolvePiModel).toHaveBeenCalledWith(
+      "gpt-5.4-mini",
+      expect.objectContaining({ key: "exact-byok-key", adapter: "openai" }),
+    );
+    expect(mockFindByokKey).not.toHaveBeenCalled();
+    expect((mockComplete.mock.calls[0][2] as { apiKey: string }).apiKey).toBe("exact-byok-key");
+  });
+
+  it("fails closed when a legacy source-null BYOK tuple no longer resolves exactly", async () => {
+    mockFetchProviderConfig.mockResolvedValueOnce(null);
+    mockFindByokKey.mockResolvedValueOnce("some-other-byok-key");
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: null,
+        detectionModel: "gpt-5.4-mini",
+        detectionProvider: "missing-openai",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.identified).toBe(false);
+    expect(result.error).toMatch(/not found or disabled/i);
+    expect(result.inferenceSource).toBe("byok");
+    expect(mockFindByokKey).not.toHaveBeenCalled();
     expect(mockComplete).not.toHaveBeenCalled();
   });
 
@@ -417,9 +731,11 @@ describe("runDetectionForTrace", () => {
 
     it("captures BYOK source attribution with positive cost", async () => {
       mockFetchProviderConfig.mockResolvedValueOnce({
+        adapter: "anthropic",
         key: "byok-key",
-        provider: "anthropic",
-        model: "claude-haiku-4-5",
+        baseUrl: null,
+        config: null,
+        customModels: ["claude-haiku-4-5"],
       });
       mockComplete.mockResolvedValueOnce({
         content: [
@@ -440,6 +756,7 @@ describe("runDetectionForTrace", () => {
           ...DETECTOR,
           detectionSource: "byok",
           detectionProvider: "byok-provider",
+          detectionModel: "claude-haiku-4-5",
         },
         workspaceId: "ws-1",
       });
@@ -458,6 +775,7 @@ describe("runDetectionForTrace", () => {
           ...DETECTOR,
           detectionSource: "byok",
           detectionProvider: "missing",
+          detectionModel: "claude-haiku-4-5",
         },
         workspaceId: "ws-1",
       });
@@ -483,7 +801,7 @@ describe("runDetectionForTrace", () => {
       expect(result.inferenceSource).toBe("system");
     });
 
-    it("treats null source as null on the EvalResult (processor normalizes)", async () => {
+    it("attributes source-null detectors without a stored tuple to the resolved system default", async () => {
       mockComplete.mockResolvedValueOnce({
         content: [
           {
@@ -504,7 +822,7 @@ describe("runDetectionForTrace", () => {
         workspaceId: "ws-1",
       });
 
-      expect(result.inferenceSource).toBeNull();
+      expect(result.inferenceSource).toBe("system");
       expect(result.inferenceCost).toBeCloseTo(0.002, 6);
     });
   });

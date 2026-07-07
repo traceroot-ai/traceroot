@@ -1,11 +1,43 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { getTemplate } from "@/features/detectors/templates";
+
+type MockAvailableModels = {
+  systemModels: Array<{
+    provider: string;
+    adapter: string;
+    source: "system";
+    models: Array<{ id: string; label: string; supported?: boolean }>;
+  }>;
+  byokProviders: Array<{
+    provider: string;
+    adapter: string;
+    source: "byok";
+    models: Array<{ id: string; label: string; supported?: boolean }>;
+  }>;
+};
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   mutateAsync: vi.fn().mockResolvedValue({ id: "det-1" }),
+  project: undefined as { workspace_id: string } | undefined,
+  availableModels: {
+    byokProviders: [],
+    systemModels: [
+      {
+        provider: "anthropic",
+        adapter: "anthropic",
+        source: "system",
+        models: [
+          { id: "claude-opus-4-8", label: "Claude Opus 4.8" },
+          { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+        ],
+      },
+    ],
+  } as MockAvailableModels,
+  getAvailableLLMModels: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -16,13 +48,13 @@ vi.mock("@/features/detectors/hooks/use-detectors", () => ({
   useCreateDetector: () => ({ mutateAsync: mocks.mutateAsync, isPending: false }),
 }));
 vi.mock("@/features/projects/hooks", () => ({
-  useProject: () => ({ data: undefined }),
+  useProject: () => ({ data: mocks.project }),
 }));
 vi.mock("@/features/projects/components", () => ({
   ProjectBreadcrumb: () => null,
 }));
-vi.mock("@/features/ai-assistant/components/model-selector", () => ({
-  ModelSelector: () => null,
+vi.mock("@/lib/api", () => ({
+  getAvailableLLMModels: mocks.getAvailableLLMModels,
 }));
 vi.mock("@/features/detectors/components/trigger-editor", () => ({
   TriggerEditor: () => null,
@@ -36,15 +68,56 @@ vi.mock("@/features/detectors/components/rca-toggle", () => ({
 
 import NewDetectorPage from "./page";
 
+function renderPage() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <NewDetectorPage />
+    </QueryClientProvider>,
+  );
+}
+
+beforeEach(() => {
+  mocks.project = { workspace_id: "workspace-1" };
+  mocks.availableModels = {
+    byokProviders: [],
+    systemModels: [
+      {
+        provider: "anthropic",
+        adapter: "anthropic",
+        source: "system",
+        models: [
+          { id: "claude-opus-4-8", label: "Claude Opus 4.8" },
+          { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+        ],
+      },
+    ],
+  };
+  mocks.getAvailableLLMModels.mockImplementation(async () => mocks.availableModels);
+});
+
 afterEach(() => {
   cleanup();
   mocks.mutateAsync.mockClear();
   mocks.push.mockClear();
+  mocks.getAvailableLLMModels.mockReset();
 });
 
 describe("NewDetectorPage", () => {
   it("submits the selected template's defaults", async () => {
-    render(<NewDetectorPage />);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Create Detector" })).not.toHaveProperty(
+        "disabled",
+        true,
+      ),
+    );
+
     fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
 
     await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
@@ -58,15 +131,48 @@ describe("NewDetectorPage", () => {
       sampleRate: 25,
       enabled: true,
       enableRca: true,
-      detectionModel: undefined,
-      detectionProvider: undefined,
+      detectionModel: "claude-haiku-4-5",
+      detectionProvider: "anthropic",
       detectionSource: "system",
     });
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors");
   });
 
+  it("submits a changed template's defaults when the name has not been edited", async () => {
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Create Detector" })).not.toHaveProperty(
+        "disabled",
+        true,
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Hallucination" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
+    const hallucination = getTemplate("hallucination")!;
+    expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({
+      name: "Hallucination Detector",
+      template: "hallucination",
+      prompt: hallucination.prompt,
+      outputSchema: hallucination.outputSchema,
+      triggerConditions: hallucination.defaultConditions,
+      detectionModel: "claude-haiku-4-5",
+      detectionProvider: "anthropic",
+      detectionSource: "system",
+    });
+  });
+
   it("submits user-edited name and prompt over the template defaults", async () => {
-    render(<NewDetectorPage />);
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Create Detector" })).not.toHaveProperty(
+        "disabled",
+        true,
+      ),
+    );
+
     fireEvent.change(screen.getByDisplayValue("Failure Detector"), {
       target: { value: "My detector" },
     });
@@ -81,5 +187,125 @@ describe("NewDetectorPage", () => {
       prompt: "my prompt",
       template: "failure",
     });
+  });
+
+  it("shows server model-validation errors inline without navigating", async () => {
+    mocks.mutateAsync.mockRejectedValueOnce(
+      new Error("Selected system provider is not available for this workspace"),
+    );
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Create Detector" })).not.toHaveProperty(
+        "disabled",
+        true,
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Selected system provider is not available for this workspace",
+    );
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it("keeps Create Detector disabled while workspace models are loading", async () => {
+    mocks.getAvailableLLMModels.mockImplementation(
+      () => new Promise<MockAvailableModels>(() => {}),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(mocks.getAvailableLLMModels).toHaveBeenCalledWith("workspace-1"));
+    expect(screen.getByText(/Loading workspace models before detector creation/)).toBeDefined();
+    expect(screen.getByRole("button", { name: "Create Detector" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+    fireEvent.submit(document.querySelector("form")!);
+
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("keeps Create Detector disabled when workspace models cannot be loaded", async () => {
+    mocks.getAvailableLLMModels.mockRejectedValue(new Error("model lookup failed"));
+
+    renderPage();
+
+    expect(await screen.findByText("Models unavailable")).toBeDefined();
+    expect(
+      screen.getByText(
+        "Unable to load workspace models. Refresh the page before creating a detector.",
+      ),
+    ).toBeDefined();
+    expect(screen.getByRole("button", { name: "Create Detector" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+    fireEvent.submit(document.querySelector("form")!);
+
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("does not default the detector model when the workspace has no available models", async () => {
+    mocks.availableModels = {
+      byokProviders: [],
+      systemModels: [],
+    };
+
+    renderPage();
+
+    expect(await screen.findByText("No model configured")).toBeDefined();
+    expect(mocks.getAvailableLLMModels).toHaveBeenCalledWith("workspace-1");
+    expect(screen.getByText(/No supported model is configured/)).toBeDefined();
+    expect(screen.getByText(/ANTHROPIC_API_KEY/)).toBeDefined();
+    expect(
+      screen.getByRole("link", { name: "Configure BYOK providers" }).getAttribute("href"),
+    ).toBe("/workspaces/workspace-1/settings/model-providers");
+    expect(screen.getByRole("button", { name: "Create Detector" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+    fireEvent.submit(document.querySelector("form")!);
+
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("does not allow detector creation when only unsupported BYOK models are configured", async () => {
+    mocks.availableModels = {
+      systemModels: [],
+      byokProviders: [
+        {
+          provider: "openai-compatible",
+          adapter: "openai",
+          source: "byok",
+          models: [{ id: "legacy-local", label: "Legacy Local", supported: false }],
+        },
+      ],
+    };
+
+    renderPage();
+
+    expect(await screen.findByText("No supported models")).toBeDefined();
+    expect(screen.getByText(/none expose Traceroot-supported models/)).toBeDefined();
+    expect(screen.getByRole("link", { name: "Open Model Providers" }).getAttribute("href")).toBe(
+      "/workspaces/workspace-1/settings/model-providers",
+    );
+    expect(screen.getByRole("button", { name: "Create Detector" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
+    fireEvent.submit(document.querySelector("form")!);
+
+    expect(mocks.mutateAsync).not.toHaveBeenCalled();
+    expect(screen.queryByText("Legacy Local")).toBeNull();
   });
 });
