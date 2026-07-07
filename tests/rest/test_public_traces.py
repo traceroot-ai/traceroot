@@ -8,9 +8,10 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
 
 from rest.main import app
-from rest.routers.public.traces import AuthResult, authenticate_api_key
+from rest.routers.public.traces import AuthResult, authenticate_api_key, decode_otlp_protobuf
 
 
 def make_auth_result(project_id: str = "test-project") -> AuthResult:
@@ -44,6 +45,11 @@ def client(monkeypatch):
 
 
 class TestIngestTraces:
+    def test_decode_otlp_protobuf_returns_otlp_json_dict(self):
+        payload = ExportTraceServiceRequest()
+        decoded = decode_otlp_protobuf(payload.SerializeToString())
+        assert decoded == {}
+
     def test_valid_protobuf(self, client):
         test_client, mock_s3, mock_task = client
         response = test_client.post(
@@ -120,16 +126,35 @@ class TestIngestTraces:
         )
         assert response.status_code == 500
 
-    def test_celery_failure_still_returns_200(self, client):
-        """Celery enqueue failure is logged but response is still 200 (S3 has the data)."""
-        test_client, _mock_s3, mock_task = client
+    def test_celery_failure_returns_503_so_client_retries(self, client):
+        """If processing cannot be queued, return non-2xx so OTLP clients retry."""
+        test_client, mock_s3, mock_task = client
         mock_task.delay.side_effect = Exception("Redis down")
         response = test_client.post(
             "/api/v1/public/traces",
             content=b"fake-protobuf",
             headers={"Content-Type": "application/x-protobuf"},
         )
-        assert response.status_code == 200
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Ingest temporarily unavailable, please retry"
+        assert response.headers["Retry-After"] == "5"
+        mock_s3.upload_json.assert_called_once()
+        mock_task.delay.assert_called_once()
+        mock_s3.delete_object.assert_called_once_with(mock_s3.upload_json.call_args[0][0])
+
+    def test_celery_failure_still_returns_503_when_cleanup_fails(self, client):
+        """Cleanup failures should not mask the retryable enqueue failure."""
+        test_client, mock_s3, mock_task = client
+        mock_task.delay.side_effect = Exception("Redis down")
+        mock_s3.delete_object.side_effect = Exception("S3 delete failed")
+        response = test_client.post(
+            "/api/v1/public/traces",
+            content=b"fake-protobuf",
+            headers={"Content-Type": "application/x-protobuf"},
+        )
+        assert response.status_code == 503
+        assert response.headers["Retry-After"] == "5"
+        mock_s3.delete_object.assert_called_once_with(mock_s3.upload_json.call_args[0][0])
 
     def test_s3_key_time_partitioned_format(self, client):
         test_client, mock_s3, _ = client
