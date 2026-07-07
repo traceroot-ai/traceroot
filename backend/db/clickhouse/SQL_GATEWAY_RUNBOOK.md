@@ -60,6 +60,65 @@ GRANT SELECT ON <database>.spans_public_v1  TO sql_gateway_ro;
 GRANT SELECT ON <database>.traces_public_v1 TO sql_gateway_ro;
 ```
 
+## Required deploy order
+
+1. Create `sql_gateway_writer` (+ `SELECT` on the physical `spans`/`traces`).
+2. Run migration 006 — creates the views with `DEFINER = sql_gateway_writer`.
+3. Create `sql_readonly_profile` and `sql_gateway_ro`.
+4. Grant `sql_gateway_ro` `SELECT` on `spans_public_v1` / `traces_public_v1`.
+5. Set the backend `CLICKHOUSE_RO_USER` / `CLICKHOUSE_RO_PASSWORD`.
+6. Deploy the app (the public SQL endpoint — a later issue).
+7. Verify `SHOW CREATE VIEW` shows `DEFINER = sql_gateway_writer`.
+8. Verify `sql_gateway_ro` is denied on the physical tables (Code 497).
+
+Step 1 MUST precede step 2 (the definer is resolved at `CREATE VIEW` time). Steps
+3–4 may run before step 2 as well: ClickHouse grants are **name-based** and are
+recorded even when the target view does not exist yet (verified on 24.3.18.7), so a
+single pre-migration bootstrap may create every user and grant at once. The numbered
+order above is the safe logical sequence for staged/manual provisioning.
+
+## Per-environment provisioning
+
+- **Local dev & docker-compose (automatic — no manual step).** The `clickhouse-init`
+  service (`docker-compose.yml`, `docker-compose.prod.yml`) pipes
+  `backend/db/clickhouse/bootstrap/sql_gateway_users.sql` through `clickhouse-client`
+  and `migrate-clickhouse` gates on it
+  (`depends_on: clickhouse-init: condition: service_completed_successfully`). `make dev`
+  runs it via `tmux_tools/launcher.py` before `goose up` (the goose docker fallback uses
+  `--no-deps`, so the launcher runs it explicitly). The script is idempotent and runs
+  against the live server, so it also provisions existing data volumes. Dev accounts use
+  `no_password`. The compose ClickHouse also mounts `clickhouse_access_management.xml`
+  into `users.d/` so the admin user (`CLICKHOUSE_USER`) gains `ACCESS MANAGEMENT` +
+  `SET DEFINER` — the stock user has broad DDL but **not** access management, so without
+  it the `CREATE USER` bootstrap fails and migration 006 cannot set its explicit definer.
+- **CI — no action.** CI does not apply ClickHouse migrations against a live server;
+  the `tests/db/` migration/config/client tests are static/mocked.
+- **Self-host / manual.** Run the "Provisioning order" SQL above (with **real secrets**,
+  not `no_password`) against your ClickHouse before `goose up`. Note: the
+  `docker-compose.prod.yml` stack instead auto-provisions the `no_password` compose
+  accounts via `clickhouse-init` — for a hardened host, create the users with real
+  secrets out of band and do not rely on that bootstrap.
+- **Staging / production (Helm) — ⚠️ OPS BLOCKER, not yet automated.** The Helm chart
+  does **not** yet provision these users, so a deploy that reaches migration 006 without
+  them will fail (`post-install`/`pre-upgrade` hook Job → failed release). Provision them
+  as part of the ClickHouse deploy, then wire the RO env, before rolling the app:
+  1. In the ClickHouse Bitnami subchart values, declare the users/profile via
+     `clickhouse.usersExtraOverrides` (native `users.d` XML — applies to already-running
+     clusters, unlike `initdbScripts`, which only fires on a first-boot/empty data dir and
+     would silently no-op on the existing EFS volume). Back the passwords with
+     `<password from_env="...">` fed by `clickhouse.extraEnvVars` `secretKeyRef`.
+  2. Add `sql_gateway_writer` / `sql_gateway_ro` passwords as new keys in the Terraform-owned
+     secret (`deploy/terraform/aws/secrets.tf`) — mirror `random_password.clickhouse`.
+  3. Wire `CLICKHOUSE_RO_USER` / `CLICKHOUSE_RO_PASSWORD` into `deploy/helm/templates/rest/deployment.yaml`
+     (next to the existing `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD`).
+  4. Verify the writer exists **before** the migrate Job runs — the subchart StatefulSet is
+     not hook-ordered relative to the `hook-weight: 0` migrate Job, so confirm the users are
+     live (e.g. a `pre-upgrade` hook Job at a lower weight, or a manual pre-check) rather than
+     assuming values-driven config lands first.
+
+  TODO(ops): track automating the above in an ops issue before enabling the SQL gateway in
+  staging/prod. This PR intentionally does not ship unverified Helm/Terraform changes.
+
 ## DEFINER: explicit scoped writer
 
 Migration 006 sets the view definer **explicitly** to `sql_gateway_writer`:
@@ -107,3 +166,9 @@ SHOW CREATE VIEW <database>.spans_public_v1;
 - Under `readonly = 1`, the RO user cannot apply per-query `SETTINGS`. `SqlQueryService`
   (Issue 5) therefore relies on the profile for caps and applies row limits via a `LIMIT`
   wrapper in the SQL text, never via per-query settings.
+- **TODO (endpoint PR):** the app service containers must receive `CLICKHOUSE_RO_USER` /
+  `CLICKHOUSE_RO_PASSWORD` before anything calls `get_readonly_clickhouse_client()`.
+  `docker-compose.prod.yml`'s `rest`/`worker` and Helm's `rest/deployment.yaml` do **not**
+  pass them yet — intentionally, since nothing reads the RO client until the SQL endpoint
+  lands. Wire them there in that PR (in cloud, `rest` defaults `ENABLE_BILLING=true`, so a
+  missing `CLICKHOUSE_RO_USER` is fatal by design).
