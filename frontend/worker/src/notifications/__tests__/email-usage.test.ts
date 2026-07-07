@@ -51,8 +51,16 @@ describe("sendUsageQuotaEmail", () => {
     expect(mail.html).toContain('alt="TraceRoot"');
     expect(mail.html).toContain("Approaching your free plan limit");
     expect(mail.html).toContain("Manage your plan");
+    // verbose warning lead: percentage, remaining headroom, and the
+    // what-will-pause consequence line
+    expect(mail.html).toContain("(80%)");
+    expect(mail.html).toContain("10,000 remaining");
+    expect(mail.html).toContain("Once the limit is reached, trace and span ingestion will pause");
     // plain-text twin carries the same essentials
     expect(mail.text).toContain("40,000 of 50,000");
+    expect(mail.text).toContain("(80%)");
+    expect(mail.text).toContain("10,000 remaining");
+    expect(mail.text).toContain("Once the limit is reached, trace and span ingestion will pause");
     expect(mail.text).toContain("https://app.example.com/workspaces/ws-1/settings/billing");
   });
 
