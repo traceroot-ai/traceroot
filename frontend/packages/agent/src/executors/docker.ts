@@ -33,9 +33,14 @@ export class DockerExecutor implements Executor {
     await this.exec(`mkdir -p ${WORKSPACE_DIR}/traces ${WORKSPACE_DIR}/notes`);
 
     // Install basic tools if not in image
-    await this.exec(
-      "apt-get update -qq && apt-get install -y -qq git jq curl > /dev/null 2>&1 || true",
+    const installResult = await this.exec(
+      "apt-get update -qq && apt-get install -y -qq git jq curl",
     );
+    if (installResult.code !== 0) {
+      const output = `${installResult.stderr || installResult.stdout || ""}`.trim() || "no output";
+      await this.destroy();
+      throw new Error(`Failed to install required container tools: ${output}`);
+    }
 
     console.log(`[DockerExecutor] Container ready: ${this.containerId.slice(0, 12)}`);
   }
