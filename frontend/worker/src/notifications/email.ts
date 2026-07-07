@@ -26,10 +26,15 @@ const LOGO_URL =
 function createTransport() {
   if (!SMTP_URL) return null;
   const url = new URL(SMTP_URL);
+  // smtps:// means implicit TLS (default port 465); smtp:// means plaintext /
+  // STARTTLS (default 587). An explicit port always wins, and port 465
+  // implies implicit TLS regardless of scheme.
+  const secureScheme = url.protocol === "smtps:";
+  const port = parseInt(url.port) || (secureScheme ? 465 : 587);
   return nodemailer.createTransport({
     host: url.hostname,
-    port: parseInt(url.port) || 587,
-    secure: url.port === "465",
+    port,
+    secure: secureScheme || port === 465,
     auth: {
       user: decodeURIComponent(url.username),
       pass: decodeURIComponent(url.password),
