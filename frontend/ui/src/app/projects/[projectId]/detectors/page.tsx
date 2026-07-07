@@ -27,29 +27,19 @@ function formatDetectorModel(detector: {
   detectionProvider: string | null;
   detectionSource: "system" | "byok" | null;
 }) {
-  const providerLabel = detector.detectionProvider ?? "configured provider";
-
   if (detector.detectionModel) {
-    if (detector.detectionSource === "byok") {
-      return { label: `BYOK (${providerLabel}): ${detector.detectionModel}`, isDefault: false };
-    }
-
-    if (detector.detectionSource === "system") {
-      return { label: `System pinned: ${detector.detectionModel}`, isDefault: false };
-    }
-
     return { label: detector.detectionModel, isDefault: false };
   }
 
   if (detector.detectionSource === "byok") {
-    return { label: `BYOK provider: ${providerLabel}`, isDefault: false };
+    return { label: detector.detectionProvider ?? "configured provider", isDefault: false };
   }
 
   if (detector.detectionSource === "system") {
-    return { label: `System default: ${DETECTOR_SYSTEM_DEFAULT_MODEL_ID}`, isDefault: true };
+    return { label: DETECTOR_SYSTEM_DEFAULT_MODEL_ID, isDefault: true };
   }
 
-  return { label: "Auto-selected default", isDefault: true };
+  return { label: "Auto-selected", isDefault: true };
 }
 
 export default function DetectorsPage() {
