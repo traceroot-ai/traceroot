@@ -52,6 +52,19 @@
     }
   },
   {
+    "id": "tr-claude-sonnet-5",
+    "modelName": "claude-sonnet-5",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-5(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-sonnet-5(@[\\d-]+)?)$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.000003,
+      "output": 0.000015,
+      "cacheRead": 0.0000003,
+      "cacheWrite": 0.00000375,
+      "cacheWrite1h": 0.000006
+    }
+  },
+  {
     "id": "tr-claude-sonnet-4-6",
     "modelName": "claude-sonnet-4-6",
     "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4-6(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-4-6(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-6-sonnet(@[\\d-]+)?)$",
