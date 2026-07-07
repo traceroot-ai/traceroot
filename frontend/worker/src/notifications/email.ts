@@ -104,21 +104,32 @@ ${htmlRows}
 }
 
 // Copy for the free-plan usage-quota emails. The blocked line names exactly
-// what paused: for the automatic meters (rca, detector) there is no
-// interactive tell, so the email is the only signal the feature stopped.
-const USAGE_METER_COPY: Record<UsageMeter, { label: string; pausedCopy: string }> = {
+// what paused — for the automatic meters (rca, detector) there is no
+// interactive tell, so the email is the only signal the feature stopped —
+// and the warning line names what WILL pause, so the 80% email carries the
+// stakes, not just the numbers.
+const USAGE_METER_COPY: Record<
+  UsageMeter,
+  { label: string; pausedCopy: string; willPauseCopy: string }
+> = {
   events: {
     label: "events",
     pausedCopy: "Trace and span ingestion is paused — new telemetry is being dropped.",
+    willPauseCopy:
+      "Once the limit is reached, trace and span ingestion will pause and new telemetry will be dropped.",
   },
   rca: {
     label: "root-cause analysis runs",
     pausedCopy:
       "Automatic root-cause analysis is paused — new detector findings will not be analyzed.",
+    willPauseCopy:
+      "Once the limit is reached, automatic root-cause analysis will pause and new detector findings will not be analyzed.",
   },
   detector: {
     label: "detector runs",
     pausedCopy: "Detector scans are paused — incoming traces are no longer being scanned.",
+    willPauseCopy:
+      "Once the limit is reached, detector scans will pause and incoming traces will no longer be scanned.",
   },
 };
 
@@ -158,22 +169,29 @@ export async function sendUsageQuotaEmail(params: {
 
   // The blocked lead avoids "used X of Y": measured usage can exceed the cap
   // (blocking is enforced at billing-tick granularity), and "126 of 100"
-  // reads like a bug to the recipient.
+  // reads like a bug to the recipient. The warning lead spells out percent
+  // and remaining headroom so the reader doesn't have to do the math.
+  // floor, not round: a 49,999/50,000 warning must not display "(100%)"
+  const pctStr = `${Math.floor((used / cap) * 100)}%`;
+  const remainingStr = Math.max(0, cap - used).toLocaleString("en-US");
   const lead =
     kind === "warning"
-      ? `${workspaceName} has used ${usedStr} of ${capStr} free plan ${copy.label}.`
+      ? `${workspaceName} has used ${usedStr} of ${capStr} free plan ${copy.label} (${pctStr}) — ${remainingStr} remaining.`
       : `${workspaceName} has reached its free plan limit of ${capStr} ${copy.label}.`;
 
-  const text = [lead, ...(kind === "blocked" ? [copy.pausedCopy] : []), cta, billingUrl].join("\n");
+  const consequence = kind === "warning" ? copy.willPauseCopy : copy.pausedCopy;
+  const text = [lead, consequence, cta, billingUrl].join("\n");
 
   const html = buildUsageQuotaHtml({
     kind,
     workspaceName,
     meterLabel: copy.label,
-    pausedCopy: copy.pausedCopy,
+    consequence,
     cta,
     usedStr,
     capStr,
+    pctStr,
+    remainingStr,
     billingUrl,
   });
 
@@ -202,34 +220,46 @@ function buildUsageQuotaHtml(params: {
   kind: "warning" | "blocked";
   workspaceName: string;
   meterLabel: string;
-  pausedCopy: string;
+  consequence: string;
   cta: string;
   usedStr: string;
   capStr: string;
+  pctStr: string;
+  remainingStr: string;
   billingUrl: string;
 }): string {
-  const { kind, workspaceName, meterLabel, pausedCopy, cta, usedStr, capStr, billingUrl } = params;
+  const {
+    kind,
+    workspaceName,
+    meterLabel,
+    consequence,
+    cta,
+    usedStr,
+    capStr,
+    pctStr,
+    remainingStr,
+    billingUrl,
+  } = params;
   const safeWorkspaceName = escapeHtml(workspaceName);
 
   const title = kind === "warning" ? "Approaching your free plan limit" : "Free plan limit reached";
-  const pausedSection =
-    kind === "blocked"
-      ? `
-      <!-- Paused-feature callout -->
+  // Both variants carry a consequence callout: what IS paused (blocked, bold)
+  // or what WILL pause at the limit (warning, regular weight).
+  const consequenceSection = `
+      <!-- Consequence callout -->
       <tr>
         <td style="padding: 0 40px 24px 40px;">
           <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #fafafa; border: 1px solid #e5e5e5;">
             <tr>
               <td style="padding: 12px 16px;">
                 <p style="margin: 0; color: #333; font-size: 14px; line-height: 1.6; text-align: center;">
-                  <strong>${pausedCopy}</strong>
+                  ${kind === "blocked" ? `<strong>${consequence}</strong>` : consequence}
                 </p>
               </td>
             </tr>
           </table>
         </td>
-      </tr>`
-      : "";
+      </tr>`;
 
   return `
 <!DOCTYPE html>
@@ -262,13 +292,13 @@ function buildUsageQuotaHtml(params: {
           <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6; text-align: center;">
             ${
               kind === "warning"
-                ? `<strong>${safeWorkspaceName}</strong> has used <strong>${usedStr}</strong> of <strong>${capStr}</strong> free plan ${meterLabel}.`
+                ? `<strong>${safeWorkspaceName}</strong> has used <strong>${usedStr}</strong> of <strong>${capStr}</strong> free plan ${meterLabel} (${pctStr}) — ${remainingStr} remaining.`
                 : `<strong>${safeWorkspaceName}</strong> has reached its free plan limit of <strong>${capStr}</strong> ${meterLabel}.`
             }
           </p>
         </td>
       </tr>
-${pausedSection}
+${consequenceSection}
       <!-- CTA note -->
       <tr>
         <td style="padding: 0 40px 32px 40px;">
