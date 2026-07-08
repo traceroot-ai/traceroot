@@ -11,6 +11,7 @@ import {
   useDashboardMutations,
 } from "@/features/dashboards/hooks/use-dashboards";
 import { DashboardGrid } from "@/features/dashboards/components/DashboardGrid";
+import { CreateDashboardDialog } from "@/features/dashboards/components/CreateDashboardDialog";
 import type { TimeRange, Widget } from "@/features/dashboards/types";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { useUrlDateFilter } from "@/lib/hooks/use-url-date-filter";
@@ -28,7 +29,7 @@ export default function DashboardDetailPage() {
   const { data: dashboards } = useDashboards(projectId);
   const { data: dashboard, error: dashboardError } = useDashboard(projectId, dashboardId);
 
-  const { createDashboard, updateLayout, createWidget, removeWidget } = useDashboardMutations(
+  const { updateLayout, createWidget, removeWidget } = useDashboardMutations(
     projectId,
     dashboardId,
   );
@@ -85,18 +86,7 @@ export default function DashboardDetailPage() {
   // so dashboardError above handles the redirect. No additional null check needed.
 
   // ── new dashboard ────────────────────────────────────────────────────────────
-  const handleNewDashboard = () => {
-    const name = window.prompt("Dashboard name");
-    if (!name?.trim()) return;
-    createDashboard.mutate(
-      { name: name.trim() },
-      {
-        onSuccess: (res) => {
-          router.push(`/projects/${projectId}/dashboard/${res.dashboard.id}`);
-        },
-      },
-    );
-  };
+  const [createDashboardOpen, setCreateDashboardOpen] = useState(false);
 
   // ── layout change ────────────────────────────────────────────────────────────
   const handleLayoutChange = useCallback(
@@ -134,6 +124,12 @@ export default function DashboardDetailPage() {
     <div className="relative flex h-full text-[13px]">
       <ProjectBreadcrumb projectId={projectId} />
 
+      <CreateDashboardDialog
+        projectId={projectId}
+        open={createDashboardOpen}
+        onOpenChange={setCreateDashboardOpen}
+      />
+
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
         <div className="flex items-center justify-between border-b border-border px-4 py-2">
@@ -159,7 +155,7 @@ export default function DashboardDetailPage() {
               ))}
               <button
                 type="button"
-                onClick={handleNewDashboard}
+                onClick={() => setCreateDashboardOpen(true)}
                 className="rounded px-2 py-0.5 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 ＋ new

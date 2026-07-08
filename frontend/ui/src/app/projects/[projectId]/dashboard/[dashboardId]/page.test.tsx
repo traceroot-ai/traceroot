@@ -41,9 +41,10 @@ vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null
 
 const createDashboard: {
   mutate: ReturnType<typeof vi.fn>;
+  reset: ReturnType<typeof vi.fn>;
   isPending: boolean;
   error: Error | null;
-} = { mutate: vi.fn(), isPending: false, error: null };
+} = { mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null };
 const updateLayout: { mutate: ReturnType<typeof vi.fn>; isPending: boolean; error: Error | null } =
   {
     mutate: vi.fn(),
@@ -177,21 +178,25 @@ describe("DashboardDetailPage", () => {
     expect(screen.getByRole("button", { name: "＋ new" })).toBeTruthy();
   });
 
-  it("does not create a dashboard when the new-dashboard prompt is cancelled", () => {
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue(null);
+  it("opens the create-dashboard dialog and cancelling it does not create", () => {
     renderPage();
 
+    expect(screen.queryByText("Create Dashboard")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "＋ new" }));
+    expect(screen.getByText("Create Dashboard")).toBeTruthy();
 
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(createDashboard.mutate).not.toHaveBeenCalled();
-    promptSpy.mockRestore();
   });
 
-  it("creates a dashboard from the prompt and navigates to it on success", () => {
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("New dash");
+  it("creates a dashboard from the dialog and navigates to it on success", () => {
     renderPage();
 
     fireEvent.click(screen.getByRole("button", { name: "＋ new" }));
+    fireEvent.change(screen.getByPlaceholderText("Dashboard name"), {
+      target: { value: "New dash" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
 
     expect(createDashboard.mutate).toHaveBeenCalledTimes(1);
     const [payload, options] = createDashboard.mutate.mock.calls[0];
@@ -199,7 +204,6 @@ describe("DashboardDetailPage", () => {
 
     options.onSuccess({ dashboard: { id: "d9" } });
     expect(push).toHaveBeenCalledWith("/projects/p1/dashboard/d9");
-    promptSpy.mockRestore();
   });
 
   it("shows the active range preset label", () => {
