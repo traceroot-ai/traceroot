@@ -244,6 +244,7 @@ function TimeSeries({
         <XAxis dataKey="bucket" tick={{ fontSize: 10 }} tickFormatter={tickFormatter} />
         <YAxis tick={{ fontSize: 10 }} width={42} />
         <Tooltip
+          isAnimationActive={false}
           content={
             <ChartTip
               nameFormatter={seriesNameFormatter(seriesLabel)}
@@ -278,7 +279,10 @@ function Bars({ result, seriesLabel }: { result: WidgetQueryResult; seriesLabel?
         <CartesianGrid strokeOpacity={0.15} vertical={false} />
         <XAxis dataKey="name" tick={{ fontSize: 10 }} />
         <YAxis tick={{ fontSize: 10 }} width={42} />
-        <Tooltip content={<ChartTip nameFormatter={seriesNameFormatter(seriesLabel)} />} />
+        <Tooltip
+          isAnimationActive={false}
+          content={<ChartTip nameFormatter={seriesNameFormatter(seriesLabel)} />}
+        />
         <Bar dataKey="value">
           {data.map((_, i) => (
             <Cell key={i} fill={seriesColor(i)} fillOpacity={0.7} stroke={seriesColor(i)} />
@@ -294,7 +298,7 @@ function PieView({ result }: { result: WidgetQueryResult }) {
   return (
     <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
       <PieChart>
-        <Tooltip content={<ChartTip />} />
+        <Tooltip isAnimationActive={false} content={<ChartTip />} />
         {/* Pie reads each sector's fill from its data row — no Cells needed. */}
         <Pie data={data} dataKey="value" nameKey="name" innerRadius="45%" outerRadius="80%" />
       </PieChart>
@@ -378,7 +382,10 @@ function HistogramView({
       <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
         <XAxis dataKey="name" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
         <YAxis tick={{ fontSize: 10 }} width={42} />
-        <Tooltip content={<ChartTip nameFormatter={seriesNameFormatter(seriesLabel)} />} />
+        <Tooltip
+          isAnimationActive={false}
+          content={<ChartTip nameFormatter={seriesNameFormatter(seriesLabel)} />}
+        />
         <Bar dataKey="value" fill="#93c5fd" fillOpacity={0.7} stroke="#60a5fa" />
       </BarChart>
     </ResponsiveContainer>
