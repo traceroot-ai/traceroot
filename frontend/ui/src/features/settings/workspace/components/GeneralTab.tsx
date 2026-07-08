@@ -61,7 +61,7 @@ export function GeneralTab({ workspaceId }: GeneralTabProps) {
   };
 
   const handleDelete = () => {
-    if (deleteConfirmText === workspace?.name) {
+    if (deleteConfirmText === workspace?.name && !deleteMutation.isPending) {
       deleteMutation.mutate();
     }
   };
@@ -135,6 +135,7 @@ export function GeneralTab({ workspaceId }: GeneralTabProps) {
             <Input
               value={deleteConfirmText}
               onChange={(e) => setDeleteConfirmText(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleDelete()}
               placeholder="Workspace name"
             />
             {deleteMutation.isError && (
