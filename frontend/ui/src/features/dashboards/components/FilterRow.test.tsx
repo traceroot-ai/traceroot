@@ -42,15 +42,29 @@ describe("FilterRow value input", () => {
   // RTL auto-cleanup needs vitest globals, which this config doesn't enable.
   afterEach(cleanup);
 
-  it("offers stored values as a dropdown for string equality", () => {
+  it("offers stored values with counts for string equality, and selecting one propagates", () => {
     vi.mocked(useWidgetFieldValues).mockReturnValue({
       values: [{ value: "gpt-4o", count: 3 }],
       isLoading: false,
     });
-    render(<FilterRow {...baseProps} filter={{ field: "model_name", op: "=", value: "" }} />);
-    // field + op + value selects
-    expect(screen.getAllByRole("combobox")).toHaveLength(3);
+    const onChange = vi.fn();
+    render(
+      <FilterRow
+        {...baseProps}
+        onChange={onChange}
+        filter={{ field: "model_name", op: "=", value: "" }}
+      />,
+    );
+    // field + op selects; the value control is the trace-list popover dropdown
+    expect(screen.getAllByRole("combobox")).toHaveLength(2);
     expect(screen.queryByRole("textbox")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Value" }));
+    const option = screen.getByRole("option", { name: /gpt-4o/ });
+    // the stored value's occurrence count is shown alongside it
+    expect(option.textContent).toContain("3");
+    fireEvent.click(option);
+    expect(onChange).toHaveBeenCalledWith(0, { value: "gpt-4o" });
   });
 
   it("keeps free text for contains", () => {

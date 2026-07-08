@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ValueDropdown } from "@/features/filters/filter-builder";
 import { useWidgetFieldValues } from "../hooks/use-widget-data";
 import {
   FIELD_UNIT,
@@ -59,11 +60,11 @@ export function FilterRow({
   );
 
   // Keep a previously-saved value selectable even when it no longer occurs in
-  // the active window's stored values.
+  // the active window's stored values (it gets no count, marking it as stale).
   const options = useMemo(() => {
-    const stored = values.map((v) => v.value);
     const current = String(filter.value);
-    return current && !stored.includes(current) ? [current, ...stored] : stored;
+    const hasCurrent = values.some((v) => v.value === current);
+    return current && !hasCurrent ? [{ value: current }, ...values] : values;
   }, [values, filter.value]);
 
   const showValueDropdown = enumerable && (options.length > 0 || isLoading);
@@ -107,20 +108,15 @@ export function FilterRow({
         </SelectContent>
       </Select>
 
-      {/* value */}
+      {/* value — the trace-list stored-values picker, counts included */}
       {showValueDropdown ? (
-        <Select value={String(filter.value)} onValueChange={(v) => onChange(index, { value: v })}>
-          <SelectTrigger className="h-7 flex-1 text-[12px]">
-            <SelectValue placeholder={isLoading ? "Loading…" : "Value"} />
-          </SelectTrigger>
-          <SelectContent>
-            {options.map((v) => (
-              <SelectItem key={v} value={v} className="text-[12px]">
-                {v}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <ValueDropdown
+          value={String(filter.value)}
+          options={options}
+          onValue={(v) => onChange(index, { value: v })}
+          placeholder={isLoading ? "Loading…" : "Value"}
+          triggerClassName="text-[12px]"
+        />
       ) : (
         <div className="flex flex-1 items-center gap-1">
           {isNumeric && FIELD_UNIT[filter.field]?.prefix && (

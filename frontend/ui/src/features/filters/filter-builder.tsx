@@ -345,14 +345,35 @@ function CategoricalValue({
     ? field.enum_values.map((v) => ({ value: v }))
     : values.map((v) => ({ value: v.value, count: v.count }));
 
+  return <ValueDropdown value={value} options={options} onValue={onValue} />;
+}
+
+/**
+ * The stored-values picker: a dropdown of a field's values with per-value
+ * occurrence counts on the right. Shared by the trace-list filter builder and
+ * the dashboard widget filter rows.
+ */
+export function ValueDropdown({
+  value,
+  options,
+  onValue,
+  placeholder = "Enter value",
+  triggerClassName,
+}: {
+  value: string;
+  options: { value: string; count?: number }[];
+  onValue: (v: string) => void;
+  placeholder?: string;
+  triggerClassName?: string;
+}) {
   return (
     <Dropdown
       trigger={
         <span className={cn("truncate", !value && "text-muted-foreground")}>
-          {value || "Enter value"}
+          {value || placeholder}
         </span>
       }
-      triggerClassName="min-w-0 flex-1"
+      triggerClassName={cn("min-w-0 flex-1", triggerClassName)}
       contentClassName="w-[12rem]"
     >
       {(close) =>
