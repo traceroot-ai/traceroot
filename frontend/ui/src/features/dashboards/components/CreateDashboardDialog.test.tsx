@@ -43,6 +43,11 @@ describe("CreateDashboardDialog", () => {
     expect(document.activeElement).toBe(screen.getByPlaceholderText("Dashboard name"));
   });
 
+  it("caps the name input at 50 characters", () => {
+    renderDialog();
+    expect(screen.getByPlaceholderText("Dashboard name").getAttribute("maxLength")).toBe("50");
+  });
+
   it("disables Create until a non-blank name is entered", () => {
     renderDialog();
     const create = screen.getByRole("button", { name: "Create" });

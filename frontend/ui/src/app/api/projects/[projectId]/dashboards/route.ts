@@ -4,6 +4,7 @@ import { prisma } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
 import { defaultDashboardId, seedWidgets } from "@/lib/dashboard-seed";
+import { DASHBOARD_NAME_MAX } from "@/features/dashboards/types";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
@@ -63,6 +64,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   const { name, description } = parsed.body;
   if (typeof name !== "string" || name.trim().length === 0) {
     return errorResponse("name must be a non-empty string", 400);
+  }
+  if (name.trim().length > DASHBOARD_NAME_MAX) {
+    return errorResponse(`name must be at most ${DASHBOARD_NAME_MAX} characters`, 400);
   }
   if (description !== undefined && description !== null && typeof description !== "string") {
     return errorResponse("description must be a string", 400);

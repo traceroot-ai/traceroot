@@ -11,6 +11,11 @@ export const DISPLAY_TYPES = [
 ] as const;
 export type DisplayType = (typeof DISPLAY_TYPES)[number];
 
+// Enforced in the create dialog and by the dashboard API routes; sized so a
+// full-length name stays visible in the create dialog's input without
+// horizontal scrolling. Long names also display truncated in the tabs.
+export const DASHBOARD_NAME_MAX = 50;
+
 export const AGGS = ["count", "sum", "avg", "min", "max", "p50", "p95", "p99"] as const;
 
 export const WidgetFilterSchema = z.object({

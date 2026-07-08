@@ -16,6 +16,15 @@ import type { TimeRange, Widget } from "@/features/dashboards/types";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { useUrlDateFilter } from "@/lib/hooks/use-url-date-filter";
 import { Button } from "@/components/ui/button";
+import { DeleteIconButton } from "@/components/ui/delete-button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 export default function DashboardDetailPage() {
@@ -29,7 +38,7 @@ export default function DashboardDetailPage() {
   const { data: dashboards } = useDashboards(projectId);
   const { data: dashboard, error: dashboardError } = useDashboard(projectId, dashboardId);
 
-  const { updateLayout, createWidget, removeWidget } = useDashboardMutations(
+  const { updateLayout, createWidget, removeWidget, removeDashboard } = useDashboardMutations(
     projectId,
     dashboardId,
   );
@@ -88,6 +97,18 @@ export default function DashboardDetailPage() {
   // ── new dashboard ────────────────────────────────────────────────────────────
   const [createDashboardOpen, setCreateDashboardOpen] = useState(false);
 
+  // ── delete dashboard ─────────────────────────────────────────────────────────
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const handleDeleteDashboard = () => {
+    removeDashboard.mutate(dashboardId, {
+      onSuccess: () => {
+        setDeleteOpen(false);
+        // The index route resolves to the default dashboard.
+        router.replace(`/projects/${projectId}/dashboard`);
+      },
+    });
+  };
+
   // ── layout change ────────────────────────────────────────────────────────────
   const handleLayoutChange = useCallback(
     (layout: Parameters<typeof updateLayout.mutate>[0]) => {
@@ -133,6 +154,36 @@ export default function DashboardDetailPage() {
         onOpenChange={setCreateDashboardOpen}
       />
 
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Dashboard</DialogTitle>
+            <DialogDescription>
+              Permanently delete “{dashboard?.name}” and all of its widgets? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {removeDashboard.isError && (
+            <p className="text-sm text-destructive">{removeDashboard.error.message}</p>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteOpen(false)}
+              disabled={removeDashboard.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteDashboard}
+              disabled={removeDashboard.isPending}
+            >
+              {removeDashboard.isPending ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
         <div className="flex items-center justify-between border-b border-border px-4 py-2">
@@ -153,7 +204,9 @@ export default function DashboardDetailPage() {
                   )}
                 >
                   {d.isDefault && <span className="text-[10px]">⌂</span>}
-                  {d.name}
+                  <span className="max-w-[10rem] truncate" title={d.name}>
+                    {d.name}
+                  </span>
                 </Link>
               ))}
               <button
@@ -177,9 +230,15 @@ export default function DashboardDetailPage() {
             />
 
             {!readOnly && (
-              <Button size="sm" className="h-7 text-[12px]" onClick={openCreate}>
-                ＋ Create widget
-              </Button>
+              <>
+                <Button size="sm" className="h-7 text-[12px]" onClick={openCreate}>
+                  ＋ Create widget
+                </Button>
+                <DeleteIconButton
+                  aria-label="Delete dashboard"
+                  onClick={() => setDeleteOpen(true)}
+                />
+              </>
             )}
           </div>
         </div>

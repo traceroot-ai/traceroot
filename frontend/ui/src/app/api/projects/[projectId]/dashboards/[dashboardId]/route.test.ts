@@ -504,3 +504,12 @@ describe("default dashboard is read-only", () => {
     expect(widgetDeleteMock).not.toHaveBeenCalled();
   });
 });
+
+describe("PATCH /dashboards/[dashboardId] — name length cap", () => {
+  it("rejects a rename longer than 100 characters", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await PATCH(makeRequest({ name: "x".repeat(101) }), makeParams())) as MockResponse;
+    expect(res.status).toBe(400);
+    expect(dashboardUpdateMock).not.toHaveBeenCalled();
+  });
+});

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDashboardMutations } from "../hooks/use-dashboards";
+import { DASHBOARD_NAME_MAX } from "../types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -62,6 +63,7 @@ export function CreateDashboardDialog({
           <div className="py-4">
             <Input
               autoFocus
+              maxLength={DASHBOARD_NAME_MAX}
               placeholder="Dashboard name"
               value={name}
               onChange={(e) => setName(e.target.value)}

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
+import { DASHBOARD_NAME_MAX } from "@/features/dashboards/types";
 
 type RouteParams = { params: Promise<{ projectId: string; dashboardId: string }> };
 
@@ -32,6 +33,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (name !== undefined) {
     if (typeof name !== "string" || name.trim().length === 0) {
       return errorResponse("name must be a non-empty string", 400);
+    }
+    if (name.trim().length > DASHBOARD_NAME_MAX) {
+      return errorResponse(`name must be at most ${DASHBOARD_NAME_MAX} characters`, 400);
     }
     data.name = name.trim();
   }

@@ -272,3 +272,23 @@ describe("POST /dashboards — create a named dashboard", () => {
     expect(dashboardCreateMock).not.toHaveBeenCalled();
   });
 });
+
+describe("POST /dashboards — name length cap", () => {
+  it("rejects a name longer than 50 characters", async () => {
+    const res = (await POST(
+      makePostRequest({ name: "x".repeat(51) }),
+      makeParams(),
+    )) as unknown as { status: number; json: () => Promise<unknown> };
+    expect(res.status).toBe(400);
+    expect(dashboardCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts a name of exactly 50 characters", async () => {
+    dashboardCreateMock.mockResolvedValue({ id: "d-new" });
+    const res = (await POST(
+      makePostRequest({ name: "x".repeat(50) }),
+      makeParams(),
+    )) as unknown as { status: number; json: () => Promise<unknown> };
+    expect(res.status).toBe(201);
+  });
+});
