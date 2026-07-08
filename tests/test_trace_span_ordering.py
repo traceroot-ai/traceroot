@@ -6,6 +6,8 @@ of the same trace return identical order. The ClickHouse client is stubbed, so
 this asserts the ORDER BY clause directly rather than exercising a live DB.
 """
 
+from datetime import UTC, datetime
+
 from rest.services.trace_reader import TraceReaderService
 
 
@@ -21,14 +23,14 @@ class _StubClient:
     def query(self, query, parameters=None):
         self.calls.append((query, parameters))
         normalized = " ".join(query.split())
-        if "FROM traces FINAL" in normalized:
+        if "FROM traces" in normalized:
             return _StubResult(
                 [
                     [
                         "trace-1",
                         "project-1",
                         "Trace Name",
-                        "2024-01-01T00:00:00.000Z",
+                        datetime(2024, 1, 1, tzinfo=UTC),
                         "user-1",
                         "session-1",
                         "main",
@@ -39,7 +41,7 @@ class _StubClient:
                     ]
                 ]
             )
-        if "FROM spans FINAL" in normalized:
+        if "FROM spans" in normalized:
             return _StubResult([])
         raise AssertionError(f"Unexpected query: {query}")
 
@@ -52,5 +54,5 @@ def test_get_trace_uses_stable_span_ordering(monkeypatch):
     trace = service.get_trace("project-1", "trace-1")
 
     assert trace is not None
-    span_query = next(query for query, _ in stub.calls if "FROM spans FINAL" in query)
+    span_query = next(query for query, _ in stub.calls if "FROM spans" in query)
     assert "ORDER BY span_start_time ASC, span_end_time ASC, span_id ASC" in span_query
