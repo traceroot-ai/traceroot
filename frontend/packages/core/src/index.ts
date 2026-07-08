@@ -20,6 +20,8 @@ export type {
   Account,
   GitHubInstallation,
   ModelProvider,
+  Dashboard,
+  Widget,
 } from "@prisma/client";
 
 // Constants & Zod schemas
