@@ -148,13 +148,27 @@ def compile_widget_query(
     # Bound unconditionally: both the bucketing branch and the row-cap branch
     # below key off is_timeseries, and an implicit binding would let them drift.
     gran = _pick_granularity(start_time, end_time)
+    # Fill empty buckets across the whole window so the x-axis spans the
+    # selected range even when stored data starts later: missing buckets come
+    # back as zero rows instead of the chart starting at first data. WITH FILL
+    # TO is exclusive, so the bound is one step past the bucket of the last
+    # in-window instant (end_time - 1ms) — that covers the trailing straddle
+    # bucket of a misaligned window and stays exact for aligned ones.
+    # Bound unconditionally, like gran, so the two is_timeseries branches
+    # below can't drift apart.
+    bucket_fn = "toStartOfHour" if gran == "hour" else "toStartOfDay"
+    step = "INTERVAL 1 HOUR" if gran == "hour" else "INTERVAL 1 DAY"
+    fill = (
+        f" WITH FILL FROM {bucket_fn}({{start_time:DateTime64(3)}}, 'UTC')"
+        f" TO {bucket_fn}({{end_time:DateTime64(3)}} - INTERVAL 1 MILLISECOND, 'UTC')"
+        f" + {step} STEP {step}"
+    )
     if is_timeseries:
         # 'UTC' aligns day/hour boundaries with the UTC time-range params,
         # regardless of the ClickHouse server's local timezone.
-        bucket_fn = "toStartOfHour" if gran == "hour" else "toStartOfDay"
         select_cols.append(f"{bucket_fn}(event_time, 'UTC') AS bucket")
         group_cols.append("bucket")
-        order_by = "ORDER BY bucket"
+        order_by = f"ORDER BY bucket{fill}"
 
     if spec.breakdown is not None:
         bd = _resolve_field(view.fields, spec.breakdown, "breakdown")
@@ -168,16 +182,24 @@ def compile_widget_query(
         # membership test so the outer if() takes the else branch. Intentional —
         # surfacing a separate NULL bucket would require extra special-casing for
         # little benefit on the dashboard.
+        # ifNull pins the column type to plain String: for a Nullable
+        # breakdown expr the if() supertype would be Nullable(String), making
+        # WITH FILL's synthesized rows carry NULL instead of the '' the
+        # frontend pivot recognizes as a gap row. Runtime values are never
+        # NULL — NULLs fail the IN test and fold into 'other'.
         select_cols.append(
-            f"if({bd.expr} IN (SELECT {bd.expr} FROM {base} {where} "
+            f"ifNull(if({bd.expr} IN (SELECT {bd.expr} FROM {base} {where} "
             f"GROUP BY {bd.expr} ORDER BY {metric_sql} DESC LIMIT {MAX_GROUPS}), "
-            f"toString({bd.expr}), 'other') AS {spec.breakdown}"
+            f"toString({bd.expr}), 'other'), '') AS {spec.breakdown}"
         )
         group_cols.append(spec.breakdown)
         if is_timeseries:
             # Include breakdown in ORDER BY for deterministic ordering when
-            # multiple breakdown values share the same bucket.
-            order_by = f"ORDER BY bucket, {spec.breakdown}"
+            # multiple breakdown values share the same bucket. WITH FILL stays
+            # on the bucket sort key; filled rows carry the breakdown column's
+            # String default ('') and a zero value, which the frontend pivot
+            # treats as domain-only rows.
+            order_by = f"ORDER BY bucket{fill}, {spec.breakdown}"
         else:
             order_by = "ORDER BY value DESC"
 

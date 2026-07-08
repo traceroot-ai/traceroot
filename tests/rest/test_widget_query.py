@@ -218,7 +218,52 @@ def test_breakdown_timeseries_order_by():
     """When breakdown and timeseries are both present, ORDER BY must include both bucket and breakdown."""
     sql, _ = compile_(make_spec(display={"type": "line"}))
     assert "GROUP BY bucket, model_name" in sql
-    assert "ORDER BY bucket, model_name" in sql
+    # WITH FILL sits on the bucket sort key; the breakdown sort key follows it.
+    assert "ORDER BY bucket WITH FILL" in sql
+    assert "STEP INTERVAL 1 DAY, model_name" in sql
+
+
+def test_timeseries_fills_empty_buckets_across_window():
+    """A timeseries orders by bucket WITH FILL over the full window at the picked step.
+
+    Empty buckets come back as zero rows so the chart's x-axis spans the
+    selected range even when stored data starts later.
+    """
+    sql, _ = compile_(make_spec(display={"type": "line"}, breakdown=None))
+    assert (
+        "ORDER BY bucket WITH FILL FROM toStartOfDay({start_time:DateTime64(3)}, 'UTC')"
+        " TO toStartOfDay({end_time:DateTime64(3)} - INTERVAL 1 MILLISECOND, 'UTC')"
+        " + INTERVAL 1 DAY STEP INTERVAL 1 DAY" in sql
+    )
+
+    hour_spec = WidgetSpec.model_validate(make_spec(display={"type": "line"}, breakdown=None))
+    hour_sql, _ = compile_widget_query(
+        hour_spec,
+        project_id="proj-1",
+        start_time=datetime(2026, 6, 1),
+        end_time=datetime(2026, 6, 2),
+    )
+    assert "WITH FILL FROM toStartOfHour({start_time:DateTime64(3)}, 'UTC')" in hour_sql
+    assert "STEP INTERVAL 1 HOUR" in hour_sql
+
+
+def test_breakdown_column_type_is_pinned_non_nullable():
+    """The breakdown select wraps in ifNull so WITH FILL rows default to ''.
+
+    Without the pin, a Nullable breakdown expr (e.g. model_name) would make the
+    if() supertype Nullable(String) and fill rows would carry NULL instead of
+    the '' the frontend pivot recognizes as a gap row.
+    """
+    sql, _ = compile_(make_spec(display={"type": "line"}))
+    assert "ifNull(if(model_name IN" in sql
+    assert "'other'), '') AS model_name" in sql
+
+
+def test_non_timeseries_has_no_fill():
+    """Bar/table/number shapes have no time bucket, so no WITH FILL clause."""
+    for display in ({"type": "bar"}, {"type": "table"}):
+        sql, _ = compile_(make_spec(display=display))
+        assert "WITH FILL" not in sql
 
 
 def test_other_fold_shape():

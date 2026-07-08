@@ -136,6 +136,36 @@ describe("QueryWidgetRenderer", () => {
     });
   });
 
+  describe("line/area empty-breakdown fallback", () => {
+    it("shows the empty state when every row is a WITH FILL gap row", () => {
+      const result = makeResult(
+        ["bucket", "model_name", "value"],
+        [
+          ["2026-06-01T00:00:00", "", 0],
+          ["2026-06-02T00:00:00", "", 0],
+        ],
+        { granularity: "day" },
+      );
+      const { container } = render(<QueryWidgetRenderer display="line" result={result} />);
+      expect(screen.getByText("No data in range")).toBeTruthy();
+      expect(container.querySelectorAll(".recharts-line-curve").length).toBe(0);
+    });
+
+    it("keeps the flat zero line for a no-breakdown window of gap rows", () => {
+      const result = makeResult(
+        ["bucket", "value"],
+        [
+          ["2026-06-01T00:00:00", 0],
+          ["2026-06-02T00:00:00", 0],
+        ],
+        { granularity: "day" },
+      );
+      const { container } = render(<QueryWidgetRenderer display="line" result={result} />);
+      expect(screen.queryByText("No data in range")).toBeNull();
+      expect(container.querySelectorAll(".recharts-line-curve").length).toBe(1);
+    });
+  });
+
   describe("bar display", () => {
     it("renders one bar cell per categorical group", () => {
       const result = makeResult(

@@ -77,6 +77,14 @@ export function pivotRows(columns: string[], rows: WidgetQueryResult["rows"]) {
   for (const r of rows) {
     const bucket = String(r[0]);
     const rawDim = r[dimIdx];
+    // The query's WITH FILL synthesizes rows for empty buckets, carrying the
+    // breakdown column's default ('' — or NULL if a Nullable expr ever slips
+    // past the compiler's type pin) and a zero value. They extend the x-axis
+    // domain but are not a series: register the bucket and move on.
+    if ((rawDim === "" || rawDim == null) && !Number(r[valueIdx])) {
+      if (!byBucket.has(bucket)) byBucket.set(bucket, { bucket });
+      continue;
+    }
     // Guard against key collisions with internal properties: if a dim value is
     // "bucket" or "__proto__", prefix it so it doesn't stomp on the pivot row shape.
     const dim =
@@ -209,6 +217,17 @@ function TimeSeries({
   const { seriesKeys, data } = useMemo(() => pivotRows(result.columns, result.rows), [result]);
   const Chart = area ? AreaChart : LineChart;
   const granularity = result.meta.granularity;
+
+  // A breakdown window where every row is a WITH FILL gap row pivots to zero
+  // series — show the empty state rather than a bare grid. (No-breakdown
+  // all-zero windows keep their flat zero line: the "value" series exists.)
+  if (seriesKeys.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
+        No data in range
+      </div>
+    );
+  }
 
   const tickFormatter =
     granularity === "day"

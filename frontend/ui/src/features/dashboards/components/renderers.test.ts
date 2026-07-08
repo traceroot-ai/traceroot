@@ -33,6 +33,46 @@ describe("pivotRows", () => {
     ]);
   });
 
+  it("registers WITH FILL gap rows (empty dim, zero value) as buckets without creating a series", () => {
+    const out = pivotRows(
+      ["bucket", "model_name", "value"],
+      [
+        // Leading empty buckets synthesized by the query's WITH FILL.
+        ["2026-06-01T00:00:00", "", 0],
+        ["2026-06-02T00:00:00", "", "0"],
+        ["2026-06-03T00:00:00", "gpt-4o", 3],
+      ],
+    );
+    expect(out.seriesKeys).toEqual(["gpt-4o"]);
+    // The empty buckets extend the x-axis domain, zero-filled for the series.
+    expect(out.data).toEqual([
+      { bucket: "2026-06-01T00:00:00", "gpt-4o": 0 },
+      { bucket: "2026-06-02T00:00:00", "gpt-4o": 0 },
+      { bucket: "2026-06-03T00:00:00", "gpt-4o": 3 },
+    ]);
+  });
+
+  it("registers NULL gap rows as buckets too (a Nullable expr slipping the type pin)", () => {
+    const out = pivotRows(
+      ["bucket", "model_name", "value"],
+      [
+        ["2026-06-01T00:00:00", null, 0],
+        ["2026-06-02T00:00:00", "gpt-4o", 3],
+      ],
+    );
+    expect(out.seriesKeys).toEqual(["gpt-4o"]);
+    expect(out.data).toEqual([
+      { bucket: "2026-06-01T00:00:00", "gpt-4o": 0 },
+      { bucket: "2026-06-02T00:00:00", "gpt-4o": 3 },
+    ]);
+  });
+
+  it("keeps a genuine empty-string dim with a nonzero value as a real series", () => {
+    const out = pivotRows(["bucket", "model_name", "value"], [["2026-06-01T00:00:00", "", 2]]);
+    expect(out.seriesKeys).toEqual([""]);
+    expect(out.data).toEqual([{ bucket: "2026-06-01T00:00:00", "": 2 }]);
+  });
+
   it("handles no-breakdown shape (bucket+value)", () => {
     const out = pivotRows(["bucket", "value"], [["2026-06-01", 5]]);
     expect(out.seriesKeys).toEqual(["value"]);
