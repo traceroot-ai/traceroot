@@ -98,6 +98,7 @@ class TestIngestTraces:
             headers={"Content-Type": "application/x-protobuf"},
         )
         assert response.status_code == 400
+        assert response.json()["detail"] == "Malformed OTLP protobuf payload"
 
     def test_invalid_gzip_returns_400(self):
         app.dependency_overrides[authenticate_api_key] = lambda: make_auth_result()
@@ -119,6 +120,7 @@ class TestIngestTraces:
             headers={"Content-Type": "application/x-protobuf"},
         )
         assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to store trace payload"
 
     def test_celery_failure_still_returns_200(self, client):
         """Celery enqueue failure is logged but response is still 200 (S3 has the data)."""

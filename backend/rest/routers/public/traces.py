@@ -154,7 +154,7 @@ async def ingest_traces(
         logger.warning(f"Failed to parse OTLP protobuf: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to parse OTLP protobuf: {e}",
+            detail="Malformed OTLP protobuf payload",
         ) from e
 
     # 4. Generate S3 key (time-partitioned)
@@ -176,7 +176,7 @@ async def ingest_traces(
         logger.error(f"Failed to upload OTEL JSON to S3: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Storage error: {e}",
+            detail="Failed to store trace payload",
         ) from e
 
     # 6. Enqueue Celery task for async processing (S3 reference only, not full payload)
