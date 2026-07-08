@@ -80,9 +80,9 @@ describe("DashboardGrid", () => {
 
       const fullLayout = latestProps().layout;
       expect(fullLayout).toEqual([
-        { i: "w1", x: 2, y: 5, w: 6, h: 3 },
-        { i: "w2", x: 0, y: 24, w: 4, h: 4 },
-        { i: "w3", x: 0, y: 28, w: 4, h: 4 },
+        { i: "w1", x: 2, y: 5, w: 6, h: 3, minW: 2, minH: 2 },
+        { i: "w2", x: 0, y: 24, w: 4, h: 4, minW: 2, minH: 2 },
+        { i: "w3", x: 0, y: 28, w: 4, h: 4, minW: 2, minH: 2 },
       ]);
       // The deleted widget's stale layout entry never surfaces.
       expect(fullLayout.some((l) => l.i === "w-deleted")).toBe(false);
@@ -104,7 +104,28 @@ describe("DashboardGrid", () => {
         />,
       );
 
-      expect(latestProps().layout).toEqual([{ i: "w1", x: 0, y: 0, w: 4, h: 4 }]);
+      expect(latestProps().layout).toEqual([{ i: "w1", x: 0, y: 0, w: 4, h: 4, minW: 2, minH: 2 }]);
+    });
+
+    it("stamps the minimum size on every item so widgets can't be shrunk into clipping", () => {
+      const widgets = [widget("w1"), widget("w2")];
+      render(
+        <DashboardGrid
+          projectId="p1"
+          widgets={widgets}
+          layout={[{ i: "w1", x: 0, y: 0, w: 6, h: 3 }]}
+          range={RANGE}
+          width={1000}
+          onLayoutChange={vi.fn()}
+          onEdit={vi.fn()}
+          onDuplicate={vi.fn()}
+          onDelete={vi.fn()}
+        />,
+      );
+
+      for (const item of latestProps().layout) {
+        expect(item).toMatchObject({ minW: 2, minH: 2 });
+      }
     });
   });
 

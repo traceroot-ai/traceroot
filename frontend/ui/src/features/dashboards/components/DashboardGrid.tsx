@@ -9,6 +9,10 @@ import { WidgetCard } from "./WidgetCard";
 
 const COLS = 12;
 const ROW_HEIGHT = 56;
+// Floor for widget resizing: below 2x2 grid units a tile's title and body get
+// clipped into illegibility, so react-grid-layout refuses to shrink past it.
+const MIN_W = 2;
+const MIN_H = 2;
 
 export function DashboardGrid({
   projectId,
@@ -39,8 +43,8 @@ export function DashboardGrid({
     let maxY = Math.max(0, ...layout.map((l) => l.y + l.h));
     return widgets.map((w) => {
       const item = known.get(w.id);
-      if (item) return item;
-      const fresh: RGLLayoutItem = { i: w.id, x: 0, y: maxY, w: 4, h: 4 };
+      if (item) return { ...item, minW: MIN_W, minH: MIN_H };
+      const fresh: RGLLayoutItem = { i: w.id, x: 0, y: maxY, w: 4, h: 4, minW: MIN_W, minH: MIN_H };
       maxY += 4;
       return fresh;
     });
