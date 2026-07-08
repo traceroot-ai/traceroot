@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { prisma } from "@traceroot/core";
 import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
+import { sanitizeRedirectPath } from "@/lib/safe-redirect";
 import {
   GITHUB_AUTH_STATE_COOKIE,
   GITHUB_INSTALL_STATE_COOKIE,
@@ -153,9 +154,7 @@ async function processGitHubCallback(
 
   // 7. Build the redirect.
   const rawReturnTo = request.cookies.get(GITHUB_RETURN_TO_COOKIE)?.value || "/";
-  // Guard against open redirect: only accept relative paths. new URL(absolute, base)
-  // ignores the base entirely, so an absolute URL in the cookie would escape the origin.
-  const returnTo = rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//") ? rawReturnTo : "/";
+  const returnTo = sanitizeRedirectPath(rawReturnTo);
   // Use BETTER_AUTH_URL as base — request.url inside Docker resolves to 0.0.0.0
   // which loses the session cookie (set on localhost).
   // Mirror the persistence condition (chosen && workspaceId): if either is
