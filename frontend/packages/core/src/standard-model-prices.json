@@ -1021,5 +1021,41 @@
       "cacheRead": 0,
       "cacheWrite": null
     }
+  },
+  {
+    "id": "tr-kimi-k2-6",
+    "modelName": "kimi-k2.6",
+    "matchPattern": "(?i)^(moonshot\\/)?kimi-k2\\.6(-[\\d-]+)?$",
+    "provider": "moonshot",
+    "prices": {
+      "input": 0.00000095,
+      "output": 0.000004,
+      "cacheRead": 0.00000016,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-kimi-k2-5",
+    "modelName": "kimi-k2.5",
+    "matchPattern": "(?i)^(moonshot\\/)?kimi-k2\\.5(-[\\d-]+)?$",
+    "provider": "moonshot",
+    "prices": {
+      "input": 0.0000006,
+      "output": 0.000003,
+      "cacheRead": 0.0000001,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-kimi-k2-thinking",
+    "modelName": "kimi-k2-thinking",
+    "matchPattern": "(?i)^(moonshot\\/)?kimi-k2-thinking(-[\\d-]+)?$",
+    "provider": "moonshot",
+    "prices": {
+      "input": 0.0000006,
+      "output": 0.0000025,
+      "cacheRead": 0.00000015,
+      "cacheWrite": null
+    }
   }
 ]
