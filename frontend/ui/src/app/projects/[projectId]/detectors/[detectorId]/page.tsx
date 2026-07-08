@@ -13,6 +13,7 @@ import { DetectorRunsTable } from "@/features/detectors/components/detector-runs
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
+import { useLayout } from "@/components/layout/app-layout";
 
 /**
  * Which trace the consolidated panel shows. `kind` selects RCA auto-open:
@@ -34,9 +35,13 @@ export default function DetectorDetailPage() {
   const projectId = params.projectId as string;
   const detectorId = params.detectorId as string;
 
+  const { setAiPanelOpen, setAiContext, setAiInitialSessionId } = useLayout();
+
   // Deep-link params: set when a trace is popped out into a new tab from the
   // panel's "open in new tab" button, so it reopens here in the detector tab.
   const traceIdFromUrl = searchParams.get("traceId");
+  const aiParam = searchParams.get("ai");
+  const sessionIdParam = searchParams.get("sessionId");
   const [startFullscreen, setStartFullscreen] = useState(searchParams.get("fullscreen") === "1");
   const [didAutoOpen, setDidAutoOpen] = useState(false);
 
@@ -126,6 +131,20 @@ export default function DetectorDetailPage() {
       setDidAutoOpen(true);
     }
   }, [didAutoOpen, traceIdFromUrl, activeRows]);
+
+  useEffect(() => {
+    if (aiParam !== "1" || !traceIdFromUrl) return;
+    setAiContext({ traceId: traceIdFromUrl });
+    if (sessionIdParam) setAiInitialSessionId(sessionIdParam);
+    setAiPanelOpen(true);
+  }, [
+    aiParam,
+    sessionIdParam,
+    traceIdFromUrl,
+    setAiContext,
+    setAiInitialSessionId,
+    setAiPanelOpen,
+  ]);
 
   const selectedIndex = selectedTrace
     ? activeRows.findIndex((r) => r.trace_id === selectedTrace.traceId)
