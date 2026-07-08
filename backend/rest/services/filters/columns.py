@@ -14,6 +14,8 @@ parity test cross-checks the two once the Gateway merges.
 from dataclasses import dataclass
 from enum import StrEnum
 
+from rest.services.token_rollup import authoritative_sum_expr
+
 
 class FilterLevel(StrEnum):
     """How a predicate on the field lowers into the trace-list WHERE clause."""
@@ -154,8 +156,8 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         type=FilterType.NUMERIC,
         operators=_NUMERIC_OPS,
         value_source=ValueSource.RANGE,
-        aggregate_expr="sum(cost)",
-        source_columns=("cost",),
+        aggregate_expr=authoritative_sum_expr("cost"),
+        source_columns=("cost", "usage_details"),
     ),
     FilterColumn(
         name="total_tokens",
@@ -165,8 +167,8 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         type=FilterType.NUMERIC,
         operators=_NUMERIC_OPS,
         value_source=ValueSource.RANGE,
-        aggregate_expr="sum(total_tokens)",
-        source_columns=("total_tokens",),
+        aggregate_expr=authoritative_sum_expr("total_tokens"),
+        source_columns=("total_tokens", "usage_details"),
     ),
     FilterColumn(
         name="duration_ms",
