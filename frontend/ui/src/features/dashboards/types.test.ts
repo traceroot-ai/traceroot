@@ -25,6 +25,19 @@ describe("WidgetSpecSchema", () => {
     const bad = { ...validSpec, display: { type: "gauge" } };
     expect(WidgetSpecSchema.safeParse(bad).success).toBe(false);
   });
+  it("rejects pie and bar without a breakdown — they'd have nothing to chart", () => {
+    for (const type of ["pie", "bar"]) {
+      const bad = { ...validSpec, breakdown: null, display: { type } };
+      expect(WidgetSpecSchema.safeParse(bad).success).toBe(false);
+      expect(WidgetSpecSchema.safeParse({ ...bad, breakdown: "model_name" }).success).toBe(true);
+    }
+  });
+  it("keeps line/area/table valid without a breakdown", () => {
+    for (const type of ["line", "area", "table"]) {
+      const ok = { ...validSpec, breakdown: null, display: { type } };
+      expect(WidgetSpecSchema.safeParse(ok).success).toBe(true);
+    }
+  });
 });
 
 describe("isSpecComplete", () => {

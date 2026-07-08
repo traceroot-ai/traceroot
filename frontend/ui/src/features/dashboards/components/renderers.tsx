@@ -41,6 +41,11 @@ const CHART_FOCUS_RESET =
   "[&_.recharts-wrapper]:outline-none [&_.recharts-surface]:outline-none " +
   "[&_.recharts-layer]:outline-none [&_.recharts-sector]:outline-none";
 
+// ClickHouse returns Decimal columns as strings; coerce them before charting
+// or formatting — recharts (the pie especially) can't plot string values.
+const coerceNumeric = (v: unknown): unknown =>
+  typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : v;
+
 export function pivotRows(columns: string[], rows: WidgetQueryResult["rows"]) {
   // Shapes: [value] | [bucket, value] | [dim, value] | [bucket, dim, value]
   const valueIdx = columns.length - 1;
@@ -53,7 +58,7 @@ export function pivotRows(columns: string[], rows: WidgetQueryResult["rows"]) {
       seriesKeys: ["value"],
       data: rows.map((r) => ({
         [key]: r[0],
-        value: r[valueIdx],
+        value: coerceNumeric(r[valueIdx]),
       })) as Record<string, unknown>[],
     };
   }
@@ -64,7 +69,7 @@ export function pivotRows(columns: string[], rows: WidgetQueryResult["rows"]) {
       seriesKeys: rows.map((r) => String(r[dimIdx] ?? "null")),
       data: rows.map((r) => ({
         name: String(r[dimIdx] ?? "null"),
-        value: r[valueIdx],
+        value: coerceNumeric(r[valueIdx]),
       })),
     };
   }
@@ -95,7 +100,7 @@ export function pivotRows(columns: string[], rows: WidgetQueryResult["rows"]) {
       seriesKeySet.add(dim);
     }
     if (!byBucket.has(bucket)) byBucket.set(bucket, { bucket });
-    byBucket.get(bucket)![dim] = r[valueIdx];
+    byBucket.get(bucket)![dim] = coerceNumeric(r[valueIdx]);
   }
 
   // Uniform zero-fill: missing series keys per bucket are set to 0 so
@@ -111,10 +116,6 @@ export function pivotRows(columns: string[], rows: WidgetQueryResult["rows"]) {
 
   return { seriesKeys, data };
 }
-
-// ClickHouse returns Decimal columns as strings; coerce them before formatting.
-const coerceNumeric = (v: unknown): unknown =>
-  typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : v;
 
 export const fmtNumber = (v: unknown) => {
   const n = coerceNumeric(v);

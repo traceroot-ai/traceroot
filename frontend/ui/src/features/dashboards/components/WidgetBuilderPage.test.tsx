@@ -174,6 +174,25 @@ describe("WidgetBuilderPage", () => {
     return trigger;
   }
 
+  it("warns and blocks save when pie/bar is picked without a breakdown", async () => {
+    render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
+
+    openSelect("Select view");
+    fireEvent.click(await screen.findByRole("option", { name: "Spans" }));
+    openSelect("Measure");
+    fireEvent.click(await screen.findByRole("option", { name: "Cost" }));
+    fireEvent.click(screen.getByRole("button", { name: "pie" }));
+
+    expect(screen.getByText("A pie chart needs a breakdown dimension")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save widget" })).toHaveProperty("disabled", true);
+
+    // Picking a breakdown clears the warning and unblocks save.
+    openSelect("None");
+    fireEvent.click(await screen.findByRole("option", { name: "Model" }));
+    expect(screen.queryByText("A pie chart needs a breakdown dimension")).toBeNull();
+    expect(screen.getByRole("button", { name: "Save widget" })).toHaveProperty("disabled", false);
+  });
+
   it("drives the form through view, measure, agg and display in create mode, then saves via create", async () => {
     render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
     expect(screen.getByRole("button", { name: "Save widget" })).toHaveProperty("disabled", true);
@@ -257,7 +276,8 @@ describe("WidgetBuilderPage", () => {
   it("changes the breakdown field and can reset it back to none", async () => {
     render(<WidgetBuilderPage projectId="p1" dashboardId="d1" widgetId="w1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "bar" }));
+    // line allows a breakdown but doesn't require one, so both saves are valid.
+    fireEvent.click(screen.getByRole("button", { name: "line" }));
     openSelect("None");
     fireEvent.click(await screen.findByRole("option", { name: "Model" }));
 

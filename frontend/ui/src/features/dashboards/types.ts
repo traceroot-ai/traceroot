@@ -19,13 +19,27 @@ export const WidgetFilterSchema = z.object({
   value: z.union([z.string(), z.number()]),
 });
 
-export const WidgetSpecSchema = z.object({
-  view: z.enum(["spans", "traces"]),
-  filters: z.array(WidgetFilterSchema).default([]),
-  metric: z.object({ measure: z.string().min(1), agg: z.enum(AGGS) }),
-  breakdown: z.string().nullable().default(null),
-  display: z.object({ type: z.enum(DISPLAY_TYPES) }),
-});
+// Pie and bar plot one mark per category — without a breakdown dimension the
+// query collapses to a single unlabeled datum and there is nothing to chart.
+export const BREAKDOWN_REQUIRED_DISPLAYS: ReadonlySet<DisplayType> = new Set(["pie", "bar"]);
+
+export const WidgetSpecSchema = z
+  .object({
+    view: z.enum(["spans", "traces"]),
+    filters: z.array(WidgetFilterSchema).default([]),
+    metric: z.object({ measure: z.string().min(1), agg: z.enum(AGGS) }),
+    breakdown: z.string().nullable().default(null),
+    display: z.object({ type: z.enum(DISPLAY_TYPES) }),
+  })
+  .superRefine((spec, ctx) => {
+    if (BREAKDOWN_REQUIRED_DISPLAYS.has(spec.display.type) && spec.breakdown === null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["breakdown"],
+        message: `${spec.display.type} requires a breakdown dimension`,
+      });
+    }
+  });
 export type WidgetSpec = z.infer<typeof WidgetSpecSchema>;
 
 // Partial spec held by the builder while the user fills steps.

@@ -24,6 +24,7 @@ import { useDashboard, useDashboardMutations } from "../hooks/use-dashboards";
 import { useWidgetPreview, useWidgetSchema } from "../hooks/use-widget-data";
 import { RANGE_PRESETS, makeRange } from "../range-presets";
 import {
+  BREAKDOWN_REQUIRED_DISPLAYS,
   DISPLAY_TYPES,
   FIELD_UNIT,
   generateWidgetTitle,
@@ -354,6 +355,13 @@ export function WidgetBuilderPage({
                     Not available for this display type
                   </p>
                 )}
+                {draft.display?.type &&
+                  BREAKDOWN_REQUIRED_DISPLAYS.has(draft.display.type) &&
+                  !draft.breakdown && (
+                    <p className="mt-1 text-[10.5px] text-amber-600">
+                      A {draft.display.type} chart needs a breakdown dimension
+                    </p>
+                  )}
               </div>
             </SectionBox>
 

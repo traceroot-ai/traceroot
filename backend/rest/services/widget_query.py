@@ -113,6 +113,13 @@ def compile_widget_query(
     if spec.display.type == "number" and spec.breakdown is not None:
         raise WidgetSpecError("breakdown", "Number display does not support a breakdown dimension")
 
+    # Pie and bar plot one mark per category; without a breakdown the query
+    # collapses to a single unlabeled datum with nothing to chart.
+    if spec.display.type in ("pie", "bar") and spec.breakdown is None:
+        raise WidgetSpecError(
+            "breakdown", f"{spec.display.type} display requires a breakdown dimension"
+        )
+
     # --- histogram compiles to its own shape ---
     if spec.display.type == "histogram":
         if spec.breakdown is not None:

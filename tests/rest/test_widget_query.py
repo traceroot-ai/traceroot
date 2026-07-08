@@ -259,6 +259,13 @@ def test_breakdown_column_type_is_pinned_non_nullable():
     assert "'other'), '') AS model_name" in sql
 
 
+def test_pie_and_bar_require_breakdown():
+    """Pie/bar collapse to a single unlabeled datum without a breakdown."""
+    for display in ("pie", "bar"):
+        with pytest.raises(WidgetSpecError):
+            compile_(make_spec(display={"type": display}, breakdown=None))
+
+
 def test_non_timeseries_has_no_fill():
     """Bar/table/number shapes have no time bucket, so no WITH FILL clause."""
     for display in ({"type": "bar"}, {"type": "table"}):

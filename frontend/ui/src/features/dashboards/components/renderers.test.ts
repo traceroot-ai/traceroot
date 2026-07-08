@@ -79,6 +79,19 @@ describe("pivotRows", () => {
     expect(out.data).toEqual([{ bucket: "2026-06-01", value: 5 }]);
   });
 
+  it("coerces Decimal strings from the query engine to numbers in every shape", () => {
+    // recharts (the pie especially) can't plot string values.
+    expect(pivotRows(["bucket", "value"], [["2026-06-01", "5.5000"]]).data).toEqual([
+      { bucket: "2026-06-01", value: 5.5 },
+    ]);
+    expect(pivotRows(["model_name", "value"], [["gpt-4o", "1.2345"]]).data).toEqual([
+      { name: "gpt-4o", value: 1.2345 },
+    ]);
+    expect(
+      pivotRows(["bucket", "model_name", "value"], [["2026-06-01", "gpt-4o", "2.5"]]).data,
+    ).toEqual([{ bucket: "2026-06-01", "gpt-4o": 2.5 }]);
+  });
+
   it("handles categorical [dim, value] shape (no bucket)", () => {
     const out = pivotRows(
       ["service", "value"],
