@@ -1,4 +1,4 @@
-"""Tests for the read-only ClickHouse client + settings forwarding (Issue 4)."""
+"""Tests for the read-only ClickHouse client + settings forwarding."""
 
 import logging
 from unittest.mock import MagicMock

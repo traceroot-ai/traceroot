@@ -184,7 +184,7 @@ class ClickHouseClient:
 
         ``parameters`` are clickhouse-connect ``{name:Type}`` binds; ``settings``
         are per-query ClickHouse settings (note: a ``readonly=1`` user cannot apply
-        per-query settings — see Issue 0).
+        per-query settings).
         """
         return self._client.query(query, parameters=parameters, settings=settings)
 

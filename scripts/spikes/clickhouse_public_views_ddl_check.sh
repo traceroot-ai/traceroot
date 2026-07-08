@@ -7,7 +7,7 @@
 # preserved, and that a read-only user with SELECT on the views only can read the
 # views but NOT the physical tables.
 #
-# This is a disposable spike check (uses a throwaway `pubviews` database/user), not
+# This is a disposable verification check (uses a throwaway `pubviews` database/user), not
 # the full live security matrix. Prereq: a running container `ch_sql_spike` on
 # clickhouse/clickhouse-server:24.3.
 #

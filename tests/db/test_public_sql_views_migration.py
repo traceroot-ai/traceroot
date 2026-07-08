@@ -1,7 +1,8 @@
-"""Static contract tests for the public SQL gateway views migration (Issue 4).
+"""Static contract tests for the public SQL gateway views migration.
 
 These assert the *text* of migration 006 — they do not run against a live
-ClickHouse (the full live security matrix is Issue 7). They guard the curated
+ClickHouse (the full live security matrix lives in a separate integration suite).
+They guard the curated
 projection, the parameterized + DEFINER + dedup shape, and that no forbidden
 column is projected.
 """

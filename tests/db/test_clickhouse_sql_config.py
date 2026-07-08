@@ -1,4 +1,4 @@
-"""Tests for the SQL gateway additions to ClickHouseSettings (Issue 4)."""
+"""Tests for the SQL gateway additions to ClickHouseSettings."""
 
 from shared.config import ClickHouseSettings
 

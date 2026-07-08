@@ -1,7 +1,7 @@
 # Public SQL Gateway — ClickHouse operational runbook
 
-Provisioning for the read-only SQL gateway DB layer (Issue 4). Commands below are the
-forms proven against the pinned ClickHouse **24.3.18.7** during the Issue 0 spike.
+Provisioning for the read-only SQL gateway DB layer. Commands below are the
+forms proven against the pinned ClickHouse **24.3.18.7**.
 
 > **Tenant isolation is application-enforced.** DB grants do **not** restrict which
 > `project_id` a caller passes to a curated view — a holder of the view grant can call
@@ -10,8 +10,8 @@ forms proven against the pinned ClickHouse **24.3.18.7** during the Issue 0 spik
 > physical tables, other application databases, and — via access-management grants — most
 > `system.*` tables. But ClickHouse still exposes some system metadata (e.g. `system.settings`,
 > `system.functions`, `system.databases`) to any user for query processing, so the gateway's
-> SQL validator must reject **all** `system.*` references (the SQL validator, Issue 2); do not
-> rely on DB grants alone to hide `system.*`.
+> SQL validator must reject **all** `system.*` references (the application's SQL validator layer);
+> do not rely on DB grants alone to hide `system.*`.
 
 ## Components
 
@@ -67,7 +67,7 @@ GRANT SELECT ON <database>.traces_public_v1 TO sql_gateway_ro;
 3. Create `sql_readonly_profile` and `sql_gateway_ro`.
 4. Grant `sql_gateway_ro` `SELECT` on `spans_public_v1` / `traces_public_v1`.
 5. Set the backend `CLICKHOUSE_RO_USER` / `CLICKHOUSE_RO_PASSWORD`.
-6. Deploy the app (the public SQL endpoint — a later issue).
+6. Deploy the app (the public SQL endpoint, delivered separately).
 7. Verify `SHOW CREATE VIEW` shows `DEFINER = sql_gateway_writer`.
 8. Verify `sql_gateway_ro` is denied on the physical tables (Code 497).
 
@@ -116,8 +116,8 @@ order above is the safe logical sequence for staged/manual provisioning.
      live (e.g. a `pre-upgrade` hook Job at a lower weight, or a manual pre-check) rather than
      assuming values-driven config lands first.
 
-  TODO(ops): track automating the above in an ops issue before enabling the SQL gateway in
-  staging/prod. This PR intentionally does not ship unverified Helm/Terraform changes.
+  TODO(ops): automate the above (tracked separately) before enabling the SQL gateway in
+  staging/prod. This change intentionally does not ship unverified Helm/Terraform changes.
 
 ## DEFINER: explicit scoped writer
 
@@ -163,12 +163,12 @@ SHOW CREATE VIEW <database>.spans_public_v1;
 - Set `CLICKHOUSE_RO_USER` / `CLICKHOUSE_RO_PASSWORD`. `get_readonly_clickhouse_client()` uses
   them. If unset: **fatal in cloud** (`ENABLE_BILLING` != `false`); **warn + fall back to the
   default client** on local/dev/self-host.
-- Under `readonly = 1`, the RO user cannot apply per-query `SETTINGS`. `SqlQueryService`
-  (Issue 5) therefore relies on the profile for caps and applies row limits via a `LIMIT`
+- Under `readonly = 1`, the RO user cannot apply per-query `SETTINGS`. The query service
+  therefore relies on the profile for caps and applies row limits via a `LIMIT`
   wrapper in the SQL text, never via per-query settings.
-- **TODO (endpoint PR):** the app service containers must receive `CLICKHOUSE_RO_USER` /
+- **TODO (public SQL endpoint):** the app service containers must receive `CLICKHOUSE_RO_USER` /
   `CLICKHOUSE_RO_PASSWORD` before anything calls `get_readonly_clickhouse_client()`.
   `docker-compose.prod.yml`'s `rest`/`worker` and Helm's `rest/deployment.yaml` do **not**
-  pass them yet — intentionally, since nothing reads the RO client until the SQL endpoint
-  lands. Wire them there in that PR (in cloud, `rest` defaults `ENABLE_BILLING=true`, so a
-  missing `CLICKHOUSE_RO_USER` is fatal by design).
+  pass them yet — intentionally, since nothing reads the RO client until the public SQL
+  endpoint lands. Wire them there at that point (in cloud, `rest` defaults `ENABLE_BILLING=true`,
+  so a missing `CLICKHOUSE_RO_USER` is fatal by design).

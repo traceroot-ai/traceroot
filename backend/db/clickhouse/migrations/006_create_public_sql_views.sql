@@ -4,7 +4,7 @@
 -- These are PARAMETERIZED views: callers supply project_id as a view-call
 -- argument, e.g. spans_public_v1(project_id = {scope_project_id:String}). The
 -- application MUST bind the *authenticated* project_id — DB grants do not enforce
--- which project_id is supplied (verified by the Issue 0 spike).
+-- which project_id is supplied (verified against ClickHouse 24.3).
 --
 -- SQL SECURITY DEFINER: the view body reads the physical tables under the view
 -- DEFINER's privileges, so the read-only gateway user can be granted SELECT on
