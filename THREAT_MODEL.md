@@ -29,7 +29,7 @@ TraceRoot is an open-source observability and self-healing platform for AI agent
 
 ### Deployment Surfaces
 
-- **SaaS** (`app.traceroot.ai`): TraceRoot-managed, multi-tenant on AWS. Users authenticate through the Next.js app with Better Auth (email/password or Google); GitHub is connected as a workspace integration.
+- **SaaS** (`app.traceroot.ai`): TraceRoot-managed, multi-tenant on AWS. Users authenticate through the Next.js app with Better Auth (email/password, Google, or GitHub); GitHub can also be connected separately as a workspace integration.
 - **Self-hosted (Docker)**: Single-tenant. User runs the full stack locally or on their own cloud.
 - **Self-hosted (Kubernetes / Terraform)**: Production-grade deploy on AWS with Helm charts.
 - **SDK only**: User installs the Python or TypeScript SDK and points it at either SaaS or their own host.

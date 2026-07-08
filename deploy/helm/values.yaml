@@ -220,6 +220,13 @@ googleOAuth:
     clientId: "google-client-id"
     clientSecret: "google-client-secret"
 
+# --- GitHub OAuth Login (optional — set existingSecret to enable) ---
+githubOAuth:
+  existingSecret: ""
+  keys:
+    clientId: "github-oauth-client-id"
+    clientSecret: "github-oauth-client-secret"
+
 # --- Slack (optional — set existingSecret to enable Slack workspace OAuth) ---
 slack:
   existingSecret: ""
