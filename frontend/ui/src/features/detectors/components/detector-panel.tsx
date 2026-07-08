@@ -1,8 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Eye, X, Copy, Check, ArrowUp, ArrowDown } from "lucide-react";
-import { useDetector, useUpdateDetector } from "../hooks/use-detectors";
+import { Eye, X, Copy, Check, ArrowUp, ArrowDown, AlertTriangle } from "lucide-react";
+import {
+  detectorMutationErrorMessage,
+  isTriggerConditionMutationError,
+  useDetector,
+  useUpdateDetector,
+} from "../hooks/use-detectors";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "../templates";
 import { useProject } from "@/features/projects/hooks";
 import { TriggerEditor } from "./trigger-editor";
@@ -21,6 +26,9 @@ import {
 } from "@/features/ai-assistant/components/model-selector";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+const LEGACY_FILTER_DISCARD_ERROR =
+  "This detector has hidden legacy filters. Choose Discard hidden filters on save before saving filter changes.";
 
 interface DetectorPanelProps {
   detectorId: string;
@@ -54,6 +62,9 @@ export function DetectorPanel({
     adapter: "",
   });
   const [editConditions, setEditConditions] = useState<TriggerCondition[]>([]);
+  const [hasUnsupportedTriggerConditions, setHasUnsupportedTriggerConditions] = useState(false);
+  const [discardLegacyFiltersOnSave, setDiscardLegacyFiltersOnSave] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [editEnableRca, setEditEnableRca] = useState(true);
 
   const emptyForm: DetectorFormValues = {
@@ -65,6 +76,7 @@ export function DetectorPanel({
     detectionProvider: "",
     detectionSource: "system",
     conditions: [],
+    unsupportedTriggerConditions: false,
   };
 
   const readForm = (): DetectorFormValues => ({
@@ -76,6 +88,7 @@ export function DetectorPanel({
     detectionProvider: editModelSelection.provider,
     detectionSource: editModelSelection.source === "byok" ? "byok" : "system",
     conditions: editConditions as DetectorFormValues["conditions"],
+    unsupportedTriggerConditions: hasUnsupportedTriggerConditions,
   });
 
   const applyForm = (values: DetectorFormValues) => {
@@ -90,6 +103,17 @@ export function DetectorPanel({
       adapter: "",
     });
     setEditConditions(values.conditions as TriggerCondition[]);
+    setHasUnsupportedTriggerConditions(values.unsupportedTriggerConditions);
+  };
+
+  const handleConditionsChange = (conditions: TriggerCondition[]) => {
+    setSaveError(null);
+    setEditConditions(conditions);
+  };
+
+  const handleDiscardLegacyFilters = () => {
+    setDiscardLegacyFiltersOnSave((value) => !value);
+    setSaveError(null);
   };
 
   // Snapshot of the server state the form was last populated from, tagged
@@ -123,10 +147,14 @@ export function DetectorPanel({
         // detectors would leak one detector's edits into another.
         applyForm(next);
         loadedRef.current = { id: detector.id, values: next };
+        setDiscardLegacyFiltersOnSave(false);
+        setSaveError(null);
       }
     } else {
       applyForm(emptyForm);
       loadedRef.current = null;
+      setDiscardLegacyFiltersOnSave(false);
+      setSaveError(null);
     }
   }, [detectorId, detector]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -149,13 +177,43 @@ export function DetectorPanel({
     if (!detector || detector.id !== detectorId) return;
     const loaded = loadedRef.current;
     if (!loaded || loaded.id !== detectorId) return;
-    const patch = buildDetectorPatch(loaded.values, readForm());
-    if (Object.keys(patch).length === 0) {
+    const form = readForm();
+    setSaveError(null);
+    const patch = buildDetectorPatch(loaded.values, form);
+    const replacesTriggerConditions = Object.prototype.hasOwnProperty.call(
+      patch,
+      "triggerConditions",
+    );
+    if (
+      loaded.values.unsupportedTriggerConditions &&
+      replacesTriggerConditions &&
+      !discardLegacyFiltersOnSave
+    ) {
+      setSaveError(LEGACY_FILTER_DISCARD_ERROR);
+      return;
+    }
+    const finalPatch = buildDetectorPatch(loaded.values, form, {
+      forceTriggerConditions:
+        loaded.values.unsupportedTriggerConditions && discardLegacyFiltersOnSave,
+    });
+    if (Object.keys(finalPatch).length === 0) {
       onClose();
       return;
     }
-    updateMutation.mutate(patch, { onSuccess: () => onClose() });
+    updateMutation.mutate(finalPatch, {
+      onSuccess: () => onClose(),
+      onError: (error) => {
+        setSaveError(detectorMutationErrorMessage(error, "Failed to update detector"));
+      },
+    });
   };
+
+  const filterError =
+    saveError &&
+    (isTriggerConditionMutationError(saveError) || saveError === LEGACY_FILTER_DISCARD_ERROR)
+      ? saveError
+      : null;
+  const generalSaveError = saveError && !filterError ? saveError : null;
 
   return (
     <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 flex w-[70%] flex-col border-l border-border bg-background shadow-xl">
@@ -279,7 +337,50 @@ export function DetectorPanel({
 
         {/* Filter */}
         <div className="border border-border">
-          <TriggerEditor conditions={editConditions} onChange={setEditConditions} asCard />
+          <TriggerEditor
+            conditions={editConditions}
+            onChange={handleConditionsChange}
+            asCard
+            emptyMessage={
+              hasUnsupportedTriggerConditions
+                ? "Unsupported legacy filters are active until you clear or replace them."
+                : undefined
+            }
+          />
+          {hasUnsupportedTriggerConditions && (
+            <div className="flex items-start gap-2 border-t border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+              <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
+                <p className="min-w-0">
+                  This detector has hidden legacy filter conditions that cannot be edited here.
+                  Normal detector edits preserve them. To replace them with the visible filter rows,
+                  choose discard before saving.
+                  {discardLegacyFiltersOnSave
+                    ? " Hidden legacy filters will be removed on save."
+                    : ""}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDiscardLegacyFilters}
+                  className="h-6 shrink-0 border-amber-300 bg-amber-50 px-2 text-[11px] text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-900/40"
+                >
+                  {discardLegacyFiltersOnSave
+                    ? "Keep hidden filters"
+                    : "Discard hidden filters on save"}
+                </Button>
+              </div>
+            </div>
+          )}
+          {filterError && (
+            <p
+              role="alert"
+              className="border-t border-border px-3 py-2 text-[12px] text-destructive"
+            >
+              {filterError}
+            </p>
+          )}
         </div>
 
         {/* Sampling */}
@@ -303,6 +404,11 @@ export function DetectorPanel({
         </div>
 
         {/* Save / Cancel */}
+        {generalSaveError && (
+          <p role="alert" className="text-[12px] text-destructive">
+            {generalSaveError}
+          </p>
+        )}
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="outline" size="sm" onClick={onClose} className="h-7 text-[12px]">
             Cancel

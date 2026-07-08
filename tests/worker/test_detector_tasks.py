@@ -1,7 +1,10 @@
 """Unit tests for the exactly-once detector enqueue path (Redis lock + BullMQ)."""
 
 import json
+import sys
 import threading
+import types
+from collections import OrderedDict
 from unittest.mock import MagicMock
 
 import pytest
@@ -72,6 +75,613 @@ def _patch_summaries(monkeypatch, summaries):
 def _lock_state(fake_redis, project_id=PROJECT, trace_id=TRACE):
     raw = fake_redis.store.get(dt._lock_key(project_id, trace_id))
     return json.loads(raw) if raw is not None else None
+
+
+# ── Trigger condition evaluation ───────────────────────────────────────
+
+
+class TestTriggerConditionEvaluation:
+    def test_missing_field_does_not_pass_not_equal(self):
+        assert dt._eval_condition({}, {"field": "status", "op": "!=", "value": "ERROR"}) is False
+
+    @pytest.mark.parametrize(
+        ("condition", "expected"),
+        [
+            pytest.param(
+                {"field": "environment", "op": "=", "value": None}, True, id="equals-null"
+            ),
+            pytest.param(
+                {"field": "environment", "op": "!=", "value": None},
+                False,
+                id="not-equals-null",
+            ),
+            pytest.param(
+                {"field": "environment", "op": "!=", "value": "production"},
+                True,
+                id="not-equals-string",
+            ),
+        ],
+    )
+    def test_present_null_uses_scalar_equality(self, condition, expected):
+        assert dt._eval_condition({"environment": None}, condition) is expected
+
+    @pytest.mark.parametrize(
+        "condition",
+        [
+            pytest.param("environment=production", id="string-condition"),
+            pytest.param({"op": "=", "value": "production"}, id="missing-field"),
+            pytest.param({"field": "environment", "value": "production"}, id="missing-op"),
+            pytest.param({"field": "environment", "op": "="}, id="missing-value"),
+        ],
+    )
+    def test_malformed_condition_returns_false(self, condition):
+        assert dt._eval_condition({"environment": "production"}, condition) is False
+
+    def test_missing_value_is_not_treated_as_explicit_null(self):
+        assert (
+            dt._eval_condition({"environment": None}, {"field": "environment", "op": "="}) is False
+        )
+
+    @pytest.mark.parametrize("op", ["=", "!="])
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param({}, id="object"),
+            pytest.param([], id="array"),
+            pytest.param(True, id="true"),
+            pytest.param(False, id="false"),
+            pytest.param(42, id="integer"),
+            pytest.param(3.14, id="float"),
+        ],
+    )
+    def test_malformed_environment_equality_value_returns_false(self, op, value):
+        assert (
+            dt._eval_condition(
+                {"environment": "production"},
+                {"field": "environment", "op": op, "value": value},
+            )
+            is False
+        )
+
+    @pytest.mark.parametrize("op", ["=", "!="])
+    @pytest.mark.parametrize(
+        "actual",
+        [
+            pytest.param({}, id="object"),
+            pytest.param([], id="array"),
+            pytest.param(True, id="true"),
+            pytest.param(False, id="false"),
+            pytest.param(42, id="integer"),
+            pytest.param(3.14, id="float"),
+        ],
+    )
+    def test_malformed_environment_actual_value_returns_false(self, op, actual):
+        assert (
+            dt._eval_condition(
+                {"environment": actual},
+                {"field": "environment", "op": op, "value": "production"},
+            )
+            is False
+        )
+
+    @pytest.mark.parametrize(
+        ("op", "expected"),
+        [
+            pytest.param("eq", True, id="eq"),
+            pytest.param("ne", False, id="ne"),
+            pytest.param("neq", False, id="neq"),
+        ],
+    )
+    def test_legacy_equality_aliases_are_supported(self, op, expected):
+        assert (
+            dt._eval_condition(
+                {"environment": "production"},
+                {"field": "environment", "op": op, "value": "production"},
+            )
+            is expected
+        )
+
+    @pytest.mark.parametrize("op", [">", ">=", "<", "<=", "gt", "gte", "lt", "lte"])
+    def test_numeric_fields_are_unsupported_until_summaries_include_them(self, op):
+        assert dt._eval_condition({"cost": "10"}, {"field": "cost", "op": op, "value": 5}) is False
+
+    @pytest.mark.parametrize(
+        ("trace_summary", "condition"),
+        [
+            pytest.param(
+                {"cost": "100.5"},
+                {"field": "cost", "op": ">", "value": "abc"},
+                id="invalid-expected-value",
+            ),
+            pytest.param(
+                {"cost": "100.5"},
+                {"field": "cost", "op": "<", "value": True},
+                id="boolean-expected-value",
+            ),
+            pytest.param(
+                {"cost": "slow"},
+                {"field": "cost", "op": ">", "value": 10},
+                id="invalid-actual-value",
+            ),
+            pytest.param(
+                {"cost": "nan"},
+                {"field": "cost", "op": ">", "value": 10},
+                id="nan-actual-value",
+            ),
+            pytest.param(
+                {"cost": "inf"},
+                {"field": "cost", "op": ">", "value": 10},
+                id="infinite-actual-value",
+            ),
+        ],
+    )
+    def test_unsupported_numeric_conditions_return_false(self, trace_summary, condition):
+        assert dt._eval_condition(trace_summary, condition) is False
+
+    def test_non_list_stored_trigger_conditions_fail_closed(self):
+        object_condition = {"field": "environment", "op": "!=", "value": "prod"}
+        json_object_condition = '{"field": "environment", "op": "!=", "value": "prod"}'
+
+        assert dt._coerce_trigger_conditions(object_condition) == [None]
+        assert dt._coerce_trigger_conditions(json_object_condition) == [None]
+        assert (
+            dt._passes_trigger(
+                {"environment": "staging"},
+                dt._coerce_trigger_conditions(object_condition),
+            )
+            is False
+        )
+
+    def test_malformed_json_string_trigger_conditions_fail_closed(self):
+        conditions = dt._coerce_trigger_conditions("{bad json")
+
+        assert conditions == [None]
+        assert dt._passes_trigger({"environment": "staging"}, conditions) is False
+
+    def test_json_string_trigger_condition_array_remains_supported(self):
+        conditions = dt._coerce_trigger_conditions(
+            '[{"field": "environment", "op": "eq", "value": "production"}]',
+            has_trigger=True,
+        )
+
+        assert conditions == [{"field": "environment", "op": "eq", "value": "production"}]
+        assert dt._passes_trigger({"environment": "production"}, conditions) is True
+
+    def test_null_condition_without_trigger_row_remains_always_pass(self):
+        assert dt._coerce_trigger_conditions(None, has_trigger=False) == []
+
+    @pytest.mark.parametrize("conditions", [None, "null"])
+    def test_null_condition_with_trigger_row_fails_closed(self, conditions):
+        assert dt._coerce_trigger_conditions(conditions, has_trigger=True) == [None]
+        assert (
+            dt._passes_trigger(
+                {"environment": "staging"},
+                dt._coerce_trigger_conditions(conditions, has_trigger=True),
+            )
+            is False
+        )
+
+    def test_get_active_detectors_uses_trigger_row_presence(self, monkeypatch):
+        rows = [
+            ("no-trigger", 100, False, None),
+            ("json-null", 100, True, "null"),
+            ("db-null", 100, True, None),
+            ("malformed-json", 100, True, "{bad json"),
+            (
+                "valid-trigger",
+                100,
+                True,
+                [{"field": "environment", "op": "=", "value": "production"}],
+            ),
+        ]
+        cursor = None
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def execute(self, query, params):
+                self.query = query
+                self.params = params
+
+            def fetchall(self):
+                return rows
+
+        class FakeConnection:
+            closed = False
+
+            def cursor(self):
+                nonlocal cursor
+                cursor = FakeCursor()
+                return cursor
+
+            def close(self):
+                self.closed = True
+
+        fake_conn = FakeConnection()
+        monkeypatch.setitem(
+            sys.modules,
+            "psycopg2",
+            types.SimpleNamespace(connect=lambda database_url: fake_conn),
+        )
+
+        detectors = dt._get_active_detectors(PROJECT)
+
+        assert cursor is not None
+        assert "SELECT d.id, d.sample_rate, dt.id IS NOT NULL AS has_trigger, dt.conditions" in (
+            " ".join(cursor.query.split())
+        )
+        assert cursor.params == (PROJECT,)
+        assert detectors == [
+            {"id": "no-trigger", "sample_rate": 100, "conditions": []},
+            {"id": "json-null", "sample_rate": 100, "conditions": [None]},
+            {"id": "db-null", "sample_rate": 100, "conditions": [None]},
+            {"id": "malformed-json", "sample_rate": 100, "conditions": [None]},
+            {
+                "id": "valid-trigger",
+                "sample_rate": 100,
+                "conditions": [{"field": "environment", "op": "=", "value": "production"}],
+            },
+        ]
+        assert fake_conn.closed is True
+
+    def test_get_active_detectors_warns_once_for_unsupported_conditions(self, monkeypatch, caplog):
+        rows = [
+            (
+                "legacy-status",
+                100,
+                True,
+                [{"field": "status", "op": "!=", "value": "ERROR"}],
+            ),
+            (
+                "missing-op",
+                100,
+                True,
+                [{"field": "environment", "value": "production"}],
+            ),
+            ("malformed-entry", 100, True, [None]),
+            (
+                "valid-trigger",
+                100,
+                True,
+                [{"field": "environment", "op": "=", "value": "production"}],
+            ),
+        ]
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def execute(self, query, params):
+                pass
+
+            def fetchall(self):
+                return rows
+
+        class FakeConnection:
+            def cursor(self):
+                return FakeCursor()
+
+            def close(self):
+                pass
+
+        monkeypatch.setitem(
+            sys.modules,
+            "psycopg2",
+            types.SimpleNamespace(connect=lambda database_url: FakeConnection()),
+        )
+        monkeypatch.setattr(dt, "_UNSUPPORTED_TRIGGER_WARNING_IDS", OrderedDict())
+
+        with caplog.at_level("WARNING"):
+            dt._get_active_detectors(PROJECT)
+            dt._get_active_detectors(PROJECT)
+
+        warnings = [
+            record
+            for record in caplog.records
+            if "unsupported or malformed trigger conditions" in record.message
+        ]
+        assert len(warnings) == 3
+        assert {record.args[0] for record in warnings} == {
+            "legacy-status",
+            "malformed-entry",
+            "missing-op",
+        }
+
+    def test_get_active_detectors_resets_warning_dedupe_after_supported_conditions(
+        self, monkeypatch, caplog
+    ):
+        rows = [
+            (
+                "det-1",
+                100,
+                True,
+                [{"field": "duration", "op": "gt", "value": 1000}],
+            )
+        ]
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def execute(self, query, params):
+                pass
+
+            def fetchall(self):
+                return rows
+
+        class FakeConnection:
+            def cursor(self):
+                return FakeCursor()
+
+            def close(self):
+                pass
+
+        monkeypatch.setitem(
+            sys.modules,
+            "psycopg2",
+            types.SimpleNamespace(connect=lambda database_url: FakeConnection()),
+        )
+        monkeypatch.setattr(dt, "_UNSUPPORTED_TRIGGER_WARNING_IDS", OrderedDict())
+
+        with caplog.at_level("WARNING"):
+            dt._get_active_detectors(PROJECT)
+            dt._get_active_detectors(PROJECT)
+            rows[:] = [
+                (
+                    "det-1",
+                    100,
+                    True,
+                    [{"field": "environment", "op": "=", "value": "production"}],
+                )
+            ]
+            dt._get_active_detectors(PROJECT)
+            rows[:] = [
+                (
+                    "det-1",
+                    100,
+                    True,
+                    [{"field": "duration", "op": "gt", "value": 1000}],
+                )
+            ]
+            dt._get_active_detectors(PROJECT)
+
+        warnings = [
+            record
+            for record in caplog.records
+            if "unsupported or malformed trigger conditions" in record.message
+        ]
+        assert len(warnings) == 2
+        assert [record.args[0] for record in warnings] == ["det-1", "det-1"]
+
+    def test_get_active_detectors_resets_warning_dedupe_after_detector_leaves_active_set(
+        self, monkeypatch, caplog
+    ):
+        rows = [
+            (
+                "det-1",
+                100,
+                True,
+                [{"field": "duration", "op": "gt", "value": 1000}],
+            )
+        ]
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def execute(self, query, params):
+                pass
+
+            def fetchall(self):
+                return rows
+
+        class FakeConnection:
+            def cursor(self):
+                return FakeCursor()
+
+            def close(self):
+                pass
+
+        monkeypatch.setitem(
+            sys.modules,
+            "psycopg2",
+            types.SimpleNamespace(connect=lambda database_url: FakeConnection()),
+        )
+        monkeypatch.setattr(dt, "_UNSUPPORTED_TRIGGER_WARNING_IDS", OrderedDict())
+
+        with caplog.at_level("WARNING"):
+            dt._get_active_detectors(PROJECT)
+            dt._get_active_detectors(PROJECT)
+            rows[:] = []
+            dt._get_active_detectors(PROJECT)
+            rows[:] = [
+                (
+                    "det-1",
+                    100,
+                    True,
+                    [{"field": "duration", "op": "gt", "value": 1000}],
+                )
+            ]
+            dt._get_active_detectors(PROJECT)
+            rows[:] = [("det-1", 100, False, None)]
+            dt._get_active_detectors(PROJECT)
+            rows[:] = [
+                (
+                    "det-1",
+                    100,
+                    True,
+                    [{"field": "duration", "op": "gt", "value": 1000}],
+                )
+            ]
+            dt._get_active_detectors(PROJECT)
+
+        warnings = [
+            record
+            for record in caplog.records
+            if "unsupported or malformed trigger conditions" in record.message
+        ]
+        assert len(warnings) == 3
+        assert [record.args[0] for record in warnings] == ["det-1", "det-1", "det-1"]
+
+    def test_unsupported_trigger_warning_dedupe_is_bounded(self, monkeypatch):
+        monkeypatch.setattr(dt, "_UNSUPPORTED_TRIGGER_WARNING_LIMIT", 2)
+        monkeypatch.setattr(dt, "_UNSUPPORTED_TRIGGER_WARNING_IDS", OrderedDict())
+
+        bad_conditions = [{"field": "duration", "op": "gt", "value": 1000}]
+
+        assert dt._mark_unsupported_trigger_warning_seen(PROJECT, "det-1", bad_conditions) is True
+        assert dt._mark_unsupported_trigger_warning_seen(PROJECT, "det-2", bad_conditions) is True
+        assert dt._mark_unsupported_trigger_warning_seen(PROJECT, "det-1", bad_conditions) is False
+        assert dt._mark_unsupported_trigger_warning_seen(PROJECT, "det-3", bad_conditions) is False
+
+        assert [key[1] for key in dt._UNSUPPORTED_TRIGGER_WARNING_IDS] == ["det-2", "det-1"]
+        assert dt._mark_unsupported_trigger_warning_seen(PROJECT, "det-2", bad_conditions) is False
+
+    def test_get_active_detectors_does_not_rewarn_after_warning_cache_capacity(
+        self, monkeypatch, caplog
+    ):
+        rows = [
+            ("det-1", 100, True, [{"field": "duration", "op": "gt", "value": 1000}]),
+            ("det-2", 100, True, [{"field": "status", "op": "=", "value": "ERROR"}]),
+            ("det-3", 100, True, [{"field": "cost", "op": "gt", "value": 1}]),
+        ]
+
+        class FakeCursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def execute(self, query, params):
+                pass
+
+            def fetchall(self):
+                return rows
+
+        class FakeConnection:
+            def cursor(self):
+                return FakeCursor()
+
+            def close(self):
+                pass
+
+        monkeypatch.setitem(
+            sys.modules,
+            "psycopg2",
+            types.SimpleNamespace(connect=lambda database_url: FakeConnection()),
+        )
+        monkeypatch.setattr(dt, "_UNSUPPORTED_TRIGGER_WARNING_LIMIT", 2)
+        monkeypatch.setattr(dt, "_UNSUPPORTED_TRIGGER_WARNING_IDS", OrderedDict())
+        monkeypatch.setattr(dt, "_UNSUPPORTED_TRIGGER_WARNING_SUPPRESSED_PROJECTS", OrderedDict())
+
+        with caplog.at_level("WARNING"):
+            dt._get_active_detectors(PROJECT)
+            dt._get_active_detectors(PROJECT)
+
+        warnings = [
+            record
+            for record in caplog.records
+            if "unsupported or malformed trigger conditions" in record.message
+        ]
+        assert len(warnings) == 2
+        assert [record.args[0] for record in warnings] == ["det-1", "det-2"]
+        assert [key[1] for key in dt._UNSUPPORTED_TRIGGER_WARNING_IDS] == ["det-1", "det-2"]
+        suppression_warnings = [
+            record
+            for record in caplog.records
+            if "Detector trigger warning cache" in record.message
+        ]
+        assert len(suppression_warnings) == 1
+        assert suppression_warnings[0].args == (PROJECT,)
+
+    def test_unsupported_trigger_warning_dedupe_tracks_condition_changes(self, monkeypatch):
+        monkeypatch.setattr(dt, "_UNSUPPORTED_TRIGGER_WARNING_IDS", OrderedDict())
+
+        first_bad_conditions = [{"field": "duration", "op": "gt", "value": 1000}]
+        second_bad_conditions = [{"field": "status", "op": "=", "value": "ERROR"}]
+
+        assert (
+            dt._mark_unsupported_trigger_warning_seen(PROJECT, "det-1", first_bad_conditions)
+            is True
+        )
+        assert (
+            dt._mark_unsupported_trigger_warning_seen(PROJECT, "det-1", first_bad_conditions)
+            is False
+        )
+        assert (
+            dt._mark_unsupported_trigger_warning_seen(PROJECT, "det-1", second_bad_conditions)
+            is True
+        )
+
+        dt._clear_unsupported_trigger_warning_seen(PROJECT, "det-1")
+
+        assert (
+            dt._mark_unsupported_trigger_warning_seen(PROJECT, "det-1", second_bad_conditions)
+            is True
+        )
+
+    def test_unsupported_trigger_warning_dedupe_expires(self, monkeypatch):
+        monkeypatch.setattr(dt, "_UNSUPPORTED_TRIGGER_WARNING_TTL_SECONDS", 10)
+        monkeypatch.setattr(dt, "_UNSUPPORTED_TRIGGER_WARNING_IDS", OrderedDict())
+        now = 1000.0
+        monkeypatch.setattr(dt.time, "monotonic", lambda: now)
+
+        bad_conditions = [{"field": "duration", "op": "gt", "value": 1000}]
+
+        assert dt._mark_unsupported_trigger_warning_seen(PROJECT, "det-1", bad_conditions) is True
+        assert dt._mark_unsupported_trigger_warning_seen(PROJECT, "det-1", bad_conditions) is False
+
+        now = 1011.0
+
+        assert dt._mark_unsupported_trigger_warning_seen(PROJECT, "det-1", bad_conditions) is True
+
+    @pytest.mark.parametrize("op", ["=", "!="])
+    def test_legacy_status_condition_is_inert(self, op):
+        assert (
+            dt._passes_trigger(
+                {"environment": "production"},
+                [{"field": "status", "op": op, "value": "ERROR"}],
+            )
+            is False
+        )
+
+    @pytest.mark.parametrize(
+        "condition",
+        [
+            pytest.param(None, id="null-entry"),
+            pytest.param({"field": "status", "op": "!=", "value": "ERROR"}, id="unsupported-field"),
+            pytest.param({"field": "environment", "value": "production"}, id="missing-op"),
+            pytest.param({"field": "environment", "op": "="}, id="missing-value"),
+            pytest.param({"field": "environment", "op": "=", "value": []}, id="bad-value"),
+        ],
+    )
+    def test_unsupported_trigger_condition_detection(self, condition):
+        assert dt._has_unsupported_trigger_conditions([condition]) is True
+
+    def test_supported_trigger_conditions_are_not_marked_unsupported(self):
+        assert (
+            dt._has_unsupported_trigger_conditions(
+                [
+                    {"field": "environment", "op": "eq", "value": "production"},
+                    {"field": "environment", "op": "!=", "value": None},
+                ]
+            )
+            is False
+        )
 
 
 # ── Primary path: root-bearing batch ────────────────────────────────────
@@ -159,8 +769,10 @@ class TestPrimaryEnqueue:
         mock_add_job.assert_not_called()
         assert _lock_state(fake_redis)["state"] == "sampled_out"
 
-    def test_bad_trace_does_not_drop_rest_of_batch(self, fake_redis, mock_add_job, monkeypatch):
-        """A malformed condition only drops the offending trace."""
+    def test_invalid_numeric_condition_fails_closed_without_stopping_batch(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """An invalid numeric trigger condition fails closed without stopping the batch."""
         other = "bb" * 16
         _patch_detectors(
             monkeypatch,
@@ -170,8 +782,10 @@ class TestPrimaryEnqueue:
 
         dt.enqueue_detector_runs(PROJECT, {TRACE, other})
 
-        # TRACE raises in float(); `other` has cost missing -> condition False -> sampled_out.
+        # TRACE fails closed on the invalid numeric condition; `other` has cost
+        # missing -> condition False -> sampled_out.
         assert mock_add_job.call_count == 0
+        assert _lock_state(fake_redis, trace_id=TRACE)["state"] == "sampled_out"
         assert _lock_state(fake_redis, trace_id=other)["state"] == "sampled_out"
 
     def test_concurrent_claims_enqueue_exactly_once(self, fake_redis, monkeypatch):

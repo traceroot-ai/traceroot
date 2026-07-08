@@ -21,7 +21,7 @@ const baseDetector: Detector = {
   detectionSource: "system",
   createTime: "2026-06-01T00:00:00Z",
   updateTime: "2026-06-01T00:00:00Z",
-  trigger: { conditions: [{ field: "duration", op: "gt", value: 1000 }] },
+  trigger: { conditions: [{ field: "environment", op: "eq", value: "production" }] },
 };
 
 const baseForm: DetectorFormValues = detectorToFormValues(baseDetector);
@@ -36,7 +36,8 @@ describe("detectorToFormValues", () => {
       detectionModel: "model-a",
       detectionProvider: "provider-a",
       detectionSource: "system",
-      conditions: [{ field: "duration", op: "gt", value: 1000 }],
+      conditions: [{ field: "environment", op: "=", value: "production" }],
+      unsupportedTriggerConditions: false,
     });
   });
 
@@ -52,6 +53,81 @@ describe("detectorToFormValues", () => {
     expect(values.detectionProvider).toBe("");
     expect(values.detectionSource).toBe("system");
     expect(values.conditions).toEqual([]);
+    expect(values.unsupportedTriggerConditions).toBe(false);
+  });
+
+  it("quarantines unsupported legacy trigger rows instead of hydrating them into the editor", () => {
+    const values = detectorToFormValues({
+      ...baseDetector,
+      trigger: { conditions: [{ field: "duration", op: "gt", value: 1000 }] },
+    });
+
+    expect(values.conditions).toEqual([]);
+    expect(values.unsupportedTriggerConditions).toBe(true);
+  });
+
+  it("keeps editable conditions while flagging unsupported rows in mixed trigger arrays", () => {
+    const values = detectorToFormValues({
+      ...baseDetector,
+      trigger: {
+        conditions: [
+          { field: "environment", op: "eq", value: "production" },
+          { field: "duration", op: "gt", value: 1000 },
+          { field: "environment", op: "!=", value: "staging" },
+        ],
+      },
+    });
+
+    expect(values.conditions).toEqual([
+      { field: "environment", op: "=", value: "production" },
+      { field: "environment", op: "!=", value: "staging" },
+    ]);
+    expect(values.unsupportedTriggerConditions).toBe(true);
+  });
+
+  it("quarantines malformed trigger containers instead of hydrating them into the editor", () => {
+    const values = detectorToFormValues({
+      ...baseDetector,
+      trigger: { conditions: { field: "environment", op: "=", value: "production" } },
+    });
+
+    expect(values.conditions).toEqual([]);
+    expect(values.unsupportedTriggerConditions).toBe(true);
+  });
+
+  it("flags a trigger row with null conditions as unsupported", () => {
+    const values = detectorToFormValues({
+      ...baseDetector,
+      trigger: { conditions: null },
+    });
+
+    expect(values.conditions).toEqual([]);
+    expect(values.unsupportedTriggerConditions).toBe(true);
+  });
+
+  it("keeps nullable environment filters editable", () => {
+    const values = detectorToFormValues({
+      ...baseDetector,
+      trigger: { conditions: [{ field: "environment", op: "=", value: null }] },
+    });
+
+    expect(values.conditions).toEqual([{ field: "environment", op: "=", value: null }]);
+    expect(values.unsupportedTriggerConditions).toBe(false);
+  });
+
+  it("quarantines trigger rows whose editable fields are inherited properties", () => {
+    const condition = Object.create({
+      field: "environment",
+      op: "=",
+      value: "production",
+    }) as { field: string; op: string; value: string };
+    const values = detectorToFormValues({
+      ...baseDetector,
+      trigger: { conditions: [condition] },
+    });
+
+    expect(values.conditions).toEqual([]);
+    expect(values.unsupportedTriggerConditions).toBe(true);
   });
 });
 
@@ -90,9 +166,15 @@ describe("buildDetectorPatch", () => {
   });
 
   it("sends changed trigger conditions as triggerConditions", () => {
-    const conditions = [{ field: "status", op: "eq", value: "error" }];
+    const conditions = [{ field: "environment", op: "!=", value: "staging" }];
     const patch = buildDetectorPatch(baseForm, { ...baseForm, conditions });
     expect(patch).toEqual({ triggerConditions: conditions });
+  });
+
+  it("can force a trigger replacement when unsupported stored rows were edited away", () => {
+    const loaded = { ...baseForm, unsupportedTriggerConditions: true };
+    const patch = buildDetectorPatch(loaded, { ...loaded }, { forceTriggerConditions: true });
+    expect(patch).toEqual({ triggerConditions: loaded.conditions });
   });
 
   it("disables the detector when the sample rate drops to 0%", () => {
@@ -122,7 +204,7 @@ describe("mergeDetectorIntoForm", () => {
   });
 
   it("keeps the user's edited conditions while applying server values elsewhere", () => {
-    const userConditions = [{ field: "status", op: "eq", value: "error" }];
+    const userConditions = [{ field: "environment", op: "!=", value: "staging" }];
     const form = { ...baseForm, conditions: userConditions };
     const merged = mergeDetectorIntoForm(baseForm, next, form);
     expect(merged.conditions).toEqual(userConditions);
@@ -130,10 +212,33 @@ describe("mergeDetectorIntoForm", () => {
   });
 
   it("takes the server's conditions when the form left them untouched", () => {
-    const serverConditions = [{ field: "latency", op: "gt", value: 5000 }];
+    const serverConditions = [{ field: "environment", op: "=", value: "staging" }];
     const serverNext = { ...baseForm, conditions: serverConditions };
     const merged = mergeDetectorIntoForm(baseForm, serverNext, { ...baseForm });
     expect(merged.conditions).toEqual(serverConditions);
+  });
+
+  it("preserves the form condition reference when a refetch returns the same rows", () => {
+    const formConditions = [{ field: "environment", op: "=", value: "production" }];
+    const serverConditions = [{ field: "environment", op: "=", value: "production" }];
+    const merged = mergeDetectorIntoForm(
+      baseForm,
+      { ...next, conditions: serverConditions },
+      { ...baseForm, conditions: formConditions },
+    );
+
+    expect(merged.conditions).toBe(formConditions);
+  });
+
+  it("keeps hidden legacy trigger warnings from the latest server snapshot when conditions are edited", () => {
+    const userConditions = [{ field: "environment", op: "!=", value: "staging" }];
+    const serverNext = { ...baseForm, unsupportedTriggerConditions: true };
+    const form = { ...baseForm, conditions: userConditions, unsupportedTriggerConditions: false };
+
+    const merged = mergeDetectorIntoForm(baseForm, serverNext, form);
+
+    expect(merged.conditions).toEqual(userConditions);
+    expect(merged.unsupportedTriggerConditions).toBe(true);
   });
 
   it("keeps all three detection fields when the user touched the model selector", () => {
