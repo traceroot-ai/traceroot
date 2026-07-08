@@ -468,6 +468,7 @@ export function WidgetBuilderPage({
                 display={debouncedSpec.display.type}
                 result={preview.data}
                 unit={FIELD_UNIT[debouncedSpec.metric.measure]}
+                seriesLabel={debouncedSpec.metric.measure}
               />
             ) : null}
           </div>

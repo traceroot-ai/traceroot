@@ -32,6 +32,15 @@ export const SERIES_COLORS = [
   "#fb923c",
 ];
 
+const seriesColor = (i: number) => SERIES_COLORS[i % SERIES_COLORS.length];
+
+// Recharts marks its wrapper and SVG internals keyboard-focusable, so clicking
+// anywhere in a chart paints the browser's focus outline around the clicked
+// wrapper/layer/sector — suppress it on every chart surface.
+const CHART_FOCUS_RESET =
+  "[&_.recharts-wrapper]:outline-none [&_.recharts-surface]:outline-none " +
+  "[&_.recharts-layer]:outline-none [&_.recharts-sector]:outline-none";
+
 export function pivotRows(columns: string[], rows: WidgetQueryResult["rows"]) {
   // Shapes: [value] | [bucket, value] | [dim, value] | [bucket, dim, value]
   const valueIdx = columns.length - 1;
@@ -111,7 +120,92 @@ export const fmtNumber = (v: unknown) => {
   return Intl.NumberFormat("en", { maximumFractionDigits: 4 }).format(n);
 };
 
-function TimeSeries({ result, area }: { result: WidgetQueryResult; area: boolean }) {
+// The query engine aliases the metric column literally as "value", which is
+// also the single-series dataKey recharts reports as the tooltip name. When
+// the caller passes the spec's measure name, show that instead; breakdown
+// series keep their own names.
+export const seriesNameFormatter = (seriesLabel?: string) => (name: string) =>
+  name === "value" && seriesLabel ? seriesLabel : name;
+
+// Bucket keys come back ISO-ish ("2026-06-01T00:00:00"); a space reads better
+// in the tooltip header than the "T" separator.
+export const bucketLabel = (label: unknown) => String(label).replace("T", " ");
+
+// Hover popup shared by every chart display: a card with an optional bold
+// label header (time bucket / category) and one row per series — a color
+// swatch square, the series name in muted text, and the value right-aligned
+// in tabular figures.
+export function ChartTip({
+  active,
+  payload,
+  label,
+  nameFormatter,
+  labelFormatter,
+}: {
+  active?: boolean;
+  payload?: {
+    name?: string | number;
+    value?: unknown;
+    color?: string;
+    payload?: { fill?: string };
+  }[];
+  label?: unknown;
+  nameFormatter?: (name: string) => string;
+  labelFormatter?: (label: unknown) => string;
+}) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="grid min-w-32 gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
+      {label != null && label !== "" && (
+        <div className="font-medium">{labelFormatter ? labelFormatter(label) : String(label)}</div>
+      )}
+      <div className="grid gap-1.5">
+        {payload.map((item, i) => {
+          const rawName = String(item.name ?? "");
+          return (
+            <div key={i} className="flex w-full items-center gap-2">
+              <div
+                className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                style={{ backgroundColor: item.payload?.fill ?? item.color ?? "currentColor" }}
+              />
+              <div className="flex min-w-0 flex-1 items-center justify-between gap-x-3 leading-tight">
+                <span className="truncate text-muted-foreground">
+                  {nameFormatter ? nameFormatter(rawName) : rawName}
+                </span>
+                <span className="shrink-0 whitespace-nowrap font-mono font-medium tabular-nums text-foreground">
+                  {fmtNumber(item.value)}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Categorical rows tinted per-index; the `fill` on each row is also what the
+// tooltip payload reads for its swatch.
+function useColoredRows(result: WidgetQueryResult) {
+  return useMemo(
+    () =>
+      pivotRows(result.columns, result.rows).data.map((d, i) => ({
+        ...d,
+        fill: seriesColor(i),
+      })),
+    [result],
+  );
+}
+
+function TimeSeries({
+  result,
+  area,
+  seriesLabel,
+}: {
+  result: WidgetQueryResult;
+  area: boolean;
+  seriesLabel?: string;
+}) {
   const { seriesKeys, data } = useMemo(() => pivotRows(result.columns, result.rows), [result]);
   const Chart = area ? AreaChart : LineChart;
   const granularity = result.meta.granularity;
@@ -124,30 +218,31 @@ function TimeSeries({ result, area }: { result: WidgetQueryResult; area: boolean
         : (v: unknown) => String(v).slice(5, 16);
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
       <Chart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
         <CartesianGrid strokeOpacity={0.15} vertical={false} />
         <XAxis dataKey="bucket" tick={{ fontSize: 10 }} tickFormatter={tickFormatter} />
         <YAxis tick={{ fontSize: 10 }} width={42} />
-        <Tooltip />
+        <Tooltip
+          content={
+            <ChartTip
+              nameFormatter={seriesNameFormatter(seriesLabel)}
+              labelFormatter={bucketLabel}
+            />
+          }
+        />
         {seriesKeys.map((k, i) =>
           area ? (
             <Area
               key={k}
               dataKey={k}
               stackId="1"
-              stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
-              fill={SERIES_COLORS[i % SERIES_COLORS.length]}
+              stroke={seriesColor(i)}
+              fill={seriesColor(i)}
               fillOpacity={0.35}
             />
           ) : (
-            <Line
-              key={k}
-              dataKey={k}
-              stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
-              dot={false}
-              strokeWidth={1.5}
-            />
+            <Line key={k} dataKey={k} stroke={seriesColor(i)} dot={false} strokeWidth={1.5} />
           ),
         )}
       </Chart>
@@ -155,23 +250,18 @@ function TimeSeries({ result, area }: { result: WidgetQueryResult; area: boolean
   );
 }
 
-function Bars({ result }: { result: WidgetQueryResult }) {
-  const { data } = useMemo(() => pivotRows(result.columns, result.rows), [result]);
+function Bars({ result, seriesLabel }: { result: WidgetQueryResult; seriesLabel?: string }) {
+  const data = useColoredRows(result);
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
       <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
         <CartesianGrid strokeOpacity={0.15} vertical={false} />
         <XAxis dataKey="name" tick={{ fontSize: 10 }} />
         <YAxis tick={{ fontSize: 10 }} width={42} />
-        <Tooltip />
+        <Tooltip content={<ChartTip nameFormatter={seriesNameFormatter(seriesLabel)} />} />
         <Bar dataKey="value">
           {data.map((_, i) => (
-            <Cell
-              key={i}
-              fill={SERIES_COLORS[i % SERIES_COLORS.length]}
-              fillOpacity={0.7}
-              stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
-            />
+            <Cell key={i} fill={seriesColor(i)} fillOpacity={0.7} stroke={seriesColor(i)} />
           ))}
         </Bar>
       </BarChart>
@@ -180,16 +270,13 @@ function Bars({ result }: { result: WidgetQueryResult }) {
 }
 
 function PieView({ result }: { result: WidgetQueryResult }) {
-  const { data } = useMemo(() => pivotRows(result.columns, result.rows), [result]);
+  const data = useColoredRows(result);
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
       <PieChart>
-        <Tooltip />
-        <Pie data={data} dataKey="value" nameKey="name" innerRadius="45%" outerRadius="80%">
-          {data.map((_, i) => (
-            <Cell key={i} fill={SERIES_COLORS[i % SERIES_COLORS.length]} />
-          ))}
-        </Pie>
+        <Tooltip content={<ChartTip />} />
+        {/* Pie reads each sector's fill from its data row — no Cells needed. */}
+        <Pie data={data} dataKey="value" nameKey="name" innerRadius="45%" outerRadius="80%" />
       </PieChart>
     </ResponsiveContainer>
   );
@@ -253,18 +340,25 @@ function TableView({ result }: { result: WidgetQueryResult }) {
   );
 }
 
-function HistogramView({ result }: { result: WidgetQueryResult }) {
+function HistogramView({
+  result,
+  seriesLabel,
+}: {
+  result: WidgetQueryResult;
+  seriesLabel?: string;
+}) {
   // rows: [lo, hi, height]
   const data = result.rows.map((r) => ({
     name: `${fmtNumber(r[0])}–${fmtNumber(r[1])}`,
     value: r[2],
+    fill: "#93c5fd",
   }));
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
       <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
         <XAxis dataKey="name" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
         <YAxis tick={{ fontSize: 10 }} width={42} />
-        <Tooltip />
+        <Tooltip content={<ChartTip nameFormatter={seriesNameFormatter(seriesLabel)} />} />
         <Bar dataKey="value" fill="#93c5fd" fillOpacity={0.7} stroke="#60a5fa" />
       </BarChart>
     </ResponsiveContainer>
@@ -275,10 +369,13 @@ export function QueryWidgetRenderer({
   display,
   result,
   unit,
+  seriesLabel,
 }: {
   display: DisplayType;
   result: WidgetQueryResult;
   unit?: FieldUnit;
+  /** Measure name from the widget spec, shown as the single-series tooltip row name. */
+  seriesLabel?: string;
 }) {
   if (result.rows.length === 0) {
     return (
@@ -289,11 +386,11 @@ export function QueryWidgetRenderer({
   }
   switch (display) {
     case "line":
-      return <TimeSeries result={result} area={false} />;
+      return <TimeSeries result={result} area={false} seriesLabel={seriesLabel} />;
     case "area":
-      return <TimeSeries result={result} area />;
+      return <TimeSeries result={result} area seriesLabel={seriesLabel} />;
     case "bar":
-      return <Bars result={result} />;
+      return <Bars result={result} seriesLabel={seriesLabel} />;
     case "pie":
       return <PieView result={result} />;
     case "number":
@@ -301,6 +398,6 @@ export function QueryWidgetRenderer({
     case "table":
       return <TableView result={result} />;
     case "histogram":
-      return <HistogramView result={result} />;
+      return <HistogramView result={result} seriesLabel={seriesLabel} />;
   }
 }

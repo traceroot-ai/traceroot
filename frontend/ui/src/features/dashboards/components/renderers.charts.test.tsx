@@ -3,7 +3,13 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { cloneElement, isValidElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WidgetQueryResult } from "../types";
-import { QueryWidgetRenderer, fmtStatNumber } from "./renderers";
+import {
+  ChartTip,
+  QueryWidgetRenderer,
+  bucketLabel,
+  fmtStatNumber,
+  seriesNameFormatter,
+} from "./renderers";
 
 // jsdom reports 0x0 for the container recharts measures against, so
 // ResponsiveContainer renders nothing. Stub it with a fixed-size div and, like
@@ -217,6 +223,67 @@ describe("NumberView units", () => {
     expect(screen.getByText("12.5")).toBeTruthy();
     expect(screen.queryByText("$12.5")).toBeNull();
     expect(screen.queryByText("ms")).toBeNull();
+  });
+});
+
+describe("ChartTip", () => {
+  afterEach(cleanup);
+
+  it("renders nothing when inactive or when the payload is empty", () => {
+    const { container: inactive } = render(
+      <ChartTip active={false} payload={[{ name: "a", value: 1 }]} />,
+    );
+    expect(inactive.firstChild).toBeNull();
+
+    const { container: empty } = render(<ChartTip active payload={[]} />);
+    expect(empty.firstChild).toBeNull();
+  });
+
+  it("renders the label header and one swatch+name+value row per series", () => {
+    const { container } = render(
+      <ChartTip
+        active
+        label="2026-06-01T00:00:00"
+        labelFormatter={bucketLabel}
+        payload={[
+          { name: "gpt-4o", value: 10, color: "#a78bfa" },
+          { name: "haiku", value: "5.5000", payload: { fill: "#60a5fa" } },
+        ]}
+      />,
+    );
+
+    // Bucket label header with the "T" separator swapped for a space.
+    expect(screen.getByText("2026-06-01 00:00:00")).toBeTruthy();
+
+    expect(screen.getByText("gpt-4o")).toBeTruthy();
+    expect(screen.getByText("10")).toBeTruthy();
+    expect(screen.getByText("haiku")).toBeTruthy();
+    // Decimal strings from the query engine format like fmtNumber.
+    expect(screen.getByText("5.5")).toBeTruthy();
+
+    // Swatch color: the row's data fill wins over the series color.
+    const swatches = Array.from(container.querySelectorAll("div[style]")).map(
+      (el) => (el as HTMLElement).style.backgroundColor,
+    );
+    expect(swatches).toContain("rgb(167, 139, 250)");
+    expect(swatches).toContain("rgb(96, 165, 250)");
+  });
+
+  it("maps the synthetic single-series name to the spec's measure via the name formatter", () => {
+    render(
+      <ChartTip
+        active
+        payload={[{ name: "value", value: 3 }]}
+        nameFormatter={seriesNameFormatter("cost")}
+      />,
+    );
+    expect(screen.getByText("cost")).toBeTruthy();
+    expect(screen.queryByText("value")).toBeNull();
+  });
+
+  it("keeps breakdown names untouched and shows the raw name without a measure label", () => {
+    expect(seriesNameFormatter("cost")("gpt-4o")).toBe("gpt-4o");
+    expect(seriesNameFormatter(undefined)("value")).toBe("value");
   });
 });
 

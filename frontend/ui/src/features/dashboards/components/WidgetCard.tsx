@@ -58,6 +58,7 @@ function QueryWidgetBody({
       display={spec.display.type}
       result={data}
       unit={FIELD_UNIT[spec.metric.measure]}
+      seriesLabel={spec.metric.measure}
     />
   );
 }
