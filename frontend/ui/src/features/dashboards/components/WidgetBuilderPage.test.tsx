@@ -55,7 +55,24 @@ const SCHEMA = {
       count: { type: "number", label: "Count", filterOps: [], groupable: false, aggs: ["count"] },
     },
   },
-  traces: { fields: {} },
+  traces: {
+    fields: {
+      cost: {
+        type: "number",
+        label: "Cost",
+        filterOps: [">", ">="],
+        groupable: false,
+        aggs: ["sum", "avg"],
+      },
+      error_count: {
+        type: "number",
+        label: "Errors",
+        filterOps: [">"],
+        groupable: false,
+        aggs: ["sum"],
+      },
+    },
+  },
 };
 
 const WIDGET: Widget = {
@@ -173,6 +190,40 @@ describe("WidgetBuilderPage", () => {
     fireEvent.pointerDown(trigger, { button: 0, pointerType: "mouse" });
     return trigger;
   }
+
+  it("offers Model from the traces view and switches to spans keeping a compatible measure", async () => {
+    render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
+
+    openSelect("Select view");
+    fireEvent.click(await screen.findByRole("option", { name: "Traces" }));
+    openSelect("Measure");
+    fireEvent.click(await screen.findByRole("option", { name: "Cost" }));
+
+    openSelect("None");
+    fireEvent.click(await screen.findByRole("option", { name: /Model/ }));
+
+    // The view flipped to Spans and the measure survived (cost exists there).
+    expect(screen.getByText("Spans")).toBeTruthy();
+    expect(screen.getByText("Cost")).toBeTruthy();
+    expect(screen.getByText("Model")).toBeTruthy();
+  });
+
+  it("clears a traces-only measure when Model switches the view to spans", async () => {
+    render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
+
+    openSelect("Select view");
+    fireEvent.click(await screen.findByRole("option", { name: "Traces" }));
+    openSelect("Measure");
+    fireEvent.click(await screen.findByRole("option", { name: "Errors" }));
+
+    openSelect("None");
+    fireEvent.click(await screen.findByRole("option", { name: /Model/ }));
+
+    expect(screen.getByText("Spans")).toBeTruthy();
+    // error_count doesn't exist on spans — the measure select resets.
+    expect(screen.queryByText("Errors")).toBeNull();
+    expect(screen.getByText("Measure")).toBeTruthy();
+  });
 
   it("warns and blocks save when pie/bar is picked without a breakdown", async () => {
     render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);

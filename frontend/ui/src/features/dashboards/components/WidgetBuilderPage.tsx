@@ -33,8 +33,11 @@ import {
   type DraftSpec,
   type WidgetSchemaField,
 } from "../types";
+import { fieldIcon } from "./field-icons";
 import { FilterRow } from "./FilterRow";
 import { QueryWidgetRenderer } from "./renderers";
+
+const ModelIcon = fieldIcon("model_name");
 
 function useDebounced<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -190,7 +193,27 @@ export function WidgetBuilderPage({
   }
 
   function handleBreakdownChange(v: string) {
-    setDraft((d) => ({ ...d, breakdown: v === NONE_SENTINEL ? null : v }));
+    const breakdown = v === NONE_SENTINEL ? null : v;
+    // Model is span-level data but the most-wanted breakdown, so it's offered
+    // from every view: picking it switches to Spans like a manual view change
+    // (filters reset), keeping the metric when the measure exists there too.
+    if (breakdown === "model_name" && view !== "spans") {
+      const spansFields = schema?.spans?.fields ?? {};
+      setDraft((d) => {
+        const spansField = d.metric?.measure ? spansFields[d.metric.measure] : undefined;
+        const metricSurvives =
+          spansField && d.metric?.agg ? spansField.aggs.includes(d.metric.agg) : false;
+        return {
+          view: "spans",
+          filters: [],
+          breakdown,
+          metric: metricSurvives ? d.metric : undefined,
+          display: d.display,
+        };
+      });
+      return;
+    }
+    setDraft((d) => ({ ...d, breakdown }));
   }
 
   function handleDisplayChange(t: (typeof DISPLAY_TYPES)[number]) {
@@ -305,11 +328,19 @@ export function WidgetBuilderPage({
                       <SelectValue placeholder="Measure" />
                     </SelectTrigger>
                     <SelectContent>
-                      {measurableFields.map(([key, meta]) => (
-                        <SelectItem key={key} value={key} className="text-[12px]">
-                          {meta.label}
-                        </SelectItem>
-                      ))}
+                      {measurableFields.map(([key, meta]) => {
+                        const Icon = fieldIcon(key);
+                        return (
+                          <SelectItem
+                            key={key}
+                            value={key}
+                            className="text-[12px]"
+                            icon={<Icon className="h-3.5 w-3.5 text-muted-foreground" />}
+                          >
+                            {meta.label}
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                   <Select value={agg} onValueChange={handleAggChange} disabled={!measure}>
@@ -332,9 +363,7 @@ export function WidgetBuilderPage({
                 <Select
                   value={draft.breakdown ?? NONE_SENTINEL}
                   onValueChange={handleBreakdownChange}
-                  disabled={
-                    !view || draft.display?.type === "histogram" || draft.display?.type === "number"
-                  }
+                  disabled={draft.display?.type === "histogram" || draft.display?.type === "number"}
                 >
                   <SelectTrigger className="h-7 text-[12px]">
                     <SelectValue placeholder="None" />
@@ -343,11 +372,29 @@ export function WidgetBuilderPage({
                     <SelectItem value={NONE_SENTINEL} className="text-[12px]">
                       None
                     </SelectItem>
-                    {groupableFields.map(([key, meta]) => (
-                      <SelectItem key={key} value={key} className="text-[12px]">
-                        {meta.label}
+                    {groupableFields.map(([key, meta]) => {
+                      const Icon = fieldIcon(key);
+                      return (
+                        <SelectItem
+                          key={key}
+                          value={key}
+                          className="text-[12px]"
+                          icon={<Icon className="h-3.5 w-3.5 text-muted-foreground" />}
+                        >
+                          {meta.label}
+                        </SelectItem>
+                      );
+                    })}
+                    {view !== "spans" && (
+                      <SelectItem
+                        value="model_name"
+                        className="text-[12px]"
+                        icon={<ModelIcon className="h-3.5 w-3.5 text-muted-foreground" />}
+                      >
+                        Model
+                        <span className="ml-1 text-[10.5px] text-muted-foreground">· Spans</span>
                       </SelectItem>
-                    ))}
+                    )}
                   </SelectContent>
                 </Select>
                 {(draft.display?.type === "histogram" || draft.display?.type === "number") && (

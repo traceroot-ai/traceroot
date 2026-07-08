@@ -31,8 +31,9 @@ import type { FilterFieldDef } from "./registry";
 import { buildInPredicate, buildNumericPredicate, buildTextPredicate } from "./predicate-ui";
 
 // Icons mirror the trace detail / list UI for consistency; the model and environment
-// fields, which have no trace-detail icon, use a generic one.
-const FIELD_ICONS: Record<string, LucideIcon> = {
+// fields, which have no trace-detail icon, use a generic one. Exported so the
+// dashboard widget builder shows the same symbols for the same fields.
+export const FIELD_ICONS: Record<string, LucideIcon> = {
   trace_id: Hash,
   cost: CircleDollarSign,
   total_tokens: CircleStop,

@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ValueDropdown } from "@/features/filters/filter-builder";
+import { fieldIcon } from "./field-icons";
 import { useWidgetFieldValues } from "../hooks/use-widget-data";
 import {
   FIELD_UNIT,
@@ -80,11 +81,19 @@ export function FilterRow({
           <SelectValue placeholder="Field" />
         </SelectTrigger>
         <SelectContent>
-          {filterableFields.map(([key, meta]) => (
-            <SelectItem key={key} value={key} className="text-[12px]">
-              {meta.label}
-            </SelectItem>
-          ))}
+          {filterableFields.map(([key, meta]) => {
+            const Icon = fieldIcon(key);
+            return (
+              <SelectItem
+                key={key}
+                value={key}
+                className="text-[12px]"
+                icon={<Icon className="h-3.5 w-3.5 text-muted-foreground" />}
+              >
+                {meta.label}
+              </SelectItem>
+            );
+          })}
         </SelectContent>
       </Select>
 
