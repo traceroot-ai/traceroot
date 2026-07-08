@@ -456,3 +456,51 @@ describe("DELETE /dashboards/[dashboardId]/widgets/[widgetId]", () => {
     expect(widgetFindFirstMock).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Default dashboard is read-only
+// ---------------------------------------------------------------------------
+describe("default dashboard is read-only", () => {
+  const defaultDashboard = { ...fakeDashboard, isDefault: true };
+
+  it("PATCH /dashboards/[dashboardId] returns 403", async () => {
+    dashboardFindFirstMock.mockResolvedValue(defaultDashboard);
+    const res = (await PATCH(makeRequest({ name: "renamed" }), makeParams())) as MockResponse;
+    expect(res.status).toBe(403);
+    expect(dashboardUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("DELETE /dashboards/[dashboardId] returns 403", async () => {
+    dashboardFindFirstMock.mockResolvedValue(defaultDashboard);
+    const res = (await DELETE(makeRequest(), makeParams())) as MockResponse;
+    expect(res.status).toBe(403);
+    expect(dashboardDeleteMock).not.toHaveBeenCalled();
+  });
+
+  it("POST .../widgets returns 403", async () => {
+    dashboardFindFirstMock.mockResolvedValue(defaultDashboard);
+    const res = (await widgetPOST(
+      makeRequest({ title: "t", type: "query", spec: {} }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(403);
+    expect(widgetCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("PATCH .../widgets/[widgetId] returns 403", async () => {
+    widgetFindFirstMock.mockResolvedValue({ ...fakeWidget, dashboard: { isDefault: true } });
+    const res = (await widgetPATCH(
+      makeRequest({ title: "renamed" }),
+      makeWidgetParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(403);
+    expect(widgetUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("DELETE .../widgets/[widgetId] returns 403", async () => {
+    widgetFindFirstMock.mockResolvedValue({ ...fakeWidget, dashboard: { isDefault: true } });
+    const res = (await widgetDELETE(makeRequest(), makeWidgetParams())) as MockResponse;
+    expect(res.status).toBe(403);
+    expect(widgetDeleteMock).not.toHaveBeenCalled();
+  });
+});

@@ -119,6 +119,9 @@ export default function DashboardDetailPage() {
   // ── render ───────────────────────────────────────────────────────────────────
   const widgets = dashboard?.widgets ?? [];
   const layout = dashboard?.layout ?? [];
+  // The seeded default dashboard is read-only: custom dashboards start from
+  // "＋ new" instead. The API enforces the same rule.
+  const readOnly = dashboard?.isDefault ?? false;
 
   return (
     <div className="relative flex h-full text-[13px]">
@@ -173,9 +176,11 @@ export default function DashboardDetailPage() {
               onCustomRangeChange={setCustomRange}
             />
 
-            <Button size="sm" className="h-7 text-[12px]" onClick={openCreate}>
-              ＋ Create widget
-            </Button>
+            {!readOnly && (
+              <Button size="sm" className="h-7 text-[12px]" onClick={openCreate}>
+                ＋ Create widget
+              </Button>
+            )}
           </div>
         </div>
 
@@ -188,9 +193,11 @@ export default function DashboardDetailPage() {
           ) : widgets.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-muted-foreground">No widgets yet.</p>
-              <Button size="sm" className="text-[12px]" onClick={openCreate}>
-                ＋ Create widget
-              </Button>
+              {!readOnly && (
+                <Button size="sm" className="text-[12px]" onClick={openCreate}>
+                  ＋ Create widget
+                </Button>
+              )}
             </div>
           ) : (
             <DashboardGrid
@@ -199,6 +206,7 @@ export default function DashboardDetailPage() {
               layout={layout}
               range={range}
               width={width}
+              readOnly={readOnly}
               onLayoutChange={handleLayoutChange}
               onEdit={openEdit}
               onDuplicate={handleDuplicate}

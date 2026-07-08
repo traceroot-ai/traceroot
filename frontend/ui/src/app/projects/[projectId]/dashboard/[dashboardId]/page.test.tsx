@@ -74,6 +74,7 @@ let lastGridProps: {
   widgets: Widget[];
   layout: unknown;
   range: unknown;
+  readOnly?: boolean;
   onEdit: (w: Widget) => void;
   onDuplicate: (w: Widget) => void;
   onDelete: (w: Widget) => void;
@@ -84,6 +85,7 @@ vi.mock("@/features/dashboards/components/DashboardGrid", () => ({
     widgets: Widget[];
     layout: unknown;
     range: unknown;
+    readOnly?: boolean;
     onEdit: (w: Widget) => void;
     onDuplicate: (w: Widget) => void;
     onDelete: (w: Widget) => void;
@@ -105,18 +107,20 @@ vi.mock("@/features/dashboards/components/DashboardGrid", () => ({
 
 import { useDashboard, useDashboards } from "@/features/dashboards/hooks/use-dashboards";
 
+// The rendered dashboard (d1) is deliberately non-default: the default one is
+// read-only, which the dedicated tests below cover.
 const DASH_A: DashboardSummary = {
   id: "d1",
-  name: "Overview",
+  name: "Custom",
   description: null,
-  isDefault: true,
+  isDefault: false,
   updateTime: "",
 };
 const DASH_B: DashboardSummary = {
   id: "d2",
-  name: "Costs",
+  name: "Overview",
   description: null,
-  isDefault: false,
+  isDefault: true,
   updateTime: "",
 };
 
@@ -167,13 +171,13 @@ describe("DashboardDetailPage", () => {
   it("renders dashboard tabs with the default marked and the current one highlighted", () => {
     renderPage();
 
+    const customTab = screen.getByRole("link", { name: "Custom" });
+    expect(customTab.textContent).not.toContain("⌂");
+    expect(customTab.getAttribute("aria-current")).toBe("page");
+
     const overviewTab = screen.getByRole("link", { name: /Overview/ });
     expect(overviewTab.textContent).toContain("⌂");
-    expect(overviewTab.getAttribute("aria-current")).toBe("page");
-
-    const costsTab = screen.getByRole("link", { name: "Costs" });
-    expect(costsTab.textContent).not.toContain("⌂");
-    expect(costsTab.getAttribute("aria-current")).toBeNull();
+    expect(overviewTab.getAttribute("aria-current")).toBeNull();
 
     expect(screen.getByRole("button", { name: "＋ new" })).toBeTruthy();
   });
@@ -229,6 +233,22 @@ describe("DashboardDetailPage", () => {
 
     fireEvent.click(buttons[1]);
     expect(push).toHaveBeenCalledWith("/projects/p1/dashboard/d1/widgets/new");
+  });
+
+  it("marks the grid read-only and hides both create-widget buttons on the default dashboard", () => {
+    mockDetail({ ...DASH_B, layout: [], widgets: [WIDGET] });
+    renderPage();
+
+    expect(screen.queryByRole("button", { name: "＋ Create widget" })).toBeNull();
+    expect(lastGridProps?.readOnly).toBe(true);
+  });
+
+  it("keeps the grid editable on a non-default dashboard", () => {
+    mockDetail({ ...DASH_A, layout: [], widgets: [WIDGET] });
+    renderPage();
+
+    expect(screen.getAllByRole("button", { name: "＋ Create widget" }).length).toBe(1);
+    expect(lastGridProps?.readOnly).toBe(false);
   });
 
   it("redirects to the dashboard index and invalidates the list cache when the dashboard fails to load", () => {

@@ -114,6 +114,12 @@ export function WidgetBuilderPage({
     }
   }, [isEdit, dashboard, widget, dashboardUrl, router]);
 
+  // The default dashboard is read-only — widgets can be neither added nor
+  // edited, so bounce straight back. The API enforces the same rule.
+  useEffect(() => {
+    if (dashboard?.isDefault) router.replace(dashboardUrl);
+  }, [dashboard, dashboardUrl, router]);
+
   // ── schema-driven field lists (same derivation as the old modal) ──────────
   const { data: schema } = useWidgetSchema(projectId);
   const view = draft.view as View | undefined;

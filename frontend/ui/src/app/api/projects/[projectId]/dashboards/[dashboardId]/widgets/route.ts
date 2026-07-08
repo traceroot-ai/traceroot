@@ -17,6 +17,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     where: { id: dashboardId, projectId },
   });
   if (!dashboard) return errorResponse("Dashboard not found", 404);
+  if (dashboard.isDefault) return errorResponse("The default dashboard is read-only", 403);
 
   const parsed = await parseJsonObject(req);
   if (parsed.error) return parsed.error;

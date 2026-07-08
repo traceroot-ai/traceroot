@@ -73,11 +73,13 @@ const WIDGET: Widget = {
   displayConfig: {},
 };
 
+// Non-default: the builder is only reachable for editable dashboards — the
+// default one redirects away, which its dedicated test covers.
 const DASHBOARD = {
   id: "d1",
-  name: "Overview",
+  name: "Custom",
   description: null,
-  isDefault: true,
+  isDefault: false,
   updateTime: "",
   layout: [],
   widgets: [WIDGET],
@@ -120,7 +122,7 @@ describe("WidgetBuilderPage", () => {
 
   it("links back to the dashboard by name", () => {
     render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
-    const back = screen.getByRole("link", { name: /Overview/ });
+    const back = screen.getByRole("link", { name: /Custom/ });
     expect(back.getAttribute("href")).toBe("/projects/p1/dashboard/d1");
   });
 
@@ -158,6 +160,12 @@ describe("WidgetBuilderPage", () => {
     mockDashboard(undefined, new Error("404"));
     render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
     expect(replace).toHaveBeenCalledWith("/projects/p1/dashboard");
+  });
+
+  it("redirects back to the read-only default dashboard instead of opening the builder", () => {
+    mockDashboard({ ...DASHBOARD, isDefault: true });
+    render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
+    expect(replace).toHaveBeenCalledWith("/projects/p1/dashboard/d1");
   });
 
   function openSelect(currentText: string) {

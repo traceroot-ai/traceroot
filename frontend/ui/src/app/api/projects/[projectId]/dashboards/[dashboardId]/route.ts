@@ -51,6 +51,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     where: { id: dashboardId, projectId },
   });
   if (!existing) return errorResponse("Dashboard not found", 404);
+  if (existing.isDefault) return errorResponse("The default dashboard is read-only", 403);
 
   const dashboard = await prisma.dashboard.update({
     where: { id: dashboardId },
@@ -68,6 +69,7 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
     where: { id: dashboardId, projectId },
   });
   if (!existing) return errorResponse("Dashboard not found", 404);
+  if (existing.isDefault) return errorResponse("The default dashboard is read-only", 403);
 
   await prisma.dashboard.delete({ where: { id: dashboardId } });
   return successResponse({ deleted: true });
