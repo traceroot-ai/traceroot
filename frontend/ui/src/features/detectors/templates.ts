@@ -1,3 +1,4 @@
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import type { CreateDetectorInput } from "@/features/detectors/hooks/use-detectors";
 
 export interface DetectorTemplate {
@@ -117,6 +118,12 @@ export const DETECTOR_QUICK_ADD_TEMPLATES = DETECTOR_TEMPLATES.filter((t) => t.i
 // schema files only take literals — so a drift-guard test in templates.test.ts
 // asserts the two stay equal.
 export const DEFAULT_DETECTOR_SAMPLE_RATE = 25;
+
+// Placeholder for the screening-model picker on the create form and edit
+// panel. An untouched picker persists detectionModel: null, so the detector
+// tracks the system screening default instead of being pinned to whatever
+// the picker would auto-select.
+export const DETECTOR_MODEL_PLACEHOLDER = `System default (${DETECTOR_SYSTEM_DEFAULT_MODEL_ID})`;
 
 // Default create payload for a template — shared by the new-detector form and the
 // project-creation quick-add step so the two creation paths cannot drift.
