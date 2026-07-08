@@ -183,7 +183,7 @@ try {
 `usingSpan(span, fn)` runs `fn` with `span` as the **active context**, so any spans created inside `fn` (whether by `observe()`, `startSpan()`, or auto-instrumentation) are parented under it:
 
 ```typescript
-import { startSpan, usingSpan } from '@traceroot-ai/traceroot';
+import { observe, startSpan, usingSpan } from '@traceroot-ai/traceroot';
 
 const turn = startSpan({ name: 'agent_turn', type: 'agent' });
 
@@ -225,8 +225,8 @@ import { type TokenUsage } from '@traceroot-ai/traceroot';
 const usage: TokenUsage = {
   input: 1024,      // llm.token_count.prompt
   output: 256,      // llm.token_count.completion
-  cacheRead: 800,   // llm.token_count.cache_read
-  cacheWrite: 224,  // llm.token_count.cache_write
+  cacheRead: 800,   // llm.token_count.prompt_details.cache_read
+  cacheWrite: 224,  // llm.token_count.prompt_details.cache_write
   total: 1280,      // llm.token_count.total
 };
 ```
