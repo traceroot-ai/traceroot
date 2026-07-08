@@ -20,6 +20,8 @@ const replace = vi.fn();
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1", dashboardId: "d1" }),
   useRouter: () => ({ push, replace }),
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/projects/p1/dashboard/d1",
 }));
 vi.mock("next/link", () => ({
   default: ({

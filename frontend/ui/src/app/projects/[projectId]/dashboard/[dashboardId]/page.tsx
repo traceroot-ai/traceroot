@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -12,14 +12,9 @@ import {
 } from "@/features/dashboards/hooks/use-dashboards";
 import { DashboardGrid } from "@/features/dashboards/components/DashboardGrid";
 import type { TimeRange, Widget } from "@/features/dashboards/types";
-import { RANGE_PRESETS, makeRange } from "@/features/dashboards/range-presets";
+import { DateFilterSelect } from "@/components/date-filter-select";
+import { useUrlDateFilter } from "@/lib/hooks/use-url-date-filter";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 export default function DashboardDetailPage() {
@@ -38,9 +33,22 @@ export default function DashboardDetailPage() {
     dashboardId,
   );
 
-  // ── time range ───────────────────────────────────────────────────────────────
-  const [rangeDays, setRangeDays] = useState(7);
-  const [range, setRange] = useState<TimeRange>(() => makeRange(7));
+  // ── time range — the same URL-synced filter the trace list uses ─────────────
+  const { dateFilter, customStartDate, customEndDate, setDateFilter, setCustomRange, timestamps } =
+    useUrlDateFilter(undefined, "7d");
+  const range: TimeRange = useMemo(
+    () => ({
+      // Widgets need concrete bounds. startAfter is only absent for a custom
+      // filter arriving via URL without its dates — fall back to the same 7d
+      // default the hook was given; endBefore is absent for now-anchored
+      // presets, whose end is "now" frozen at selection.
+      start: timestamps.startAfter
+        ? new Date(timestamps.startAfter)
+        : new Date(Date.now() - 7 * 86_400_000),
+      end: timestamps.endBefore ? new Date(timestamps.endBefore) : new Date(),
+    }),
+    [timestamps.startAfter, timestamps.endBefore],
+  );
 
   // ── grid width via ResizeObserver ────────────────────────────────────────────
   const [width, setWidth] = useState(1200);
@@ -119,8 +127,6 @@ export default function DashboardDetailPage() {
   );
 
   // ── render ───────────────────────────────────────────────────────────────────
-  const activePreset = RANGE_PRESETS.find((p) => p.days === rangeDays) ?? RANGE_PRESETS[1];
-
   const widgets = dashboard?.widgets ?? [];
   const layout = dashboard?.layout ?? [];
 
@@ -163,27 +169,13 @@ export default function DashboardDetailPage() {
 
           {/* Right: time range, create widget */}
           <div className="flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-7 text-[12px]">
-                  {activePreset.label}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {RANGE_PRESETS.map((preset) => (
-                  <DropdownMenuItem
-                    key={preset.days}
-                    className="text-[12px]"
-                    onClick={() => {
-                      setRangeDays(preset.days);
-                      setRange(makeRange(preset.days));
-                    }}
-                  >
-                    {preset.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <DateFilterSelect
+              dateFilter={dateFilter}
+              customStartDate={customStartDate}
+              customEndDate={customEndDate}
+              onDateFilterChange={setDateFilter}
+              onCustomRangeChange={setCustomRange}
+            />
 
             <Button size="sm" className="h-7 text-[12px]" onClick={openCreate}>
               ＋ Create widget
