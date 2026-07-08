@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { AlertCircle, Box, CircleDollarSign, CircleStop, Clock, Globe } from "lucide-react";
+import {
+  AlertCircle,
+  Box,
+  CircleDollarSign,
+  CircleStop,
+  Clock,
+  Globe,
+  Hash,
+  Layers,
+  Shapes,
+  Users,
+  Workflow,
+} from "lucide-react";
 import { fieldIcon } from "./field-icons";
 
 describe("fieldIcon", () => {
@@ -17,8 +29,23 @@ describe("fieldIcon", () => {
     expect(fieldIcon("output_tokens")).toBe(CircleStop);
   });
 
+  it("gives count its own symbol and mirrors the trace-page tabs for user/session", () => {
+    // count must not fall back to Box — that doubles as the model icon.
+    expect(fieldIcon("count")).toBe(Hash);
+    expect(fieldIcon("user_id")).toBe(Users);
+    expect(fieldIcon("session_id")).toBe(Layers);
+  });
+
+  it("uses the sidebar's Tracing symbol for the trace/span name field", () => {
+    expect(fieldIcon("name")).toBe(Workflow);
+  });
+
+  it("uses the shapes symbol for span kind", () => {
+    expect(fieldIcon("span_kind")).toBe(Shapes);
+  });
+
   it("falls back to the generic box like the trace list does", () => {
-    expect(fieldIcon("span_kind")).toBe(Box);
-    expect(fieldIcon("name")).toBe(Box);
+    expect(fieldIcon("status")).toBe(Box);
+    expect(fieldIcon("some_future_field")).toBe(Box);
   });
 });

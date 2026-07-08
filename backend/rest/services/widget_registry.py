@@ -75,6 +75,8 @@ _TRACES_BASE = """
         if(sa.trace_id = '', NULL, sa.duration_ms) AS duration_ms,
         if(sa.trace_id = '', NULL, sa.error_count) AS error_count,
         if(sa.trace_id = '', NULL, sa.total_cost) AS cost,
+        if(sa.trace_id = '', NULL, sa.input_tokens) AS input_tokens,
+        if(sa.trace_id = '', NULL, sa.output_tokens) AS output_tokens,
         if(sa.trace_id = '', NULL, sa.total_tokens) AS total_tokens
     FROM (
         SELECT
@@ -96,10 +98,13 @@ _TRACES_BASE = """
             ) AS duration_ms,
             countIf(status = 'ERROR') AS error_count,
             sum(cost) AS total_cost,
+            sum(input_tokens) AS input_tokens,
+            sum(output_tokens) AS output_tokens,
             sum(total_tokens) AS total_tokens
         FROM (
             SELECT
-                trace_id, span_id, status, span_start_time, span_end_time, cost, total_tokens
+                trace_id, span_id, status, span_start_time, span_end_time, cost,
+                input_tokens, output_tokens, total_tokens
             FROM spans
             WHERE project_id = {project_id:String}
               AND span_start_time >= {start_time:DateTime64(3)}
@@ -165,10 +170,14 @@ REGISTRY: dict[str, ViewDef] = {
             # filtering the trace list.
             "duration_ms": _number_measure("duration_ms", "Latency"),
             "cost": _number_measure("cost", "Cost"),
+            "input_tokens": _number_measure("input_tokens", "Input tokens"),
+            "output_tokens": _number_measure("output_tokens", "Output tokens"),
             "total_tokens": _number_measure("total_tokens", "Tokens"),
-            "error_count": _number_measure("error_count", "Errors"),
             # expr="*" is a sentinel: the compiler translates it to count(*).
             "count": FieldDef(expr="*", type="number", label="Count", aggs=("count",)),
+            # Last, so the list reads as the spans measures plus one trailing
+            # trace-only addition when switching views.
+            "error_count": _number_measure("error_count", "Errors"),
         },
     ),
 }

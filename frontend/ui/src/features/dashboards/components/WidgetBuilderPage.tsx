@@ -363,7 +363,9 @@ export function WidgetBuilderPage({
                 <Select
                   value={draft.breakdown ?? NONE_SENTINEL}
                   onValueChange={handleBreakdownChange}
-                  disabled={draft.display?.type === "histogram" || draft.display?.type === "number"}
+                  disabled={
+                    !view || draft.display?.type === "histogram" || draft.display?.type === "number"
+                  }
                 >
                   <SelectTrigger className="h-7 text-[12px]">
                     <SelectValue placeholder="None" />
